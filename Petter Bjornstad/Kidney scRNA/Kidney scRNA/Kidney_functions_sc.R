@@ -3950,8 +3950,8 @@ dp.formatted <- function(seurat_object, genes, celltype, group.by, m,
 # function for GSEA
 # Set relevant paths
 list.files()
-# bg_path <- c(fs::path(dir.dat,"/GSEA/"))
-# list.files(bg_path)
+bg_path <- c(fs::path(dir.dat,"/GSEA/"))
+list.files(bg_path)
 
 # Functions
 ## Function: Adjacency matrix to list 
