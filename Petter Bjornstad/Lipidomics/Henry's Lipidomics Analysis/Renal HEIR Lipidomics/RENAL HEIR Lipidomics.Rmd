@@ -50,6 +50,7 @@ source("C:/Users/Henry Mangalapalli/Documents/GitHub/CHCO-Code/Petter Bjornstad/
 # library(MetaboAnalystR)
 ```
 
+## Read in ALL the data for Renal HEIR
 ```{r, include=F}
 dat <- read.csv("C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv")
 
@@ -81,23 +82,61 @@ rh_lipids_raw <- rh_lipids_raw[ , c("variable_name", setdiff(names(rh_lipids_raw
 rh_lipids_raw <- as.data.frame(rh_lipids_raw)
 rh_lipids_name <- as.data.frame(rh_lipids_name)
 
-# Converting lipids_raw into a transposed data frame. 
 # Removing 1st column from lipids_raw in lipids_dat & setting column names to come from that 1st column.
 # Converting row names to column called "variable_name"
 # Joining lipids_name & lipids_raw at "variable_name" and "standardized_name_w_adduct" column
-lipids_dat_rh <- left_join(
+lipids_dat <- left_join(
   subset(rh_lipids_name, select = c("variable_name", "standardized_name")),
   rh_lipids_raw,
   by = "variable_name"
-)
-
-# Remove any rows where standardized_name = "-"
-lipids_dat_rh <- lipids_dat_rh[lipids_dat_rh$standardized_name != "-", ]
+) # Contains ALL rows, including those without a standardized name
 
 # Parsing out lipid names from the standardized_name_w_adduct column in lipids_name
-parsed_rh <- parseLipidNames(lipids_dat_rh$standardized_name)
+parsed <- parseLipidNames(lipids_dat$standardized_name)
 ```
 
+```{r}
+# Save lipids_dat as a copycat of renal_heir_lipidomics 
+raw_data_wd <- "C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR"
+setwd(raw_data_wd)
+lipids_dat <- as.data.frame(lipids_dat)
+write_xlsx(lipids_dat, "lipids_dat.xlsx")
+```
+
+
+```{r}
+# Save parsed lipids to raw_data_wd
+raw_data_wd <- "C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR"
+setwd(raw_data_wd)
+parsed <- as.data.frame(parsed)
+write_xlsx(parsed, "parsed.xlsx")
+```
+
+
+```{r}
+# Remove any rows where standardized_name = "-"; OPTIONAL
+lipids_dat_full <- lipids_dat[lipids_dat$standardized_name != "-", ]
+
+# Removing 1st column from lipids_raw in lipids_dat & setting column names to come from that 1st column.
+# Converting row names to column called "variable_name"
+# Joining lipids_name & lipids_raw at "variable_name" and "standardized_name_w_adduct" column
+lipids_dat_full <- left_join(
+  subset(rh_lipids_name, select = c("variable_name", "standardized_name")),
+  rh_lipids_raw,
+  by = "variable_name"
+) # Contains ALL rows, including those without a standardized name
+parsed_full <- parseLipidNames(lipids_dat_full$standardized_name)
+
+```
+
+```{r}
+raw_data_wd <- "C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR"
+setwd(raw_data_wd)
+parsed_full <- as.data.frame(parsed_full)
+write_xlsx(parsed_full, "parsed_full.xlsx")
+```
+
+## Non-parsed lipids
 ```{r Remove non-parsed lipids}
 # Separate out non-parsed lipids
 non_parsed_rh <- parsed_rh[parsed_rh$Grammar == "NOT_PARSEABLE",]
@@ -109,9 +148,10 @@ non_parsed_rh <- as.data.frame(non_parsed_rh)
 write_xlsx(non_parsed_rh, "non_parsed_rh.xlsx")
 ```
 
+## Make sheet with ONLY parseable lipids 
 ```{r}
 # Re-make parsed_rh sheet without non-parsed lipids
-parsed_rh <- parsed_rh[parsed_rh$Grammar != "NOT_PARSEABLE",]
+parsed_only <- parsed[parsed$Grammar != "NOT_PARSEABLE",]
 ```
 
 
@@ -218,9 +258,5 @@ raw_data_wd <- "C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files 
 setwd(raw_data_wd)
 parsed_only <- as.data.frame(parsed_rh)
 write_xlsx(parsed_rh, "parsed_only.xlsx")
-```
-
-```{r}
-parsed_only <- parsed_only[parsed_only$Normalized.Name != duplicated(), ]
 ```
 
