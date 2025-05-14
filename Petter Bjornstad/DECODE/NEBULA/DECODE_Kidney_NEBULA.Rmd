@@ -24,7 +24,8 @@ output: html_document
 ## a. Libraries & Directores
 ```{r, include=F}
 library(reprex)
-library(tidyverse)
+# library(tidyverse)
+library(purrr)
 library(BiocManager)        
 library(arsenal)
 library(dplyr)
@@ -122,11 +123,11 @@ dbs <- c("GO_Biological_Process_2023",
          "KEGG_2021_Human",
          "Reactome_2022",
          "Reactome_Pathways_2024")
-# BiocManager::install("scran")
+# BiocManager::install("scran")a
 library(scran)
 
 ##c. Load functions ----
-source("/Users/hhampson/CHCO-Code/Petter Bjornstad/Kidney scRNA/Kidney scRNA/Kidney_functions_sc.R")
+# source("/Users/hhampson/CHCO-Code/Petter Bjornstad/Kidney scRNA/Kidney scRNA/Kidney_functions_sc.R")
 #Set number of cores for parallellization
 #maxCores <- detectCores()
 #numCores <- maxCores-1
@@ -237,6 +238,13 @@ bucket <- "scrna" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
 s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
 so_kpmp_sc <- readRDS(temp_file)
+
+# #Load Formatted PB90 dataset
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/Formatted_KPMP_Decode.rds", temp_file)
+# so_kpmp_sc <- readRDS(temp_file)
 ```
 
 ### ii. Local Load 
@@ -280,8 +288,15 @@ so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="KI-0014643")] <- "KL-0014643"
 so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="kl-0023998")] <- "KL-0023998"
 
 
+#Lambda load
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
+harmonized_data <- read.csv(temp_file,na="")
+
 #Load raw harmonized dataset
-harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
+# harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
+
 dat <- harmonized_data %>%
   arrange(screen_date) %>% 
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
@@ -554,7 +569,17 @@ pooled_offset <- log(sizeFactors(sce))
 so_kpmp_sc$pooled_offset <- pooled_offset
 #----------------------------------------------------------------------------
 
-saveRDS(so_kpmp_sc,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/DECODE/DECODE Analysis/Data/Formatted_KPMP_Decode.rds")
+#Lambda save
+# write file
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# write.csv(df, temp_file, row.names = FALSE) # save the temp file locally (will delete after R session)
+# s3$upload_file(temp_file, bucket, 'data_clean/Cleaned_DECODE_so.rds')
+
+saveRDS(so_kpmp_sc,"Cleaned_DECODE_so.rds")
+
+#Local Save
+# saveRDS(so_kpmp_sc,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/DECODE/DECODE Analysis/Data/Formatted_KPMP_Decode.rds")
 # so_kpmp_sc <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/DECODE/DECODE Analysis/Data/Formatted_KPMP_Decode.rds")
 
 #Create general hepatocyte cell type variable
