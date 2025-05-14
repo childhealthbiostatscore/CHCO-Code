@@ -131,11 +131,18 @@ so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM
 so_kpmp_sc <- subset(so_kpmp_sc,record_id %in% ids)
 
 #Load harmonized data that has been filtered from 90 to the 83 participants that have baseline single cell data
-harm_meta_data <- read.csv(fs::path(dir.dat,"Kidney scRNAseq Project","Data","harmonized_data_kidney_sc_all_metadata2.csv"))
+# harm_meta_data <- read.csv(fs::path(dir.dat,"Kidney scRNAseq Project","Data","harmonized_data_kidney_sc_all_metadata2.csv"))
+harm_meta_data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",na="")
+harm_meta_data <- harm_meta_data %>%   
+  arrange(screen_date) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
 
 ##e. Filter to 6 organoid samples ----
 meta <- harm_meta_data %>% 
-  dplyr::select(-X) %>% 
+  # dplyr::select(-X) %>% 
+  filter(visit=="baseline") %>% 
   filter(record_id %in% ids)
 rm(harm_meta_data)
 #Select metadata from seurat object to facilitate merge of new metadata into seurat object
@@ -154,41 +161,41 @@ ids <- meta$kit_id
 so_kpmp_sc <- AddMetaData(so_kpmp_sc, meta_kidney_sc)
 
 #Check number of unique ids
-length(unique(so_kpmp_sc$kit_id)) #should be 6
+length(unique(so_kpmp_sc$kit_id)) #should be 7
 
 #Remove metadatasets
 rm(meta_kidney_sc,meta)
 
-##f. Merge metadata into filtered seurat object ----
-#Load in most up to date medication data to update medication information
-med <- read.xlsx(fs::path(dir.dat,"Kidney scRNAseq Project/Data/Biopsies_w_mrn_Oct3.xlsx"))
-#Select Metformin, RASSI, Insulin data
-med <- med %>%
-  dplyr::select(all_of(c("record_id","mrn","raasi_1","insulin_1","mfm_1")))
-#Pull seurat object metadata to help harmoinize in new metadata
-meta_kidney_sc <-  so_kpmp_sc@meta.data
-#Filter to only those with a unique identifier id in the seurat object metadata
-med <- med %>%
-  filter(mrn %in% as.character(meta_kidney_sc$mrn)) 
-length(unique(med$mrn)) #6 participants
-#Filter to only those that have a unique record id in the seurat object
-med <- med %>%
-  filter(record_id %in% meta_kidney_sc$record_id) 
-length(unique(med$mrn)) #6 remain
-length(unique(med$record_id)) #6
-rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
-med$mrn <- as.numeric(med$mrn) #Make numeric to merge
-#Merge med data with seurat metadata
-meta_kidney_sc <- meta_kidney_sc %>%
-  left_join(med,by=c("mrn","record_id"))
-rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
-length(unique(meta_kidney_sc$mrn)) #6 remain
-length(unique(meta_kidney_sc$record_id)) #6
-
-#Add Med Meta Data to Seurat object
-so_kpmp_sc <- AddMetaData(so_kpmp_sc, meta_kidney_sc)
-#Remove med metadatset
-rm(med,meta_kidney_sc)
+# ##f. Merge metadata into filtered seurat object ----
+# #Load in most up to date medication data to update medication information
+# med <- read.xlsx(fs::path(dir.dat,"Kidney scRNAseq Project/Data/Biopsies_w_mrn_Oct3.xlsx"))
+# #Select Metformin, RASSI, Insulin data
+# med <- med %>%
+#   dplyr::select(all_of(c("record_id","mrn","raasi_1","insulin_1","mfm_1")))
+# #Pull seurat object metadata to help harmoinize in new metadata
+# meta_kidney_sc <-  so_kpmp_sc@meta.data
+# #Filter to only those with a unique identifier id in the seurat object metadata
+# med <- med %>%
+#   filter(mrn %in% as.character(meta_kidney_sc$mrn)) 
+# length(unique(med$mrn)) #6 participants
+# #Filter to only those that have a unique record id in the seurat object
+# med <- med %>%
+#   filter(record_id %in% meta_kidney_sc$record_id) 
+# length(unique(med$mrn)) #6 remain
+# length(unique(med$record_id)) #6
+# rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
+# med$mrn <- as.numeric(med$mrn) #Make numeric to merge
+# #Merge med data with seurat metadata
+# meta_kidney_sc <- meta_kidney_sc %>%
+#   left_join(med,by=c("mrn","record_id"))
+# rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
+# length(unique(meta_kidney_sc$mrn)) #6 remain
+# length(unique(meta_kidney_sc$record_id)) #6
+# 
+# #Add Med Meta Data to Seurat object
+# so_kpmp_sc <- AddMetaData(so_kpmp_sc, meta_kidney_sc)
+# #Remove med metadatset
+# rm(med,meta_kidney_sc)
 
 #Create medication & disease status groups of interest
 so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
@@ -205,7 +212,7 @@ so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
                                 sglt2 == "Yes" ~ "sglt2",
                                 glp1 == "Yes" ~ "glp1",
                                 no_med == "Yes" ~ "no_med"))
-so_kpmp_sc@meta.data$medication <- factor(so_kpmp_sc@meta.data$medication, levels = c("no_med", "sglt2", "glp1","glp1_sglt2"))
+# so_kpmp_sc@meta.data$medication <- factor(so_kpmp_sc@meta.data$medication, levels = c("no_med", "sglt2", "glp1","glp1_sglt2"))
 
 #Ensure default assay in seurat object to RNA
 DefaultAssay(so_kpmp_sc) <- "RNA"
@@ -318,14 +325,14 @@ sc_org$diabetes <- factor(sc_org$diabetes)
 
 # biopsy_ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
 sc_org@meta.data <- sc_org@meta.data %>% 
-mutate(record_id = case_when(sc_org$samples=="sample_10_15" | sc_org$samples=="sample_10_30" ~ "CRC-10",
-                           sc_org$samples=="sample_11_15" | sc_org$samples=="sample_11_30" ~ "CRC-11",
-                           sc_org$samples=="41_G_15" | sc_org$samples=="41_G_30" | 
-                           sc_org$samples=="sample_41_1_15" | sc_org$samples=="sample_41_1_30" ~"CRC-03",
-                           sc_org$samples=="sample_50_15" | sc_org$samples=="sample_50_30" ~ "RH-50-T",
-                           sc_org$samples=="sample_72_15" | sc_org$samples=="sample_72_30" ~ "RH-72-T",
-                           sc_org$samples=="sample_42_15" | sc_org$samples=="sample_42_30" ~ "RH-62-T",
-                           sc_org$samples=="ITD19_15" | sc_org$samples=="ITD19_30" ~ "IT_19"))
+  mutate(record_id = case_when(sc_org$samples=="sample_10_15" | sc_org$samples=="sample_10_30" ~ "CRC-10",
+                               sc_org$samples=="sample_11_15" | sc_org$samples=="sample_11_30" ~ "CRC-11",
+                               sc_org$samples=="41_G_15" | sc_org$samples=="41_G_30" | 
+                                 sc_org$samples=="sample_41_1_15" | sc_org$samples=="sample_41_1_30" ~"CRC-03",
+                               sc_org$samples=="sample_50_15" | sc_org$samples=="sample_50_30" ~ "RH-50-T",
+                               sc_org$samples=="sample_72_15" | sc_org$samples=="sample_72_30" ~ "RH-72-T",
+                               sc_org$samples=="sample_42_15" | sc_org$samples=="sample_42_30" ~ "RH-62-T",
+                               sc_org$samples=="ITD19_15" | sc_org$samples=="ITD19_30" ~ "IT_19"))
 # meta <- sc_org@meta.data
 
 #Get gene annotations & rename rows
