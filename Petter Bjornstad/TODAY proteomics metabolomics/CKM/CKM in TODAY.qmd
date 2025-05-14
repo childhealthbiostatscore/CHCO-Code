@@ -3,10 +3,15 @@ title: "CKM in TODAY"
 author: "Laura Pyle"
 format: html
 editor: visual
+echo: FALSE
+warning: FALSE
+toc: TRUE
 ---
 
 ```{r}
 library(dplyr)
+library(arsenal)
+library(tidyr)
 ```
 
 ```{r}
@@ -14,9 +19,6 @@ library(dplyr)
 comorb <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/COMORB.csv")
 # get fup time from visit dates - the problem is that these are not granular enough 
 load("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/clinical_data_long.Rdata")
-
-long$RELEASEID <- long$releaseid
-fup <- long %>% select(releaseid, )
 
 # in comorb, figure out length of follow-up by choosing number of days for an event the participant did not have
 comorb$fup_time <- ifelse(comorb$HTN == 0, comorb$DAYSTOHTN, 
@@ -29,21 +31,203 @@ comorb$fup_time <- ifelse(comorb$HTN == 0, comorb$DAYSTOHTN,
                                                                    ifelse(comorb$NEPHRO == 0, comorb$DAYSTONEPHRO, 
                                                                           ifelse(comorb$HYP ==0, comorb$DAYSTOHYP, NA)))))))))
 # one person () has every outcome, so fup_time is missing
+comorb$fup_time <- ifelse(comorb$RELEASEID == "65-44824", 4425, comorb$fup_time)
 
 # read in adjudicated medical event dataset
 ame <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/AME.csv')
 
 # reformat ame database so it's in the same format as COMORB (i.e., variable for event at baseline, variable for event during followup, and days to event)
-# note that some people have multiple events of the same type (e.g., CAD) - will take the first
+# note that some people have multiple events of the same type (e.g., CAD) - for now, will retain all the events to allow the most flexibility later, but for most analyses, may need to use the first (to be parallel with COMORB)
+# create new dataset ame_summary with one row per event
+arrhythmia <- ame %>% filter(AMENAME == 1) %>% select(releaseid, DAYSTOAME)
+colnames(arrhythmia) <- c("RELEASEID", "DAYSTOARRHYTHMIA")
+arrhythmia$ARRHYTHMIA <- 1
+arrhythmia <- arrhythmia %>% arrange(RELEASEID, DAYSTOARRHYTHMIA) %>% group_by(RELEASEID) %>% filter(row_number()==1)
 cad <- ame %>% filter(AMENAME == 2) %>% select(releaseid, DAYSTOAME)
-cad <- cad %>% arrange(releaseid, DAYSTOAME) %>% group_by(releaseid) %>% filter(row_number() == 1)
 colnames(cad) <- c("RELEASEID", "DAYSTOCAD")
 cad$CAD <- 1
-comorb <- full_join(comorb, cad, by = "RELEASEID")
+cad <- cad %>% arrange(RELEASEID, DAYSTOCAD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+chf <- ame %>% filter(AMENAME == 3) %>% select(releaseid, DAYSTOAME)
+colnames(chf) <- c("RELEASEID", "DAYSTOCHF")
+chf$CHF <- 1
+chf <- chf %>% arrange(RELEASEID, DAYSTOCHF) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+LVSD <- ame %>% filter(AMENAME == 4) %>% select(releaseid, DAYSTOAME)
+colnames(LVSD) <- c("RELEASEID", "DAYSTOLVSD")
+LVSD$LVSD <- 1
+LVSD <- LVSD %>% arrange(RELEASEID, DAYSTOLVSD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+mi <- ame %>% filter(AMENAME == 5) %>% select(releaseid, DAYSTOAME)
+colnames(mi) <- c("RELEASEID", "DAYSTOMI")
+mi$MI <- 1
+mi <- mi %>% arrange(RELEASEID, DAYSTOMI) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+pad <- ame %>% filter(AMENAME == 6) %>% select(releaseid, DAYSTOAME)
+colnames(pad) <- c("RELEASEID", "DAYSTOPAD")
+pad$PAD <- 1
+pad <- pad %>% arrange(RELEASEID, DAYSTOPAD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+#rad <- ame %>% filter(AMENAME == 7) %>% select(releaseid, DAYSTOAME)
+#colnames(rad) <- c("RELEASEID", "DAYSTORAD")
+#rad$RAD <- 1
+dvt <- ame %>% filter(AMENAME == 8) %>% select(releaseid, DAYSTOAME)
+colnames(dvt) <- c("RELEASEID", "DAYSTODVT")
+dvt$DVT <- 1
+dvt <- dvt %>% arrange(RELEASEID, DAYSTODVT) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+stroke <- ame %>% filter(AMENAME == 9) %>% select(releaseid, DAYSTOAME)
+colnames(stroke) <- c("RELEASEID", "DAYSTOSTROKE")
+stroke$STROKE <- 1
+stroke <- stroke %>% arrange(RELEASEID, DAYSTOSTROKE) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+#cerebrovascular <- ame %>% filter(AMENAME == 10) %>% select(releaseid, DAYSTOAME)
+#colnames(cerebrovascular) <- c("RELEASEID", "DAYSTOCEREBROVASCULAR")
+#cerebrovascular$CEREBROVASCULAR <- 1
+tia <- ame %>% filter(AMENAME == 11) %>% select(releaseid, DAYSTOAME)
+colnames(tia) <- c("RELEASEID", "DAYSTOTIA")
+tia$TIA <- 1
+tia <- tia %>% arrange(RELEASEID, DAYSTOTIA) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+pancreatitis <- ame %>% filter(AMENAME == 12) %>% select(releaseid, DAYSTOAME)
+colnames(pancreatitis) <- c("RELEASEID", "DAYSTOPANCREATITIS")
+pancreatitis$PANCREATITIS <- 1
+pancreatitis <- pancreatitis %>% arrange(RELEASEID, DAYSTOPANCREATITIS) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+gallbladder <- ame %>% filter(AMENAME == 13) %>% select(releaseid, DAYSTOAME)
+colnames(gallbladder) <- c("RELEASEID", "DAYSTOGALLBLADDER")
+gallbladder$GALLBLADDER <- 1
+gallbladder <- gallbladder %>% arrange(RELEASEID, DAYSTOGALLBLADDER) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+pneuro <- ame %>% filter(AMENAME == 14) %>% select(releaseid, DAYSTOAME)
+colnames(pneuro) <- c("RELEASEID", "DAYSTOPNEURO")
+pneuro$PNEURO <- 1
+pneuro <- pneuro %>% arrange(RELEASEID, DAYSTOPNEURO) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+aneuro <- ame %>% filter(AMENAME == 15) %>% select(releaseid, DAYSTOAME)
+colnames(aneuro) <- c("RELEASEID", "DAYSTOANEURO")
+aneuro$ANEURO <- 1
+aneuro <- aneuro %>% arrange(RELEASEID, DAYSTOANEURO) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+mononeuro <- ame %>% filter(AMENAME == 16) %>% select(releaseid, DAYSTOAME)
+colnames(mononeuro) <- c("RELEASEID", "DAYSTOMONONEURO")
+mononeuro$MONONEURO <- 1
+mononeuro <- mononeuro %>% arrange(RELEASEID, DAYSTOMONONEURO) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+ckd <- ame %>% filter(AMENAME == 17) %>% select(releaseid, DAYSTOAME)
+colnames(ckd) <- c("RELEASEID", "DAYSTOCKD")
+ckd$CKD <- 1
+ckd <- ckd %>% arrange(RELEASEID, DAYSTOCKD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+eskd <- ame %>% filter(AMENAME == 18) %>% select(releaseid, DAYSTOAME)
+colnames(eskd) <- c("RELEASEID", "DAYSTOESKD")
+eskd$ESKD <- 1
+eskd <- eskd %>% arrange(RELEASEID, DAYSTOESKD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+npdr <- ame %>% filter(AMENAME == 19) %>% select(releaseid, DAYSTOAME)
+colnames(npdr) <- c("RELEASEID", "DAYSTONPDR")
+npdr$NPDR <- 1
+npdr <- npdr %>% arrange(RELEASEID, DAYSTONPDR) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+pdr <- ame %>% filter(AMENAME == 20) %>% select(releaseid, DAYSTOAME)
+colnames(pdr) <- c("RELEASEID", "DAYSTOPDR")
+pdr$PDR <- 1
+pdr <- pdr %>% arrange(RELEASEID, DAYSTOPDR) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+me <- ame %>% filter(AMENAME == 21) %>% select(releaseid, DAYSTOAME)
+colnames(me) <- c("RELEASEID", "DAYSTOME")
+me$ME <- 1
+me <- me %>% arrange(RELEASEID, DAYSTOME) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+vh <- ame %>% filter(AMENAME == 22) %>% select(releaseid, DAYSTOAME)
+colnames(vh) <- c("RELEASEID", "DAYSTOVH")
+vh$VH <- 1
+vh <- vh %>% arrange(RELEASEID, DAYSTOVH) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+blindness <- ame %>% filter(AMENAME == 23) %>% select(releaseid, DAYSTOAME)
+colnames(blindness) <- c("RELEASEID", "DAYSTOBLINDNESS")
+blindness$BLINDNESS <- 1
+blindness <- blindness %>% arrange(RELEASEID, DAYSTOBLINDNESS) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+cataracts <- ame %>% filter(AMENAME == 24) %>% select(releaseid, DAYSTOAME)
+colnames(cataracts) <- c("RELEASEID", "DAYSTOCATARACTS")
+cataracts$CATARACTS <- 1
+cataracts <- cataracts %>% arrange(RELEASEID, DAYSTOCATARACTS) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+glaucoma <- ame %>% filter(AMENAME == 25) %>% select(releaseid, DAYSTOAME)
+colnames(glaucoma) <- c("RELEASEID", "DAYSTOGLAUCOMA")
+glaucoma$GLAUCOMA <- 1
+glaucoma <- glaucoma %>% arrange(RELEASEID, DAYSTOGLAUCOMA) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+death <- ame %>% filter(AMENAME == 26) %>% select(releaseid, DAYSTOAME)
+colnames(death) <- c("RELEASEID", "DAYSTODEATH")
+death$DEATH <- 1
+death <- death %>% arrange(RELEASEID, DAYSTODEATH) %>% group_by(RELEASEID) %>% filter(row_number()==1)
 
+ame_summary <- full_join(arrhythmia, cad, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, chf, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, LVSD, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, mi, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pad, by = "RELEASEID")
+#ame_summary <- full_join(ame_summary, rad, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, dvt, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, stroke, by = "RELEASEID")
+#ame_summary <- full_join(ame_summary, cerebrovascular, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, tia, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pancreatitis, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, gallbladder, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pneuro, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, aneuro, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, mononeuro, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, ckd, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, eskd, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, npdr, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pdr, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, me, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, vh, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, blindness, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, cataracts, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, glaucoma, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, death, by = "RELEASEID")
+
+# record NAs to 0
+ame_summary <- ame_summary %>% 
+    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "PANCREATITIS", "GALLBLADDER", "PNEURO", "ANEURO", "MONONEURO", "CKD", "ESKD", "NPDR", "PDR", "ME", "VH", "BLINDNESS", "CATARACTS", "GLAUCOMA", "DEATH"), ~replace_na(.,0))
+ame_summary <- ame_summary %>% 
+    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "PANCREATITIS", "GALLBLADDER", "PNEURO", "ANEURO", "MONONEURO", "CKD", "ESKD", "NPDR", "PDR", "ME", "VH", "BLINDNESS", "CATARACTS", "GLAUCOMA", "DEATH"), ~as.factor(.))
+
+# label AME types
+ame$AMENAME <- factor(ame$AMENAME, labels = c("Arrhythmia", "Coronary artery disease", "Coronary heart failure", "Left ventricular systolic dysfunction", "Myocardial infarction", "PAD/vascular insufficiency", "Deep vein thrombosis", "Stroke", "TIA", "Pancreatitis", "Gallbladder disease", "Peripheral diabetic neuropathy", "Autonomic neuropathy", "Diabetic mononeuropathy", "Chronic kidney disease", "ESKD", "Non-proliferative DR", "Proliferative DR", "Macular edema", "Vitreous hemorrhage", "Blindness due to diabetes", "Cataracts", "Glaucoma", "Death"))
+
+# create dfs with echoes, PWV, eGFR, BNP
+# UACR will come from adjudicated events
+
+# TODAY ECHO
+today_echo <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/echo.csv")
+today_echo$TIMEPOINT <- "1"
+# TODAY2 ECHO
+today2_echo <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/echo.csv")
+today2_echo$TIMEPOINT <- "2"
+drop_cols <- c("dopplerqc","mmodeqc","overallqc","plaxqc","saxqc","apicalqc","mmodeqc")
+today2_echo <- today2_echo %>% select(-one_of(drop_cols))
+# combine echo datasets 
+echo <- bind_rows(today2_echo, today_echo)
+echo$TIMEPOINT <- as.factor(echo$TIMEPOINT)
+echo$RELEASEID <- echo$releaseid
+echo$releaseid <- NULL
+# keep only needed vars
+echo_keep <- echo_keep %>% select(RELEASEID, LVSEPEM, LVEM, LVSEPRATIO, LVRATIO, PEAKVELO, )
+echo_keep$average_E_Em <- (echo_keep$LVSEPRATIO + echo_keep$LVRATIO) / 2
+
+# SPECKLE TRACKING
+# need to keep GLS_4CH
+# don't have GLS in TODAY, just TODAY2 - but there are two time points
+speckle <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/SPECKLE.csv')
+speckle_keep <- speckle %>% select(RELEASEID, TIMEPOINT, GLS_4CH)
+
+# TODAY2 PWV
+pwv <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward//Clinical data/TODAY2/pwv.csv")
+pwv_keep <- pwv %>% select(RELEASEID, TIMEPOINT, PWVF)
+pwv_keep$pwv_cf_gt10 <- ifelse(is.na(pwv_keep$PWVF), NA, 
+                               ifelse(pwv_keep$PWVF >10, 1, 0))
+pwv_keep <- pwv_keep %>% arrange(RELEASEID, desc(pwv_cf_gt10)) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+# eGFR and BNP
 ```
 
 ```         
 ```
 
-## Background
+## Results
+
+### Count of events (can be multiple events per person)
+
+```{r results="asis"}
+event_table <-tableby(data = ame, ~ as.factor(AMENAME))
+print(summary(event_table))
+```
+
+### Count of people with each type of event
+
+```{r results="asis"}
+person_table <- tableby(data = ame_summary, ~ ARRHYTHMIA + CAD + CHF + LVSD + MI + PAD + DVT + STROKE + TIA + PANCREATITIS + GALLBLADDER + PNEURO + ANEURO + MONONEURO + CKD + ESKD + NPDR + PDR + ME + VH + BLINDNESS + CATARACTS + GLAUCOMA + DEATH)
+print(summary(person_table))
+```

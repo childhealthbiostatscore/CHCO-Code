@@ -93,12 +93,390 @@ so <- RunUMAP(so, dims = 1:30, reduction.key = "UMAP_")
 # Overall
 
 ```{r, echo = F}
-DimPlot(so, reduction = "umap", group.by = "group", alpha = 0.2, raster = F)
-DimPlot(so, reduction = "umap", group.by = "sglt2i_ever", raster = F, alpha = 0.2)
-DimPlot(so, reduction = "umap", group.by = "sglt2i_timepoint", raster = F, alpha = 0.2)
-DimPlot(so, reduction = "umap", group.by = "LR_Cluster_harmony", alpha = 0.2, raster = F, label = T)
+# DimPlot(so, reduction = "umap", group.by = "group", alpha = 0.2, raster = F)
+# DimPlot(so, reduction = "umap", group.by = "sglt2i_ever", raster = F, alpha = 0.2)
+# DimPlot(so, reduction = "umap", group.by = "sglt2i_timepoint", raster = F, alpha = 0.2)
+# DimPlot(so, reduction = "umap", group.by = "LR_Cluster_harmony", alpha = 0.2, raster = F, label = T)
 FeaturePlot(so, reduction = "umap", features = "RIPK3", cols = c("lightgray", "blue"), raster = F)
+FeaturePlot(so, reduction = "umap", features = "NOX5", cols = c("lightgray", "blue"), raster = F)
 ```
+
+# PT
+
+```{r echo = F, include = F}
+so$celltype_pt <- ifelse(grepl("PT", so$LR_Cluster_harmony),
+                                 "PT", as.character(so$LR_Cluster_harmony))
+so_pt <- subset(so, celltype_pt == "PT")
+so_pt <- NormalizeData(so_pt)
+so_pt <- ScaleData(so_pt)
+ElbowPlot(so_pt)
+so_pt <- RunPCA(so_pt, ncomponents = 10, features = VariableFeatures(object = so_pt))
+so_pt <- FindNeighbors(so_pt)
+so_pt <- FindClusters(so_pt)
+so_pt <- RunUMAP(so_pt, dims = 1:30, reduction.key = "UMAP_")
+```
+
+```{r, include = F}
+expr_matrix <- as.matrix(GetAssayData(so_pt, layer = "data"))
+expr_df <- as.data.frame(as.table(as.matrix(expr_matrix)))
+colnames(expr_df) <- c("Gene", "Cell", "Expression")
+
+sc_data <- data.frame(Gene = expr_df$Gene,
+                      Cell = expr_df$Cell,
+                      sglt2i_ever = so_pt@meta.data$sglt2i_ever,
+                      sglt2i_timepoint = so_pt@meta.data$sglt2i_timepoint,
+                      Subject = so_pt@meta.data$record_id,
+                      Expression = as.vector(expr_df$Expression),
+                      group = so_pt$group)
+remove(expr_df)
+remove(expr_matrix)
+```
+
+
+```{r, include = F}
+sc_dat_ripk3 <- subset(sc_data, Gene == "RIPK3")
+sc_dat_nox5 <- subset(sc_data, Gene == "NOX5")
+```
+
+```{r echo = F}
+DimPlot(so_pt, reduction = "umap", group.by = "sglt2i_ever", raster = F, alpha = 0.2)
+DimPlot(so_pt, reduction = "umap", group.by = "sglt2i_timepoint", raster = F, alpha = 0.2)
+FeaturePlot(so_pt, reduction = "umap", features = "RIPK3", cols = c("lightgray", "blue"), raster = F)
+```
+
+## RIPK3 in PT
+
+### SGLT2i (ever) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_pt, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### SGLT2i (at visit) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_pt, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+
+### SGLT2i (ever, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_ripk3_ever <- sc_dat_ripk3 %>%
+  filter(sglt2i_ever %in% c("Yes", "No"))
+# mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
+#             data = subset(sc_dat_ripk3_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+# summary(mod_ever)
+```
+
+### SGLT2i (at visit, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_ripk3_timepoint <- sc_dat_ripk3 %>%
+  filter(sglt2i_timepoint %in% c("Yes", "No"))
+mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
+            data = subset(sc_dat_ripk3_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_pt, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_pt, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+# mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+#             data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+#             family = gaussian, ziformula = ~ 1)
+# summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+# mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+#             data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+#             family = gaussian, ziformula = ~ 1)
+# summary(mod_timepoint)
+```
+
+## NOX5 in PT
+```{r echo = F}
+FeaturePlot(so_pt, reduction = "umap", features = "NOX5", cols = c("lightgray", "blue"), raster = F)
+```
+
+### SGLT2i (ever) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_pt, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### SGLT2i (at visit) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_pt, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+
+### SGLT2i (ever, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_ever <- sc_dat_nox5 %>%
+  filter(sglt2i_ever %in% c("Yes", "No"))
+# mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
+#             data = subset(sc_dat_nox5_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+# summary(mod_ever)
+```
+
+### SGLT2i (at visit, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_timepoint <- sc_dat_nox5 %>%
+  filter(sglt2i_timepoint %in% c("Yes", "No"))
+mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
+            data = subset(sc_dat_nox5_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_pt, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_pt, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            family = gaussian, ziformula = ~ 1)
+# summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+# mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+#             data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+#             family = gaussian, ziformula = ~ 1)
+# summary(mod_timepoint)
+```
+
+
+# POD
+```{r echo = F, include = F}
+so$celltype_pod <- ifelse(grepl("POD", so$LR_Cluster_harmony),
+                                 "POD", as.character(so$LR_Cluster_harmony))
+so_pod <- subset(so, celltype_pod == "POD")
+so_pod <- NormalizeData(so_pod)
+so_pod <- ScaleData(so_pod)
+ElbowPlot(so_pod)
+so_pod <- RunPCA(so_pod, ncomponents = 10, features = VariableFeatures(object = so_pod))
+so_pod <- FindNeighbors(so_pod)
+so_pod <- FindClusters(so_pod)
+so_pod <- RunUMAP(so_pod, dims = 1:30, reduction.key = "UMAP_")
+```
+
+```{r, include = F}
+expr_matrix <- as.matrix(GetAssayData(so_pod, layer = "data"))
+expr_df <- as.data.frame(as.table(as.matrix(expr_matrix)))
+colnames(expr_df) <- c("Gene", "Cell", "Expression")
+
+sc_data <- data.frame(Gene = expr_df$Gene,
+                      Cell = expr_df$Cell,
+                      sglt2i_ever = so_pod@meta.data$sglt2i_ever,
+                      sglt2i_timepoint = so_pod@meta.data$sglt2i_timepoint,
+                      Subject = so_pod@meta.data$record_id,
+                      Expression = as.vector(expr_df$Expression),
+                      group = so_pod$group)
+remove(expr_df)
+remove(expr_matrix)
+```
+
+
+```{r, include = F}
+sc_dat_ripk3 <- subset(sc_data, Gene == "RIPK3")
+sc_dat_nox5 <- subset(sc_data, Gene == "NOX5")
+```
+
+```{r echo = F}
+DimPlot(so_pod, reduction = "umap", group.by = "sglt2i_ever", raster = F, alpha = 0.2)
+DimPlot(so_pod, reduction = "umap", group.by = "sglt2i_timepoint", raster = F, alpha = 0.2)
+FeaturePlot(so_pod, reduction = "umap", features = "RIPK3", cols = c("lightgray", "blue"), raster = F)
+```
+
+## RIPK3 in POD
+
+### SGLT2i (ever) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_pod, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### SGLT2i (at visit) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_pod, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+
+### SGLT2i (ever, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_ripk3_ever <- sc_dat_ripk3 %>%
+  filter(sglt2i_ever %in% c("Yes", "No"))
+# mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
+#             data = subset(sc_dat_ripk3_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+# summary(mod_ever)
+```
+
+### SGLT2i (at visit, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_ripk3_timepoint <- sc_dat_ripk3 %>%
+  filter(sglt2i_timepoint %in% c("Yes", "No"))
+# mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
+#             data = subset(sc_dat_ripk3_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+# summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_pod, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_pod, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+# mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+#             data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+#             family = gaussian, ziformula = ~ 1)
+# summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+# mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+#             data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+#             family = gaussian, ziformula = ~ 1)
+# summary(mod_timepoint)
+```
+
+## NOX5 in POD
+```{r echo = F}
+FeaturePlot(so_pod, reduction = "umap", features = "NOX5", cols = c("lightgray", "blue"), raster = F)
+```
+
+### SGLT2i (ever) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_pod, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### SGLT2i (at visit) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_pod, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+
+### SGLT2i (ever, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_ever <- sc_dat_nox5 %>%
+  filter(sglt2i_ever %in% c("Yes", "No"))
+# mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
+#             data = subset(sc_dat_nox5_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+# summary(mod_ever)
+```
+
+### SGLT2i (at visit, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_timepoint <- sc_dat_nox5 %>%
+  filter(sglt2i_timepoint %in% c("Yes", "No"))
+# mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
+#             data = subset(sc_dat_nox5_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+# summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_pod, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_pod, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+# mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+#             data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+#             family = gaussian, ziformula = ~ 1)
+# summary(mod_timepoint)
+```
+
 
 # TAL
 
@@ -125,9 +503,16 @@ sc_data <- data.frame(Gene = expr_df$Gene,
                       sglt2i_ever = so_tal@meta.data$sglt2i_ever,
                       sglt2i_timepoint = so_tal@meta.data$sglt2i_timepoint,
                       Subject = so_tal@meta.data$record_id,
-                      Expression = as.vector(expr_df$Expression))
+                      Expression = as.vector(expr_df$Expression),
+                      group = so_tal$group)
 remove(expr_df)
 remove(expr_matrix)
+```
+
+
+```{r, include = F}
+sc_dat_ripk3 <- subset(sc_data, Gene == "RIPK3")
+sc_dat_nox5 <- subset(sc_data, Gene == "NOX5")
 ```
 
 ```{r echo = F}
@@ -136,48 +521,338 @@ DimPlot(so_tal, reduction = "umap", group.by = "sglt2i_timepoint", raster = F, a
 FeaturePlot(so_tal, reduction = "umap", features = "RIPK3", cols = c("lightgray", "blue"), raster = F)
 ```
 
-## DEGs with SGLT2i in TAL
+## RIPK3 in TAL
 
-### SGLT2i (ever)
+### SGLT2i (ever) in T2D only
 
 ```{r echo = F}
-FindMarkers(so_tal, group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+FindMarkers(subset(so_tal, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
             logfc.threshold = 0, min.pct = 0)
 ```
 
-### SGLT2i (at visit)
+### SGLT2i (at visit) in T2D only
 
 ```{r echo = F}
-FindMarkers(so_tal, group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+FindMarkers(subset(so_tal, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
             logfc.threshold = 0, min.pct = 0)
 ```
 
-```{r, include = F}
-sc_dat_ripk3 <- subset(sc_data, Gene == "RIPK3")
-remove(sc_data)
-```
 
-### SGLT2i (ever, subject random effects)
+### SGLT2i (ever, subject random effects) in T2D only
 
 ```{r echo = F}
 sc_dat_ripk3_ever <- sc_dat_ripk3 %>%
   filter(sglt2i_ever %in% c("Yes", "No"))
-mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
-            data = sc_dat_ripk3_ever, family = gaussian, ziformula = ~ 1)
-summary(mod_ever)
+# mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
+#             data = subset(sc_dat_ripk3_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+# summary(mod_ever)
 ```
 
-### SGLT2i (at visit, subject random effects)
+### SGLT2i (at visit, subject random effects) in T2D only
 
 ```{r echo = F}
 sc_dat_ripk3_timepoint <- sc_dat_ripk3 %>%
   filter(sglt2i_timepoint %in% c("Yes", "No"))
 mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
-            data = sc_dat_ripk3_timepoint, family = gaussian, ziformula = ~ 1)
+            data = subset(sc_dat_ripk3_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_tal, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_tal, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+# mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+#             data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+#             family = gaussian, ziformula = ~ 1)
+# summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+# mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+#             data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+#             family = gaussian, ziformula = ~ 1)
+# summary(mod_timepoint)
+```
+
+## NOX5 in TAL
+```{r echo = F}
+FeaturePlot(so_tal, reduction = "umap", features = "NOX5", cols = c("lightgray", "blue"), raster = F)
+```
+
+### SGLT2i (ever) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_tal, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### SGLT2i (at visit) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_tal, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+
+### SGLT2i (ever, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_ever <- sc_dat_nox5 %>%
+  filter(sglt2i_ever %in% c("Yes", "No"))
+mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
+            data = subset(sc_dat_nox5_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### SGLT2i (at visit, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_timepoint <- sc_dat_nox5 %>%
+  filter(sglt2i_timepoint %in% c("Yes", "No"))
+mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
+            data = subset(sc_dat_nox5_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_tal, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_tal, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            family = gaussian, ziformula = ~ 1)
 summary(mod_timepoint)
 ```
 
 # Immune
+```{r echo = F, include = F}
+so$celltype_immune <- ifelse(grepl("Immune", so$LR_Cluster_harmony),
+                                 "Immune", as.character(so$LR_Cluster_harmony))
+so_immune <- subset(so, celltype_immune == "Immune")
+so_immune <- NormalizeData(so_immune)
+so_immune <- ScaleData(so_immune)
+ElbowPlot(so_immune)
+so_immune <- RunPCA(so_immune, ncomponents = 10, features = VariableFeatures(object = so_immune))
+so_immune <- FindNeighbors(so_immune)
+so_immune <- FindClusters(so_immune)
+so_immune <- RunUMAP(so_immune, dims = 1:30, reduction.key = "UMAP_")
+```
+
+```{r, include = F}
+expr_matrix <- as.matrix(GetAssayData(so_immune, layer = "data"))
+expr_df <- as.data.frame(as.table(as.matrix(expr_matrix)))
+colnames(expr_df) <- c("Gene", "Cell", "Expression")
+
+sc_data <- data.frame(Gene = expr_df$Gene,
+                      Cell = expr_df$Cell,
+                      sglt2i_ever = so_immune@meta.data$sglt2i_ever,
+                      sglt2i_timepoint = so_immune@meta.data$sglt2i_timepoint,
+                      Subject = so_immune@meta.data$record_id,
+                      Expression = as.vector(expr_df$Expression),
+                      group = so_immune$group)
+remove(expr_df)
+remove(expr_matrix)
+```
+
+
+```{r, include = F}
+sc_dat_ripk3 <- subset(sc_data, Gene == "RIPK3")
+sc_dat_nox5 <- subset(sc_data, Gene == "NOX5")
+```
+
+```{r echo = F}
+DimPlot(so_immune, reduction = "umap", group.by = "sglt2i_ever", raster = F, alpha = 0.2)
+DimPlot(so_immune, reduction = "umap", group.by = "sglt2i_timepoint", raster = F, alpha = 0.2)
+FeaturePlot(so_immune, reduction = "umap", features = "RIPK3", cols = c("lightgray", "blue"), raster = F)
+```
+
+## RIPK3 in Immune
+
+### SGLT2i (ever) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_immune, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### SGLT2i (at visit) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_immune, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+
+### SGLT2i (ever, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_ripk3_ever <- sc_dat_ripk3 %>%
+  filter(sglt2i_ever %in% c("Yes", "No"))
+mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
+            data = subset(sc_dat_ripk3_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### SGLT2i (at visit, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_ripk3_timepoint <- sc_dat_ripk3 %>%
+  filter(sglt2i_timepoint %in% c("Yes", "No"))
+mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
+            data = subset(sc_dat_ripk3_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_immune, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_immune, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+## NOX5 in Immune
+```{r echo = F}
+FeaturePlot(so_immune, reduction = "umap", features = "NOX5", cols = c("lightgray", "blue"), raster = F)
+```
+
+### SGLT2i (ever) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_immune, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### SGLT2i (at visit) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_immune, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+
+### SGLT2i (ever, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_ever <- sc_dat_nox5 %>%
+  filter(sglt2i_ever %in% c("Yes", "No"))
+mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
+            data = subset(sc_dat_nox5_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### SGLT2i (at visit, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_timepoint <- sc_dat_nox5 %>%
+  filter(sglt2i_timepoint %in% c("Yes", "No"))
+mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
+            data = subset(sc_dat_nox5_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_immune, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_immune, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
 
 ```{r echo = F, include = F}
 so$celltype_immune <- ifelse(grepl("Immune", so$LR_Cluster_harmony),
@@ -213,123 +888,6 @@ DimPlot(so_immune, reduction = "umap", group.by = "sglt2i_timepoint", raster = F
 FeaturePlot(so_immune, reduction = "umap", features = "RIPK3", cols = c("lightgray", "blue"), raster = F)
 ```
 
-## DEGs with SGLT2i in Immune cells
-
-### SGLT2i (ever)
-
-```{r echo = F}
-FindMarkers(so_immune, group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
-            logfc.threshold = 0, min.pct = 0)
-```
-
-### SGLT2i (at visit)
-
-```{r echo = F}
-FindMarkers(so_immune, group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
-            logfc.threshold = 0, min.pct = 0)
-```
-
-```{r echo = F}
-sc_dat_ripk3 <- subset(sc_data, Gene == "RIPK3")
-remove(sc_data)
-```
-
-### SGLT2i (ever, subject random effects)
-
-```{r echo = F}
-sc_dat_ripk3_ever <- sc_dat_ripk3 %>%
-  filter(sglt2i_ever %in% c("Yes", "No"))
-mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
-            data = sc_dat_ripk3_ever, family = gaussian, ziformula = ~ 1)
-summary(mod_ever)
-```
-
-### SGLT2i (at visit, subject random effects)
-
-```{r echo = F}
-sc_dat_ripk3_timepoint <- sc_dat_ripk3 %>%
-  filter(sglt2i_timepoint %in% c("Yes", "No"))
-mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
-            data = sc_dat_ripk3_timepoint, family = gaussian, ziformula = ~ 1)
-summary(mod_timepoint)
-```
-
-# PC
-
-```{r echo = F, include = F}
-so$celltype_pc <- ifelse(grepl("PC", so$LR_Cluster_harmony),
-                                 "PC", as.character(so$LR_Cluster_harmony))
-so_pc <- subset(so, celltype_pc == "PC")
-so_pc <- NormalizeData(so_pc)
-so_pc <- ScaleData(so_pc)
-ElbowPlot(so_pc)
-so_pc <- RunPCA(so_pc, ncomponents = 10, features = VariableFeatures(object = so_pc))
-so_pc <- FindNeighbors(so_pc)
-so_pc <- FindClusters(so_pc)
-so_pc <- RunUMAP(so_pc, dims = 1:30, reduction.key = "UMAP_")
-```
-
-```{r echo = F}
-expr_matrix <- as.matrix(GetAssayData(so_pc, layer = "data"))
-expr_df <- as.data.frame(as.table(as.matrix(expr_matrix)))
-colnames(expr_df) <- c("Gene", "Cell", "Expression")
-
-sc_data <- data.frame(Gene = expr_df$Gene,
-                      Cell = expr_df$Cell,
-                      sglt2i_ever = so_pc@meta.data$sglt2i_ever,
-                      sglt2i_timepoint = so_pc@meta.data$sglt2i_timepoint,
-                      Subject = so_pc@meta.data$record_id,
-                      Expression = as.vector(expr_df$Expression))
-remove(expr_df)
-remove(expr_matrix)
-```
-
-```{r echo = F}
-DimPlot(so_pc, reduction = "umap", group.by = "sglt2i_ever", raster = F, alpha = 0.2)
-DimPlot(so_pc, reduction = "umap", group.by = "sglt2i_timepoint", raster = F, alpha = 0.2)
-FeaturePlot(so_pc, reduction = "umap", features = "RIPK3", cols = c("lightgray", "blue"), raster = F)
-```
-
-## DEGs with SGLT2i in PC cells
-
-### SGLT2i (ever)
-
-```{r echo = F}
-FindMarkers(so_pc, group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
-            logfc.threshold = 0, min.pct = 0)
-```
-
-### SGLT2i (at visit)
-
-```{r echo = F}
-FindMarkers(so_pc, group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
-            logfc.threshold = 0, min.pct = 0)
-```
-
-```{r echo = F}
-sc_dat_ripk3 <- subset(sc_data, Gene == "RIPK3")
-remove(sc_data)
-```
-
-### SGLT2i (ever, subject random effects)
-
-```{r echo = F}
-sc_dat_ripk3_ever <- sc_dat_ripk3 %>%
-  filter(sglt2i_ever %in% c("Yes", "No"))
-mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
-            data = sc_dat_ripk3_ever, family = gaussian, ziformula = ~ 1)
-summary(mod_ever)
-```
-
-### SGLT2i (at visit, subject random effects)
-
-```{r echo = F}
-sc_dat_ripk3_timepoint <- sc_dat_ripk3 %>%
-  filter(sglt2i_timepoint %in% c("Yes", "No"))
-mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
-            data = sc_dat_ripk3_timepoint, family = gaussian, ziformula = ~ 1)
-summary(mod_timepoint)
-```
 
 # CNT
 
@@ -346,7 +904,7 @@ so_cnt <- FindClusters(so_cnt)
 so_cnt <- RunUMAP(so_cnt, dims = 1:30, reduction.key = "UMAP_")
 ```
 
-```{r echo = F}
+```{r, include = F}
 expr_matrix <- as.matrix(GetAssayData(so_cnt, layer = "data"))
 expr_df <- as.data.frame(as.table(as.matrix(expr_matrix)))
 colnames(expr_df) <- c("Gene", "Cell", "Expression")
@@ -356,9 +914,16 @@ sc_data <- data.frame(Gene = expr_df$Gene,
                       sglt2i_ever = so_cnt@meta.data$sglt2i_ever,
                       sglt2i_timepoint = so_cnt@meta.data$sglt2i_timepoint,
                       Subject = so_cnt@meta.data$record_id,
-                      Expression = as.vector(expr_df$Expression))
+                      Expression = as.vector(expr_df$Expression),
+                      group = so_cnt$group)
 remove(expr_df)
 remove(expr_matrix)
+```
+
+
+```{r, include = F}
+sc_dat_ripk3 <- subset(sc_data, Gene == "RIPK3")
+sc_dat_nox5 <- subset(sc_data, Gene == "NOX5")
 ```
 
 ```{r echo = F}
@@ -367,45 +932,149 @@ DimPlot(so_cnt, reduction = "umap", group.by = "sglt2i_timepoint", raster = F, a
 FeaturePlot(so_cnt, reduction = "umap", features = "RIPK3", cols = c("lightgray", "blue"), raster = F)
 ```
 
-## DEGs with SGLT2i in CNT cells
+## RIPK3 in CNT
 
-### SGLT2i (ever)
+### SGLT2i (ever) in T2D only
 
 ```{r echo = F}
-FindMarkers(so_cnt, group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+FindMarkers(subset(so_cnt, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
             logfc.threshold = 0, min.pct = 0)
 ```
 
-### SGLT2i (at visit)
+### SGLT2i (at visit) in T2D only
 
 ```{r echo = F}
-FindMarkers(so_cnt, group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+FindMarkers(subset(so_cnt, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
             logfc.threshold = 0, min.pct = 0)
 ```
 
-```{r echo = F}
-sc_dat_ripk3 <- subset(sc_data, Gene == "RIPK3")
-remove(sc_data)
-```
 
-### SGLT2i (ever, subject random effects)
+### SGLT2i (ever, subject random effects) in T2D only
 
 ```{r echo = F}
 sc_dat_ripk3_ever <- sc_dat_ripk3 %>%
   filter(sglt2i_ever %in% c("Yes", "No"))
 mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
-            data = sc_dat_ripk3_ever, family = gaussian, ziformula = ~ 1)
-# summary(mod_ever)
+            data = subset(sc_dat_ripk3_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
 ```
 
-### SGLT2i (at visit, subject random effects)
+### SGLT2i (at visit, subject random effects) in T2D only
 
 ```{r echo = F}
 sc_dat_ripk3_timepoint <- sc_dat_ripk3 %>%
   filter(sglt2i_timepoint %in% c("Yes", "No"))
 mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
-            data = sc_dat_ripk3_timepoint, family = gaussian, ziformula = ~ 1)
+            data = subset(sc_dat_ripk3_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
 summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_cnt, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_cnt, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+## NOX5 in CNT
+```{r echo = F}
+FeaturePlot(so_cnt, reduction = "umap", features = "NOX5", cols = c("lightgray", "blue"), raster = F)
+```
+
+### SGLT2i (ever) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_cnt, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### SGLT2i (at visit) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_cnt, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+
+### SGLT2i (ever, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_ever <- sc_dat_nox5 %>%
+  filter(sglt2i_ever %in% c("Yes", "No"))
+mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
+            data = subset(sc_dat_nox5_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### SGLT2i (at visit, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_timepoint <- sc_dat_nox5 %>%
+  filter(sglt2i_timepoint %in% c("Yes", "No"))
+mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
+            data = subset(sc_dat_nox5_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_cnt, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_cnt, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+# mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+#             data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+#             family = gaussian, ziformula = ~ 1)
+# summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+# mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+#             data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+#             family = gaussian, ziformula = ~ 1)
+# summary(mod_timepoint)
 ```
 
 # DCT
@@ -423,7 +1092,7 @@ so_dct <- FindClusters(so_dct)
 so_dct <- RunUMAP(so_dct, dims = 1:30, reduction.key = "UMAP_")
 ```
 
-```{r echo = F}
+```{r, include = F}
 expr_matrix <- as.matrix(GetAssayData(so_dct, layer = "data"))
 expr_df <- as.data.frame(as.table(as.matrix(expr_matrix)))
 colnames(expr_df) <- c("Gene", "Cell", "Expression")
@@ -433,9 +1102,16 @@ sc_data <- data.frame(Gene = expr_df$Gene,
                       sglt2i_ever = so_dct@meta.data$sglt2i_ever,
                       sglt2i_timepoint = so_dct@meta.data$sglt2i_timepoint,
                       Subject = so_dct@meta.data$record_id,
-                      Expression = as.vector(expr_df$Expression))
+                      Expression = as.vector(expr_df$Expression),
+                      group = so_dct$group)
 remove(expr_df)
 remove(expr_matrix)
+```
+
+
+```{r, include = F}
+sc_dat_ripk3 <- subset(sc_data, Gene == "RIPK3")
+sc_dat_nox5 <- subset(sc_data, Gene == "NOX5")
 ```
 
 ```{r echo = F}
@@ -444,47 +1120,151 @@ DimPlot(so_dct, reduction = "umap", group.by = "sglt2i_timepoint", raster = F, a
 FeaturePlot(so_dct, reduction = "umap", features = "RIPK3", cols = c("lightgray", "blue"), raster = F)
 ```
 
-## DEGs with SGLT2i in DCT cells
+## RIPK3 in DCT
 
-### SGLT2i (ever)
+### SGLT2i (ever) in T2D only
 
 ```{r echo = F}
-FindMarkers(so_dct, group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+FindMarkers(subset(so_dct, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
             logfc.threshold = 0, min.pct = 0)
 ```
 
-### SGLT2i (at visit)
+### SGLT2i (at visit) in T2D only
 
 ```{r echo = F}
-FindMarkers(so_dct, group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
+FindMarkers(subset(so_dct, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "RIPK3", 
             logfc.threshold = 0, min.pct = 0)
 ```
 
-```{r echo = F}
-sc_dat_ripk3 <- subset(sc_data, Gene == "RIPK3")
-remove(sc_data)
-```
 
-### SGLT2i (ever, subject random effects)
+### SGLT2i (ever, subject random effects) in T2D only
 
 ```{r echo = F}
 sc_dat_ripk3_ever <- sc_dat_ripk3 %>%
   filter(sglt2i_ever %in% c("Yes", "No"))
 mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
-            data = sc_dat_ripk3_ever, family = gaussian, ziformula = ~ 1)
+            data = subset(sc_dat_ripk3_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
 summary(mod_ever)
 ```
 
-### SGLT2i (at visit, subject random effects)
+### SGLT2i (at visit, subject random effects) in T2D only
 
 ```{r echo = F}
 sc_dat_ripk3_timepoint <- sc_dat_ripk3 %>%
   filter(sglt2i_timepoint %in% c("Yes", "No"))
 mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
-            data = sc_dat_ripk3_timepoint, family = gaussian, ziformula = ~ 1)
+            data = subset(sc_dat_ripk3_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_dct, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_dct, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "RIPK3", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_ripk3, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+## NOX5 in DCT
+```{r echo = F}
+FeaturePlot(so_dct, reduction = "umap", features = "NOX5", cols = c("lightgray", "blue"), raster = F)
+```
+
+### SGLT2i (ever) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_dct, group == "Type_2_Diabetes"), group.by = "sglt2i_ever", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### SGLT2i (at visit) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_dct, group == "Type_2_Diabetes"), group.by = "sglt2i_timepoint", ident.1 = "Yes", ident.2 = "No", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+
+### SGLT2i (ever, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_ever <- sc_dat_nox5 %>%
+  filter(sglt2i_ever %in% c("Yes", "No"))
+mod_ever <- glmmTMB(Expression ~ sglt2i_ever + (1 | Subject), 
+            data = subset(sc_dat_nox5_ever, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### SGLT2i (at visit, subject random effects) in T2D only
+
+```{r echo = F}
+sc_dat_nox5_timepoint <- sc_dat_nox5 %>%
+  filter(sglt2i_timepoint %in% c("Yes", "No"))
+mod_timepoint <- glmmTMB(Expression ~ sglt2i_timepoint + (1 | Subject), 
+            data = subset(sc_dat_nox5_timepoint, group == "Type_2_Diabetes"), family = gaussian, ziformula = ~ 1)
+summary(mod_timepoint)
+```
+
+### LC vs. T2D- (ever)
+
+```{r echo = F}
+FindMarkers(subset(so_dct, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (at visit)
+
+```{r echo = F}
+FindMarkers(subset(so_dct, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            group.by = "group", ident.1 = "Type_2_Diabetes", ident.2 = "Lean_Control", features = "NOX5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### LC vs. T2D- (ever, subject random effects)
+
+```{r echo = F}
+mod_ever <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_ever == "No")), 
+            family = gaussian, ziformula = ~ 1)
+summary(mod_ever)
+```
+
+### LC vs. T2D- (at visit, subject random effects) 
+
+```{r echo = F}
+mod_timepoint <- glmmTMB(Expression ~ group + (1 | Subject), 
+            data = subset(sc_dat_nox5, group == "Lean_Control" | (group == "Type_2_Diabetes" & sglt2i_timepoint == "No")), 
+            family = gaussian, ziformula = ~ 1)
 summary(mod_timepoint)
 ```
 
 ```{r echo = F, eval = F}
-s3$upload_file("/mmfs1/gscratch/scrubbed/yejichoi/Bjornstad/CHCO-Code/Petter Bjornstad/Eun Young/RIPK3_scrna_analysis.html", "test", 'RIPK3_scrna_analysis.html')
+s3$upload_file("/mmfs1/home/yejichoi/CHCO-Code/Petter Bjornstad/Eun Young/RIPK3_scrna_analysis.html", "test", 'RIPK3_scrna_analysis.html')
 ```

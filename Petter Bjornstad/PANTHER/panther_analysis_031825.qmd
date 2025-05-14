@@ -28,6 +28,8 @@ library(gt)
 library(SomaPlotr)
 library(readxl)
 library(limma)
+library(glue)
+library(purrr)
 ```
 
 ```{r load-data, echo = F, include = F}
@@ -41,14 +43,14 @@ source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Function
 
 ```{r prep-data, echo = F, include = F}
 # Load clinical data
-harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
+harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
 exclude <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
 
 dat <- harm_dat %>% filter((study == "PANTHER" & visit %in% c("baseline", "screening"))|study == "RENAL-HEIR"|
                              study == "RENAL-HEIRitage" | (study == "IMPROVE" & visit == "baseline")) %>%
   mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
          mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
-  # filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
+  filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(mrn, visit)) %>%
@@ -96,9 +98,10 @@ dat <- harm_dat %>% filter((study == "PANTHER" & visit %in% c("baseline", "scree
          birthweight = as.numeric(birthweight),
          glp1_agonist_timepoint = case_when(is.na(glp1_agonist_timepoint) ~ "No", T ~ glp1_agonist_timepoint)) %>%
   arrange(record_id) %>%
-  filter(!is.na(dexa_body_fat)) %>% # filter based on DEXA (to filter those who may just be screen fails)
-  filter(!is.na(male_ind)) 
-# %>% # RH2-54-T is currently missing all data except MRI
+  # filter(!is.na(dexa_body_fat)) %>% # filter based on DEXA (to filter those who may just be screen fails)
+  filter(!is.na(male_ind)) %>%
+  filter(record_id %nin% c("PAN_205_O", "PAN_209_O", "PAN_210_O")) # awaiting study visit
+# %>% # PAN-54-T is currently missing all data except MRI
 #   filter(!is.na(seq.10000.28)) # no need to subset to proteomics yet...
 
 dat$tanner_stage_comp <- as.factor(dat$tanner_stage_comp)
@@ -117,15 +120,15 @@ bmi_percentile = ext_bmiz(data = subset(dat,
   dplyr:: select(record_id, bmip, bmiz) %>%
   filter(!is.na(bmip))
 dat <- left_join(dat, bmi_percentile, by = "record_id") %>%
-  dplyr::mutate(group_risk = case_when(bmip >= 85 | hba1c >=6 | group == "Type 2 Diabetes" ~ "High",
+  dplyr::mutate(group_risk = case_when(bmip >= 95 | hba1c >=6 | group == "Type 2 Diabetes" ~ "High",
                                        T ~ "Low"),
                 sex_group_risk = case_when(sex == "male" & group_risk == "High" ~ "M, High",
                                            sex == "male" & group_risk == "Low" ~ "M, Low",
                                            sex == "female" & group_risk == "High" ~ "F, High",
                                            sex == "female" & group_risk == "Low" ~ "F, Low"))
 
-panther <- dat %>% filter(study == "PANTHER") %>%
-  filter(!is.na(tanner_stage_comp))
+panther <- dat %>% filter(study == "PANTHER")
+  # filter(!is.na(tanner_stage_comp))
 sens_dat <- dat %>% filter(study == "PANTHER" | study == "RENAL-HEIR") %>%
   filter(!is.na(tanner_stage_comp))
 
@@ -187,6 +190,8 @@ dict <- label_harmonized_dict(dat, dict) %>%
                 log_estrad = "ln(Estradiol)",
                 race_ethnicity_condensed = "Race/Ethnicity", 
                 eGFR_CKiD_U25_CystatinC = "eGFR CKiD U25 CystC",
+                eGFR_CKiD_U25_Creat ="eGFR CKiD U25 Creat",
+                eGFR_CKiD_U25_avg ="eGFR CKiD U25 CystC & Creat",
                 bl_dheas = "DHEA-S",
                 gfr_raw_plasma = "mGFR",
                 gfr_bsa_plasma = "mGFR (BSA)",
@@ -218,21 +223,21 @@ sens_dat <- label_harmonized(sens_dat, dict)
 
 ```{r save-data, include = F}
 # save(analytes,
-#      file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_analytes.RData")
+#      file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_analytes_050925.RData")
 # save(dict,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_dict.RData")
+#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_dict_050925.RData")
 # save(dat,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther+rh+rh2+imp_data.RData")
+#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_050925.RData")
 # save(panther,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data.RData")
+#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data_050925.RData")
 # save(sens_dat,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_rh_rh2_imp_data.RData")
+#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_rh_rh2_imp_data_050925.RData")
 # save(cleanData_comb,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_soma_std.RData")
+#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther+rh+rh2+imp_data_soma_std_050925.RData")
 # save(cleanData_panther,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data_soma_std.RData")
+#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data_soma_std_050925.RData")
 # save(cleanData_sens,
-#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data_rh_rh2_imp_std.RData")
+#         file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_data_rh_rh2_imp_std_050925.RData")
 ```
 
 ```{r echo = F}
@@ -255,10 +260,11 @@ sens_dat <- label_harmonized(sens_dat, dict)
 # subset(panther, mm_di > 10000)$mm_di
 # subset(panther, mm_si > 100)$mm_si
 # 
-summary(tableby(group_risk ~ kwt(mm_di, "Nmiss", "medianq1q3", "range"), data = subset(panther, mm_di < 10000), total = T, test = F))
-summary(tableby(group_risk ~ kwt(mm_si, "Nmiss", "medianq1q3", "range"), data = subset(panther, mm_si < 100), total = T, test = F))
 
-summary(tableby(group_risk ~ age + sex +height + weight + bmi + bmiz + group + eGFR_CKD_epi + eGFR_fas_cr + eGFR_CKiD_U25_CystatinC + sbp + dbp + hba1c + gotast_base + gptalt_base + kwt(acr_u, "medianq1q3") + kwt(lh, "medianq1q3") + kwt(estrad, "medianq1q3") + kwt(tot_test, "medianq1q3") + kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score + race_ethnicity_condensed + metformin_timepoint + insulin_med_timepoint + glp1_agonist_timepoint + sglti_timepoint + dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass + total_kidney_volume_ml + ht_adj_tkv + mm_si + mm_ir + mm_bcell+ mm_di + gfr_raw_plasma + erpf_raw_plasma + erpf_bsa_plasma + ra + re + rvr + glomerular_pressure, data = panther, total = T, test = F,  numeric.simplify = T, numeric.stats = c("meansd"), digits = 1))
+# summary(tableby(group_risk ~ kwt(mm_di, "Nmiss", "medianq1q3", "range"), data = subset(panther, mm_di < 10000), total = T, test = F))
+# summary(tableby(group_risk ~ kwt(mm_si, "Nmiss", "medianq1q3", "range"), data = subset(panther, mm_si < 100), total = T, test = F))
+
+summary(tableby(group_risk ~ age + sex + height + weight + bmi + bmiz + group + eGFR_CKD_epi + eGFR_fas_cr + eGFR_CKiD_U25_CystatinC + eGFR_CKiD_U25_Creat + sbp + dbp + hba1c + gotast_base + gptalt_base + kwt(acr_u, "medianq1q3") + kwt(lh, "medianq1q3") + kwt(estrad, "medianq1q3") + kwt(tot_test, "medianq1q3") + kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score + race_ethnicity_condensed + metformin_timepoint + insulin_med_timepoint + glp1_agonist_timepoint + sglti_timepoint + dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass + total_kidney_volume_ml + ht_adj_tkv + mm_si + mm_ir + mm_bcell + mm_di + gfr_raw_plasma + erpf_raw_plasma + erpf_bsa_plasma + ra + re + rvr + glomerular_pressure, data = panther, total = T, test = F,  numeric.simplify = T, numeric.stats = c("meansd", "Nmiss"), digits = 1))
 ```
 
 ```{r, results = 'asis', echo = F}
@@ -305,6 +311,12 @@ summary(tableby(tanner_stage_comp_panther_cat ~ age + height + weight + bmi + bm
 ```
 
 ## Figures
+
+```{r echo = F}
+panther <- panther %>%
+  subset(!is.na(tanner_stage_comp))
+```
+
 ### IQR plots
 ```{r echo = F, warning = F}
 iqr_plot <- function(data, x_var, y_var, x_var_lab, y_var_lab) {
@@ -338,7 +350,7 @@ iqr_plot <- function(data, x_var, y_var, x_var_lab, y_var_lab) {
     labs(x = x_var_lab,
          y = y_var_lab) +
     theme(panel.background = element_blank(),
-          text = element_text(size = 20),
+          text = element_text(size = 18),
           axis.title.y = element_text(size = 18)) +
     annotate("text", x = 1, y = max(data[[y_var]], na.rm = TRUE), 
              label = p_text, hjust = 0, size = 6)
@@ -355,6 +367,16 @@ plots <- map(vars, ~ iqr_plot(
   x_var_lab = "Tanner stage",
   y_var_lab = label(panther[[.x]])))
 walk(plots, print)
+out_dir <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/050925/IQR Pooled"
+walk2(
+  .x = plots,
+  .y = vars,
+  .f = ~ ggsave(
+    filename = glue("{out_dir}/plot_{.y}.jpeg"),
+    plot = .x,
+    units = "in"
+  )
+)
 ```
 
 
@@ -391,7 +413,7 @@ iqr_plot_grp <- function(data, x_var, y_var, group_var = NULL,
          color = group_lab,
          linetype = group_lab) +
     theme(panel.background = element_blank(),
-          text = element_text(size = 20),
+          text = element_text(size = 18),
           axis.title.y = element_text(size = 18))
 
   # Apply custom colors if provided
@@ -434,6 +456,17 @@ plots <- map(vars, ~ iqr_plot_grp(
   y_var_lab = label(panther[[.x]]),
   group_lab = "Risk group"))
 walk(plots, print)
+
+out_dir <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/050925/IQR Risk"
+walk2(
+  .x = plots,
+  .y = vars,
+  .f = ~ ggsave(
+    filename = glue("{out_dir}/plot_{.y}.jpeg"),
+    plot = .x,
+    units = "in"
+  )
+)
 ```
 #### Sex
 ```{r echo = F, warning = F}
@@ -446,6 +479,17 @@ plots <- map(vars, ~ iqr_plot_grp(
   y_var_lab = label(panther[[.x]]),
   group_lab = "Sex"))
 walk(plots, print)
+
+out_dir <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/050925/IQR Sex"
+walk2(
+  .x = plots,
+  .y = vars,
+  .f = ~ ggsave(
+    filename = glue("{out_dir}/plot_{.y}.jpeg"),
+    plot = .x,
+    units = "in"
+  )
+)
 ```
 
 ## Heatmap

@@ -1,0 +1,372 @@
+---
+title: "MTAP expression"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r libraries, message = F, warning=F}
+#| include: false
+library(future)
+library(future.apply)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(msigdbr)
+library(kableExtra)
+library(knitr)
+library(REDCapR)
+library(data.table)
+library(emmeans)
+library(NMF)
+library(pheatmap)
+library(UpSetR)
+library(enrichR)
+library(WriteXLS)
+library(SAVER)
+library(readxl)
+library(limma)
+library(edgeR)
+library(BiocGenerics)
+library(GSEABase)
+library(slingshot)
+library(SingleCellExperiment)
+library(MAST)
+library(muscat)
+library(scater)
+library(Seurat)
+library(jsonlite)
+library(dplyr)
+library(glmmTMB)
+library(reshape2)
+library(broom.mixed)
+library(nebula)
+```
+
+```{r include = F}
+reticulate::use_python("/mmfs1/gscratch/scrubbed/yejichoi/mypy/bin/python", required = T)
+reticulate::repl_python()
+reticulate::py_config()
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+```{r echo = F, include=F}
+# read PB90 Seurat file for CROCODILE
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("scrna", "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
+so <- readRDS(temp_file)
+
+DimPlot(so, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
+DimPlot(so, reduction = "umap.harmony", group.by = "celltype_harmony", raster = F, alpha = 0.2, label = T)
+```
+
+# HC vs. T1D in PB90
+
+## All cell types combined
+
+```{r echo = F}
+so_t1d_hc <- subset(so, group %in% c("Type_1_Diabetes","Lean_Control"))
+
+FeaturePlot(so_t1d_hc, reduction = "umap.harmony", features = "MTAP", raster = F)
+```
+### Pseudoreplication (Treating each cell independently)
+```{r echo = F}
+FindMarkers(so_t1d_hc, ident.1 = "Type_1_Diabetes", ident.2 = "Lean_Control", group.by = "group", features = "MTAP")
+```
+
+### Mixed model using NEBULA (Treating each subject independently)
+
+```{r echo = F}
+counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
+counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
+meta_gene <- subset(so_t1d_hc, features = "MTAP")@meta.data
+pred_gene <- model.matrix(~group, data = meta_gene)
+data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
+result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+
+result_allcells$summary
+```
+
+## EC
+```{r echo = F}
+so_t1d_hc$celltype_ec <- ifelse(so_t1d_hc$celltype_harmony %in% c("EC-PTC", "EC-GC", "EC-AEA", "EC-LYM"),
+                                     "EC", as.character(so_t1d_hc$celltype_harmony))
+so_t1d_hc_ec <- subset(so_t1d_hc, celltype_ec == "EC")
+
+FeaturePlot(so_t1d_hc_ec, reduction = "umap.harmony", features = "MTAP", raster = F)
+```
+### Pseudoreplication (Treating each cell independently)
+
+```{r echo = F}
+FindMarkers(so_t1d_hc_ec, ident.1 = "Type_1_Diabetes", ident.2 = "Lean_Control", group.by = "group", features = "MTAP")
+```
+### Mixed model using NEBULA (Treating each subject independently)
+
+```{r echo = F}
+counts_t1d_hc <- round(GetAssayData(so_t1d_hc_ec, layer = "counts")) # load counts and round
+counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
+meta_gene <- subset(so_t1d_hc_ec, features = "MTAP")@meta.data
+pred_gene <- model.matrix(~group, data = meta_gene)
+data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
+result_ec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+
+result_ec$summary
+```
+
+## POD
+```{r echo = F}
+so_t1d_hc$celltype_pod <- ifelse(so_t1d_hc$celltype_harmony %in% c("POD"),
+                                     "POD", as.character(so_t1d_hc$celltype_harmony))
+so_t1d_hc_pod <- subset(so_t1d_hc, celltype_pod == "POD")
+
+FeaturePlot(so_t1d_hc_pod, reduction = "umap.harmony", features = "MTAP", raster = F)
+```
+### Pseudoreplication (Treating each cell independently)
+
+```{r echo = F}
+FindMarkers(so_t1d_hc_pod, ident.1 = "Type_1_Diabetes", ident.2 = "Lean_Control", group.by = "group", features = "MTAP")
+```
+### Mixed model using NEBULA (Treating each subject independently)
+
+```{r echo = F}
+counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pod, layer = "counts")) # load counts and round
+counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
+meta_gene <- subset(so_t1d_hc_pod, features = "MTAP")@meta.data
+pred_gene <- model.matrix(~group, data = meta_gene)
+data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
+result_pod <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+
+result_pod$summary
+```
+
+## PEC
+```{r echo = F}
+so_t1d_hc$celltype_pec <- ifelse(so_t1d_hc$celltype_harmony %in% c("PEC"),
+                                     "PEC", as.character(so_t1d_hc$celltype_harmony))
+so_t1d_hc_pec <- subset(so_t1d_hc, celltype_pec == "PEC")
+
+FeaturePlot(so_t1d_hc_pec, reduction = "umap.harmony", features = "MTAP", raster = F)
+```
+### Pseudoreplication (Treating each cell independently)
+
+```{r echo = F}
+FindMarkers(so_t1d_hc_pec, ident.1 = "Type_1_Diabetes", ident.2 = "Lean_Control", group.by = "group", features = "MTAP")
+```
+### Mixed model using NEBULA (Treating each subject independently)
+
+```{r echo = F}
+counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pec, layer = "counts")) # load counts and round
+counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
+meta_gene <- subset(so_t1d_hc_pec, features = "MTAP")@meta.data
+pred_gene <- model.matrix(~group, data = meta_gene)
+data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
+result_pec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+
+result_pec$summary
+```
+
+## PT
+```{r echo = F}
+so_t1d_hc$celltype_pt <- ifelse(grepl("PT-", so_t1d_hc$celltype_harmony),
+                                 "PT", as.character(so_t1d_hc$celltype_harmony))
+so_t1d_hc_pt <- subset(so_t1d_hc, celltype_pt == "PT" & celltype_harmony != "PT_lowQuality")
+FeaturePlot(so_t1d_hc_pt, reduction = "umap.harmony", features = "MTAP", raster = F)
+```
+
+# T1D (-) vs. T1D (+) in ATTEMPT
+
+```{r echo = F}
+temp_file <- tempfile(fileext = ".RDS")
+s3$download_file("scrna", "Kidney transcriptomics/Single cell RNA seq/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS", temp_file)
+attempt_so <- readRDS(temp_file)
+
+DimPlot(attempt_so, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
+DimPlot(attempt_so, reduction = "umap.harmony", group.by = "celltype", raster = F, alpha = 0.2, label = T)
+
+temp_file <- tempfile(fileext = ".RDS")
+s3$download_file("harmonized.dataset", "attempt_clinical_data.RDS", temp_file)
+attempt_dat <- readRDS(temp_file)
+
+attempt_so_meta <- attempt_so@meta.data %>%
+  mutate(subject_id = Subject.ID,
+         visit = case_when(Visit == "BL" ~ "PRE", 
+                           Visit == "4M" ~ "POST"))
+attempt_so_meta <- left_join(attempt_so_meta, attempt_dat, by = c("subject_id", "visit"))
+rownames(attempt_so_meta) <- attempt_so_meta$barcode
+attempt_so <- AddMetaData(attempt_so, attempt_so_meta)
+
+attempt_so$visit <- factor(attempt_so$visit, levels = c("PRE", "POST"))
+attempt_so$treatment <- factor(attempt_so$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
+                                  labels = c("Placebo", "Dapagliflozin"))
+
+attempt_so_bl <- subset(attempt_so, visit == "PRE")
+```
+
+## All cell types combined
+
+```{r echo = F}
+FeaturePlot(attempt_so_bl, reduction = "umap.harmony", features = "MTAP", raster = F)
+```
+### Pseudoreplication (Treating each cell independently)
+
+```{r echo = F}
+FindMarkers(attempt_so_bl, ident.1 = "Dapagliflozin", ident.2 = "Placebo", group.by = "treatment", 
+            features = "MTAP", logfc.threshold = 0)
+```
+### Mixed model using NEBULA (Treating each subject independently)
+
+```{r echo = F}
+counts_attempt_bl <- round(GetAssayData(attempt_so_bl, layer = "counts")) # load counts and round
+counts_attempt_bl_mtap <- counts_attempt_bl["MTAP",]
+meta_gene <- subset(attempt_so_bl, features = "MTAP")@meta.data
+pred_gene <- model.matrix(~treatment, data = meta_gene)
+data_g_gene <- list(count = counts_attempt_bl_mtap, id = meta_gene$subject_id, pred = pred_gene)
+result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+
+result_allcells$summary
+```
+
+## EC
+```{r echo = F}
+attempt_so_bl$celltype_ec <- ifelse(attempt_so_bl$celltype %in% c("EC-PTC", "EC-GC", "EC-AEA", "EC-LYM"),
+                                     "EC", as.character(attempt_so_bl$celltype))
+attempt_so_bl_hc_ec <- subset(attempt_so_bl, celltype_ec == "EC")
+
+FeaturePlot(attempt_so_bl_hc_ec, reduction = "umap.harmony", features = "MTAP", raster = F)
+```
+### Pseudoreplication (Treating each cell independently)
+
+```{r echo = F}
+FindMarkers(attempt_so_bl_hc_ec, ident.1 = "Dapagliflozin", ident.2 = "Placebo", group.by = "treatment", features = "MTAP", logfc.threshold = 0)
+```
+### Mixed model using NEBULA (Treating each subject independently)
+
+```{r echo = F}
+counts_attempt_bl <- round(GetAssayData(attempt_so_bl_hc_ec, layer = "counts")) # load counts and round
+counts_attempt_bl_mtap <- counts_attempt_bl["MTAP", , drop = F]
+meta_gene <- subset(attempt_so_bl_hc_ec, features = "MTAP")@meta.data
+pred_gene <- model.matrix(~treatment, data = meta_gene)
+data_g_gene <- list(count = counts_attempt_bl_mtap, id = meta_gene$subject, pred = pred_gene)
+result_ec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+result_ec$summary
+```
+
+## POD
+```{r echo = F}
+attempt_so_bl$celltype_pod <- ifelse(attempt_so_bl$celltype %in% c("POD"),
+                                     "POD", as.character(attempt_so_bl$celltype))
+attempt_so_bl_hc_pod <- subset(attempt_so_bl, celltype_pod == "POD")
+
+FeaturePlot(attempt_so_bl_hc_pod, reduction = "umap.harmony", features = "MTAP", raster = F)
+```
+### Pseudoreplication (Treating each cell independently)
+
+```{r echo = F}
+FindMarkers(attempt_so_bl_hc_pod, ident.1 = "Dapagliflozin", ident.2 = "Placebo", group.by = "treatment", features = "MTAP", logfc.threshold = 0)
+```
+### Mixed model using NEBULA (Treating each subject independently)
+
+```{r echo = F}
+counts_attempt_bl <- round(GetAssayData(attempt_so_bl_hc_pod, layer = "counts")) # load counts and round
+counts_attempt_bl_mtap <- counts_attempt_bl["MTAP",]
+meta_gene <- subset(attempt_so_bl_hc_pod, features = "MTAP")@meta.data
+pred_gene <- model.matrix(~treatment, data = meta_gene)
+data_g_gene <- list(count = counts_attempt_bl_mtap, id = meta_gene$subject_id, pred = pred_gene)
+result_pod <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+
+result_pod$summary
+```
+
+## PEC
+```{r echo = F}
+attempt_so_bl$celltype_pec <- ifelse(attempt_so_bl$celltype %in% c("PEC"),
+                                     "PEC", as.character(attempt_so_bl$celltype))
+attempt_so_bl_hc_pec <- subset(attempt_so_bl, celltype_pec == "PEC")
+
+FeaturePlot(attempt_so_bl_hc_pec, reduction = "umap.harmony", features = "MTAP", raster = F)
+```
+### Pseudoreplication (Treating each cell independently)
+
+```{r echo = F}
+FindMarkers(attempt_so_bl_hc_pec, ident.1 = "Dapagliflozin", ident.2 = "Placebo", group.by = "treatment", features = "MTAP", logfc.threshold = 0)
+```
+### Mixed model using NEBULA (Treating each subject independently)
+
+```{r echo = F}
+counts_attempt_bl <- round(GetAssayData(attempt_so_bl_hc_pec, layer = "counts")) # load counts and round
+counts_attempt_bl_mtap <- counts_attempt_bl["MTAP",]
+meta_gene <- subset(attempt_so_bl_hc_pec, features = "MTAP")@meta.data
+pred_gene <- model.matrix(~treatment, data = meta_gene)
+data_g_gene <- list(count = counts_attempt_bl_mtap, id = meta_gene$subject_id, pred = pred_gene)
+result_pec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+
+result_pec$summary
+```
+
+## PT
+```{r echo = F}
+attempt_so_bl$celltype_pt <- ifelse(grepl("PT-", attempt_so_bl$celltype),
+                                 "PT", as.character(attempt_so_bl$celltype))
+attempt_so_bl_hc_pt <- subset(attempt_so_bl, celltype_pt == "PT" & celltype != "PT_lowQuality")
+FeaturePlot(attempt_so_bl_hc_pt, reduction = "umap.harmony", features = "MTAP", raster = F)
+```
+### Pseudoreplication (Treating each cell independently)
+
+```{r echo = F}
+FindMarkers(attempt_so_bl_hc_pt, ident.1 = "Dapagliflozin", ident.2 = "Placebo", group.by = "treatment", features = "MTAP", logfc.threshold = 0)
+```
+### Mixed model using NEBULA (Treating each subject independently)
+
+```{r echo = F}
+counts_attempt_bl <- round(GetAssayData(attempt_so_bl_hc_pt, layer = "counts")) # load counts and round
+counts_attempt_bl_mtap <- counts_attempt_bl["MTAP",]
+meta_gene <- subset(attempt_so_bl_hc_pt, features = "MTAP")@meta.data
+pred_gene <- model.matrix(~treatment, data = meta_gene)
+data_g_gene <- list(count = counts_attempt_bl_mtap, id = meta_gene$subject_id, pred = pred_gene)
+result_pt <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+
+result_pt$summary
+```

@@ -1,0 +1,397 @@
+---
+title: "penguin_analysis_R"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+
+```{r echo = F, include = F}
+library(plotly)
+library(dplyr)
+library(reticulate)
+library(corrplot)
+library(knitr)
+library(Hmisc)
+library(tidyverse)
+library(scales)
+library(kableExtra)
+library(gtools)
+library(superheat)
+library(emmeans)
+library(ggpubr)
+library(table1)
+library(RColorBrewer)
+library(magrittr)
+library(ggpattern)
+library(ggpp)
+library(multcomp)
+library(patchwork)
+library(ggnewscale)
+library(ggsignif)
+library(arsenal)
+
+source("/Users/choiyej/GitHub/YC_CHCO/R Functions/label_harmonized_function.R")
+source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+```
+
+
+```{r echo = F}
+# Load data
+dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = "")
+
+# Subset to CROCODILE and PENGUIN, remove T1D/T2D
+dat <- dat %>%
+  filter(study %in% c("CROCODILE", "PENGUIN"),
+         group != "Type 1 Diabetes",
+         group != "Type 2 Diabetes",
+         visit == "baseline") %>%
+  filter(!(study == "RENAL-HEIRitage" & group == "Lean Control")) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, last(na.omit(.x)))),
+                   .by = c(record_id, visit)) %>% 
+  filter(participation_status != "Removed") %>%
+  mutate(
+    ffa_suppression_1 = (baseline_ffa - rowMeans(dplyr::select(., ffa_70, ffa_80, ffa_90), na.rm = TRUE)) / baseline_ffa * 100,
+    ffa_suppression_2 = (baseline_ffa - rowMeans(dplyr::select(., ffa_250, ffa_260, ffa_270), na.rm = TRUE)) / baseline_ffa * 100,
+    aer_24 = (u24_mab * u24_vl) / 1440,
+    aer_24_coltime = (u24_mab * u24_vl) / (u24_hrs * 60),
+    adpkd_grp = case_when(
+      adpkd_classification %in% 1:3 ~ "1ABC",
+      adpkd_classification %in% 4:5 ~ "1DE",
+      TRUE ~ NA_character_),
+    adpkd_classification = recode(adpkd_classification,
+                                   `1` = "1A", `2` = "1B", `3` = "1C", `4` = "1D", `5` = "1E"),
+    height_m = height / 100,
+    height_adj_total_kidney_volume = total_kidney_volume_ml / height_m,
+    height_adj_right_kidney_volume = right_kidney_volume_ml / height_m,
+    height_adj_left_kidney_volume = left_kidney_volume_ml / height_m,
+    avg_f = rowMeans(dplyr::select(., lc_f, rc_f), na.rm = TRUE),
+    avg_k1 = rowMeans(dplyr::select(., lc_k1, rc_k1), na.rm = TRUE),
+    avg_k2 = rowMeans(dplyr::select(., lc_k2, rc_k2), na.rm = TRUE),
+    avg_vb = rowMeans(dplyr::select(., lc_vb, rc_vb), na.rm = TRUE),
+    avg_k1_w_cyst = rowMeans(dplyr::select(., ltot_k1_w_cyst, rtot_k1_w_cyst), na.rm = TRUE),
+    avg_k2_w_cyst = rowMeans(dplyr::select(., ltot_k2_w_cyst, rtot_k2_w_cyst), na.rm = TRUE),
+    avg_k1_wo_cyst = rowMeans(dplyr::select(., ltot_k1_wo_cyst, rtot_k1_wo_cyst), na.rm = TRUE),
+    avg_k2_wo_cyst = rowMeans(dplyr::select(., ltot_k2_wo_cyst, rtot_k2_wo_cyst), na.rm = TRUE),
+    k2_f = avg_k2 / avg_f,
+    k2_k1 = avg_k2 / avg_k1,
+    adjusted_weight = weight - (total_kidney_volume_ml / 1000),
+    adjusted_bmi = adjusted_weight / (height_m^2),
+    vat_index = (dexa_est_vat / 1000) / (height_m^2),
+    m_i = p2_raw_leanm / p2_steady_state_insulin,
+    group = case_when(group == "Lean Control" ~ "NWC",
+                                   group == "PKD" ~ "ADPKD",
+                                   group == "Obese Control" ~ "Obese")) %>%
+  filter(!is.na(avg_k2_w_cyst))
+
+
+```
+
+```{r, include=F}
+dict <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv", na = "")
+
+dict <- label_harmonized_dict(dat, dict) 
+dict <- dict[1,] %>%
+  mutate(height_adj_total_kidney_volume = "Height Adjusted Total Kidney Volume",
+         height_adj_left_kidney_volume = "Height Adjusted Left Kidney Volume",
+         height_adj_right_kidney_volume = "Height Adjusted Right Kidney Volume",
+         m_i = paste0("M/I"),
+         ffa_suppression_1 = "FFA Suppression P1",
+         ffa_suppression_2 = "FFA Suppression P2",
+         m_i_row = paste0("M/I"),
+         p2_raw_leanm_row = p2_raw_leanm,
+         dexa_fat_kg_row = dexa_fat_kg,
+         dexa_lean_kg_row = dexa_lean_kg,
+         dexa_est_vat_row = dexa_est_vat,
+         ltot_k1_w_cyst = paste0("Left Total Kidney K1 w/ cyst (Voxel-wise)"),
+         ltot_k2_w_cyst = paste0("Left Total Kidney K2 w/ cyst (Voxel-wise)"),
+         ltot_k1_wo_cyst = paste0("Left Total Kidney K1 wo/ cyst (Voxel-wise)"),
+         ltot_k2_wo_cyst = paste0("Left Total Kidney K2 wo/ cyst (Voxel-wise)"),
+         rtot_k1_w_cyst = paste0("Right Total Kidney K1 w/ cyst (Voxel-wise)"),
+         rtot_k2_w_cyst = paste0("Right Total Kidney K2 w/ cyst (Voxel-wise)"),
+         rtot_k1_wo_cyst = paste0("Right Total Kidney K1 wo/ cyst (Voxel-wise)"),
+         rtot_k2_wo_cyst = paste0("Right Total Kidney K2 wo/ cyst (Voxel-wise)"),
+         avg_f = paste0("Average cortex perfusion (F)"),
+         avg_k1 = paste0("Average cortex tracer uptake (k1)"),
+         avg_k2 = paste0("Average cortex oxidation (k2)"),
+         avg_vb = paste0("Average cortex vb"),
+         avg_k1_w_cyst = paste0("Average cortex perfusion with cyst (K1)"),
+         avg_k1_wo_cyst = paste0("Average cortex perfusion w/o cyst (K1)"),
+         avg_k2_w_cyst = paste0("Average cortex perfusion with cyst (K2)"),
+         avg_k2_wo_cyst = paste0("Average cortex perfusion w/o cyst (K2)"),
+         k2_f = "k2/f",
+         k2_k1 = "k2/k1",
+         ffa_suppression_1_row = "FFA Suppression P1",
+         ffa_suppression_2_row = "FFA Suppression P2",
+         adjusted_bmi = "Adjusted BMI",
+         aer_24 = "AER",
+         aer_24_coltime = "AER collection time",
+         dexa_est_vat = "Estimated VAT mass",
+         m_i_row = m_i,
+         dexa_body_fat_row = dexa_body_fat,
+         dexa_lean_mass_row = dexa_lean_mass,
+         dexa_est_vat_row = dexa_est_vat,
+         avg_f = "Average F",
+         avg_k1 = "Average K1",
+         avg_k2_w_cyst = "Average k2 w/ cyst",
+         avg_k2_wo_cyst = "Average k2 w/o cyst",
+         cyst_parenchyma_sa = "Cyst parenchyma SA",
+         height_adj_total_kidney_volume = "Height adjusted TKV",
+         height_adj_total_kidney_volume_row = "Height adjusted TKV",
+         k2_f = "Average k2/F",
+         k2_k1 = "Average k2/K1",
+         vat_index = "VAT index")
+
+dat <- label_harmonized(dat, dict)
+```
+
+# Descriptive Table in R
+
+```{r, echo = F, results='asis'}
+# T1: demographics
+# Table 1 with control applied
+tab1 <- tableby(
+  group ~ age + sex + race + height + weight +
+    kwt(adjusted_bmi, "Nmiss", "median", "q1q3") +
+    kwt(acr_u, "Nmiss", "median", "q1q3") +
+    kwt(creatinine_s, "Nmiss", "median", "q1q3") +
+    kwt(sbp, "Nmiss", "median", "q1q3") +
+    kwt(dbp, "Nmiss", "median", "q1q3") +
+    kwt(bmi, "Nmiss", "median", "q1q3") +
+    kwt(aer_24, "Nmiss", "median", "q1q3") +
+    kwt(aer_24_coltime, "Nmiss", "median", "q1q3") +
+    m_i + eGFR_CKD_epi + pulse,
+  data = dat
+)
+
+# T2: imaging and physiological measures
+tab2 <- tableby(
+  group ~ total_kidney_volume_ml + height_adj_total_kidney_volume +
+    right_kidney_volume_ml + height_adj_right_kidney_volume +
+    left_kidney_volume_ml + height_adj_left_kidney_volume +
+    total_liver_volume_ml + total_cyst_volume_ml + total_number_of_cysts +
+    lc_f + rc_f + lc_k1 + rc_k1 + lc_k2 + rc_k2 + lc_vb + rc_vb +
+    rtot_k1_w_cyst + rtot_k1_wo_cyst + ltot_k1_w_cyst + ltot_k1_wo_cyst +
+    rtot_k2_w_cyst + rtot_k2_wo_cyst + ltot_k2_w_cyst + ltot_k2_wo_cyst +
+    avg_f + avg_k1 + avg_k2 + avg_vb +
+    avg_k1_w_cyst + avg_k1_wo_cyst + avg_k2_w_cyst + avg_k2_wo_cyst +
+    k2_f + k2_k1 + glomerular_pressure + ra + re + rvr,
+  data = dat
+)
+
+# To print or view the tables:
+summary(tab1)
+summary(tab2)
+```
+
+# Correlation
+
+```{r, echo = F}
+dat %<>%
+  mutate(m_i_row = m_i,
+         dexa_body_fat_row = dexa_body_fat,
+         dexa_lean_mass_row = dexa_lean_mass,
+         dexa_est_vat_row = dexa_est_vat,
+         height_adj_total_kidney_volume_row = height_adj_total_kidney_volume)
+
+correlation_table_minimal(dat, 
+                          relevant_vars = c(
+                            "m_i", 
+                            "dexa_body_fat", 
+                            "dexa_lean_mass", 
+                            "vat_index",
+                            "ltot_k2_w_cyst", 
+                            "ltot_k2_wo_cyst", 
+                            "rtot_k2_w_cyst",	
+                            "rtot_k2_wo_cyst",
+                            "avg_k2_w_cyst",
+                            "avg_k2_wo_cyst"),
+                          n_col = 4, 
+                          dict = dict)
+
+dat_correlation <- dat %>%
+  dplyr::select(all_of(c("m_i", 
+                         "dexa_body_fat", 
+                         "dexa_lean_mass", 
+                         "vat_index",
+                         "ltot_k2_w_cyst", 
+                         "ltot_k2_wo_cyst", 
+                         "rtot_k2_w_cyst",	
+                         "rtot_k2_wo_cyst",
+                         "avg_k2_w_cyst",
+                         "avg_k2_wo_cyst")))
+
+lower <- cor.mtest(dat_correlation, conf.level = 0.95)$lowCI %>%
+  as.data.frame() %>%
+  dplyr::mutate_all(round, digits = 2)
+upper <- cor.mtest(dat_correlation, conf.level = 0.95)$uppCI %>%
+  as.data.frame() %>%
+  dplyr::mutate_all(round, digits = 2)
+ci <- data.frame(lapply(seq_along(lower), function(i) {
+  paste("(", lower[[i]], ",", upper[[i]], ")", sep = "")
+}))
+colnames(ci) <- colnames(lower)
+rownames(ci) <- rownames(lower)
+# ci
+```
+
+```{r echo = F}
+correlation_table_minimal(dat,
+                   relevant_vars  = c("height_adj_total_kidney_volume",
+                         "height_adj_right_kidney_volume",
+                         "height_adj_left_kidney_volume",
+                         "total_liver_volume_ml",
+                         "total_cyst_volume_ml",
+                         "total_number_of_cysts",
+                         "cyst_parenchyma_sa",
+                         "m_i",
+                         "dexa_body_fat",
+                         "dexa_lean_mass",
+                         "vat_index",
+                         "lc_f",
+                         "rc_f",
+                         "avg_f",
+                         "lc_k1",
+                         "rc_k1",
+                         "avg_k1",
+                         "k2_f",
+                         "k2_k1",
+                         "ltot_k2_w_cyst",
+                         "ltot_k2_wo_cyst",
+                         "rtot_k2_w_cyst",
+                         "rtot_k2_wo_cyst",
+                         "avg_k2_w_cyst",
+                         "avg_k2_wo_cyst"
+                         ),
+                   n_cols = 7,
+                   dict = dict)
+
+dat_correlation <- dat %>%
+  dplyr::select(all_of(c("height_adj_total_kidney_volume",
+                         "height_adj_right_kidney_volume",
+                         "height_adj_left_kidney_volume",
+                         "total_liver_volume_ml",
+                         "total_cyst_volume_ml",
+                         "total_number_of_cysts",
+                         "cyst_parenchyma_sa",
+                         "m_i",
+                         "dexa_body_fat",
+                         "dexa_lean_mass",
+                         "vat_index",
+                         "lc_f",
+                         "rc_f",
+                         "avg_f",
+                         "lc_k1",
+                         "rc_k1",
+                         "avg_k1",
+                         "k2_f",
+                         "k2_k1",
+                         "ltot_k2_w_cyst",
+                         "ltot_k2_wo_cyst",
+                         "rtot_k2_w_cyst",
+                         "rtot_k2_wo_cyst",
+                         "avg_k2_w_cyst",
+                         "avg_k2_wo_cyst"
+                         )))
+
+lower <- cor.mtest(dat_correlation, conf.level = 0.95)$lowCI %>%
+  as.data.frame() %>%
+  dplyr::mutate_all(round, digits = 2)
+upper <- cor.mtest(dat_correlation, conf.level = 0.95)$uppCI %>%
+  as.data.frame() %>%
+  dplyr::mutate_all(round, digits = 2)
+ci <- data.frame(lapply(seq_along(lower), function(i) {
+  paste("(", lower[[i]], ",", upper[[i]], ")", sep = "")
+}))
+colnames(ci) <- colnames(lower)
+rownames(ci) <- rownames(lower)
+# ci
+```
+
+```{r echo = F}
+correlation_table_minimal(data = subset(dat, group == "ADPKD"),
+                   relevant_vars  = c("height_adj_total_kidney_volume",
+                         "total_liver_volume_ml",
+                         "total_cyst_volume_ml",
+                         "total_number_of_cysts",
+                         "cyst_parenchyma_sa",
+                         "glomerular_pressure",
+                         "re", "ra", "rvr"
+                         ),
+                   n_cols = 5,
+                   dict = dict)
+
+dat_correlation <- subset(dat, group == "ADPKD") %>%
+  dplyr::select(all_of(c("height_adj_total_kidney_volume",
+                         "total_liver_volume_ml",
+                         "total_cyst_volume_ml",
+                         "total_number_of_cysts",
+                         "cyst_parenchyma_sa",
+                         "glomerular_pressure",
+                         "re", "ra", "rvr"
+                         )))
+
+lower <- cor.mtest(dat_correlation, conf.level = 0.95)$lowCI %>%
+  as.data.frame() %>%
+  dplyr::mutate_all(round, digits = 2)
+upper <- cor.mtest(dat_correlation, conf.level = 0.95)$uppCI %>%
+  as.data.frame() %>%
+  dplyr::mutate_all(round, digits = 2)
+ci <- data.frame(lapply(seq_along(lower), function(i) {
+  paste("(", lower[[i]], ",", upper[[i]], ")", sep = "")
+}))
+colnames(ci) <- colnames(lower)
+rownames(ci) <- rownames(lower)
+# ci
+```
+
+```{r echo = F, warning=F}
+corr_plot_modified(subset(dat, group == "ADPKD"), 
+                   Y = c("height_adj_total_kidney_volume",
+                         "total_liver_volume_ml",
+                         "total_cyst_volume_ml",
+                         "total_number_of_cysts",
+                         "cyst_parenchyma_sa"), 
+                   X = c("glomerular_pressure",
+                         "re", "ra", "rvr"),
+                   dict = dict)
+
+# Define your variable pairs
+Y <- c("height_adj_total_kidney_volume",
+       "total_liver_volume_ml",
+       "total_cyst_volume_ml",
+       "total_number_of_cysts",
+       "cyst_parenchyma_sa")
+
+X <- c("glomerular_pressure", "re", "ra", "rvr")
+
+# Create all combinations of X and Y
+pairs <- crossing(X = X, Y = Y)
+
+# Loop through and generate plots
+plots <- pmap(pairs, function(X, Y) {
+  ggplot(dat, aes_string(x = X, y = Y)) +
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = "lm", se = FALSE, color = "blue", linewidth = 0.8) +
+    labs(title = paste(Y, "vs", X),
+         x = X,
+         y = Y) +
+    theme_minimal()
+})
+
+plots
+
+subset_dat <- subset(dat, select = c(record_id, visit, gfr_raw_plasma, erpf_raw_plasma,
+                                     glomerular_pressure, re, ra, rvr, height_adj_total_kidney_volume,
+       total_liver_volume_ml,
+       total_cyst_volume_ml,
+       total_number_of_cysts,
+       cyst_parenchyma_sa))
+```

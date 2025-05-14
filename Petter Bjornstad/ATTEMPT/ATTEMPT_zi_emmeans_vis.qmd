@@ -131,7 +131,7 @@ capitalize_acronyms <- function(text, terms) {
 plot_fgsea <- function(fgsea_res,
                             top_n = 30,
                             title = "Top Enriched Pathways",
-                            xlimit = 3,
+                            xmax = 3,
                             xnudge = xlimit/100,
                             text1 = 6.5,
                             text2 = 18,
@@ -329,6 +329,7 @@ pt_emmeans_diff_mod1 %>%
 
 ```{r echo = F}
 plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suffix, p_thresh = 0.05) {
+  set.seed(1)
   top_pos <- data %>%
     dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
     dplyr::arrange(!!sym(p_col)) %>%
@@ -5154,6 +5155,7 @@ nonconverged_list <- list(pt = pt_nonconverged_genes_mod2,
                           pc = pc_nonconverged_genes_mod2)
 UpSetR::upset(fromList(nonconverged_list), order.by = "freq")
 ```
+
 # nebula
 
 ### PT
@@ -5164,8 +5166,12 @@ nebula_pt_results_list <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-
 nebula_pt_results_list_reml <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pt_attempt_hvg_nebula_res_reml.rds")
 
 nebula_pt_results_list_reml_offset <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pt_attempt_hvg_nebula_res_reml_offset.rds")
-```
 
+nebula_pt_results_list_reml_tmm <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pt_attempt_hvg_nebula_res_reml_tmm.rds")
+
+nebula_pt_results_list_reml_pooled <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pt_attempt_hvg_nebula_res_reml_pooled.rds")
+```
+#### ML
 ```{r echo = F}
 # nebula only keeps results for converged
 pt_nebula_convergence <- map_dfr(
@@ -5186,11 +5192,13 @@ pt_nebula_res_combined <- map_dfr(
   function(gene_name) {
     df <- nebula_pt_results_list[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% pt_nebula_converged$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+
+pt_nebula_res_combined <- pt_nebula_res_combined %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 pt_nebula_disp_combined <- map_dfr(
   names(nebula_pt_results_list),
@@ -5217,7 +5225,7 @@ plot_volcano(pt_nebula_res_combined, "logFC_treatmentDapagliflozin:visitPOST",
              "-log10(FDR adjusted p-value)",
              "nebula/pt_placebo_pvalue_nebula")
 ```
-
+#### REML
 ```{r echo = F}
 # nebula only keeps results for converged
 pt_nebula_convergence_reml <- map_dfr(
@@ -5238,11 +5246,12 @@ pt_nebula_res_combined_reml <- map_dfr(
   function(gene_name) {
     df <- nebula_pt_results_list_reml[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% pt_nebula_converged_reml$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+pt_nebula_res_combined_reml <- pt_nebula_res_combined_reml%>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 pt_nebula_disp_combined_reml <- map_dfr(
   names(nebula_pt_results_list_reml),
@@ -5269,6 +5278,8 @@ plot_volcano(pt_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:visitPOS
              "-log10(FDR adjusted p-value)",
              "nebula/pt_placebo_pvalue_nebula_reml")
 ```
+
+#### REML + Offset
 ```{r echo = F}
 # nebula only keeps results for converged
 pt_nebula_convergence_reml_offset <- map_dfr(
@@ -5289,11 +5300,13 @@ pt_nebula_res_combined_reml_offset <- map_dfr(
   function(gene_name) {
     df <- nebula_pt_results_list_reml_offset[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% pt_nebula_converged_reml_offset$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+
+pt_nebula_res_combined_reml_offset <- pt_nebula_res_combined_reml_offset %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 pt_nebula_disp_combined_reml_offset <- map_dfr(
   names(nebula_pt_results_list_reml_offset),
@@ -5308,27 +5321,136 @@ pt_nebula_disp_combined_reml_offset <- map_dfr(
 ```{r echo =F}
 plot_volcano(pt_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
              "p_treatmentDapagliflozin:visitPOST",
-             "nebula PT (REML)", 
+             "nebula PT (REML & Library size offset)", 
              "logFC Treatment(Dapagliflozin):Visit(POST)", 
              "-log10(p-value)",
              "nebula/pt_placebo_pvalue_nebula_reml_offset")
 
 plot_volcano(pt_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
              "fdr_interaction",
-             "nebula PT (REML)", 
+             "nebula PT (REML & Library size offset)", 
              "logFC Treatment(Dapagliflozin):Visit(POST)", 
              "-log10(FDR adjusted p-value)",
              "nebula/pt_placebo_pvalue_nebula_reml_offset")
 ```
 
+#### REML + TMM Offset
+```{r echo = F}
+# nebula only keeps results for converged
+pt_nebula_convergence_reml_tmm <- map_dfr(
+  names(nebula_pt_results_list_reml_tmm),
+  function(gene_name) {
+    converged <- nebula_pt_results_list_reml_tmm[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+pt_nebula_converged_reml_tmm <- pt_nebula_convergence_reml_tmm %>%
+  filter(Convergence_Code >=-10)
+
+pt_nebula_res_combined_reml_tmm <- map_dfr(
+  names(nebula_pt_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_pt_results_list_reml_tmm[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% pt_nebula_converged_reml_tmm$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+pt_nebula_res_combined_reml_tmm <- pt_nebula_res_combined_reml_tmm%>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+pt_nebula_disp_combined_reml_tmm <- map_dfr(
+  names(nebula_pt_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_pt_results_list_reml_tmm[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(pt_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula PT (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/pt_placebo_pvalue_nebula_reml_tmm")
+
+plot_volcano(pt_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula PT (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/pt_placebo_pvalue_nebula_reml_tmm")
+```
+#### REML + pooled Offset
+```{r echo = F}
+# nebula only keeps results for converged
+pt_nebula_convergence_reml_pooled <- map_dfr(
+  names(nebula_pt_results_list_reml_pooled),
+  function(gene_name) {
+    converged <- nebula_pt_results_list_reml_pooled[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+pt_nebula_converged_reml_pooled <- pt_nebula_convergence_reml_pooled %>%
+  filter(Convergence_Code >=-10)
+
+pt_nebula_res_combined_reml_pooled <- map_dfr(
+  names(nebula_pt_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_pt_results_list_reml_pooled[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% pt_nebula_converged_reml_pooled$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+pt_nebula_res_combined_reml_pooled <- pt_nebula_res_combined_reml_pooled%>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+pt_nebula_disp_combined_reml_pooled <- map_dfr(
+  names(nebula_pt_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_pt_results_list_reml_pooled[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(pt_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula PT (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/pt_placebo_pvalue_nebula_reml_pooled")
+
+plot_volcano(pt_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula PT (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/pt_placebo_pvalue_nebula_reml_pooled")
+```
 
 #### GSEA (fgsea)
 ```{r echo = F}
 plot_fgsea_transpose <- function(fgsea_res,
                        top_n = 30,
                        title = "Top Enriched Pathways",
-                       xlimit = 3,
-                       xnudge = xlimit/100,
+                       xmin = 0,
+                       xmax = 3,
+                       xnudge = (xmax - xmin)/100,
                        text1 = 6.5,
                        text2 = 18,
                        text3 = 20) {
@@ -5374,7 +5496,7 @@ plot_fgsea_transpose <- function(fgsea_res,
     scale_size_binned() +
     scale_color_manual(values = c("Positive" = "#c75146", "Negative" = "#2c7da0", 
                                   "Positive p > 0.05" = "#e18c80", "Negative p > 0.05" = "#7ab6d1")) +
-    scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
+    scale_x_continuous(limits = c(xmin, xmax), expand = expansion(mult = c(0, 0))) +
     scale_y_discrete(expand = expansion(add = 1)) +
     labs(
       x = "NES",
@@ -5407,51 +5529,51 @@ plot_fgsea_transpose <- function(fgsea_res,
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(pt_nebula_res_combined$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(pt_nebula_res_combined$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(pt_nebula_res_combined$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(pt_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(pt_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(pt_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_pt_nebula <- pt_nebula_res_combined$`logFC_treatmentDapagliflozin:visitPOST`
-names(rankings_pt_nebula) <- pt_nebula_res_combined$Gene
-rankings_pt_nebula <- sort(rankings_pt_nebula, decreasing = TRUE)
-plot(rankings_pt_nebula)
-min(rankings_pt_nebula)
-max(rankings_pt_nebula)
+rankings_pt_nebula_reml_offset <- pt_nebula_res_combined_reml_offset$`logFC_treatmentDapagliflozin:visitPOST`
+names(rankings_pt_nebula_reml_offset) <- pt_nebula_res_combined_reml_offset$Gene
+rankings_pt_nebula_reml_offset <- sort(rankings_pt_nebula_reml_offset, decreasing = TRUE)
+plot(rankings_pt_nebula_reml_offset)
+min(rankings_pt_nebula_reml_offset)
+max(rankings_pt_nebula_reml_offset)
 ```
 
 ```{r echo = F}
 set.seed(1234)
 
-kegg_legacy_res_pt_nebula <- fgsea(pathways = kegg_legacy,
-                                 stats = rankings_pt_nebula,
+kegg_legacy_res_pt_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
+                                 stats = rankings_pt_nebula_reml_offset,
                                  scoreType = 'std', 
                                  minSize = 3,
                                  maxSize = 500,
                                  nproc = 1)
 
-reactome_res_pt_nebula <- fgsea(pathways = reactome,
-                              stats = rankings_pt_nebula,
+reactome_res_pt_nebula_reml_offset <- fgsea(pathways = reactome,
+                              stats = rankings_pt_nebula_reml_offset,
                               scoreType = 'std', 
                               minSize = 3,
                               maxSize = 500,
                               nproc = 1)
-go_res_pt_nebula <- fgsea(pathways = go,
-                        stats = rankings_pt_nebula,
+go_res_pt_nebula_reml_offset <- fgsea(pathways = go,
+                        stats = rankings_pt_nebula_reml_offset,
                         scoreType = 'std', 
                         minSize = 5,
                         maxSize = 500,
                         nproc = 1)
 
-fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_pt_nebula[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_pt_nebula[, pval < 0.05], na.rm = T)),
-                         "REACTOME"=c(sum(reactome_res_pt_nebula[, padj < 0.05], na.rm = T), sum(reactome_res_pt_nebula[, pval < 0.05], na.rm = T)),
-                         "GO"=c(sum(go_res_pt_nebula[, padj < 0.05], na.rm = T), sum(go_res_pt_nebula[, pval < 0.05], na.rm = T)))
+fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_pt_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_pt_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "REACTOME"=c(sum(reactome_res_pt_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(reactome_res_pt_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "GO"=c(sum(go_res_pt_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(go_res_pt_nebula_reml_offset[, pval < 0.05], na.rm = T)))
 rownames(fgsea) <- c("adj.pval", "p.val")
 
 ```
 ##### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_pt_nebula, title = "PT nebula Top 30 KEGG", xlimit = 4)
+plot_fgsea_transpose(kegg_legacy_res_pt_nebula_reml_offset, title = "PT nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -5459,14 +5581,14 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 ##### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_pt_nebula, title = "PT nebula Top 30 REACTOME", xlimit = 5)
+plot_fgsea_transpose(reactome_res_pt_nebula_reml_offset, title = "PT nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_pt_nebula, title = "PT nebula Top 30 GO", xlimit = 5)
+plot_fgsea_transpose(go_res_pt_nebula_reml_offset, title = "PT nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_go_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -5474,13 +5596,21 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 
 ### TAL
+
 ```{r echo = F}
 ## read mixed model results dataframe (rendered in Hyak)
 nebula_tal_results_list <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/tal_attempt_hvg_nebula_res.rds")
 
 nebula_tal_results_list_reml <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/tal_attempt_hvg_nebula_res_reml.rds")
+
+nebula_tal_results_list_reml_offset <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/tal_attempt_hvg_nebula_res_reml_offset.rds")
+
+nebula_tal_results_list_reml_tmm <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/tal_attempt_hvg_nebula_res_reml_tmm.rds")
+
+nebula_tal_results_list_reml_pooled <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/tal_attempt_hvg_nebula_res_reml_pooled.rds")
 ```
 
+#### ML
 ```{r echo = F}
 # nebula only keeps results for converged
 tal_nebula_convergence <- map_dfr(
@@ -5501,11 +5631,13 @@ tal_nebula_res_combined <- map_dfr(
   function(gene_name) {
     df <- nebula_tal_results_list[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% tal_nebula_converged$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+
+tal_nebula_res_combined <- tal_nebula_res_combined %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 tal_nebula_disp_combined <- map_dfr(
   names(nebula_tal_results_list),
@@ -5533,7 +5665,7 @@ plot_volcano(tal_nebula_res_combined, "logFC_treatmentDapagliflozin:visitPOST",
              "nebula/tal_placebo_pvalue_nebula")
 ```
 
-
+#### REML
 ```{r echo = F}
 # nebula only keeps results for converged
 tal_nebula_convergence_reml <- map_dfr(
@@ -5554,11 +5686,13 @@ tal_nebula_res_combined_reml <- map_dfr(
   function(gene_name) {
     df <- nebula_tal_results_list_reml[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% tal_nebula_converged_reml$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+
+tal_nebula_res_combined_reml <- tal_nebula_res_combined_reml %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 tal_nebula_disp_combined_reml <- map_dfr(
   names(nebula_tal_results_list_reml),
@@ -5585,7 +5719,173 @@ plot_volcano(tal_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:visitPO
              "-log10(FDR adjusted p-value)",
              "nebula/tal_placebo_pvalue_nebula_reml")
 ```
-#### GSEA (fgsea)
+
+#### REML + Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+tal_nebula_convergence_reml_offset <- map_dfr(
+  names(nebula_tal_results_list_reml_offset),
+  function(gene_name) {
+    converged <- nebula_tal_results_list_reml_offset[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+tal_nebula_converged_reml_offset <- tal_nebula_convergence_reml_offset %>%
+  filter(Convergence_Code >=-10)
+
+tal_nebula_res_combined_reml_offset <- map_dfr(
+  names(nebula_tal_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_tal_results_list_reml_offset[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% tal_nebula_converged_reml_offset$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+tal_nebula_res_combined_reml_offset <- tal_nebula_res_combined_reml_offset %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+tal_nebula_disp_combined_reml_offset <- map_dfr(
+  names(nebula_tal_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_tal_results_list_reml_offset[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(tal_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula TAL (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/tal_placebo_pvalue_nebula_reml_offset")
+
+plot_volcano(tal_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula TAL (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/tal_placebo_pvalue_nebula_reml_offset")
+```
+
+#### REML + TMM Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+tal_nebula_convergence_reml_tmm <- map_dfr(
+  names(nebula_tal_results_list_reml_tmm),
+  function(gene_name) {
+    converged <- nebula_tal_results_list_reml_tmm[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+tal_nebula_converged_reml_tmm <- tal_nebula_convergence_reml_tmm %>%
+  filter(Convergence_Code >=-10)
+
+tal_nebula_res_combined_reml_tmm <- map_dfr(
+  names(nebula_tal_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_tal_results_list_reml_tmm[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% tal_nebula_converged_reml_tmm$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+tal_nebula_res_combined_reml_tmm <- tal_nebula_res_combined_reml_tmm %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+tal_nebula_disp_combined_reml_tmm <- map_dfr(
+  names(nebula_tal_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_tal_results_list_reml_tmm[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(tal_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula TAL (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/tal_placebo_pvalue_nebula_reml_tmm")
+
+plot_volcano(tal_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula TAL (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/tal_placebo_pvalue_nebula_reml_tmm")
+```
+#### REML + pooled Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+tal_nebula_convergence_reml_pooled <- map_dfr(
+  names(nebula_tal_results_list_reml_pooled),
+  function(gene_name) {
+    converged <- nebula_tal_results_list_reml_pooled[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+tal_nebula_converged_reml_pooled <- tal_nebula_convergence_reml_pooled %>%
+  filter(Convergence_Code >=-10)
+
+tal_nebula_res_combined_reml_pooled <- map_dfr(
+  names(nebula_tal_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_tal_results_list_reml_pooled[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% tal_nebula_converged_reml_pooled$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+tal_nebula_res_combined_reml_pooled <- tal_nebula_res_combined_reml_pooled %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+tal_nebula_disp_combined_reml_pooled <- map_dfr(
+  names(nebula_tal_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_tal_results_list_reml_pooled[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(tal_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula TAL (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/tal_placebo_pvalue_nebula_reml_pooled")
+
+plot_volcano(tal_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula TAL (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/tal_placebo_pvalue_nebula_reml_pooled")
+```
+
+##### GSEA (fgsea)
 
 ```{r echo = F}
 # For GSEA
@@ -5593,79 +5893,87 @@ plot_volcano(tal_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:visitPO
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(tal_nebula_res_combined$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(tal_nebula_res_combined$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(tal_nebula_res_combined$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(tal_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(tal_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(tal_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_tal_nebula <- tal_nebula_res_combined$`logFC_treatmentDapagliflozin:visitPOST`
-names(rankings_tal_nebula) <- tal_nebula_res_combined$Gene
-rankings_tal_nebula <- sort(rankings_tal_nebula, decreasing = TRUE)
-plot(rankings_tal_nebula)
-min(rankings_tal_nebula)
-max(rankings_tal_nebula)
+rankings_tal_nebula_reml_offset <- tal_nebula_res_combined_reml_offset$`logFC_treatmentDapagliflozin:visitPOST`
+names(rankings_tal_nebula_reml_offset) <- tal_nebula_res_combined_reml_offset$Gene
+rankings_tal_nebula_reml_offset <- sort(rankings_tal_nebula_reml_offset, decreasing = TRUE)
+plot(rankings_tal_nebula_reml_offset)
+min(rankings_tal_nebula_reml_offset)
+max(rankings_tal_nebula_reml_offset)
 ```
 
 ```{r echo = F}
 set.seed(1234)
 
-kegg_legacy_res_tal_nebula <- fgsea(pathways = kegg_legacy,
-                                 stats = rankings_tal_nebula,
+kegg_legacy_res_tal_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
+                                 stats = rankings_tal_nebula_reml_offset,
                                  scoreType = 'std', 
                                  minSize = 3,
                                  maxSize = 500,
                                  nproc = 1)
 
-reactome_res_tal_nebula <- fgsea(pathways = reactome,
-                              stats = rankings_tal_nebula,
+reactome_res_tal_nebula_reml_offset <- fgsea(pathways = reactome,
+                              stats = rankings_tal_nebula_reml_offset,
                               scoreType = 'std', 
                               minSize = 3,
                               maxSize = 500,
                               nproc = 1)
-go_res_tal_nebula <- fgsea(pathways = go,
-                        stats = rankings_tal_nebula,
+go_res_tal_nebula_reml_offset <- fgsea(pathways = go,
+                        stats = rankings_tal_nebula_reml_offset,
                         scoreType = 'std', 
                         minSize = 5,
                         maxSize = 500,
                         nproc = 1)
 
-fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_tal_nebula[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_tal_nebula[, pval < 0.05], na.rm = T)),
-                         "REACTOME"=c(sum(reactome_res_tal_nebula[, padj < 0.05], na.rm = T), sum(reactome_res_tal_nebula[, pval < 0.05], na.rm = T)),
-                         "GO"=c(sum(go_res_tal_nebula[, padj < 0.05], na.rm = T), sum(go_res_tal_nebula[, pval < 0.05], na.rm = T)))
+fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_tal_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_tal_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "REACTOME"=c(sum(reactome_res_tal_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(reactome_res_tal_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "GO"=c(sum(go_res_tal_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(go_res_tal_nebula_reml_offset[, pval < 0.05], na.rm = T)))
 rownames(fgsea) <- c("adj.pval", "p.val")
 
 ```
-##### KEGG Legacy
+###### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_tal_nebula, title = "TAL nebula Top 30 KEGG", xlimit = 3)
+plot_fgsea_transpose(kegg_legacy_res_tal_nebula_reml_offset, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.3, xmax = 3.1)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 
-##### REACTOME
+###### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_tal_nebula, title = "TAL nebula Top 30 REACTOME", xlimit = 4)
+plot_fgsea_transpose(reactome_res_tal_nebula_reml_offset, title = "TAL nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 4)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
-##### GO
+###### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_tal_nebula, title = "TAL nebula Top 30 GO", xlimit = 4)
+plot_fgsea_transpose(go_res_tal_nebula_reml_offset, title = "TAL nebula Top 30 GO (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_go_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 
 ### PC
+
 ```{r echo = F}
 ## read mixed model results dataframe (rendered in Hyak)
 nebula_pc_results_list <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pc_attempt_hvg_nebula_res.rds")
 
 nebula_pc_results_list_reml <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pc_attempt_hvg_nebula_res_reml.rds")
+
+nebula_pc_results_list_reml_offset <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pc_attempt_hvg_nebula_res_reml_offset.rds")
+
+nebula_pc_results_list_reml_tmm <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pc_attempt_hvg_nebula_res_reml_tmm.rds")
+
+nebula_pc_results_list_reml_pooled <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pc_attempt_hvg_nebula_res_reml_pooled.rds")
 ```
 
+#### ML
 ```{r echo = F}
 # nebula only keeps results for converged
 pc_nebula_convergence <- map_dfr(
@@ -5686,11 +5994,13 @@ pc_nebula_res_combined <- map_dfr(
   function(gene_name) {
     df <- nebula_pc_results_list[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% pc_nebula_converged$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+
+pc_nebula_res_combined <- pc_nebula_res_combined %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 pc_nebula_disp_combined <- map_dfr(
   names(nebula_pc_results_list),
@@ -5718,6 +6028,7 @@ plot_volcano(pc_nebula_res_combined, "logFC_treatmentDapagliflozin:visitPOST",
              "nebula/pc_placebo_pvalue_nebula")
 ```
 
+#### REML
 ```{r echo = F}
 # nebula only keeps results for converged
 pc_nebula_convergence_reml <- map_dfr(
@@ -5738,11 +6049,12 @@ pc_nebula_res_combined_reml <- map_dfr(
   function(gene_name) {
     df <- nebula_pc_results_list_reml[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% pc_nebula_converged_reml$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+pc_nebula_res_combined_reml <- pc_nebula_res_combined_reml %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 pc_nebula_disp_combined_reml <- map_dfr(
   names(nebula_pc_results_list_reml),
@@ -5769,7 +6081,177 @@ plot_volcano(pc_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:visitPOS
              "-log10(FDR adjusted p-value)",
              "nebula/pc_placebo_pvalue_nebula_reml")
 ```
-#### GSEA (fgsea)
+
+#### REML + Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+pc_nebula_convergence_reml_offset <- map_dfr(
+  names(nebula_pc_results_list_reml_offset),
+  function(gene_name) {
+    converged <- nebula_pc_results_list_reml_offset[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+pc_nebula_converged_reml_offset <- pc_nebula_convergence_reml_offset %>%
+  filter(Convergence_Code >=-10)
+
+pc_nebula_res_combined_reml_offset <- map_dfr(
+  names(nebula_pc_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_pc_results_list_reml_offset[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% pc_nebula_converged_reml_offset$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+pc_nebula_res_combined_reml_offset <- pc_nebula_res_combined_reml_offset %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+pc_nebula_disp_combined_reml_offset <- map_dfr(
+  names(nebula_pc_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_pc_results_list_reml_offset[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(pc_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula PC (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/pc_placebo_pvalue_nebula_reml_offset")
+
+plot_volcano(pc_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula PC (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/pc_placebo_pvalue_nebula_reml_offset")
+```
+
+#### REML + TMM Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+pc_nebula_convergence_reml_tmm <- map_dfr(
+  names(nebula_pc_results_list_reml_tmm),
+  function(gene_name) {
+    converged <- nebula_pc_results_list_reml_tmm[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+pc_nebula_converged_reml_tmm <- pc_nebula_convergence_reml_tmm %>%
+  filter(Convergence_Code >=-10)
+
+pc_nebula_res_combined_reml_tmm <- map_dfr(
+  names(nebula_pc_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_pc_results_list_reml_tmm[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% pc_nebula_converged_reml_tmm$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+pc_nebula_res_combined_reml_tmm <- pc_nebula_res_combined_reml_tmm %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+pc_nebula_disp_combined_reml_tmm <- map_dfr(
+  names(nebula_pc_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_pc_results_list_reml_tmm[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(pc_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula PC (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/pc_placebo_pvalue_nebula_reml_tmm")
+
+plot_volcano(pc_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula PC (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/pc_placebo_pvalue_nebula_reml_tmm")
+```
+
+
+#### REML + pooled Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+pc_nebula_convergence_reml_pooled <- map_dfr(
+  names(nebula_pc_results_list_reml_pooled),
+  function(gene_name) {
+    converged <- nebula_pc_results_list_reml_pooled[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+pc_nebula_converged_reml_pooled <- pc_nebula_convergence_reml_pooled %>%
+  filter(Convergence_Code >=-10)
+
+pc_nebula_res_combined_reml_pooled <- map_dfr(
+  names(nebula_pc_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_pc_results_list_reml_pooled[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% pc_nebula_converged_reml_pooled$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+pc_nebula_res_combined_reml_pooled <- pc_nebula_res_combined_reml_pooled %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+pc_nebula_disp_combined_reml_pooled <- map_dfr(
+  names(nebula_pc_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_pc_results_list_reml_pooled[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(pc_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula PC (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/pc_placebo_pvalue_nebula_reml_pooled")
+
+plot_volcano(pc_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula PC (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/pc_placebo_pvalue_nebula_reml_pooled")
+```
+
+##### GSEA (fgsea)
 
 ```{r echo = F}
 # For GSEA
@@ -5777,66 +6259,66 @@ plot_volcano(pc_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:visitPOS
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(pc_nebula_res_combined$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(pc_nebula_res_combined$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(pc_nebula_res_combined$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(pc_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(pc_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(pc_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_pc_nebula <- pc_nebula_res_combined$`logFC_treatmentDapagliflozin:visitPOST`
-names(rankings_pc_nebula) <- pc_nebula_res_combined$Gene
-rankings_pc_nebula <- sort(rankings_pc_nebula, decreasing = TRUE)
-plot(rankings_pc_nebula)
-min(rankings_pc_nebula)
-max(rankings_pc_nebula)
+rankings_pc_nebula_reml_offset <- pc_nebula_res_combined_reml_offset$`logFC_treatmentDapagliflozin:visitPOST`
+names(rankings_pc_nebula_reml_offset) <- pc_nebula_res_combined_reml_offset$Gene
+rankings_pc_nebula_reml_offset <- sort(rankings_pc_nebula_reml_offset, decreasing = TRUE)
+plot(rankings_pc_nebula_reml_offset)
+min(rankings_pc_nebula_reml_offset)
+max(rankings_pc_nebula_reml_offset)
 ```
 
 ```{r echo = F}
 set.seed(1234)
 
-kegg_legacy_res_pc_nebula <- fgsea(pathways = kegg_legacy,
-                                 stats = rankings_pc_nebula,
+kegg_legacy_res_pc_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
+                                 stats = rankings_pc_nebula_reml_offset,
                                  scoreType = 'std', 
                                  minSize = 3,
                                  maxSize = 500,
                                  nproc = 1)
 
-reactome_res_pc_nebula <- fgsea(pathways = reactome,
-                              stats = rankings_pc_nebula,
+reactome_res_pc_nebula_reml_offset <- fgsea(pathways = reactome,
+                              stats = rankings_pc_nebula_reml_offset,
                               scoreType = 'std', 
                               minSize = 3,
                               maxSize = 500,
                               nproc = 1)
-go_res_pc_nebula <- fgsea(pathways = go,
-                        stats = rankings_pc_nebula,
+go_res_pc_nebula_reml_offset <- fgsea(pathways = go,
+                        stats = rankings_pc_nebula_reml_offset,
                         scoreType = 'std', 
                         minSize = 5,
                         maxSize = 500,
                         nproc = 1)
 
-fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_pc_nebula[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_pc_nebula[, pval < 0.05], na.rm = T)),
-                         "REACTOME"=c(sum(reactome_res_pc_nebula[, padj < 0.05], na.rm = T), sum(reactome_res_pc_nebula[, pval < 0.05], na.rm = T)),
-                         "GO"=c(sum(go_res_pc_nebula[, padj < 0.05], na.rm = T), sum(go_res_pc_nebula[, pval < 0.05], na.rm = T)))
+fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_pc_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_pc_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "REACTOME"=c(sum(reactome_res_pc_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(reactome_res_pc_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "GO"=c(sum(go_res_pc_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(go_res_pc_nebula_reml_offset[, pval < 0.05], na.rm = T)))
 rownames(fgsea) <- c("adj.pval", "p.val")
 
 ```
-##### KEGG Legacy
+###### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_pc_nebula, title = "PC nebula Top 30 KEGG", xlimit = 3)
+plot_fgsea_transpose(kegg_legacy_res_pc_nebula_reml_offset, title = "PC nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.2)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 
-##### REACTOME
+###### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_pc_nebula, title = "PC nebula Top 30 REACTOME", xlimit = 3)
+plot_fgsea_transpose(reactome_res_pc_nebula_reml_offset, title = "PC nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.4, xmax = 2.4)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
-##### GO
+###### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_pc_nebula, title = "PC nebula Top 30 GO", xlimit = 4)
+plot_fgsea_transpose(go_res_pc_nebula_reml_offset, title = "PC nebula Top 30 GO (REML & Library size offset)", xmin = 1.5, xmax = 2.2)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_go_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -5845,12 +6327,21 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 ### Immune (very few cells)
 
+
 ```{r echo = F}
 ## read mixed model results dataframe (rendered in Hyak)
 nebula_immune_results_list <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/immune_attempt_hvg_nebula_res.rds")
+
 nebula_immune_results_list_reml <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/immune_attempt_hvg_nebula_res_reml.rds")
+
+nebula_immune_results_list_reml_offset <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/immune_attempt_hvg_nebula_res_reml_offset.rds")
+
+nebula_immune_results_list_reml_tmm <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/immune_attempt_hvg_nebula_res_reml_tmm.rds")
+
+nebula_immune_results_list_reml_pooled <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/immune_attempt_hvg_nebula_res_reml_pooled.rds")
 ```
 
+#### ML
 ```{r echo = F}
 # nebula only keeps results for converged
 immune_nebula_convergence <- map_dfr(
@@ -5871,11 +6362,13 @@ immune_nebula_res_combined <- map_dfr(
   function(gene_name) {
     df <- nebula_immune_results_list[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% immune_nebula_converged$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+
+immune_nebula_res_combined <- immune_nebula_res_combined %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 immune_nebula_disp_combined <- map_dfr(
   names(nebula_immune_results_list),
@@ -5903,6 +6396,7 @@ plot_volcano(immune_nebula_res_combined, "logFC_treatmentDapagliflozin:visitPOST
              "nebula/immune_placebo_pvalue_nebula")
 ```
 
+#### REML
 ```{r echo = F}
 # nebula only keeps results for converged
 immune_nebula_convergence_reml <- map_dfr(
@@ -5923,11 +6417,12 @@ immune_nebula_res_combined_reml <- map_dfr(
   function(gene_name) {
     df <- nebula_immune_results_list_reml[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% immune_nebula_converged_reml$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+immune_nebula_res_combined_reml <- immune_nebula_res_combined_reml %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 immune_nebula_disp_combined_reml <- map_dfr(
   names(nebula_immune_results_list_reml),
@@ -5954,7 +6449,177 @@ plot_volcano(immune_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:visi
              "-log10(FDR adjusted p-value)",
              "nebula/immune_placebo_pvalue_nebula_reml")
 ```
-#### GSEA (fgsea)
+
+#### REML + Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+immune_nebula_convergence_reml_offset <- map_dfr(
+  names(nebula_immune_results_list_reml_offset),
+  function(gene_name) {
+    converged <- nebula_immune_results_list_reml_offset[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+immune_nebula_converged_reml_offset <- immune_nebula_convergence_reml_offset %>%
+  filter(Convergence_Code >=-10)
+
+immune_nebula_res_combined_reml_offset <- map_dfr(
+  names(nebula_immune_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_immune_results_list_reml_offset[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% immune_nebula_converged_reml_offset$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+immune_nebula_res_combined_reml_offset <- immune_nebula_res_combined_reml_offset %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+immune_nebula_disp_combined_reml_offset <- map_dfr(
+  names(nebula_immune_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_immune_results_list_reml_offset[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(immune_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula Immune (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/immune_placebo_pvalue_nebula_reml_offset")
+
+plot_volcano(immune_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula Immune (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/immune_placebo_pvalue_nebula_reml_offset")
+```
+
+#### REML + TMM Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+immune_nebula_convergence_reml_tmm <- map_dfr(
+  names(nebula_immune_results_list_reml_tmm),
+  function(gene_name) {
+    converged <- nebula_immune_results_list_reml_tmm[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+immune_nebula_converged_reml_tmm <- immune_nebula_convergence_reml_tmm %>%
+  filter(Convergence_Code >=-10)
+
+immune_nebula_res_combined_reml_tmm <- map_dfr(
+  names(nebula_immune_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_immune_results_list_reml_tmm[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% immune_nebula_converged_reml_tmm$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+immune_nebula_res_combined_reml_tmm <- immune_nebula_res_combined_reml_tmm %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+immune_nebula_disp_combined_reml_tmm <- map_dfr(
+  names(nebula_immune_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_immune_results_list_reml_tmm[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(immune_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula Immune (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/immune_placebo_pvalue_nebula_reml_tmm")
+
+plot_volcano(immune_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula Immune (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/immune_placebo_pvalue_nebula_reml_tmm")
+```
+
+#### REML + pooled Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+immune_nebula_convergence_reml_pooled <- map_dfr(
+  names(nebula_immune_results_list_reml_pooled),
+  function(gene_name) {
+    converged <- nebula_immune_results_list_reml_pooled[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+immune_nebula_converged_reml_pooled <- immune_nebula_convergence_reml_pooled %>%
+  filter(Convergence_Code >=-10)
+
+immune_nebula_res_combined_reml_pooled <- map_dfr(
+  names(nebula_immune_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_immune_results_list_reml_pooled[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% immune_nebula_converged_reml_pooled$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+immune_nebula_res_combined_reml_pooled <- immune_nebula_res_combined_reml_pooled %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+immune_nebula_disp_combined_reml_pooled <- map_dfr(
+  names(nebula_immune_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_immune_results_list_reml_pooled[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(immune_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula Immune (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/immune_placebo_pvalue_nebula_reml_pooled")
+
+plot_volcano(immune_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula Immune (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/immune_placebo_pvalue_nebula_reml_pooled")
+```
+
+
+##### GSEA (fgsea)
 
 ```{r echo = F}
 # For GSEA
@@ -5962,78 +6627,87 @@ plot_volcano(immune_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:visi
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(immune_nebula_res_combined$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(immune_nebula_res_combined$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(immune_nebula_res_combined$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(immune_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(immune_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(immune_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_immune_nebula <- immune_nebula_res_combined$`logFC_treatmentDapagliflozin:visitPOST`
-names(rankings_immune_nebula) <- immune_nebula_res_combined$Gene
-rankings_immune_nebula <- sort(rankings_immune_nebula, decreasing = TRUE)
-plot(rankings_immune_nebula)
-min(rankings_immune_nebula)
-max(rankings_immune_nebula)
+rankings_immune_nebula_reml_offset <- immune_nebula_res_combined_reml_offset$`logFC_treatmentDapagliflozin:visitPOST`
+names(rankings_immune_nebula_reml_offset) <- immune_nebula_res_combined_reml_offset$Gene
+rankings_immune_nebula_reml_offset <- sort(rankings_immune_nebula_reml_offset, decreasing = TRUE)
+plot(rankings_immune_nebula_reml_offset)
+min(rankings_immune_nebula_reml_offset)
+max(rankings_immune_nebula_reml_offset)
 ```
 
 ```{r echo = F}
 set.seed(1234)
 
-kegg_legacy_res_immune_nebula <- fgsea(pathways = kegg_legacy,
-                                 stats = rankings_immune_nebula,
+kegg_legacy_res_immune_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
+                                 stats = rankings_immune_nebula_reml_offset,
                                  scoreType = 'std', 
                                  minSize = 3,
                                  maxSize = 500,
                                  nproc = 1)
 
-reactome_res_immune_nebula <- fgsea(pathways = reactome,
-                              stats = rankings_immune_nebula,
+reactome_res_immune_nebula_reml_offset <- fgsea(pathways = reactome,
+                              stats = rankings_immune_nebula_reml_offset,
                               scoreType = 'std', 
                               minSize = 3,
                               maxSize = 500,
                               nproc = 1)
-go_res_immune_nebula <- fgsea(pathways = go,
-                        stats = rankings_immune_nebula,
+go_res_immune_nebula_reml_offset <- fgsea(pathways = go,
+                        stats = rankings_immune_nebula_reml_offset,
                         scoreType = 'std', 
                         minSize = 5,
                         maxSize = 500,
                         nproc = 1)
 
-fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_immune_nebula[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_immune_nebula[, pval < 0.05], na.rm = T)),
-                         "REACTOME"=c(sum(reactome_res_immune_nebula[, padj < 0.05], na.rm = T), sum(reactome_res_immune_nebula[, pval < 0.05], na.rm = T)),
-                         "GO"=c(sum(go_res_immune_nebula[, padj < 0.05], na.rm = T), sum(go_res_immune_nebula[, pval < 0.05], na.rm = T)))
+fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_immune_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_immune_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "REACTOME"=c(sum(reactome_res_immune_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(reactome_res_immune_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "GO"=c(sum(go_res_immune_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(go_res_immune_nebula_reml_offset[, pval < 0.05], na.rm = T)))
 rownames(fgsea) <- c("adj.pval", "p.val")
 
 ```
-##### KEGG Legacy
+###### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_immune_nebula, title = "Immune nebula Top 30 KEGG", xlimit = 3)
+plot_fgsea_transpose(kegg_legacy_res_immune_nebula_reml_offset, title = "Immune nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.1, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 
-##### REACTOME
+###### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_immune_nebula, title = "Immune nebula Top 30 REACTOME", xlimit = 4)
+plot_fgsea_transpose(reactome_res_immune_nebula_reml_offset, title = "Immune nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.2, xmax = 2.8)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
-##### GO
+###### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_immune_nebula, title = "Immune nebula Top 30 GO", xlimit = 3)
+plot_fgsea_transpose(go_res_immune_nebula_reml_offset, title = "Immune nebula Top 30 GO (REML & Library size offset)", xmin = 1.5, xmax = 2.3)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_go_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 
 ### IC
+
 ```{r echo = F}
 ## read mixed model results dataframe (rendered in Hyak)
 nebula_ic_results_list <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ic_attempt_hvg_nebula_res.rds")
+
 nebula_ic_results_list_reml <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ic_attempt_hvg_nebula_res_reml.rds")
+
+nebula_ic_results_list_reml_offset <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ic_attempt_hvg_nebula_res_reml_offset.rds")
+
+nebula_ic_results_list_reml_tmm <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ic_attempt_hvg_nebula_res_reml_tmm.rds")
+
+nebula_ic_results_list_reml_pooled <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ic_attempt_hvg_nebula_res_reml_pooled.rds")
 ```
 
+#### ML
 ```{r echo = F}
 # nebula only keeps results for converged
 ic_nebula_convergence <- map_dfr(
@@ -6054,11 +6728,13 @@ ic_nebula_res_combined <- map_dfr(
   function(gene_name) {
     df <- nebula_ic_results_list[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% ic_nebula_converged$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+
+ic_nebula_res_combined <- ic_nebula_res_combined %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 ic_nebula_disp_combined <- map_dfr(
   names(nebula_ic_results_list),
@@ -6085,6 +6761,8 @@ plot_volcano(ic_nebula_res_combined, "logFC_treatmentDapagliflozin:visitPOST",
              "-log10(FDR adjusted p-value)",
              "nebula/ic_placebo_pvalue_nebula")
 ```
+
+#### REML
 ```{r echo = F}
 # nebula only keeps results for converged
 ic_nebula_convergence_reml <- map_dfr(
@@ -6105,11 +6783,13 @@ ic_nebula_res_combined_reml <- map_dfr(
   function(gene_name) {
     df <- nebula_ic_results_list_reml[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% ic_nebula_converged_reml$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+
+ic_nebula_res_combined_reml <- ic_nebula_res_combined_reml %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 ic_nebula_disp_combined_reml <- map_dfr(
   names(nebula_ic_results_list_reml),
@@ -6136,7 +6816,176 @@ plot_volcano(ic_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:visitPOS
              "-log10(FDR adjusted p-value)",
              "nebula/ic_placebo_pvalue_nebula_reml")
 ```
-#### GSEA (fgsea)
+
+#### REML + Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+ic_nebula_convergence_reml_offset <- map_dfr(
+  names(nebula_ic_results_list_reml_offset),
+  function(gene_name) {
+    converged <- nebula_ic_results_list_reml_offset[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+ic_nebula_converged_reml_offset <- ic_nebula_convergence_reml_offset %>%
+  filter(Convergence_Code >=-10)
+
+ic_nebula_res_combined_reml_offset <- map_dfr(
+  names(nebula_ic_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_ic_results_list_reml_offset[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% ic_nebula_converged_reml_offset$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+ic_nebula_res_combined_reml_offset <- ic_nebula_res_combined_reml_offset %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+ic_nebula_disp_combined_reml_offset <- map_dfr(
+  names(nebula_ic_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_ic_results_list_reml_offset[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(ic_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula IC (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/ic_placebo_pvalue_nebula_reml_offset")
+
+plot_volcano(ic_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula IC (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/ic_placebo_pvalue_nebula_reml_offset")
+```
+
+#### REML + TMM Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+ic_nebula_convergence_reml_tmm <- map_dfr(
+  names(nebula_ic_results_list_reml_tmm),
+  function(gene_name) {
+    converged <- nebula_ic_results_list_reml_tmm[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+ic_nebula_converged_reml_tmm <- ic_nebula_convergence_reml_tmm %>%
+  filter(Convergence_Code >=-10)
+
+ic_nebula_res_combined_reml_tmm <- map_dfr(
+  names(nebula_ic_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_ic_results_list_reml_tmm[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% ic_nebula_converged_reml_tmm$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+ic_nebula_res_combined_reml_tmm <- ic_nebula_res_combined_reml_tmm %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+ic_nebula_disp_combined_reml_tmm <- map_dfr(
+  names(nebula_ic_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_ic_results_list_reml_tmm[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(ic_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula IC (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/ic_placebo_pvalue_nebula_reml_tmm")
+
+plot_volcano(ic_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula IC (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/ic_placebo_pvalue_nebula_reml_tmm")
+```
+
+#### REML + pooled Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+ic_nebula_convergence_reml_pooled <- map_dfr(
+  names(nebula_ic_results_list_reml_pooled),
+  function(gene_name) {
+    converged <- nebula_ic_results_list_reml_pooled[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+ic_nebula_converged_reml_pooled <- ic_nebula_convergence_reml_pooled %>%
+  filter(Convergence_Code >=-10)
+
+ic_nebula_res_combined_reml_pooled <- map_dfr(
+  names(nebula_ic_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_ic_results_list_reml_pooled[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% ic_nebula_converged_reml_pooled$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+ic_nebula_res_combined_reml_pooled <- ic_nebula_res_combined_reml_pooled %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+ic_nebula_disp_combined_reml_pooled <- map_dfr(
+  names(nebula_ic_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_ic_results_list_reml_pooled[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(ic_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula IC (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/ic_placebo_pvalue_nebula_reml_pooled")
+
+plot_volcano(ic_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula IC (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/ic_placebo_pvalue_nebula_reml_pooled")
+```
+
+##### GSEA (fgsea)
 
 ```{r echo = F}
 # For GSEA
@@ -6144,78 +6993,87 @@ plot_volcano(ic_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:visitPOS
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(ic_nebula_res_combined$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(ic_nebula_res_combined$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(ic_nebula_res_combined$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(ic_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(ic_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(ic_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_ic_nebula <- ic_nebula_res_combined$`logFC_treatmentDapagliflozin:visitPOST`
-names(rankings_ic_nebula) <- ic_nebula_res_combined$Gene
-rankings_ic_nebula <- sort(rankings_ic_nebula, decreasing = TRUE)
-plot(rankings_ic_nebula)
-min(rankings_ic_nebula)
-max(rankings_ic_nebula)
+rankings_ic_nebula_reml_offset <- ic_nebula_res_combined_reml_offset$`logFC_treatmentDapagliflozin:visitPOST`
+names(rankings_ic_nebula_reml_offset) <- ic_nebula_res_combined_reml_offset$Gene
+rankings_ic_nebula_reml_offset <- sort(rankings_ic_nebula_reml_offset, decreasing = TRUE)
+plot(rankings_ic_nebula_reml_offset)
+min(rankings_ic_nebula_reml_offset)
+max(rankings_ic_nebula_reml_offset)
 ```
 
 ```{r echo = F}
 set.seed(1234)
 
-kegg_legacy_res_ic_nebula <- fgsea(pathways = kegg_legacy,
-                                 stats = rankings_ic_nebula,
+kegg_legacy_res_ic_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
+                                 stats = rankings_ic_nebula_reml_offset,
                                  scoreType = 'std', 
                                  minSize = 3,
                                  maxSize = 500,
                                  nproc = 1)
 
-reactome_res_ic_nebula <- fgsea(pathways = reactome,
-                              stats = rankings_ic_nebula,
+reactome_res_ic_nebula_reml_offset <- fgsea(pathways = reactome,
+                              stats = rankings_ic_nebula_reml_offset,
                               scoreType = 'std', 
                               minSize = 3,
                               maxSize = 500,
                               nproc = 1)
-go_res_ic_nebula <- fgsea(pathways = go,
-                        stats = rankings_ic_nebula,
+go_res_ic_nebula_reml_offset <- fgsea(pathways = go,
+                        stats = rankings_ic_nebula_reml_offset,
                         scoreType = 'std', 
                         minSize = 5,
                         maxSize = 500,
                         nproc = 1)
 
-fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_ic_nebula[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_ic_nebula[, pval < 0.05], na.rm = T)),
-                         "REACTOME"=c(sum(reactome_res_ic_nebula[, padj < 0.05], na.rm = T), sum(reactome_res_ic_nebula[, pval < 0.05], na.rm = T)),
-                         "GO"=c(sum(go_res_ic_nebula[, padj < 0.05], na.rm = T), sum(go_res_ic_nebula[, pval < 0.05], na.rm = T)))
+fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_ic_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_ic_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "REACTOME"=c(sum(reactome_res_ic_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(reactome_res_ic_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "GO"=c(sum(go_res_ic_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(go_res_ic_nebula_reml_offset[, pval < 0.05], na.rm = T)))
 rownames(fgsea) <- c("adj.pval", "p.val")
 
 ```
-##### KEGG Legacy
+###### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_ic_nebula, title = "IC nebula Top 30 KEGG", xlimit = 3)
+plot_fgsea_transpose(kegg_legacy_res_ic_nebula_reml_offset, title = "IC nebula Top 30 KEGG (REML & Library size offset)", xmin = 1, xmax = 2.2)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 
-##### REACTOME
+###### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_ic_nebula, title = "IC nebula Top 30 REACTOME", xlimit = 3)
+plot_fgsea_transpose(reactome_res_ic_nebula_reml_offset, title = "IC nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.2, xmax = 2.1)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
-##### GO
+###### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_ic_nebula, title = "IC nebula Top 30 GO", xlimit = 5)
+plot_fgsea_transpose(go_res_ic_nebula_reml_offset, title = "IC nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 2.2)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_go_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 
 ### EC
+
 ```{r echo = F}
 ## read mixed model results dataframe (rendered in Hyak)
 nebula_ec_results_list <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ec_attempt_hvg_nebula_res.rds")
+
 nebula_ec_results_list_reml <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ec_attempt_hvg_nebula_res_reml.rds")
+
+nebula_ec_results_list_reml_offset <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ec_attempt_hvg_nebula_res_reml_offset.rds")
+
+nebula_ec_results_list_reml_tmm <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ec_attempt_hvg_nebula_res_reml_tmm.rds")
+
+nebula_ec_results_list_reml_pooled <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ec_attempt_hvg_nebula_res_reml_pooled.rds")
 ```
 
+#### ML
 ```{r echo = F}
 # nebula only keeps results for converged
 ec_nebula_convergence <- map_dfr(
@@ -6236,11 +7094,13 @@ ec_nebula_res_combined <- map_dfr(
   function(gene_name) {
     df <- nebula_ec_results_list[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% ec_nebula_converged$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+
+ec_nebula_res_combined <- ec_nebula_res_combined %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 ec_nebula_disp_combined <- map_dfr(
   names(nebula_ec_results_list),
@@ -6268,6 +7128,7 @@ plot_volcano(ec_nebula_res_combined, "logFC_treatmentDapagliflozin:visitPOST",
              "nebula/ec_placebo_pvalue_nebula")
 ```
 
+#### REML
 ```{r echo = F}
 # nebula only keeps results for converged
 ec_nebula_convergence_reml <- map_dfr(
@@ -6288,11 +7149,13 @@ ec_nebula_res_combined_reml <- map_dfr(
   function(gene_name) {
     df <- nebula_ec_results_list_reml[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% ec_nebula_converged_reml$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+
+ec_nebula_res_combined_reml <- ec_nebula_res_combined_reml %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 ec_nebula_disp_combined_reml <- map_dfr(
   names(nebula_ec_results_list_reml),
@@ -6319,7 +7182,175 @@ plot_volcano(ec_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:visitPOS
              "-log10(FDR adjusted p-value)",
              "nebula/ec_placebo_pvalue_nebula_reml")
 ```
-#### GSEA (fgsea)
+
+#### REML + Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+ec_nebula_convergence_reml_offset <- map_dfr(
+  names(nebula_ec_results_list_reml_offset),
+  function(gene_name) {
+    converged <- nebula_ec_results_list_reml_offset[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+ec_nebula_converged_reml_offset <- ec_nebula_convergence_reml_offset %>%
+  filter(Convergence_Code >=-10)
+
+ec_nebula_res_combined_reml_offset <- map_dfr(
+  names(nebula_ec_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_ec_results_list_reml_offset[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% ec_nebula_converged_reml_offset$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+ec_nebula_res_combined_reml_offset <- ec_nebula_res_combined_reml_offset %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+ec_nebula_disp_combined_reml_offset <- map_dfr(
+  names(nebula_ec_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_ec_results_list_reml_offset[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(ec_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula EC (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/ec_placebo_pvalue_nebula_reml_offset")
+
+plot_volcano(ec_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula EC (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/ec_placebo_pvalue_nebula_reml_offset")
+```
+
+#### REML + TMM Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+ec_nebula_convergence_reml_tmm <- map_dfr(
+  names(nebula_ec_results_list_reml_tmm),
+  function(gene_name) {
+    converged <- nebula_ec_results_list_reml_tmm[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+ec_nebula_converged_reml_tmm <- ec_nebula_convergence_reml_tmm %>%
+  filter(Convergence_Code >=-10)
+
+ec_nebula_res_combined_reml_tmm <- map_dfr(
+  names(nebula_ec_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_ec_results_list_reml_tmm[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% ec_nebula_converged_reml_tmm$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+ec_nebula_res_combined_reml_tmm <- ec_nebula_res_combined_reml_tmm %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+ec_nebula_disp_combined_reml_tmm <- map_dfr(
+  names(nebula_ec_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_ec_results_list_reml_tmm[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(ec_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula EC (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/ec_placebo_pvalue_nebula_reml_tmm")
+
+plot_volcano(ec_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula EC (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/ec_placebo_pvalue_nebula_reml_tmm")
+```
+#### REML + pooled Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+ec_nebula_convergence_reml_pooled <- map_dfr(
+  names(nebula_ec_results_list_reml_pooled),
+  function(gene_name) {
+    converged <- nebula_ec_results_list_reml_pooled[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+ec_nebula_converged_reml_pooled <- ec_nebula_convergence_reml_pooled %>%
+  filter(Convergence_Code >=-10)
+
+ec_nebula_res_combined_reml_pooled <- map_dfr(
+  names(nebula_ec_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_ec_results_list_reml_pooled[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% ec_nebula_converged_reml_pooled$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+ec_nebula_res_combined_reml_pooled <- ec_nebula_res_combined_reml_pooled %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+ec_nebula_disp_combined_reml_pooled <- map_dfr(
+  names(nebula_ec_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_ec_results_list_reml_pooled[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(ec_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula EC (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/ec_placebo_pvalue_nebula_reml_pooled")
+
+plot_volcano(ec_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula EC (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/ec_placebo_pvalue_nebula_reml_pooled")
+```
+
+##### GSEA (fgsea)
 
 ```{r echo = F}
 # For GSEA
@@ -6327,66 +7358,66 @@ plot_volcano(ec_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:visitPOS
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(ec_nebula_res_combined$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(ec_nebula_res_combined$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(ec_nebula_res_combined$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(ec_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(ec_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(ec_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_ec_nebula <- ec_nebula_res_combined$`logFC_treatmentDapagliflozin:visitPOST`
-names(rankings_ec_nebula) <- ec_nebula_res_combined$Gene
-rankings_ec_nebula <- sort(rankings_ec_nebula, decreasing = TRUE)
-plot(rankings_ec_nebula)
-min(rankings_ec_nebula)
-max(rankings_ec_nebula)
+rankings_ec_nebula_reml_offset <- ec_nebula_res_combined_reml_offset$`logFC_treatmentDapagliflozin:visitPOST`
+names(rankings_ec_nebula_reml_offset) <- ec_nebula_res_combined_reml_offset$Gene
+rankings_ec_nebula_reml_offset <- sort(rankings_ec_nebula_reml_offset, decreasing = TRUE)
+plot(rankings_ec_nebula_reml_offset)
+min(rankings_ec_nebula_reml_offset)
+max(rankings_ec_nebula_reml_offset)
 ```
 
 ```{r echo = F}
 set.seed(1234)
 
-kegg_legacy_res_ec_nebula <- fgsea(pathways = kegg_legacy,
-                                 stats = rankings_ec_nebula,
+kegg_legacy_res_ec_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
+                                 stats = rankings_ec_nebula_reml_offset,
                                  scoreType = 'std', 
                                  minSize = 3,
                                  maxSize = 500,
                                  nproc = 1)
 
-reactome_res_ec_nebula <- fgsea(pathways = reactome,
-                              stats = rankings_ec_nebula,
+reactome_res_ec_nebula_reml_offset <- fgsea(pathways = reactome,
+                              stats = rankings_ec_nebula_reml_offset,
                               scoreType = 'std', 
                               minSize = 3,
                               maxSize = 500,
                               nproc = 1)
-go_res_ec_nebula <- fgsea(pathways = go,
-                        stats = rankings_ec_nebula,
+go_res_ec_nebula_reml_offset <- fgsea(pathways = go,
+                        stats = rankings_ec_nebula_reml_offset,
                         scoreType = 'std', 
                         minSize = 5,
                         maxSize = 500,
                         nproc = 1)
 
-fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_ec_nebula[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_ec_nebula[, pval < 0.05], na.rm = T)),
-                         "REACTOME"=c(sum(reactome_res_ec_nebula[, padj < 0.05], na.rm = T), sum(reactome_res_ec_nebula[, pval < 0.05], na.rm = T)),
-                         "GO"=c(sum(go_res_ec_nebula[, padj < 0.05], na.rm = T), sum(go_res_ec_nebula[, pval < 0.05], na.rm = T)))
+fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_ec_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_ec_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "REACTOME"=c(sum(reactome_res_ec_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(reactome_res_ec_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "GO"=c(sum(go_res_ec_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(go_res_ec_nebula_reml_offset[, pval < 0.05], na.rm = T)))
 rownames(fgsea) <- c("adj.pval", "p.val")
 
 ```
-##### KEGG Legacy
+###### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_ec_nebula, title = "EC nebula Top 30 KEGG", xlimit = 3)
+plot_fgsea_transpose(kegg_legacy_res_ec_nebula_reml_offset, title = "EC nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.1, xmax = 2)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 
-##### REACTOME
+###### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_ec_nebula, title = "EC nebula Top 30 REACTOME", xlimit = 3.5)
+plot_fgsea_transpose(reactome_res_ec_nebula_reml_offset, title = "EC nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.3, xmax = 1.8)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
-##### GO
+###### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_ec_nebula, title = "EC nebula Top 30 GO", xlimit = 3)
+plot_fgsea_transpose(go_res_ec_nebula_reml_offset, title = "EC nebula Top 30 GO (REML & Library size offset)", xmin = 1.3, xmax = 2.6)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_go_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -6396,9 +7427,17 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F}
 ## read mixed model results dataframe (rendered in Hyak)
 nebula_fibvsmc_results_list <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/fibvsmc_attempt_hvg_nebula_res.rds")
+
 nebula_fibvsmc_results_list_reml <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/fibvsmc_attempt_hvg_nebula_res_reml.rds")
+
+nebula_fibvsmc_results_list_reml_offset <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/fibvsmc_attempt_hvg_nebula_res_reml_offset.rds")
+
+nebula_fibvsmc_results_list_reml_tmm <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/fibvsmc_attempt_hvg_nebula_res_reml_tmm.rds")
+
+nebula_fibvsmc_results_list_reml_pooled <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/fibvsmc_attempt_hvg_nebula_res_reml_pooled.rds")
 ```
 
+#### ML
 ```{r echo = F}
 # nebula only keeps results for converged
 fibvsmc_nebula_convergence <- map_dfr(
@@ -6419,11 +7458,13 @@ fibvsmc_nebula_res_combined <- map_dfr(
   function(gene_name) {
     df <- nebula_fibvsmc_results_list[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% fibvsmc_nebula_converged$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+
+fibvsmc_nebula_res_combined <- fibvsmc_nebula_res_combined %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 fibvsmc_nebula_disp_combined <- map_dfr(
   names(nebula_fibvsmc_results_list),
@@ -6451,6 +7492,7 @@ plot_volcano(fibvsmc_nebula_res_combined, "logFC_treatmentDapagliflozin:visitPOS
              "nebula/fibvsmc_placebo_pvalue_nebula")
 ```
 
+#### REML
 ```{r echo = F}
 # nebula only keeps results for converged
 fibvsmc_nebula_convergence_reml <- map_dfr(
@@ -6471,11 +7513,12 @@ fibvsmc_nebula_res_combined_reml <- map_dfr(
   function(gene_name) {
     df <- nebula_fibvsmc_results_list_reml[[gene_name]]$summary
     df <- df %>% filter(gene_name %in% fibvsmc_nebula_converged_reml$Gene) %>%
-      mutate(Gene = gene_name,
-             fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+      mutate(Gene = gene_name)
     return(df)
   }
 )
+fibvsmc_nebula_res_combined_reml <- fibvsmc_nebula_res_combined_reml %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
 
 fibvsmc_nebula_disp_combined_reml <- map_dfr(
   names(nebula_fibvsmc_results_list_reml),
@@ -6502,7 +7545,173 @@ plot_volcano(fibvsmc_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:vis
              "-log10(FDR adjusted p-value)",
              "nebula/fibvsmc_placebo_pvalue_nebula_reml")
 ```
-#### GSEA (fgsea)
+
+#### REML + Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+fibvsmc_nebula_convergence_reml_offset <- map_dfr(
+  names(nebula_fibvsmc_results_list_reml_offset),
+  function(gene_name) {
+    converged <- nebula_fibvsmc_results_list_reml_offset[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+fibvsmc_nebula_converged_reml_offset <- fibvsmc_nebula_convergence_reml_offset %>%
+  filter(Convergence_Code >=-10)
+
+fibvsmc_nebula_res_combined_reml_offset <- map_dfr(
+  names(nebula_fibvsmc_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_fibvsmc_results_list_reml_offset[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% fibvsmc_nebula_converged_reml_offset$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+fibvsmc_nebula_res_combined_reml_offset <- fibvsmc_nebula_res_combined_reml_offset %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+fibvsmc_nebula_disp_combined_reml_offset <- map_dfr(
+  names(nebula_fibvsmc_results_list_reml_offset),
+  function(gene_name) {
+    df <- nebula_fibvsmc_results_list_reml_offset[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(fibvsmc_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula FIB/VSMC/P (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/fibvsmc_placebo_pvalue_nebula_reml_offset")
+
+plot_volcano(fibvsmc_nebula_res_combined_reml_offset, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula FIB/VSMC/P (REML & Library size offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/fibvsmc_placebo_pvalue_nebula_reml_offset")
+```
+
+#### REML + TMM Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+fibvsmc_nebula_convergence_reml_tmm <- map_dfr(
+  names(nebula_fibvsmc_results_list_reml_tmm),
+  function(gene_name) {
+    converged <- nebula_fibvsmc_results_list_reml_tmm[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+fibvsmc_nebula_converged_reml_tmm <- fibvsmc_nebula_convergence_reml_tmm %>%
+  filter(Convergence_Code >=-10)
+
+fibvsmc_nebula_res_combined_reml_tmm <- map_dfr(
+  names(nebula_fibvsmc_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_fibvsmc_results_list_reml_tmm[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% fibvsmc_nebula_converged_reml_tmm$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+fibvsmc_nebula_res_combined_reml_tmm <- fibvsmc_nebula_res_combined_reml_tmm %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+fibvsmc_nebula_disp_combined_reml_tmm <- map_dfr(
+  names(nebula_fibvsmc_results_list_reml_tmm),
+  function(gene_name) {
+    df <- nebula_fibvsmc_results_list_reml_tmm[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(fibvsmc_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula FIB/VSMC/P (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/fibvsmc_placebo_pvalue_nebula_reml_tmm")
+
+plot_volcano(fibvsmc_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula FIB/VSMC/P (REML & TMM Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/fibvsmc_placebo_pvalue_nebula_reml_tmm")
+```
+
+#### REML + pooled Offset
+
+```{r echo = F}
+# nebula only keeps results for converged
+fibvsmc_nebula_convergence_reml_pooled <- map_dfr(
+  names(nebula_fibvsmc_results_list_reml_pooled),
+  function(gene_name) {
+    converged <- nebula_fibvsmc_results_list_reml_pooled[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+fibvsmc_nebula_converged_reml_pooled <- fibvsmc_nebula_convergence_reml_pooled %>%
+  filter(Convergence_Code >=-10)
+
+fibvsmc_nebula_res_combined_reml_pooled <- map_dfr(
+  names(nebula_fibvsmc_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_fibvsmc_results_list_reml_pooled[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% fibvsmc_nebula_converged_reml_pooled$Gene) %>%
+      mutate(Gene = gene_name)
+    return(df)
+  }
+)
+fibvsmc_nebula_res_combined_reml_pooled <- fibvsmc_nebula_res_combined_reml_pooled %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+fibvsmc_nebula_disp_combined_reml_pooled <- map_dfr(
+  names(nebula_fibvsmc_results_list_reml_pooled),
+  function(gene_name) {
+    df <- nebula_fibvsmc_results_list_reml_pooled[[gene_name]]$overdispersion
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+```
+
+```{r echo =F}
+plot_volcano(fibvsmc_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             "nebula FIB/VSMC/P (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             "nebula/fibvsmc_placebo_pvalue_nebula_reml_pooled")
+
+plot_volcano(fibvsmc_nebula_res_combined_reml_pooled, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr_interaction",
+             "nebula FIB/VSMC/P (REML & pooled Offset)", 
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             "nebula/fibvsmc_placebo_pvalue_nebula_reml_pooled")
+```
+
+##### GSEA (fgsea)
 
 ```{r echo = F}
 # For GSEA
@@ -6510,71 +7719,70 @@ plot_volcano(fibvsmc_nebula_res_combined_reml, "logFC_treatmentDapagliflozin:vis
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(fibvsmc_nebula_res_combined$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(fibvsmc_nebula_res_combined$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(fibvsmc_nebula_res_combined$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(fibvsmc_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(fibvsmc_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(fibvsmc_nebula_res_combined_reml_offset$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_fibvsmc_nebula <- fibvsmc_nebula_res_combined$`logFC_treatmentDapagliflozin:visitPOST`
-names(rankings_fibvsmc_nebula) <- fibvsmc_nebula_res_combined$Gene
-rankings_fibvsmc_nebula <- sort(rankings_fibvsmc_nebula, decreasing = TRUE)
-plot(rankings_fibvsmc_nebula)
-min(rankings_fibvsmc_nebula)
-max(rankings_fibvsmc_nebula)
+rankings_fibvsmc_nebula_reml_offset <- fibvsmc_nebula_res_combined_reml_offset$`logFC_treatmentDapagliflozin:visitPOST`
+names(rankings_fibvsmc_nebula_reml_offset) <- fibvsmc_nebula_res_combined_reml_offset$Gene
+rankings_fibvsmc_nebula_reml_offset <- sort(rankings_fibvsmc_nebula_reml_offset, decreasing = TRUE)
+plot(rankings_fibvsmc_nebula_reml_offset)
+min(rankings_fibvsmc_nebula_reml_offset)
+max(rankings_fibvsmc_nebula_reml_offset)
 ```
 
 ```{r echo = F}
 set.seed(1234)
 
-kegg_legacy_res_fibvsmc_nebula <- fgsea(pathways = kegg_legacy,
-                                 stats = rankings_fibvsmc_nebula,
+kegg_legacy_res_fibvsmc_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
+                                 stats = rankings_fibvsmc_nebula_reml_offset,
                                  scoreType = 'std', 
                                  minSize = 3,
                                  maxSize = 500,
                                  nproc = 1)
 
-reactome_res_fibvsmc_nebula <- fgsea(pathways = reactome,
-                              stats = rankings_fibvsmc_nebula,
+reactome_res_fibvsmc_nebula_reml_offset <- fgsea(pathways = reactome,
+                              stats = rankings_fibvsmc_nebula_reml_offset,
                               scoreType = 'std', 
                               minSize = 3,
                               maxSize = 500,
                               nproc = 1)
-go_res_fibvsmc_nebula <- fgsea(pathways = go,
-                        stats = rankings_fibvsmc_nebula,
+go_res_fibvsmc_nebula_reml_offset <- fgsea(pathways = go,
+                        stats = rankings_fibvsmc_nebula_reml_offset,
                         scoreType = 'std', 
                         minSize = 5,
                         maxSize = 500,
                         nproc = 1)
 
-fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_fibvsmc_nebula[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_fibvsmc_nebula[, pval < 0.05], na.rm = T)),
-                         "REACTOME"=c(sum(reactome_res_fibvsmc_nebula[, padj < 0.05], na.rm = T), sum(reactome_res_fibvsmc_nebula[, pval < 0.05], na.rm = T)),
-                         "GO"=c(sum(go_res_fibvsmc_nebula[, padj < 0.05], na.rm = T), sum(go_res_fibvsmc_nebula[, pval < 0.05], na.rm = T)))
+fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_fibvsmc_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_fibvsmc_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "REACTOME"=c(sum(reactome_res_fibvsmc_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(reactome_res_fibvsmc_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                         "GO"=c(sum(go_res_fibvsmc_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(go_res_fibvsmc_nebula_reml_offset[, pval < 0.05], na.rm = T)))
 rownames(fgsea) <- c("adj.pval", "p.val")
 
 ```
-##### KEGG Legacy
+###### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_fibvsmc_nebula, title = "FIB/VSMC/P nebula Top 30 KEGG", xlimit = 3)
+plot_fgsea_transpose(kegg_legacy_res_fibvsmc_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.1, xmax = 2.3)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 
-##### REACTOME
+###### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_fibvsmc_nebula, title = "FIB/VSMC/P nebula Top 30 REACTOME", xlimit = 4)
+plot_fgsea_transpose(reactome_res_fibvsmc_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.4, xmax = 2.1)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
-##### GO
+###### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_fibvsmc_nebula, title = "FIB/VSMC/P nebula Top 30 GO", xlimit = 4)
+plot_fgsea_transpose(go_res_fibvsmc_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 GO (REML & Library size offset)", xmin = 1.45, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_go_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
-
 
 ## IPA pathway results
 
@@ -11283,7 +12491,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(reactome_res_pt_mod1_overlap, title = "Model 1 PT Top 30 REACTOME", xlimit = 5)
+# plot_fgsea(reactome_res_pt_mod1_overlap, title = "Model 1 PT Top 30 REACTOME", xmax = 5)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/pt_top30_reactome_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11298,7 +12506,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(go_res_pt_mod1_overlap, title = "Model 1 PT Top 30 GO", xlimit = 8)
+# plot_fgsea(go_res_pt_mod1_overlap, title = "Model 1 PT Top 30 GO", xmax = 8)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/pt_top30_go_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11328,7 +12536,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(reactome_res_tal_mod1_overlap, title = "Model 1 TAL Top 30 REACTOME", xlimit = 5)
+# plot_fgsea(reactome_res_tal_mod1_overlap, title = "Model 1 TAL Top 30 REACTOME", xmax = 5)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/tal_top30_reactome_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11342,7 +12550,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(go_res_tal_mod1_overlap, title = "Model 1 TAL Top 30 GO", xlimit = 6)
+# plot_fgsea(go_res_tal_mod1_overlap, title = "Model 1 TAL Top 30 GO", xmax = 6)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/tal_top30_go_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11373,7 +12581,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(reactome_res_pc_mod1_overlap, title = "Model 1 PC Top 30 REACTOME", xlimit = 5)
+# plot_fgsea(reactome_res_pc_mod1_overlap, title = "Model 1 PC Top 30 REACTOME", xmax = 5)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/pc_top30_reactome_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11387,7 +12595,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(go_res_pc_mod1_overlap, title = "Model 1 PC Top 30 GO", xlimit = 8)
+# plot_fgsea(go_res_pc_mod1_overlap, title = "Model 1 PC Top 30 GO", xmax = 8)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/pc_top30_go_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11416,7 +12624,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(reactome_res_immune_mod1_overlap, title = "Model 1 Immune Top 30 REACTOME", xlimit = 5)
+# plot_fgsea(reactome_res_immune_mod1_overlap, title = "Model 1 Immune Top 30 REACTOME", xmax = 5)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/immune_top30_reactome_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11430,7 +12638,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(go_res_immune_mod1_overlap, title = "Model 1 Immune Top 30 GO", xlimit = 7)
+# plot_fgsea(go_res_immune_mod1_overlap, title = "Model 1 Immune Top 30 GO", xmax = 7)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/immune_top30_go_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11459,7 +12667,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(reactome_res_ic_mod1_overlap, title = "Model 1 IC Top 30 REACTOME", xlimit = 8)
+# plot_fgsea(reactome_res_ic_mod1_overlap, title = "Model 1 IC Top 30 REACTOME", xmax = 8)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/ic_top30_reactome_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11473,7 +12681,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(go_res_ic_mod1_overlap, title = "Model 1 IC Top 30 GO", xlimit = 8)
+# plot_fgsea(go_res_ic_mod1_overlap, title = "Model 1 IC Top 30 GO", xmax = 8)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/ic_top30_go_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11503,7 +12711,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(reactome_res_ec_mod1_overlap, title = "Model 1 EC Top 30 REACTOME", xlimit = 4)
+# plot_fgsea(reactome_res_ec_mod1_overlap, title = "Model 1 EC Top 30 REACTOME", xmax = 4)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/ec_top30_reactome_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11517,7 +12725,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(go_res_ec_mod1_overlap, title = "Model 1 EC Top 30 GO", xlimit = 7)
+# plot_fgsea(go_res_ec_mod1_overlap, title = "Model 1 EC Top 30 GO", xmax = 7)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/ec_top30_go_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11547,7 +12755,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(reactome_res_fibvsmcp_mod1_overlap, title = "Model 1 FIB/VSMC/P Top 30 REACTOME", xlimit = 5)
+# plot_fgsea(reactome_res_fibvsmcp_mod1_overlap, title = "Model 1 FIB/VSMC/P Top 30 REACTOME", xmax = 5)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/fibvsmcp_top30_reactome_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11561,7 +12769,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(go_res_fibvsmcp_mod1_overlap, title = "Model 1 FIB/VSMC/P Top 30 GO", xlimit = 6)
+# plot_fgsea(go_res_fibvsmcp_mod1_overlap, title = "Model 1 FIB/VSMC/P Top 30 GO", xmax = 6)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/fibvsmcp_top30_go_pathways_mod1.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11592,7 +12800,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(reactome_res_pt_mod2_overlap, title = "model 2 PT Top 30 REACTOME", xlimit = 6)
+# plot_fgsea(reactome_res_pt_mod2_overlap, title = "model 2 PT Top 30 REACTOME", xmax = 6)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/pt_top30_reactome_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11606,7 +12814,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
 # 
-# plot_fgsea(go_res_pt_mod2_overlap, title = "model 2 PT Top 30 GO", xlimit = 5)
+# plot_fgsea(go_res_pt_mod2_overlap, title = "model 2 PT Top 30 GO", xmax = 5)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/pt_top30_go_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11635,7 +12843,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(reactome_res_tal_mod2_overlap, title = "model 2 TAL Top 30 REACTOME", xlimit = 5)
+# plot_fgsea(reactome_res_tal_mod2_overlap, title = "model 2 TAL Top 30 REACTOME", xmax = 5)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/tal_top30_reactome_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11648,7 +12856,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(go_res_tal_mod2_overlap, title = "model 2 TAL Top 30 GO", xlimit = 7)
+# plot_fgsea(go_res_tal_mod2_overlap, title = "model 2 TAL Top 30 GO", xmax = 7)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/tal_top30_go_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11678,7 +12886,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(reactome_res_pc_mod2_overlap, title = "model 2 PC Top 30 REACTOME", xlimit = 4)
+# plot_fgsea(reactome_res_pc_mod2_overlap, title = "model 2 PC Top 30 REACTOME", xmax = 4)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/pc_top30_reactome_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11691,7 +12899,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(go_res_pc_mod2_overlap, title = "model 2 PC Top 30 GO", xlimit = 8)
+# plot_fgsea(go_res_pc_mod2_overlap, title = "model 2 PC Top 30 GO", xmax = 8)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/pc_top30_go_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11721,7 +12929,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(reactome_res_immune_mod2_overlap, title = "model 2 Immune Top 30 REACTOME", xlimit = 5)
+# plot_fgsea(reactome_res_immune_mod2_overlap, title = "model 2 Immune Top 30 REACTOME", xmax = 5)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/immune_top30_reactome_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11734,7 +12942,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(go_res_immune_mod2_overlap, title = "model 2 Immune Top 30 GO", xlimit = 8)
+# plot_fgsea(go_res_immune_mod2_overlap, title = "model 2 Immune Top 30 GO", xmax = 8)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/immune_top30_go_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11764,7 +12972,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(reactome_res_ic_mod2_overlap, title = "model 2 IC Top 30 REACTOME", xlimit = 8)
+# plot_fgsea(reactome_res_ic_mod2_overlap, title = "model 2 IC Top 30 REACTOME", xmax = 8)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/ic_top30_reactome_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11777,7 +12985,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(go_res_ic_mod2_overlap, title = "model 2 IC Top 30 GO", xlimit = 8)
+# plot_fgsea(go_res_ic_mod2_overlap, title = "model 2 IC Top 30 GO", xmax = 8)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/ic_top30_go_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11808,7 +13016,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(reactome_res_ec_mod2_overlap, title = "model 2 EC Top 30 REACTOME", xlimit = 5)
+# plot_fgsea(reactome_res_ec_mod2_overlap, title = "model 2 EC Top 30 REACTOME", xmax = 5)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/ec_top30_reactome_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11821,7 +13029,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(go_res_ec_mod2_overlap, title = "model 2 EC Top 30 GO", xlimit = 7)
+# plot_fgsea(go_res_ec_mod2_overlap, title = "model 2 EC Top 30 GO", xmax = 7)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/ec_top30_go_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11852,7 +13060,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(reactome_res_fibvsmcp_mod2_overlap, title = "model 2 FIB/VSMC/P Top 30 REACTOME", xlimit = 5)
+# plot_fgsea(reactome_res_fibvsmcp_mod2_overlap, title = "model 2 FIB/VSMC/P Top 30 REACTOME", xmax = 5)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/fibvsmcp_top30_reactome_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)
@@ -11865,7 +13073,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 #                           T ~ "bold"),
 #          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
 #                              T~ pathway))
-# plot_fgsea(go_res_fibvsmcp_mod2_overlap, title = "model 2 FIB/VSMC/P Top 30 GO", xlimit = 8)
+# plot_fgsea(go_res_fibvsmcp_mod2_overlap, title = "model 2 FIB/VSMC/P Top 30 GO", xmax = 8)
 # 
 # ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/fibvsmcp_top30_go_pathways_mod2.jpeg",
 #        width = 27.5, height = 14, scale = 1)

@@ -15,140 +15,6 @@ output: html_document
 # saveRDS(results,fs::path(dir.results,”Results”,”Filename.rds”)) for saving files to folder within dir.results
 ```
 
-# library(MetaboAnalystR)
-
-```{r Install lipidomeR}
-install.packages("devtools")
-devtools::install_github("ahmohamed/lipidomeR")
-library(lipidomeR)
-find.package("lipidomeR")  # Replace with any package name
-.libPaths()
-###OR###
-install.packages( "lipidomeR" )
-library( "lipidomeR" )
-
-data(package = "lipidomeR")  # Replace "dplyr" with your package name
-
-
-```
-
-```{r}
-# Load the renal_heir_lipidomics data set. Must be in .xlsx; for some reason, .csv doesn't work
-library(readxl)
-renal_heir_lipidomics <- read_excel("C:/Users/Henry Mangalapalli/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR/Data_Raw/renal_heir_lipidomics.xlsx")
-View(renal_heir_lipidomics)
-```
-
-```{r Remove the extra columns & convert first column to rownames/first row to column names}
-clean_data <- renal_heir_lipidomics[-c(1, 2), -c(1, 3, 4)]
-
-clean_data <- as.data.frame(clean_data)
-
-# Not sure if I need to set the first column as row names, or if lipid names should be its own column
-  #rownames(clean_data) <- clean_data[[1]]  # Set first column as row names
-  #clean_data <- clean_data[, -1]           # Remove the first column
-
-# 1. Set the first row as the column names
-colnames(clean_data) <- as.character(unlist(clean_data[1, ]))
-
-# 2. Remove the first row (since it's now the header) - not sure if necessary?
-clean_data <- clean_data[-1, ]
-
-# 3. Make new data frame
-rh_lipid_clean <- as.data.frame(clean_data)
-class(rh_lipid_clean)     # Double-check that rh_lipid_clean is a df
-```
-
-
-```{r Save as .xlsx}
-# Save as .xlsx
-install.packages("writexl")
-library(writexl)
-write_xlsx(rh_lipid_clean, "rh_lipid_clean.xlsx")
-```
-
-
-```{r Convert to .rda - MIGHT NOT BE NECESSARY!!!}
-# Save as .rda
-library(tidyverse) # includes dplyr, readr, ggplot2, tibble, etc.
-
-# Save the data frame
-library(usethis)
-use_data(rh_lipid_clean, overwrite = TRUE)
-
-
-
-```
-
-
-```{r Need to map lipid names & clean them so the lipidomeR package recognizes their format}
-# Data is already in wide format, so no need to convert it
-
-# Create a mapping of the lipid names.
-# 1. Extract lipid names from your data
-lipid_names <- unique(rh_lipid_clean$`Lipid Name`)  # Make sure this column exists
-
-# 2. Define cleaning function
-clean_lipid_names <- function(names_vector) {
-  names_vector <- trimws(names_vector)                             # remove leading/trailing spaces
-  names_vector <- gsub("\\s*\\(", "(", names_vector)               # remove space before (
-  names_vector <- gsub("\\)\\s*", ")", names_vector)               # remove space after )
-  names_vector <- gsub("([A-Za-z]+)\\s+([0-9]{1,2}:[0-9]{1,2})", "\\1(\\2)", names_vector)
-  return(names_vector)
-}
-
-# 3. Clean lipid names
-cleaned_lipid_names <- clean_lipid_names(lipid_names)
-
-# 4. Load package and map lipid names
-library(lipidomeR)
-names.mapping <- map_lipid_names(x = cleaned_lipid_names)
-
-# 5. Inspect invalid lipid names
-invalid_names <- cleaned_lipid_names[is.na(names.mapping$lipid.class)]
-print(invalid_names)
-
-
-names.mapping <- map_lipid_names(x = unique(rh_lipid_clean$"Lipid Name"))
-
-head(unique(rh_lipid_clean$"Lipid Name"))
-
-sum(is.na(map_lipid_names(x = unique(rh_lipid_clean$"Lipid Name"))))
-
-   )
-```
-
-```{r Several errors showed up - let's try this to clean the lipid names}
-library(lipidomeR)
-
-safe_map <- function(name) {
-  result <- tryCatch({
-    mapped <- map_lipid_names(name)
-    if (nrow(mapped) > 0) mapped else NULL
-  }, error = function(e) {
-    NULL
-  })
-  return(result)
-}
-
-# 1. Get cleaned lipid names
-lipid_names <- unique(rh_lipid_clean$`Lipid Name`)
-cleaned_names <- clean_lipid_names(lipid_names)
-
-# 2. Map each name safely
-mapped_list <- lapply(cleaned_names, safe_map)
-
-# 3. Combine into a single data frame (filter out NULLs)
-names.mapping <- do.call(rbind, mapped_list)
-
-# 4. See which ones failed
-failed_names <- cleaned_names[sapply(mapped_list, is.null)]
-cat("❌ Failed to map:", length(failed_names), "lipid names\n")
-print(failed_names)
-
-
-```
-
 Code adapted from CROCODILE Lipidomics analysis to use lipidr package.
 ```{r}
 #| include: false
@@ -184,67 +50,113 @@ source("C:/Users/Henry Mangalapalli/Documents/GitHub/CHCO-Code/Petter Bjornstad/
 # library(MetaboAnalystR)
 ```
 
+## Read in ALL the data for Renal HEIR
 ```{r, include=F}
 dat <- read.csv("C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv")
 
 rh_lipids_raw <- read.csv("C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR/Data_Raw/renal_heir_lipidomics.csv")
 rh_lipids_name <- read.csv("C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR/Data_Raw/renal_heir_lipidomics_name.csv")
 
-# Harmonized dataset contains data from ALL studies, thus why we have to separate out by Crocodile later on
+# Harmonized dataset contains data from ALL studies, thus why we have to separate out by Renal HEIR later on
 dict <- read.csv("C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv", na.strings = c(" ", "", "-9999",-9999)) %>%
   select(variable_name, label)
+```
 
-## Not going to run these lines...no clue why they're there XD
-rh_lipids_name %<>% filter(variable_name != "co_q10_nh4") # Not sure why this is here...doesn't seem to do anything?
-rh_lipids_raw <- rh_lipids_raw %>%
-  select(-co_q10_nh4) %>%
-  select(-contains(c("_k", "_na", "_2h2o", "complete"))) %>%
-  select(-starts_with("oahfa"))
 
+```{r, include=F}
 # Remove unnecessary rows/columns from rh_lipids_raw
-rh_lipids_raw <- rh_lipids_raw[-c(1:3),-c(2:4)]
+rh_lipids_raw <- rh_lipids_raw[-c(1:2),-c(1:3)]
+rh_lipids_raw <- rh_lipids_raw[-c(1),]
+rh_lipids_raw <- rh_lipids_raw[,-c(1)]
 
 # Remove polarity column from rh_lipids_name
 rh_lipids_name <-rh_lipids_name[, -c(4)]
 
-# Converting lipids_raw into a transposed data frame. 
+# Add variable_name column to rh_lipids_raw
+rh_lipids_raw[[ "variable_name" ]] <- rh_lipids_name[[ "variable_name" ]]
+
+# Move variable_name to first column
+rh_lipids_raw <- rh_lipids_raw[ , c("variable_name", setdiff(names(rh_lipids_raw), "variable_name"))]
+
+# Make both sheets dataframes
+rh_lipids_raw <- as.data.frame(rh_lipids_raw)
+rh_lipids_name <- as.data.frame(rh_lipids_name)
+
 # Removing 1st column from lipids_raw in lipids_dat & setting column names to come from that 1st column.
 # Converting row names to column called "variable_name"
 # Joining lipids_name & lipids_raw at "variable_name" and "standardized_name_w_adduct" column
-lipids_dat <- setnames(data.frame(t(rh_lipids_raw[ , - 1])), rh_lipids_raw[ , 1]) %>% 
-  tibble::rownames_to_column("variable_name") %>%
-  left_join(subset(rh_lipids_name, select = c("variable_name", "standardized_name"))) 
+lipids_dat <- left_join(
+  subset(rh_lipids_name, select = c("variable_name", "standardized_name")),
+  rh_lipids_raw,
+  by = "variable_name"
+) # Contains ALL rows, including those without a standardized name
 
 # Parsing out lipid names from the standardized_name_w_adduct column in lipids_name
 parsed <- parseLipidNames(lipids_dat$standardized_name)
+```
 
-###Need dplyr to do anything with %>%
-# Joining lipids_dat with a subset of the parsed dataframe (the Original.Name & Normalized.Name columns)
-# After joining, removing the variable_name & standardized_w_adduct columns
-# Relocate Normalied.Name to front of dataframe & remove all NA or empty ("") strings
-lipids_dat %<>%
-  left_join(subset(parsed, select = c("Original.Name", "Normalized.Name")), 
-            by= c("standardized_name_w_adduct" = "Original.Name")) %>%
-  select(-c("variable_name", "standardized_name_w_adduct")) %>% 
-  # rename("Lipid.Maps.Main.Class" = "Class",
-  #        "Lipid.Maps.Category" = "Category",
-  #        "Normalized.Name" = "Molecule",
-  #        "Species.Name" = "LipidSpecies",
-  #        "Mass" = "Mass",
-  #        "Sum.Formula" = "SumFormula") %>%
-  relocate("Normalized.Name") %>%
-  select_if(~!(all(is.na(.)) | all(. == ""))) 
-# All lipids_dat values <100 are "NA" (in this dataset, I didn't find any)
-lipids_dat[lipids_dat<100] <- NA
+```{r}
+# Save lipids_dat as a copycat of renal_heir_lipidomics 
+raw_data_wd <- "C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR"
+setwd(raw_data_wd)
+lipids_dat <- as.data.frame(lipids_dat)
+write_xlsx(lipids_dat, "lipids_dat.xlsx")
+```
 
+
+```{r}
+# Save parsed lipids to raw_data_wd
+raw_data_wd <- "C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR"
+setwd(raw_data_wd)
+parsed <- as.data.frame(parsed)
+write_xlsx(parsed, "parsed.xlsx")
+```
+
+## Purpose of these chunks is to remove all "-" values from standardized names so I can go on and delete duplicates
+```{r}
+# Remove any rows where standardized_name = "-"; OPTIONAL
+lipids_dat_full <- lipids_dat[lipids_dat$standardized_name != "-", ]
+
+# Removing 1st column from lipids_raw in lipids_dat & setting column names to come from that 1st column.
+# Converting row names to column called "variable_name"
+# Joining lipids_name & lipids_raw at "variable_name" and "standardized_name_w_adduct" column
+lipids_dat_full <- left_join(
+  subset(rh_lipids_name, select = c("variable_name", "standardized_name")),
+  rh_lipids_raw,
+  by = "variable_name"
+) # Contains ALL rows, including those without a standardized name
+parsed_full <- parseLipidNames(lipids_dat_full$standardized_name)
+
+```
+
+```{r}
+raw_data_wd <- "C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR"
+setwd(raw_data_wd)
+parsed_full <- as.data.frame(parsed_full)
+write_xlsx(parsed_full, "parsed_full.xlsx")
+```
+
+## Non-parsed lipids
+```{r Remove non-parsed lipids}
+# Separate out non-parsed lipids
+non_parsed_rh <- parsed_full[parsed_full$Grammar == "NOT_PARSEABLE",]
+
+# Save non-parsed lipids to raw_data_wd
+raw_data_wd <- "C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR"
+setwd(raw_data_wd)
+non_parsed_rh <- as.data.frame(non_parsed_rh)
+write_xlsx(non_parsed_rh, "non_parsed_rh.xlsx")
+```
+
+##### Continue with analysis here. Beyond this, it's purely analysis; no more duplicate deleting #####
+## Make sheet with ONLY parseable lipids 
+```{r}
+# Re-make parsed_rh sheet without non-parsed lipids
+parsed_only <- parsed_full[parsed_full$Grammar != "NOT_PARSEABLE",]
+```
+
+
+```{r}
 # Convert lipids_dat into a lipidomics experiment object
-lipids_exp_raw <- as_lipidomics_experiment(lipids_dat)
+parsed_only <- as_lipidomics_experiment(parsed_only)
 ```
-
-## Use ONE of the next two chunks. First one uses new_names, which generates unique names for data frame variables to ensure they're not already present. Second one cleans up the names as a function.
-```{r, include=F}
-## At this point, lipid names are listed like "Cer 18:1;O3/24:0." Some are duplicate names & don't follow the format CLS xx:x/yy:y. ##
-# Extracts non-parsed molecules (those not matched to known standards) from lipidomics experiment object
-non_parsed <- non_parsed_molecules(lipids_exp_raw)
-```
-

@@ -74,27 +74,75 @@ session <- boto3$session$Session(
 ## Create an S3 client with the session
 s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
 
-reticulate::py_run_string("
-import boto3, botocore
-print('boto3 version:', boto3.__version__)
-print('botocore version:', botocore.__version__)
-")
-example_data <- data.frame(
-  id = 1:5,
-  name = c("Alice", "Bob", "Charlie", "David", "Eve"),
-  score = c(92, 85, 88, 91, 87)
-)
-
-# Save it to a temporary .rds file
-temp_file <- tempfile(fileext = ".rds")
-saveRDS(example_data, temp_file)
-
-s3$upload_file(
-  Filename = temp_file,
-  Bucket = "test",
-  Key = "test_data_upload.rds"
-)
+# reticulate::py_run_string("
+# import boto3, botocore
+# print('boto3 version:', boto3.__version__)
+# print('botocore version:', botocore.__version__)
+# ")
+# example_data <- data.frame(
+#   id = 1:5,
+#   name = c("Alice", "Bob", "Charlie", "David", "Eve"),
+#   score = c(92, 85, 88, 91, 87)
+# )
+# 
+# # Save it to a temporary .rds file
+# temp_file <- tempfile(fileext = ".rds")
+# saveRDS(example_data, temp_file)
+# 
+# s3$upload_file(
+#   Filename = temp_file,
+#   Bucket = "test",
+#   Key = "test_data_upload.rds"
+# )
 ```
+
+```{r echo = F}
+plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suffix, p_thresh = 0.05) {
+  top_pos <- data %>%
+    dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
+    dplyr::arrange(!!sym(p_col)) %>%
+    slice_head(n=20)
+
+  top_neg <- data %>%
+    dplyr::filter(!!sym(fc) < 0 & !!sym(p_col) < p_thresh) %>%
+    dplyr::arrange(!!sym(p_col)) %>%
+    slice_head(n=20)
+
+  data <- data %>%
+    dplyr::mutate(top_color = case_when(Gene %in% top_pos$Gene ~ "#f28482",
+                                 Gene %in% top_neg$Gene ~ "#457b9d",
+                                 TRUE ~ "#ced4da"),
+           top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
+           top_lab  = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), Gene, ""))
+
+  p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
+    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
+    geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
+    geom_text_repel(aes(label = top_lab, color = top_color),
+                    size = 3, max.overlaps = Inf,
+                    force = 6, segment.alpha = 0.3, segment.size = 0.3) +
+    labs(title = paste(title_suffix),
+         x = paste(x_axis),
+         y = paste(y_axis)) +
+    scale_size_continuous(range = c(1, 1.3)) + 
+    scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
+    theme_minimal() +
+    theme(legend.title = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = 15),
+          title = element_text(size = 9)) +
+    guides(color = "none", size = "none")
+
+  temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+  ggsave(filename = temp_file, plot = p, width = 7, height = 5)
+  s3$upload_file(temp_file, "attempt", paste0('CROCODILE comparison analysis/attempt_croc_nebula_',file_suffix,'.jpeg'))
+  
+
+  return(p)
+}
+
+```
+
 
 ```{r echo = F, include=F}
 # read ATTEMPT Seurat file
@@ -309,9 +357,14 @@ genes_to_keep <- names(num_cells_per_gene[num_cells_per_gene >= 10])
 
 length(genes_to_keep)
 
+so_meta <- so@meta.data
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(so_meta, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "scrna", 'data_clean/pb90_meta.rds')
+
 remove(expr_matrix)
 so <- subset(so, features = genes_to_keep)
-so_croc <- subset(so, cohort == "CROCODILE")
+croc_so <- subset(so, cohort == "CROCODILE")
 ```
 
 ```{r echo = F}
@@ -326,6 +379,1257 @@ croc_dat <- pb90_dat_raw %>%
                    .by = c(record_id))
 ```
 
+# PT
+```{r echo = F}
+croc_so$celltype_pt <- ifelse(grepl("PT-", croc_so$celltype_harmony),
+                                 "PT", as.character(croc_so$celltype_harmony))
+croc_so_pt <- subset(croc_so, celltype_pt == "PT" & celltype_harmony != "PT_lowQuality")
+```
+
+```{r echo = F}
+croc_so_pt <- FindVariableFeatures(croc_so_pt, selection.method = "vst", nfeatures = 2000)
+hvgs_pt <- VariableFeatures(croc_so_pt)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_pt <- subset(croc_so_pt, features = hvgs_pt)
+```
+
+#### Mixed model (hurdle, no nested random effect)
+
+##### nebula
+
+###### ML with rounded counts
+```{r echo = F, eval = F}
+# PT
+croc_counts_hvg_pt <- round(GetAssayData(croc_so_hvg_pt, layer = "counts")) # load counts and round
+
+# With parallelization
+# List of genes
+genes_list <- rownames(croc_counts_hvg_pt)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_pt_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_pt[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_pt, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, output_re = T, covariance = T)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_pt_results_list <- Filter(Negate(is.null), croc_nebula_pt_results_list)  # remove NULLs first
+names(croc_nebula_pt_results_list) <- sapply(croc_nebula_pt_results_list, function(x) x$gene)  # set names
+croc_nebula_pt_results_list <- lapply(croc_nebula_pt_results_list, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_pt_results_list))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_pt_results_list, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/nebula/pt_croc_hvg_nebula_res.rds')
+```
+
+###### REML with rounded counts
+
+```{r echo = F, eval = F}
+# REML
+croc_counts_hvg_pt <- round(GetAssayData(croc_so_hvg_pt, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_pt)
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_pt_results_list_reml <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_pt[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_pt, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, output_re = T, covariance = T, reml = 1)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_pt_results_list_reml <- Filter(Negate(is.null), croc_nebula_pt_results_list_reml)  # remove NULLs first
+names(croc_nebula_pt_results_list_reml) <- sapply(croc_nebula_pt_results_list_reml, function(x) x$gene)  # set names
+croc_nebula_pt_results_list_reml <- lapply(croc_nebula_pt_results_list_reml, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_pt_results_list_reml))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_pt_results_list_reml, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/nebula/pt_croc_hvg_nebula_res_reml.rds')
+```
+
+###### REML with rounded counts & offset
+
+```{r echo = F}
+croc_counts_hvg_pt <- round(GetAssayData(croc_so_hvg_pt, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_pt)
+
+meta_hvg_pt <- croc_so_hvg_pt@meta.data
+pred = model.matrix(~group, data = meta_hvg_pt)
+data_g_hvg_pt = list(count=croc_counts_hvg_pt, id=meta_hvg_pt$subject, pred=pred)
+offset_hvg_pt = Matrix::colSums(data_g_hvg_pt$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_pt_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_pt[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_pt, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                     ncore = 1, output_re = T, covariance = T, reml = 1, 
+                     offset = offset_hvg_pt)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_pt_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_pt_results_list_reml_offset)  # remove NULLs first
+names(croc_nebula_pt_results_list_reml_offset) <- sapply(croc_nebula_pt_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_pt_results_list_reml_offset <- lapply(croc_nebula_pt_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_pt_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_pt_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/nebula/pt_croc_hvg_nebula_res_reml_offset.rds')
+```
+
+### Targeted in ATTEMPT
+
+```{r echo = F}
+# exclude non-converged genes
+croc_pt_nebula_convergence_reml_offset <- map_dfr(
+  names(croc_nebula_pt_results_list_reml_offset),
+  function(gene_name) {
+    converged <- croc_nebula_pt_results_list_reml_offset[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+croc_pt_nebula_converged_reml_offset <- croc_pt_nebula_convergence_reml_offset %>%
+  filter(Convergence_Code >=-10)
+
+croc_pt_nebula_res_combined_reml_offset <- map_dfr(
+  names(croc_nebula_pt_results_list_reml_offset),
+  function(gene_name) {
+    df <- croc_nebula_pt_results_list_reml_offset[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% croc_pt_nebula_converged_reml_offset$Gene) %>%
+      mutate(Gene = gene_name,
+             fdr_interaction = p.adjust(`p_groupType_1_Diabetes`, method = "fdr"))
+    return(df)
+  }
+)
+
+# identify p<0.05 genes in group comparison in CROCODILE
+croc_pt_nebula_res_combined_reml_offset_sig <- croc_pt_nebula_res_combined_reml_offset %>%
+  filter(p_groupType_1_Diabetes < 0.05)
+
+croc_pt_nebula_sig_gene_list <- croc_pt_nebula_res_combined_reml_offset$Gene
+```
+
+```{r echo = F}
+# subset ATTEMPT to same HVGs as CROCODILE
+attempt_so_croc_subset <- subset(attempt_so_pt, features = hvgs_pt)
+
+# run nebula REML + offset
+attempt_croc_counts_hvg_pt <- round(GetAssayData(attempt_so_croc_subset, layer = "counts")) # load counts and round
+genes_list <- rownames(attempt_croc_counts_hvg_pt)
+
+attempt_croc_meta_hvg_pt <- attempt_so_croc_subset@meta.data
+attempt_croc_pred_pt = model.matrix(~treatment*visit, data = attempt_croc_meta_hvg_pt)
+attempt_croc_data_g_hvg_pt = group_cell(count=attempt_croc_counts_hvg_pt, id=attempt_croc_meta_hvg_pt$subject, pred=attempt_croc_pred_pt)
+attempt_croc_offset_hvg_pt = Matrix::colSums(attempt_croc_data_g_hvg_pt$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+attempt_croc_nebula_pt_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- counts_hvg_pt[g, , drop = FALSE]
+    meta_gene <- subset(attempt_so_croc_subset, features = g)@meta.data
+    pred_gene <- model.matrix(~treatment * visit, data = meta_gene)
+    data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                     ncore = 1, output_re = T, covariance = T, reml = 1, 
+                     offset = attempt_croc_offset_hvg_pt)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+attempt_croc_nebula_pt_results_list_reml_offset <- Filter(Negate(is.null), attempt_croc_nebula_pt_results_list_reml_offset)  # remove NULLs first
+names(attempt_croc_nebula_pt_results_list_reml_offset) <- sapply(attempt_croc_nebula_pt_results_list_reml_offset, function(x) x$gene)  # set names
+attempt_croc_nebula_pt_results_list_reml_offset <- lapply(attempt_croc_nebula_pt_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+nebula_nonconverged_percent <- (length(genes_list)-length(attempt_croc_nebula_pt_results_list_reml_offset))/length(genes_list)
+print(paste0(nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(attempt_croc_nebula_pt_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/nebula/pt_attempt_hvg_nebula_res_reml_offset.rds')
+```
+
+```{r echo = F}
+# exclude non-converged genes from ATTEMPT
+attempt_croc_pt_nebula_convergence_reml_offset <- map_dfr(
+  names(attempt_croc_nebula_pt_results_list_reml_offset),
+  function(gene_name) {
+    converged <- attempt_croc_nebula_pt_results_list_reml_offset[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+attempt_croc_pt_nebula_converged_reml_offset <- attempt_croc_pt_nebula_convergence_reml_offset %>%
+  filter(Convergence_Code >=-10)
+
+attempt_croc_pt_nebula_res_combined_reml_offset <- map_dfr(
+  names(attempt_croc_nebula_pt_results_list_reml_offset),
+  function(gene_name) {
+    df <- attempt_croc_nebula_pt_results_list_reml_offset[[gene_name]]$summary
+    df <- df %>% filter(gene_name %in% attempt_croc_pt_nebula_converged_reml_offset$Gene) %>%
+      dplyr::ungroup() %>%
+      dplyr::mutate(Gene = gene_name)
+    return(df)
+  }
+)
+attempt_croc_pt_nebula_res_combined_reml_offset <- attempt_croc_pt_nebula_res_combined_reml_offset %>%
+  mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+
+# identify p<0.05 genes in group comparison in CROCODILE
+attempt_croc_pt_nebula_res_combined_reml_offset_sig <- attempt_croc_pt_nebula_res_combined_reml_offset %>%
+  filter(`p_treatmentDapagliflozin:visitPOST` < 0.05)
+
+attempt_croc_pt_nebula_sig_gene_list <- attempt_croc_pt_nebula_res_combined_reml_offset$Gene
+```
+
+```{r echo = F}
+sum(attempt_croc_pt_nebula_sig_gene_list %in% croc_pt_nebula_sig_gene_list)
+sum(attempt_croc_pt_nebula_sig_gene_list %nin% croc_pt_nebula_sig_gene_list)
+
+sum(croc_pt_nebula_sig_gene_list %in% attempt_croc_pt_nebula_sig_gene_list)
+sum(croc_pt_nebula_sig_gene_list %nin% attempt_croc_pt_nebula_sig_gene_list)
+```
+
+
+
+
+# TAL
+
+
+```{r echo = F}
+croc_so$celltype_tal <- ifelse(grepl("TAL-", croc_so$celltype_harmony),
+                                 "TAL", as.character(croc_so$celltype_harmony))
+croc_so_tal <- subset(croc_so, celltype_tal == "TAL" & celltype_harmony != "TAL_highUMI")
+```
+
+```{r echo = F}
+croc_so_tal <- FindVariableFeatures(croc_so_tal, selection.method = "vst", nfeatures = 2000)
+hvgs_tal <- VariableFeatures(croc_so_tal)
+
+# Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_tal <- subset(croc_so_tal, features = hvgs_tal)
+```
+
+#### Mixed model (hurdle, nested random effect)
+##### nebula
+###### ML with rounded counts
+
+```{r echo = F, eval = F}
+croc_counts_hvg_tal <- round(GetAssayData(croc_so_hvg_tal, layer = "counts")) # load counts and round
+# meta_hvg_tal <- croc_so_hvg_tal@meta.data
+# pred = model.matrix(~group, data = meta_hvg_tal)
+# data_g_hvg_tal = list(count=croc_counts_hvg_tal, id=meta_hvg_tal$subject, pred=pred)
+
+# With parallelization
+# List of genes
+genes_list <- rownames(croc_counts_hvg_tal)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_tal_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_tal[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_tal, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, output_re = T, covariance = T)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_tal_results_list <- Filter(Negate(is.null), croc_nebula_tal_results_list)  # remove NULLs first
+names(croc_nebula_tal_results_list) <- sapply(croc_nebula_tal_results_list, function(x) x$gene)  # set names
+croc_nebula_tal_results_list <- lapply(croc_nebula_tal_results_list, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_tal_results_list))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_tal_results_list, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/nebula/tal_croc_hvg_nebula_res.rds')
+```
+###### REML with rounded counts
+
+```{r echo = F, eval = F}
+# REML
+croc_counts_hvg_tal <- round(GetAssayData(croc_so_hvg_tal, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_tal)
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_tal_results_list_reml <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_tal[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_tal, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, output_re = T, covariance = T, reml = 1)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+
+# set the names of results based on gene names
+croc_nebula_tal_results_list_reml <- Filter(Negate(is.null), croc_nebula_tal_results_list_reml)  # remove NULLs first
+names(croc_nebula_tal_results_list_reml) <- sapply(croc_nebula_tal_results_list_reml, function(x) x$gene)  # set names
+croc_nebula_tal_results_list_reml <- lapply(croc_nebula_tal_results_list_reml, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_tal_results_list_reml))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_tal_results_list_reml, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/nebula/tal_croc_hvg_nebula_res_reml.rds')
+```
+###### REML with rounded counts & offset
+
+```{r echo = F}
+croc_counts_hvg_tal <- round(GetAssayData(croc_so_hvg_tal, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_tal)
+
+meta_hvg_tal <- croc_so_hvg_tal@meta.data
+pred = model.matrix(~group, data = meta_hvg_tal)
+data_g_hvg_tal = list(count=croc_counts_hvg_tal, id=meta_hvg_tal$subject, pred=pred)
+offset_hvg_tal = Matrix::colSums(data_g_hvg_tal$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_tal_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_tal[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_tal, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                     ncore = 1, output_re = T, covariance = T, reml = 1, 
+                     offset = offset_hvg_tal)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_tal_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_tal_results_list_reml_offset)  # remove NULLs first
+names(croc_nebula_tal_results_list_reml_offset) <- sapply(croc_nebula_tal_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_tal_results_list_reml_offset <- lapply(croc_nebula_tal_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_tal_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_tal_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/nebula/tal_croc_hvg_nebula_res_reml_offset.rds')
+```
+
+# Immune Cells
+
+```{r echo = F}
+# immune cells: MAC, MON, T, B, NKT/NKC
+croc_so$celltype_immune <- ifelse(croc_so$celltype_harmony %in% c("MON", "MAC", "T", "B", "NKT/NKC"),
+                                     "Immune", as.character(croc_so$celltype_harmony))
+croc_so_immune <- subset(croc_so, celltype_immune == "Immune")
+```
+
+```{r echo = F}
+croc_so_immune <- FindVariableFeatures(croc_so_immune, selection.method = "vst", nfeatures = 2000)
+hvgs_immune <- VariableFeatures(croc_so_immune)
+
+# Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_immune <- subset(croc_so_immune, features = hvgs_immune)
+```
+
+
+#### Mixed model (hurdle, nested random effect)
+##### nebula
+###### ML with rounded counts
+
+```{r echo = F, eval = F}
+croc_counts_hvg_immune <- round(GetAssayData(croc_so_hvg_immune, layer = "counts")) # load counts and round
+# meta_hvg_immune <- croc_so_hvg_immune@meta.data
+# pred = model.matrix(~group, data = meta_hvg_immune)
+# data_g_hvg_immune = list(count=croc_counts_hvg_immune, id=meta_hvg_immune$subject, pred=pred)
+
+# With parallelization
+# List of genes
+genes_list <- rownames(croc_counts_hvg_immune)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_immune_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_immune[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_immune, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, , output_re = T, covariance = T)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_immune_results_list <- Filter(Negate(is.null), croc_nebula_immune_results_list)  # remove NULLs first
+names(croc_nebula_immune_results_list) <- sapply(croc_nebula_immune_results_list, function(x) x$gene)  # set names
+croc_nebula_immune_results_list <- lapply(croc_nebula_immune_results_list, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_immune_results_list))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_immune_results_list, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/nebula/immune_croc_hvg_nebula_res.rds')
+```
+
+###### REML with rounded counts
+
+```{r echo = F, eval = F}
+# REML
+croc_counts_hvg_immune <- round(GetAssayData(croc_so_hvg_immune, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_immune)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_immune_results_list_reml <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_immune[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_immune, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, output_re = T, covariance = T, reml = 1)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_immune_results_list_reml <- Filter(Negate(is.null), croc_nebula_immune_results_list_reml)  # remove NULLs first
+names(croc_nebula_immune_results_list_reml) <- sapply(croc_nebula_immune_results_list_reml, function(x) x$gene)  # set names
+croc_nebula_immune_results_list_reml <- lapply(croc_nebula_immune_results_list_reml, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_immune_results_list_reml))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_immune_results_list_reml, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/nebula/immune_croc_hvg_nebula_res_reml.rds')
+```
+
+###### REML with rounded counts & offset
+
+```{r echo = F}
+croc_counts_hvg_immune <- round(GetAssayData(croc_so_hvg_immune, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_immune)
+
+meta_hvg_immune <- croc_so_hvg_immune@meta.data
+pred = model.matrix(~group, data = meta_hvg_immune)
+data_g_hvg_immune = list(count=croc_counts_hvg_immune, id=meta_hvg_immune$subject, pred=pred)
+offset_hvg_immune = Matrix::colSums(data_g_hvg_immune$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_immune_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_immune[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_immune, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                     ncore = 1, output_re = T, covariance = T, reml = 1, 
+                     offset = offset_hvg_immune)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_immune_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_immune_results_list_reml_offset)  # remove NULLs first
+names(croc_nebula_immune_results_list_reml_offset) <- sapply(croc_nebula_immune_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_immune_results_list_reml_offset <- lapply(croc_nebula_immune_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_immune_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_immune_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/nebula/immune_croc_hvg_nebula_res_reml_offset.rds')
+```
+
+# PC 
+
+```{r echo = F} 
+# PC-1 & PC-2, tPC-IC 
+croc_so$celltype_pc <- ifelse(croc_so$celltype_harmony %in% c("PC-1", "PC-2", "tPC-IC"), 
+                                     "PC", as.character(croc_so$celltype_harmony)) 
+croc_so_pc <- subset(croc_so, celltype_pc == "PC") 
+``` 
+
+```{r echo = F}
+croc_so_pc <- FindVariableFeatures(croc_so_pc, selection.method = "vst", nfeatures = 2000)
+hvgs_pc <- VariableFeatures(croc_so_pc)
+
+# Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_pc <- subset(croc_so_pc, features = hvgs_pc)
+```
+
+
+#### Mixed model (hurdle, nested random effect) 
+##### nebula
+###### ML with rounded counts
+
+```{r echo = F, eval = F}
+croc_counts_hvg_pc <- round(GetAssayData(croc_so_hvg_pc, layer = "counts")) # load counts and round
+# meta_hvg_pc <- croc_so_hvg_pc@meta.data
+# pred = model.matrix(~group, data = meta_hvg_pc)
+# data_g_hvg_pc = list(count=croc_counts_hvg_pc, id=meta_hvg_pc$subject, pred=pred)
+
+# With parallelization
+# List of genes
+genes_list <- rownames(croc_counts_hvg_pc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_pc_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_pc[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_pc, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, , output_re = T, covariance = T)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_pc_results_list <- Filter(Negate(is.null), croc_nebula_pc_results_list)  # remove NULLs first
+names(croc_nebula_pc_results_list) <- sapply(croc_nebula_pc_results_list, function(x) x$gene)  # set names
+croc_nebula_pc_results_list <- lapply(croc_nebula_pc_results_list, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_pc_results_list))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_pc_results_list, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/nebula/pc_croc_hvg_nebula_res.rds')
+```
+###### REML with rounded counts
+
+```{r echo = F, eval = F}
+croc_counts_hvg_pc <- round(GetAssayData(croc_so_hvg_pc, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_pc)
+# REML
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_pc_results_list_reml <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_pc[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_pc, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, output_re = T, covariance = T, reml = 1)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_pc_results_list_reml <- Filter(Negate(is.null), croc_nebula_pc_results_list_reml)  # remove NULLs first
+names(croc_nebula_pc_results_list_reml) <- sapply(croc_nebula_pc_results_list_reml, function(x) x$gene)  # set names
+croc_nebula_pc_results_list_reml <- lapply(croc_nebula_pc_results_list_reml, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_pc_results_list_reml))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_pc_results_list_reml, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/nebula/pc_croc_hvg_nebula_res_reml.rds')
+```
+
+###### REML with rounded counts & offset
+
+```{r echo = F}
+croc_counts_hvg_pc <- round(GetAssayData(croc_so_hvg_pc, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_pc)
+
+meta_hvg_pc <- croc_so_hvg_pc@meta.data
+pred = model.matrix(~group, data = meta_hvg_pc)
+data_g_hvg_pc = list(count=croc_counts_hvg_pc, id=meta_hvg_pc$subject, pred=pred)
+offset_hvg_pc = Matrix::colSums(data_g_hvg_pc$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_pc_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_pc[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_pc, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                     ncore = 1, output_re = T, covariance = T, reml = 1, 
+                     offset = offset_hvg_pc)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_pc_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_pc_results_list_reml_offset)  # remove NULLs first
+names(croc_nebula_pc_results_list_reml_offset) <- sapply(croc_nebula_pc_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_pc_results_list_reml_offset <- lapply(croc_nebula_pc_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_pc_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_pc_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/nebula/pc_croc_hvg_nebula_res_reml_offset.rds')
+```
+
+# IC
+
+```{r echo = F}
+# IC-A, IC-B
+croc_so$celltype_ic <- ifelse(croc_so$celltype_harmony %in% c("IC-A", "IC-B"),
+                                     "IC", as.character(croc_so$celltype_harmony))
+croc_so_ic <- subset(croc_so, celltype_ic == "IC")
+```
+
+```{r echo = F}
+croc_so_ic <- FindVariableFeatures(croc_so_ic, selection.method = "vst", nfeatures = 2000)
+hvgs_ic <- VariableFeatures(croc_so_ic)
+
+# Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_ic <- subset(croc_so_ic, features = hvgs_ic)
+```
+
+#### Mixed model (hurdle, nested random effect)
+##### nebula
+###### ML with rounded counts
+
+```{r echo = F, eval = F}
+croc_counts_hvg_ic <- round(GetAssayData(croc_so_hvg_ic, layer = "counts")) # load counts and round
+# meta_hvg_ic <- croc_so_hvg_ic@meta.data
+# pred = model.matrix(~group, data = meta_hvg_ic)
+# data_g_hvg_ic = list(count=croc_counts_hvg_ic, id=meta_hvg_ic$subject, pred=pred)
+
+# With parallelization
+# List of genes
+genes_list <- rownames(croc_counts_hvg_ic)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_ic_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_ic[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_ic, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, , output_re = T, covariance = T)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_ic_results_list <- Filter(Negate(is.null), croc_nebula_ic_results_list)  # remove NULLs first
+names(croc_nebula_ic_results_list) <- sapply(croc_nebula_ic_results_list, function(x) x$gene)  # set names
+croc_nebula_ic_results_list <- lapply(croc_nebula_ic_results_list, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_ic_results_list))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_ic_results_list, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/nebula/ic_croc_hvg_nebula_res.rds')
+```
+###### REML with rounded counts
+
+```{r echo = F, eval = F}
+croc_counts_hvg_ic <- round(GetAssayData(croc_so_hvg_ic, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_ic)
+
+# REML
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_ic_results_list_reml <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_ic[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_ic, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, output_re = T, covariance = T, reml = 1)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_ic_results_list_reml <- Filter(Negate(is.null), croc_nebula_ic_results_list_reml)  # remove NULLs first
+names(croc_nebula_ic_results_list_reml) <- sapply(croc_nebula_ic_results_list_reml, function(x) x$gene)  # set names
+croc_nebula_ic_results_list_reml <- lapply(croc_nebula_ic_results_list_reml, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_ic_results_list_reml))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_ic_results_list_reml, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/nebula/ic_croc_hvg_nebula_res_reml.rds')
+```
+
+###### REML with rounded counts & offset
+
+```{r echo = F}
+croc_counts_hvg_ic <- round(GetAssayData(croc_so_hvg_ic, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_ic)
+
+meta_hvg_ic <- croc_so_hvg_ic@meta.data
+pred = model.matrix(~group, data = meta_hvg_ic)
+data_g_hvg_ic = list(count=croc_counts_hvg_ic, id=meta_hvg_ic$subject, pred=pred)
+offset_hvg_ic = Matrix::colSums(data_g_hvg_ic$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_ic_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_ic[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_ic, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                     ncore = 1, output_re = T, covariance = T, reml = 1, 
+                     offset = offset_hvg_ic)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_ic_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_ic_results_list_reml_offset)  # remove NULLs first
+names(croc_nebula_ic_results_list_reml_offset) <- sapply(croc_nebula_ic_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_ic_results_list_reml_offset <- lapply(croc_nebula_ic_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_ic_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_ic_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/nebula/ic_croc_hvg_nebula_res_reml_offset.rds')
+```
+# EC
+
+```{r echo = F}
+croc_so$celltype_ec <- ifelse(croc_so$celltype_harmony %in% c("EC-PTC", "EC-GC", "EC-AEA", "EC-LYM"),
+                                     "EC", as.character(croc_so$celltype_harmony))
+croc_so_ec <- subset(croc_so, celltype_ec == "EC")
+```
+
+```{r echo = F}
+croc_so_ec <- FindVariableFeatures(croc_so_ec, selection.method = "vst", nfeatures = 2000)
+hvgs_ec <- VariableFeatures(croc_so_ec)
+
+# Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_ec <- subset(croc_so_ec, features = hvgs_ec)
+```
+
+
+#### Mixed model (hurdle, nested random effect)
+##### nebula
+###### ML with rounded counts
+
+```{r echo = F, eval = F}
+croc_counts_hvg_ec <- round(GetAssayData(croc_so_hvg_ec, layer = "counts")) # load counts and round
+# meta_hvg_ec <- croc_so_hvg_ec@meta.data
+# pred = model.matrix(~group, data = meta_hvg_ec)
+# data_g_hvg_ec = list(count=croc_counts_hvg_ec, id=meta_hvg_ec$subject, pred=pred)
+
+# With parallelization
+# List of genes
+genes_list <- rownames(croc_counts_hvg_ec)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_ec_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_ec[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_ec, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, , output_re = T, covariance = T)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_ec_results_list <- Filter(Negate(is.null), croc_nebula_ec_results_list)  # remove NULLs first
+names(croc_nebula_ec_results_list) <- sapply(croc_nebula_ec_results_list, function(x) x$gene)  # set names
+croc_nebula_ec_results_list <- lapply(croc_nebula_ec_results_list, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_ec_results_list))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_ec_results_list, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/nebula/ec_croc_hvg_nebula_res.rds')
+```
+###### REML with rounded counts
+
+```{r echo = F, eval = F}
+croc_counts_hvg_ec <- round(GetAssayData(croc_so_hvg_ec, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_ec)
+
+# REML
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_ec_results_list_reml <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_ec[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_ec, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, output_re = T, covariance = T, reml = 1)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_ec_results_list_reml <- Filter(Negate(is.null), croc_nebula_ec_results_list_reml)  # remove NULLs first
+names(croc_nebula_ec_results_list_reml) <- sapply(croc_nebula_ec_results_list_reml, function(x) x$gene)  # set names
+croc_nebula_ec_results_list_reml <- lapply(croc_nebula_ec_results_list_reml, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_ec_results_list_reml))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_ec_results_list_reml, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/nebula/ec_croc_hvg_nebula_res_reml.rds')
+```
+
+###### REML with rounded counts & offset
+
+```{r echo = F}
+croc_counts_hvg_ec <- round(GetAssayData(croc_so_hvg_ec, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_ec)
+
+meta_hvg_ec <- croc_so_hvg_ec@meta.data
+pred = model.matrix(~group, data = meta_hvg_ec)
+data_g_hvg_ec = list(count=croc_counts_hvg_ec, id=meta_hvg_ec$subject, pred=pred)
+offset_hvg_ec = Matrix::colSums(data_g_hvg_ec$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_ec_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_ec[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_ec, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                     ncore = 1, output_re = T, covariance = T, reml = 1, 
+                     offset = offset_hvg_ec)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_ec_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_ec_results_list_reml_offset)  # remove NULLs first
+names(croc_nebula_ec_results_list_reml_offset) <- sapply(croc_nebula_ec_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_ec_results_list_reml_offset <- lapply(croc_nebula_ec_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_ec_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_ec_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/nebula/ec_croc_hvg_nebula_res_reml_offset.rds')
+```
+
+# FIB, VSMC/P
+
+```{r echo = F}
+croc_so$celltype_fibvsmc <- ifelse(croc_so$celltype_harmony %in% c("VSMC/MC/FIB"),
+                                     "FIBVSMC", as.character(croc_so$celltype_harmony))
+croc_so_fibvsmc <- subset(croc_so, celltype_fibvsmc == "FIBVSMC")
+```
+
+```{r echo = F}
+croc_so_fibvsmc <- FindVariableFeatures(croc_so_fibvsmc, selection.method = "vst", nfeatures = 2000)
+hvgs_fibvsmc <- VariableFeatures(croc_so_fibvsmc)
+
+# Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_fibvsmc <- subset(croc_so_fibvsmc, features = hvgs_fibvsmc)
+```
+
+
+#### Mixed model (hurdle, nested random effect)
+##### nebula
+###### ML with rounded counts
+
+```{r echo = F, eval = F}
+croc_counts_hvg_fibvsmc <- round(GetAssayData(croc_so_hvg_fibvsmc, layer = "counts")) # load counts and round
+# meta_hvg_fibvsmc <- croc_so_hvg_fibvsmc@meta.data
+# pred = model.matrix(~group, data = meta_hvg_fibvsmc)
+# data_g_hvg_fibvsmc = list(count=croc_counts_hvg_fibvsmc, id=meta_hvg_fibvsmc$subject, pred=pred)
+
+# With parallelization
+# List of genes
+genes_list <- rownames(croc_counts_hvg_fibvsmc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_fibvsmc_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_fibvsmc[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_fibvsmc, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, , output_re = T, covariance = T)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_fibvsmc_results_list <- Filter(Negate(is.null), croc_nebula_fibvsmc_results_list)  # remove NULLs first
+names(croc_nebula_fibvsmc_results_list) <- sapply(croc_nebula_fibvsmc_results_list, function(x) x$gene)  # set names
+croc_nebula_fibvsmc_results_list <- lapply(croc_nebula_fibvsmc_results_list, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_fibvsmc_results_list))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_fibvsmc_results_list, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/nebula/fibvsmc_croc_hvg_nebula_res.rds')
+```
+###### REML with rounded counts
+
+```{r echo = F, eval = F}
+croc_counts_hvg_fibvsmc <- round(GetAssayData(croc_so_hvg_fibvsmc, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_fibvsmc)
+
+# REML
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_fibvsmc_results_list_reml <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_fibvsmc[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_fibvsmc, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, output_re = T, covariance = T, reml = 1)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_fibvsmc_results_list_reml <- Filter(Negate(is.null), croc_nebula_fibvsmc_results_list_reml)  # remove NULLs first
+names(croc_nebula_fibvsmc_results_list_reml) <- sapply(croc_nebula_fibvsmc_results_list_reml, function(x) x$gene)  # set names
+croc_nebula_fibvsmc_results_list_reml <- lapply(croc_nebula_fibvsmc_results_list_reml, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_fibvsmc_results_list_reml))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_fibvsmc_results_list_reml, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/nebula/fibvsmc_croc_hvg_nebula_res_reml.rds')
+```
+###### REML with rounded counts & offset
+
+```{r echo = F}
+croc_counts_hvg_fibvsmc <- round(GetAssayData(croc_so_hvg_fibvsmc, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_fibvsmc)
+
+meta_hvg_fibvsmc <- croc_so_hvg_fibvsmc@meta.data
+pred = model.matrix(~group, data = meta_hvg_fibvsmc)
+data_g_hvg_fibvsmc = list(count=croc_counts_hvg_fibvsmc, id=meta_hvg_fibvsmc$subject, pred=pred)
+offset_hvg_fibvsmc = Matrix::colSums(data_g_hvg_fibvsmc$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_fibvsmc_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- croc_counts_hvg_fibvsmc[g, , drop = FALSE]
+    meta_gene <- subset(croc_so_hvg_fibvsmc, features = g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                     ncore = 1, output_re = T, covariance = T, reml = 1, 
+                     offset = offset_hvg_fibvsmc)
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+# set the names of results based on gene names
+croc_nebula_fibvsmc_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_fibvsmc_results_list_reml_offset)  # remove NULLs first
+names(croc_nebula_fibvsmc_results_list_reml_offset) <- sapply(croc_nebula_fibvsmc_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_fibvsmc_results_list_reml_offset <- lapply(croc_nebula_fibvsmc_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_fibvsmc_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_fibvsmc_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/nebula/fibvsmc_croc_hvg_nebula_res_reml_offset.rds')
+```
+
+
+# Archive
 ```{r echo = F}
 # CROCODILE functions
 # Removed zero inflation
@@ -364,21 +1668,26 @@ fit_model_croc <- function(gene, sc_dat) {
 ## PT
 ### Untargeted approach with CROC (HC vs. T1D)
 ```{r echo = F}
-so_croc$celltype_pt <- ifelse(grepl("PT-", so_croc$celltype_harmony),
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+
+```{r echo = F}
+croc_so$celltype_pt <- ifelse(grepl("PT-", croc_so$celltype_harmony),
                                  "PT", as.character(so$celltype_harmony))
-so_croc_pt <- subset(so_croc, celltype_pt == "PT" & celltype_harmony != "PT_lowQuality")
+croc_so_pt <- subset(croc_so, celltype_pt == "PT" & celltype_harmony != "PT_lowQuality")
 ```
 
 ```{r echo = F}
 # Subset Seurat object to retain only these genes
-pt_expr_matrix <- as.matrix(GetAssayData(so_croc_pt, layer = "data"))
+pt_expr_matrix <- as.matrix(GetAssayData(croc_so_pt, layer = "data"))
 pt_expr_df <- as.data.frame(as.table(as.matrix(pt_expr_matrix)))
 colnames(pt_expr_df) <- c("Gene", "Cell", "Expression")
 
 pt_croc_sc_data <- data.frame(Gene = pt_expr_df$Gene,
                               Cell = pt_expr_df$Cell,
-                              Group = so_croc_pt@meta.data$group,
-                              Subject = so_croc_pt@meta.data$record_id,
+                              Group = croc_so_pt@meta.data$group,
+                              Subject = croc_so_pt@meta.data$record_id,
                               Expression = as.vector(pt_expr_df$Expression))
 ```
 
@@ -447,11 +1756,11 @@ pt_croc_emmeans_df_combined <- rbindlist(pt_croc_emmeans_df_list, fill = TRUE)
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pt_croc_model_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/pt_attempt_scrna_mm_model_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PT/pt_attempt_scrna_mm_model_combined.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pt_croc_emmeans_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/pt_attempt_scrna_mm_emmeans_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PT/pt_attempt_scrna_mm_emmeans_combined.rds')
 
 ## keep converged model results only
 pt_croc_model_filtered <- pt_croc_model_df_combined %>%
@@ -503,11 +1812,11 @@ pt_attempt_sig_emmeans_mod3 <- subset(pt_attempt_emmeans_filtered_mod3, Gene %in
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pt_attempt_sig_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/pt_attempt_croc_sig_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PT/pt_attempt_croc_sig_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pt_attempt_sig_emmeans_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/pt_attempt_croc_sig_emmeans_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PT/pt_attempt_croc_sig_emmeans_mod3.rds')
 ```
 
 #### Model 4
@@ -541,11 +1850,11 @@ pt_attempt_sig_emmeans_mod4 <- subset(pt_attempt_emmeans_filtered_mod4, Gene %in
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pt_attempt_sig_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/pt_attempt_croc_sig_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PT/pt_attempt_croc_sig_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pt_attempt_sig_emmeans_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/pt_attempt_croc_sig_emmeans_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PT/pt_attempt_croc_sig_emmeans_mod4.rds')
 ```
 
 ### Targeted approach with ATTEMPT (HC vs. baseline T1D)
@@ -561,18 +1870,18 @@ pt_croc_sig_emmeans_target_subset <- subset(pt_croc_emmeans_filtered, Gene %in% 
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pt_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/pt_attempt_croc_sig_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PT/pt_attempt_croc_sig_target_subset_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pt_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/pt_attempt_croc_sig_emmeans_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PT/pt_attempt_croc_sig_emmeans_target_subset_mod3.rds')
 
 rm(list = ls(pattern = "^pt_croc_sc_data_"))
 ```
 
 #### Dot Plots
 ```{r echo = F}
-combined_so_pt <- merge(so_attempt_pt, so_croc_pt)
+combined_so_pt <- merge(so_attempt_pt, croc_so_pt)
 Seurat::DotPlot(so)
 ```
 
@@ -587,32 +1896,32 @@ pt_croc_sig_emmeans_target_subset <- subset(pt_croc_emmeans_filtered, Gene %in% 
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pt_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/pt_attempt_croc_sig_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PT/pt_attempt_croc_sig_target_subset_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pt_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/pt_attempt_croc_sig_emmeans_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PT/pt_attempt_croc_sig_emmeans_target_subset_mod4.rds')
 
 rm(list = ls(pattern = "^pt_croc_sc_data_"))
 ```
 ## TAL
 ### Untargeted approach with CROC (HC vs. T1D)
 ```{r echo = F}
-so_croc$celltype_tal <- ifelse(grepl("TAL-", so_croc$celltype_harmony),
+croc_so$celltype_tal <- ifelse(grepl("TAL-", croc_so$celltype_harmony),
                                  "TAL", as.character(so$celltype_harmony))
-so_croc_tal <- subset(so_croc, celltype_tal == "TAL" & celltype_harmony != "TAL_highUMI")
+croc_so_tal <- subset(croc_so, celltype_tal == "TAL" & celltype_harmony != "TAL_highUMI")
 ```
 
 ```{r echo = F}
 # Subset Seurat object to retain only these genes
-tal_expr_matrix <- as.matrix(GetAssayData(so_croc_tal, layer = "data"))
+tal_expr_matrix <- as.matrix(GetAssayData(croc_so_tal, layer = "data"))
 tal_expr_df <- as.data.frame(as.table(as.matrix(tal_expr_matrix)))
 colnames(tal_expr_df) <- c("Gene", "Cell", "Expression")
 
 tal_croc_sc_data <- data.frame(Gene = tal_expr_df$Gene,
                               Cell = tal_expr_df$Cell,
-                              Group = so_croc_tal@meta.data$group,
-                              Subject = so_croc_tal@meta.data$record_id,
+                              Group = croc_so_tal@meta.data$group,
+                              Subject = croc_so_tal@meta.data$record_id,
                               Expression = as.vector(tal_expr_df$Expression))
 ```
 
@@ -681,11 +1990,11 @@ tal_croc_emmeans_df_combined <- rbindlist(tal_croc_emmeans_df_list, fill = TRUE)
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(tal_croc_model_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/tal_attempt_scrna_mm_model_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/TAL/tal_attempt_scrna_mm_model_combined.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(tal_croc_emmeans_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/tal_attempt_scrna_mm_emmeans_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/TAL/tal_attempt_scrna_mm_emmeans_combined.rds')
 
 ## keep converged model results only
 tal_croc_model_filtered <- tal_croc_model_df_combined %>%
@@ -737,11 +2046,11 @@ tal_attempt_sig_emmeans_mod3 <- subset(tal_attempt_emmeans_filtered_mod3, Gene %
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(tal_attempt_sig_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(tal_attempt_sig_emmeans_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_emmeans_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_emmeans_mod3.rds')
 ```
 
 #### Model 4
@@ -775,11 +2084,11 @@ tal_attempt_sig_emmeans_mod4 <- subset(tal_attempt_emmeans_filtered_mod4, Gene %
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(tal_attempt_sig_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(tal_attempt_sig_emmeans_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_emmeans_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_emmeans_mod4.rds')
 ```
 
 ### Targeted approach with ATTEMPT (HC vs. baseline T1D)
@@ -795,11 +2104,11 @@ tal_croc_sig_emmeans_target_subset <- subset(tal_croc_emmeans_filtered, Gene %in
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(tal_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_target_subset_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(tal_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_emmeans_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_emmeans_target_subset_mod3.rds')
 
 rm(list = ls(pattern = "^tal_croc_sc_data_"))
 ```
@@ -815,11 +2124,11 @@ tal_croc_sig_emmeans_target_subset <- subset(tal_croc_emmeans_filtered, Gene %in
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(tal_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_target_subset_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(tal_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_emmeans_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/TAL/tal_attempt_croc_sig_emmeans_target_subset_mod4.rds')
 
 rm(list = ls(pattern = "^tal_croc_sc_data_"))
 ```
@@ -827,21 +2136,21 @@ rm(list = ls(pattern = "^tal_croc_sc_data_"))
 ## PC
 ### Untargeted approach with CROC (HC vs. T1D)
 ```{r echo = F}
-so_croc$celltype_pc <- ifelse(so_croc$celltype_harmony %in% c("PC-1", "PC-2", "tPC-IC"), 
-                                     "PC", as.character(so_croc$celltype_harmony)) 
-so_croc_pc <- subset(so_croc, celltype_pc == "PC")
+croc_so$celltype_pc <- ifelse(croc_so$celltype_harmony %in% c("PC-1", "PC-2", "tPC-IC"), 
+                                     "PC", as.character(croc_so$celltype_harmony)) 
+croc_so_pc <- subset(croc_so, celltype_pc == "PC")
 ```
 
 ```{r echo = F}
 # Subset Seurat object to retain only these genes
-pc_expr_matrix <- as.matrix(GetAssayData(so_croc_pc, layer = "data"))
+pc_expr_matrix <- as.matrix(GetAssayData(croc_so_pc, layer = "data"))
 pc_expr_df <- as.data.frame(as.table(as.matrix(pc_expr_matrix)))
 colnames(pc_expr_df) <- c("Gene", "Cell", "Expression")
 
 pc_croc_sc_data <- data.frame(Gene = pc_expr_df$Gene,
                               Cell = pc_expr_df$Cell,
-                              Group = so_croc_pc@meta.data$group,
-                              Subject = so_croc_pc@meta.data$record_id,
+                              Group = croc_so_pc@meta.data$group,
+                              Subject = croc_so_pc@meta.data$record_id,
                               Expression = as.vector(pc_expr_df$Expression))
 ```
 
@@ -910,11 +2219,11 @@ pc_croc_emmeans_df_combined <- rbindlist(pc_croc_emmeans_df_list, fill = TRUE)
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pc_croc_model_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/pc_attempt_scrna_mm_model_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PC/pc_attempt_scrna_mm_model_combined.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pc_croc_emmeans_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/pc_attempt_scrna_mm_emmeans_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PC/pc_attempt_scrna_mm_emmeans_combined.rds')
 
 ## keep converged model results only
 pc_croc_model_filtered <- pc_croc_model_df_combined %>%
@@ -966,11 +2275,11 @@ pc_attempt_sig_emmeans_mod3 <- subset(pc_attempt_emmeans_filtered_mod3, Gene %in
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pc_attempt_sig_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/pc_attempt_croc_sig_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PC/pc_attempt_croc_sig_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pc_attempt_sig_emmeans_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/pc_attempt_croc_sig_emmeans_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PC/pc_attempt_croc_sig_emmeans_mod3.rds')
 ```
 
 #### Model 4
@@ -1004,11 +2313,11 @@ pc_attempt_sig_emmeans_mod4 <- subset(pc_attempt_emmeans_filtered_mod4, Gene %in
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pc_attempt_sig_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/pc_attempt_croc_sig_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PC/pc_attempt_croc_sig_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pc_attempt_sig_emmeans_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/pc_attempt_croc_sig_emmeans_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PC/pc_attempt_croc_sig_emmeans_mod4.rds')
 ```
 
 ### Targeted approach with ATTEMPT (HC vs. baseline T1D)
@@ -1024,11 +2333,11 @@ pc_croc_sig_emmeans_target_subset <- subset(pc_croc_emmeans_filtered, Gene %in% 
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pc_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/pc_attempt_croc_sig_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PC/pc_attempt_croc_sig_target_subset_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pc_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/pc_attempt_croc_sig_emmeans_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PC/pc_attempt_croc_sig_emmeans_target_subset_mod3.rds')
 
 rm(list = ls(pattern = "^pc_croc_sc_data_"))
 ```
@@ -1044,11 +2353,11 @@ pc_croc_sig_emmeans_target_subset <- subset(pc_croc_emmeans_filtered, Gene %in% 
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pc_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/pc_attempt_croc_sig_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PC/pc_attempt_croc_sig_target_subset_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pc_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/pc_attempt_croc_sig_emmeans_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/PC/pc_attempt_croc_sig_emmeans_target_subset_mod4.rds')
 
 rm(list = ls(pattern = "^pc_croc_sc_data_"))
 ```
@@ -1056,21 +2365,21 @@ rm(list = ls(pattern = "^pc_croc_sc_data_"))
 ## EC
 ### Untargeted approach with CROC (HC vs. T1D)
 ```{r echo = F}
-so_croc$celltype_ec <- ifelse(so_croc$celltype_harmony %in% c("EC-PTC", "EC-GC", "EC-AEA", "EC-LYM"),
-                                     "EC", as.character(so_croc$celltype_harmony))
-so_croc_ec <- subset(so_croc, celltype_ec == "EC")
+croc_so$celltype_ec <- ifelse(croc_so$celltype_harmony %in% c("EC-PTC", "EC-GC", "EC-AEA", "EC-LYM"),
+                                     "EC", as.character(croc_so$celltype_harmony))
+croc_so_ec <- subset(croc_so, celltype_ec == "EC")
 ```
 
 ```{r echo = F}
 # Subset Seurat object to retain only these genes
-ec_expr_matrix <- as.matrix(GetAssayData(so_croc_ec, layer = "data"))
+ec_expr_matrix <- as.matrix(GetAssayData(croc_so_ec, layer = "data"))
 ec_expr_df <- as.data.frame(as.table(as.matrix(ec_expr_matrix)))
 colnames(ec_expr_df) <- c("Gene", "Cell", "Expression")
 
 ec_croc_sc_data <- data.frame(Gene = ec_expr_df$Gene,
                               Cell = ec_expr_df$Cell,
-                              Group = so_croc_ec@meta.data$group,
-                              Subject = so_croc_ec@meta.data$record_id,
+                              Group = croc_so_ec@meta.data$group,
+                              Subject = croc_so_ec@meta.data$record_id,
                               Expression = as.vector(ec_expr_df$Expression))
 ```
 
@@ -1139,11 +2448,11 @@ ec_croc_emmeans_df_combined <- rbindlist(ec_croc_emmeans_df_list, fill = TRUE)
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ec_croc_model_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/ec_attempt_scrna_mm_model_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/EC/ec_attempt_scrna_mm_model_combined.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ec_croc_emmeans_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/ec_attempt_scrna_mm_emmeans_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/EC/ec_attempt_scrna_mm_emmeans_combined.rds')
 
 ## keep converged model results only
 ec_croc_model_filtered <- ec_croc_model_df_combined %>%
@@ -1195,11 +2504,11 @@ ec_attempt_sig_emmeans_mod3 <- subset(ec_attempt_emmeans_filtered_mod3, Gene %in
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ec_attempt_sig_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/ec_attempt_croc_sig_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/EC/ec_attempt_croc_sig_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ec_attempt_sig_emmeans_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/ec_attempt_croc_sig_emmeans_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/EC/ec_attempt_croc_sig_emmeans_mod3.rds')
 ```
 
 #### Model 4
@@ -1233,11 +2542,11 @@ ec_attempt_sig_emmeans_mod4 <- subset(ec_attempt_emmeans_filtered_mod4, Gene %in
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ec_attempt_sig_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/ec_attempt_croc_sig_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/EC/ec_attempt_croc_sig_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ec_attempt_sig_emmeans_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/ec_attempt_croc_sig_emmeans_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/EC/ec_attempt_croc_sig_emmeans_mod4.rds')
 ```
 
 ### Targeted approach with ATTEMPT (HC vs. baseline T1D)
@@ -1253,11 +2562,11 @@ ec_croc_sig_emmeans_target_subset <- subset(ec_croc_emmeans_filtered, Gene %in% 
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ec_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/ec_attempt_croc_sig_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/EC/ec_attempt_croc_sig_target_subset_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ec_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/ec_attempt_croc_sig_emmeans_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/EC/ec_attempt_croc_sig_emmeans_target_subset_mod3.rds')
 
 rm(list = ls(pattern = "^ec_croc_sc_data_"))
 ```
@@ -1273,11 +2582,11 @@ ec_croc_sig_emmeans_target_subset <- subset(ec_croc_emmeans_filtered, Gene %in% 
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ec_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/ec_attempt_croc_sig_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/EC/ec_attempt_croc_sig_target_subset_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ec_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/ec_attempt_croc_sig_emmeans_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/EC/ec_attempt_croc_sig_emmeans_target_subset_mod4.rds')
 
 rm(list = ls(pattern = "^ec_croc_sc_data_"))
 ```
@@ -1285,21 +2594,21 @@ rm(list = ls(pattern = "^ec_croc_sc_data_"))
 ## IC
 ### Untargeted approach with CROC (HC vs. T1D)
 ```{r echo = F}
-so_croc$celltype_ic <- ifelse(so_croc$celltype_harmony %in% c("IC-A", "IC-B"),
-                                     "IC", as.character(so_croc$celltype_harmony))
-so_croc_ic <- subset(so_croc, celltype_ic == "IC")
+croc_so$celltype_ic <- ifelse(croc_so$celltype_harmony %in% c("IC-A", "IC-B"),
+                                     "IC", as.character(croc_so$celltype_harmony))
+croc_so_ic <- subset(croc_so, celltype_ic == "IC")
 ```
 
 ```{r echo = F}
 # Subset Seurat object to retain only these genes
-ic_expr_matrix <- as.matrix(GetAssayData(so_croc_ic, layer = "data"))
+ic_expr_matrix <- as.matrix(GetAssayData(croc_so_ic, layer = "data"))
 ic_expr_df <- as.data.frame(as.table(as.matrix(ic_expr_matrix)))
 colnames(ic_expr_df) <- c("Gene", "Cell", "Expression")
 
 ic_croc_sc_data <- data.frame(Gene = ic_expr_df$Gene,
                               Cell = ic_expr_df$Cell,
-                              Group = so_croc_ic@meta.data$group,
-                              Subject = so_croc_ic@meta.data$record_id,
+                              Group = croc_so_ic@meta.data$group,
+                              Subject = croc_so_ic@meta.data$record_id,
                               Expression = as.vector(ic_expr_df$Expression))
 ```
 
@@ -1368,11 +2677,11 @@ ic_croc_emmeans_df_combined <- rbindlist(ic_croc_emmeans_df_list, fill = TRUE)
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ic_croc_model_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/ic_attempt_scrna_mm_model_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/IC/ic_attempt_scrna_mm_model_combined.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ic_croc_emmeans_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/ic_attempt_scrna_mm_emmeans_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/IC/ic_attempt_scrna_mm_emmeans_combined.rds')
 
 ## keep converged model results only
 ic_croc_model_filtered <- ic_croc_model_df_combined %>%
@@ -1424,11 +2733,11 @@ ic_attempt_sig_emmeans_mod3 <- subset(ic_attempt_emmeans_filtered_mod3, Gene %in
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ic_attempt_sig_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/ic_attempt_croc_sig_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/IC/ic_attempt_croc_sig_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ic_attempt_sig_emmeans_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/ic_attempt_croc_sig_emmeans_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/IC/ic_attempt_croc_sig_emmeans_mod3.rds')
 ```
 
 #### Model 4
@@ -1462,11 +2771,11 @@ ic_attempt_sig_emmeans_mod4 <- subset(ic_attempt_emmeans_filtered_mod4, Gene %in
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ic_attempt_sig_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/ic_attempt_croc_sig_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/IC/ic_attempt_croc_sig_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ic_attempt_sig_emmeans_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/ic_attempt_croc_sig_emmeans_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/IC/ic_attempt_croc_sig_emmeans_mod4.rds')
 ```
 
 ### Targeted approach with ATTEMPT (HC vs. baseline T1D)
@@ -1482,11 +2791,11 @@ ic_croc_sig_emmeans_target_subset <- subset(ic_croc_emmeans_filtered, Gene %in% 
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ic_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/ic_attempt_croc_sig_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/IC/ic_attempt_croc_sig_target_subset_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ic_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/ic_attempt_croc_sig_emmeans_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/IC/ic_attempt_croc_sig_emmeans_target_subset_mod3.rds')
 
 rm(list = ls(pattern = "^ic_croc_sc_data_"))
 ```
@@ -1502,11 +2811,11 @@ ic_croc_sig_emmeans_target_subset <- subset(ic_croc_emmeans_filtered, Gene %in% 
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ic_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/ic_attempt_croc_sig_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/IC/ic_attempt_croc_sig_target_subset_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(ic_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/ic_attempt_croc_sig_emmeans_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/IC/ic_attempt_croc_sig_emmeans_target_subset_mod4.rds')
 
 rm(list = ls(pattern = "^ic_croc_sc_data_"))
 ```
@@ -1514,21 +2823,21 @@ rm(list = ls(pattern = "^ic_croc_sc_data_"))
 ## Immune
 ### Untargeted approach with CROC (HC vs. T1D)
 ```{r echo = F}
-so_croc$celltype_immune <- ifelse(so_croc$celltype_harmony %in% c("MON", "MAC", "T", "B", "NKT/NKC"),
-                                     "Immune", as.character(so_croc$celltype_harmony))
-so_croc_immune <- subset(so_croc, celltype_immune == "Immune")
+croc_so$celltype_immune <- ifelse(croc_so$celltype_harmony %in% c("MON", "MAC", "T", "B", "NKT/NKC"),
+                                     "Immune", as.character(croc_so$celltype_harmony))
+croc_so_immune <- subset(croc_so, celltype_immune == "Immune")
 ```
 
 ```{r echo = F}
 # Subset Seurat object to retain only these genes
-immune_expr_matrix <- as.matrix(GetAssayData(so_croc_immune, layer = "data"))
+immune_expr_matrix <- as.matrix(GetAssayData(croc_so_immune, layer = "data"))
 immune_expr_df <- as.data.frame(as.table(as.matrix(immune_expr_matrix)))
 colnames(immune_expr_df) <- c("Gene", "Cell", "Expression")
 
 immune_croc_sc_data <- data.frame(Gene = immune_expr_df$Gene,
                               Cell = immune_expr_df$Cell,
-                              Group = so_croc_immune@meta.data$group,
-                              Subject = so_croc_immune@meta.data$record_id,
+                              Group = croc_so_immune@meta.data$group,
+                              Subject = croc_so_immune@meta.data$record_id,
                               Expression = as.vector(immune_expr_df$Expression))
 ```
 
@@ -1597,11 +2906,11 @@ immune_croc_emmeans_df_combined <- rbindlist(immune_croc_emmeans_df_list, fill =
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(immune_croc_model_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/immune_attempt_scrna_mm_model_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/Immune/immune_attempt_scrna_mm_model_combined.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(immune_croc_emmeans_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/immune_attempt_scrna_mm_emmeans_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/Immune/immune_attempt_scrna_mm_emmeans_combined.rds')
 
 ## keep converged model results only
 immune_croc_model_filtered <- immune_croc_model_df_combined %>%
@@ -1653,11 +2962,11 @@ immune_attempt_sig_emmeans_mod3 <- subset(immune_attempt_emmeans_filtered_mod3, 
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(immune_attempt_sig_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(immune_attempt_sig_emmeans_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_emmeans_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_emmeans_mod3.rds')
 ```
 
 #### Model 4
@@ -1691,11 +3000,11 @@ immune_attempt_sig_emmeans_mod4 <- subset(immune_attempt_emmeans_filtered_mod4, 
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(immune_attempt_sig_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(immune_attempt_sig_emmeans_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_emmeans_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_emmeans_mod4.rds')
 ```
 
 ### Targeted approach with ATTEMPT (HC vs. baseline T1D)
@@ -1711,11 +3020,11 @@ immune_croc_sig_emmeans_target_subset <- subset(immune_croc_emmeans_filtered, Ge
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(immune_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_target_subset_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(immune_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_emmeans_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_emmeans_target_subset_mod3.rds')
 
 rm(list = ls(pattern = "^immune_croc_sc_data_"))
 ```
@@ -1731,11 +3040,11 @@ immune_croc_sig_emmeans_target_subset <- subset(immune_croc_emmeans_filtered, Ge
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(immune_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_target_subset_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(immune_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_emmeans_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/Immune/immune_attempt_croc_sig_emmeans_target_subset_mod4.rds')
 
 rm(list = ls(pattern = "^immune_croc_sc_data_"))
 ```
@@ -1743,21 +3052,21 @@ rm(list = ls(pattern = "^immune_croc_sc_data_"))
 ## VSMC/MC/FIB
 ### Untargeted approach with CROC (HC vs. T1D)
 ```{r echo = F}
-so_croc$celltype_fibvsmc <- ifelse(so_croc$celltype_harmony %in% c("VSMC/MC/FIB"),
-                                     "FIBVSMC", as.character(so_croc$celltype_harmony))
-so_croc_fibvsmcp <- subset(so_croc, celltype_fibvsmc == "FIBVSMC")
+croc_so$celltype_fibvsmc <- ifelse(croc_so$celltype_harmony %in% c("VSMC/MC/FIB"),
+                                     "FIBVSMC", as.character(croc_so$celltype_harmony))
+croc_so_fibvsmcp <- subset(croc_so, celltype_fibvsmc == "FIBVSMC")
 ```
 
 ```{r echo = F}
 # Subset Seurat object to retain only these genes
-fibvsmcp_expr_matrix <- as.matrix(GetAssayData(so_croc_fibvsmcp, layer = "data"))
+fibvsmcp_expr_matrix <- as.matrix(GetAssayData(croc_so_fibvsmcp, layer = "data"))
 fibvsmcp_expr_df <- as.data.frame(as.table(as.matrix(fibvsmcp_expr_matrix)))
 colnames(fibvsmcp_expr_df) <- c("Gene", "Cell", "Expression")
 
 fibvsmcp_croc_sc_data <- data.frame(Gene = fibvsmcp_expr_df$Gene,
                               Cell = fibvsmcp_expr_df$Cell,
-                              Group = so_croc_fibvsmcp@meta.data$group,
-                              Subject = so_croc_fibvsmcp@meta.data$record_id,
+                              Group = croc_so_fibvsmcp@meta.data$group,
+                              Subject = croc_so_fibvsmcp@meta.data$record_id,
                               Expression = as.vector(fibvsmcp_expr_df$Expression))
 ```
 
@@ -1826,11 +3135,11 @@ fibvsmcp_croc_emmeans_df_combined <- rbindlist(fibvsmcp_croc_emmeans_df_list, fi
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(fibvsmcp_croc_model_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_scrna_mm_model_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_scrna_mm_model_combined.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(fibvsmcp_croc_emmeans_df_combined, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_scrna_mm_emmeans_combined.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_scrna_mm_emmeans_combined.rds')
 
 ## keep converged model results only
 fibvsmcp_croc_model_filtered <- fibvsmcp_croc_model_df_combined %>%
@@ -1882,11 +3191,11 @@ fibvsmcp_attempt_sig_emmeans_mod3 <- subset(fibvsmcp_attempt_emmeans_filtered_mo
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(fibvsmcp_attempt_sig_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(fibvsmcp_attempt_sig_emmeans_mod3, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_emmeans_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_emmeans_mod3.rds')
 ```
 
 #### Model 4
@@ -1920,11 +3229,11 @@ fibvsmcp_attempt_sig_emmeans_mod4 <- subset(fibvsmcp_attempt_emmeans_filtered_mo
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(fibvsmcp_attempt_sig_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(fibvsmcp_attempt_sig_emmeans_mod4, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_emmeans_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_emmeans_mod4.rds')
 ```
 
 ### Targeted approach with ATTEMPT (HC vs. baseline T1D)
@@ -1940,11 +3249,11 @@ fibvsmcp_croc_sig_emmeans_target_subset <- subset(fibvsmcp_croc_emmeans_filtered
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(fibvsmcp_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_target_subset_mod3.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(fibvsmcp_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_emmeans_target_subset_mod3.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_emmeans_target_subset_mod3.rds')
 
 rm(list = ls(pattern = "^fibvsmcp_croc_sc_data_"))
 ```
@@ -1960,11 +3269,11 @@ fibvsmcp_croc_sig_emmeans_target_subset <- subset(fibvsmcp_croc_emmeans_filtered
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(fibvsmcp_croc_sig_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_target_subset_mod4.rds')
 
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(fibvsmcp_croc_sig_emmeans_target_subset, temp_file) # save the temp file locally (will delete after R session)
-s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_emmeans_target_subset_mod4.rds')
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/CROCODILE comparison analysis/FIBVSMCP/fibvsmcp_attempt_croc_sig_emmeans_target_subset_mod4.rds')
 
 rm(list = ls(pattern = "^fibvsmcp_croc_sc_data_"))
 ```

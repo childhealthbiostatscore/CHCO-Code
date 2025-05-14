@@ -239,13 +239,13 @@ def clean_panther():
                 "trunkmass_percent": "dexa_trunk_mass", "fatmass_kg": "dexa_fat_kg", 
                 "leanmass_kg": "dexa_lean_kg", "trunkmass_kg": "dexa_trunk_kg"}, axis=1, inplace=True)
     dxa.drop(["dexa_age"], axis=1, inplace=True)
-    dxa["procedure"] = "dxa"
+    dxa["procedure"] = "dexa"
 
     # --------------------------------------------------------------------------
     # Renal Clearance Testing
     # --------------------------------------------------------------------------
 
-    var = ["record_id"] + ["group"] + ["phys_map"] + [v for v in meta.loc[meta["form_name"] == 
+    var = ["record_id"] + ["group"] + ["phys_map"] + ["dxa_height"] + ["dxa_weight"] + [v for v in meta.loc[meta["form_name"] == 
     "study_visit_renal_clearance_testing", "field_name"]] +[v for v in meta.loc[meta["form_name"] == 
     "renal_clearance_baseline_labs", "field_name"]]
     rct = pd.DataFrame(proj.export_records(fields=var))
@@ -265,7 +265,8 @@ def clean_panther():
               "pahbsa": "pah_clear_bsa", "phys_map": "map", "bolus_ioh": "iohexol_vol", 
               "ioh_bol_com": "iohexol_time", "infusion_ioh": "iohexol_infusion_vol",
               "iohexol_yn": "iohexol_bolus", "pah_yn": "pah_bolus", "bolus_pah": "pah_vol",
-              "infusion_pah": "pah_infusion_vol", "pah_bol_com": "pah_time"}
+              "infusion_pah": "pah_infusion_vol", "pah_bol_com": "pah_time",
+              "dxa_height": "weight", "dxa_weight": "height"}
     rct.rename(rename, axis=1, inplace=True)
     rct = rct[rct.columns[~rct.columns.str.endswith('_yn')]].copy()
     rct.columns = rct.columns.str.replace(
