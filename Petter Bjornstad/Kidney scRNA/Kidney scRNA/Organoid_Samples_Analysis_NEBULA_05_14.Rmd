@@ -103,6 +103,8 @@ library(nebula)
 library(boot)
 library(furrr)
 library(future)
+# BiocManager::install("scran")
+library(scran)
 
 #Mac laptop
 dir.dat <- c("//Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
@@ -218,14 +220,14 @@ so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
 DefaultAssay(so_kpmp_sc) <- "RNA"
 invisible(gc())
 
-#Calculate cell library size for offset
-counts_layer <- round(GetAssayData(so_kpmp_sc, layer = "counts")) # load counts and round
-library_size <- Matrix::colSums(counts_layer) #calculate the column sums aka the sum of all genes in each cell
-so_kpmp_sc$library_size <- library_size #Put into the seurat object
-#Check that it is accessible in the metadata
-meta <- so_kpmp_sc@meta.data #It should be in the dataframe, delete meta data check df
-rm(meta,counts_layer)
-hist(so_kpmp_sc$library_size)
+# #Calculate cell library size for offset
+# counts_layer <- round(GetAssayData(so_kpmp_sc, layer = "counts")) # load counts and round
+# library_size <- Matrix::colSums(counts_layer) #calculate the column sums aka the sum of all genes in each cell
+# so_kpmp_sc$library_size <- library_size #Put into the seurat object
+# #Check that it is accessible in the metadata
+# meta <- so_kpmp_sc@meta.data #It should be in the dataframe, delete meta data check df
+# rm(meta,counts_layer)
+# hist(so_kpmp_sc$library_size)
 
 # #Perform Quality Control & Preprocessing Steps
 ncol(so_kpmp_sc) #11386 cells
@@ -264,9 +266,54 @@ sum(grepl("^MT-", rownames(so_kpmp_sc))) #0
 ncol(so_kpmp_sc) #11386 cells
 nrow(so_kpmp_sc) #9196 genes
 
+#Step 3: Remove ribosomal Genes
+# Identify ribosomal genes
+ribo_genes <- c(
+  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
+  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
+  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
+  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
+  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
+  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
+  "RPL10", "RPS4Y1"
+)
+so_kpmp_sc <- subset(so_kpmp_sc, features = setdiff(rownames(so_kpmp_sc), ribo_genes))
+# sum(grepl("^MT-", rownames(so_kpmp_sc))) #0
+length(which(rownames(so_kpmp_sc) %in% ribo_genes)) #0
+ncol(so_kpmp_sc) #65,062 cells
+nrow(so_kpmp_sc) #15103 genes
+
 #Renormalize & Scale after filtering
 so_kpmp_sc <- NormalizeData(so_kpmp_sc)
 so_kpmp_sc <- ScaleData(so_kpmp_sc, features = VariableFeatures(so_kpmp_sc))
+
+#Renormalize & Scale after filtering
+so_kpmp_sc <- NormalizeData(so_kpmp_sc)
+so_kpmp_sc <- ScaleData(so_kpmp_sc, features = VariableFeatures(so_kpmp_sc))
+
+# Calculate cell library size for offset in NEBULA --------------------------------------
+counts_layer <- round(GetAssayData(so_kpmp_sc, layer = "counts"))
+library_size <- Matrix::colSums(counts_layer)
+so_kpmp_sc$library_size <- library_size
+# View(so_kpmp_sc@meta.data)
+hist(so_kpmp_sc$library_size)
+
+# # TMM offset
+# dge <- DGEList(counts = counts_layer)
+# dge <- calcNormFactors(dge, method = "TMM")
+# tmm_offset <- log(dge$samples$lib.size) + log(dge$samples$norm.factors)
+# so_kpmp_sc$tmm_offset <- tmm_offset
+
+# Pooled offset
+sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce)
+# View size factors
+sizeFactors(sce)
+# STEP 3: Calculate offset → log(size factors)
+# pooled_offset <- log(sizeFactors(sce))
+pooled_offset <- sizeFactors(sce)
+so_kpmp_sc$pooled_offset <- pooled_offset
+hist(so_kpmp_sc$pooled_offset)
 
 #Create general hepatocyte cell type variable
 #Create PT and TAL pseudobulk cell type variable
@@ -342,26 +389,60 @@ ncol(sc_org) #194,063 cells
 rownames(sc_org)
 colnames(sc_org)
 
-# #Load harmonized data that has been filtered from 90 to the 83 participants that have baseline single cell data
-harm_meta_data <- read.csv(fs::path(dir.dat,"Kidney scRNAseq Project","Data","harmonized_data_kidney_sc_all_metadata2.csv"))
+# # #Load harmonized data that has been filtered from 90 to the 83 participants that have baseline single cell data
+# harm_meta_data <- read.csv(fs::path(dir.dat,"Kidney scRNAseq Project","Data","harmonized_data_kidney_sc_all_metadata2.csv"))
+
+harm_meta_data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",na="")
+harm_meta_data <- harm_meta_data %>%   
+  arrange(screen_date) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
 
 ##e. Filter to 6 organoid samples ----
-meta <- harm_meta_data %>%
-  dplyr::select(-X) %>%
+meta <- harm_meta_data %>% 
+  # dplyr::select(-X) %>% 
+  filter(visit=="baseline") %>% 
   filter(record_id %in% ids)
 rm(harm_meta_data)
 #Select metadata from seurat object to facilitate merge of new metadata into seurat object
 meta_kidney_sc <-  sc_org@meta.data
-rownames(meta_kidney_sc) <-NULL
-rownames(meta) <- NULL
+rownames(meta_kidney_sc) <- rownames(sc_org@meta.data)
 
 #Merge metadata from 83 participants at baseline into seurat object metadata
 meta_kidney_sc <- meta_kidney_sc %>%
   left_join(meta,by="record_id")
 rownames(meta_kidney_sc) <- rownames(sc_org@meta.data)
 
-#Pull ids from 83 participants at baseline to filter seurat object to these participants only
-ids <- meta$record_id
+#Pull ids from 83 participants at baseline to filter seurat object to these participants only 
+ids <- meta$kit_id
+
+#Merge metadata back into seurat object
+sc_org <- AddMetaData(sc_org, meta_kidney_sc)
+
+#Check number of unique ids
+length(unique(sc_org$kit_id)) #should be 7
+
+#Remove metadatasets
+rm(meta_kidney_sc,meta)
+
+# ##e. Filter to 6 organoid samples ----
+# meta <- harm_meta_data %>%
+#   dplyr::select(-X) %>%
+#   filter(record_id %in% ids)
+# rm(harm_meta_data)
+# #Select metadata from seurat object to facilitate merge of new metadata into seurat object
+# meta_kidney_sc <-  sc_org@meta.data
+# rownames(meta_kidney_sc) <-NULL
+# rownames(meta) <- NULL
+# 
+# #Merge metadata from 83 participants at baseline into seurat object metadata
+# meta_kidney_sc <- meta_kidney_sc %>%
+#   left_join(meta,by="record_id")
+# rownames(meta_kidney_sc) <- rownames(sc_org@meta.data)
+# 
+# #Pull ids from 83 participants at baseline to filter seurat object to these participants only
+# ids <- meta$record_id
 
 #Merge metadata back into seurat object
 sc_org <- AddMetaData(sc_org, meta_kidney_sc)
