@@ -172,9 +172,10 @@ write.table(sig_markers %>% filter(diffexp != 'No'),
             '../UofW/pio_scrna/AllCellTypes/SignificantMarkers_AllCellTypes.txt', 
             row.names=F, quote=F, sep='\t')
 
+
+
+
 #Each cell type specifically
-
-
 scrna_small$celltype_group <- paste0(scrna_small$celltype_rpca, 
                                      sep='-', scrna_small$group_labels)
 Idents(scrna_small) <- "celltype_group"
@@ -304,35 +305,39 @@ remove(sig_markers)
 
 celltypes <- as.character(unique(scrna_small$celltype_harmony))
 
+counts_layer <- round(GetAssayData(scrna_small, layer = 'counts'))
+library_size <- Matrix::colSums(round(GetAssayData(scrna_small, layer = 'counts')))
+scrna_small$library_size <- library_size
+sce <- SingleCellExperiment::SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce)
+# View size factors
+sizeFactors(sce)
+## Calculate offset → (size factors)
+scrna_small$pooled_offset <- (sizeFactors(sce))
 
 
-
-for(i in c(1:length(celltypes))){
+for(i in c(15:length(celltypes))){
   tmp_celltype <- celltypes[i]
+  if(str_detect(tmp_celltype, 'lowQuality')){
+    next
+  }
+  celltype_name <- tmp_celltype
+  if(str_detect(celltype_name, pattern = '/')){
+    celltype_name <- str_replace_all(celltype_name, pattern='/', replacement = '_')
+  }
   scrna_temp <- subset(scrna_small, celltype_harmony == tmp_celltype)
   scrna_temp <- FindVariableFeatures(scrna_temp, selection.method = "vst", nfeatures = 2000)
   hvgs <- VariableFeatures(scrna_temp)
+  counts_layer <- round(GetAssayData(scrna_temp, layer = 'counts'))
   
   #Perform remaining steps on top 2000 hvgs
   # Subset Seurat object to only HVGs
   scrna_temp_hvg <- subset(scrna_temp, features = hvgs)
   
   pdf(paste0('../../Documents/UofW/pio_scrna/CelllTypeSpecific/UMAP_PIO_', 
-             tmp_celltype, '.pdf'))
+             celltype_name, '.pdf'))
   DimPlot(scrna_temp, reduction = 'umap.harmony', group.by = 'celltype_harmony')
   dev.off()
-  
-  
-  
-  counts_layer <- round(GetAssayData(scrna_temp, layer = 'counts'))
-  library_size <- Matrix::colSums(round(GetAssayData(scrna_temp, layer = 'counts')))
-  scrna_temp$library_size <- library_size
-  sce <- SingleCellExperiment::SingleCellExperiment(assays = list(counts = counts_layer))
-  sce <- computeSumFactors(sce)
-  # View size factors
-  sizeFactors(sce)
-  ## Calculate offset → (size factors)
-  pooled_offset <- (sizeFactors(sce))
   
   
   #NEBULA Analysis 
@@ -340,14 +345,15 @@ for(i in c(1:length(celltypes))){
   pred_gene <- model.matrix(~group_labels, data = meta_gene)
   data_g_gene <- group_cell(count = counts_layer, id = meta_gene$record_id, pred = pred_gene)
   result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
-                            offset = pooled_offset,
+                            offset = scrna_temp$pooled_offset,
                             ncore = 1, output_re = T, covariance = T,
                             reml = T, model = "NBLMM")
   
   result_allcells <- as.data.frame(result_allcells)
   
   write.table(result_allcells, 
-              paste0('../../Documents/UofW/pio_scrna/CelllTypeSpecific/NEBULA_PIO_', tmp_celltype, '_analysis.txt'),
+              paste0('../../Documents/UofW/pio_scrna/CelllTypeSpecific/NEBULA_PIO_', 
+                     celltype_name, '_analysis.txt'),
               row.names=F, quote=F, sep='\t')
   
   
@@ -378,7 +384,7 @@ for(i in c(1:length(celltypes))){
   
   #Making graph
   pdf(paste0('../../Documents/UofW/pio_scrna/CelllTypeSpecific/NEBULA_SignificantGenes_PIO_noCorrections_', 
-  tmp_celltype, '.pdf'))
+  celltype_name, '.pdf'))
   ggplot(sig_markers_raw %>% filter(!is.na(p_val_raw)), aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, label=label))+
     geom_point()+
     geom_text(size=2, vjust = 2, color='black')+
@@ -392,7 +398,7 @@ for(i in c(1:length(celltypes))){
   dev.off()
   
   pdf(paste0('../../Documents/UofW/pio_scrna/CelllTypeSpecific/NEBULA_SignificantGenes_PIO_BHCorrected_', 
-  tmp_celltype, '.pdf'))
+  celltype_name, '.pdf'))
   if(length(unique(sig_markers$diffexp )) > 1){
   tmp_graph <- ggplot(sig_markers %>% filter(!is.na(p_val_adj)), aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
     geom_point()+
@@ -422,7 +428,8 @@ for(i in c(1:length(celltypes))){
   
   
   write.table(sig_markers %>% filter(diffexp != 'No'), 
-              paste0('../../Documents/UofW/pio_scrna/AllCellTypes/NEBULA_PIO_SignificantMarkers_', tmp_celltype, '.txt'), 
+              paste0('../../Documents/UofW/pio_scrna/CelllTypeSpecific/NEBULA_PIO_SignificantMarkers_', 
+                     celltype_name, '.txt'), 
               row.names=F, quote=F, sep='\t')
   
   remove(sig_markers)
@@ -438,6 +445,10 @@ for(i in c(1:length(celltypes))){
 #EC
 
 #PT
+
+#TAL 
+
+
 
 
 
