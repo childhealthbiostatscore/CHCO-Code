@@ -316,7 +316,7 @@ sizeFactors(sce)
 scrna_small$pooled_offset <- (sizeFactors(sce))
 
 
-for(i in c(15:length(celltypes))){
+for(i in c(1:length(celltypes))){
   tmp_celltype <- celltypes[i]
   if(str_detect(tmp_celltype, 'lowQuality')){
     next
