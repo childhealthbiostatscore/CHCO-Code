@@ -440,13 +440,128 @@ for(i in c(1:length(celltypes))){
   
 }
 
-#Combined Cell types 
+#####Combined Cell types ######
 
 #EC
+
+counts_layer <- round(GetAssayData(scrna_small, layer = 'counts'))
+library_size <- Matrix::colSums(round(GetAssayData(scrna_small, layer = 'counts')))
+scrna_small$library_size <- library_size
+sce <- SingleCellExperiment::SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce)
+# View size factors
+sizeFactors(sce)
+## Calculate offset → (size factors)
+scrna_small$pooled_offset <- (sizeFactors(sce))
+
+
+celltypes <- as.character(unique(scrna_small$celltype_harmony))
+
+EC_index <- which(str_detect(celltypes, pattern='^EC'))
+
+scrna_ec <- subset(scrna_small, celltype_harmony == celltypes[EC_index])
+
+scrna_ec <- FindVariableFeatures(scrna_ec, selection.method = "vst", nfeatures = 2000)
+hvgs <- VariableFeatures(scrna_ec)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+scrna_ec_hvg <- subset(scrna_ec, features = hvgs)
+counts_layer <- round(GetAssayData(scrna_ec_hvg, layer = 'counts'))
+
+pdf('../../Documents/UofW/pio_scrna/CelllTypeSpecific/EC/UMAP_GroupLabels_PIO_EC.pdf')
+DimPlot(scrna_ec_hvg, reduction = 'umap.harmony', group.by = 'celltype_harmony')
+dev.off()
+
+
+
+meta_gene <- scrna_ec_hvg@meta.data
+pred_gene <- model.matrix(~group_labels, data = meta_gene)
+data_g_gene <- group_cell(count = counts_layer, id = meta_gene$record_id, pred = pred_gene)
+result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                          offset = scrna_ec_hvg$pooled_offset,
+                          ncore = 1, output_re = T, covariance = T,
+                          reml = T, model = "NBLMM")
+
+result_allcells$summary
+
+result_allcells <- as.data.frame(result_allcells)
+
+write.table(result_allcells, '../../Documents/UofW/pio_scrna/CelllTypeSpecific/EC/EC_NEBULA_PIO_analysis.txt',
+            row.names=F, quote=F, sep='\t')
+
+#Plot the Overall Scores 
+
+sig_markers <- result_allcells %>% dplyr::select(avg_log2FC = summary.logFC_group_labelsYes, 
+                                                 p_val_raw = summary.p_group_labelsYes,
+                                                 gene = summary.gene)
+
+sig_markers <- sig_markers %>% mutate(p_val_adj = p.adjust(p_val_raw, method='BH')) %>%
+  arrange(p_val_raw)
+
+sig_markers$diffexp <- 'No'
+sig_markers$diffexp[sig_markers$avg_log2FC > 0.6 & sig_markers$p_val_adj < 0.05] <- 'Up'
+sig_markers$diffexp[sig_markers$avg_log2FC < -0.6 & sig_markers$p_val_adj < 0.05] <- 'Down'
+
+sig_markers$label <- NA
+sig_markers$label[1:15] <- sig_markers$gene[1:15]
+
+#Raw P-values 
+sig_markers_raw <- sig_markers
+sig_markers_raw$diffexp <- 'No'
+sig_markers_raw$diffexp[sig_markers_raw$avg_log2FC > 0.6 & sig_markers_raw$p_val_raw < 0.05] <- 'Up'
+sig_markers_raw$diffexp[sig_markers_raw$avg_log2FC < -0.6 & sig_markers_raw$p_val_raw < 0.05] <- 'Down'
+
+sig_markers_raw$label <- NA
+sig_markers_raw$label[1:15] <- sig_markers_raw$gene[1:15]
+
+
+#Making graph
+pdf('../../Documents/UofW/pio_scrna/CelllTypeSpecific/EC/NEBULA_SignificantGenes_PIO_EC_noCorrections.pdf')
+ggplot(sig_markers_raw, aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, label=label))+
+  geom_point()+
+  geom_text(size=2, vjust = 2, color='black')+
+  scale_color_manual(values = c('orange', 'grey', 'purple'),
+                     labels = c('Downregulated', 'Not significant', 'Upregulated'))+
+  geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
+  geom_vline(xintercept = c(-0.6, 0.6), col='blue', linetype ='dashed')+
+  theme_classic()+labs(x='Log2FC', y='-log10 pvalue', col ='Differential Expression', 
+                       title = 'Expression Changes In Pioglitazone Use In All Cell Types')
+
+dev.off()
+
+pdf('../../Documents/UofW/pio_scrna/CelllTypeSpecific/EC/NEBULA_SignificantGenes_PIO_EC_BHCorrected.pdf')
+ggplot(sig_markers, aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
+  geom_point()+
+  geom_text(size=2, vjust = 2, color='black')+
+  scale_color_manual(values = c('orange', 'grey', 'purple'),
+                     labels = c('Downregulated', 'Not significant', 'Upregulated'))+
+  geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
+  geom_vline(xintercept = c(-0.6, 0.6), col='blue', linetype ='dashed')+
+  theme_classic()+labs(x='Log2FC', y='-log10 pvalue', col ='Differential Expression', 
+                       title = 'Expression Changes In Pioglitazone Use In All Cell Types')
+
+dev.off()
+
+
+
+
+
+write.table(sig_markers %>% filter(diffexp != 'No'), 
+            '../../Documents/UofW/pio_scrna/CelllTypeSpecific/EC/NEBULA_PIO_SignificantMarkers_EC.txt', 
+            row.names=F, quote=F, sep='\t')
+
+remove(sig_markers)
+
+
+
+
 
 #PT
 
 #TAL 
+
+
 
 
 
