@@ -265,7 +265,7 @@ sig_markers_raw$label[1:15] <- sig_markers_raw$gene[1:15]
 
 #Making graph
 pdf('../../Documents/UofW/pio_scrna/AllCellTypes/NEBULA_SignificantGenes_PIO_noCorrections.pdf')
-ggplot(sig_markers_raw, aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, label=label))+
+ggplot(sig_markers_raw %>% filter(!is.na(p_val_raw)), aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, label=label))+
   geom_point()+
   geom_text(size=2, vjust = 2, color='black')+
   scale_color_manual(values = c('orange', 'grey', 'purple'),
@@ -278,7 +278,7 @@ ggplot(sig_markers_raw, aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, l
 dev.off()
 
 pdf('../../Documents/UofW/pio_scrna/AllCellTypes/NEBULA_SignificantGenes_PIO_BHCorrected.pdf')
-ggplot(sig_markers, aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
+ggplot(sig_markers %>% filter(!is.na(p_val_raw)), aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
   geom_point()+
   geom_text(size=2, vjust = 2, color='black')+
   scale_color_manual(values = c('orange', 'grey', 'purple'),
@@ -518,7 +518,7 @@ sig_markers_raw$label[1:15] <- sig_markers_raw$gene[1:15]
 
 #Making graph
 pdf('../../Documents/UofW/pio_scrna/CelllTypeSpecific/EC/NEBULA_SignificantGenes_PIO_EC_noCorrections.pdf')
-ggplot(sig_markers_raw, aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, label=label))+
+ggplot(sig_markers_raw %>% filter(!is.na(p_val_raw)), aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, label=label))+
   geom_point()+
   geom_text(size=2, vjust = 2, color='black')+
   scale_color_manual(values = c('orange', 'grey', 'purple'),
@@ -531,7 +531,7 @@ ggplot(sig_markers_raw, aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, l
 dev.off()
 
 pdf('../../Documents/UofW/pio_scrna/CelllTypeSpecific/EC/NEBULA_SignificantGenes_PIO_EC_BHCorrected.pdf')
-ggplot(sig_markers, aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
+ggplot(sig_markers %>% filter(!is.na(p_val_raw)), aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
   geom_point()+
   geom_text(size=2, vjust = 2, color='black')+
   scale_color_manual(values = c('orange', 'grey', 'purple'),
@@ -634,7 +634,7 @@ sig_markers_raw$label[1:15] <- sig_markers_raw$gene[1:15]
 
 #Making graph
 pdf('../../Documents/UofW/pio_scrna/CelllTypeSpecific/PT/NEBULA_SignificantGenes_PIO_PT_noCorrections.pdf')
-ggplot(sig_markers_raw, aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, label=label))+
+ggplot(sig_markers_raw %>% filter(!is.na(p_val_raw)), aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, label=label))+
   geom_point()+
   geom_text(size=2, vjust = 2, color='black')+
   scale_color_manual(values = c('orange', 'grey', 'purple'),
@@ -647,7 +647,7 @@ ggplot(sig_markers_raw, aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, l
 dev.off()
 
 pdf('../../Documents/UofW/pio_scrna/CelllTypeSpecific/PT/NEBULA_SignificantGenes_PIO_PT_BHCorrected.pdf')
-ggplot(sig_markers, aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
+ggplot(sig_markers %>% filter(!is.na(p_val_raw)), aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
   geom_point()+
   geom_text(size=2, vjust = 2, color='black')+
   scale_color_manual(values = c('orange', 'grey', 'purple'),
@@ -751,7 +751,7 @@ sig_markers_raw$label[1:15] <- sig_markers_raw$gene[1:15]
 
 #Making graph
 pdf('../../Documents/UofW/pio_scrna/CelllTypeSpecific/TAL/NEBULA_SignificantGenes_PIO_TAL_noCorrections.pdf')
-ggplot(sig_markers_raw, aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, label=label))+
+ggplot(sig_markers_raw %>% filter(!is.na(p_val_raw)), aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, label=label))+
   geom_point()+
   geom_text(size=2, vjust = 2, color='black')+
   scale_color_manual(values = c('orange', 'grey', 'purple'),
@@ -764,7 +764,7 @@ ggplot(sig_markers_raw, aes(x= avg_log2FC, y=-log10(p_val_raw), col = diffexp, l
 dev.off()
 
 pdf('../../Documents/UofW/pio_scrna/CelllTypeSpecific/TAL/NEBULA_SignificantGenes_PIO_TAL_BHCorrected.pdf')
-ggplot(sig_markers, aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
+ggplot(sig_markers %>% filter(!is.na(p_val_raw)), aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
   geom_point()+
   geom_text(size=2, vjust = 2, color='black')+
   scale_color_manual(values = c('orange', 'grey', 'purple'),
