@@ -148,10 +148,14 @@ library(scran)
 #Lambda work station file path
 # dir.results <- "/home/hailey/Documents/ROCKIES Results"
 
-# #Mac Studio File Path
-dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
-dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/DECODE/DECODE Analysis/Results")
-# dir.ipa <- c("/Users/hhampson/Documents/IPA/Results")
+# # #Mac Studio File Path
+# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/DECODE/DECODE Analysis/Results")
+# # dir.ipa <- c("/Users/hhampson/Documents/IPA/Results")
+
+#Mac laptop file path
+dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
+dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/DECODE/DECODE Analysis/Results")
 
 #Load functions
 # source("Kidney_functions_sc.R")
@@ -249,8 +253,21 @@ so_kpmp_sc <- readRDS(temp_file)
 
 ### ii. Local Load 
 ```{r}
-#Mac Studio pathway
-so_kpmp_sc <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/scRNA/data_raw/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds")
+# #Mac Studio pathway
+# so_kpmp_sc <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/scRNA/data_raw/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds")
+
+#Mac Laptop 
+ids <- c("KL-0029521","KL-0014632","KL-0014625","KL-0014642","KL-0014634","KL-0014643","KL-0014639","KL-0014630","KL-0014628","KL-0014629","KL-0014624","KL-0014636","KL-0024002","KL-0014637", "KL-0019098","KL-0014631","KL-0019097","KL-0014638","KL-0019099","KL-0019100","KL-0019062","KL-0019103","KL-0019102","KL-0022163","KL-0022172","KL-0019095","KL-0022157","KL-0022158","KL-0022162","KL-0022167","KL-0022168","KL-0024007","KL-0024010","KL-0024000","KL-0023998","KL-0027475","KL-0030622","KL-0029525","KL-0029524","KL-0030619","KL-0030597","KL-0030606","KL-0031458","KL-0030607","KL-0031465","KL-0030913","KL-0031453","KL-0029407","KL-0030908","KL-0031460","KL-0029408","KL-0032459")
+
+so_kpmp_sc <- readRDS(fs::path(dir.dat,"scRNA/data_raw/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
+# so_kpmp_sc <- subset(so_kpmp_sc, kit_id %in% ids)
+
+# id2 <- unique(so_kpmp_sc$record_id[which(so_kpmp_sc$kit_id %in% ids)])
+so_kpmp_sc1 <- subset(so_kpmp_sc,kit_id %in% ids[1:20])
+so_kpmp_sc2 <-  subset(so_kpmp_sc,kit_id %in% ids[21:40])
+so_kpmp_sc3 <-  subset(so_kpmp_sc,kit_id %in% ids[41:52])
+
+so_kpmp_sc_combined <- merge(so_kpmp_sc1, y = so_kpmp_sc2)
 
 ```
 
@@ -288,14 +305,14 @@ so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="KI-0014643")] <- "KL-0014643"
 so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="kl-0023998")] <- "KL-0023998"
 
 
-#Lambda load
-bucket <- "harmonized.dataset" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
-harmonized_data <- read.csv(temp_file,na="")
+# #Lambda load
+# bucket <- "harmonized.dataset" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+# s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
+# harmonized_data <- read.csv(temp_file,na="")
 
 #Load raw harmonized dataset
-# harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
+harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
 
 dat <- harmonized_data %>%
   arrange(screen_date) %>% 
@@ -320,7 +337,7 @@ length(ids) #52
 
 
 #Filter pb90 to these 52 kit ids for aim 1
-so_kpmp_sc <- subset(so_kpmp_sc, kit_id %in% ids)
+# so_kpmp_sc <- subset(so_kpmp_sc, kit_id %in% ids)
 
 #Check that the ids are there 
 length(unique(so_kpmp_sc$kit_id)) #46 - 6 missing
@@ -565,7 +582,7 @@ sce <- computeSumFactors(sce)
 # View size factors
 sizeFactors(sce)
 # STEP 3: Calculate offset → log(size factors)
-pooled_offset <- log(sizeFactors(sce))
+pooled_offset <- sizeFactors(sce)
 so_kpmp_sc$pooled_offset <- pooled_offset
 #----------------------------------------------------------------------------
 
@@ -577,7 +594,8 @@ so_kpmp_sc$pooled_offset <- pooled_offset
 # s3$upload_file(temp_file, bucket, 'data_clean/Cleaned_DECODE_so.rds')
 
 # saveRDS(so_kpmp_sc,"Cleaned_DECODE_so.rds")
-so_kpmp_sc <- readRDS("/home/hailey/Documents/DECODE Data/Cleaned_DECODE_so.rds")
+saveRDS(so_kpmp_sc,fs::path(dir.dat,"Cleaned_DECODE_so.rds"))
+# so_kpmp_sc <- readRDS("/home/hailey/Documents/DECODE Data/Cleaned_DECODE_so.rds")
 
 #Local Save
 # saveRDS(so_kpmp_sc,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/DECODE/DECODE Analysis/Data/Formatted_KPMP_Decode.rds")
