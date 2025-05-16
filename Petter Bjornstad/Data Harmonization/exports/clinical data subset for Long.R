@@ -8,7 +8,7 @@ st_ids <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries
 pb90_ids <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/scRNA/data_clean/pb90_meta.rds")
 
 st_dat_sub <- dat %>%
-  filter(paste0(record_id, visit) %in% paste0(st_ids$record_id, st_ids$visit)) %>%
+  filter(paste0(record_id, visit) %in% paste0(st_ids$x, st_ids$visit)) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) %>%
