@@ -100,6 +100,24 @@ dev.off()
 ## All cell types combined
 
 ```{r echo = F}
+
+
+
+so <- subset(so, 
+                      subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 10)
+
+counts_layer <- round(GetAssayData(so, layer = 'counts'))
+library_size <- Matrix::colSums(round(GetAssayData(so, layer = 'counts')))
+so$library_size <- library_size
+sce <- SingleCellExperiment::SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce)
+# View size factors
+sizeFactors(sce)
+## Calculate offset → (size factors)
+so$pooled_offset <- (sizeFactors(sce))
+
+
+
 so_t1d_hc <- subset(so, group %in% c("Type_1_Diabetes","Lean_Control"))
 
 jpeg("C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_Full_T1D_LC.jpeg", width=900, 
@@ -206,14 +224,12 @@ rm(list=c(counts_t1d_hc_nos3, counts_t1d_hc_cgas, counts_t1d_hc_mtap))
 
 #with offset
 
-counts_layer <- round(GetAssayData(so_t1d_hc, layer = 'counts'))
-library_size <- Matrix::colSums(counts_layer)
-so_t1d_hc$library_size <- library_size
 
 meta_gene <- so_t1d_hc@meta.data
 pred_gene <- model.matrix(~group, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc, id = meta_gene$record_id, pred = pred_gene)
-result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = log(library_size),
+result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                          offset = so_t1d_hc$pooled_offset,
                  ncore = 1, output_re = T, covariance = T,
                  reml = T, model = "NBLMM")
 
