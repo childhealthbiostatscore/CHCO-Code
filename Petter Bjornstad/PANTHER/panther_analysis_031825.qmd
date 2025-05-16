@@ -43,7 +43,7 @@ source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Function
 
 ```{r prep-data, echo = F, include = F}
 # Load clinical data
-harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
+harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
 exclude <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
 
 dat <- harm_dat %>% filter((study == "PANTHER" & visit %in% c("baseline", "screening"))|study == "RENAL-HEIR"|
@@ -96,7 +96,11 @@ dat <- harm_dat %>% filter((study == "PANTHER" & visit %in% c("baseline", "scree
          mm_si = case_when(mm_si > 0 & mm_si < 500 ~ mm_si),
          birthweight = gsub(" kg", "", birthweight),
          birthweight = as.numeric(birthweight),
-         glp1_agonist_timepoint = case_when(is.na(glp1_agonist_timepoint) ~ "No", T ~ glp1_agonist_timepoint)) %>%
+         glp1_agonist_timepoint = case_when(is.na(glp1_agonist_timepoint) ~ "No", T ~ glp1_agonist_timepoint),
+         uacr_cat = case_when(acr_u <= 10 ~ "UACR [0, 10]",
+                              acr_u <= 20 ~ "UACR (10, 20]",
+                              acr_u <= 30 ~ "UACR (20, 30]",
+                              acr_u > 30 ~ "UACR > 30")) %>%
   arrange(record_id) %>%
   # filter(!is.na(dexa_body_fat)) %>% # filter based on DEXA (to filter those who may just be screen fails)
   filter(!is.na(male_ind)) %>%
@@ -195,12 +199,13 @@ dict <- label_harmonized_dict(dat, dict) %>%
                 bl_dheas = "DHEA-S",
                 gfr_raw_plasma = "mGFR",
                 gfr_bsa_plasma = "mGFR (BSA)",
-                erpf_raw_plasma = "mGFR",
-                erpf_bsa_plasma = "mGFR (BSA)",
+                erpf_raw_plasma = "ERPF",
+                erpf_bsa_plasma = "ERPF (BSA)",
                 eGFR_fas_cr = "eGFR - FAScr",
                 glomerular_pressure = "Glomerular pressure",
                 dexa_bone_mineral_density = "BMD",
-                mm_bcell = "Insulin secretion capacity")%>%
+                mm_bcell = "Insulin secretion capacity",
+                u24_mab = "Urine AER 24 hours")%>%
   dplyr::select(-starts_with("seq."))
 
 analytes_dict <- analytes %>%
@@ -261,10 +266,11 @@ sens_dat <- label_harmonized(sens_dat, dict)
 # subset(panther, mm_si > 100)$mm_si
 # 
 
+View(subset(panther, select = c(record_id, u24_mab, acr_u, creatinine_u,microalbumin_u)))
 # summary(tableby(group_risk ~ kwt(mm_di, "Nmiss", "medianq1q3", "range"), data = subset(panther, mm_di < 10000), total = T, test = F))
 # summary(tableby(group_risk ~ kwt(mm_si, "Nmiss", "medianq1q3", "range"), data = subset(panther, mm_si < 100), total = T, test = F))
 
-summary(tableby(group_risk ~ age + sex + height + weight + bmi + bmiz + group + eGFR_CKD_epi + eGFR_fas_cr + eGFR_CKiD_U25_CystatinC + eGFR_CKiD_U25_Creat + sbp + dbp + hba1c + gotast_base + gptalt_base + kwt(acr_u, "medianq1q3") + kwt(lh, "medianq1q3") + kwt(estrad, "medianq1q3") + kwt(tot_test, "medianq1q3") + kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score + race_ethnicity_condensed + metformin_timepoint + insulin_med_timepoint + glp1_agonist_timepoint + sglti_timepoint + dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass + total_kidney_volume_ml + ht_adj_tkv + mm_si + mm_ir + mm_bcell + mm_di + gfr_raw_plasma + erpf_raw_plasma + erpf_bsa_plasma + ra + re + rvr + glomerular_pressure, data = panther, total = T, test = F,  numeric.simplify = T, numeric.stats = c("meansd", "Nmiss"), digits = 1))
+summary(tableby(group_risk ~ age + sex + height + weight + bmi + bmiz + group + eGFR_CKD_epi + eGFR_fas_cr+ eGFR_fas_cr_cysc + eGFR_CKiD_U25_CystatinC + eGFR_CKiD_U25_Creat + eGFR_CKiD_U25_avg+ sbp + dbp + hba1c + gotast_base + gptalt_base + kwt(acr_u, "medianq1q3") + uacr_cat + kwt(u24_mab, "medianq1q3") + kwt(lh, "medianq1q3") + kwt(estrad, "medianq1q3") + kwt(tot_test, "medianq1q3") + kwt(free_test, "medianq1q3") + bl_dheas + igf_1 + igf1_z_score + race_ethnicity_condensed + metformin_timepoint + insulin_med_timepoint + glp1_agonist_timepoint + sglti_timepoint + dexa_lean_mass + dexa_body_fat + dexa_fat_kg + dexa_trunk_mass + total_kidney_volume_ml + ht_adj_tkv + mm_si + mm_ir + mm_bcell + mm_di + gfr_raw_plasma + erpf_raw_plasma + erpf_bsa_plasma + ra + re + rvr + glomerular_pressure, data = panther, total = T, test = T,  numeric.simplify = T, numeric.stats = c("meansd", "Nmiss"), digits = 1))
 ```
 
 ```{r, results = 'asis', echo = F}
@@ -523,12 +529,12 @@ png(height = 1500, width = 1500, file = "/Users/choiyej/Library/CloudStorage/One
 corr_plot_modified(panther, 
                    X = xvars, 
                    Y = c("dexa_lean_mass", "dexa_body_fat", "dexa_fat_kg", "dexa_trunk_mass",
-                         "dexa_bone_mineral_density", "bmi"),
+                         "bmi"),
                    dict = dict)
 dev.off()
 
 xvars2 <- c("dexa_lean_mass", "dexa_lean_kg", "dexa_body_fat", "dexa_fat_kg", "dexa_trunk_mass", "dexa_trunk_kg",
-                         "dexa_bone_mineral_density", "bmi")
+                         "bmi")
 
 png(height = 1500, width = 1500, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Results/Figures/panther_cor5.png", res = 170)
 corr_plot_modified(panther, 
