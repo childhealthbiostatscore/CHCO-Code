@@ -26,9 +26,9 @@ library(arsenal)
 library(Biobase)
 library(msigdbr)
 library(kableExtra)
-library(knitr)
+# library(knitr)
 library(REDCapR)
-library(data.table)
+# library(data.table)
 library(emmeans)
 library(NMF)
 library(pheatmap)
@@ -132,26 +132,48 @@ length(genes_to_keep) # 8672 ( ~ 28.3% remaining)
 remove(expr_matrix)
 attempt_so <- subset(attempt_so, features = genes_to_keep)
 
+# renormalize after filtering
+attempt_so <- NormalizeData(attempt_so)
+
 # # calculate cell library size for offset in NEBULA
-# counts_layer <- round(GetAssayData(attempt_so, layer = "counts"))
-# library_size <- Matrix::colSums(counts_layer)
+counts_layer <- round(GetAssayData(attempt_so, layer = "counts"))
+library_size <- Matrix::colSums(counts_layer)
 attempt_so$library_size <- library_size
-# View(attempt_so@meta.data)
+View(attempt_so@meta.data)
 
 # TMM offset
-# dge <- DGEList(counts = counts_layer)
-# dge <- calcNormFactors(dge, method = "TMM")
-# tmm_offset <- (dge$samples$lib.size) * (dge$samples$norm.factors)
+dge <- DGEList(counts = counts_layer)
+dge <- calcNormFactors(dge, method = "TMM")
+tmm_offset <- (dge$samples$lib.size) * (dge$samples$norm.factors)
 attempt_so$tmm_offset <- tmm_offset
 
 # Pooled offset
-# sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-# sce <- computeSumFactors(sce)
+sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce)
 # # View size factors
-# sizeFactors(sce)
-# # Calculate offset → (size factors)
+sizeFactors(sce)
+# Calculate offset → (size factors)
 pooled_offset <- (sizeFactors(sce))
 attempt_so$pooled_offset <- pooled_offset
+
+
+## want to double check expression of some metallothionines because logFC for them in dapa is near 0
+# FindMarkers(subset(attempt_so, grepl("PT-", attempt_so$celltype) & treatment == "Placebo"), features = c("MT1X", "MT2A", "MT1M", "MT1H"), group.by = "visit", 
+#             min.pct = 0, logfc.threshold = 0,
+#             ident.1 = "POST")
+# 
+# FindMarkers(subset(attempt_so, grepl("PT-", attempt_so$celltype) & treatment == "Dapagliflozin 5mg"), features = c("MT1X", "MT2A", "MT1M", "MT1H"), group.by = "visit", 
+#             min.pct = 0, logfc.threshold = 0,
+#             ident.1 = "POST")
+
+# check for expression of TRHDE-AS1 (in immune), FGF14 (in immune), and PSAT1 (in fib/vsmc/p)
+FeaturePlot(subset(attempt_so, attempt_so$celltype %in% c("MON", "MAC", "T", "B", "NKT/NKC")),
+            features = c("TRHDE-AS1", "FGF14"))
+
+# check for expression of TRHDE-AS1 (in immune), FGF14 (in immune), and PSAT1 (in fib/vsmc/p)
+FeaturePlot(attempt_so, features = c("TRHDE-AS1", "FGF14", "PSAT1"), raster = F)
+DimPlot(attempt_so, group.by = "celltype", raster = F, alpha = 0.2, label = T)
+
 ```
 
 ```{r echo = F}
@@ -384,22 +406,25 @@ s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_tal_proportions_plot.
 
 
 ```{r echo = F}
-# test on proportions using Drichlet
-pt_props <- attempt_meta %>%
-  filter(celltype_general %in% c("PT")) %>%
-  group_by(subject_id, treatment, visit, celltype) %>%
-  summarise(n = n(), .groups = "drop") %>%
-  group_by(subject_id) %>%
-  mutate(prop = n / sum(n)) %>%
-  dplyr::select(subject_id, treatment, celltype, visit, prop) %>%
-  pivot_wider(names_from = celltype, values_from = prop, values_fill = 0)
+# # test on proportions using Drichlet
+# pt_props <- attempt_meta %>%
+#   filter(celltype_general %in% c("PT")) %>%
+#   group_by(subject_id, treatment, visit, celltype) %>%
+#   summarise(n = n(), .groups = "drop") %>%
+#   group_by(subject_id) %>%
+#   mutate(prop = n / sum(n)) %>%
+#   dplyr::select(subject_id, treatment, celltype, visit, prop) %>%
+#   pivot_wider(names_from = celltype, values_from = prop, values_fill = 0)
+# 
+# pt_props <- pt_props %>%
+#   mutate(prop_sum = rowSums(across(c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))))
+# # Convert to DirichletReg format
+# pt_props$Y <- DR_data(pt_props_pre[,4:8])
+# pt_props_drichlet <- DirichReg(Y ~ treatment * visit, data = pt_props)
+# summary(pt_props_drichlet)
 
-pt_props <- pt_props %>%
-  mutate(prop_sum = rowSums(across(c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))))
-# Convert to DirichletReg format
-pt_props$Y <- DR_data(pt_props_pre[,4:8])
-pt_props_drichlet <- DirichReg(Y ~ treatment * visit, data = pt_props)
-summary(pt_props_drichlet)
+# chi square test
+
 
 ```
 
