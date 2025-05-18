@@ -302,25 +302,56 @@ dat <- harmonized_data %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(mrn, visit))
-dat2 <- dat %>% 
+#T2D
+t2d <- dat %>% 
   filter(grepl("RH",record_id) | grepl("IT",record_id)) %>% 
-  filter(group=="Type 2 Diabetes" | group=="Lean Control") %>% 
-  filter(!is.na(kit_id)) %>% 
-  filter(epic_sglti2_1=="No" & epic_glp1ra_1=="No") %>% 
-  # filter(!is.na(epic_sglti2_1)) %>%
-  filter(!(is.na(rh_id) & is.na(rh2_id))) #34 participants have T2D, RH/RH2, SGLT2 data & biopsies
+    filter(!is.na(kit_id)) %>% 
+  filter(visit=="baseline") %>% 
+  filter(!(is.na(rh_id) & is.na(rh2_id))) %>% 
+  filter(group=="Type 2 Diabetes") %>% 
+  filter(epic_glp1ra_1=="No" & epic_sglti2_1=="No")
+length(unique(t2d$mrn)) #13
+t2d$kit_id [which(!t2d$kit_id %in% so_kpmp_sc$kit_id)]
+
+#LC
+lc <- dat %>% 
+  # filter(grepl("RH",record_id) | grepl("IT",record_id)) %>% 
+    filter(!is.na(kit_id)) %>% 
+  filter(visit=="baseline") %>% 
+  # filter(!(is.na(rh_id) & is.na(rh2_id))) %>% 
+  filter(group=="Lean Control")
+length(unique(lc$mrn)) #13
+
+#Combine
+dat2 <- rbind(t2d,lc)
+
+
+# dat2 <- dat %>% 
+#   filter(grepl("RH",record_id) | grepl("IT",record_id)) %>% 
+#   filter(group=="Type 2 Diabetes" | group=="Lean Control") %>% 
+#   filter(!is.na(kit_id)) %>% 
+#   filter(epic_sglti2_1=="No" & epic_glp1ra_1=="No") %>% 
+#   # filter(!is.na(epic_sglti2_1)) %>%
+#   filter(!(is.na(rh_id) & is.na(rh2_id))) #34 participants have T2D, RH/RH2, SGLT2 data & biopsies
+
 dat2$kit_id[which(dat2$kit_id=="KI-0014643")] <- "KL-0014643"
 dat2$kit_id[which(dat2$kit_id=="kl-0023998")] <- "KL-0023998" 
-dat2$kit_id[which(dat2$kit_id=="Kl-0014643")] <- "KL-0014643" 
+dat2$kit_id[which(dat2$kit_id=="Kl-0014643")] <- "KL-0014643" #Kl-0014643 KL-0019092
+dat2$kit_id[which(!dat2$kit_id %in% so_kpmp_sc$kit_id)]
+
+
 #"KL-0030913" "KL-0031453" "KL-0031460" "KL-0032459" kit IDs with biopsies IDs but missing in the pb90 dataset - potentially run after pb90
 
 ids <- c(dat2$kit_id)
-ids <- ids[which(!ids %in% c("KL-0030913","KL-0031453","KL-0031460","KL-0032459"))] #30 remain
+# ids <- ids[which(!ids %in% c("KL-0030913","KL-0031453","KL-0031460","KL-0032459"))] #30 remain
 length(ids) #30
 
 
 #Filter pb90 to these 34 kit ids for aim 1
 so_kpmp_sc <- subset(so_kpmp_sc, kit_id %in% ids)
+unique(so_kpmp_sc$kit_id)
+length(unique(so_kpmp_sc$kit_id)) #24
+sort(unique(so_kpmp_sc$record_id))
 
 #Select metadata from seurat object to facilitate merge of new metadata into seurat object
 meta_kidney_sc <-  so_kpmp_sc@meta.data
