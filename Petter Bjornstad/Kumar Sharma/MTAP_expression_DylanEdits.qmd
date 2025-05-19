@@ -13,6 +13,7 @@ format:
 
 ```{r libraries, message = F, warning=F}
 #| include: false
+library(scran)
 library(future)
 library(future.apply)
 library(tidyverse)
@@ -101,6 +102,10 @@ dev.off()
 
 ```{r echo = F}
 
+cgas <- data.table::fread("C:/Users/netio/Documents/UofW/cGAS_Analysis/cGAS_genes_AmiGO2.txt",
+                          header=F)
+cgas[2] <- 'TMEM173'
+
 
 
 so <- subset(so, 
@@ -145,10 +150,6 @@ jpeg("C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_NOS1.jpeg", width=900,
 FeaturePlot(so_t1d_hc, reduction = "umap.harmony", features = "NOS1", raster = F)
 dev.off()
 
-cgas <- data.table::fread("C:/Users/netio/Documents/UofW/cGAS_Analysis/cGAS_genes_AmiGO2.txt",
-                          header=F)
-cgas[2] <- 'TMEM173'
-
 jpeg("C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_cGWAS_STING.jpeg", width=900, 
      height=900)
 FeaturePlot(so_t1d_hc, reduction = "umap.harmony", features = unique(c(cgas$V1, 'TMEM173')), raster = F)
@@ -173,14 +174,6 @@ FindMarkers(so_t1d_hc, ident.1 = "Type_1_Diabetes", ident.2 = "Lean_Control", gr
 ### Mixed model using NEBULA (Treating each subject independently)
 
 ```{r echo = F}
-meta_gene <- so_t1d_hc@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc, id = meta_gene$record_id, pred = pred_gene)
-result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_allcells$summary
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
@@ -192,6 +185,9 @@ result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred =
                  reml = T, model = "NBLMM")
 
 result_allcells$summary
+ 
+write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_MTAP_analysis_nooffset.txt', row.names=F,
+            quote=F, sep='\t')
 
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
@@ -205,6 +201,12 @@ result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred =
 
 result_allcells$summary
 
+write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_NOS3_analysis_nooffset.txt', row.names=F,
+            quote=F, sep='\t')
+
+
+
+
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
 counts_t1d_hc_cgas <- counts_t1d_hc[cgas$V1,]
 meta_gene <- subset(so_t1d_hc, features = cgas$V1)@meta.data
@@ -215,6 +217,11 @@ result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred =
                  reml = T, model = "NBLMM")
 
 result_allcells$summary
+
+
+write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_CGAS_analysis_nooffset.txt', row.names=F,
+            quote=F, sep='\t')
+
 
 rm(list=c(counts_t1d_hc_nos3, counts_t1d_hc_cgas, counts_t1d_hc_mtap))
 
@@ -225,15 +232,25 @@ rm(list=c(counts_t1d_hc_nos3, counts_t1d_hc_cgas, counts_t1d_hc_mtap))
 #with offset
 
 
-meta_gene <- so_t1d_hc@meta.data
+full_analysis <- FindVariableFeatures(so_t1d_hc, selection.method = "vst", nfeatures = 2000)
+hvgs <- VariableFeatures(full_analysis)
+full_analysis <- subset(so_t1d_hc, features = hvgs)
+full_counts <- round(GetAssayData(full_analysis, layer = "counts")) 
+
+
+meta_gene <- full_analysis@meta.data
 pred_gene <- model.matrix(~group, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc, id = meta_gene$record_id, pred = pred_gene)
-result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
-                          offset = so_t1d_hc$pooled_offset,
+data_g_gene <- list(count = full_analysis, id = meta_gene$record_id, pred = pred_gene)
+result_allcells <- nebula(count = full_counts, id = full_analysis$record_id, pred = data_g_gene$pred, 
+                          offset = full_analysis$pooled_offset,
                  ncore = 1, output_re = T, covariance = T,
                  reml = T, model = "NBLMM")
 
 result_allcells$summary
+
+write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_fullanalysis_offset.txt', row.names=F,
+            quote=F, sep='\t')
+
 
 
 
@@ -242,11 +259,15 @@ counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
 meta_gene <- subset(so_t1d_hc, features = "MTAP")@meta.data
 pred_gene <- model.matrix(~group, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
-result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = log(library_size),
+result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = so_t1d_hc$pooled_offset,
                  ncore = 1, output_re = T, covariance = T,
                  reml = T, model = "NBLMM")
 
 result_allcells$summary
+
+
+write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_MTAP_analysis_offset.txt', row.names=F,
+            quote=F, sep='\t')
 
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
@@ -254,24 +275,43 @@ counts_t1d_hc_nos3 <- counts_t1d_hc["NOS3",]
 meta_gene <- subset(so_t1d_hc, features = "NOS3")@meta.data
 pred_gene <- model.matrix(~group, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_nos3, id = meta_gene$record_id, pred = pred_gene)
-result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = log(library_size),
+result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = so_t1d_hc$pooled_offset,
                  ncore = 1, output_re = T, covariance = T,
                  reml = T, model = "NBLMM")
 
 result_allcells$summary
+
+write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_NOS3_analysis_offset.txt', row.names=F,
+            quote=F, sep='\t')
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
 counts_t1d_hc_cgas <- counts_t1d_hc[cgas$V1,]
 meta_gene <- subset(so_t1d_hc, features = cgas$V1)@meta.data
 pred_gene <- model.matrix(~group, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_cgas, id = meta_gene$record_id, pred = pred_gene)
-result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = library_size,
+result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = so_t1d_hc$pooled_offset,
                  ncore = 1, output_re = T, covariance = T,
                  reml = T, model = "NBLMM")
 
 result_allcells$summary
 
+write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_cGAS_analysis_offset.txt', row.names=F,
+            quote=F, sep='\t')
+
 rm(list=c(counts_t1d_hc_nos3, counts_t1d_hc_cgas, counts_t1d_hc_mtap))
+
+
+
+#With sex analysis 
+
+
+
+
+
+
+
+
+
 
 
 
