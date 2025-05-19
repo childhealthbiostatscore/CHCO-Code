@@ -16,7 +16,7 @@ output: html_document
 ## a. Libraries & Directores
 ```{r, include=F}
 library(reprex)
-library(tidyverse)
+# library(tidyverse)
 library(BiocManager)        
 library(arsenal)
 library(dplyr)
@@ -238,7 +238,16 @@ so_kpmp_sc <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostati
 
 ## b. Load Gene Sets
 ```{r}
-tca1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/tca_cycle_genes.csv")$genesymbol
+#Lambda
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "data_clean/tca_cycle_genes.csv", temp_file)
+tca1 <- read.csv(temp_file)
+tca1 <- tca1$genesymbol
+
+# #Local
+# tca1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/tca_cycle_genes.csv")$genesymbol
 tca2 <- c(
   "ACO1", "ACO2", "IDH1", "IDH2", "IDH3A", "IDH3B", "IDH3G", "OGDH", "OGDHL",
   "SUCLA2", "SUCLG1", "SUCLG2", "SDHA", "SDHB", "SDHC", "SDHD", "FH", "MDH1",
@@ -247,7 +256,17 @@ tca2 <- c(
 
 tca <- unique(c(tca1,tca2))
 
-ox_phos1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/ox_phos_genes.csv")$genesymbol
+
+#Lambda
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "data_clean/ox_phos_genes.csv", temp_file)
+ox_phos1 <- read.csv(temp_file)
+ox_phos1 <- ox_phos1$genesymbol
+
+# #Local
+# ox_phos1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/ox_phos_genes.csv")$genesymbol
 ox_phos2 <- c(
   "NDUFS6",  "SDHB", "SDHC", "SDHD",
   "UQCRC1", "UQCRC2", "COX4I1", "COX4I2", "ATP5PF") #47 genes
@@ -269,9 +288,15 @@ ox_phos <- unique(c(ox_phos1,ox_phos2))
 so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="KI-0014643")] <- "KL-0014643"
 so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="kl-0023998")] <- "KL-0023998"
 
+#Lambda load
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
+harmonized_data <- read.csv(temp_file,na="")
 
-#Load raw harmonized dataset
-harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
+
+# #Load raw harmonized dataset
+# harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
 dat <- harmonized_data %>%
   arrange(screen_date) %>% 
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
@@ -528,9 +553,9 @@ so_kpmp_sc$library_size <- library_size
 sce <- SingleCellExperiment(assays = list(counts = counts_layer))
 sce <- computeSumFactors(sce)
 # View size factors
-sizeFactors(sce)
+# sizeFactors(sce)
 # STEP 3: Calculate offset → log(size factors)
-pooled_offset <- log(sizeFactors(sce))
+pooled_offset <- sizeFactors(sce)
 so_kpmp_sc$pooled_offset <- pooled_offset
 #----------------------------------------------------------------------------
 
@@ -569,7 +594,7 @@ DefaultAssay(so_kpmp_sc) <- "RNA"
 rownames(so_kpmp_sc) #34 genes remain
 
 # saveRDS(so_kpmp_sc,fs::path(dir.dat,"Cleaned_so_kpmp_sc2.rds"))
-so_kpmp_sc <- readRDS(fs::path(dir.dat,"Cleaned_so_kpmp_sc2.rds"))
+# so_kpmp_sc <- readRDS(fs::path(dir.dat,"Cleaned_so_kpmp_sc2.rds"))
 # so_kpmp_sc$celltype1 <- case_when(grepl("PT-",so_kpmp_sc$celltype_rpca)~"PT",
 #                                   grepl("TAL-",so_kpmp_sc$celltype_rpca)~"TAL",
 #                                   grepl("EC-",so_kpmp_sc$celltype_rpca)~"EC",
@@ -858,102 +883,6 @@ dev.off()
 # }
 # wrap_plots(plot_list, ncol = 2 )
 # dev.off()
-```
-### ii. T2D + OB
-```{r}
-#Categorical Covariates
-#Get metadata for everyone
-dat <- so_kpmp_sc@meta.data %>%
-  # group_by(record_id) %>%
-  # summarise(across(everything(), first)) %>%
-  # ungroup() 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-                   .by = c(mrn, visit))
-# dat2 <- dat %>% 
-#   filter(grepl("RH",record_id) | grepl("IT",record_id)) %>% 
-#   filter(group=="Type 2 Diabetes") %>% 
-#   filter(!is.na(kit_id)) %>% 
-#   filter(!is.na(epic_sglti2_1)) %>%  
-#   filter(!(is.na(rh_id) & is.na(rh2_id)))
-
-dat <- dat %>% 
-  mutate(SGLT2=ifelse(medication=="sglt2","SGLT2i","No SGLT2i"))
-
-dat$hba1c <- as.numeric(dat$hba1c)
-dat$eGFR_CKD_epi <- as.numeric(dat$eGFR_CKD_epi)
-label(dat$hba1c) <- "HbA1c (%)"
-label(dat$age) <- "Age (Years)"
-label(dat$sex) <- "Sex"
-label(dat$race_ethnicity) <- "Race/Ethnicity"
-label(dat$bmi) <- "BMI (kg/m2)"
-label(dat$triglycerides) <- "Triglycerides (mg/dL)"
-label(dat$medication) <- "GLP-1/SGLT2i Status"
-label(dat$epic_mfm_1) <- "Metformin"
-label(dat$epic_insulin_1) <- "Insulin"
-label(dat$pah_clear_bsa) <- "PAH Clearance (BSA)"
-label(dat$eGFR_CKD_epi) <- "Estimated Glomerular Filtration Rate (eGFR)"
-label(dat$acr_u) <- "ACRu"
-label(dat$SGLT2) <- "SGLT2i"
-label(dat$group) <- "Type 2 Diabetes Status"
-
-dat$group <- factor(dat$group)
-# table1(~ age + sex + race_ethnicity  + bmi + triglycerides + hba1c + medication| study, data=dat)
-# table1(~pah_clear_bsa + eGFR_CKD_epi +acr_u +mfm_1+insulin_1| study, data=dat)
-# 
-# table1(~ age + sex + bmi + triglycerides + hba1c + medication| group, data=dat)
-# table1(~pah_clear_bsa + eGFR_CKD_epi +acr_u +mfm_1+insulin_1| group, data=dat)
-#Examine covariates
-cat_covariates <- c("sex", "race_ethnicity","medication","mfm_1","insulin_1","group")
-plot_list <- list()
-
-custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
-
-png(fs::path(dir.results, "Plot_Categorical_Covariates.png"),
-    width = 3000, height = 3000, res = 300)
-for (covariate in cat_covariates) {
-  # p <- ggplot(dat, aes_string(x = "group", fill = covariate)) +
-  #   geom_bar(position = "fill") +  # use "dodge" for absolute counts
-  #   labs(y = "Proportion", x = NULL) +
-  #   # title = paste0("Distribution of ", covariate, " by Diabetes Status")
-  #   scale_y_continuous(labels = scales::percent_format()) +
-  #   theme_minimal() +
-  #   theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  p <- ggplot(dat, aes_string(x = "SGLT2", fill = covariate)) +
-    geom_bar(position = "fill") +
-    labs(y = "Proportion", x = NULL) +
-    scale_y_continuous(labels = scales::percent_format()) +
-    scale_fill_manual(values = custom_colors) +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-  
-  plot_list[[covariate]] <- p
-}
-
-# Display all plots together (adjust depending on how many you have)
-wrap_plots(plot_list, ncol = 2)
-dev.off()
-
-#Continuous Covariates
-con_covariates <- c("age", "bmi", "triglycerides", "hba1c","pah_clear_bsa","eGFR_CKD_epi","gfr_bsa_plasma","acr_u")
-plot_list <- list()
-custom_colors <- c("#2a9d8f", "#e9c46a")
-
-# Display all plots together (adjust ncol/nrow as needed)
-png(fs::path(dir.results, "Plot_Continuous_Covariates.png"),
-    width = 3000, height = 3000, res = 300)
-for (covariate in con_covariates) {
-  p <- ggplot(dat, aes_string(x = "SGLT2", y = covariate, fill = "SGLT2")) +
-    geom_boxplot(outlier.shape = NA, alpha = 0.7) +
-    geom_jitter(width = 0.2, alpha = 0.4, color = "black") +
-    scale_fill_manual(values = custom_colors) +
-    theme_minimal() +
-    theme(legend.position = "none")
-  
-  plot_list[[covariate]] <- p
-}
-wrap_plots(plot_list, ncol = 2 )
-dev.off()
 ```
 
 ## h. Visualizations 
@@ -1272,598 +1201,6 @@ dev.off()
 
 ```
 
-
-
-### ii T2D + OB
-```{r}
-# PCA
-so_kpmp_sc <- FindVariableFeatures(object = so_kpmp_sc)
-so_kpmp_sc <- RunPCA(so_kpmp_sc, features = VariableFeatures(object = so_kpmp_sc),assay="RNA")
-ElbowPlot(so_kpmp_sc)
-
-# # Find neighbors and clusters (again using integrated data)
-so_kpmp_sc <- FindNeighbors(so_kpmp_sc, assay = "RNA", dims = 1:20)
-so_kpmp_sc <- FindClusters(so_kpmp_sc, resolution = 0.5)
-
-so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>% 
-  mutate(SGLT2=ifelse(medication=="sglt2","SGLT2i","No SGLT2i"))
-
-# Perform UMAP and tSNE
-# so_liver_sc <- RunUMAP(so_liver_sc, dims = 1:15)
-# so_kpmp_sc@reductions
-# DimPlot(so_kpmp_sc, reduction = "umap.harmony", raster = F)
-# DimPlot(so_kpmp_sc, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = FALSE)
-p <- DimPlot(so_kpmp_sc, reduction = "umap.harmony", group.by = "KPMP_celltype",raster = FALSE, label = TRUE, label.size = 4)+
-  ggtitle("UMAP Plot with Cell Type Labels")
-# p
-
-# DimPlot(so_kpmp_sc, reduction = "umap.harmony",group.by = "SGLT2",label=F,raster=F) +
-#   ggtitle(paste0("UMAP by Medication Category"))
-png(fs::path(dir.results, "UMAP_by_SGLT2_T2D_OB.png"),
-    width = 5000, height = 3000, res = 300)
-p <- DimPlot(
-  so_kpmp_sc,
-  reduction = "umap.harmony",
-  group.by = "SGLT2",
-  label = FALSE,
-  raster = FALSE
-) +
-  scale_color_manual(values = c("lightgray", "darkblue")) +
-  ggtitle("UMAP by Medication Category")
-print(p)
-dev.off()
-
-so_kpmp_sc$medication3 <- ifelse(so_kpmp_sc$medication=="sglt2","SGLT2i","No SGLT2i")
-so_kpmp_sc$medication3 <- factor(so_kpmp_sc$medication3)
-
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(celltype2 == "PT")
-
-label(cellcount$medication3) <- "SGLT2i Status"
-prop_plota <- ggplot(data=cellcount,aes(medication3, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("SGLT2i Status") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plota 
-
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(celltype2 == "TAL")
-
-label(cellcount$medication3) <- "SGLT2i Status"
-prop_plotb <- ggplot(data=cellcount,aes(medication3, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("SGLT2i Status") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plotb 
-
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(grepl("EC-",KPMP_celltype) | grepl("EC/VSMC",KPMP_celltype))
-
-label(cellcount$medication3) <- "SGLT2i Status"
-prop_plotc <- ggplot(data=cellcount,aes(medication3, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("SGLT2i Status") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plotc 
-
-#Individual
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(celltype2 == "PT")
-
-# label(cellcount$record_id) <- "SGLT2i Status"
-prop_plota <- ggplot(data=cellcount,aes(record_id, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("PT Cells") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plota 
-
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(celltype2 == "TAL")
-
-# label(cellcount$record_id) <- "SGLT2i Status"
-prop_plotb <- ggplot(data=cellcount,aes(record_id, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("TAL Cells") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plotb 
-
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(grepl("EC-",KPMP_celltype) | grepl("EC/VSMC",KPMP_celltype))
-
-# label(cellcount$record_id) <- "SGLT2i Status"
-prop_plotc <- ggplot(data=cellcount,aes(record_id, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("EC Cells") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plotc 
-# # write file
-# bucket <- "scrna" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
-# write.csv(df, temp_file, row.names = FALSE) # save the temp file locally (will delete after R session)
-# s3$upload_file(temp_file, bucket, 'Kidney transcriptomics/ROCKIES Results/filename.csv')
-# Open the JPEG file in binary read mode
-# DimPlot(so_kpmp_sc, reduction = "umap.harmony", group.by = "KPMP_celltype",raster = FALSE, label = TRUE, label.size = 4)+
-#  ggtitle("UMAP Plot with Cell Type Labels")
-# temp_file <- tempfile(fileext = ".jpeg")
-# ggsave(temp_file, width = 10)
-# s3$upload_file(temp_file, "scrna", "Kidney transcriptomics/ROCKIES Results/umap_by_celltype.jpeg")
-
-# # Create a temporary file with .jpeg extension
-# temp_file <- tempfile(fileext = ".jpeg")
-# # Save the plot as a JPEG
-# ggsave(filename = temp_file, plot = p, device = "jpeg", width = 6, height = 4, dpi = 300)
-# # Connect to S3
-# s3 <- paws::s3()
-# # Define the S3 bucket and path
-# bucket <- "scrna"
-# s3_key <- "Kidney transcriptomics/ROCKIES Results/filename.jpeg"
-# # Upload the JPEG to the bucket
-# s3$upload_file(temp_file, bucket, s3_key)
-
-
-so_kpmp_sc$group <- factor(so_kpmp_sc$group)
-DimPlot(so_kpmp_sc, reduction = "umap.harmony",group.by = "group",label=F,raster=F) +
-  ggtitle(paste0("UMAP by Diabetes Category"))
-
-so_kpmp_sc$medication <- factor(so_kpmp_sc$medication)
-DimPlot(so_kpmp_sc, reduction = "umap.harmony",group.by = "medication",label=F,raster=F) +
-  ggtitle(paste0("UMAP by Medication Category"))
-so_kpmp_sc$medication2 <- ifelse(so_kpmp_sc$medication=="glp1_sglt2","glp1_sglt2","other")
-so_kpmp_sc$medication2 <- factor(so_kpmp_sc$medication2)
-DimPlot(so_kpmp_sc, reduction = "umap.harmony",group.by = "medication2",label=F,raster=F) +
-  ggtitle(paste0("UMAP by Medication Category"))
-DimPlot(
-  so_kpmp_sc,
-  reduction = "umap.harmony",
-  group.by = "medication2",
-  label = FALSE,
-  raster = FALSE
-) +
-  scale_color_manual(values = c("darkblue", "lightgray")) +
-  ggtitle("UMAP by Medication Category")
-#T2D only
-so_T2D <- subset(so_kpmp_sc,group=="Type_2_Diabetes")
-so_T2D$group <- factor(so_T2D$group)
-DimPlot(so_T2D, reduction = "umap.harmony",group.by = "group",label=F,raster=F) +
-  ggtitle(paste0("UMAP by Diabetes Category"))
-
-so_T2D$medication <- factor(so_T2D$medication)
-DimPlot(so_T2D, reduction = "umap.harmony",group.by = "medication",label=F,raster=F) +
-  ggtitle(paste0("UMAP by Medication Category"))
-
-so_T2D$medication2 <- factor(so_T2D$medication2)
-DimPlot(
-  so_kpmp_sc,
-  reduction = "umap.harmony",
-  group.by = "medication2",
-  label = FALSE,
-  raster = FALSE
-) +
-  scale_color_manual(values = c("darkblue", "lightgray")) +
-  ggtitle("UMAP by Medication Category")
-
-
-#Barcharts of proportions
-cellcount <- so_kpmp_sc@meta.data
-prop_plot <- ggplot(data=cellcount,aes(record_id, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) 
-# ggtitle("PT Cells") +
-# scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot
-
-cellcount <- so_kpmp_sc@meta.data
-prop_plot <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) 
-# ggtitle("PT Cells") +
-# scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot
-
-cellcount <- so_kpmp_sc@meta.data
-prop_plot <- ggplot(data=cellcount,aes(medication, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) 
-# ggtitle("PT Cells") +
-# scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-
-cellcount <- so_kpmp_sc@meta.data
-cellcount$group_name <- paste0(cellcount$record_id,"_",cellcount$group)
-prop_plot <- ggplot(data=cellcount,aes(group_name, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) 
-# ggtitle("PT Cells") +
-# scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot
-
-cellcount <- so_kpmp_sc@meta.data
-cellcount$group_name <- paste0(cellcount$record_id, "_", cellcount$group)
-
-# Set group_name as a factor, ordered by group
-cellcount$group_name <- factor(cellcount$group_name,
-                               levels = cellcount %>%
-                                 dplyr::select(group_name, group) %>%
-                                 distinct() %>%
-                                 arrange(group) %>%
-                                 pull(group_name))
-
-prop_plot <- ggplot(data = cellcount, aes(group_name, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 70, vjust = 1, hjust = 1),
-        plot.title = element_text(hjust = 0.5, face = "bold"),
-        text = element_text(size = 20)) 
-# + ggtitle("PT Cells")
-# + scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred"))
-
-
-# By PT subtypes
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(celltype2 == "PT")
-
-label(cellcount$group) <- "Disease Status"
-# label(cellcount$steatosis_cat) <- "Steatosis Category"
-# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
-cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
-cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
-# cellcount <- cellcount %>% 
-#   filter(group!="Obese Controls")
-
-prop_plota <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("PT Cells") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plota 
-
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(celltype2 == "TAL")
-
-label(cellcount$group) <- "Disease Status"
-# label(cellcount$steatosis_cat) <- "Steatosis Category"
-# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
-cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
-# cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
-# cellcount <- cellcount %>%
-#   filter(group!="Obese Controls")
-
-prop_plotb <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("TAL Cells") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plotb 
-
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(grepl("EC-",KPMP_celltype) | grepl("EC/VSMC",KPMP_celltype))
-
-label(cellcount$group) <- "Disease Status"
-# label(cellcount$steatosis_cat) <- "Steatosis Category"
-# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
-cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
-# cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
-# cellcount <- cellcount %>%
-#   filter(group!="Obese Controls")
-
-prop_plotc <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("EC Cells") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plotc
-
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(celltype2 == "PT")
-
-label(cellcount$medication) <- "Medication Status"
-# label(cellcount$steatosis_cat) <- "Steatosis Category"
-# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
-# cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
-cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
-# cellcount <- cellcount %>% 
-#   filter(group!="Obese Controls")
-
-prop_plotc <- ggplot(data=cellcount,aes(medication, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Medication Status (T2D + OB)") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plotc 
-
-cellcount <- cellcount %>%
-  filter(group!="Obese Controls")
-prop_plot1 <- ggplot(data=cellcount,aes(medication, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Medication Status (T2D)") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot1 
-
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(celltype2 == "TAL")
-
-label(cellcount$medication) <- "Medication Status"
-# label(cellcount$steatosis_cat) <- "Steatosis Category"
-# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
-# cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
-# cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
-# cellcount <- cellcount %>%
-#   filter(group!="Obese Controls")
-
-prop_plot1 <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Medication Status (T2D + OB)") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot1 
-
-cellcount <- cellcount %>%
-  filter(group!="Obese Controls")
-prop_plot1 <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Medication Status (T2D + OB)") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot1 
-
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- so_kpmp_sc@meta.data %>% 
-  filter(grepl("EC-",KPMP_celltype) | grepl("EC/VSMC",KPMP_celltype))
-
-label(cellcount$group) <- "Disease Status"
-# label(cellcount$steatosis_cat) <- "Steatosis Category"
-# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
-cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
-# cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
-# cellcount <- cellcount %>%
-#   filter(group!="Obese Controls")
-
-prop_plot1 <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Disease Status") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot1
-
-#Barcharts of proportions
-cellcount <- so_kpmp_sc@meta.data
-prop_plot <- ggplot(data=cellcount,aes(record_id, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) 
-# ggtitle("PT Cells") +
-# scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot
-
-cellcount <- so_kpmp_sc@meta.data
-prop_plot <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) 
-# ggtitle("PT Cells") +
-# scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot
-
-cellcount <- so_kpmp_sc@meta.data
-prop_plot <- ggplot(data=cellcount,aes(medication, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) 
-# ggtitle("PT Cells") +
-# scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-
-cellcount <- so_kpmp_sc@meta.data
-cellcount$group_name <- paste0(cellcount$record_id,"_",cellcount$group)
-prop_plot <- ggplot(data=cellcount,aes(group_name, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) 
-# ggtitle("PT Cells") +
-# scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot
-
-cellcount <- so_kpmp_sc@meta.data
-cellcount$group_name <- paste0(cellcount$record_id, "_", cellcount$group)
-
-# Set group_name as a factor, ordered by group
-cellcount$group_name <- factor(cellcount$group_name,
-                               levels = cellcount %>%
-                                 dplyr::select(group_name, group) %>%
-                                 distinct() %>%
-                                 arrange(group) %>%
-                                 pull(group_name))
-
-prop_plot <- ggplot(data = cellcount, aes(group_name, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 70, vjust = 1, hjust = 1),
-        plot.title = element_text(hjust = 0.5, face = "bold"),
-        text = element_text(size = 20)) 
-# + ggtitle("PT Cells")
-# + scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred"))
-
-```
-
-
 ## i. Descriptive Stats
 ### i. T2D Only
 ```{r, echo = F,warning=F}
@@ -2030,89 +1367,7 @@ ggplot(dat1, aes(x = SGLT2, y = hba1c)) +
   scale_fill_manual(values = c("#2a9d8f","#e9c46a"))
 
 ```
-### ii. T2D + OB
-```{r}
-#T2D + OB
-ggplot(dat, aes(x = SGLT2, y = age)) +
-  # geom_boxplot(fill = "skyblue", color = "darkblue") +
-  geom_boxplot(aes(fill=SGLT2),color="black")+
-  labs(title = "Age by SGLT2i Status",
-       x = "SGLT2i (Yes/No)",
-       y = "Age") +
-  theme_classic()+
-  scale_fill_manual(values = c("#264653", "#2a9d8f"))
 
-# scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-ggplot(dat, aes(x = SGLT2, y = bmi)) +
-  # geom_boxplot(fill = "skyblue", color = "darkblue") +
-  geom_boxplot(aes(fill=SGLT2),color="black")+
-  labs(title = "BMI by SGLT2i Status",
-       x = "SGLT2i (Yes/No)",
-       y = "BMI") +
-  theme_classic()+
-  scale_fill_manual(values = c("#2a9d8f", "#e9c46a"))
-
-ggplot(dat, aes(x = SGLT2, y = triglycerides)) +
-  # geom_boxplot(fill = "skyblue", color = "darkblue") +
-  geom_boxplot(aes(fill=SGLT2),color="black")+
-  labs(title = "Triglycerides by SGLT2i Status",
-       x = "SGLT2i (Yes/No)",
-       y = "Triglycerides") +
-  theme_classic()+
-  scale_fill_manual(values = c("#e9c46a", "#f4a261"))
-
-#ACRu
-ggplot(dat, aes(x = SGLT2, y = acr_u)) +
-  # geom_boxplot(fill = "skyblue", color = "darkblue") +
-  geom_boxplot(aes(fill=SGLT2),color="black")+
-  labs(title = "ACRu by SGLT2i Status",
-       x = "SGLT2i (Yes/No)",
-       y = "ACRu") +
-  theme_classic()+
-  scale_fill_manual(values = c("#f4a261", "#e76f51"))
-
-#eGFR_CKD_epi
-ggplot(dat, aes(x = SGLT2, y = eGFR_CKD_epi)) +
-  # geom_boxplot(fill = "skyblue", color = "darkblue") +
-  geom_boxplot(aes(fill=SGLT2),color="black")+
-  labs(title = "eGFR by SGLT2i Status",
-       x = "SGLT2i (Yes/No)",
-       y = "eGFR") +
-  theme_classic()+
-  scale_fill_manual(values = c("#e76f51","darkred"))
-
-#pah_clear_bsa
-ggplot(dat, aes(x = SGLT2, y = pah_clear_bsa)) +
-  # geom_boxplot(fill = "skyblue", color = "darkblue") +
-  geom_boxplot(aes(fill=SGLT2),color="black")+
-  labs(title = "PAH Clearance (BSA) by SGLT2i Status",
-       x = "SGLT2i (Yes/No)",
-       y = "PAH Clearance (BSA)") +
-  theme_classic()+
-  scale_fill_manual(values = c("darkred","#264653"))
-
-#gfr_bsa_plasma
-ggplot(dat, aes(x = SGLT2, y = gfr_bsa_plasma)) +
-  # geom_boxplot(fill = "skyblue", color = "darkblue") +
-  geom_boxplot(aes(fill=SGLT2),color="black")+
-  labs(title = "GFR by SGLT2i Status",
-       x = "SGLT2i (Yes/No)",
-       y = "GFR (BSA)") +
-  theme_classic()+
-  scale_fill_manual(values = c("#264653","#2a9d8f"))
-
-#HbA1c
-ggplot(dat, aes(x = SGLT2, y = hba1c)) +
-  # geom_boxplot(fill = "skyblue", color = "darkblue") +
-  geom_boxplot(aes(fill=SGLT2),color="black")+
-  labs(title = "HbA1c by SGLT2i Status",
-       x = "SGLT2i (Yes/No)",
-       y = "HbA1c") +
-  theme_classic()+
-  scale_fill_manual(values = c("#2a9d8f","#e9c46a"))
-
-```
 
 # 3. Comparitive Data Analysis
 ## A. SGLT2 Yes vs. No - Type 2 Diabetes Only
