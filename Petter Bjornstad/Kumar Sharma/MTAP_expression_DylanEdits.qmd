@@ -375,8 +375,74 @@ write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA
 rm(list=c(counts_t1d_hc_nos3, counts_t1d_hc_cgas, counts_t1d_hc_mtap))
 
 
+#Plotting top 2,000 genes expressions 
+
+plotting_function <- function(sig_markers, file_name){
+  sig_markers <- sig_markers %>% dplyr::select(gene = summary.gene,
+                                        logfc_sex = summary.logFC_sexMale, 
+                                        logfc_group = summary.logFC_groupType_1_Diabetes, 
+                                        logfc_interaction = summary.logFC_groupType_1_Diabetes.sexMale, 
+                                        p_sex = summary.p_sexMale,
+                                        p_group = summary.p_groupType_1_Diabetes, 
+                                        p_interaction = summary.p_groupType_1_Diabetes.sexMale)
+  
+  variable_names <- c('Sex Effects', 'Diagnosis Group Effects', 'Interaction Effects')
+  
+  
+  for(i in c(1:3)){
+    tmp_logfc <- i + 1
+    tmp_p <- i + 4
+    tmp_df <- sig_markers %>% dplyr::select(gene, tmp_logfc, tmp_p)
+    tmp_label <- variable_names[i]
+    names(tmp_df) <- c('Gene', 'LogFC', 'Pvalue')
+    tmp_df <- tmp_df %>% filter(!is.na(Pvalue))
+    tmp_df$diffexp <- 'No'
+    tmp_df$diffexp[tmp_df$LogFC > 0.6 & tmp_df$Pvalue < 0.05] <- 'Up'
+    tmp_df$diffexp[tmp_df$LogFC < -0.6 & tmp_df$Pvalue < 0.05] <- 'Down'
+    tmp_df <- tmp_df %>% arrange(Pvalue)
+    tmp_df$label <- NA
+    tmp_df$label[1:10] <- tmp_df$Gene[1:10]
+
+#Making graph
+    if(length(unique(tmp_df$diffexp)) > 1){
+tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
+  geom_point()+
+  geom_text(size=2, vjust = 2, color='black')+
+  scale_color_manual(values = c('orange', 'grey', 'purple'),
+                     labels = c('Downregulated', 'Not significant', 'Upregulated'))+
+  geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
+  geom_vline(xintercept = c(-0.6, 0.6), col='blue', linetype ='dashed')+
+  theme_classic()+labs(x='Log2FC', y='-log10 pvalue', col ='Differential Expression', 
+                       title = 'Use of Pioglitazone: Changes in Expression in All Cells')
+}else{
+  tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
+  geom_point()+
+  geom_text(size=2, vjust = 2, color='black')+
+  scale_color_manual(values = c('grey'),
+                     labels = c('Not significant'))+
+  geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
+  geom_vline(xintercept = c(-0.6, 0.6), col='blue', linetype ='dashed')+
+  theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
+                       title = paste0(tmp_label, ' in NEBULA Analysis'))
+  
+}
+    pdf(paste0('C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_VolcanoPlot_', file_name, '_', tmp_label, '.pdf'))
+    print(tmp_graph)
+    dev.off()
+}
+}
 
 
+plotting_function(nebula_full, 'Top2000')
+
+
+
+
+
+
+
+
+###Sex-based differences in EC Cell types 
 
 
 
