@@ -605,7 +605,13 @@ server <- function(input, output){
               meanline = list(visible = TRUE)) %>% 
         layout(xaxis = list(title = paste('Use of ', input$medication)), 
                yaxis = list(title = variable),
-               title =  paste0(variable, ' Distribution in ', paste(input$x, collapse= ', ')))
+               title =  paste0(variable, ' Distribution in ', paste(input$x, collapse= ', '))) %>%
+        add_trace(x = ~medication, y=~Variable, 
+                  text = ~paste0('MRN: ', mrn, '<br>Number: ', Variable),
+                  points = 'all',
+                  marker = list(size = 4, opacity = 0.5), 
+                  hoverinfo = 'text', jitter = 0.2)
+      
       
     }else if(input$medication != 'Ignore'){
       
@@ -633,7 +639,13 @@ server <- function(input, output){
               meanline = list(visible = TRUE)) %>% 
         layout(xaxis = list(title = paste('Use of ', input$medication)), 
                yaxis = list(title = variable),
-               title =  paste0(variable, ' Distribution in ', paste(input$x, collapse= ', ')))
+               title =  paste0(variable, ' Distribution in ', paste(input$x, collapse= ', '))) %>%
+        add_trace(x = ~medication, y=~Variable, 
+                  text = ~paste0('MRN: ', mrn, '<br>Number: ', Variable),
+                  points = 'all',
+                  marker = list(size = 4, opacity = 0.5), 
+                  hoverinfo = 'text', jitter = 0.2)
+      
       
       
     }  
