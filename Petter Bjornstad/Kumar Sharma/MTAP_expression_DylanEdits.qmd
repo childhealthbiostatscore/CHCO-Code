@@ -84,6 +84,7 @@ so <- readRDS(temp_file)
 
 so <- readRDS("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/scRNA/data_raw/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds")
 
+
 jpeg('C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_KPMP_celltype.jpeg', width=900, 
      height=900)
 DimPlot(so, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
@@ -124,6 +125,16 @@ so$pooled_offset <- (sizeFactors(sce))
 
 
 so_t1d_hc <- subset(so, group %in% c("Type_1_Diabetes","Lean_Control"))
+
+meta.data <- so_t1d_hc@meta.data
+
+jpeg('C:/Users/netio/Documents/UofW/cGAS_Analysis/CellDistributions.jpeg', height= 1500, width = 1200)
+ggplot(meta.data %>% filter(celltype_rpca != 'ATL'), aes(x=group, fill=celltype_harmony))+
+  geom_bar(position='fill')+theme_classic()+labs(x='Condition Group', fill='Cell Type')+
+  theme(text = element_text(size=25))
+dev.off()
+
+
 
 jpeg("C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_Full_T1D_LC.jpeg", width=900, 
      height=900)
@@ -480,6 +491,13 @@ jpeg("C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_EC_cGWAS_STING.jpeg", wid
      height=900)
 FeaturePlot(so_t1d_hc_ec, reduction = 'umap.harmony', features = cgas$V1)
 dev.off()
+
+
+
+
+
+
+
 ```
 ### Pseudoreplication (Treating each cell independently)
 
@@ -498,6 +516,33 @@ FindMarkers(so_t1d_hc_ec, ident.1 = "Type_1_Diabetes", ident.2 = "Lean_Control",
 counts_layer <- round(GetAssayData(so_t1d_hc_ec, layer = 'counts'))
 library_size <- Matrix::colSums(counts_layer)
 so_t1d_hc$library_size <- library_size
+
+
+#EC Top 2,000 Analysis
+
+
+full_analysis <- FindVariableFeatures(so_t1d_hc_ec, selection.method = "vst", nfeatures = 2000)
+hvgs <- VariableFeatures(full_analysis)
+full_analysis <- subset(so_t1d_hc_ec, features = hvgs)
+full_counts <- round(GetAssayData(full_analysis, layer = "counts")) 
+
+
+meta_gene <- full_analysis@meta.data
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
+data_g_gene <- list(count = full_analysis, id = meta_gene$record_id, pred = pred_gene)
+result_allcells <- nebula(count = full_counts, id = full_analysis$record_id, pred = data_g_gene$pred, 
+                          offset = full_analysis$pooled_offset,
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+
+result_allcells$summary
+
+write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_EC_fullanalysis_offset_withsex.txt', row.names=F,
+            quote=F, sep='\t')
+
+
+
+
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc_ec, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
