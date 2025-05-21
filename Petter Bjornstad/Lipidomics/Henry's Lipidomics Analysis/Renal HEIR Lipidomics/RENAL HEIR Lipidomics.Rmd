@@ -45,6 +45,7 @@ library(ggrepel)
 library(kableExtra)
 library(lipidomeR)
 library(writexl)
+library(readxl)
 source("C:/Users/Henry Mangalapalli/Documents/GitHub/CHCO-Code/Petter Bjornstad/CROCODILE/lipidr_unadj_function_R.R")
 
 
@@ -118,11 +119,23 @@ write_xlsx(parsed, "parsed.xlsx")
 # Remove any rows where standardized_name = "-"; OPTIONAL
 lipids_dat_full <- lipids_dat[lipids_dat$standardized_name != "-", ]
 
+# Make separate list prior to parsing, containing all lipids without a standardized name
+lipids_dat_na <- lipids_dat[lipids_dat$standardized_name == "-", ]
+
 parsed_full <- parseLipidNames(lipids_dat_full$standardized_name)
 
 ```
 
 ```{r}
+raw_data_wd <- "C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR"
+setwd(raw_data_wd)
+lipids_dat_na <- as.data.frame(lipids_dat_na)
+write_xlsx(lipids_dat_na, "lipids_dat_na.xlsx")
+```
+
+
+```{r}
+# Save lipids_dat_full so duplicates can be manually removed
 raw_data_wd <- "C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR"
 setwd(raw_data_wd)
 parsed_full <- as.data.frame(parsed_full)
@@ -144,15 +157,44 @@ non_parsed_rh <- as.data.frame(non_parsed_rh)
 write_xlsx(non_parsed_rh, "non_parsed_rh.xlsx")
 ```
 
-##### Continue with analysis here. Beyond this, it's purely analysis; no more duplicate deleting #####
-## Make sheet with ONLY parseable lipids 
 ```{r}
 # Re-make parsed_rh sheet without non-parsed lipids
 parsed_only <- parsed_full[parsed_full$Grammar != "NOT_PARSEABLE",]
 ```
 
+##### Continue with analysis here. Beyond this, it's purely analysis; no more duplicate deleting #####
+## Make sheet with ONLY parseable lipids 
 
 ```{r}
-# Convert lipids_dat into a lipidomics experiment object
-parsed_only <- as_lipidomics_experiment(parsed_only)
+# Convert lipids_no_dup to .csv
+lipids_no_dup <- read_excel("C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR/lipids_dat_full.xlsx", sheet = 1) # Data is on sheet 1 ONLY; sheet 2 is where I did the duplicate averaging
+
+# Make sure we're working with the raw data working directory
+raw_data_wd <- "C:/Users/Henry Mangalapalli/UW/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Renal HEIR"
+
+write.csv(lipids_no_dup, "lipids_no_dup.csv", row.names = FALSE)
+
+# Convert lipids_no_dup to dataframe
+lipids_df <- as.data.frame(lipids_no_dup)
+
+# Set lipid names as rownames from the 'variable_name' column
+rownames(lipids_df) <- lipids_df$variable_name
+
+# Optionally remove the 'variable_name' column
+lipids_df$variable_name <- NULL
+
+
+
+# Convert lipids_no_dup into a lipidomics experiment object
+lipids_df <- as_lipidomics_experiment(lipids_df)
+
+# Didn't work; tried to remove other columns with other names but in new sheet (so as not to disrupt the lipids_df sheet)
+lipids_df_1 <- lipids_df[,-c(1:3)]
+lipids_df_1 <- as_lipidomics_experiment(lipids_df_1) # Still didn't work :(
+
 ```
+
+```{r}
+
+```
+
