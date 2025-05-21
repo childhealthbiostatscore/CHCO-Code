@@ -84,7 +84,7 @@ study_descriptions <- readxl::read_xlsx('study_descriptions.xlsx')
 ui <- fluidPage(
   shinythemes::shinytheme('journal'),
   h1('Outlier Identification App'),
-  sidebarPanel(
+  sidebarPanel(header = 'Outlier Investigations',
     sliderInput('integer', 'Minimum SD Away from Median:', min = 0, max = 10, step = 1, value = 2),
     selectInput('x', 'Select study: ', choices = study_names, 'All', multiple = TRUE),
     selectInput('MRNs', 'Which specific MRNs are you interested in?', choices = unique(harmonized_data$mrn), 
@@ -92,10 +92,11 @@ ui <- fluidPage(
     ),
   mainPanel(
     tabsetPanel(
+      tabPanel(tableOutput('Outliers'), 'Outlier IDs')
       
     ),
-    tabsetPanel(
-      
+    tabsetPanel(header = 'MRN Investigations',
+      tabPanel(tableOutput('IDs'), 'ID/Study Summary')
     )
   )
   
