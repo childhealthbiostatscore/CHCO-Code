@@ -641,20 +641,21 @@ ggplot(sig_markers_raw %>% filter(!is.na(p_val_raw)), aes(x= avg_log2FC, y=-log1
                      labels = c('Downregulated', 'Not significant', 'Upregulated'))+
   geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
   geom_vline(xintercept = c(-0.6, 0.6), col='blue', linetype ='dashed')+
-  theme_classic()+labs(x='Log2FC', y='-log10 pvalue', col ='Differential Expression', 
+  theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                        title = 'Expression Changes In Pioglitazone Use In PT Cells')
 
 dev.off()
 
 pdf('../../Documents/UofW/pio_scrna/CelllTypeSpecific/PT/NEBULA_SignificantGenes_PIO_PT_BHCorrected.pdf')
-ggplot(sig_markers %>% filter(!is.na(p_val_raw)), aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
+ggplot(sig_markers %>% filter(!is.na(p_val_raw)), 
+       aes(x= avg_log2FC, y=-log10(p_val_adj), col = diffexp, label=label))+
   geom_point()+
   geom_text(size=2, vjust = 2, color='black')+
   scale_color_manual(values = c('orange', 'grey', 'purple'),
                      labels = c('Downregulated', 'Not significant', 'Upregulated'))+
   geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
   geom_vline(xintercept = c(-0.6, 0.6), col='blue', linetype ='dashed')+
-  theme_classic()+labs(x='Log2FC', y='-log10 pvalue', col ='Differential Expression', 
+  theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                        title = 'Expression Changes In Pioglitazone Use In PT Cells')
 
 dev.off()
