@@ -3,7 +3,8 @@ library(tidyverse)
 library(Hmisc)
 home_dir <- switch(Sys.info()["sysname"],
   "Darwin" = "/Users/timvigers/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
-  "Linux" = "/home/timvigers/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO"
+  "Linux" = "/home/timvigers/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO",
+  "Windows" = "C:/Users/Tim/OneDrive - The University of Colorado Denver/Vigers/BDC/Janet Snell-Bergeon/CALICO"
 )
 setwd(home_dir)
 # Open REDCap
@@ -97,6 +98,27 @@ df$combined_race <- apply(
   }
 )
 df$combined_race <- factor(df$combined_race)
+# Combined family history - luckily the column numbers for family and non-family
+# match up
+hist_labels <- sub(
+  "Non-parent family history \\(include all history, not only from the diagnostic visit\\)\\. Including siblings, first cousins, aunts, uncles, and grandparents. \\(choice\\=",
+  "", as.character(label(df[, grep("pcosdx_famhx___", colnames(df))]))
+)
+hist_labels <- sub("\\)", "", hist_labels)
+hist_labels <- sub(" \\{pcosdx_famhx_family_otherdx\\}", "", hist_labels)
+hist_labels <- paste0("Any family history of ", hist_labels, "?")
+hist_vars <- sub("pcosdx_famhx___", "", colnames(df[, grep(
+  "pcosdx_famhx___", colnames(df)
+)]))
+any_hist <- data.frame(lapply(hist_vars, function(v) {
+  parent <- df[, paste0("pcosdx_famhx_parent___", v)]
+  nonparent <- df[, paste0("pcosdx_famhx___", v)]
+  any <- (parent == "Checked") + (nonparent == "Checked")
+  any <- factor(any, levels = 0:2, labels = c("No", "Yes", "Yes"))
+  return(any)
+}))
+colnames(any_hist) <- paste0("pcosdx_any_famhx___", hist_vars)
+df <- cbind(df, any_hist)
 # Mental health screening
 df$mental_health_screening <-
   rowSums(!is.na(df[, c("cv_phq2", "cv_phq8", "cv_phq9", "cv_cesd20")]))
