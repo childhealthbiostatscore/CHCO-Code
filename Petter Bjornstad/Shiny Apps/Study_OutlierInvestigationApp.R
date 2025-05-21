@@ -81,13 +81,32 @@ study_descriptions <- readxl::read_xlsx('study_descriptions.xlsx')
 
 #create ui
 
+ui <- fluidPage(
+  shinythemes::shinytheme('journal'),
+  h1('Outlier Identification App'),
+  sidebarPanel(
+    
+    ),
+  mainPanel(
+    tabsetPanel(
+      
+    )
+  )
+  
+)
+
+
+server <- function(input, output){
+  
+  
+  
+  
+  
+}
 
 
 
-
-
-
-
+shinyApp(ui = ui, server = server)
 
 
 
