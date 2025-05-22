@@ -141,7 +141,7 @@ server <- function(input, output){
         filter(mrn %in% tmp_ids)
       tmp_results_df <- data.frame(MRN = tmp_ids, Study_IDs = NA, 
                                    Studies = NA, Age =NA, Sex = NA, Group = NA,
-                                   Medications = NA)
+                                   Medications = NA, Race_Ethnicity = NA)
       
       for(i in c(1:nrow(tmp_results_df))){
         iter_id <- tmp_ids[i]
@@ -161,6 +161,9 @@ server <- function(input, output){
         tmp_results_df$Sex[i] <- paste0(names(table(tmp_harm_iter$sex)), ': ', table(tmp_harm_iter$sex))
         
         tmp_results_df$Group[i] <- paste0(names(table(tmp_harm_iter$group)), ': ', table(tmp_harm_iter$group))
+        tmp_results_df$Race_Ethnicity[i] <- paste0(names(table(tmp_harm_iter$race_ethnicity)), 
+                                                   ': ', table(tmp_harm_iter$race_ethnicity))
+        
         
         
         #medication
