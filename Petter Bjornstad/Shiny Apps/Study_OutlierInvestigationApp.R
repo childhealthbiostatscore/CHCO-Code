@@ -75,7 +75,44 @@ study_names <- c(study_names, 'All')
 study_descriptions <- readxl::read_xlsx('study_descriptions.xlsx')
 
 
+#Overall outlier evaluations
 
+
+
+
+
+
+#Selected Individual analyses 
+
+get_ind_table <- function(){
+  tmp_ids <- input$MRNs
+  tmp_meds <- medications %>% 
+    filter(mrn %in% tmp_ids)
+  tmp_harm <- harmonized_data %>% 
+    select(1:13, 16:19, 24, 1180) %>% 
+    filter(mrn %in% tmp_ids)
+  tmp_results_df <- data.frame(MRN = tmp_ids, Study_IDs = NA, 
+                               Studies = NA, Age =NA, Sex = NA, Race_Ethnicity = NA,
+                               Medications = NA)
+  
+  for(i in c(1:nrow(tmp_results_df))){
+    iter_id <- tmp_ids[i]
+    #study IDs 
+    tmp_harm_iter <- tmp_harm %>% filter(mrn == iter_id)
+    
+    tmp_results_df$Study_IDs[i] <- tmp_harm_iter %>% select(1:12) %>% 
+      as.matrix() %>% as.vector() %>% unique()
+    
+    
+    #medication
+    iter_med_vec <- tmp_meds %>% filter(mrn == iter_id) %>% str_detect('Yes')
+    tmp_results_df$Medications[i] <- paste(names(tmp_meds)[iter_med_vec], collapse=', ')
+    
+    
+  }
+  
+  
+}
 
 
 
@@ -92,11 +129,11 @@ ui <- fluidPage(
     ),
   mainPanel(
     tabsetPanel(
-      tabPanel(tableOutput('Outliers'), 'Outlier IDs')
+      tabPanel(dataTableOutput('Outliers'), 'Outlier IDs')
       
     ),
     tabsetPanel(header = 'MRN Investigations',
-      tabPanel(tableOutput('IDs'), 'ID/Study Summary')
+      tabPanel(dataTableOutput('IDs'), 'ID/Study Summary')
     )
   )
   
@@ -106,8 +143,13 @@ ui <- fluidPage(
 server <- function(input, output){
   
   
+  output$Outliers <- renderDataTable({
+    
+  })
   
-  
+  output$IDs <- renderDataTable({
+    
+  })
   
 }
 
