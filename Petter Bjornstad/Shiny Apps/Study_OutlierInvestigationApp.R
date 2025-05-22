@@ -158,11 +158,13 @@ server <- function(input, output){
         tmp_results_df$Age[i] <- paste0('Mean: ', age_mean, ', SD:', age_sd,
                                         ', Values: ', paste(unique(tmp_harm_iter$age), collapse = ', '))
         
-        tmp_results_df$Sex[i] <- paste0(names(table(tmp_harm_iter$sex)), ': ', table(tmp_harm_iter$sex))
+        tmp_results_df$Sex[i] <- paste0(names(table(tmp_harm_iter$sex)), ': ', table(tmp_harm_iter$sex),
+                                        collapse = ', ')
         
-        tmp_results_df$Group[i] <- paste0(names(table(tmp_harm_iter$group)), ': ', table(tmp_harm_iter$group))
+        tmp_results_df$Group[i] <- paste0(names(table(tmp_harm_iter$group)), ': ', table(tmp_harm_iter$group),
+                                          collapse = ', ')
         tmp_results_df$Race_Ethnicity[i] <- paste0(names(table(tmp_harm_iter$race_ethnicity)), 
-                                                   ': ', table(tmp_harm_iter$race_ethnicity))
+                                                   ': ', table(tmp_harm_iter$race_ethnicity), collapse = ', ')
         
         
         
@@ -175,8 +177,10 @@ server <- function(input, output){
       #push the data.frame
       tmp_results_df$Studies <-  str_replace(tmp_results_df$Studies, pattern=', $', replacement ='')
       tmp_results_df$Studies <-  str_replace(tmp_results_df$Studies, pattern='NA,', replacement ='')
+      tmp_results_df$Study_IDs <- str_replace(tmp_results_df$Study_IDs, pattern = 'NA, ', replacement = '')
       tmp_results_df$Study_IDs <- str_replace(tmp_results_df$Study_IDs, pattern=', $', replacement = '')
       tmp_results_df$Age <- str_replace(tmp_results_df$Age, pattern= 'NA, ', replacement ='')
+      
       
       tmp_results_df
       
