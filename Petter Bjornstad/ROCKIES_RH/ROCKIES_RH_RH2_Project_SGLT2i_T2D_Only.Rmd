@@ -199,82 +199,227 @@ so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="kl-0023998")] <- "KL-0023998"
 
 # #Load raw harmonized dataset
 harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
-dat <- harmonized_data %>% 
-  filter(visit=="baseline") %>% 
-  filter(group=="Type 2 Diabetes") %>% 
-  filter(grepl("RH",record_id) | record_id=="IT_19")
-# filter(grepl("RH",record_id) | grepl("IT",record_id)) #| grepl("IT",record_id)
-dat$kit_id[which(dat$record_id=="IT_19")] #KL-0027475
-dat$kit_id[which(dat$record_id=="RH-98-T")]
-# datcheck <- dat %>%
+
+dat <- harmonized_data %>%
+  arrange(screen_date) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+length(unique(dat$mrn))#467
+length(unique(dat$record_id))#644
+
+#Filter to renal heir/renal heritage
+dat <- dat %>% 
+  filter(grepl("RH",record_id) |grepl("RH2",record_id))  #grepl("IT",record_id)
+length(unique(dat$mrn))#113
+length(unique(dat$record_id))#146
+
+#Filter to baseline visits only (no post surgery)
+dat <- dat %>% 
+  filter(visit=="baseline") 
+length(unique(dat$mrn))#113
+length(unique(dat$record_id))#146
+
+#Filter to T2D or LC only
+dat <- dat %>% 
+  filter(group=="Type 2 Diabetes")
+length(unique(dat$mrn))#71
+length(unique(dat$record_id))#80
+
+#Filter to those NOT on SGLT2s
+dat <- dat %>% 
+  filter(!is.na(epic_sglti2_1))
+length(unique(dat$mrn))#42
+length(unique(dat$record_id))#46
+
+#Filter to only those with a kit id and biospy in pb 90
+dat <- dat %>% 
+  filter(kit_id %in% so_kpmp_sc$kit_id)
+length(unique(dat$mrn))#28
+length(unique(dat$record_id))#30
+
+# #Find coenrolled individuals
+dat$record_id[which(duplicated(dat$mrn))] #"RH2-14-T/RH-23-T" "RH2-19-T/RH-67-T"
+dat$mrn[which(duplicated(dat$mrn))] #1664581
+dat$kit_id[which(dat$record_id=="RH-23-T")] #KL-0014632
+dat$kit_id[which(dat$record_id=="RH2-14-T")] #KL-0029535, Exclude their second biopsy. Maintian baseline no repeated measures only
+
+dat$kit_id[which(dat$record_id=="RH-67-T")] #KL-0024002
+dat$kit_id[which(dat$record_id=="RH2-19-T")] 
+
+dat <- dat %>%
+  filter(record_id!="RH2-14-T") %>% 
+  filter(record_id!="RH2-19-T")
+
+length(unique(dat$mrn))#28
+length(unique(dat$record_id))#28
+
+#Final dataset = 31
+table(dat$study,dat$group)
+  #               Lean Control Type 2 Diabetes
+  # CROCODILE                 13               0
+  # RENAL-HEIR                 0              11
+  # RENAL-HEIRitage            0               7
+
+table(dat$group,dat$epic_sglti2_1)
+  #                 No
+  # Lean Control    13
+  # Type 2 Diabetes 18
+
+length(unique(dat$mrn)) #91 LC and T2D at baseline
+length(unique(dat$record_id)) #25 no med
+length(unique(which(dat$group=="Lean Control"))) #13
+length(unique(which(dat$group=="Type 2 Diabetes"))) #18
+table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_sglti2_1+epic_glp1ra_1| group,data=dat)
+dat$record_id
+#Double check for any missing improve/renal heir coenrolled participants
+dat2 <- harmonized_data %>%
+  arrange(screen_date) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+
+dat2 <- dat2 %>% 
+  filter(grepl("IT",record_id))
+length(unique(dat2$mrn))#22
+length(unique(dat2$record_id))#22
+
+#Filter to baseline visits only (no post surgery)
+dat2 <- dat2 %>% 
+  filter(visit=="baseline") 
+length(unique(dat2$mrn))#22
+length(unique(dat2$record_id))#22
+
+#Filter to T2D or LC only
+dat2 <- dat2 %>% 
+  filter(group=="Type 2 Diabetes")
+length(unique(dat2$mrn))#22
+length(unique(dat2$record_id))#22
+
+#Filter to those with complete SGLT2s data
+dat2 <- dat2 %>% 
+  filter(!is.na(epic_sglti2_1))
+length(unique(dat2$mrn))#10
+length(unique(dat2$record_id))#10
+
+#Filter to only those with a kit id and biospy in pb 90
+dat2 <- dat2 %>% 
+  filter(kit_id %in% so_kpmp_sc$kit_id)
+length(unique(dat2$mrn))#7
+length(unique(dat2$record_id))#7
+
+# #Find coenrolled individuals - NONE
+dat2$record_id[which(duplicated(dat2$mrn))] #"RH-23-T/"RH2-14-T"
+dat2$mrn[which(duplicated(dat2$mrn))] #1664581
+
+#Determine which of these 7 are already included in dat
+dat2$mrn[which(dat2$mrn %in% dat$mrn)]
+dat2$record_id[which(dat2$mrn %in% dat$mrn)] #"IT_07" "IT_10" "IT_09"
+dat2 <- dat2 %>% 
+  filter(record_id!="IT_09" & record_id!="IT_07"& record_id!="IT_10")
+
+dat2$mrn[which(!dat2$mrn %in% dat$mrn)]
+dat2$record_id[which(!dat2$mrn %in% dat$mrn)] #"IT_11" "IT_12" "IT_13" "IT_19"
+#ONLY IT_19 is renal heir coenrolled
+
+#Make sure coenrolled in Renal heir (because IT11 not in RH but IT19 is in RH)
+#Remove IT11, merge IT19 into final dataset
+dat2 <- dat2 %>% 
+  filter(record_id=="IT_19")
+
+#Combine with dataset
+dat <- rbind(dat,dat2)
+rm(dat2)
+
+#Final dataset = 31
+table(dat$study,dat$group)
+  #               Lean Control Type 2 Diabetes
+  # CROCODILE                 13               0
+  # RENAL-HEIR                 0              11
+  # RENAL-HEIRitage            0               7
+
+table(dat$group,dat$epic_sglti2_1)
+# ###########################
+# 
+# 
+# 
+# dat <- harmonized_data %>% 
+#   filter(visit=="baseline") %>% 
+#   filter(group=="Type 2 Diabetes") %>% 
+#   filter(grepl("RH",record_id) | record_id=="IT_19")
+# # filter(grepl("RH",record_id) | grepl("IT",record_id)) #| grepl("IT",record_id)
+# dat$kit_id[which(dat$record_id=="IT_19")] #KL-0027475
+# dat$kit_id[which(dat$record_id=="RH-98-T")]
+# # datcheck <- dat %>%
+# #   arrange(screen_date) %>% 
+# #   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+# #                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+# #                    .by = c(mrn, visit))
+# # datcheck <- datcheck %>% 
+# #   filter(!is.na(kit_id)) %>% 
+# #   filter(!is.na(epic_sglti2_1)) %>%  
+# #   filter(!(is.na(rh_id) & is.na(rh2_id))) 
+# # ids1 <- unique(datcheck$kit_id)
+# # ids2 <-unique(datcheck$record_id)
+# 
+# #Kit ID for IT_08: KL-0019092 for T2D, remove RH-60-T and kit id KL-0014643
+# dat2 <- dat %>%
 #   arrange(screen_date) %>% 
 #   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
 #                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
 #                    .by = c(mrn, visit))
-# datcheck <- datcheck %>% 
+# length(unique(dat2$mrn)) #all unique mrns
+# dat2$kit_id[which(dat2$record_id=="IT_19")] #KL-0027475
+# dat2$kit_id[which(dat2$record_id=="RH-98-T")]
+# 
+# #Filter to having a kit id & a renal heir id & med data
+# dat2 <- dat2 %>% 
+#   # filter(grepl("RH",record_id) | grepl("IT",record_id)) %>% 
+#   # filter(group=="Type 2 Diabetes") %>% 
 #   filter(!is.na(kit_id)) %>% 
 #   filter(!is.na(epic_sglti2_1)) %>%  
-#   filter(!(is.na(rh_id) & is.na(rh2_id))) 
-# ids1 <- unique(datcheck$kit_id)
-# ids2 <-unique(datcheck$record_id)
-
-#Kit ID for IT_08: KL-0019092 for T2D, remove RH-60-T and kit id KL-0014643
-dat2 <- dat %>%
-  arrange(screen_date) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-                   .by = c(mrn, visit))
-length(unique(dat2$mrn)) #all unique mrns
-dat2$kit_id[which(dat2$record_id=="IT_19")] #KL-0027475
-dat2$kit_id[which(dat2$record_id=="RH-98-T")]
-
-#Filter to having a kit id & a renal heir id & med data
-dat2 <- dat2 %>% 
-  # filter(grepl("RH",record_id) | grepl("IT",record_id)) %>% 
-  # filter(group=="Type 2 Diabetes") %>% 
-  filter(!is.na(kit_id)) %>% 
-  filter(!is.na(epic_sglti2_1)) %>%  
-  filter(!(is.na(rh_id) & is.na(rh2_id))) #34 participants have T2D, RH/RH2, SGLT2 data & biopsies
-#IT_19/RH-98-T enrolled simultenosuly 
-
-length(unique(dat2$mrn)) #33
-length(unique(dat2$record_id)) #33
-
-# dat2<- dat2 %>% 
-#   filter(record_id!="IT_08") #33 remain
-
-dat2$kit_id[which(dat2$kit_id=="KI-0014643")] <- "KL-0014643"
-dat2$kit_id[which(dat2$kit_id=="kl-0023998")] <- "KL-0023998" 
-dat2$kit_id[which(dat2$kit_id=="Kl-0014643")] <- "KL-0014643" 
-#"KL-0030913" "KL-0031453" "KL-0031460" "KL-0032459" kit IDs with biopsies IDs but missing in the pb90 dataset - potentially run after pb90
-
-#At time of biopsy, baseline in RH2, participant RH2-07-O was an Obese Control, after surgery, developed T2D but must exclude
-# # RH2-07-O
-# dat2$kit_id[which(dat2$record_id=="IT_03")]
-length(unique(dat2$mrn)) #33
-length(unique(dat2$record_id)) #33
+#   filter(!(is.na(rh_id) & is.na(rh2_id))) #34 participants have T2D, RH/RH2, SGLT2 data & biopsies
+# #IT_19/RH-98-T enrolled simultenosuly 
+# 
+# length(unique(dat2$mrn)) #33
+# length(unique(dat2$record_id)) #33
+# 
+# # dat2<- dat2 %>% 
+# #   filter(record_id!="IT_08") #33 remain
+# 
+# dat2$kit_id[which(dat2$kit_id=="KI-0014643")] <- "KL-0014643"
+# dat2$kit_id[which(dat2$kit_id=="kl-0023998")] <- "KL-0023998" 
+# dat2$kit_id[which(dat2$kit_id=="Kl-0014643")] <- "KL-0014643" 
+# #"KL-0030913" "KL-0031453" "KL-0031460" "KL-0032459" kit IDs with biopsies IDs but missing in the pb90 dataset - potentially run after pb90
+# 
+# #At time of biopsy, baseline in RH2, participant RH2-07-O was an Obese Control, after surgery, developed T2D but must exclude
+# # # RH2-07-O
+# # dat2$kit_id[which(dat2$record_id=="IT_03")]
+# length(unique(dat2$mrn)) #33
+# length(unique(dat2$record_id)) #33
+# 
 
 
-
-ids <- c(dat2$kit_id)
+ids <- c(dat$kit_id)
 biopsy <- unique(so_kpmp_sc$kit_id)
-ids[which(!ids %in% biopsy)] #"KL-0030913" "KL-0031453" "KL-0031460" "KL-0032459"
+ids[which(!ids %in% biopsy)] 
 
-unique(so_kpmp_sc$kit_id[which(!so_kpmp_sc$kit_id %in% ids)])
-dat2$record_id[which(!dat2$kit_id %in% so_kpmp_sc$kit_id)]
-meta <- so_kpmp_sc@meta.data
-# ids <- ids[which(!ids %in% c("KL-0030913","KL-0031453","KL-0031460","KL-0032459"))] #30 remain
-ids <- ids[which(ids %in% biopsy)] #30
-length(ids) #29
+# unique(so_kpmp_sc$kit_id[which(!so_kpmp_sc$kit_id %in% ids)])
+# dat2$record_id[which(!dat2$kit_id %in% so_kpmp_sc$kit_id)]
+# meta <- so_kpmp_sc@meta.data
+# # ids <- ids[which(!ids %in% c("KL-0030913","KL-0031453","KL-0031460","KL-0032459"))] #30 remain
+# ids <- ids[which(ids %in% biopsy)] #30
+# length(ids) #29
 
 #Remove "KL-0029521" id
-ids <- ids[which(!ids %in% "KL-0029521")]
-ids
+# ids <- ids[which(!ids %in% "KL-0029521")]
+# ids
 # ids2[which(!ids1 %in% ids)]
 
 #Filter pb90 to these 34 kit ids for aim 1
+ids <- c(dat$kit_id)
 so_kpmp_sc <- subset(so_kpmp_sc, kit_id %in% ids)
-length(unique(so_kpmp_sc$kit_id))#30
+length(unique(so_kpmp_sc$kit_id))#29
 unique(so_kpmp_sc$kit_id)
 unique(so_kpmp_sc$record_id)
 
@@ -284,7 +429,7 @@ rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
 
 #Merge metadata from 83 participants at baseline into seurat object metadata
 meta_kidney_sc <- meta_kidney_sc %>%
-  left_join(dat2,by="kit_id")
+  left_join(dat,by="kit_id")
 rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
 
 #Merge metadata back into seurat object
