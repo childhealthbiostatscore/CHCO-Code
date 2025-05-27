@@ -100,3 +100,4 @@ dbs <- c("GO_Biological_Process_2023",
 # BiocManager::install("scran")
 library(scran)
 library(BiocParallel)
+library(nebula)
