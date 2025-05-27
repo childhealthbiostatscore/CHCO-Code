@@ -33,21 +33,17 @@ library(purrr)
 ```
 
 ```{r load-data, echo = F, include = F}
-# Load SOMAScan analytes data
-load("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Combined SomaScan/analytes.Rdata")
-write.csv(analytes, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Combined SomaScan/analytes.csv", row.names = F)
 # Load dictionary function and file
-source("/Users/choiyej/GitHub/YC_CHCO/R Functions/label_harmonized_function.R")
-source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+source("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+source("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 ```
 
 ```{r prep-data, echo = F, include = F}
 # Load clinical data
-harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
-exclude <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
+harm_dat <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
+exclude <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
 
-dat <- harm_dat %>% filter((study == "PANTHER" & visit %in% c("baseline", "screening"))|study == "RENAL-HEIR"|
-                             study == "RENAL-HEIRitage" | (study == "IMPROVE" & visit == "baseline")) %>%
+dat <- harm_dat %>% filter(study == "PANTHER" & visit %in% c("baseline", "screening")) %>%
   mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
          mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
   filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
@@ -131,27 +127,8 @@ dat <- left_join(dat, bmi_percentile, by = "record_id") %>%
                                            sex == "female" & group_risk == "High" ~ "F, High",
                                            sex == "female" & group_risk == "Low" ~ "F, Low"))
 
-panther <- dat %>% filter(study == "PANTHER")
-  # filter(!is.na(tanner_stage_comp))
-sens_dat <- dat %>% filter(study == "PANTHER" | study == "RENAL-HEIR") %>%
-  filter(!is.na(tanner_stage_comp))
-
-# Prepare SOMA data
-# prepare data set for analysis
-cleanData_comb <- dat |>
-  mutate_at(getAnalytes(dat), ~ as.numeric(scale(log(.))))
-
-cleanData_panther <- cleanData_comb %>%
-  filter(study == "PANTHER") %>%
-  filter(!is.na(tanner_stage_comp))
-cleanData_sens <- cleanData_comb %>%
-  filter(study == "PANTHER" | study == "RENAL-HEIR") %>%
-  filter(!is.na(tanner_stage_comp))
-
-analytes <- analytes %>% dplyr::mutate(Target_nodup = paste0(Target, " (", AptName, ")"))
-
 # Load and modify dictionary file
-dict <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv")
+dict <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv")
 
 dict <- label_harmonized_dict(dat, dict) %>%
   dplyr::mutate(tanner_stage_comp = "Tanner stage",
@@ -208,22 +185,12 @@ dict <- label_harmonized_dict(dat, dict) %>%
                 u24_mab = "Urine AER 24 hours")%>%
   dplyr::select(-starts_with("seq."))
 
-analytes_dict <- analytes %>%
-  dplyr::mutate(target_mod = Target_nodup) %>%
-  column_to_rownames("AptName") %>%
-  dplyr::select(target_mod) %>%
-  t()
-
-dict <- cbind(dict[1,], analytes_dict)
-
 # Label data
 dat <- label_harmonized(dat, dict)
-panther <- label_harmonized(panther, dict)
-sens_dat <- label_harmonized(sens_dat, dict)
 
-# panther_id <- as.character(panther$record_id)
-# panther2_id <- as.character(panther_2$record_id)
-# setdiff(panther_id, panther2_id)
+# keep only the variables we need
+dat_keep <- dat %>% select(mrn, visit, record_id, cpeptide_0:cpeptide_255)
+# looks like multiple versions of c-peptide variables? not sure which to keep 
 ```
 
 # Questions
