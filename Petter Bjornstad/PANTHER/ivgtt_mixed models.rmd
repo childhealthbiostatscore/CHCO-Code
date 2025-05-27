@@ -1,0 +1,198 @@
+---
+title: "TODAY study - proteomics, hypertension, OSA, echo, PWV"
+author: "Laura Pyle"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+---
+
+```{r libraries, echo=F, include = F}
+library(SomaDataIO)
+library(tidyverse)
+library(growthcleanr)
+library(arsenal)
+library(dplyr)
+library(naniar)
+library(ggplot2)
+library(ggrepel)
+library(ggpubr)
+library(pedbp)
+library(psych)
+library(EnhancedVolcano)
+library(gt)
+library(SomaPlotr)
+library(readxl)
+library(limma)
+library(glue)
+library(purrr)
+```
+
+```{r load-data, echo = F, include = F}
+# Load dictionary function and file
+source("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+source("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+```
+
+```{r prep-data, echo = F, include = F}
+# Load clinical data
+harm_dat <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
+exclude <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
+
+dat <- harm_dat %>% filter(study == "PANTHER" & visit %in% c("baseline", "screening")) %>%
+  mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
+         mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
+  filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(mrn, visit)) %>%
+  # filter(participation_status!="Removed"|is.na(participation_status)) %>%
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" & 
+                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                              race == "Black or African American" & 
+                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                              ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                              T ~ "Not Hispanic or Latino Other"),
+         tanner_stage_comp = coalesce(tan_fgd, tan_fph, tan_tveq, tan_mgd, tan_mph, breast_tanner),
+         tanner_stage_comp_panther = case_when(tanner_stage_comp > 3 ~ 4, T~ tanner_stage_comp),
+         tanner_stage_cat = case_when(tanner_stage_comp <3 ~ "I_II",
+                                      tanner_stage_comp >=3 ~ "III_V"),
+         tanner_stage_cat_2 = case_when(tanner_stage_comp == 1 ~ "I",
+                                        tanner_stage_comp <4 ~ "II_III",
+                                        tanner_stage_comp >=4 ~ "IV_V"),
+         tanner_stage_cat_3 = case_when(tanner_stage_comp < 2 ~ "I_II",
+                                        tanner_stage_comp == 3 ~ "III",
+                                        tanner_stage_comp >= 4 ~ "IV_V"),
+         tanner_stage_comp_panther_cat = 
+                  case_when(tanner_stage_comp_panther == 4 ~ "4 & 5",
+                            T ~ as.character(tanner_stage_comp_panther)),
+         age_mo = (age * 12),
+         sex = case_when(sex == "Male" ~ "male",
+                         sex == "Female" ~ "female"),
+         male_ind = case_when(sex == "male" ~ 1, sex == "female" ~ 0),
+         combined_tkv = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual),
+         combined_ht_tkv = coalesce(ht_adj_tkv, ht_adj_tkv_manual),
+         log_tot_test = log(tot_test),
+         log_free_test = log(free_test),
+         log_lh = log(lh),
+         log_estrad = log(estrad),
+         log_acr_u = log(acr_u),
+         avg_c_adc_tkv = avg_c_adc/combined_tkv,
+         avg_c_r2_tkv = avg_c_r2/combined_tkv,
+         avg_pcascl_tkv = avg_pcascl/combined_tkv,
+         avg_c_t1_tkv = avg_c_t1/combined_tkv,
+         mm_airg = case_when(mm_airg > 0 ~ mm_airg),
+         mm_bcell = case_when(mm_bcell > 0 ~ mm_bcell),
+         mm_di = case_when(mm_di > 0 & mm_di < 10000 ~ mm_di),
+         mm_ir = case_when(mm_ir > 0 ~ mm_ir),
+         mm_si = case_when(mm_si > 0 & mm_si < 500 ~ mm_si),
+         birthweight = gsub(" kg", "", birthweight),
+         birthweight = as.numeric(birthweight),
+         glp1_agonist_timepoint = case_when(is.na(glp1_agonist_timepoint) ~ "No", T ~ glp1_agonist_timepoint),
+         uacr_cat = case_when(acr_u <= 10 ~ "UACR [0, 10]",
+                              acr_u <= 20 ~ "UACR (10, 20]",
+                              acr_u <= 30 ~ "UACR (20, 30]",
+                              acr_u > 30 ~ "UACR > 30")) %>%
+  arrange(record_id) %>%
+  # filter(!is.na(dexa_body_fat)) %>% # filter based on DEXA (to filter those who may just be screen fails)
+  filter(!is.na(male_ind)) %>%
+  filter(record_id %nin% c("PAN_205_O", "PAN_209_O", "PAN_210_O")) # awaiting study visit
+# %>% # PAN-54-T is currently missing all data except MRI
+#   filter(!is.na(seq.10000.28)) # no need to subset to proteomics yet...
+
+dat$tanner_stage_comp <- as.factor(dat$tanner_stage_comp)
+
+bp_percentile = p_bp(q_sbp = dat$sbp, q_dbp = dat$dbp, age = dat$age_mo, male = dat$male_ind)
+dat$sbp_p <- bp_percentile$sbp_p
+dat$dbp_p <- bp_percentile$dbp_p
+
+bmi_percentile = ext_bmiz(data = subset(dat, 
+                                        select = c("record_id", "sex", "age_mo", "weight", "height", "bmi")), 
+                          age = "age_mo", 
+                          wt = "weight", 
+                          ht = "height", 
+                          bmi = "bmi", 
+                          adjust.integer.age = F) %>% 
+  dplyr:: select(record_id, bmip, bmiz) %>%
+  filter(!is.na(bmip))
+dat <- left_join(dat, bmi_percentile, by = "record_id") %>%
+  dplyr::mutate(group_risk = case_when(bmip >= 95 | hba1c >=6 | group == "Type 2 Diabetes" ~ "High",
+                                       T ~ "Low"),
+                sex_group_risk = case_when(sex == "male" & group_risk == "High" ~ "M, High",
+                                           sex == "male" & group_risk == "Low" ~ "M, Low",
+                                           sex == "female" & group_risk == "High" ~ "F, High",
+                                           sex == "female" & group_risk == "Low" ~ "F, Low"))
+
+# Load and modify dictionary file
+dict <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv")
+
+dict <- label_harmonized_dict(dat, dict) %>%
+  dplyr::mutate(tanner_stage_comp = "Tanner stage",
+                tanner_stage_comp_panther = "Tanner stage",
+                tanner_stage_comp_ord = "Tanner stage",
+                tanner_stage_cat = "Tanner stage categorized (1/2, 3/4/5)",
+                tanner_stage_cat2 = "Tanner stage categorized (1, 2/3, 4/5)",
+                mm_airg = "AIRg",
+                mm_bcell = "Beta cell function",
+                mm_di = "DI",
+                mm_ir = "Insulin resistance",
+                mm_si = "Insulin sensitivity",
+                bmip = "BMI percentile",
+                bmiz = "BMI Z score",
+                total_kidney_volume_ml_manual = "TKV (mL; manual)",
+                ht_adj_tkv_manual = "Height Adjusted TKV (mL/m; manual)",
+                combined_tkv = "Collapsed Total Kidney Volume (mL)", 
+                combined_ht_tkv = "Collapsed Height Adjusted Total Kidney Volume (mL/m)",
+                fsh = "FSH", 
+                lh = "LH", 
+                estrad = "Estradiol",
+                tot_test = "Total testosterone",
+                free_test = "Free testosterone",
+                igf_1 = "IGF-1",
+                igf1_z_score = "IGF-1 Z-score",
+                avg_c_t1 = "Avg cortical T1",
+                avg_pcascl = "Avg pCASCL",
+                avg_c_adc_tkv = "Avg cortical ADC/TKV",
+                avg_c_r2_tkv = "Avg cortical R2*/TKV",
+                avg_pcascl_tkv = "Avg cortical ASL/TKV",
+                avg_c_t1_tkv = "Avg cortical T1/TKV", 
+                sbp_p = "SBP percentile",
+                dbp_p = "DBP percentile",
+                birthweight = "Birthweight",
+                bl_dheas = "DHEA-S",
+                log_acr_u = "ln(UACR)",
+                log_tot_test = "ln(Total testosterone)",
+                log_free_test = "ln(Free testosterone)",
+                log_lh = "ln(LH)",
+                log_estrad = "ln(Estradiol)",
+                race_ethnicity_condensed = "Race/Ethnicity", 
+                eGFR_CKiD_U25_CystatinC = "eGFR CKiD U25 CystC",
+                eGFR_CKiD_U25_Creat ="eGFR CKiD U25 Creat",
+                eGFR_CKiD_U25_avg ="eGFR CKiD U25 CystC & Creat",
+                bl_dheas = "DHEA-S",
+                gfr_raw_plasma = "mGFR",
+                gfr_bsa_plasma = "mGFR (BSA)",
+                erpf_raw_plasma = "ERPF",
+                erpf_bsa_plasma = "ERPF (BSA)",
+                eGFR_fas_cr = "eGFR - FAScr",
+                glomerular_pressure = "Glomerular pressure",
+                dexa_bone_mineral_density = "BMD",
+                mm_bcell = "Insulin secretion capacity",
+                u24_mab = "Urine AER 24 hours")%>%
+  dplyr::select(-starts_with("seq."))
+
+# Label data
+dat <- label_harmonized(dat, dict)
+
+# keep only the variables we need
+dat_keep <- dat %>% select(mrn, visit, record_id, cpeptide_0:cpeptide_255)
+# looks like multiple versions of c-peptide variables? not sure which to keep 
+```
+
+# Questions
+
+1) Original IVGTT code read in two data files - the harmonized data and a lab data csv file. I checked MRN and visit dates and it seemed like all the data in the csv were contained in the harmonized data, so I didn't merge it in.

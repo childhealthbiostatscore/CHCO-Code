@@ -1,0 +1,841 @@
+---
+title: "CKM in TODAY"
+author: "Laura Pyle / Jairo A Pinzon"
+format: html
+editor: visual
+echo: FALSE
+warning: FALSE
+toc: TRUE
+---
+
+```{r}
+library(dplyr)
+library(arsenal)
+library(tidyr)
+
+getwd()
+
+comorb <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/COMORB.csv")
+load("/Users/jpcortes/Documents/Temp_files_TODAY/clinical_data_long.Rdata")
+
+#ame adjudicated medical events
+ame <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/AME.csv")
+
+# TODAY ECHO
+today_echo <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ECHO_today.csv")
+today_echo$TIMEPOINT <- "1"
+# TODAY2 ECHO
+today2_echo <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ECHO_today2.csv")
+today2_echo$TIMEPOINT <- "2"
+
+## we need to decide which timepoint to use, for certain labs, or if AME would be enough so we don't redenie criteria for dx or certain conditions. 
+cbl_1 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/CBL_TODAY1.csv")
+cbl_1$TIMEPOINT <- "1"
+
+cbl_2 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/CBL_TODAY2.csv")
+cbl_2$TIMEPOINT <- "2"
+
+addcbl_1 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ADDCBL_TODAY1.csv")
+addcbl_1$TIMEPOINT <- "1"
+
+addcbl_2 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ADDCBL_TODAY2.csv")
+addcbl_2$TIMEPOINT <- "2"
+
+# don't have GLS in TODAY, just TODAY2 - but there are two time points
+speckle <- read.csv('/Users/jpcortes/Documents/Temp_files_TODAY/SPECKLE.csv')
+
+# TODAY2 PWV
+pwv <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PWV.csv")
+
+# baseline integration to estimate bsa, but also to keep abdominal circumference and other relevant variables. 
+
+baseline <- read.csv(("/Users/jpcortes/Documents/Temp_files_TODAY/BASELINE.csv"))
+baseline$BSA <- 
+
+```
+
+```{r}
+# read in COMORB adjudicated endpoints
+comorb <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/COMORB.csv")
+# get fup time from visit dates - the problem is that these are not granular enough 
+load("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/clinical_data_long.Rdata")
+
+# in comorb, figure out length of follow-up by choosing number of days for an event the participant did not have
+comorb$fup_time <- ifelse(comorb$HTN == 0, comorb$DAYSTOHTN, 
+                          ifelse(comorb$LDLDLP == 0, comorb$DAYSTOLDL,
+                                 ifelse(comorb$NEURO == 0, comorb$DAYSTONEURO, 
+                                        ifelse(comorb$DNE == 0, comorb$DAYSTODNE, 
+                                               ifelse(comorb$FILAM == 0, comorb$DAYSTOFILAM, 
+                                                     ifelse(comorb$RETINO == 0, comorb$DAYSTORETINO, 
+                                                            ifelse(comorb$TGDLP == 0, comorb$DAYSTOTG, 
+                                                                   ifelse(comorb$NEPHRO == 0, comorb$DAYSTONEPHRO, 
+                                                                          ifelse(comorb$HYP ==0, comorb$DAYSTOHYP, NA)))))))))
+# one person () has every outcome, so fup_time is missing
+comorb$fup_time <- ifelse(comorb$RELEASEID == "65-44824", 4425, comorb$fup_time)
+
+# read in adjudicated medical event dataset
+ame <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/AME.csv')
+
+# reformat ame database so it's in the same format as COMORB (i.e., variable for event at baseline, variable for event during followup, and days to event)
+# note that some people have multiple events of the same type (e.g., CAD) - for now, will retain all the events to allow the most flexibility later, but for most analyses, may need to use the first (to be parallel with COMORB)
+# create new dataset ame_summary with one row per event
+arrhythmia <- ame %>% filter(AMENAME == 1) %>% select(releaseid, DAYSTOAME)
+colnames(arrhythmia) <- c("RELEASEID", "DAYSTOARRHYTHMIA")
+arrhythmia$ARRHYTHMIA <- 1
+arrhythmia <- arrhythmia %>% arrange(RELEASEID, DAYSTOARRHYTHMIA) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+cad <- ame %>% filter(AMENAME == 2) %>% select(releaseid, DAYSTOAME)
+colnames(cad) <- c("RELEASEID", "DAYSTOCAD")
+cad$CAD <- 1
+cad <- cad %>% arrange(RELEASEID, DAYSTOCAD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+chf <- ame %>% filter(AMENAME == 3) %>% select(releaseid, DAYSTOAME)
+colnames(chf) <- c("RELEASEID", "DAYSTOCHF")
+chf$CHF <- 1
+chf <- chf %>% arrange(RELEASEID, DAYSTOCHF) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+LVSD <- ame %>% filter(AMENAME == 4) %>% select(releaseid, DAYSTOAME)
+colnames(LVSD) <- c("RELEASEID", "DAYSTOLVSD")
+LVSD$LVSD <- 1
+LVSD <- LVSD %>% arrange(RELEASEID, DAYSTOLVSD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+mi <- ame %>% filter(AMENAME == 5) %>% select(releaseid, DAYSTOAME)
+colnames(mi) <- c("RELEASEID", "DAYSTOMI")
+mi$MI <- 1
+mi <- mi %>% arrange(RELEASEID, DAYSTOMI) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+pad <- ame %>% filter(AMENAME == 6) %>% select(releaseid, DAYSTOAME)
+colnames(pad) <- c("RELEASEID", "DAYSTOPAD")
+pad$PAD <- 1
+pad <- pad %>% arrange(RELEASEID, DAYSTOPAD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+#rad <- ame %>% filter(AMENAME == 7) %>% select(releaseid, DAYSTOAME)
+#colnames(rad) <- c("RELEASEID", "DAYSTORAD")
+#rad$RAD <- 1
+dvt <- ame %>% filter(AMENAME == 8) %>% select(releaseid, DAYSTOAME)
+colnames(dvt) <- c("RELEASEID", "DAYSTODVT")
+dvt$DVT <- 1
+dvt <- dvt %>% arrange(RELEASEID, DAYSTODVT) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+stroke <- ame %>% filter(AMENAME == 9) %>% select(releaseid, DAYSTOAME)
+colnames(stroke) <- c("RELEASEID", "DAYSTOSTROKE")
+stroke$STROKE <- 1
+stroke <- stroke %>% arrange(RELEASEID, DAYSTOSTROKE) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+#cerebrovascular <- ame %>% filter(AMENAME == 10) %>% select(releaseid, DAYSTOAME)
+#colnames(cerebrovascular) <- c("RELEASEID", "DAYSTOCEREBROVASCULAR")
+#cerebrovascular$CEREBROVASCULAR <- 1
+tia <- ame %>% filter(AMENAME == 11) %>% select(releaseid, DAYSTOAME)
+colnames(tia) <- c("RELEASEID", "DAYSTOTIA")
+tia$TIA <- 1
+tia <- tia %>% arrange(RELEASEID, DAYSTOTIA) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+# not sure if we need those events since they might not represent outcomes we are interested for this current CKM analyses
+pancreatitis <- ame %>% filter(AMENAME == 12) %>% select(releaseid, DAYSTOAME)
+colnames(pancreatitis) <- c("RELEASEID", "DAYSTOPANCREATITIS")
+pancreatitis$PANCREATITIS <- 1
+pancreatitis <- pancreatitis %>% arrange(RELEASEID, DAYSTOPANCREATITIS) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+gallbladder <- ame %>% filter(AMENAME == 13) %>% select(releaseid, DAYSTOAME)
+colnames(gallbladder) <- c("RELEASEID", "DAYSTOGALLBLADDER")
+gallbladder$GALLBLADDER <- 1
+gallbladder <- gallbladder %>% arrange(RELEASEID, DAYSTOGALLBLADDER) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+pneuro <- ame %>% filter(AMENAME == 14) %>% select(releaseid, DAYSTOAME)
+colnames(pneuro) <- c("RELEASEID", "DAYSTOPNEURO")
+pneuro$PNEURO <- 1
+pneuro <- pneuro %>% arrange(RELEASEID, DAYSTOPNEURO) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+aneuro <- ame %>% filter(AMENAME == 15) %>% select(releaseid, DAYSTOAME)
+colnames(aneuro) <- c("RELEASEID", "DAYSTOANEURO")
+aneuro$ANEURO <- 1
+aneuro <- aneuro %>% arrange(RELEASEID, DAYSTOANEURO) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+mononeuro <- ame %>% filter(AMENAME == 16) %>% select(releaseid, DAYSTOAME)
+colnames(mononeuro) <- c("RELEASEID", "DAYSTOMONONEURO")
+mononeuro$MONONEURO <- 1
+mononeuro <- mononeuro %>% arrange(RELEASEID, DAYSTOMONONEURO) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+# restart here with CKD in case 
+ckd <- ame %>% filter(AMENAME == 17) %>% select(releaseid, DAYSTOAME)
+colnames(ckd) <- c("RELEASEID", "DAYSTOCKD")
+ckd$CKD <- 1
+ckd <- ckd %>% arrange(RELEASEID, DAYSTOCKD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+eskd <- ame %>% filter(AMENAME == 18) %>% select(releaseid, DAYSTOAME)
+colnames(eskd) <- c("RELEASEID", "DAYSTOESKD")
+eskd$ESKD <- 1
+eskd <- eskd %>% arrange(RELEASEID, DAYSTOESKD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+npdr <- ame %>% filter(AMENAME == 19) %>% select(releaseid, DAYSTOAME)
+colnames(npdr) <- c("RELEASEID", "DAYSTONPDR")
+npdr$NPDR <- 1
+npdr <- npdr %>% arrange(RELEASEID, DAYSTONPDR) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+pdr <- ame %>% filter(AMENAME == 20) %>% select(releaseid, DAYSTOAME)
+colnames(pdr) <- c("RELEASEID", "DAYSTOPDR")
+pdr$PDR <- 1
+pdr <- pdr %>% arrange(RELEASEID, DAYSTOPDR) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+me <- ame %>% filter(AMENAME == 21) %>% select(releaseid, DAYSTOAME)
+colnames(me) <- c("RELEASEID", "DAYSTOME")
+me$ME <- 1
+me <- me %>% arrange(RELEASEID, DAYSTOME) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+vh <- ame %>% filter(AMENAME == 22) %>% select(releaseid, DAYSTOAME)
+colnames(vh) <- c("RELEASEID", "DAYSTOVH")
+vh$VH <- 1
+vh <- vh %>% arrange(RELEASEID, DAYSTOVH) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+blindness <- ame %>% filter(AMENAME == 23) %>% select(releaseid, DAYSTOAME)
+colnames(blindness) <- c("RELEASEID", "DAYSTOBLINDNESS")
+blindness$BLINDNESS <- 1
+blindness <- blindness %>% arrange(RELEASEID, DAYSTOBLINDNESS) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+cataracts <- ame %>% filter(AMENAME == 24) %>% select(releaseid, DAYSTOAME)
+colnames(cataracts) <- c("RELEASEID", "DAYSTOCATARACTS")
+cataracts$CATARACTS <- 1
+cataracts <- cataracts %>% arrange(RELEASEID, DAYSTOCATARACTS) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+glaucoma <- ame %>% filter(AMENAME == 25) %>% select(releaseid, DAYSTOAME)
+colnames(glaucoma) <- c("RELEASEID", "DAYSTOGLAUCOMA")
+glaucoma$GLAUCOMA <- 1
+glaucoma <- glaucoma %>% arrange(RELEASEID, DAYSTOGLAUCOMA) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+
+death <- ame %>% filter(AMENAME == 26) %>% select(releaseid, DAYSTOAME)
+colnames(death) <- c("RELEASEID", "DAYSTODEATH")
+death$DEATH <- 1
+death <- death %>% arrange(RELEASEID, DAYSTODEATH) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+ame_summary <- full_join(arrhythmia, cad, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, chf, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, LVSD, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, mi, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pad, by = "RELEASEID")
+#ame_summary <- full_join(ame_summary, rad, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, dvt, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, stroke, by = "RELEASEID")
+#ame_summary <- full_join(ame_summary, cerebrovascular, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, tia, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pancreatitis, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, gallbladder, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pneuro, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, aneuro, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, mononeuro, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, ckd, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, eskd, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, npdr, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pdr, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, me, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, vh, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, blindness, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, cataracts, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, glaucoma, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, death, by = "RELEASEID")
+
+# record NAs to 0
+ame_summary <- ame_summary %>% 
+    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "CKD", "ESKD", "DEATH"), ~replace_na(.,0))
+ame_summary <- ame_summary %>% 
+    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "CKD", "ESKD", "DEATH"), ~as.factor(.))
+
+dim(ame_summary)
+ame_summary[,25]
+ame_summary <- ame_summary[, -c(20, 25)]
+
+ame_summary$clin_cvd <- 
+
+# label AME types
+ame$AMENAME <- factor(ame$AMENAME, labels = c("Arrhythmia", "Coronary artery disease", "Coronary heart failure", "Left ventricular systolic dysfunction", "Myocardial infarction", "PAD/vascular insufficiency", "Deep vein thrombosis", "Stroke", "TIA", "Chronic kidney disease", "ESKD", "Death"))
+
+# categorising clinical CVD
+ame_summary$clin_cvd <- ifelse(
+  rowSums(ame_summary[, c("ARRHYTHMIA", "CAD", "CHF", "MI", "PAD", "DVT", "STROKE", "TIA", "DEATH")] == 1, na.rm = TRUE) > 0,
+  1,
+  0)
+
+#joined dataframes
+comorb_ckm <- merge(comorb, ame_summary, by = "RELEASEID", all.x = TRUE)
+
+hist(comorb_ckm$clin_cvd)
+
+# categorising subclinical cvd 
+## creating a new data frame extracting bnp, troponins and egfr, I decided to keep the baseline levels, the highest value and the last value on each to keep for our further analyses.
+
+# Define function to extract required rows per variable
+extract_biomarker_values <- function(df, var) {
+  df %>%
+    arrange(releaseid, days) %>%
+    group_by(releaseid) %>%
+    summarise(
+      baseline = first(.data[[var]]),
+      highest  = max(.data[[var]], na.rm = TRUE),
+      latest   = last(.data[[var]]),
+      .groups = "drop"
+    ) %>%
+    rename_with(~ paste0(var, "_", .), -releaseid)
+}
+
+# Apply to each biomarker
+bnp_vals      <- extract_biomarker_values(addcbl_1, "bnp")
+troponin_vals <- extract_biomarker_values(addcbl_1, "troponin")
+
+# I haven't done this part just yet but I want to explore eGFR as a continous var to keep more of its variance and see how it fluctuates in the different CKM stages.
+
+#for eGFR the extraction should be a little bit different, perhaps keeping the baseline, latest value, highest and lowest ever recoded ? 
+
+min(addcbl_1$eGFR_FAS, na.rm = TRUE)
+min(addcbl_1$ckd_gfr, na.rm = TRUE)
+
+gfr_vals      <- extract_biomarker_values(addcbl_1, "ckd_gfr")
+fas_vals      <- extract_biomarker_values(addcbl_1, "eGFR_FAS")
+
+## The other important thing is to keep the hyperfiltration variable per stage as categorical, creating a sum
+
+library(purrr)
+
+# Merge all together on releaseid
+biom_ckm <- list(bnp_vals, troponin_vals, gfr_vals, fas_vals) %>%
+  reduce(full_join, by = "releaseid")
+
+# After combining all summaries
+biom_ckm[biom_ckm == -Inf] <- NA
+
+# Identify columns to check (all except releaseid, mvist, days)
+cols_to_check <- setdiff(names(biom_ckm), c("releaseid"))
+
+# Filter out rows where all those columns are NA
+biom_ckm <- biom_ckm %>%
+  filter(!if_all(all_of(cols_to_check), is.na))
+
+biom_ckm <- biom_ckm %>%
+  left_join(baserisk %>% select(releaseid, sex, sex_char), by = "releaseid")
+
+range(biom_ckm$troponin_highest)
+
+# lowest value =/ 0
+min(biom_ckm$troponin_baseline[biom_ckm$troponin_baseline > 0], na.rm = TRUE)
+min(biom_ckm$troponin_highest[biom_ckm$troponin_highest > 0], na.rm = TRUE)
+min(biom_ckm$troponin_latest[biom_ckm$troponin_latest > 0], na.rm = TRUE)
+
+# for the threshold of subclinical CVD troponin
+biom_ckm <- biom_ckm %>%
+  mutate(
+    high_trop0 = ifelse(!is.na(troponin_baseline) & troponin_baseline > 0, 1, 0),
+    high_trop1 = ifelse(
+      (!is.na(troponin_highest) & troponin_highest > 0) |
+      (!is.na(troponin_latest) & troponin_latest > 0),
+      1, 0
+    )
+  )
+
+# for the threshold of subclinical CVD troponin
+
+names(comorb_ckm2)
+names(biom_ckm)
+
+biom_ckm <- biom_ckm %>%
+  rename(RELEASEID = releaseid)
+
+comorb_ckm2 <- comorb_ckm2 %>%
+  left_join(
+    biom_ckm %>%
+      select(RELEASEID, high_trop0, high_trop1, high_bnp0, high_bnp1),
+    by = "RELEASEID"
+  )
+
+names(biom_ckm)
+
+# create dfs with echoes, PWV, eGFR, BNP
+# UACR will come from adjudicated events
+
+# TODAY ECHO
+today_echo <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/echo.csv")
+today_echo$TIMEPOINT <- "1"
+# TODAY2 ECHO
+today2_echo <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/echo.csv")
+today2_echo$TIMEPOINT <- "2"
+drop_cols <- c("dopplerqc","mmodeqc","overallqc","plaxqc","saxqc","apicalqc","mmodeqc")
+today2_echo <- today2_echo %>% select(-one_of(drop_cols))
+# combine echo datasets 
+echo <- bind_rows(today2_echo, today_echo)
+echo$TIMEPOINT <- as.factor(echo$TIMEPOINT)
+echo$RELEASEID <- echo$releaseid
+echo$releaseid <- NULL
+# keep only needed vars, uppercase sensitive
+echo_keep <- echo %>% select(RELEASEID, TIMEPOINT, lvsepem, lvem, lvsepratio, lvratio, peakvelo, laarea2d, lvmass, walthick, ivsdias, ivssyst, walldias, wallsyst)
+echo_keep$average_E_Em <- (echo_keep$lvsepratio + echo_keep$lvratio) / 2
+
+# SPECKLE TRACKING
+# need to keep GLS_4CH
+# don't have GLS in TODAY, just TODAY2 - but there are two time points
+speckle <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/SPECKLE.csv')
+speckle_keep <- speckle %>% select(RELEASEID, TIMEPOINT, GLS_4CH)
+
+# Extract only the numeric part from "SPECKLE1" and "SPECKLE2"
+speckle_keep$TIMEPOINT <- gsub("SPECKLE", "", speckle_keep$TIMEPOINT)
+
+
+echo_keep <- merge(echo_keep, speckle_keep,
+                          by = c("RELEASEID", "TIMEPOINT"),
+                          all.x = TRUE)  # Keep all rows from echo_keep
+
+# TODAY2 PWV
+pwv <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward//Clinical data/TODAY2/pwv.csv")
+pwv_keep <- pwv %>% select(RELEASEID, TIMEPOINT, PWVF)
+pwv_keep$pwv_cf_gt10 <- ifelse(is.na(pwv_keep$PWVF), NA, 
+                               ifelse(pwv_keep$PWVF >10, 1, 0))
+pwv_keep <- pwv_keep %>% arrange(RELEASEID, desc(pwv_cf_gt10)) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+# Create high_pwv0 and high_pwv1 based on TIMEPOINT
+pwv_keep$high_pwv0 <- ifelse(pwv_keep$TIMEPOINT == 1, pwv_keep$pwv_cf_gt10, NA)
+pwv_keep$high_pwv1 <- ifelse(pwv_keep$TIMEPOINT == 2, pwv_keep$pwv_cf_gt10, NA)
+
+pwv_flags <- pwv_keep %>%
+  group_by(RELEASEID) %>%
+  summarise(
+    high_pwv0 = suppressWarnings(max(high_pwv0, na.rm = TRUE)),
+    high_pwv1 = suppressWarnings(max(high_pwv1, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    high_pwv0 = ifelse(is.infinite(high_pwv0), NA, high_pwv0),
+    high_pwv1 = ifelse(is.infinite(high_pwv1), NA, high_pwv1)
+  )
+
+comorb_ckm2 <- comorb_ckm2 %>%
+  left_join(pwv_flags, by = "RELEASEID")
+
+comorb_ckm2 <- comorb_ckm2 %>%
+  left_join(
+    pwv_keep %>%
+      select(RELEASEID, pwv_cf_gt10),
+    by = "RELEASEID"
+  )
+
+# Extract only the numeric part from "PWV1" and "PWV2"
+# to later subcategorise the subclinical CVD staging stage 3
+
+pwv_keep$TIMEPOINT <- gsub("PWV", "", pwv_keep$TIMEPOINT)
+
+pwv_keep$TIMEPOINT <- gsub("PWV", "", pwv_keep$TIMEPOINT)
+
+# Create HFpEF points scoring system
+# Initialize the new variable with zeros
+echo_keep$HFpEF_points <- 0
+
+# Loop through each row in the dataset
+# echo scoring for the functional parameters 
+for (i in 1:nrow(echo_keep)) {
+  # Score 2 points conditions (using OR logic)
+  if (!is.na(echo_keep$lvsepem[i]) && echo_keep$lvsepem[i] < 7) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+  } else if (!is.na(echo_keep$lvem[i]) && echo_keep$lvem[i] < 10) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+  } else if (!is.na(echo_keep$average_E_Em[i]) && echo_keep$average_E_Em[i] > 15) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+  } else if (!is.na(echo_keep$peakvelo[i]) && echo_keep$peakvelo[i] > 2.8) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+  }
+  
+  # Score 1 point conditions (using OR logic)
+  if (!is.na(echo_keep$average_E_Em[i]) && 
+      echo_keep$average_E_Em[i] >= 9 && echo_keep$average_E_Em[i] <= 14) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 1
+  } else if (!is.na(echo_keep$GLS_4CH[i]) && echo_keep$GLS_4CH[i] > -16) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 1
+  }
+}
+
+# Summarize the distribution of HFpEF_points
+table(echo_keep$HFpEF_points)
+summary(echo_keep$HFpEF_points)
+
+# Create a variable for hfpef diagnosis, >= 5 points from the algorithm 
+echo_keep$hfpef <- ifelse(echo_keep$HFpEF_points >= 5, 1, 0)
+sum(echo_keep$hfpef == 1, na.rm = TRUE)
+
+table(echo_keep$hfpef == 1, echo_keep$TIMEPOINT)
+
+# Create hfpef1 and hfpef2 based on TIMEPOINT
+echo_keep$hfpef1 <- ifelse(echo_keep$TIMEPOINT == 1, echo_keep$hfpef, NA)
+echo_keep$hfpef2 <- ifelse(echo_keep$TIMEPOINT == 2, echo_keep$hfpef, NA)
+
+length(unique(echo_keep$RELEASEID))
+
+echo_hfpef <- echo_keep %>%
+  filter(TIMEPOINT == 1) %>%                     # keep only timepoint 1 (for hfpef1)
+  select(RELEASEID, hfpef1) %>%                  # keep only relevant columns
+  filter(!is.na(hfpef1)) %>%                     # remove rows where hfpef1 is NA
+  distinct(RELEASEID, .keep_all = TRUE)          # keep only one row per RELEASEID
+
+echo_hfpef2 <- echo_keep %>%
+filter(TIMEPOINT == 2) %>%                     # keep only timepoint 2
+select(RELEASEID, hfpef2) %>%                  # keep only relevant columns
+filter(!is.na(hfpef2)) %>%                     # remove rows where hfpef2 is NA
+distinct(RELEASEID, .keep_all = TRUE)          # keep one row per RELEASEID
+
+comorb_ckm2 <- comorb_ckm2 %>%
+  left_join(echo_hfpef2, by = "RELEASEID")
+
+table(comorb_ckm2$hfpef1, useNA = "ifany")
+table(comorb_ckm2$hfpef2, useNA = "ifany")
+
+comorb_ckm2$hf
+
+comorb_ckm2[1,73]
+colnames(comorb_ckm2[,73])
+names(comorb_ckm2)
+
+comorb_ckm2 <- comorb_ckm2[, -c(72, 73)]
+
+# Function to get the maximum BNP value, ignoring NAs
+max_bnp <- function(x) {
+  if(all(is.na(x))) return(NA)
+  return(max(x, na.rm = TRUE))
+}
+
+# Get maximum BNP per RELEASEID
+max_bnp_by_id <- aggregate(addcbl_1$bnp ~ addcbl_1$releaseid, data = addcbl_1, FUN = max_bnp)
+
+# Explicitly set the column names to ensure they are correct
+colnames(max_bnp_by_id) <- c("RELEASEID", "bnp")
+
+# Step 2: Merge this information with echo_keep
+echo_keep <- merge(echo_keep, max_bnp_by_id, 
+                           by = "RELEASEID", 
+                           all.x = TRUE)  # Keep all echo_keep records
+
+# Apply BNP scoring rules directly to echo_keep
+for(i in 1:nrow(echo_keep)) {
+  # Skip if BNP is NA
+  if(!is.na(echo_keep$bnp[i])) {
+    if(echo_keep$bnp[i] > 80) {
+      # Add 2 points if BNP > 80
+      echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+    } else if(echo_keep$bnp[i] >= 35 && echo_keep$bnp[i] <= 80) {
+      # Add 1 point if BNP between 35-80
+      echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 1
+    }
+    # No points added if BNP < 35
+  }
+}
+
+hist(echo_keep$HFpEF_points)
+
+# Apply scoring: 1 point if walthick > 0.42
+for(i in 1:nrow(echo_keep)) {
+  if(!is.na(echo_keep$walthick[i]) && echo_keep$walthick[i] > 0.42) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 1
+  }
+}
+
+# Apply scoring: 1 point if ANY of ivsdias, ivssyst, walldiast, or wallsyst > 1.2
+for(i in 1:nrow(echo_keep)) {
+  # Check if ANY of the four variables exceed 1.2
+  any_exceed_threshold <- FALSE
+  
+  if(!is.na(echo_keep$ivsdias[i]) && echo_keep$ivsdias[i] > 1.2) {
+    any_exceed_threshold <- TRUE
+  } else if(!is.na(echo_keep$ivssyst[i]) && echo_keep$ivssyst[i] > 1.2) {
+    any_exceed_threshold <- TRUE
+  } else if(!is.na(echo_keep$walldias[i]) && echo_keep$walldias[i] > 1.2) {
+    any_exceed_threshold <- TRUE
+  } else if(!is.na(echo_keep$wallsyst[i]) && echo_keep$wallsyst[i] > 1.2) {
+    any_exceed_threshold <- TRUE
+  }
+  
+  # Add 1 point if any variable exceeds threshold
+  if(any_exceed_threshold) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 1
+  }
+}
+
+#CKM Staging:
+# the stages include either baseline or outcome measurements and either HFpEF 1 or 2 
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    CKM_syn = case_when(
+      # Stage 4: most severe
+      clin_cvd == 1 |
+      CKD == 1 |
+      hfpef1 == 1 | hfpef2 == 1 |
+      MAC0 == 1 | MAC == 1 ~ "Stage4",
+
+      # Stage 3: not Stage 4, but elevated biomarkers or moderate risk
+      (high_bnp0 == 1 | high_bnp1 == 1 |
+       high_trop0 == 1 | high_trop1 == 1 |
+       high_pwv0 == 1 | high_pwv1 == 1 |
+       CKD == 1 |
+       MAC0 == 1 | MAC == 1) ~ "Stage3",
+
+      # Stage 2 plus: not Stage 3 or 4, but classic risk factors
+      (HTN0 == 1 | HTN == 1 |
+       ANYDLP0 == 1 | ANYDLP == 1 |
+       MAC0 == 1 | MAC == 1) ~ "Stage2_plus",
+
+      # All else falls into Stage 2
+      TRUE ~ "Stage2"
+    )
+  )
+
+table(comorb_ckm2$CKM_syn, useNA = "ifany")
+
+library(ggplot2)
+
+ggplot(comorb_ckm2, aes(x = CKM_syn)) +
+  geom_bar(fill = "steelblue") +
+  labs(
+    title = "Distribution of CKM Stages",
+    x = "CKM Stage",
+    y = "Number of Patients"
+  ) +
+  theme_minimal(base_size = 14)
+
+kruskal.test(HYP0 ~ CKM_syn, data = comorb_ckm2)
+kruskal.test(HYP ~ CKM_syn, data = comorb_ckm2)
+
+install.packages("FSA")
+library(FSA)
+
+dunn.test(HYP0 ~ CKM_syn, data = comorb_ckm2, method = "holm")
+dunn.test(HYP ~ CKM_syn, data = comorb_ckm2, method = "holm")
+
+ggplot(comorb_ckm2, aes(x = CKM_syn, y = HYP0)) +
+  geom_boxplot(fill = "lightgray") +
+  labs(title = "Distribution of HYP0 across CKM Stages", x = "CKM Stage", y = "HYP0") +
+  theme_minimal()
+
+comorb_ckm2$CKM_syn <- factor(comorb_ckm2$CKM_syn, levels = c("Stage2", "Stage2_plus", "Stage3", "Stage4"))
+
+# Logistic regression for HYP0
+model_hyp0 <- glm(HYP0 ~ CKM_syn, data = comorb_ckm2, family = binomial)
+
+# Logistic regression for HYP
+model_hyp <- glm(HYP ~ CKM_syn, data = comorb_ckm2, family = binomial)
+
+summary(model_hyp0)
+summary(model_hyp)
+
+# How many participants presented HYP by each of the stages ?
+# Count of HYP0 == 1 by CKM stage
+comorb_ckm2 %>%
+  group_by(CKM_syn) %>%
+  summarise(
+    count_HYP0_1 = sum(HYP0 == 1, na.rm = TRUE),
+    total = n(),
+    percent_HYP0_1 = round(100 * count_HYP0_1 / total, 1)
+  )
+
+# Count of HYP == 1 by CKM stage
+comorb_ckm2 %>%
+  group_by(CKM_syn) %>%
+  summarise(
+    count_HYP_1 = sum(HYP == 1, na.rm = TRUE),
+    total = n(),
+    percent_HYP_1 = round(100 * count_HYP_1 / total, 1)
+  )
+
+# Create contingency table
+table_hyp <- table(comorb_ckm2$CKM_syn, comorb_ckm2$HYP)
+
+# Run chi-squared test
+chisq.test(table_hyp)
+
+fisher.test(table_hyp)
+
+pairwise.prop.test(
+  x = table_hyp[, 2],  # counts of HYP == 1
+  n = rowSums(table_hyp),  # total per group
+  p.adjust.method = "holm"
+)
+
+##joining stage3 and stage4, since both are CVD
+library(dplyr)
+
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    CKM_syn_collapsed = case_when(
+      CKM_syn %in% c("Stage3", "Stage4") ~ "Adv_CVDCKM",
+      CKM_syn == "Stage2_plus" ~ "Stage2_plus",
+      CKM_syn == "Stage2" ~ "Stage2"
+    )
+  )
+
+# Contingency tables
+table_hyp0 <- table(comorb_ckm2$CKM_syn_collapsed, comorb_ckm2$HYP0)
+table_hyp  <- table(comorb_ckm2$CKM_syn_collapsed, comorb_ckm2$HYP)
+
+# For HYP0
+chisq.test(table_hyp0)
+
+# For HYP
+chisq.test(table_hyp)
+
+fisher.test(table_hyp0)
+fisher.test(table_hyp)
+
+
+# Function to run McNemar's test by CKM stage
+run_mcnemar <- function(stage) {
+  tab <- comorb_ckm2 %>%
+    filter(CKM_syn_collapsed == stage) %>%
+    select(HYP0, HYP) %>%
+    table(useNA = "no")
+  
+  cat("\nMcNemar's test for", stage, "\n")
+  print(mcnemar.test(tab))
+}
+
+# Run for each stage
+unique(comorb_ckm2$CKM_syn_collapsed) %>% lapply(run_mcnemar)
+
+comorb_ckm2 %>%
+  group_by(CKM_syn_collapsed) %>%
+  summarise(
+    prop_HYP0 = mean(HYP0 == 1, na.rm = TRUE),
+    prop_HYP  = mean(HYP == 1, na.rm = TRUE),
+    n = n()
+  )
+
+# Loop through each stage and print the 2x2 table
+unique(comorb_ckm2$CKM_syn_collapsed) %>%
+  lapply(function(stage) {
+    cat("\n===== CKM Stage:", stage, "=====\n")
+    
+    # Filter for the current stage
+    tab <- comorb_ckm2 %>%
+      filter(CKM_syn_collapsed == stage) %>%
+      select(HYP0, HYP) %>%
+      table(useNA = "no")
+    
+    print(tab)
+    
+    # Optionally run McNemar's test
+    if (all(dim(tab) == c(2, 2))) {
+      cat("\nMcNemar's test p-value:\n")
+      print(mcnemar.test(tab)$p.value)
+    } else {
+      cat("\n⚠️ Not a 2x2 table (may contain missing or invalid values)\n")
+    }
+  })
+
+#CKM Staging: creating 2 stagings for the baseline point and for the prospective collection of endpoints
+
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+
+    # Baseline CKM staging (no clin_cvd or CKD, only baseline variables)
+    CKM_syn_base = case_when(
+      # Stage 4: severe features (baseline only)
+      hfpef1 == 1 |
+      MAC0 == 1 ~ "Stage4",
+
+      # Stage 3: elevated biomarkers (baseline only)
+      high_bnp0 == 1 |
+      high_trop0 == 1 |
+      high_pwv0 == 1 |
+      MAC0 == 1 ~ "Stage3",
+
+      # Stage 2_plus: risk factors only
+      HTN0 == 1 |
+      ANYDLP0 == 1 |
+      MAC0 == 1 ~ "Stage2_plus",
+
+      # If none of the above, it's Stage 2
+      TRUE ~ "Stage2"
+    )
+)
+table(comorb_ckm2$CKM_syn_base, useNA = "ifany")
+
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    CKM_syn_fu = case_when(
+      # Stage 4: includes clinical disease and follow-up HFpEF or complications
+      clin_cvd == 1 |
+      CKD == 1 |
+      hfpef2 == 1 |
+      MAC == 1 ~ "Stage4",
+
+      # Stage 3: elevated follow-up biomarkers or MAC
+      high_bnp1 == 1 |
+      high_trop1 == 1 |
+      high_pwv1 == 1 |
+      MAC == 1 ~ "Stage3",
+
+      # Stage 2_plus: classic follow-up risk factors
+      HTN == 1 |
+      ANYDLP == 1 |
+      MAC == 1 ~ "Stage2_plus",
+
+      # Default: Stage 2
+      TRUE ~ "Stage2"
+    )
+  )
+
+table(comorb_ckm2$CKM_syn_fu, useNA = "ifany")
+
+library(dplyr)
+
+# Baseline: % by stage
+baseline_pct <- comorb_ckm2 %>%
+  group_by(CKM_syn_base) %>%
+  summarise(
+    count = n()
+  ) %>%
+  mutate(
+    total = sum(count),
+    percent = round(100 * count / total, 1),
+    timepoint = "Baseline"
+  )
+
+# Follow-up: % by stage
+followup_pct <- comorb_ckm2 %>%
+  group_by(CKM_syn_fu) %>%
+  summarise(
+    count = n()
+  ) %>%
+  mutate(
+    total = sum(count),
+    percent = round(100 * count / total, 1),
+    timepoint = "Follow-up"
+  )
+
+# Combine baseline and follow-up results
+ckm_stage_pct <- bind_rows(
+  baseline_pct %>% rename(stage = CKM_syn_base),
+  followup_pct %>% rename(stage = CKM_syn_fu)
+)
+
+# View summary
+ckm_stage_pct
+
+# Combined percentage at baseline
+combined_baseline <- comorb_ckm2 %>%
+  filter(CKM_syn_base %in% c("Stage3", "Stage4")) %>%
+  summarise(
+    count = n(),
+    total = nrow(comorb_ckm2),
+    percent = round(100 * count / total, 1)
+  ) %>%
+  mutate(timepoint = "Baseline")
+
+# Combined percentage at follow-up
+combined_followup <- comorb_ckm2 %>%
+  filter(CKM_syn_fu %in% c("Stage3", "Stage4")) %>%
+  summarise(
+    count = n(),
+    total = nrow(comorb_ckm2),
+    percent = round(100 * count / total, 1)
+  ) %>%
+  mutate(timepoint = "Follow-up")
+
+# Combine both
+combined_stages <- bind_rows(combined_baseline, combined_followup)
+
+# View
+combined_stages
+
+```
+
+```         
+```
+
+## Results
+
+### Count of events (can be multiple events per person)
+
+```{r results="asis"}
+event_table <-tableby(data = ame, ~ as.factor(AMENAME))
+print(summary(event_table))
+```
+
+### Count of people with each type of event
+
+```{r results="asis"}
+person_table <- tableby(data = ame_summary, ~ ARRHYTHMIA + CAD + CHF + LVSD + MI + PAD + DVT + STROKE + TIA + PANCREATITIS + GALLBLADDER + PNEURO + ANEURO + MONONEURO + CKD + ESKD + NPDR + PDR + ME + VH + BLINDNESS + CATARACTS + GLAUCOMA + DEATH)
+print(summary(person_table))
+```
