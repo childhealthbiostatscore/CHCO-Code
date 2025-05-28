@@ -16,14 +16,17 @@ source("Libraries.R")
 #Directories
 #dir.dat <- c("/Volumes/Peds Endo/Petter Bjornstad")
 #Mac Studio 
-# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Petter Bjornstad")
-#Macbook
-dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
-dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Brain Biomarkers and Proteomics/Results")
+dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Petter Bjornstad")
+dir.results <- c(fs::path(dir.dat,"Brain Biomarkers and Proteomics","Results"))
+
+# #Macbook
+# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
+# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Brain Biomarkers and Proteomics/Results")
 ```
 
 #2. Load & Clean Data
 ```{r load clean data, include=FALSE, echo=FALSE}
+#PKD & LC (PENGUIN & CROCODILE)
 data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
 data <- data %>% 
   arrange(screen_date) %>%
@@ -41,15 +44,18 @@ data <- data %>%
 data  <- data %>% 
   filter(visit=="baseline") %>%
   filter(study=="PENGUIN" | study=="CROCODILE") %>% 
-  dplyr::select(record_id,group,age,sex,race,bmi,triglycerides,hba1c,eGFR_CKD_epi,gfr_bsa_plasma,ab40_avg_conc,ab42_avg_conc,
-                tau_avg_conc,nfl_avg_conc,gfap_avg_conc,
-                ptau_181_avg_conc,ptau_217_avg_conc) %>% 
+  dplyr::select(record_id,group,age,sex,race,bmi,triglycerides,hba1c,eGFR_CKD_epi,gfr_bsa_plasma,ab40_avg_conc,ab42_avg_conc,tau_avg_conc,nfl_avg_conc,gfap_avg_conc,ptau_181_avg_conc,ptau_217_avg_conc,total_kidney_volume_ml,ht_adj_tkv) %>% 
   filter(group=="Lean Control" | group=="PKD")
+
+data2 <- data %>% 
+  filter(group=="PKD")
+
 
 ```
 
 
 #3. Analysis
+#PKD vs LC 
 ```{r}
 #Analyze difference in quanterix variables (y) by group (LC vs. PKD) (x)
 qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
@@ -218,8 +224,318 @@ for (y in qx_var) {
   results <- data.frame(Variable=y,Group=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
   total_results <- rbind(total_results,results)
 }
+
 ```
 
+#TKV
+```{r}
+#Analyze difference in quanterix variables (y) by group (LC vs. PKD) (x)
+qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
+            "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
+# total_kidney_volume_ml,ht_adj_tkv
+
+hist(data2$ab40_avg_conc)
+hist(data2$ab42_avg_conc)
+hist(data2$tau_avg_conc)
+hist(data2$nfl_avg_conc)
+hist(data2$gfap_avg_conc)
+hist(data2$ptau_181_avg_conc)
+hist(data2$ptau_217_avg_conc)
+# 
+# data <- data %>% 
+#   mutate(across(all_of(qx_var),~log(.),.names = "{.col}_log"))
+
+# data$group <- factor(data$group)
+# data$group <- relevel(data$group,"Lean Control")
+
+#Linear regression
+total_results <- data.frame()
+for (y in qx_var) {
+  m0 <- as.formula(paste0(y,"~ total_kidney_volume_ml"))
+  model0 <- lm(m0,data=data2)
+  beta <- summary(model0)$coef[2,1]
+  pval <- summary(model0)$coef[2,4]
+  sig <- ifelse(pval<0.05,"*","")
+  results <- data.frame(Variable=y,Group=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+  total_results <- rbind(total_results,results)
+}
+
+total_results <- data.frame()
+for (y in qx_var) {
+# Pearson correlation instead of linear regression
+cor_result <- cor.test(data2[[y]], data2$total_kidney_volume_ml)
+
+# Extract correlation coefficient and p-value
+beta <- cor_result$estimate  # Pearson correlation coefficient
+pval <- cor_result$p.value
+sig <- ifelse(pval < 0.05, "*", "")
+  results <- data.frame(Variable=y,TKV="Total Kidney Volume",Corr=beta,PValue=pval,Significant=sig)
+  total_results <- rbind(total_results,results)
+}
+
+total_results2 <- data.frame()
+for (y in qx_var) {
+  m0 <- as.formula(paste0(y,"~ ht_adj_tkv"))
+  model0 <- lm(m0,data=data2)
+  beta <- summary(model0)$coef[2,1]
+  pval <- summary(model0)$coef[2,4]
+  sig <- ifelse(pval<0.05,"*","")
+  results2 <- data.frame(Variable=y,Group=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+  total_results2 <- rbind(total_results2,results2)
+}
+
+total_results2 <- data.frame()
+for (y in qx_var) {
+# Pearson correlation instead of linear regression
+cor_result <- cor.test(data2[[y]], data2$ht_adj_tkv)
+
+# Extract correlation coefficient and p-value
+beta <- cor_result$estimate  # Pearson correlation coefficient
+pval <- cor_result$p.value
+sig <- ifelse(pval < 0.05, "*", "")
+  results2 <- data.frame(Variable=y,TKV="Height-Adjusted Total Kidney Volume",Corr=beta,PValue=pval,Significant=sig)
+  total_results2 <- rbind(total_results2,results2)
+}
+
+total_results3 <- data.frame()
+for (y in qx_var) {
+# Pearson correlation instead of linear regression
+cor_result <- cor.test(data2[[y]], data2$bmi)
+
+# Extract correlation coefficient and p-value
+beta <- cor_result$estimate  # Pearson correlation coefficient
+pval <- cor_result$p.value
+sig <- ifelse(pval < 0.05, "*", "")
+  results3 <- data.frame(Variable=y,TKV="BMI",Corr=beta,PValue=pval,Significant=sig)
+  total_results3 <- rbind(total_results3,results3)
+}
+
+total_results4 <- data.frame()
+for (y in qx_var) {
+# Pearson correlation instead of linear regression
+cor_result <- cor.test(data2[[y]], data2$eGFR_CKD_epi)
+
+# Extract correlation coefficient and p-value
+beta <- cor_result$estimate  # Pearson correlation coefficient
+pval <- cor_result$p.value
+sig <- ifelse(pval < 0.05, "*", "")
+  results4 <- data.frame(Variable=y,TKV="eGFR",Corr=beta,PValue=pval,Significant=sig)
+  total_results4 <- rbind(total_results4,results4)
+}
+
+total_results5 <- data.frame()
+for (y in qx_var) {
+# Pearson correlation instead of linear regression
+cor_result <- cor.test(data2[[y]], data2$gfr_bsa_plasma)
+
+# Extract correlation coefficient and p-value
+beta <- cor_result$estimate  # Pearson correlation coefficient
+pval <- cor_result$p.value
+sig <- ifelse(pval < 0.05, "*", "")
+  results5 <- data.frame(Variable=y,TKV="mGFR",Corr=beta,PValue=pval,Significant=sig)
+  total_results5 <- rbind(total_results5,results5)
+}
+
+write.csv(total_results,"Total_Kidney_Volume_Brain_Biomarkers.csv")
+write.csv(total_results2,"Ht_adj_Total_Kidney_Volume_Brain_Biomarkers.csv")
+write.csv(total_results3,"BMI_Brain_Biomarkers.csv")
+write.csv(total_results4,"eGFR.csv")
+write.csv(total_results5,"mGFR.csv")
+
+#Check assumptions
+for (y in qx_var) {
+  m0 <- as.formula(paste0(y,"~ total_kidney_volume_ml"))
+  model0 <- lm(m0,data=data)
+  residuals <- resid(model0)
+# 2. QQ plot to check normality of residuals
+print(qqnorm(residuals))
+qqline(residuals, col = "red")
+
+}
+
+#Check assumptions
+for (y in qx_var) {
+  m0 <- as.formula(paste0(y,"~ ht_adj_tkv"))
+  model0 <- lm(m0,data=data)
+  residuals <- resid(model0)
+# 2. QQ plot to check normality of residuals
+print(qqnorm(residuals))
+qqline(residuals, col = "red")
+
+}
+
+#Scatterplots
+ggplot(data = data, aes(x = total_kidney_volume_ml, y = ab40_avg_conc)) +
+  geom_point()+
+  geom_smooth(method="lm",color="#2a9d8f",se=F) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")) +
+  labs(
+    title = "AB40 Concentration vs. Total Kidney Volume (mL)",
+    subtitle=paste0("Beta = ",round(total_results$Beta[1],3),", P = ",round(total_results$PValue[1],3),total_results$Significant[1]),
+    x = "Total Kidney Volume (mL)",
+    y = "Average AB40 Concentration"
+  ) +
+  theme_minimal()
+
+ggplot(data = data, aes(x = ht_adj_tkv, y = ab40_avg_conc)) +
+  geom_point()+
+  geom_smooth(method="lm",color="#2a9d8f",se=F) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")) +
+  labs(
+    title = "AB40 Concentration vs. Height-Adjusted Total Kidney Volume",
+    subtitle=paste0("Beta = ",round(total_results2$Beta[1],3),", P = ",round(total_results2$PValue[1],3),total_results2$Significant[1]),
+    x = "Height-Adjusted Total Kidney Volume",
+    y = "Average AB40 Concentration"
+  ) +
+  theme_minimal()
+
+
+ggplot(data = data, aes(x = total_kidney_volume_ml, y = ab42_avg_conc)) +
+  geom_point()+
+  geom_smooth(method="lm",color="#f4a261",se=F) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")) +
+  labs(
+    title = "AB42 Concentration vs. Total Kidney Volume (mL)",
+    subtitle=paste0("Beta = ",round(total_results$Beta[2],3),", P = ",round(total_results$PValue[2],3),total_results$Significant[2]),
+    x = "Total Kidney Volume (mL)",
+    y = "Average AB42 Concentration"
+  ) +
+  theme_minimal()
+
+ggplot(data = data, aes(x = ht_adj_tkv, y = ab42_avg_conc)) +
+  geom_point()+
+  geom_smooth(method="lm",color="#f4a261",se=F) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")) +
+  labs(
+    title = "AB42 Concentration vs. Height-Adjusted Total Kidney Volume",
+    subtitle=paste0("Beta = ",round(total_results2$Beta[2],3),", P = ",round(total_results2$PValue[2],3),total_results2$Significant[2]),
+    x = "Height-Adjusted Total Kidney Volume",
+    y = "Average AB42 Concentration"
+  ) +
+  theme_minimal()
+
+ggplot(data = data, aes(x = total_kidney_volume_ml, y = ab42_avg_conc)) +
+  geom_point()+
+  geom_smooth(method="lm",color="#e9c46a",se=F) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")) +
+  labs(
+    title = "Tau Concentration vs. Total Kidney Volume (mL)",
+    subtitle=paste0("Beta = ",round(total_results$Beta[3],3),", P = ",round(total_results$PValue[3],3),total_results$Significant[3]),
+    x = "Total Kidney Volume (mL)",
+    y = "Average Tau Concentration"
+  ) +
+  theme_minimal()
+
+ggplot(data = data, aes(x = ht_adj_tkv, y = tau_avg_conc)) +
+  geom_point()+
+  geom_smooth(method="lm",color="#e9c46a",se=F) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")) +
+  labs(
+    title = "Tau Concentration vs. Height-Adjusted Total Kidney Volume",
+    subtitle=paste0("Beta = ",round(total_results2$Beta[3],3),", P = ",round(total_results2$PValue[3],3),total_results2$Significant[3]),
+    x = "Height-Adjusted Total Kidney Volume",
+    y = "Average Tau Concentration"
+  ) +
+  theme_minimal()
+
+
+ggplot(data = data, aes(x = group, y = nfl_avg_conc, fill = group)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("#f4a261", "#e76f51", "darkred")) +
+  labs(
+    title = "Nfl Concentration by PKD Status",
+    x = "",
+    y = "Average Nfl Concentration"
+  ) +
+  theme_minimal()
+
+ggplot(data = data, aes(x = group, y = gfap_avg_conc, fill = group)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("#e76f51", "darkred")) +
+  labs(
+    title = "GFAP Concentration by PKD Status",
+    x = "",
+    y = "Average GFAP Concentration"
+  ) +
+  theme_minimal()
+
+ggplot(data = data, aes(x = group, y = ptau_181_avg_conc, fill = group)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("darkred", "#264653")) +
+  labs(
+    title = "PTAU 181 Concentration by PKD Status",
+    x = "",
+    y = "Average PTAU 181 Concentration"
+  ) +
+  theme_minimal()
+
+ggplot(data = data, aes(x = group, y = ptau_217_avg_conc, fill = group)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("#2a9d8f", "#264653")) +
+  labs(
+    title = "PTAU 217 Concentration by PKD Status",
+    x = "",
+    y = "Average PTAU 217 Concentration"
+  ) +
+  theme_minimal()
+
+total_results <- data.frame()
+for (y in qx_var) {
+  m0 <- as.formula(paste0(y,"~ group + age"))
+  model0 <- lm(m0,data=data)
+  beta <- summary(model0)$coef[2,1]
+  pval <- summary(model0)$coef[2,4]
+  sig <- ifelse(pval<0.05,"*","")
+  results <- data.frame(Variable=y,Group=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+  total_results <- rbind(total_results,results)
+}
+
+total_results <- data.frame()
+for (y in qx_var) {
+  m0 <- as.formula(paste0(y,"~ group + sex"))
+  model0 <- lm(m0,data=data)
+  beta <- summary(model0)$coef[2,1]
+  pval <- summary(model0)$coef[2,4]
+  sig <- ifelse(pval<0.05,"*","")
+  results <- data.frame(Variable=y,Group=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+  total_results <- rbind(total_results,results)
+}
+
+total_results <- data.frame()
+for (y in qx_var) {
+  m0 <- as.formula(paste0(y,"~ group + age + sex"))
+  model0 <- lm(m0,data=data)
+  beta <- summary(model0)$coef[2,1]
+  pval <- summary(model0)$coef[2,4]
+  sig <- ifelse(pval<0.05,"*","")
+  results <- data.frame(Variable=y,Group=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+  total_results <- rbind(total_results,results)
+}
+
+
+total_results <- data.frame()
+for (y in qx_var) {
+  m0 <- as.formula(paste0(y,"~ group + eGFR_CKD_epi"))
+  model0 <- lm(m0,data=data)
+  beta <- summary(model0)$coef[2,1]
+  pval <- summary(model0)$coef[2,4]
+  sig <- ifelse(pval<0.05,"*","")
+  results <- data.frame(Variable=y,Group=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+  total_results <- rbind(total_results,results)
+}
+
+total_results <- data.frame()
+for (y in qx_var) {
+  m0 <- as.formula(paste0(y,"~ group + gfr_bsa_plasma"))
+  model0 <- lm(m0,data=data)
+  beta <- summary(model0)$coef[2,1]
+  pval <- summary(model0)$coef[2,4]
+  sig <- ifelse(pval<0.05,"*","")
+  results <- data.frame(Variable=y,Group=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+  total_results <- rbind(total_results,results)
+}
+
+```
 
 ###i. All points
 ```{r}
@@ -3037,8 +3353,6 @@ chisq.test(stu_data3) #No difference in parental education by missing groups
 t.test(meta_filt$ma_creatinine_scaled~meta_filt$mis.group) #No difference in creatinine by group
 t.test(meta_filt$m_total_dietary_fiber_g~meta_filt$mis.group) #No difference in dietary fiber/energy by group
 t.test(meta_filt$ma_bmi~meta_filt$mis.group) #No differences in bmi by group
-
-
 
 
 ```

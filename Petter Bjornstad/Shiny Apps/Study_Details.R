@@ -6,8 +6,7 @@ library(bslib)
 library(ggplot2)
 library(plotly)
 library(tidyr)
-
-
+library(purrr)
 
 setwd('C:/Users/netio/Documents/Harmonized_data/')
 
@@ -22,6 +21,7 @@ determine_any_meds <- function(x){
 }
 
 
+#dir.dat <- "C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
 
 harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
 dat <- harmonized_data %>%
@@ -95,8 +95,8 @@ ui <- fluidPage(
   mainPanel(tabsetPanel(header = 'Study Demographics',
                         tabPanel('Sex', plotly::plotlyOutput('Sex_Med_Plot')),
                         tabPanel('Age', plotOutput('Age_Med_Plot')), 
-                        tabPanel("Height", plotOutput('Height_Med_Plot')),
-                        tabPanel("Weight", plotOutput('Weight_Med_Plot')),
+                        tabPanel("Height", plotly::plotlyOutput('Height_Med_Plot')),
+                        tabPanel("Weight", plotly::plotlyOutput('Weight_Med_Plot')),
                         tabPanel('BMI', plotOutput('BMI_Med_Plot')),
                         tabPanel('Diabetes Duration', plotOutput('Diabetes_Med_Plot')), 
                         tabPanel('Race and Ethnicity', plotly::plotlyOutput('RaceEthnicity_Plot'))
@@ -104,15 +104,15 @@ ui <- fluidPage(
   tabsetPanel(header = 'Research Data',
               tabPanel('Procedures', plotly::plotlyOutput("Procedure_Plot")),
               tabPanel('Participant Groups', plotly::plotlyOutput('Study_Groups')),
-              tabPanel('albumin_creatinine ratio', plotOutput('Acr_u_Plot')),
-              tabPanel('creatine', plotOutput('Crea_Plot')),
-              tabPanel('cystatin', plotOutput('Cys_Plot')),
-              tabPanel('HBA1C', plotOutput('HPA1C')),
-              tabPanel('GFR', plotOutput('Gfr_Plot')),
-              tabPanel('ERPF', plotOutput('Erpf_Plot')),
-              tabPanel("Trigylcerides", plotOutput('Trigly_Plot')),
-              tabPanel('HDL', plotOutput('HDL_Plot')),
-              tabPanel('LDL', plotOutput('LDL_Plot'))
+              tabPanel('albumin_creatinine ratio', plotly::plotlyOutput('Acr_u_Plot')),
+              tabPanel('creatine', plotly::plotlyOutput('Crea_Plot')),
+              tabPanel('cystatin', plotly::plotlyOutput('Cys_Plot')),
+              tabPanel('HBA1C', plotly::plotlyOutput('HPA1C')),
+              tabPanel('GFR', plotly::plotlyOutput('Gfr_Plot')),
+              tabPanel('ERPF', plotly::plotlyOutput('Erpf_Plot')),
+              tabPanel("Trigylcerides", plotly::plotlyOutput('Trigly_Plot')),
+              tabPanel('HDL', plotly::plotlyOutput('HDL_Plot')),
+              tabPanel('LDL', plotly::plotlyOutput('LDL_Plot'))
               
   )
   )
@@ -579,12 +579,10 @@ server <- function(input, output){
         ggplot(tmp_data, aes(x=Variable))+geom_density(alpha=0.2)+
           theme_classic()+labs(title =  paste0(variable, ' Distribution in ', 
                                                paste(input$x, collapse= ', ')),
-                               x = variable)
+                               x = variable) %>%
+          ggplotly()
       }
     } else if(input$medication != 'Ignore' & 'All' %in% input$x){
-      
-      ####NEED TO FIX 
-      
       
       index <- which(names(harmonized_data) == variable)
       tmp_data <- harmonized_data %>% select(record_id, mrn, index)
@@ -602,11 +600,18 @@ server <- function(input, output){
       tmp_data <- tmp_data %>% left_join(meds_df, by='mrn')
       
       
-      ggplot(tmp_data, aes(x=medication, y=Variable))+geom_violin(aes(fill=medication))+
-        geom_boxplot(width=0.2, color='grey', alpha=0.2)+
-        theme_classic()+
-        labs(title =  paste0(variable, ' Distribution in ', paste(input$x, collapse= ', ')),
-             x=paste('Use of ', input$medication), y=variable)
+      plot_ly(tmp_data, x = ~medication, y = ~Variable, split = ~medication, 
+              type = 'violin', box = list(visible = TRUE),
+              meanline = list(visible = TRUE)) %>% 
+        layout(xaxis = list(title = paste('Use of ', input$medication)), 
+               yaxis = list(title = variable),
+               title =  paste0(variable, ' Distribution in ', paste(input$x, collapse= ', '))) %>%
+        add_trace(x = ~medication, y=~Variable, 
+                  text = ~paste0('MRN: ', mrn, '<br>Number: ', Variable),
+                  points = 'all',
+                  marker = list(size = 4, opacity = 0.5), 
+                  hoverinfo = 'text', jitter = 0.2)
+      
       
     }else if(input$medication != 'Ignore'){
       
@@ -629,11 +634,17 @@ server <- function(input, output){
       tmp_data <- tmp_data %>% left_join(meds_df, by='mrn')
       
       
-      ggplot(tmp_data, aes(x=medication, y=Variable))+geom_violin(aes(fill=medication))+
-        geom_boxplot(width=0.2, color='grey', alpha=0.2)+
-        theme_classic()+
-        labs(title =  paste0(variable, ' Distribution in ', paste(input$x, collapse= ', ')),
-             x=paste('Use of ', input$medication), y=variable)
+      plot_ly(tmp_data, x = ~medication, y = ~Variable, split = ~medication, 
+              type = 'violin', box = list(visible = TRUE),
+              meanline = list(visible = TRUE)) %>% 
+        layout(xaxis = list(title = paste('Use of ', input$medication)), 
+               yaxis = list(title = variable),
+               title =  paste0(variable, ' Distribution in ', paste(input$x, collapse= ', '))) %>%
+        add_trace(x = ~medication, y=~Variable, 
+                  text = ~paste0('MRN: ', mrn, '<br>Number: ', Variable),
+                  points = 'all',
+                  marker = list(size = 4, opacity = 0.5), 
+                  hoverinfo = 'text', jitter = 0.2)
       
       
       
@@ -649,39 +660,42 @@ server <- function(input, output){
   }
   
   
-  output$Height_Med_Plot <- renderPlot({
+  
+  output$Height_Med_Plot <- renderPlotly({
     generalized_test_plot('height')
   })
-  output$Weight_Med_Plot <- renderPlot({
+  output$Weight_Med_Plot <- renderPlotly({
     generalized_test_plot('weight')
   })
-  output$Acr_u_Plot <- renderPlot({
+  output$Acr_u_Plot <- renderPlotly({
     generalized_test_plot('acr_u')
   })
-  output$Crea_Plot <- renderPlot({
+  output$Crea_Plot <- renderPlotly({
     generalized_test_plot('creatinine_s')
   })
-  output$Cys_Plot <- renderPlot({
+  output$Cys_Plot <- renderPlotly({
     generalized_test_plot('cystatin_c_s')
   })
-  output$HPA1C <- renderPlot({
+  output$HPA1C <- renderPlotly({
     generalized_test_plot('hba1c')
   })
-  output$Gfr_Plot <- renderPlot({
+  output$Gfr_Plot <- renderPlotly({
     generalized_test_plot('gfr_raw_plasma')
   })
-  output$Erpf_Plot <- renderPlot({
+  output$Erpf_Plot <- renderPlotly({
     generalized_test_plot('erpf_raw_plasma')
   })
-  output$Trigly_Plot <- renderPlot({
+  output$Trigly_Plot <- renderPlotly({
     generalized_test_plot('triglycerides')
   })
-  output$HDL_Plot <-renderPlot({
+  output$HDL_Plot <-renderPlotly({
     generalized_test_plot('hdl')
   })
-  output$LDL_Plot <-renderPlot({
+  output$LDL_Plot <-renderPlotly({
     generalized_test_plot('ldl')
   })
+  
+  
   
   
   
