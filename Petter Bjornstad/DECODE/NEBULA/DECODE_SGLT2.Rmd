@@ -1,15 +1,19 @@
 ---
-title: "ROCKIES_RH_RH2_Project"
+title: "DECODE_SGLT2"
 author: "Hailey Hampson"
-date: "2025-04-15"
+date: "2025-05-26"
 output: html_document
 ---
 
 #Analysis Plan & Research Questions
 ```{r}
-# Within T2D and T2D/OB: TCA and oxphos transcripts SGLT2i y/n
-# Ye Ji and Hailey you have done most of this, we just need to run the new mixed models and also determine if we should adjust for any covariates
-# Evaluate associations between TCA and oxphos transcripts and K2 and K2/F in a mixed models. We will likely have better power looking at this in a linear model with continuous K2 and K2/F in lieu of groups (i.e., above and below median / tertiles), but can try both.
+# AIM 1: T2D vs. LC (No Medications), evaluate top 2000 highly variable genes 
+# Using Nebula
+# Determine if covariate adjustment is appropriate
+# AIM 2: Among individuals with T2D, evaluate top 2000 highly variable genes between SGLT2i Yes vs. SGLT2i No. 
+# Use Nebula method
+# Determine if covariate adjustment is appropriate
+
 ```
 
 # 1. Set up 
@@ -139,53 +143,7 @@ so_kpmp_sc <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostati
 
 ```
 
-## b. Load Gene Sets
-```{r}
-#Lambda
-gc()
-# bucket <- "scrna" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-# s3$download_file(bucket, "data_clean/tca_cycle_genes.csv", temp_file)
-# tca1 <- read.csv(temp_file)
-# tca1 <- tca1$genesymbol
-
-# #Local
-tca1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/tca_cycle_genes.csv")$genesymbol
-tca2 <- c(
-  "ACO1", "ACO2", "IDH1", "IDH2", "IDH3A", "IDH3B", "IDH3G", "OGDH", "OGDHL",
-  "SUCLA2", "SUCLG1", "SUCLG2", "SDHA", "SDHB", "SDHC", "SDHD", "FH", "MDH1",
-  "MDH2", "FAS", "CS"
-) #21 genes
-
-tca <- unique(c(tca1,tca2))
-
-
-#Lambda
-# gc()
-# bucket <- "scrna" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-# s3$download_file(bucket, "data_clean/ox_phos_genes.csv", temp_file)
-# ox_phos1 <- read.csv(temp_file)
-# ox_phos1 <- ox_phos1$genesymbol
-
-#Local
-ox_phos1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/ox_phos_genes.csv")$genesymbol
-ox_phos2 <- c(
-  "NDUFS6",  "SDHB", "SDHC", "SDHD",
-  "UQCRC1", "UQCRC2", "COX4I1", "COX4I2", "ATP5PF") #47 genes
-ox_phos <- unique(c(ox_phos1,ox_phos2))
-
-# #Check gene names
-# genes <- unique(c(tca,ox_phos)) #82 genes
-# 
-# rownames(so_kpmp_sc)[which(rownames(so_kpmp_sc) %in% genes)] #37 genes in data
-
-# #Check if other genes are named differentily 
-# missing <- genes[!genes %in% rownames(so_kpmp_sc)] #45 missing genes
-# rownames(so_kpmp_sc)[which(grepl("ATP5PF",rownames(so_kpmp_sc)))]
-```
-
-## c. Data Cleaning, QC & Preprocessing
+## b. Data Cleaning, QC & Preprocessing
 ```{r, echo=F, warning=F, fig.width=15, fig.height=15}
 #Fix Typos in kit ids in PB90
 so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="KI-0014643")] <- "KL-0014643"
@@ -201,18 +159,6 @@ so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="kl-0023998")] <- "KL-0023998"
 #Load raw harmonized dataset
 # #Load raw harmonized dataset
 harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
-# dat <- harmonized_data %>% 
-#   filter(grepl("RH",record_id) |grepl("RH2",record_id)| grepl("IT",record_id)) %>% 
-#   # filter(!is.na(kit_id)) %>%
-#   filter(visit=="baseline") %>% 
-#   filter(!(is.na(rh_id) & is.na(rh2_id))) %>%
-#   filter(group=="Type 2 Diabetes" | group=="Lean Control") %>% 
-#   filter(epic_glp1ra_1=="No" & epic_sglti2_1=="No")
-# length(unique(dat$mrn)) #91 LC and T2D at baseline
-# length(unique(dat$mrn)) #25 no med
-# length(unique(which(dat$group=="Lean Control"))) #9
-# length(unique(which(dat$group=="Type 2 Diabetes"))) #20
-
 dat <- harmonized_data %>%
   arrange(screen_date) %>% 
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
@@ -347,100 +293,6 @@ table(dat$group,dat$epic_sglti2_1)
   #                 No
   # Lean Control    13
   # Type 2 Diabetes 18
-
-# ######################################
-# dat2 <- harmonized_data %>% 
-#   arrange(screen_date) %>% 
-#   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-#                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-#                    .by = c(record_id, visit))
-# dat2 <- dat2 %>%
-#   filter(grepl("RH",record_id) |grepl("RH2",record_id) | grepl("IT",record_id)) %>%  
-#   filter(!is.na(kit_id)) %>%
-#   filter(kit_id %in% so_kpmp_sc$kit_id) %>% 
-#   filter(visit=="baseline") %>% 
-#   filter(!(is.na(rh_id) & is.na(rh2_id))) %>%
-#   filter(group=="Type 2 Diabetes") %>% 
-#   filter(!is.na(epic_sglti2_1))
-# # filter(epic_glp1ra_1=="No" & epic_sglti2_1=="No")
-# length(unique(dat2$mrn)) #20
-# length(unique(dat2$record_id)) #34
-# #Which ids are coenrolled
-# dat2$record_id[which(!is.na(dat2$co_enroll_id))]
-# 
-# length(unique(which(dat2$group=="Lean Control"))) #0
-# length(unique(which(dat2$group=="Type 2 Diabetes"))) #51
-# length(unique(which(dat2$epic_sglti2_1=="Yes"))) #17
-# length(unique(which(dat2$epic_sglti2_1=="No"))) #34
-# table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+group+epic_glp1ra_1| epic_sglti2_1,data=dat2)
-# dat2$record_id
-# table(dat2$record_id,dat2$mrn)
-# dat2$kit_id[which(!dat2$kit_id %in% unique(so_kpmp_sc$kit_id))]
-# #Missing from pb90: "Kl-0014643" "KL-0030913" "KL-0031453" "KL-0031460" "KL-0032459"
-# dat2$record_id[which(!dat2$kit_id %in% unique(so_kpmp_sc$kit_id))]
-# 
-
-
-################
-
-# #Which MRNs have biopsy data
-# biopsy <- unique(so_kpmp_sc$kit_id)
-# 
-# 
-# #T2D
-# t2d <- dat %>% 
-#   filter(grepl("RH",record_id) |grepl("RH2",record_id)| grepl("IT",record_id)) %>% 
-#   filter(!is.na(kit_id)) %>%
-#   filter(visit=="baseline") %>% 
-#   filter(!(is.na(rh_id) & is.na(rh2_id))) %>% 
-#   filter(group=="Type 2 Diabetes") %>% 
-#   filter(epic_glp1ra_1=="No" & epic_sglti2_1=="No")
-# 
-# # t2d$record_id[which(is.na(t2d$kit_id))] #missing biopsy: "RH-97-T"  "RH2-41-T" "RH2-49-T"
-# # t2d$mrn[which(is.na(t2d$kit_id))] # 978451  758908 2839963
-# # t2d <- t2d %>% 
-# #   filter(!is.na(kit_id)) 
-# 
-# length(unique(t2d$mrn)) #12 
-# t2d$kit_id[which(!t2d$kit_id %in% so_kpmp_sc$kit_id)]
-# t2d$kit_id[which(t2d$kit_id=="KI-0014643")] <- "KL-0014643"
-# t2d$kit_id[which(t2d$kit_id=="kl-0023998")] <- "KL-0023998" 
-# t2d$kit_id[which(t2d$kit_id=="Kl-0014643")] <- "KL-0014643" #Kl-0014643 
-# t2d$kit_id[which(!t2d$kit_id %in% biopsy)] #KL-0030913
-# t2d$record_id[which(!t2d$kit_id %in% biopsy)] #"RH2-60-T" missing biopsy 
-# 
-# t2d <- t2d %>% 
-#   filter(kit_id %in% biopsy) #11 participants
-# 
-# #IT_08 remove because OB at time of baseline biopsy, developed t2d later
-# t2d <- t2d %>% 
-#   filter(record_id!="IT_08") #10 remain
-# 
-# # meta <- so_kpmp_sc@meta.data
-# 
-# #LC
-# lc <- dat %>% 
-#   # filter(grepl("RH",record_id) | grepl("IT",record_id)) %>% 
-#   filter(!is.na(kit_id)) %>% 
-#   filter(visit=="baseline") %>% 
-#   # filter(!(is.na(rh_id) & is.na(rh2_id))) %>% 
-#   filter(group=="Lean Control") %>% 
-#   filter(epic_glp1ra_1=="No" & epic_sglti2_1=="No")
-# length(unique(lc$mrn)) #13
-# lc$kit_id %in% biopsy
-# 
-# 
-# #Combine
-# dat2 <- rbind(t2d,lc)
-# 
-# dat2$kit_id[which(dat2$kit_id=="KI-0014643")] <- "KL-0014643"
-# dat2$kit_id[which(dat2$kit_id=="kl-0023998")] <- "KL-0023998" 
-# dat2$kit_id[which(dat2$kit_id=="Kl-0014643")] <- "KL-0014643" #Kl-0014643 KL-0019092
-# dat2$kit_id[which(!dat2$kit_id %in% so_kpmp_sc$kit_id)]
-# 
-# 
-# #"KL-0030913" "KL-0031453" "KL-0031460" "KL-0032459" kit IDs with biopsies IDs but missing in the pb90 dataset - potentially run after pb90
-# 
 
 #Finish formatting so
 ids <- c(dat$kit_id) #32 total ids, 13 LC, 19 T2D no SGLT2

@@ -14,29 +14,116 @@ format:
     fig-width: 12
     fig-height: 9
     page-layout: full
-    theme:
-      light: flatly
-      dark: darkly
 editor: source
 ---
 
 ```{r setup}
 #| include: false
+library(Hmisc)
 library(tidyverse)
 library(arsenal)
-knitr::opts_knit$set(root.dir = "/Users/timvigers/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO")
+home_dir <- switch(Sys.info()["sysname"],
+  "Darwin" = "/Users/timvigers/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
+  "Windows" = "C:/Users/Tim/OneDrive - The University of Colorado Denver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
+  "Linux" = "/home/timvigers/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO"
+)
+github_dir <- switch(Sys.info()["sysname"],
+  "Darwin" = "/Users/tim/Documents/GitHub",
+  "Windows" = "C:/Users/Tim/Documents/GitHub",
+  "Linux" = "/home/tim/Documents/GitHub"
+)
+knitr::opts_knit$set(root.dir = home_dir)
 ```
 
 ```{r data import}
 #| include: false
 # Load data
 load("./Data_Clean/analysis_data.RData")
+# Create additional categorical variables per Grayson and Melanie
+df$cv_ft_above_uln <- df$cv_ft_perc > 100
+label(df$cv_ft_above_uln) <- "Free Testosterone > 100% ULN"
+df$cv_tt_above_uln <- df$cv_tt_perc > 100
+label(df$cv_tt_above_uln) <- "Total Testosterone > 100% ULN"
+df$cv_dheas_above_uln <- df$cv_dheas_perc > 100
+label(df$cv_dheas_above_uln) <- "DHEAS > 100% ULN"
+df$cv_androstendione_above_uln <- df$cv_androstendione_perc > 100
+label(df$cv_androstendione_above_uln) <- "Androstendione > 100% ULN"
+df$cv_amh_above_uln <- df$cv_amh_perc > 100
+label(df$cv_amh_above_uln) <- "AMH > 100% ULN"
+df$lh_fsh_ratio <- df$cv_lh / df$cv_fsh
+label(df$lh_fsh_ratio) <- "LH:FSH ratio"
+df$lh_fsh_ratio_above_2 <- df$lh_fsh_ratio > 2
+label(df$lh_fsh_ratio_above_2) <- "LH:FSH ratio > 2"
+df$lh_fsh_ratio_under_1 <- df$lh_fsh_ratio < 1
+label(df$lh_fsh_ratio_under_1) <- "LH:FSH ratio < 1"
+df$cv_shbg_under_20 <- df$cv_shbg < 20
+label(df$cv_shbg_under_20) <- "SHBG < 20 "
+df$cv_sbp_cat <- cut(df$cv_sbp,
+  breaks = c(-Inf, 120, 130, 140, Inf),
+  labels = c("<120", "120-129", "130-139", "140+"), right = F
+)
+label(df$cv_sbp_cat) <- "SBP category"
+df$cv_a1c_cat <- cut(df$cv_a1c,
+  breaks = c(-Inf, 5.6, 6.4, Inf),
+  labels = c("<=5.6", "5.7-6.4", ">=6.5")
+)
+label(df$cv_a1c_cat) <- "HbA1c category"
+df$cv_fbg_cat <- cut(df$cv_fbg,
+  breaks = c(-Inf, 100, 126, Inf),
+  labels = c("<100", "100-125", "126+"), right = F
+)
+label(df$cv_fbg_cat) <- "Fasting glucose category"
+df$cv_2hrglucoseogtt_cat <- cut(df$cv_2hrglucoseogtt,
+  breaks = c(-Inf, 140, 200, Inf), labels = c("<140", "140-199", "200+"),
+  right = F
+)
+label(df$cv_2hrglucoseogtt_cat) <- "2-hr glucose category"
+df$cv_tg_cat <- cut(df$cv_tg,
+  breaks = c(-Inf, 90, 150, Inf),
+  labels = c("<90", "90-149", "150+"),
+  right = F
+)
+label(df$cv_tg_cat) <- "Triglycerides category"
+df$cv_hdl_under_45 <- df$cv_hdl < 45
+label(df$cv_hdl_under_45) <- "HDL < 45"
+df$cv_alt_above_35 <- df$cv_alt > 35
+label(df$cv_alt_above_35) <- "ALT > 35"
+# Variable lists
+demo_vars <- c(
+  "site", "pcosdx_age", "combined_race", "ethnicity", "insur_type"
+)
+aim1_vars <- c(
+  "cv_bmi", "cv_bmi_percentile", "cv_bmi_z", "cv_hirsutism_num",
+  "cv_hirsutism_cat", "cv_acneface", "cv_acneother___1", "cv_acneother___2",
+  "cv_acneother___0", "cv_acneother___unk", "cv_ft", "cv_ft_perc",
+  "cv_ft_above_uln", "cv_tt", "cv_tt_perc", "cv_tt_above_uln", "cv_dheas",
+  "cv_dheas_perc", "cv_dheas_above_uln", "cv_androstendione",
+  "cv_androstendione_perc", "cv_androstendione_above_uln", "cv_lh", "cv_fsh",
+  "lh_fsh_ratio", "lh_fsh_ratio_above_2", "lh_fsh_ratio_under_1",
+  "cv_amh", "cv_amh_above_uln", "cv_a1c", "cv_a1c_cat", "cv_tg", "cv_tg_cat",
+  "cv_hdl", "cv_hdl_under_45", "cv_shbg", "cv_shbg_under_20", "cv_alt",
+  "cv_alt_above_35", "cv_fbg", "cv_fbg_cat", "cv_fastinsulin",
+  "cv_2hrglucoseogtt", "cv_2hrglucoseogtt_cat", "cv_acanthosisneck", "cv_waist",
+  "cv_osa_sx", "cv_medications___1", "cv_medications___2", "cv_medications___3",
+  "cv_medications___4", "cv_medications___5", "cv_medications___6",
+  "cv_medications___7", "cv_medications___8", "cv_medications___9",
+  "cv_medications___10", "cv_medications___11", "cv_medications___12",
+  "cv_medications___13", "cv_medications___14", "cv_medications___15",
+  "cv_medications___16", "cv_medications___17", "cv_medications___18",
+  "cv_medications___19", "cv_medications___20", "cv_medications___21",
+  "cv_medications___22", "cv_medications___23", "cv_medications___32",
+  "cv_medications___24", "cv_medications___25", "cv_medications___26",
+  "cv_medications___27", "cv_medications___28", "cv_medications___29",
+  "cv_medications___30", "cv_medications___31", "cv_medications___60",
+  "cv_medications___0", "cv_medications___unk"
+)
 # Basic formula for tables
 f <- as.formula(paste("~", paste(aim1_vars, collapse = "+")))
-f <- update(f, . ~ . + cv_sbp + cv_dbp + pcosdx_age + pcosdx_menarche +
-  pcosdx_famhx_parent___7 + pcosdx_famhx___7 + pcosdx_any_famhx___7 +
-  pcosdx_famhx_parent___27 + pcosdx_famhx___27 + pcosdx_any_famhx___27 +
-  combined_race + ethnicity + Region)
+f <- update(f, . ~ . + cv_sbp + cv_sbp_cat + cv_dbp + pcosdx_age +
+  pcosdx_menarche + pcosdx_famhx_parent___7 + pcosdx_famhx___7 +
+  pcosdx_any_famhx___7 + pcosdx_famhx_parent___27 + pcosdx_famhx___27 +
+  pcosdx_any_famhx___27 +
+  combined_race + ethnicity)
 # Set table options
 mycontrols <-
   tableby.control(
@@ -46,7 +133,7 @@ mycontrols <-
 # First visit only
 cv1 <- df %>%
   group_by(record_number) %>%
-  slice_min(redcap_repeat_instance) %>%
+  slice_min(cv_monthssincepcosdx) %>%
   ungroup()
 ```
 
@@ -58,7 +145,7 @@ cv1 <- df %>%
 f1 <-
   as.formula(paste0(
     "~",
-    paste0(c(demo_vars, "combined_race", "Region"), collapse = "+")
+    paste0(c(demo_vars, "combined_race"), collapse = "+")
   ))
 t1 <- tableby(f1, data = cv1, control = mycontrols)
 summary(t1, labelTranslations = labels(df), pfootnote = T)
