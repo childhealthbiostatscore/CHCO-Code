@@ -1,0 +1,60 @@
+---
+title: "ATTEMPT scRNA correlations visualization"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r echo = F, include = F}
+library(dplyr)
+library(kableExtra)
+library(knitr)
+library(ggplot2)
+library(purrr)
+library(tidyr)
+library(stats)
+library(patchwork)
+library(UpSetR)
+library(readxl)
+library(fgsea)
+library(ReactomeGSA)
+library(GSEABase)
+library(enrichplot)
+library(enrichR)
+library(ggrepel)
+library(forcats)
+library(stringr)
+library(jsonlite)
+```
+
+```{r include = F}
+reticulate::repl_python()
+reticulate::py_config()
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+```{r echo = F}
+# Read in clean seurat object saved from above
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("attempt", 'cleaned_data/attempt_clean_so.rds', temp_file)
+attempt_so <- readRDS(temp_file)
+```
