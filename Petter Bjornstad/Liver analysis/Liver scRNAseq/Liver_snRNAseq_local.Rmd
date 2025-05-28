@@ -6,91 +6,8 @@ date: "2025-04-23"
 
 # 1. Set up Libraries & Directores
 ```{r libraries, echo=F, include = F}
-library(reprex)
-library(tidyverse)
-library(BiocManager)        
-library(arsenal)
-library(dplyr)
-library(ggplot2)
-library(ggrepel)
-library(Seurat)
-library(future)
-library(colorspace)
-library(patchwork)
-library(ggdendro)
-library(cowplot)
-library(ggpubr)
-library(venn)
-library(rstatix)
-library(table1)
-library(Biobase)
-library(ReactomeGSA)
-library(GSEABase)
-library(fgsea)
-library(ReactomeGSA)
-library(msigdbr)
-library(kableExtra)
-library(knitr)
-# library(SingleCellExperiment)
-library(fgsea)
-library(EnhancedVolcano)
-library(openxlsx)
-library(BiocManager)
-# library(MAST)
-library(ggrepel)
-# library(qpcR)
-library(ggpubr)
-library(ggplot2)
-library(GGally)
-# library(limma)
-# library(reshape2)
-# library(data.table)
-# library(knitr)
-# library(TxDb.Hsapiens.UCSC.hg19.knownGene)
-# library(stringr)
-# library(NMF)
-# library(rsvd)
-# library(RColorBrewer)
-library(devtools)
-# install_github("Sun-lab/ideas",force=T)
-# library(ideas)
-library(foreach)
-library(doRNG)
-library(doParallel)
-library(fs)
-library(future)
-# registerDoParallel(cores = 6)
-library(VennDiagram)
-#install.packages("survival")
-library(survival)
-#install.packages("lme4")  # If not already installed
-library(lme4)
-#install.packages("lmerTest")
-library(lmerTest)
-# install.packages("emmeans")
-library(emmeans)
-# install.packages("glmmTMB")
-library(glmmTMB)
-library(ggrepel)
-# library(qpcR)
-library(ggpubr)
-#install.packages("devtools")
-library(devtools)
-# install_github("lhe17/nebula",force=T)
-library(nebula)
-# BiocManager::install("enrichplot")
-# library(enrichplot)
-library(enrichR)
-dbs <- c("GO_Biological_Process_2023", 
-         "KEGG_2021_Human",
-         # "Reactome_2022", 
-         "Reactome_Pathways_2024",
-         # "MSigDB_Oncogenic_Signatures",
-         # "MSigDB_Computational",
-         "MSigDB_Hallmark_2020")
-library(pheatmap)
-library(janitor)
-
+#Load Libraries
+source("Libraries.R")
 
 #Local file path
 # dir.dat <- c("/Volumes/Peds Endo/Petter Bjornstad")
@@ -103,15 +20,14 @@ library(janitor)
 # dir.code <- c("/home/Github_Repo/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
 # dir.results <- c(fs::path(dir.dat,"Liver project/Results"))
 
-# #Mac studio
-# #Mac Studio File Path
-# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
-# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Project/NEBULA Results")
+#Mac Studio File Path
+dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Project/NEBULA Results")
 # # dir.ipa <- c("/Users/hhampson/Documents/IPA/Results")
 
-#Laura's Mac Studio File Path
-dir.dat <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
-dir.results <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Project/NEBULA Results")
+# #Laura's Mac Studio File Path
+# dir.dat <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+# dir.results <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Project/NEBULA Results")
 
 #Load functions
 source("Liver_functions.R")
@@ -121,7 +37,7 @@ knitr::opts_knit$set(root.dir = dir.results)
 ```
 
 # 2. Pre-Processing & Qualtiy Control
-## a. Load Full Data & Clean:## a. snRNA & MetaData
+## a. Load Seurat Object snRNA
 ```{r, include = F, fig.height=7,fig.width=10}
 # Liver snRNA data processing
 invisible(gc())
@@ -131,32 +47,38 @@ so_liver_sn <- readRDS(fs::path(dir.dat,"scRNA","data_raw","NoRef_PetterLiver_Cl
 # #Lambda
 # so_liver_sn <- readRDS(fs::path(dir.dat,"scRNA","data_raw","NoRef_PetterLiver_ClinData_Labels_Char_041924.RDS"))
 DefaultAssay(so_liver_sn) <- "RNA"
-dim(so_liver_sn)
+dim(so_liver_sn)#36601 130124
 nrow(so_liver_sn) #36,601 genes
 ncol(so_liver_sn) # 130,124 nuceli
 invisible(gc())
+```
+
+## b. Load MetaData, Clean and Merge
+```{r}
 #Local
 meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
 #Lambda
 # meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
 unique(meta_liver_raw$Kit_Lot)
+unique(meta_liver_raw$StudyID)
 meta_liver_raw <- meta_liver_raw %>%
   filter(StudyID!="IT2D-18") %>%
   filter(StudyID!="IT2D-16")
-meta_liver_raw <- meta_liver_raw %>%
-  mutate(both=ifelse(diagnosis_of_diabetes=="Yes" & glp1agonist=="Yes" & sglt2=="Yes","Yes","No")) %>% 
-  mutate(sglt2_exclusive=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="Yes" & glp1agonist=="No","Yes","No")) %>% 
-  mutate(glp1_exclusive=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="No" & glp1agonist=="Yes","Yes","No")) %>% 
-  mutate(either=ifelse(glp1agonist=="Yes" | sglt2=="Yes","Yes","No")) %>%
-  mutate(neither=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="No" & glp1agonist=="No","Yes","No")) %>%
-  mutate(hc=ifelse(diagnosis_of_diabetes=="No","Yes","No"))
-meta_liver_raw <- meta_liver_raw %>%
-  mutate(group2=case_when(both == "Yes" ~ "glp1_and_sglt2",
-                          sglt2_exclusive == "Yes" ~ "sglt2_exclusive",
-                          glp1_exclusive == "Yes" ~ "glp1_exclusive",
-                          either == "Yes" ~ "glp1_or_sglt2",
-                          neither == "Yes" ~ "no_med",
-                          hc == "Yes" ~ "obese_control"))
+
+# meta_liver_raw <- meta_liver_raw %>%
+#   mutate(both=ifelse(diagnosis_of_diabetes=="Yes" & glp1agonist=="Yes" & sglt2=="Yes","Yes","No")) %>% 
+#   mutate(sglt2_exclusive=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="Yes" & glp1agonist=="No","Yes","No")) %>% 
+#   mutate(glp1_exclusive=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="No" & glp1agonist=="Yes","Yes","No")) %>% 
+#   mutate(either=ifelse(glp1agonist=="Yes" | sglt2=="Yes","Yes","No")) %>%
+#   mutate(neither=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="No" & glp1agonist=="No","Yes","No")) %>%
+#   mutate(hc=ifelse(diagnosis_of_diabetes=="No","Yes","No"))
+# meta_liver_raw <- meta_liver_raw %>%
+#   mutate(group2=case_when(both == "Yes" ~ "glp1_and_sglt2",
+#                           sglt2_exclusive == "Yes" ~ "sglt2_exclusive",
+#                           glp1_exclusive == "Yes" ~ "glp1_exclusive",
+#                           either == "Yes" ~ "glp1_or_sglt2",
+#                           neither == "Yes" ~ "no_med",
+#                           hc == "Yes" ~ "obese_control"))
 # meta_liver_raw <- meta_liver_raw %>%
 #   mutate(group3=ifelse(either=="Yes","either","neither"))
 
@@ -167,10 +89,11 @@ meta_liver_raw <- meta_liver_raw %>%
                                   steatosis_grade>0 & fibrosis_stage==0 ~ "Any Steatosis, No Fibrosis",
                                   steatosis_grade>0 & fibrosis_stage>0 ~ "Any Fibrosis & Any Steatosis"))
 
+#Merge liver sn metadata with meta liver raw metadata
 meta_liver_sn <-  so_liver_sn@meta.data[,1:11] %>%
   dplyr::mutate(RNAlater_ID = SampleID) %>%
   left_join(meta_liver_raw)
-
+#Merge into seurat object
 rownames(meta_liver_sn) <- rownames(so_liver_sn@meta.data)
 so_liver_sn <- AddMetaData(so_liver_sn, meta_liver_sn)
 rm(meta_liver_sn,meta_liver_raw)
@@ -179,95 +102,9 @@ rm(meta_liver_sn,meta_liver_raw)
 DefaultAssay(so_liver_sn) <- "RNA"
 invisible(gc())
 
-# 
-# #Calculate cell library size for offset
-# counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts")) # load counts and round
-# library_size <- Matrix::colSums(counts_layer) #calculate the column sums aka the sum of all genes in each cell
-# so_liver_sn$library_size <- library_size #Put into the seurat object
-# #Check that it is accessible in the metadata
-# meta <- so_liver_sn@meta.data #It should be in the dataframe, delete meta data check df
-# rm(meta,counts_layer)
-# # hist(so_liver_sn$library_size)
-
-#Create liver disease and drug groups
-#so_liver_sn@meta.data <- so_liver_sn@meta.data %>% 
-#  mutate(both=ifelse(diagnosis_of_diabetes=="Yes" & glp1agonist=="Yes" & sglt2=="Yes","Yes","No")) %>% 
-# mutate(sglt2_exclusive=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="Yes" & glp1agonist=="No","Yes","No")) %>% 
-# mutate(glp1_exclusive=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="No" & glp1agonist=="Yes","Yes","No")) %>% 
-#  mutate(either=ifelse(glp1agonist=="Yes" | sglt2=="Yes","Yes","No")) %>%
-#  mutate(neither=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="No" & glp1agonist=="No","Yes","No")) %>%
-#  mutate(hc=ifelse(diagnosis_of_diabetes=="No","Yes","No"))
-
-# Create a single grouping variable
-#so_liver_sn@meta.data <- so_liver_sn@meta.data %>% 
-#  mutate(group2=case_when(both == "Yes" ~ "both",
-#                          sglt2_exclusive == "Yes" ~ "sglt2_exclusive",
-#                          glp1_exclusive == "Yes" ~ "glp1_exclusive",
-#                          either == "Yes" ~ "either",
-#                          neither == "Yes" ~ "neither",
-#                          hc == "Yes" ~ "obese_control"))
-
-#so_liver_sn@meta.data$group2 <- factor(so_liver_sn@meta.data$group2, levels = c("obese_control","neither","sglt2_exclusive", #"glp1_exclusive","either","both"))
-
-# #Create Diabetes only seurat object
-# so_diab <- subset(so_liver_sn,diagnosis_of_diabetes=="Yes")
-
-#Create senesence so in all cell types
-#sens_gene_in_data <- intersect(sens_genes, rownames(so_liver_sn))
-# Subset the Seurat object to include only genes in sens_gene_in_data
-#so_sens_all <- subset(so_liver_sn, features = sens_gene_in_data)
-
-# #Filter to hepatocytes only
-# so_liver_sn$Hepatocyte <- ifelse(grepl("Hep-",so_liver_sn$celltype),"Yes","No")
-# so_hep <- subset(so_liver_sn, Hepatocyte=="Yes")
-# rm(so_liver_sn)
-# DefaultAssay(so_hep) <- "RNA"  
-
 dim(so_liver_sn) #36601 130124
-# so_object <- qc_function_sn(so=so_liver_sn,var_pct=0.75)
-# so_filtered <- so_object$so
-# print(so_object$elbow_plot)
-# 
-# #Number of Cells after filtering: 
-# cell_total2 <- ncol(so_filtered) #14733
-# #Number of Genes after filtering: 
-# gene_total2 <- nrow(so_filtered) #8966
-# print(paste0(cell_total1," cells before filtereing, ",cell_total2," cells after filtering (removed ",cell_total1-cell_total2," cells); ",gene_total1," genes before filtering, ",gene_total2," genes after filtering (removed ",gene_total1-gene_total2," genes)"))
-# 
-# #Visualize filtered seurat object on umaps by cell type and diabetes group
-# umap_vis(so=so_filtered ,cell_type="KPMP_celltype",group_variable="group") 
-# 
-# #Remove unfiltered seurat object
-# rm(so_object,so_kpmp_sc)
-
-# # Step 1: Filter to genes expressed in more than 5% of cells
-# gene_expression_matrix <- so_liver_sn@assays$RNA@counts
-# # expressed_genes <- Matrix::rowSums(gene_expression_matrix != 0) > dim(gene_expression_matrix)[2] * 0.1
-# expressed_genes <- Matrix::rowSums(gene_expression_matrix != 0) > dim(gene_expression_matrix)[2] * 0.05
-# 
-# so_liver_sn <- subset(so_liver_sn, features = rownames(gene_expression_matrix)[expressed_genes])
-# dim(so_liver_sn@assays$RNA@counts) #4502 130124
-# dim(so_liver_sn@assays$RNA) #4502 130124
-# dim(so_liver_sn) #4502 130124
-# sum(grepl("^MT-", rownames(so_liver_sn@assays$RNA@counts))) #13
-# ncol(so_liver_sn) #130124 cells
-# nrow(so_liver_sn) # 36601 genes
 ncol(so_liver_sn) #130124 nuclei 
 nrow(so_liver_sn) # 36601 genes
-# 
-# #Code for filtering by count
-# # Create a matrix of the expression data (e.g., counts or scaled data) from the Seurat object
-# expression_data <- GetAssayData(so_liver_sn, assay = "RNA", layer = "counts")
-# # Calculate the number of nuclei each gene is expressed in (i.e., count non-zero entries per gene)
-# gene_expression_counts <- rowSums(expression_data > 0)
-# # Filter out genes that are expressed in less than 10 nuclei
-# filtered_genes <- names(which(gene_expression_counts >= 10))
-# length(filtered_genes) #28977 genes remain of 36601
-# rare_genes <- names(which(gene_expression_counts < 10))
-# length(rare_genes) #7624
-
-# # Subset the Seurat object to keep only genes that are expressed in at least 10 nuclei
-# so_liver_sn <- subset(so_liver_sn, features = filtered_genes)
 
 #YE JI's filtering code for percent expression 
 #Filter out rare genes expressed in less than "gene_pct" of cells
@@ -302,6 +139,25 @@ dim(so_liver_sn@assays$RNA)#9276 186125
 sum(grepl("^MT-", rownames(so_liver_sn@assays$RNA@counts))) #0
 ncol(so_liver_sn) #130124 cells
 nrow(so_liver_sn) #11300 genes
+
+
+#Step 3: Remove ribosomal Genes
+# Identify ribosomal genes
+ribo_genes <- c(
+  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
+  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
+  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
+  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
+  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
+  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
+  "RPL10", "RPS4Y1"
+)
+so_liver_sn <- subset(so_liver_sn, features = setdiff(rownames(so_liver_sn), ribo_genes))
+# sum(grepl("^MT-", rownames(so_liver_sn))) #0
+length(which(rownames(so_liver_sn) %in% ribo_genes)) #0
+ncol(so_liver_sn) #130,124 cells
+nrow(so_liver_sn) #11224 genes
+
 
 # # Identify mitochondrial genes
 # mt_genes <- grepl("^MT", rownames(so_liver_sn@assays$RNA@counts))
@@ -348,15 +204,37 @@ so_liver_sn$celltype2 <- ifelse(grepl("Hep-",so_liver_sn$celltype) | grepl("dHep
 # rm(expression_data)
 DefaultAssay(so_liver_sn) <- "RNA" 
 
+# Calculate cell library size for offset in NEBULA --------------------------------------
+counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts"))
+library_size <- Matrix::colSums(counts_layer)
+so_liver_sn$library_size <- library_size
+# View(so_liver_sn@meta.data)
 
-#Calculate cell library size for offset
-counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts")) # load counts and round
-library_size <- Matrix::colSums(counts_layer) #calculate the column sums aka the sum of all genes in each cell
-so_liver_sn$library_size <- library_size #Put into the seurat object
-#Check that it is accessible in the metadata
-meta <- so_liver_sn@meta.data #It should be in the dataframe, delete meta data check df
-rm(meta,counts_layer)
-# hist(so_liver_sn$library_size)
+# # TMM offset
+# dge <- DGEList(counts = counts_layer)
+# dge <- calcNormFactors(dge, method = "TMM")
+# tmm_offset <- log(dge$samples$lib.size) + log(dge$samples$norm.factors)
+# so_liver_sn$tmm_offset <- tmm_offset
+
+# Pooled offset
+bp <- MulticoreParam(workers = 63) 
+sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+# sce <- computeSumFactors(sce)
+sce <- computeSumFactors(sce, BPPARAM = bp)
+# View size factors
+# sizeFactors(sce)
+# STEP 3: Calculate offset → log(size factors)
+pooled_offset <- sizeFactors(sce)
+so_liver_sn$pooled_offset <- pooled_offset
+
+# #Calculate cell library size for offset
+# counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts")) # load counts and round
+# library_size <- Matrix::colSums(counts_layer) #calculate the column sums aka the sum of all genes in each cell
+# so_liver_sn$library_size <- library_size #Put into the seurat object
+# #Check that it is accessible in the metadata
+# meta <- so_liver_sn@meta.data #It should be in the dataframe, delete meta data check df
+# rm(meta,counts_layer)
+# # hist(so_liver_sn$library_size)
 ```
 
 ## b. Explore Distribution & Zero-Inflation
