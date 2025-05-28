@@ -58,6 +58,8 @@ library(nebula)
 library(Matrix)
 library(scran)
 library(DirichletReg)
+library(BiocParallel)
+library(scDC)
 ```
 
 ```{r include = F}
@@ -148,14 +150,15 @@ tmm_offset <- (dge$samples$lib.size) * (dge$samples$norm.factors)
 attempt_so$tmm_offset <- tmm_offset
 
 # Pooled offset
+bp <- MulticoreParam(workers = 63)
 sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-sce <- computeSumFactors(sce)
+# sce <- computeSumFactors(sce)
+sce <- computeSumFactors(sce, BPPARAM = bp)
 # # View size factors
 sizeFactors(sce)
 # Calculate offset → (size factors)
 pooled_offset <- (sizeFactors(sce))
 attempt_so$pooled_offset <- pooled_offset
-
 
 ## want to double check expression of some metallothionines because logFC for them in dapa is near 0
 # FindMarkers(subset(attempt_so, grepl("PT-", attempt_so$celltype) & treatment == "Placebo"), features = c("MT1X", "MT2A", "MT1M", "MT1H"), group.by = "visit", 
@@ -165,10 +168,6 @@ attempt_so$pooled_offset <- pooled_offset
 # FindMarkers(subset(attempt_so, grepl("PT-", attempt_so$celltype) & treatment == "Dapagliflozin 5mg"), features = c("MT1X", "MT2A", "MT1M", "MT1H"), group.by = "visit", 
 #             min.pct = 0, logfc.threshold = 0,
 #             ident.1 = "POST")
-
-# check for expression of TRHDE-AS1 (in immune), FGF14 (in immune), and PSAT1 (in fib/vsmc/p)
-FeaturePlot(subset(attempt_so, attempt_so$celltype %in% c("MON", "MAC", "T", "B", "NKT/NKC")),
-            features = c("TRHDE-AS1", "FGF14"))
 
 # check for expression of TRHDE-AS1 (in immune), FGF14 (in immune), and PSAT1 (in fib/vsmc/p)
 FeaturePlot(attempt_so, features = c("TRHDE-AS1", "FGF14", "PSAT1"), raster = F)
@@ -424,8 +423,6 @@ s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_tal_proportions_plot.
 # summary(pt_props_drichlet)
 
 # chi square test
-
-
 ```
 
 
@@ -448,7 +445,6 @@ unique_attempt_meta <- attempt_meta %>%
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(Subject.ID, Visit))
 summary(arsenal::tableby(visit_treatment ~ age + Sex + diabetes_duration + treatment_arm + Visit, data = unique_attempt_meta), test = F, digits = 1)
-
 ```
 
 
@@ -680,6 +676,130 @@ attempt_meta %>%
 temp_file <- tempfile(fileext = ".jpeg")
 ggsave(temp_file, height = 10)
 s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_visit_treatment_proportions_plot_kpmp.jpeg")
+```
+```{r echo = F}
+# scDC package (sc differential composition analysis)
+attempt_so_pt$celltype <- factor(attempt_so_pt$celltype, levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))
+exprsMat <- GetAssayData(attempt_so_pt, assay = "RNA", slot = "counts")
+attempt_so_pt$treatment_visit <- paste0(attempt_so_pt$treatment, "_", attempt_so_pt$visit)
+attempt_so_pt$subject_visit <- paste0(attempt_so_pt$subject_id, "_", attempt_so_pt$visit)
+cellTypes <- attempt_so_pt@meta.data$celltype
+subject <- attempt_so_pt@meta.data$subject_visit
+
+cond <- data.frame(subject = subject,
+                   treatment = attempt_so_pt@meta.data$treatment_visit,
+                   visit = attempt_so_pt@meta.data$visit) %>%
+  distinct(subject, .keep_all = T)
+
+res_scDC_noClust <- scDC_noClustering(cellTypes, subject, calCI = TRUE, 
+                                     calCI_method = c("BCa"), ncores = 20)
+
+# merge treatment and visit information to res_scDC_noClust
+res_scDC_noClust$results <- left_join(res_scDC_noClust$results, cond)
+
+barplotCI_custom <- function(res, condition){
+  res$results$index_original <- seq_len(nrow(res$results))
+  df_toPlot <- res$results %>% 
+    dplyr::mutate(cond = condition,
+                  method = factor(method, levels = c("BCa", "percentile", "multinom"))) %>%
+    dplyr::arrange(treatment, visit) 
+  thetastar_reordered <- res$thetastar[df_toPlot$index_original, , drop = FALSE]
+  
+  df_toPlot$median <- apply(thetastar_reordered, 1, median)
+  df_toPlot$conf_low <- apply(thetastar_reordered, 1, function(x) quantile(x, 0.025))
+  df_toPlot$conf_high <- apply(thetastar_reordered, 1, function(x) quantile(x, 0.975))
+  
+  df_toPlot$subject <- factor(df_toPlot$subject, levels = unique(df_toPlot$subject))
+  
+  n_method <- length(unique(df_toPlot$method))
+  n_celltype <- length(unique(df_toPlot$cellTypes))
+  
+  g_bar <- ggplot2::ggplot(df_toPlot, aes(x = subject, y = median, fill = cond)) +
+    ggplot2::geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+    ggplot2::theme_bw() +
+    ggplot2::scale_fill_brewer(palette = "Set2") +
+    ggplot2::ylab("Proportion") +
+    ggplot2::xlab("") +
+    ggplot2::labs(fill = "") +
+    ggplot2::geom_errorbar(aes(ymin = conf_low, ymax = conf_high),
+                           width = 0.01, lwd = 1,
+                           position = position_dodge(width = 0.5)) +
+    ggplot2::theme(axis.text.x = element_text(angle = 90), text = element_text(size = 12)) +
+    ggplot2::scale_color_manual(values = RColorBrewer::brewer.pal(n = 3, name = "Dark2")[1:n_method]) +
+    ggplot2::facet_wrap(~cellTypes, ncol = n_celltype,
+                        labeller = labeller(cellTypes = label_wrap_gen(width = 10, multi_line = TRUE))) +
+    ggplot2::coord_flip() +
+    ggplot2::ylim(c(0, 1))
+
+  return(g_bar)
+}
+
+densityCI_custom <- function(res, condition){
+  # Add index and reorder
+  res$results$index_original <- seq_len(nrow(res$results))
+  res$results <- res$results %>%
+    dplyr::arrange(treatment, visit, subject)
+  
+  # Reorder thetastar
+  thetastar_reordered <- res$thetastar[res$results$index_original, , drop = FALSE]
+
+  # Melt the reordered thetastar
+  df_toPlot <- reshape2::melt(thetastar_reordered)
+  df_toPlot$cellTypes <- res$info[,"cellTypes"][df_toPlot$Var1]
+  df_toPlot$subject <- res$info[,"subject"][df_toPlot$Var1]
+  df_toPlot$cond <- condition
+
+  # Match subject order to reordered results
+  subject_order <- res$results$subject
+  df_toPlot$subject <- factor(df_toPlot$subject, levels = unique(subject_order))
+  
+  # Prepare confidence line data
+  conf_line <- res$results
+  conf_line$cond <- condition
+  conf_line$method <- factor(conf_line$method, levels = c("BCa", "percentile", "multinom"))
+  
+  n_method <- length(unique(conf_line$method))
+  n_celltype <- length(unique(df_toPlot$cellTypes))
+  
+  # Plot
+  if (length(unique(df_toPlot$subject)) == 1){
+    g_density <- ggplot2::ggplot(df_toPlot, aes(x = value, y = subject, fill = cond)) +
+      ggridges::stat_density_ridges(alpha = 0.5) +
+      ggplot2::geom_vline(data = conf_line, aes(xintercept = conf_low),
+                          lwd = 1, alpha = 0.8) +
+      ggplot2::geom_vline(data = conf_line, aes(xintercept = conf_high),
+                          lwd = 1, alpha = 0.8)
+  } else {
+    g_density <- ggplot2::ggplot(df_toPlot, aes(x = value, y = subject, fill = cond)) +
+      ggridges::stat_density_ridges(alpha = 0.5) +
+      ggplot2::geom_segment(data = conf_line, aes(x = conf_low, xend = conf_low, y = as.numeric(subject),
+                                                  yend = as.numeric(subject) + .9,
+                                                  color = method, linetype = method),
+                            lwd = 1, alpha = 0.8) +
+      ggplot2::geom_segment(data = conf_line, aes(x = conf_high, xend = conf_high, y = as.numeric(subject),
+                                                  yend = as.numeric(subject) + .9,
+                                                  color = method, linetype = method),
+                            lwd = 1, alpha = 0.8)
+  }
+
+  g_density <- g_density +
+    ggplot2::theme_bw() +
+    ggplot2::theme(axis.text.x = element_text(angle = 90), text = element_text(size = 12)) +
+    ggplot2::scale_fill_brewer(palette = "Set2") +
+    ggplot2::xlab("Proportion") +
+    ggplot2::ylab("") +
+    ggplot2::labs(fill = "") +
+    ggplot2::guides(color = "none") +
+    ggplot2::facet_wrap(~cellTypes, ncol = n_celltype , scales = "free_x",
+                        labeller = labeller(cellTypes  = label_wrap_gen(width = 10,  multi_line = TRUE)))
+
+  return(g_density)
+}
+
+barplotCI_custom(res_scDC_noClust, res_scDC_noClust$results$treatment)
+
+densityCI_custom(res_scDC_noClust, res_scDC_noClust$results$treatment)
+
 ```
 
 #### Mixed model (hurdle, no nested random effect)
@@ -935,7 +1055,7 @@ s3$upload_file(temp_file, "attempt", 'PT/nebula/pt_attempt_hvg_nebula_res_reml_t
 
 ###### REML with rounded counts & pooled offset
 
-```{r echo = F}
+```{r echo = F, eval = F}
 counts_hvg_pt <- round(GetAssayData(attempt_so_hvg_pt, layer = "counts")) # load counts and round
 genes_list <- rownames(counts_hvg_pt)
 
@@ -1571,7 +1691,7 @@ s3$upload_file(temp_file, "attempt", 'TAL/nebula/tal_attempt_hvg_nebula_res_reml
 
 ###### REML with rounded counts & pooled offset
 
-```{r echo = F}
+```{r echo = F, eval = F}
 counts_hvg_tal <- round(GetAssayData(attempt_so_hvg_tal, layer = "counts")) # load counts and round
 genes_list <- rownames(counts_hvg_tal)
 
@@ -2114,7 +2234,7 @@ s3$upload_file(temp_file, "attempt", 'Immune/nebula/immune_attempt_hvg_nebula_re
 ```
 ###### REML with rounded counts & pooled offset
 
-```{r echo = F}
+```{r echo = F, eval = F}
 counts_hvg_immune <- round(GetAssayData(attempt_so_hvg_immune, layer = "counts")) # load counts and round
 genes_list <- rownames(counts_hvg_immune)
 
@@ -2640,7 +2760,7 @@ s3$upload_file(temp_file, "attempt", 'PC/nebula/pc_attempt_hvg_nebula_res_reml_t
 
 ###### REML with rounded counts & pooled offset
 
-```{r echo = F}
+```{r echo = F, eval = F}
 counts_hvg_pc <- round(GetAssayData(attempt_so_hvg_pc, layer = "counts")) # load counts and round
 genes_list <- rownames(counts_hvg_pc)
 
@@ -3165,7 +3285,7 @@ s3$upload_file(temp_file, "attempt", 'IC/nebula/ic_attempt_hvg_nebula_res_reml_t
 ```
 ###### REML with rounded counts & pooled offset
 
-```{r echo = F}
+```{r echo = F, eval = F}
 counts_hvg_ic <- round(GetAssayData(attempt_so_hvg_ic, layer = "counts")) # load counts and round
 genes_list <- rownames(counts_hvg_ic)
 
@@ -3689,7 +3809,7 @@ s3$upload_file(temp_file, "attempt", 'EC/nebula/ec_attempt_hvg_nebula_res_reml_t
 ```
 ###### REML with rounded counts & pooled offset
 
-```{r echo = F}
+```{r echo = F, eval = F}
 counts_hvg_ec <- round(GetAssayData(attempt_so_hvg_ec, layer = "counts")) # load counts and round
 genes_list <- rownames(counts_hvg_ec)
 
@@ -4212,7 +4332,7 @@ s3$upload_file(temp_file, "attempt", 'FIBVSMCP/nebula/fibvsmc_attempt_hvg_nebula
 ```
 ###### REML with rounded counts & pooled offset
 
-```{r echo = F}
+```{r echo = F, eval = F}
 counts_hvg_fibvsmc <- round(GetAssayData(attempt_so_hvg_fibvsmc, layer = "counts")) # load counts and round
 genes_list <- rownames(counts_hvg_fibvsmc)
 
