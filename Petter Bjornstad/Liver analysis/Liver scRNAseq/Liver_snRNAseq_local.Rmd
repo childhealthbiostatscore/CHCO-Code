@@ -543,22 +543,27 @@ ncol(so_celltype) #130124 nuclei
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
-rm(so_celltype)
+# # Subset Seurat object to only HVGs
+# # so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# subset_counts <- GetAssayData(so_celltype, layer = "counts")[hvgs, ]
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+# rm(so_celltype)
 ```
 
 ### i. NEBULA
 #### Unadjusted
 ```{r}
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
+
 #Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
 
 #Round counts layer for nb
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
 
 # List of genes
 genes_list <- rownames(counts_hvg)
@@ -577,7 +582,7 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype_hvg,features=g)@meta.data
+    meta_gene <- subset(so_celltype,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
     # library <- meta_gene$pooled_offset
      library <- meta_gene$pooled_offset
@@ -735,6 +740,7 @@ png(fs::path(dir.results, "Plot_NEBULA_Hepatocytes_Steatosis_unadjusted_2000.png
 print(volcano_plot)
 dev.off()
 ```
+
 ### iii. GSEA
 ```{r echo = F}
 full_results <- read.csv(fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
@@ -1216,6 +1222,9 @@ ggplot(df, aes(x = MTOR, fill = steatosis_cat)) +
 #Filter to PT Cells
 so_celltype <- subset(so_liver_sn,celltype=="Hep-1")
 DefaultAssay(so_celltype) <- "RNA" 
+so_celltype@assays
+head(GetAssayData(so_celltype, layer = "counts")[, 1:5])  # Raw counts
+head(GetAssayData(so_celltype, layer = "data")[, 1:5])  
 
 nrow(so_celltype) #11300 genes
 ncol(so_celltype) #24808 nuclei
@@ -1224,29 +1233,28 @@ ncol(so_celltype) #24808 nuclei
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
+# # Subset Seurat object to only HVGs
+# so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+
 ```
 
 ### i. NEBULA
 ```{r}
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
+
 #Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
 
 #Round counts layer for nb
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
 
 # List of genes
 genes_list <- rownames(counts_hvg)
-# # count_gene <- counts_hvg[g, , drop = FALSE]
-# meta_gene_hvg <- .subset(so_celltype_hvg,features=g)@meta.data
-# id <- meta_gene_hvg$Kit_Lot
-# pred_gene_hvg <- model.matrix(~steatosis_cat, data = meta_gene_hvg)
-# data_g_hvg = list(count = counts_hvg, id = id, pred = pred_gene_hvg)
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
 # With parallelization
 cl <- makeCluster(20)
@@ -1257,9 +1265,10 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- .subset(so_celltype_hvg,features=g)@meta.data
+    meta_gene <- subset(so_celltype,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$pooled_offset
+    # library <- meta_gene$pooled_offset
+     library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
