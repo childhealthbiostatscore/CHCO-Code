@@ -248,9 +248,10 @@ dat <- dat %>%
 length(unique(dat$mrn))#113
 length(unique(dat$record_id))#130
 
+
 #Filter to those NOT on SGLT2s
-dat <- dat %>% 
-  filter(epic_sglti2_1=="No")
+#dat <- dat %>% 
+#  filter(epic_sglti2_1=="No")
 length(unique(dat$mrn))#50
 length(unique(dat$record_id))#52
 
@@ -283,11 +284,54 @@ table(dat$group,dat$epic_sglti2_1)
   # Lean Control    13
   # Type 2 Diabetes 18
 
+
+strange_dat <- dat %>% filter(bmi <= 24 | hba1c <= 5) %>% filter(epic_sglti2_1 == 'No')
+
+
+table(strange_dat$study,strange_dat$group)
+  #               Lean Control Type 2 Diabetes
+  # CROCODILE                 9              0
+  # RENAL-HEIRitage            0               1
+
+strange_dat <- dat %>% filter(bmi <= 24 | hba1c <= 5) %>% filter(epic_sglti2_1 == 'No') %>% 
+  filter(group == 'Type 2 Diabetes')
+
+strange_dat %>% dplyr::select(mrn, record_id, epic_sglti2_1, group, hba1c, bmi, sex, age)
+
+#investigate participant
+RH2_55 <- harmonized_data %>% filter(mrn == 2204106)
+
+
+
+medications <- readxl::read_xlsx("C:/Users/netio/Documents/Harmonized_data/Biopsies_w_mrn_Oct3.xlsx")
+medications <- medications %>% dplyr::select(mrn, ends_with('_1'), -starts_with('ever_'))
+names(medications) <- str_replace(names(medications), pattern = '_1', replacement = '')
+
+RH2_55_meds <- medications %>% filter(mrn == 2204106)
+RH2_55_meds
+
+med_desc <- readxl::read_xlsx('C:/Users/netio/Documents/Harmonized_data/Biopsies_w_mrn_Oct3.xlsx', sheet = 2, col_names=F)
+med_desc <- med_desc[seq(from = 1, to = 57, by =4),]
+names(med_desc) <- c('Medication', 'Description')
+med_desc$Medication <- str_replace(med_desc$Medication, pattern='_1', replacement = '')
+
+
+
+
+
 length(unique(dat$mrn)) #91 LC and T2D at baseline
 length(unique(dat$record_id)) #25 no med
 length(unique(which(dat$group=="Lean Control"))) #13
 length(unique(which(dat$group=="Type 2 Diabetes"))) #18
-table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_sglti2_1+epic_glp1ra_1| group,data=dat)
+
+
+
+dat <- dat %>% mutate(group2 = ifelse(group == 'Lean Control', 'Lean Control', 
+                                      ifelse(epic_sglti2_1 == 'Yes', 'T2D-SGLTi2', 'T2D-No SGLTi2')))
+
+
+
+table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_sglti2_1+epic_glp1ra_1| group2,data=dat)
 dat$record_id
 #Double check for any missing improve/renal heir coenrolled participants
 dat2 <- harmonized_data %>%
