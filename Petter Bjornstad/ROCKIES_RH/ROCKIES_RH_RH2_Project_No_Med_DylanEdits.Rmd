@@ -18,6 +18,50 @@ output: html_document
 #Load libraries
 source("Libraries.R")
 
+library(scran)
+library(future)
+library(future.apply)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(msigdbr)
+library(kableExtra)
+library(knitr)
+library(REDCapR)
+library(data.table)
+library(emmeans)
+library(NMF)
+library(pheatmap)
+library(UpSetR)
+library(enrichR)
+library(WriteXLS)
+library(SAVER)
+library(readxl)
+library(limma)
+library(edgeR)
+library(BiocGenerics)
+library(GSEABase)
+library(slingshot)
+library(SingleCellExperiment)
+library(MAST)
+library(muscat)
+library(scater)
+library(Seurat)
+library(jsonlite)
+library(dplyr)
+library(glmmTMB)
+library(reshape2)
+library(broom.mixed)
+library(nebula)
+
+
+
 #Set number of cores for parallellization
 #maxCores <- detectCores()
 #numCores <- maxCores-1
@@ -215,18 +259,16 @@ harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","
 # length(unique(which(dat$group=="Lean Control"))) #9
 # length(unique(which(dat$group=="Type 2 Diabetes"))) #20
 
+harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
 
 
-
-
-harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
-
-
-dat <- harmonized_data %>%
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
   arrange(screen_date) %>% 
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(record_id, visit))
+
+
 length(unique(dat$mrn))#467
 length(unique(dat$record_id))#644
 
@@ -331,8 +373,57 @@ dat <- dat %>% mutate(group2 = ifelse(group == 'Lean Control', 'Lean Control',
 
 
 
-table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_sglti2_1+epic_glp1ra_1| group2,data=dat)
+table1::table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_sglti2_1+epic_glp1ra_1| group2,data=dat)
 dat$record_id
+
+
+ids <- c(dat$kit_id)
+so_kpmp_sc <- subset(so_kpmp_sc, kit_id %in% ids)
+length(unique(so_kpmp_sc$kit_id))#29
+unique(so_kpmp_sc$kit_id)
+unique(so_kpmp_sc$record_id)
+
+#Select metadata from seurat object to facilitate merge of new metadata into seurat object
+meta_kidney_sc <-  so_kpmp_sc@meta.data
+rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
+
+#Merge metadata from 83 participants at baseline into seurat object metadata
+meta_kidney_sc <- meta_kidney_sc %>%
+  left_join(dat,by="kit_id")
+rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
+
+#Merge metadata back into seurat object
+so_kpmp_sc <- AddMetaData(so_kpmp_sc, meta_kidney_sc)
+
+#Check number of unique ids
+length(unique(so_kpmp_sc$kit_id)) #should be 29
+# unique(ids[which(!ids %in% so_kpmp_sc$kit_id)]) 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #Double check for any missing improve/renal heir coenrolled participants
 dat2 <- harmonized_data %>%
   arrange(screen_date) %>% 
