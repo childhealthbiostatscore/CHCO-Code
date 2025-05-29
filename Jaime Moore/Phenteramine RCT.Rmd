@@ -241,6 +241,28 @@ simp_AE$Record.ID <- ifelse(simp_AE$Record.ID == "002", "0002", simp_AE$Record.I
 simp_AE$Record.ID <- ifelse(simp_AE$Record.ID == "045", "45", simp_AE$Record.ID)
 
 # diet diary
+# dd <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/PilotRCTPhentermineT-LPDietDiary_DATA_2024-12-15_2011.csv")
+# dd <- dd %>% filter(!is.na(dds_id) & !(dds_id == ""))
+# dd$Record.ID <- dd$record_id
+# dd <- dd %>% select(Record.ID, redcap_event_name, dds_kcal)
+# dd$Record.ID <- str_pad(dd$Record.ID, 3, pad = "0")
+# dd$Record.ID <- ifelse(dd$Record.ID == "002", "0002", dd$Record.ID)
+# dd$Record.ID <- ifelse(dd$Record.ID == "045", "45", dd$Record.ID)
+# dd_summary <- dd %>% group_by(Record.ID, redcap_event_name) %>% summarise(mean_kcal = mean(dds_kcal))
+# dd_wide <- data.frame(unique(dd_summary$Record.ID))
+# times <- unique(dd$redcap_event_name)
+# for (t in times) {
+#   values <- dd_summary$mean_kcal[dd_summary$redcap_event_name == t]
+#   dd_wide <- cbind(dd_wide, values)
+# }
+# # Renaming of columns
+# colnames(dd_wide)[-1] <- paste0("mean_kcal_", times)
+# colnames(dd_wide)[1] <- "Record.ID"
+#dd_summary <- dd %>% group_by(Record.ID, redcap_event_name) %>% summarise(mean_kcal = mean(dds_kcal), .groups = "drop")
+
+#####
+# testing with Claude
+
 dd <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/PilotRCTPhentermineT-LPDietDiary_DATA_2024-12-15_2011.csv")
 dd <- dd %>% filter(!is.na(dds_id) & !(dds_id == ""))
 dd$Record.ID <- dd$record_id
@@ -248,17 +270,20 @@ dd <- dd %>% select(Record.ID, redcap_event_name, dds_kcal)
 dd$Record.ID <- str_pad(dd$Record.ID, 3, pad = "0")
 dd$Record.ID <- ifelse(dd$Record.ID == "002", "0002", dd$Record.ID)
 dd$Record.ID <- ifelse(dd$Record.ID == "045", "45", dd$Record.ID)
-dd_summary <- dd %>% group_by(Record.ID, redcap_event_name) %>% summarise(mean_kcal = mean(dds_kcal))
-dd_wide <- data.frame(unique(dd_summary$Record.ID))
-times <- unique(dd$redcap_event_name)
-for (t in times) {
-  values <- dd_summary$mean_kcal[dd_summary$redcap_event_name == t]
-  dd_wide <- cbind(dd_wide, values)
-}
-# Renaming of columns
-colnames(dd_wide)[-1] <- paste0("mean_kcal_", times)
-colnames(dd_wide)[1] <- "Record.ID"
-dd_wide$delta_mean_kcal <- dd_wide$mean_kcal_study_visit_4_arm_1 - dd_wide$mean_kcal_study_visit_1_arm_1
+
+# Try using aggregate instead of dplyr summarise
+dd_summary <- aggregate(dds_kcal ~ Record.ID + redcap_event_name, 
+                       data = dd, 
+                       FUN = mean, 
+                       na.rm = TRUE)
+colnames(dd_summary)[3] <- "mean_kcal"
+
+# Then pivot
+dd_wide <- dd_summary %>%
+  pivot_wider(names_from = redcap_event_name, 
+              values_from = mean_kcal,
+              names_prefix = "mean_kcal_")
+####
 
 # create dataframe for Table 2
 t2_data <- t1_data %>% select(Record.ID, topdose_tolerated, phentdose_tolerated, randomization_grp)
@@ -334,6 +359,8 @@ labs_long_003 <- labs_long_003 %>% group_by(Record.ID, redcap_event_name) %>% su
                                                                      labs_alt = mean(labs_alt),
                                                                      labs_a1c = mean(labs_a1c),
                                                                      labs_trig = mean(labs_trig))
+labs_long_003$Record.ID <- "003"
+labs_long_003$redcap_event_name <- "study_visit_2_arm_1" 
 labs_long$labs_date <- NULL
 labs_long <- rbind(labs_long, labs_long_003)
 labs_long <- labs_long %>% arrange(Record.ID, redcap_event_name)
@@ -404,21 +431,29 @@ cssrs$pos_screen <- ifelse(is.na(cssrs$cssrs_1a) | is.na(cssrs$cssrs_2a) | is.na
                            ifelse(cssrs$cssrs_1a == 1 | cssrs$cssrs_2a == 1 | cssrs$cssrs_6a == 1, 1, 0))
 cssrs$Record.ID <- cssrs$record_id
 cssrs_long <- cssrs %>% select(Record.ID, cssrs_dateofvisit, redcap_event_name, pos_screen)
-cssrs_long <- cssrs_long %>% group_by(Record.ID, redcap_event_name) %>% summarise(pos_screen = max(pos_screen)) %>% ungroup(Record.ID)
+cssrs_long <- cssrs_long %>% group_by(Record.ID, redcap_event_name) %>% mutate(pos_screen = max(pos_screen)) %>% ungroup()
 cssrs_long$visnum <- ifelse(cssrs_long$redcap_event_name == "screeningenrollmen_arm_1", 0, 
                             ifelse(cssrs_long$redcap_event_name == "study_visit_1_arm_1", 1,
                             ifelse(cssrs_long$redcap_event_name == "study_visit_2_arm_1", 2,
                             ifelse(cssrs_long$redcap_event_name == "study_visit_3_arm_1", 3, 4))))
-cssrs_long <- cssrs_long %>% complete(redcap_event_name, nesting(Record.ID))
-cssrs_wide <- data.frame(unique(cssrs_long$Record.ID))
-times <- unique(cssrs_long$redcap_event_name)
-for (t in times) {
-  values <- cssrs_long$pos_screen[cssrs_long$redcap_event_name == t]
-  cssrs_wide <- cbind(cssrs_wide, values)
-}
+# old syntax broke
+#cssrs_long <- cssrs_long %>% complete(redcap_event_name, nesting(Record.ID))
+#cssrs_long <- cssrs_long %>% complete(Record.ID, redcap_event_name)
+#cssrs_wide <- data.frame(unique(cssrs_long$Record.ID))
+#times <- unique(cssrs_long$redcap_event_name)
+#for (t in times) {
+#  values <- cssrs_long$pos_screen[cssrs_long$redcap_event_name == t]
+#  cssrs_wide <- cbind(cssrs_wide, values)
+#}
+cssrs_wide <- cssrs_long %>%
+  select(Record.ID, redcap_event_name, pos_screen) %>%
+  pivot_wider(names_from = redcap_event_name, 
+              values_from = pos_screen,
+              values_fn = max,  # in case of duplicates, take the max
+              names_prefix = "pos_screen_")
 # Renaming of columns
-colnames(cssrs_wide)[-1] <- paste0("pos_screen_", times)
-colnames(cssrs_wide)[1] <- "Record.ID"
+#colnames(cssrs_wide)[-1] <- paste0("pos_screen_", times)
+#colnames(cssrs_wide)[1] <- "Record.ID"
 
 cssrs_wide$pos_CSSRS_v1_v4 <- as.factor(ifelse(cssrs_wide$pos_screen_study_visit_1_arm_1 == 1 | cssrs_wide$pos_screen_study_visit_2_arm_1 == 1 | cssrs_wide$pos_screen_study_visit_3_arm_1 == 1| cssrs_wide$pos_screen_study_visit_4_arm_1 == 1, 1, 
                                       ifelse(is.na(cssrs_wide$pos_screen_study_visit_1_arm_1) | is.na(cssrs_wide$pos_screen_study_visit_2_arm_1) | is.na(cssrs_wide$pos_screen_study_visit_3_arm_1) | is.na(cssrs_wide$pos_screen_study_visit_4_arm_1), NA, 0)))
