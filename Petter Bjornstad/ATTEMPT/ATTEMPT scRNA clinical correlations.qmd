@@ -23,7 +23,6 @@ library(patchwork)
 library(UpSetR)
 library(readxl)
 library(fgsea)
-library(ReactomeGSA)
 library(GSEABase)
 library(enrichplot)
 library(enrichR)
@@ -32,30 +31,3131 @@ library(forcats)
 library(stringr)
 ```
 
+
+```{r include = F}
+reticulate::use_python("/mmfs1/gscratch/scrubbed/yejichoi/mypy/bin/python", required = T)
+reticulate::repl_python()
+reticulate::py_config()
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+```{r echo = F}
+# Read in clean seurat object saved from above
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("attempt", 'cleaned_data/attempt_clean_so.rds', temp_file)
+attempt_so <- readRDS(temp_file)
+```
+
+```{r echo = F, include=F, eval = F}
+# read ATTEMPT Seurat file
+temp_file <- tempfile(fileext = ".RDS")
+s3$download_file("scrna", "Kidney transcriptomics/Single cell RNA seq/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS", temp_file)
+attempt_so <- readRDS(temp_file)
+
+# calculate cell library size for offset
+
+# Identify mitochondrial genes
+mito_genes <- grep("^MT-", rownames(attempt_so), value = TRUE)
+
+# Calculate the percentage of mitochondrial transcripts per cell
+attempt_so[["percent.mt"]] <- PercentageFeatureSet(attempt_so, pattern = "^MT-")
+hist(attempt_so$percent.mt)
+# FeaturePlot(attempt_so, reduction = "umap.harmony", features = "percent.mt", cols = c("lightgray", "blue"), raster = F)
+# DimPlot(attempt_so, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
+# DimPlot(attempt_so, reduction = "umap.harmony", group.by = "celltype", raster = F, alpha = 0.2, label = T)
+
+# Identify ribosomal genes
+ribo_genes <- c(
+  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
+  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
+  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
+  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
+  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
+  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
+  "RPL10", "RPS4Y1"
+) # grep("^RPL|^RPS", rownames(attempt_so), value = TRUE) captures some none ribosomal genes
+attempt_so[["percent.ribo"]] <- PercentageFeatureSet(attempt_so, features = ribo_genes)
+hist(attempt_so$percent.ribo)
+
+# attempt_so <- subset(attempt_so, subset = percent.mt < 50) # keep as 50%, it's how it's done with KPMP
+FeaturePlot(attempt_so, reduction = "umap.harmony", features = "percent.mt", cols = c("lightgray", "blue"), raster = F)
+DimPlot(attempt_so, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
+DimPlot(attempt_so, reduction = "umap.harmony", group.by = "celltype", raster = F, alpha = 0.2, label = T)
+
+attempt_so <- subset(attempt_so, features = setdiff(rownames(attempt_so), mito_genes)) # remove MT- genes
+attempt_so <- subset(attempt_so, features = setdiff(rownames(attempt_so), ribo_genes)) # remove ribosomal genes
+
+expr_matrix <- as.matrix(GetAssayData(attempt_so, layer = "data"))
+# Calculate the proportion of cells expressing each gene
+num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
+total_cells <- ncol(expr_matrix)  # Total number of cells
+gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
+length(gene_proportion) # 30625
+# Keep genes expressed in at least 5% of cells
+genes_to_keep <- names(gene_proportion[gene_proportion  >= 0.05])
+length(genes_to_keep) # 8672 ( ~ 28.3% remaining)
+
+remove(expr_matrix)
+attempt_so <- subset(attempt_so, features = genes_to_keep)
+
+# renormalize after filtering
+attempt_so <- NormalizeData(attempt_so)
+```
+
+```{r echo = F, include=F, eval = F}
+# # calculate cell library size for offset in NEBULA
+counts_layer <- round(GetAssayData(attempt_so, layer = "counts"))
+library_size <- Matrix::colSums(counts_layer)
+attempt_so$library_size <- library_size
+
+# TMM offset
+dge <- DGEList(counts = counts_layer)
+dge <- calcNormFactors(dge, method = "TMM")
+tmm_offset <- (dge$samples$lib.size) * (dge$samples$norm.factors)
+attempt_so$tmm_offset <- tmm_offset
+
+# Pooled offset
+bp <- MulticoreParam(workers = 63)
+sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+# sce <- computeSumFactors(sce)
+sce <- computeSumFactors(sce, BPPARAM = bp)
+# Calculate offset → (size factors)
+pooled_offset <- (sizeFactors(sce))
+attempt_so$pooled_offset <- pooled_offset
+```
+
+```{r echo = F, include=F, eval = F}
+# clinical data read (from Antoine, contains treatment arm information)
+temp_file <- tempfile(fileext = ".RDS")
+s3$download_file("harmonized.dataset", "attempt_clinical_data.RDS", temp_file)
+attempt_dat <- readRDS(temp_file)
+
+# another clinical dataset from Antoine (merged version)
+temp_file <- tempfile(fileext = ".RData")
+s3$download_file("attempt", "Clinical Data/ATTEMPT_AC.RData", temp_file)
+load(temp_file)
+attempt_dat2 <- merged_data
+attempt_dat2[attempt_dat2 == ""] <- NA
+attempt_dat2 <- attempt_dat2 %>%
+  dplyr::mutate(visit = case_when(visit == "baseline" ~ "PRE", 
+                                  visit == "4_months_post" ~ "POST"),
+                record_id = as.integer(record_id)) %>%
+  rename(record_id = "subject_id",
+         treatment_arm = "treatment")
+```
+
+```{r echo = F, include=F, eval = F}
+# modify seurat object meta data with additional data from external sources
+attempt_so_meta <- attempt_so@meta.data %>%
+  mutate(subject_id = Subject.ID,
+         visit = case_when(Visit == "BL" ~ "PRE", 
+                           Visit == "4M" ~ "POST"))
+
+attempt_so_meta <- left_join(attempt_so_meta, attempt_dat) %>%
+  dplyr::select(-c(sex, demographics_complete, hct, age, ethnicity, randomization_order, randomization_date, randomization_time, treatment,
+randomization_user, randomization_site, randomization_filtration_status)) %>%
+  left_join(attempt_dat2)
+```
+
+```{r echo = F, include=F, eval = F}
+# calculate delta's for each variable of interest
+delta_df <-  attempt_so_meta %>%
+  group_by(subject_id) %>%
+  summarise(gfr_post = mean(gfr_bsa_plasma[visit == "POST"]),
+            gfr_pre  = mean(gfr_bsa_plasma[visit == "PRE"]),
+            gfr_bsa_plasma_delta = gfr_post - gfr_pre,
+            gfr_raw_post = mean(gfr_raw_plasma[visit == "POST"]),
+            gfr_raw_pre  = mean(gfr_raw_plasma[visit == "PRE"]),
+            gfr_raw_plasma_delta = gfr_raw_post - gfr_raw_pre,
+            hba1c_post = mean(hba1c[visit == "POST"]),
+            hba1c_pre  = mean(hba1c[visit == "PRE"]),
+            hba1c_delta = hba1c_post - hba1c_pre,
+            weight_post = mean(weight[visit == "POST"]),
+            weight_pre  = mean(weight[visit == "PRE"]),
+            weight_delta = weight_post - weight_pre,
+            avg_c_r2_post = mean(avg_c_r2[visit == "POST"]),
+            avg_c_r2_pre  = mean(avg_c_r2[visit == "PRE"]),
+            avg_c_r2_delta = avg_c_r2_post - avg_c_r2_pre,
+            avg_k_r2_post = mean(avg_k_r2[visit == "POST"]),
+            avg_k_r2_pre  = mean(avg_k_r2[visit == "PRE"]),
+            avg_k_r2_delta = avg_k_r2_post - avg_k_r2_pre,
+            .groups = "drop") %>%
+  dplyr::select(subject_id, ends_with("_delta"))
+delta_df[delta_df == 0] <- NA # not truly zero
+delta_df[is.nan(delta_df)] <- NA
+
+attempt_so_meta <- left_join(attempt_so_meta, delta_df)
+```
+
+```{r echo = F, include=F, eval = F}
+rownames(attempt_so_meta) <- attempt_so_meta$barcode
+attempt_so <- AddMetaData(attempt_so, attempt_so_meta)
+
+attempt_so$visit <- factor(attempt_so$visit, levels = c("PRE", "POST"))
+attempt_so$treatment <- factor(attempt_so$treatment, levels = c("Placebo", "Dapagliflozin 5mg"),
+                                  labels = c("Placebo", "Dapagliflozin"))
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(attempt_so, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'cleaned_data/attempt_clean_so.rds')
+
+options(future.globals.maxSize = 3000 * 1024^3)
+```
+
 ### PT
+
 ```{r echo = F}
-# nebula results with pooled offset
-nebula_pt_results_list_reml_pooled <- readRDS("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pt_attempt_hvg_nebula_res_reml_pooled.rds")
+attempt_so$celltype_pt <- ifelse(grepl("PT-", attempt_so$celltype),
+                                 "PT", as.character(attempt_so$celltype))
+attempt_so_pt <- subset(attempt_so, celltype_pt == "PT" & celltype != "PT_lowQuality")
+```
 
-# clinical data red
-dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = c(" ", "", "-9999",-9999))
+```{r echo = F}
+attempt_so_pt <- FindVariableFeatures(attempt_so_pt, selection.method = "vst", nfeatures = 2000)
+hvgs_pt <- VariableFeatures(attempt_so_pt)
 
-attempt_dat <- dat %>%
-  filter(study == "ATTEMPT") %>%
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id, visit)) %>%
-  mutate(race_ethnicity_condensed = case_when(race == "White" & 
-                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
-                                              race == "Black or African American" & 
-                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
-                                              ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
-                                              T ~ "Not Hispanic or Latino Other"),
-         sglt2i_ever = case_when(group == "Lean Control" ~ "No", T~ sglt2i_ever))
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+attempt_so_hvg_pt <- subset(attempt_so_pt, features = hvgs_pt)
+```
+
+#### mGFR (Raw)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_raw_plasma_delta
+attempt_so_hvg_pt_meta <- attempt_so_hvg_pt@meta.data
+attempt_so_hvg_pt_nonmissing_names <- rownames(attempt_so_hvg_pt_meta)[!is.na(attempt_so_hvg_pt_meta$gfr_raw_plasma_delta)]
+attempt_so_hvg_pt_nonmissing <- attempt_so_hvg_pt[, attempt_so_hvg_pt_nonmissing_names, drop = FALSE]
+counts_hvg_pt_nonmissing <- round(GetAssayData(attempt_so_hvg_pt_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pt)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pt_mgfr_raw_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pt_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pt_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_raw_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pt_mgfr_raw_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pt_mgfr_raw_pooled) <- sapply(pt_mgfr_raw_pooled, function(x) x$gene)  # set names
+pt_mgfr_raw_pooled <- lapply(pt_mgfr_raw_pooled, function(x) x$result)  # clean list back to just results
+pt_mgfr_raw_pooled <- Filter(Negate(is.null), pt_mgfr_raw_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pt_mgfr_raw_filtered <- (length(genes_list)-length(pt_mgfr_raw_pooled))/length(genes_list)
+print(paste0(pt_mgfr_raw_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_mgfr_raw_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_raw/pt_attempt_nebula_mgfr_raw.rds')
+```
+
+#### mGFR (BSA)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_bsa_plasma_delta
+attempt_so_hvg_pt_meta <- attempt_so_hvg_pt@meta.data
+attempt_so_hvg_pt_nonmissing_names <- rownames(attempt_so_hvg_pt_meta)[!is.na(attempt_so_hvg_pt_meta$gfr_bsa_plasma_delta)]
+attempt_so_hvg_pt_nonmissing <- attempt_so_hvg_pt[, attempt_so_hvg_pt_nonmissing_names, drop = FALSE]
+counts_hvg_pt_nonmissing <- round(GetAssayData(attempt_so_hvg_pt_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pt)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pt_mgfr_bsa_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pt_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pt_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_bsa_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pt_mgfr_bsa_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pt_mgfr_bsa_pooled) <- sapply(pt_mgfr_bsa_pooled, function(x) x$gene)  # set names
+pt_mgfr_bsa_pooled <- lapply(pt_mgfr_bsa_pooled, function(x) x$result)  # clean list back to just results
+pt_mgfr_bsa_pooled <- Filter(Negate(is.null), pt_mgfr_bsa_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pt_mgfr_bsa_filtered <- (length(genes_list)-length(pt_mgfr_bsa_pooled))/length(genes_list)
+print(paste0(pt_mgfr_bsa_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_mgfr_bsa_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_bsa/pt_attempt_nebula_mgfr_bsa.rds')
+```
+
+#### HbA1c
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing hba1c_delta
+attempt_so_hvg_pt_meta <- attempt_so_hvg_pt@meta.data
+attempt_so_hvg_pt_nonmissing_names <- rownames(attempt_so_hvg_pt_meta)[!is.na(attempt_so_hvg_pt_meta$hba1c_delta)]
+attempt_so_hvg_pt_nonmissing <- attempt_so_hvg_pt[, attempt_so_hvg_pt_nonmissing_names, drop = FALSE]
+counts_hvg_pt_nonmissing <- round(GetAssayData(attempt_so_hvg_pt_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pt)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pt_hba1c_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pt_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pt_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~hba1c_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pt_hba1c_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pt_hba1c_pooled) <- sapply(pt_hba1c_pooled, function(x) x$gene)  # set names
+pt_hba1c_pooled <- lapply(pt_hba1c_pooled, function(x) x$result)  # clean list back to just results
+pt_hba1c_pooled <- Filter(Negate(is.null), pt_hba1c_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pt_hba1c_filtered <- (length(genes_list)-length(pt_hba1c_pooled))/length(genes_list)
+print(paste0(pt_hba1c_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_hba1c_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/hba1c/pt_attempt_nebula_hba1c.rds')
+```
+
+#### Weight
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing weight_delta
+attempt_so_hvg_pt_meta <- attempt_so_hvg_pt@meta.data
+attempt_so_hvg_pt_nonmissing_names <- rownames(attempt_so_hvg_pt_meta)[!is.na(attempt_so_hvg_pt_meta$weight_delta)]
+attempt_so_hvg_pt_nonmissing <- attempt_so_hvg_pt[, attempt_so_hvg_pt_nonmissing_names, drop = FALSE]
+counts_hvg_pt_nonmissing <- round(GetAssayData(attempt_so_hvg_pt_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pt)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pt_weight_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pt_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pt_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~weight_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pt_weight_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pt_weight_pooled) <- sapply(pt_weight_pooled, function(x) x$gene)  # set names
+pt_weight_pooled <- lapply(pt_weight_pooled, function(x) x$result)  # clean list back to just results
+pt_weight_pooled <- Filter(Negate(is.null), pt_weight_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pt_weight_filtered <- (length(genes_list)-length(pt_weight_pooled))/length(genes_list)
+print(paste0(pt_weight_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_weight_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/weight/pt_attempt_nebula_weight.rds')
+```
+
+#### Avg cortical R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_c_r2_delta
+attempt_so_hvg_pt_meta <- attempt_so_hvg_pt@meta.data
+attempt_so_hvg_pt_nonmissing_names <- rownames(attempt_so_hvg_pt_meta)[!is.na(attempt_so_hvg_pt_meta$avg_c_r2_delta)]
+attempt_so_hvg_pt_nonmissing <- attempt_so_hvg_pt[, attempt_so_hvg_pt_nonmissing_names, drop = FALSE]
+counts_hvg_pt_nonmissing <- round(GetAssayData(attempt_so_hvg_pt_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pt)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pt_avg_c_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pt_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pt_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_c_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pt_avg_c_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pt_avg_c_r2_pooled) <- sapply(pt_avg_c_r2_pooled, function(x) x$gene)  # set names
+pt_avg_c_r2_pooled <- lapply(pt_avg_c_r2_pooled, function(x) x$result)  # clean list back to just results
+pt_avg_c_r2_pooled <- Filter(Negate(is.null), pt_avg_c_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pt_avg_c_r2_filtered <- (length(genes_list)-length(pt_avg_c_r2_pooled))/length(genes_list)
+print(paste0(pt_avg_c_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_avg_c_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_c_r2/pt_attempt_nebula_avg_c_r2.rds')
 ```
 
 
-# nebula results to clinical variables
-```{r echo = F}
+#### Avg kidney R2*
 
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_k_r2_delta
+attempt_so_hvg_pt_meta <- attempt_so_hvg_pt@meta.data
+attempt_so_hvg_pt_nonmissing_names <- rownames(attempt_so_hvg_pt_meta)[!is.na(attempt_so_hvg_pt_meta$avg_k_r2_delta)]
+attempt_so_hvg_pt_nonmissing <- attempt_so_hvg_pt[, attempt_so_hvg_pt_nonmissing_names, drop = FALSE]
+counts_hvg_pt_nonmissing <- round(GetAssayData(attempt_so_hvg_pt_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pt)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pt_avg_k_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pt_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pt_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_k_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pt_avg_k_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pt_avg_k_r2_pooled) <- sapply(pt_avg_k_r2_pooled, function(x) x$gene)  # set names
+pt_avg_k_r2_pooled <- lapply(pt_avg_k_r2_pooled, function(x) x$result)  # clean list back to just results
+pt_avg_k_r2_pooled <- Filter(Negate(is.null), pt_avg_k_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pt_avg_k_r2_filtered <- (length(genes_list)-length(pt_avg_k_r2_pooled))/length(genes_list)
+print(paste0(pt_avg_k_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_avg_k_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_k_r2/pt_attempt_nebula_avg_k_r2.rds')
 ```
+
+### TAL
+
+```{r echo = F}
+attempt_so$celltype_tal <- ifelse(grepl("TAL-", attempt_so$celltype),
+                                 "TAL", as.character(attempt_so$celltype))
+attempt_so_tal <- subset(attempt_so, celltype_tal == "TAL" & celltype != "TAL_highUMI")
+```
+
+```{r echo = F}
+attempt_so_tal <- FindVariableFeatures(attempt_so_tal, selection.method = "vst", nfeatures = 2000)
+hvgs_tal <- VariableFeatures(attempt_so_tal)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+attempt_so_hvg_tal <- subset(attempt_so_tal, features = hvgs_tal)
+```
+
+#### mGFR (Raw)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_raw_plasma_delta
+attempt_so_hvg_tal_meta <- attempt_so_hvg_tal@meta.data
+attempt_so_hvg_tal_nonmissing_names <- rownames(attempt_so_hvg_tal_meta)[!is.na(attempt_so_hvg_tal_meta$gfr_raw_plasma_delta)]
+attempt_so_hvg_tal_nonmissing <- attempt_so_hvg_tal[, attempt_so_hvg_tal_nonmissing_names, drop = FALSE]
+counts_hvg_tal_nonmissing <- round(GetAssayData(attempt_so_hvg_tal_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_tal)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+tal_mgfr_raw_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_tal_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_tal_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_raw_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in tal_mgfr_raw_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(tal_mgfr_raw_pooled) <- sapply(tal_mgfr_raw_pooled, function(x) x$gene)  # set names
+tal_mgfr_raw_pooled <- lapply(tal_mgfr_raw_pooled, function(x) x$result)  # clean list back to just results
+tal_mgfr_raw_pooled <- Filter(Negate(is.null), tal_mgfr_raw_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+tal_mgfr_raw_filtered <- (length(genes_list)-length(tal_mgfr_raw_pooled))/length(genes_list)
+print(paste0(tal_mgfr_raw_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(tal_mgfr_raw_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_raw/tal_attempt_nebula_mgfr_raw.rds')
+```
+
+#### mGFR (BSA)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_bsa_plasma_delta
+attempt_so_hvg_tal_meta <- attempt_so_hvg_tal@meta.data
+attempt_so_hvg_tal_nonmissing_names <- rownames(attempt_so_hvg_tal_meta)[!is.na(attempt_so_hvg_tal_meta$gfr_bsa_plasma_delta)]
+attempt_so_hvg_tal_nonmissing <- attempt_so_hvg_tal[, attempt_so_hvg_tal_nonmissing_names, drop = FALSE]
+counts_hvg_tal_nonmissing <- round(GetAssayData(attempt_so_hvg_tal_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_tal)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+tal_mgfr_bsa_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_tal_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_tal_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_bsa_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in tal_mgfr_bsa_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(tal_mgfr_bsa_pooled) <- sapply(tal_mgfr_bsa_pooled, function(x) x$gene)  # set names
+tal_mgfr_bsa_pooled <- lapply(tal_mgfr_bsa_pooled, function(x) x$result)  # clean list back to just results
+tal_mgfr_bsa_pooled <- Filter(Negate(is.null), tal_mgfr_bsa_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+tal_mgfr_bsa_filtered <- (length(genes_list)-length(tal_mgfr_bsa_pooled))/length(genes_list)
+print(paste0(tal_mgfr_bsa_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(tal_mgfr_bsa_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_bsa/tal_attempt_nebula_mgfr_bsa.rds')
+```
+
+#### HbA1c
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing hba1c_delta
+attempt_so_hvg_tal_meta <- attempt_so_hvg_tal@meta.data
+attempt_so_hvg_tal_nonmissing_names <- rownames(attempt_so_hvg_tal_meta)[!is.na(attempt_so_hvg_tal_meta$hba1c_delta)]
+attempt_so_hvg_tal_nonmissing <- attempt_so_hvg_tal[, attempt_so_hvg_tal_nonmissing_names, drop = FALSE]
+counts_hvg_tal_nonmissing <- round(GetAssayData(attempt_so_hvg_tal_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_tal)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+tal_hba1c_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_tal_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_tal_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~hba1c_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in tal_hba1c_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(tal_hba1c_pooled) <- sapply(tal_hba1c_pooled, function(x) x$gene)  # set names
+tal_hba1c_pooled <- lapply(tal_hba1c_pooled, function(x) x$result)  # clean list back to just results
+tal_hba1c_pooled <- Filter(Negate(is.null), tal_hba1c_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+tal_hba1c_filtered <- (length(genes_list)-length(tal_hba1c_pooled))/length(genes_list)
+print(paste0(tal_hba1c_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(tal_hba1c_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/hba1c/tal_attempt_nebula_hba1c.rds')
+```
+
+#### Weight
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing weight_delta
+attempt_so_hvg_tal_meta <- attempt_so_hvg_tal@meta.data
+attempt_so_hvg_tal_nonmissing_names <- rownames(attempt_so_hvg_tal_meta)[!is.na(attempt_so_hvg_tal_meta$weight_delta)]
+attempt_so_hvg_tal_nonmissing <- attempt_so_hvg_tal[, attempt_so_hvg_tal_nonmissing_names, drop = FALSE]
+counts_hvg_tal_nonmissing <- round(GetAssayData(attempt_so_hvg_tal_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_tal)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+tal_weight_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_tal_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_tal_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~weight_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in tal_weight_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(tal_weight_pooled) <- sapply(tal_weight_pooled, function(x) x$gene)  # set names
+tal_weight_pooled <- lapply(tal_weight_pooled, function(x) x$result)  # clean list back to just results
+tal_weight_pooled <- Filter(Negate(is.null), tal_weight_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+tal_weight_filtered <- (length(genes_list)-length(tal_weight_pooled))/length(genes_list)
+print(paste0(tal_weight_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(tal_weight_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/weight/tal_attempt_nebula_weight.rds')
+```
+
+#### Avg cortical R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_c_r2_delta
+attempt_so_hvg_tal_meta <- attempt_so_hvg_tal@meta.data
+attempt_so_hvg_tal_nonmissing_names <- rownames(attempt_so_hvg_tal_meta)[!is.na(attempt_so_hvg_tal_meta$avg_c_r2_delta)]
+attempt_so_hvg_tal_nonmissing <- attempt_so_hvg_tal[, attempt_so_hvg_tal_nonmissing_names, drop = FALSE]
+counts_hvg_tal_nonmissing <- round(GetAssayData(attempt_so_hvg_tal_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_tal)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+tal_avg_c_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_tal_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_tal_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_c_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in tal_avg_c_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(tal_avg_c_r2_pooled) <- sapply(tal_avg_c_r2_pooled, function(x) x$gene)  # set names
+tal_avg_c_r2_pooled <- lapply(tal_avg_c_r2_pooled, function(x) x$result)  # clean list back to just results
+tal_avg_c_r2_pooled <- Filter(Negate(is.null), tal_avg_c_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+tal_avg_c_r2_filtered <- (length(genes_list)-length(tal_avg_c_r2_pooled))/length(genes_list)
+print(paste0(tal_avg_c_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(tal_avg_c_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_c_r2/tal_attempt_nebula_avg_c_r2.rds')
+```
+
+
+#### Avg kidney R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_k_r2_delta
+attempt_so_hvg_tal_meta <- attempt_so_hvg_tal@meta.data
+attempt_so_hvg_tal_nonmissing_names <- rownames(attempt_so_hvg_tal_meta)[!is.na(attempt_so_hvg_tal_meta$avg_k_r2_delta)]
+attempt_so_hvg_tal_nonmissing <- attempt_so_hvg_tal[, attempt_so_hvg_tal_nonmissing_names, drop = FALSE]
+counts_hvg_tal_nonmissing <- round(GetAssayData(attempt_so_hvg_tal_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_tal)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+tal_avg_k_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_tal_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_tal_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_k_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in tal_avg_k_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(tal_avg_k_r2_pooled) <- sapply(tal_avg_k_r2_pooled, function(x) x$gene)  # set names
+tal_avg_k_r2_pooled <- lapply(tal_avg_k_r2_pooled, function(x) x$result)  # clean list back to just results
+tal_avg_k_r2_pooled <- Filter(Negate(is.null), tal_avg_k_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+tal_avg_k_r2_filtered <- (length(genes_list)-length(tal_avg_k_r2_pooled))/length(genes_list)
+print(paste0(tal_avg_k_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(tal_avg_k_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_k_r2/tal_attempt_nebula_avg_k_r2.rds')
+```
+
+### Immune cells
+
+```{r echo = F}
+# immune cells: MAC, MON, T, B, NKT/NKC
+attempt_so$celltype_immune <- ifelse(attempt_so$celltype %in% c("MON", "MAC", "T", "B", "NKT/NKC"),
+                                     "Immune", as.character(attempt_so$celltype))
+attempt_so_immune <- subset(attempt_so, celltype_immune == "Immune")
+```
+
+```{r echo = F}
+attempt_so_immune <- FindVariableFeatures(attempt_so_immune, selection.method = "vst", nfeatures = 2000)
+hvgs_immune <- VariableFeatures(attempt_so_immune)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+attempt_so_hvg_immune <- subset(attempt_so_immune, features = hvgs_immune)
+```
+
+#### mGFR (Raw)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_raw_plasma_delta
+attempt_so_hvg_immune_meta <- attempt_so_hvg_immune@meta.data
+attempt_so_hvg_immune_nonmissing_names <- rownames(attempt_so_hvg_immune_meta)[!is.na(attempt_so_hvg_immune_meta$gfr_raw_plasma_delta)]
+attempt_so_hvg_immune_nonmissing <- attempt_so_hvg_immune[, attempt_so_hvg_immune_nonmissing_names, drop = FALSE]
+counts_hvg_immune_nonmissing <- round(GetAssayData(attempt_so_hvg_immune_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_immune)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+immune_mgfr_raw_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_immune_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_immune_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_raw_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in immune_mgfr_raw_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(immune_mgfr_raw_pooled) <- sapply(immune_mgfr_raw_pooled, function(x) x$gene)  # set names
+immune_mgfr_raw_pooled <- lapply(immune_mgfr_raw_pooled, function(x) x$result)  # clean list back to just results
+immune_mgfr_raw_pooled <- Filter(Negate(is.null), immune_mgfr_raw_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+immune_mgfr_raw_filtered <- (length(genes_list)-length(immune_mgfr_raw_pooled))/length(genes_list)
+print(paste0(immune_mgfr_raw_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(immune_mgfr_raw_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_raw/immune_attempt_nebula_mgfr_raw.rds')
+```
+
+#### mGFR (BSA)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_bsa_plasma_delta
+attempt_so_hvg_immune_meta <- attempt_so_hvg_immune@meta.data
+attempt_so_hvg_immune_nonmissing_names <- rownames(attempt_so_hvg_immune_meta)[!is.na(attempt_so_hvg_immune_meta$gfr_bsa_plasma_delta)]
+attempt_so_hvg_immune_nonmissing <- attempt_so_hvg_immune[, attempt_so_hvg_immune_nonmissing_names, drop = FALSE]
+counts_hvg_immune_nonmissing <- round(GetAssayData(attempt_so_hvg_immune_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_immune)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+immune_mgfr_bsa_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_immune_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_immune_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_bsa_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in immune_mgfr_bsa_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(immune_mgfr_bsa_pooled) <- sapply(immune_mgfr_bsa_pooled, function(x) x$gene)  # set names
+immune_mgfr_bsa_pooled <- lapply(immune_mgfr_bsa_pooled, function(x) x$result)  # clean list back to just results
+immune_mgfr_bsa_pooled <- Filter(Negate(is.null), immune_mgfr_bsa_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+immune_mgfr_bsa_filtered <- (length(genes_list)-length(immune_mgfr_bsa_pooled))/length(genes_list)
+print(paste0(immune_mgfr_bsa_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(immune_mgfr_bsa_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_bsa/immune_attempt_nebula_mgfr_bsa.rds')
+```
+
+#### HbA1c
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing hba1c_delta
+attempt_so_hvg_immune_meta <- attempt_so_hvg_immune@meta.data
+attempt_so_hvg_immune_nonmissing_names <- rownames(attempt_so_hvg_immune_meta)[!is.na(attempt_so_hvg_immune_meta$hba1c_delta)]
+attempt_so_hvg_immune_nonmissing <- attempt_so_hvg_immune[, attempt_so_hvg_immune_nonmissing_names, drop = FALSE]
+counts_hvg_immune_nonmissing <- round(GetAssayData(attempt_so_hvg_immune_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_immune)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+immune_hba1c_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_immune_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_immune_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~hba1c_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in immune_hba1c_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(immune_hba1c_pooled) <- sapply(immune_hba1c_pooled, function(x) x$gene)  # set names
+immune_hba1c_pooled <- lapply(immune_hba1c_pooled, function(x) x$result)  # clean list back to just results
+immune_hba1c_pooled <- Filter(Negate(is.null), immune_hba1c_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+immune_hba1c_filtered <- (length(genes_list)-length(immune_hba1c_pooled))/length(genes_list)
+print(paste0(immune_hba1c_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(immune_hba1c_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/hba1c/immune_attempt_nebula_hba1c.rds')
+```
+
+#### Weight
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing weight_delta
+attempt_so_hvg_immune_meta <- attempt_so_hvg_immune@meta.data
+attempt_so_hvg_immune_nonmissing_names <- rownames(attempt_so_hvg_immune_meta)[!is.na(attempt_so_hvg_immune_meta$weight_delta)]
+attempt_so_hvg_immune_nonmissing <- attempt_so_hvg_immune[, attempt_so_hvg_immune_nonmissing_names, drop = FALSE]
+counts_hvg_immune_nonmissing <- round(GetAssayData(attempt_so_hvg_immune_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_immune)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+immune_weight_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_immune_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_immune_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~weight_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in immune_weight_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(immune_weight_pooled) <- sapply(immune_weight_pooled, function(x) x$gene)  # set names
+immune_weight_pooled <- lapply(immune_weight_pooled, function(x) x$result)  # clean list back to just results
+immune_weight_pooled <- Filter(Negate(is.null), immune_weight_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+immune_weight_filtered <- (length(genes_list)-length(immune_weight_pooled))/length(genes_list)
+print(paste0(immune_weight_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(immune_weight_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/weight/immune_attempt_nebula_weight.rds')
+```
+
+#### Avg cortical R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_c_r2_delta
+attempt_so_hvg_immune_meta <- attempt_so_hvg_immune@meta.data
+attempt_so_hvg_immune_nonmissing_names <- rownames(attempt_so_hvg_immune_meta)[!is.na(attempt_so_hvg_immune_meta$avg_c_r2_delta)]
+attempt_so_hvg_immune_nonmissing <- attempt_so_hvg_immune[, attempt_so_hvg_immune_nonmissing_names, drop = FALSE]
+counts_hvg_immune_nonmissing <- round(GetAssayData(attempt_so_hvg_immune_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_immune)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+immune_avg_c_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_immune_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_immune_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_c_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in immune_avg_c_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(immune_avg_c_r2_pooled) <- sapply(immune_avg_c_r2_pooled, function(x) x$gene)  # set names
+immune_avg_c_r2_pooled <- lapply(immune_avg_c_r2_pooled, function(x) x$result)  # clean list back to just results
+immune_avg_c_r2_pooled <- Filter(Negate(is.null), immune_avg_c_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+immune_avg_c_r2_filtered <- (length(genes_list)-length(immune_avg_c_r2_pooled))/length(genes_list)
+print(paste0(immune_avg_c_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(immune_avg_c_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_c_r2/immune_attempt_nebula_avg_c_r2.rds')
+```
+
+
+#### Avg kidney R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_k_r2_delta
+attempt_so_hvg_immune_meta <- attempt_so_hvg_immune@meta.data
+attempt_so_hvg_immune_nonmissing_names <- rownames(attempt_so_hvg_immune_meta)[!is.na(attempt_so_hvg_immune_meta$avg_k_r2_delta)]
+attempt_so_hvg_immune_nonmissing <- attempt_so_hvg_immune[, attempt_so_hvg_immune_nonmissing_names, drop = FALSE]
+counts_hvg_immune_nonmissing <- round(GetAssayData(attempt_so_hvg_immune_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_immune)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+immune_avg_k_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_immune_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_immune_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_k_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in immune_avg_k_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(immune_avg_k_r2_pooled) <- sapply(immune_avg_k_r2_pooled, function(x) x$gene)  # set names
+immune_avg_k_r2_pooled <- lapply(immune_avg_k_r2_pooled, function(x) x$result)  # clean list back to just results
+immune_avg_k_r2_pooled <- Filter(Negate(is.null), immune_avg_k_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+immune_avg_k_r2_filtered <- (length(genes_list)-length(immune_avg_k_r2_pooled))/length(genes_list)
+print(paste0(immune_avg_k_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(immune_avg_k_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_k_r2/immune_attempt_nebula_avg_k_r2.rds')
+```
+
+### PC
+
+```{r echo = F} 
+# PC-1 & PC-2, tPC-IC 
+attempt_so$celltype_pc <- ifelse(attempt_so$celltype %in% c("PC-1", "PC-2", "tPC-IC"), 
+                                     "PC", as.character(attempt_so$celltype)) 
+attempt_so_pc <- subset(attempt_so, celltype_pc == "PC") 
+``` 
+
+
+```{r echo = F}
+attempt_so_pc <- FindVariableFeatures(attempt_so_pc, selection.method = "vst", nfeatures = 2000)
+hvgs_pc <- VariableFeatures(attempt_so_pc)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+attempt_so_hvg_pc <- subset(attempt_so_pc, features = hvgs_pc)
+```
+
+#### mGFR (Raw)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_raw_plasma_delta
+attempt_so_hvg_pc_meta <- attempt_so_hvg_pc@meta.data
+attempt_so_hvg_pc_nonmissing_names <- rownames(attempt_so_hvg_pc_meta)[!is.na(attempt_so_hvg_pc_meta$gfr_raw_plasma_delta)]
+attempt_so_hvg_pc_nonmissing <- attempt_so_hvg_pc[, attempt_so_hvg_pc_nonmissing_names, drop = FALSE]
+counts_hvg_pc_nonmissing <- round(GetAssayData(attempt_so_hvg_pc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pc_mgfr_raw_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_raw_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pc_mgfr_raw_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pc_mgfr_raw_pooled) <- sapply(pc_mgfr_raw_pooled, function(x) x$gene)  # set names
+pc_mgfr_raw_pooled <- lapply(pc_mgfr_raw_pooled, function(x) x$result)  # clean list back to just results
+pc_mgfr_raw_pooled <- Filter(Negate(is.null), pc_mgfr_raw_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pc_mgfr_raw_filtered <- (length(genes_list)-length(pc_mgfr_raw_pooled))/length(genes_list)
+print(paste0(pc_mgfr_raw_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pc_mgfr_raw_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_raw/pc_attempt_nebula_mgfr_raw.rds')
+```
+
+#### mGFR (BSA)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_bsa_plasma_delta
+attempt_so_hvg_pc_meta <- attempt_so_hvg_pc@meta.data
+attempt_so_hvg_pc_nonmissing_names <- rownames(attempt_so_hvg_pc_meta)[!is.na(attempt_so_hvg_pc_meta$gfr_bsa_plasma_delta)]
+attempt_so_hvg_pc_nonmissing <- attempt_so_hvg_pc[, attempt_so_hvg_pc_nonmissing_names, drop = FALSE]
+counts_hvg_pc_nonmissing <- round(GetAssayData(attempt_so_hvg_pc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pc_mgfr_bsa_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_bsa_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pc_mgfr_bsa_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pc_mgfr_bsa_pooled) <- sapply(pc_mgfr_bsa_pooled, function(x) x$gene)  # set names
+pc_mgfr_bsa_pooled <- lapply(pc_mgfr_bsa_pooled, function(x) x$result)  # clean list back to just results
+pc_mgfr_bsa_pooled <- Filter(Negate(is.null), pc_mgfr_bsa_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pc_mgfr_bsa_filtered <- (length(genes_list)-length(pc_mgfr_bsa_pooled))/length(genes_list)
+print(paste0(pc_mgfr_bsa_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pc_mgfr_bsa_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_bsa/pc_attempt_nebula_mgfr_bsa.rds')
+```
+
+#### HbA1c
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing hba1c_delta
+attempt_so_hvg_pc_meta <- attempt_so_hvg_pc@meta.data
+attempt_so_hvg_pc_nonmissing_names <- rownames(attempt_so_hvg_pc_meta)[!is.na(attempt_so_hvg_pc_meta$hba1c_delta)]
+attempt_so_hvg_pc_nonmissing <- attempt_so_hvg_pc[, attempt_so_hvg_pc_nonmissing_names, drop = FALSE]
+counts_hvg_pc_nonmissing <- round(GetAssayData(attempt_so_hvg_pc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pc_hba1c_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~hba1c_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pc_hba1c_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pc_hba1c_pooled) <- sapply(pc_hba1c_pooled, function(x) x$gene)  # set names
+pc_hba1c_pooled <- lapply(pc_hba1c_pooled, function(x) x$result)  # clean list back to just results
+pc_hba1c_pooled <- Filter(Negate(is.null), pc_hba1c_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pc_hba1c_filtered <- (length(genes_list)-length(pc_hba1c_pooled))/length(genes_list)
+print(paste0(pc_hba1c_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pc_hba1c_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/hba1c/pc_attempt_nebula_hba1c.rds')
+```
+
+#### Weight
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing weight_delta
+attempt_so_hvg_pc_meta <- attempt_so_hvg_pc@meta.data
+attempt_so_hvg_pc_nonmissing_names <- rownames(attempt_so_hvg_pc_meta)[!is.na(attempt_so_hvg_pc_meta$weight_delta)]
+attempt_so_hvg_pc_nonmissing <- attempt_so_hvg_pc[, attempt_so_hvg_pc_nonmissing_names, drop = FALSE]
+counts_hvg_pc_nonmissing <- round(GetAssayData(attempt_so_hvg_pc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pc_weight_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~weight_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pc_weight_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pc_weight_pooled) <- sapply(pc_weight_pooled, function(x) x$gene)  # set names
+pc_weight_pooled <- lapply(pc_weight_pooled, function(x) x$result)  # clean list back to just results
+pc_weight_pooled <- Filter(Negate(is.null), pc_weight_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pc_weight_filtered <- (length(genes_list)-length(pc_weight_pooled))/length(genes_list)
+print(paste0(pc_weight_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pc_weight_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/weight/pc_attempt_nebula_weight.rds')
+```
+
+#### Avg cortical R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_c_r2_delta
+attempt_so_hvg_pc_meta <- attempt_so_hvg_pc@meta.data
+attempt_so_hvg_pc_nonmissing_names <- rownames(attempt_so_hvg_pc_meta)[!is.na(attempt_so_hvg_pc_meta$avg_c_r2_delta)]
+attempt_so_hvg_pc_nonmissing <- attempt_so_hvg_pc[, attempt_so_hvg_pc_nonmissing_names, drop = FALSE]
+counts_hvg_pc_nonmissing <- round(GetAssayData(attempt_so_hvg_pc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pc_avg_c_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_c_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pc_avg_c_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pc_avg_c_r2_pooled) <- sapply(pc_avg_c_r2_pooled, function(x) x$gene)  # set names
+pc_avg_c_r2_pooled <- lapply(pc_avg_c_r2_pooled, function(x) x$result)  # clean list back to just results
+pc_avg_c_r2_pooled <- Filter(Negate(is.null), pc_avg_c_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pc_avg_c_r2_filtered <- (length(genes_list)-length(pc_avg_c_r2_pooled))/length(genes_list)
+print(paste0(pc_avg_c_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pc_avg_c_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_c_r2/pc_attempt_nebula_avg_c_r2.rds')
+```
+
+
+#### Avg kidney R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_k_r2_delta
+attempt_so_hvg_pc_meta <- attempt_so_hvg_pc@meta.data
+attempt_so_hvg_pc_nonmissing_names <- rownames(attempt_so_hvg_pc_meta)[!is.na(attempt_so_hvg_pc_meta$avg_k_r2_delta)]
+attempt_so_hvg_pc_nonmissing <- attempt_so_hvg_pc[, attempt_so_hvg_pc_nonmissing_names, drop = FALSE]
+counts_hvg_pc_nonmissing <- round(GetAssayData(attempt_so_hvg_pc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pc_avg_k_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_pc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_pc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_k_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in pc_avg_k_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pc_avg_k_r2_pooled) <- sapply(pc_avg_k_r2_pooled, function(x) x$gene)  # set names
+pc_avg_k_r2_pooled <- lapply(pc_avg_k_r2_pooled, function(x) x$result)  # clean list back to just results
+pc_avg_k_r2_pooled <- Filter(Negate(is.null), pc_avg_k_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pc_avg_k_r2_filtered <- (length(genes_list)-length(pc_avg_k_r2_pooled))/length(genes_list)
+print(paste0(pc_avg_k_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pc_avg_k_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_k_r2/pc_attempt_nebula_avg_k_r2.rds')
+```
+
+### IC
+
+```{r echo = F}
+# IC-A, IC-B
+attempt_so$celltype_ic <- ifelse(attempt_so$celltype %in% c("IC-A", "IC-B"),
+                                     "IC", as.character(attempt_so$celltype))
+attempt_so_ic <- subset(attempt_so, celltype_ic == "IC")
+```
+
+```{r echo = F}
+attempt_so_ic <- FindVariableFeatures(attempt_so_ic, selection.method = "vst", nfeatures = 2000)
+hvgs_ic <- VariableFeatures(attempt_so_ic)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+attempt_so_hvg_ic <- subset(attempt_so_ic, features = hvgs_ic)
+```
+
+#### mGFR (Raw)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_raw_plasma_delta
+attempt_so_hvg_ic_meta <- attempt_so_hvg_ic@meta.data
+attempt_so_hvg_ic_nonmissing_names <- rownames(attempt_so_hvg_ic_meta)[!is.na(attempt_so_hvg_ic_meta$gfr_raw_plasma_delta)]
+attempt_so_hvg_ic_nonmissing <- attempt_so_hvg_ic[, attempt_so_hvg_ic_nonmissing_names, drop = FALSE]
+counts_hvg_ic_nonmissing <- round(GetAssayData(attempt_so_hvg_ic_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ic)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ic_mgfr_raw_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ic_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ic_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_raw_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ic_mgfr_raw_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ic_mgfr_raw_pooled) <- sapply(ic_mgfr_raw_pooled, function(x) x$gene)  # set names
+ic_mgfr_raw_pooled <- lapply(ic_mgfr_raw_pooled, function(x) x$result)  # clean list back to just results
+ic_mgfr_raw_pooled <- Filter(Negate(is.null), ic_mgfr_raw_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ic_mgfr_raw_filtered <- (length(genes_list)-length(ic_mgfr_raw_pooled))/length(genes_list)
+print(paste0(ic_mgfr_raw_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ic_mgfr_raw_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_raw/ic_attempt_nebula_mgfr_raw.rds')
+```
+
+#### mGFR (BSA)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_bsa_plasma_delta
+attempt_so_hvg_ic_meta <- attempt_so_hvg_ic@meta.data
+attempt_so_hvg_ic_nonmissing_names <- rownames(attempt_so_hvg_ic_meta)[!is.na(attempt_so_hvg_ic_meta$gfr_bsa_plasma_delta)]
+attempt_so_hvg_ic_nonmissing <- attempt_so_hvg_ic[, attempt_so_hvg_ic_nonmissing_names, drop = FALSE]
+counts_hvg_ic_nonmissing <- round(GetAssayData(attempt_so_hvg_ic_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ic)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ic_mgfr_bsa_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ic_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ic_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_bsa_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ic_mgfr_bsa_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ic_mgfr_bsa_pooled) <- sapply(ic_mgfr_bsa_pooled, function(x) x$gene)  # set names
+ic_mgfr_bsa_pooled <- lapply(ic_mgfr_bsa_pooled, function(x) x$result)  # clean list back to just results
+ic_mgfr_bsa_pooled <- Filter(Negate(is.null), ic_mgfr_bsa_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ic_mgfr_bsa_filtered <- (length(genes_list)-length(ic_mgfr_bsa_pooled))/length(genes_list)
+print(paste0(ic_mgfr_bsa_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ic_mgfr_bsa_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_bsa/ic_attempt_nebula_mgfr_bsa.rds')
+```
+
+#### HbA1c
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing hba1c_delta
+attempt_so_hvg_ic_meta <- attempt_so_hvg_ic@meta.data
+attempt_so_hvg_ic_nonmissing_names <- rownames(attempt_so_hvg_ic_meta)[!is.na(attempt_so_hvg_ic_meta$hba1c_delta)]
+attempt_so_hvg_ic_nonmissing <- attempt_so_hvg_ic[, attempt_so_hvg_ic_nonmissing_names, drop = FALSE]
+counts_hvg_ic_nonmissing <- round(GetAssayData(attempt_so_hvg_ic_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ic)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ic_hba1c_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ic_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ic_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~hba1c_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ic_hba1c_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ic_hba1c_pooled) <- sapply(ic_hba1c_pooled, function(x) x$gene)  # set names
+ic_hba1c_pooled <- lapply(ic_hba1c_pooled, function(x) x$result)  # clean list back to just results
+ic_hba1c_pooled <- Filter(Negate(is.null), ic_hba1c_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ic_hba1c_filtered <- (length(genes_list)-length(ic_hba1c_pooled))/length(genes_list)
+print(paste0(ic_hba1c_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ic_hba1c_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/hba1c/ic_attempt_nebula_hba1c.rds')
+```
+
+#### Weight
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing weight_delta
+attempt_so_hvg_ic_meta <- attempt_so_hvg_ic@meta.data
+attempt_so_hvg_ic_nonmissing_names <- rownames(attempt_so_hvg_ic_meta)[!is.na(attempt_so_hvg_ic_meta$weight_delta)]
+attempt_so_hvg_ic_nonmissing <- attempt_so_hvg_ic[, attempt_so_hvg_ic_nonmissing_names, drop = FALSE]
+counts_hvg_ic_nonmissing <- round(GetAssayData(attempt_so_hvg_ic_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ic)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ic_weight_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ic_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ic_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~weight_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ic_weight_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ic_weight_pooled) <- sapply(ic_weight_pooled, function(x) x$gene)  # set names
+ic_weight_pooled <- lapply(ic_weight_pooled, function(x) x$result)  # clean list back to just results
+ic_weight_pooled <- Filter(Negate(is.null), ic_weight_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ic_weight_filtered <- (length(genes_list)-length(ic_weight_pooled))/length(genes_list)
+print(paste0(ic_weight_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ic_weight_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/weight/ic_attempt_nebula_weight.rds')
+```
+
+#### Avg cortical R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_c_r2_delta
+attempt_so_hvg_ic_meta <- attempt_so_hvg_ic@meta.data
+attempt_so_hvg_ic_nonmissing_names <- rownames(attempt_so_hvg_ic_meta)[!is.na(attempt_so_hvg_ic_meta$avg_c_r2_delta)]
+attempt_so_hvg_ic_nonmissing <- attempt_so_hvg_ic[, attempt_so_hvg_ic_nonmissing_names, drop = FALSE]
+counts_hvg_ic_nonmissing <- round(GetAssayData(attempt_so_hvg_ic_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ic)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ic_avg_c_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ic_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ic_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_c_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ic_avg_c_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ic_avg_c_r2_pooled) <- sapply(ic_avg_c_r2_pooled, function(x) x$gene)  # set names
+ic_avg_c_r2_pooled <- lapply(ic_avg_c_r2_pooled, function(x) x$result)  # clean list back to just results
+ic_avg_c_r2_pooled <- Filter(Negate(is.null), ic_avg_c_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ic_avg_c_r2_filtered <- (length(genes_list)-length(ic_avg_c_r2_pooled))/length(genes_list)
+print(paste0(ic_avg_c_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ic_avg_c_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_c_r2/ic_attempt_nebula_avg_c_r2.rds')
+```
+
+
+#### Avg kidney R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_k_r2_delta
+attempt_so_hvg_ic_meta <- attempt_so_hvg_ic@meta.data
+attempt_so_hvg_ic_nonmissing_names <- rownames(attempt_so_hvg_ic_meta)[!is.na(attempt_so_hvg_ic_meta$avg_k_r2_delta)]
+attempt_so_hvg_ic_nonmissing <- attempt_so_hvg_ic[, attempt_so_hvg_ic_nonmissing_names, drop = FALSE]
+counts_hvg_ic_nonmissing <- round(GetAssayData(attempt_so_hvg_ic_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ic)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ic_avg_k_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ic_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ic_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_k_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ic_avg_k_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ic_avg_k_r2_pooled) <- sapply(ic_avg_k_r2_pooled, function(x) x$gene)  # set names
+ic_avg_k_r2_pooled <- lapply(ic_avg_k_r2_pooled, function(x) x$result)  # clean list back to just results
+ic_avg_k_r2_pooled <- Filter(Negate(is.null), ic_avg_k_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ic_avg_k_r2_filtered <- (length(genes_list)-length(ic_avg_k_r2_pooled))/length(genes_list)
+print(paste0(ic_avg_k_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ic_avg_k_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_k_r2/ic_attempt_nebula_avg_k_r2.rds')
+```
+
+### EC
+
+```{r echo = F}
+attempt_so$celltype_ec <- ifelse(attempt_so$celltype %in% c("EC-PTC", "EC-GC", "EC-AEA", "EC-LYM"),
+                                     "EC", as.character(attempt_so$celltype))
+attempt_so_ec <- subset(attempt_so, celltype_ec == "EC")
+```
+
+```{r echo = F}
+attempt_so_ec <- FindVariableFeatures(attempt_so_ec, selection.method = "vst", nfeatures = 2000)
+hvgs_ec <- VariableFeatures(attempt_so_ec)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+attempt_so_hvg_ec <- subset(attempt_so_ec, features = hvgs_ec)
+```
+
+#### mGFR (Raw)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_raw_plasma_delta
+attempt_so_hvg_ec_meta <- attempt_so_hvg_ec@meta.data
+attempt_so_hvg_ec_nonmissing_names <- rownames(attempt_so_hvg_ec_meta)[!is.na(attempt_so_hvg_ec_meta$gfr_raw_plasma_delta)]
+attempt_so_hvg_ec_nonmissing <- attempt_so_hvg_ec[, attempt_so_hvg_ec_nonmissing_names, drop = FALSE]
+counts_hvg_ec_nonmissing <- round(GetAssayData(attempt_so_hvg_ec_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ec)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ec_mgfr_raw_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ec_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ec_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_raw_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ec_mgfr_raw_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ec_mgfr_raw_pooled) <- sapply(ec_mgfr_raw_pooled, function(x) x$gene)  # set names
+ec_mgfr_raw_pooled <- lapply(ec_mgfr_raw_pooled, function(x) x$result)  # clean list back to just results
+ec_mgfr_raw_pooled <- Filter(Negate(is.null), ec_mgfr_raw_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ec_mgfr_raw_filtered <- (length(genes_list)-length(ec_mgfr_raw_pooled))/length(genes_list)
+print(paste0(ec_mgfr_raw_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ec_mgfr_raw_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_raw/ec_attempt_nebula_mgfr_raw.rds')
+```
+
+#### mGFR (BSA)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_bsa_plasma_delta
+attempt_so_hvg_ec_meta <- attempt_so_hvg_ec@meta.data
+attempt_so_hvg_ec_nonmissing_names <- rownames(attempt_so_hvg_ec_meta)[!is.na(attempt_so_hvg_ec_meta$gfr_bsa_plasma_delta)]
+attempt_so_hvg_ec_nonmissing <- attempt_so_hvg_ec[, attempt_so_hvg_ec_nonmissing_names, drop = FALSE]
+counts_hvg_ec_nonmissing <- round(GetAssayData(attempt_so_hvg_ec_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ec)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ec_mgfr_bsa_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ec_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ec_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_bsa_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ec_mgfr_bsa_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ec_mgfr_bsa_pooled) <- sapply(ec_mgfr_bsa_pooled, function(x) x$gene)  # set names
+ec_mgfr_bsa_pooled <- lapply(ec_mgfr_bsa_pooled, function(x) x$result)  # clean list back to just results
+ec_mgfr_bsa_pooled <- Filter(Negate(is.null), ec_mgfr_bsa_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ec_mgfr_bsa_filtered <- (length(genes_list)-length(ec_mgfr_bsa_pooled))/length(genes_list)
+print(paste0(ec_mgfr_bsa_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ec_mgfr_bsa_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_bsa/ec_attempt_nebula_mgfr_bsa.rds')
+```
+
+#### HbA1c
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing hba1c_delta
+attempt_so_hvg_ec_meta <- attempt_so_hvg_ec@meta.data
+attempt_so_hvg_ec_nonmissing_names <- rownames(attempt_so_hvg_ec_meta)[!is.na(attempt_so_hvg_ec_meta$hba1c_delta)]
+attempt_so_hvg_ec_nonmissing <- attempt_so_hvg_ec[, attempt_so_hvg_ec_nonmissing_names, drop = FALSE]
+counts_hvg_ec_nonmissing <- round(GetAssayData(attempt_so_hvg_ec_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ec)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ec_hba1c_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ec_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ec_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~hba1c_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ec_hba1c_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ec_hba1c_pooled) <- sapply(ec_hba1c_pooled, function(x) x$gene)  # set names
+ec_hba1c_pooled <- lapply(ec_hba1c_pooled, function(x) x$result)  # clean list back to just results
+ec_hba1c_pooled <- Filter(Negate(is.null), ec_hba1c_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ec_hba1c_filtered <- (length(genes_list)-length(ec_hba1c_pooled))/length(genes_list)
+print(paste0(ec_hba1c_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ec_hba1c_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/hba1c/ec_attempt_nebula_hba1c.rds')
+```
+
+#### Weight
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing weight_delta
+attempt_so_hvg_ec_meta <- attempt_so_hvg_ec@meta.data
+attempt_so_hvg_ec_nonmissing_names <- rownames(attempt_so_hvg_ec_meta)[!is.na(attempt_so_hvg_ec_meta$weight_delta)]
+attempt_so_hvg_ec_nonmissing <- attempt_so_hvg_ec[, attempt_so_hvg_ec_nonmissing_names, drop = FALSE]
+counts_hvg_ec_nonmissing <- round(GetAssayData(attempt_so_hvg_ec_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ec)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ec_weight_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ec_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ec_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~weight_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ec_weight_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ec_weight_pooled) <- sapply(ec_weight_pooled, function(x) x$gene)  # set names
+ec_weight_pooled <- lapply(ec_weight_pooled, function(x) x$result)  # clean list back to just results
+ec_weight_pooled <- Filter(Negate(is.null), ec_weight_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ec_weight_filtered <- (length(genes_list)-length(ec_weight_pooled))/length(genes_list)
+print(paste0(ec_weight_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ec_weight_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/weight/ec_attempt_nebula_weight.rds')
+```
+
+#### Avg cortecal R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_c_r2_delta
+attempt_so_hvg_ec_meta <- attempt_so_hvg_ec@meta.data
+attempt_so_hvg_ec_nonmissing_names <- rownames(attempt_so_hvg_ec_meta)[!is.na(attempt_so_hvg_ec_meta$avg_c_r2_delta)]
+attempt_so_hvg_ec_nonmissing <- attempt_so_hvg_ec[, attempt_so_hvg_ec_nonmissing_names, drop = FALSE]
+counts_hvg_ec_nonmissing <- round(GetAssayData(attempt_so_hvg_ec_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ec)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ec_avg_c_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ec_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ec_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_c_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ec_avg_c_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ec_avg_c_r2_pooled) <- sapply(ec_avg_c_r2_pooled, function(x) x$gene)  # set names
+ec_avg_c_r2_pooled <- lapply(ec_avg_c_r2_pooled, function(x) x$result)  # clean list back to just results
+ec_avg_c_r2_pooled <- Filter(Negate(is.null), ec_avg_c_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ec_avg_c_r2_filtered <- (length(genes_list)-length(ec_avg_c_r2_pooled))/length(genes_list)
+print(paste0(ec_avg_c_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ec_avg_c_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_c_r2/ec_attempt_nebula_avg_c_r2.rds')
+```
+
+
+#### Avg kidney R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_k_r2_delta
+attempt_so_hvg_ec_meta <- attempt_so_hvg_ec@meta.data
+attempt_so_hvg_ec_nonmissing_names <- rownames(attempt_so_hvg_ec_meta)[!is.na(attempt_so_hvg_ec_meta$avg_k_r2_delta)]
+attempt_so_hvg_ec_nonmissing <- attempt_so_hvg_ec[, attempt_so_hvg_ec_nonmissing_names, drop = FALSE]
+counts_hvg_ec_nonmissing <- round(GetAssayData(attempt_so_hvg_ec_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_ec)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+ec_avg_k_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_ec_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_ec_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_k_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in ec_avg_k_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(ec_avg_k_r2_pooled) <- sapply(ec_avg_k_r2_pooled, function(x) x$gene)  # set names
+ec_avg_k_r2_pooled <- lapply(ec_avg_k_r2_pooled, function(x) x$result)  # clean list back to just results
+ec_avg_k_r2_pooled <- Filter(Negate(is.null), ec_avg_k_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+ec_avg_k_r2_filtered <- (length(genes_list)-length(ec_avg_k_r2_pooled))/length(genes_list)
+print(paste0(ec_avg_k_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(ec_avg_k_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_k_r2/ec_attempt_nebula_avg_k_r2.rds')
+```
+
+### FIB, VSMC/P
+
+```{r echo = F}
+attempt_so$celltype_fibvsmc <- ifelse(attempt_so$celltype %in% c("FIB", "VSMC/P"),
+                                     "FIBVSMC", as.character(attempt_so$celltype))
+attempt_so_fibvsmc <- subset(attempt_so, celltype_fibvsmc == "FIBVSMC")
+```
+
+```{r echo = F}
+attempt_so_fibvsmc <- FindVariableFeatures(attempt_so_fibvsmc, selection.method = "vst", nfeatures = 2000)
+hvgs_fibvsmc <- VariableFeatures(attempt_so_fibvsmc)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+attempt_so_hvg_fibvsmc <- subset(attempt_so_fibvsmc, features = hvgs_fibvsmc)
+```
+
+#### mGFR (Raw)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_raw_plasma_delta
+attempt_so_hvg_fibvsmc_meta <- attempt_so_hvg_fibvsmc@meta.data
+attempt_so_hvg_fibvsmc_nonmissing_names <- rownames(attempt_so_hvg_fibvsmc_meta)[!is.na(attempt_so_hvg_fibvsmc_meta$gfr_raw_plasma_delta)]
+attempt_so_hvg_fibvsmc_nonmissing <- attempt_so_hvg_fibvsmc[, attempt_so_hvg_fibvsmc_nonmissing_names, drop = FALSE]
+counts_hvg_fibvsmc_nonmissing <- round(GetAssayData(attempt_so_hvg_fibvsmc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_fibvsmc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+fibvsmc_mgfr_raw_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_fibvsmc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_fibvsmc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_raw_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in fibvsmc_mgfr_raw_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(fibvsmc_mgfr_raw_pooled) <- sapply(fibvsmc_mgfr_raw_pooled, function(x) x$gene)  # set names
+fibvsmc_mgfr_raw_pooled <- lapply(fibvsmc_mgfr_raw_pooled, function(x) x$result)  # clean list back to just results
+fibvsmc_mgfr_raw_pooled <- Filter(Negate(is.null), fibvsmc_mgfr_raw_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+fibvsmc_mgfr_raw_filtered <- (length(genes_list)-length(fibvsmc_mgfr_raw_pooled))/length(genes_list)
+print(paste0(fibvsmc_mgfr_raw_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(fibvsmc_mgfr_raw_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_raw/fibvsmc_attempt_nebula_mgfr_raw.rds')
+```
+
+#### mGFR (BSA)
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing gfr_bsa_plasma_delta
+attempt_so_hvg_fibvsmc_meta <- attempt_so_hvg_fibvsmc@meta.data
+attempt_so_hvg_fibvsmc_nonmissing_names <- rownames(attempt_so_hvg_fibvsmc_meta)[!is.na(attempt_so_hvg_fibvsmc_meta$gfr_bsa_plasma_delta)]
+attempt_so_hvg_fibvsmc_nonmissing <- attempt_so_hvg_fibvsmc[, attempt_so_hvg_fibvsmc_nonmissing_names, drop = FALSE]
+counts_hvg_fibvsmc_nonmissing <- round(GetAssayData(attempt_so_hvg_fibvsmc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_fibvsmc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+fibvsmc_mgfr_bsa_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_fibvsmc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_fibvsmc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~gfr_bsa_plasma_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in fibvsmc_mgfr_bsa_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(fibvsmc_mgfr_bsa_pooled) <- sapply(fibvsmc_mgfr_bsa_pooled, function(x) x$gene)  # set names
+fibvsmc_mgfr_bsa_pooled <- lapply(fibvsmc_mgfr_bsa_pooled, function(x) x$result)  # clean list back to just results
+fibvsmc_mgfr_bsa_pooled <- Filter(Negate(is.null), fibvsmc_mgfr_bsa_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+fibvsmc_mgfr_bsa_filtered <- (length(genes_list)-length(fibvsmc_mgfr_bsa_pooled))/length(genes_list)
+print(paste0(fibvsmc_mgfr_bsa_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(fibvsmc_mgfr_bsa_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/mgfr_bsa/fibvsmc_attempt_nebula_mgfr_bsa.rds')
+```
+
+#### HbA1c
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing hba1c_delta
+attempt_so_hvg_fibvsmc_meta <- attempt_so_hvg_fibvsmc@meta.data
+attempt_so_hvg_fibvsmc_nonmissing_names <- rownames(attempt_so_hvg_fibvsmc_meta)[!is.na(attempt_so_hvg_fibvsmc_meta$hba1c_delta)]
+attempt_so_hvg_fibvsmc_nonmissing <- attempt_so_hvg_fibvsmc[, attempt_so_hvg_fibvsmc_nonmissing_names, drop = FALSE]
+counts_hvg_fibvsmc_nonmissing <- round(GetAssayData(attempt_so_hvg_fibvsmc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_fibvsmc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+fibvsmc_hba1c_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_fibvsmc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_fibvsmc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~hba1c_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in fibvsmc_hba1c_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(fibvsmc_hba1c_pooled) <- sapply(fibvsmc_hba1c_pooled, function(x) x$gene)  # set names
+fibvsmc_hba1c_pooled <- lapply(fibvsmc_hba1c_pooled, function(x) x$result)  # clean list back to just results
+fibvsmc_hba1c_pooled <- Filter(Negate(is.null), fibvsmc_hba1c_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+fibvsmc_hba1c_filtered <- (length(genes_list)-length(fibvsmc_hba1c_pooled))/length(genes_list)
+print(paste0(fibvsmc_hba1c_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(fibvsmc_hba1c_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/hba1c/fibvsmc_attempt_nebula_hba1c.rds')
+```
+
+#### Weight
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing weight_delta
+attempt_so_hvg_fibvsmc_meta <- attempt_so_hvg_fibvsmc@meta.data
+attempt_so_hvg_fibvsmc_nonmissing_names <- rownames(attempt_so_hvg_fibvsmc_meta)[!is.na(attempt_so_hvg_fibvsmc_meta$weight_delta)]
+attempt_so_hvg_fibvsmc_nonmissing <- attempt_so_hvg_fibvsmc[, attempt_so_hvg_fibvsmc_nonmissing_names, drop = FALSE]
+counts_hvg_fibvsmc_nonmissing <- round(GetAssayData(attempt_so_hvg_fibvsmc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_fibvsmc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+fibvsmc_weight_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_fibvsmc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_fibvsmc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~weight_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in fibvsmc_weight_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(fibvsmc_weight_pooled) <- sapply(fibvsmc_weight_pooled, function(x) x$gene)  # set names
+fibvsmc_weight_pooled <- lapply(fibvsmc_weight_pooled, function(x) x$result)  # clean list back to just results
+fibvsmc_weight_pooled <- Filter(Negate(is.null), fibvsmc_weight_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+fibvsmc_weight_filtered <- (length(genes_list)-length(fibvsmc_weight_pooled))/length(genes_list)
+print(paste0(fibvsmc_weight_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(fibvsmc_weight_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/weight/fibvsmc_attempt_nebula_weight.rds')
+```
+
+#### Avg cortical R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_c_r2_delta
+attempt_so_hvg_fibvsmc_meta <- attempt_so_hvg_fibvsmc@meta.data
+attempt_so_hvg_fibvsmc_nonmissing_names <- rownames(attempt_so_hvg_fibvsmc_meta)[!is.na(attempt_so_hvg_fibvsmc_meta$avg_c_r2_delta)]
+attempt_so_hvg_fibvsmc_nonmissing <- attempt_so_hvg_fibvsmc[, attempt_so_hvg_fibvsmc_nonmissing_names, drop = FALSE]
+counts_hvg_fibvsmc_nonmissing <- round(GetAssayData(attempt_so_hvg_fibvsmc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_fibvsmc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+fibvsmc_avg_c_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_fibvsmc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_fibvsmc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_c_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in fibvsmc_avg_c_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(fibvsmc_avg_c_r2_pooled) <- sapply(fibvsmc_avg_c_r2_pooled, function(x) x$gene)  # set names
+fibvsmc_avg_c_r2_pooled <- lapply(fibvsmc_avg_c_r2_pooled, function(x) x$result)  # clean list back to just results
+fibvsmc_avg_c_r2_pooled <- Filter(Negate(is.null), fibvsmc_avg_c_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+fibvsmc_avg_c_r2_filtered <- (length(genes_list)-length(fibvsmc_avg_c_r2_pooled))/length(genes_list)
+print(paste0(fibvsmc_avg_c_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(fibvsmc_avg_c_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_c_r2/fibvsmc_attempt_nebula_avg_c_r2.rds')
+```
+
+
+#### Avg kidney R2*
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_k_r2_delta
+attempt_so_hvg_fibvsmc_meta <- attempt_so_hvg_fibvsmc@meta.data
+attempt_so_hvg_fibvsmc_nonmissing_names <- rownames(attempt_so_hvg_fibvsmc_meta)[!is.na(attempt_so_hvg_fibvsmc_meta$avg_k_r2_delta)]
+attempt_so_hvg_fibvsmc_nonmissing <- attempt_so_hvg_fibvsmc[, attempt_so_hvg_fibvsmc_nonmissing_names, drop = FALSE]
+counts_hvg_fibvsmc_nonmissing <- round(GetAssayData(attempt_so_hvg_fibvsmc_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_fibvsmc)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+fibvsmc_avg_k_r2_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                          .errorhandling = "pass") %dopar% {
+                            warn <- NULL
+                            err <- NULL
+                            res <- NULL
+                            
+                            tryCatch({
+                              count_gene <- counts_hvg_fibvsmc_nonmissing[g, , drop = FALSE]
+                              meta_gene <- subset(attempt_so_hvg_fibvsmc_nonmissing, features = g)@meta.data
+                              pred_gene <- model.matrix(~avg_k_r2_delta, data = meta_gene)
+                              data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                              
+                              res <- withCallingHandlers({
+                                nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                       ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                       offset = meta_gene$pooled_offset)
+                              }, warning = function(w) {
+                                warn <<- conditionMessage(w)
+                                invokeRestart("muffleWarning")
+                              })
+                              
+                            }, error = function(e) {
+                              err <<- conditionMessage(e)
+                            })
+                            
+                            list(gene = g, result = res, warning = warn, error = err)
+                          }
+
+## After the loop:
+for (res in fibvsmc_avg_k_r2_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(fibvsmc_avg_k_r2_pooled) <- sapply(fibvsmc_avg_k_r2_pooled, function(x) x$gene)  # set names
+fibvsmc_avg_k_r2_pooled <- lapply(fibvsmc_avg_k_r2_pooled, function(x) x$result)  # clean list back to just results
+fibvsmc_avg_k_r2_pooled <- Filter(Negate(is.null), fibvsmc_avg_k_r2_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+fibvsmc_avg_k_r2_filtered <- (length(genes_list)-length(fibvsmc_avg_k_r2_pooled))/length(genes_list)
+print(paste0(fibvsmc_avg_k_r2_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(fibvsmc_avg_k_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_k_r2/fibvsmc_attempt_nebula_avg_k_r2.rds')
+```
+
