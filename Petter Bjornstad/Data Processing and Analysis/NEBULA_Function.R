@@ -34,17 +34,21 @@ run_nebula <- function(data, output, offset = 'pooled', method = 'HVG', celltype
     counts_layer <- round(GetAssayData(data, layer = 'counts'))
     library_size <- Matrix::colSums(round(GetAssayData(data, layer = 'counts')))
     data$library_size <- library_size
+    
+    cat('Calculating pooled offsets. This may take a bit.')
     sce <- SingleCellExperiment::SingleCellExperiment(assays = list(counts = counts_layer))
     sce <- computeSumFactors(sce)
     # View size factors
     sizeFactors(sce)
     ## Calculate offset → (size factors)
     data$pooled_offset <- (sizeFactors(sce))
+    cat('Done calculating offset. Moving to next analysis')
     
     
   if(celltypes == 'All'){
     
     if(method == 'HVG'){
+      cat('Identifying highly variable genes')
     full_analysis <- FindVariableFeatures(data, selection.method = "vst", nfeatures = 2000)
     hvgs <- VariableFeatures(full_analysis)
     data<- subset(data, features = hvgs)
@@ -71,10 +75,12 @@ run_nebula <- function(data, output, offset = 'pooled', method = 'HVG', celltype
     }else if(celltypes != 'All'){
       
       if(cell_labels == 'harmony'){
+        cat('Filtering to specified cell types in Harmony')
       data$celltype_subset <- ifelse(data$celltype_rpca %in% celltypes,
                                       "keep", as.character(data$celltype_rpca))
       data <- subset(data, celltype_ec == "keep")
       }else if(cell_labels == 'rpca'){
+        cat('Filtering to specified cell types in RPCA')
         data$celltype_subset <- ifelse(data$celltype_rpca %in% celltypes,
                                        "keep", as.character(data$celltype_rpca))
         data <- subset(data, celltype_ec == "keep")
@@ -82,6 +88,7 @@ run_nebula <- function(data, output, offset = 'pooled', method = 'HVG', celltype
       
       
       if(method == 'HVG'){
+        cat('Identifying highly variable genes')
         full_analysis <- FindVariableFeatures(data, selection.method = "vst", nfeatures = 2000)
         hvgs <- VariableFeatures(full_analysis)
         data<- subset(data, features = hvgs)
@@ -107,6 +114,83 @@ run_nebula <- function(data, output, offset = 'pooled', method = 'HVG', celltype
     }
     
   }else if(offset == 'library size'){
+    cat('Calculating offset by library size instead.')
+    counts_layer <- round(GetAssayData(data, layer = 'counts'))
+    library_size <- Matrix::colSums(round(GetAssayData(data, layer = 'counts')))
+    data$library_size <- library_size
+    
+    
+    if(celltypes == 'All'){
+      
+      if(method == 'HVG'){
+        cat('Identifying highly variable genes')
+        full_analysis <- FindVariableFeatures(data, selection.method = "vst", nfeatures = 2000)
+        hvgs <- VariableFeatures(full_analysis)
+        data<- subset(data, features = hvgs)
+        full_counts <- round(GetAssayData(data, layer = "counts")) 
+      }
+      
+      meta_gene <- data@meta.data
+      pred_gene <- model.matrix(~group*sex, data = meta_gene)
+      data_g_gene <- list(count = data, id = meta_gene$record_id, pred = pred_gene)
+      result_allcells <- nebula(count = full_counts, id = data$record_id, pred = data_g_gene$pred, 
+                                offset = log10(data$library_size),
+                                ncore = 1, output_re = T, covariance = T,
+                                reml = T, model = "NBLMM")
+      
+      
+      
+      write.table(result_allcells, output, row.names=F,
+                  quote=F, sep='\t')
+      
+      return(as.data.frame(result_allcells))
+      
+      
+      
+    }else if(celltypes != 'All'){
+      
+      if(cell_labels == 'harmony'){
+        cat('Filtering to specified cell types in Harmony')
+        data$celltype_subset <- ifelse(data$celltype_rpca %in% celltypes,
+                                       "keep", as.character(data$celltype_rpca))
+        data <- subset(data, celltype_ec == "keep")
+      }else if(cell_labels == 'rpca'){
+        cat('Filtering to specified cell types in RPCA')
+        data$celltype_subset <- ifelse(data$celltype_rpca %in% celltypes,
+                                       "keep", as.character(data$celltype_rpca))
+        data <- subset(data, celltype_ec == "keep")
+      }
+      
+      
+      if(method == 'HVG'){
+        cat('Identifying highly variable genes')
+        full_analysis <- FindVariableFeatures(data, selection.method = "vst", nfeatures = 2000)
+        hvgs <- VariableFeatures(full_analysis)
+        data<- subset(data, features = hvgs)
+        full_counts <- round(GetAssayData(data, layer = "counts")) 
+      }
+      
+      meta_gene <- data@meta.data
+      pred_gene <- model.matrix(~group*sex, data = meta_gene)
+      data_g_gene <- list(count = data, id = meta_gene$record_id, pred = pred_gene)
+      result_allcells <- nebula(count = full_counts, id = data$record_id, pred = data_g_gene$pred, 
+                                offset = log10(data$library_size),
+                                ncore = 1, output_re = T, covariance = T,
+                                reml = T, model = "NBLMM")
+      
+      
+      
+      write.table(result_allcells, output, row.names=F,
+                  quote=F, sep='\t')
+      
+      return(as.data.frame(result_allcells))      
+      
+      
+    }
+    
+    
+    
+    
     
   }
   
