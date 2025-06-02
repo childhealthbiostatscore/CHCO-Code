@@ -226,6 +226,7 @@ sce <- computeSumFactors(sce, BPPARAM = bp)
 # STEP 3: Calculate offset → log(size factors)
 pooled_offset <- sizeFactors(sce)
 so_liver_sn$pooled_offset <- pooled_offset
+hist(so_liver_sn$pooled_offset)
 
 # #Calculate cell library size for offset
 # counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts")) # load counts and round
@@ -236,8 +237,73 @@ so_liver_sn$pooled_offset <- pooled_offset
 # rm(meta,counts_layer)
 # # hist(so_liver_sn$library_size)
 ```
+## c. Visualize
+```{r}
+so_liver_sn <- FindVariableFeatures(object = so_liver_sn)
+so_liver_sn <- RunPCA(so_liver_sn, features = VariableFeatures(object = so_liver_sn),assay="RNA")
+ElbowPlot(so_liver_sn)
 
-## b. Explore Distribution & Zero-Inflation
+# # Find neighbors and clusters (again using integrated data)
+so_liver_sn <- FindNeighbors(so_liver_sn, assay = "RNA", dims = 1:20)
+so_liver_sn <- FindClusters(so_liver_sn, resolution = 0.5)
+
+# Perform UMAP 
+#Print plot
+png(fs::path(dir.results, "UMAP_by_celltype.png"),
+    width = 4500, height = 3000, res = 300)
+p <- DimPlot(so_liver_sn, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  ggtitle("UMAP Plot by Cell Type")
+print(p)
+dev.off()
+
+
+#Print plot
+png(fs::path(dir.results, "UMAP_by_Steatosis.png"),
+    width = 4500, height = 3000, res = 300)
+p <- DimPlot(
+  so_liver_sn,
+  reduction = "umap",
+  group.by = "steatosis_cat",
+  label = FALSE,
+  raster = FALSE
+) +
+  scale_color_manual(values = c("darkblue","lightgray")) +
+  ggtitle("UMAP by Steatosis Status")
+print(p)
+dev.off()
+
+#Barcharts of proportions
+cellcount <- so_liver_sn@meta.data
+prop_plot <- ggplot(data=cellcount,aes(StudyID, fill = celltype)) + 
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion of Cells",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) 
+# ggtitle("PT Cells") +
+# scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+png(fs::path(dir.results, "Barchart_All_Participants_All_Cells.png"),width = 4500, height = 3000, res = 300)
+print(prop_plot)
+dev.off()
+
+prop_plot <- ggplot(data=cellcount,aes(steatosis_cat, fill = celltype)) + 
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion of Cells",
+       fill = "Cell Type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) 
+png(fs::path(dir.results, "Barchart_Steatosis_Cat_All_Cells.png"),width = 3000, height = 3000, res = 300)
+print(prop_plot)
+dev.off()
+```
+
+## d. Explore Distribution & Zero-Inflation
 ```{r}
 #Check if data have been normalized 
 so_liver_sn@assays  # Should show e.g., "RNA" with "counts" and "data"
@@ -383,7 +449,7 @@ if (percent_overdispersed > 10) {
 rm(counts)
 ```
 
-## d. Evaluate Covariates before Adjustment
+## e. Evaluate Covariates before Adjustment
 ```{r}
 #Categorical Covariates
 #Get metadata for everyone
@@ -532,7 +598,7 @@ wrap_plots(plot_list, ncol = 4 )
 # 3. Steatosis Analysis 
 ## a. HEP Cells 
 ```{r}
-#Filter to PT Cells
+#Filter to Hep Cells
 so_celltype <- subset(so_liver_sn,celltype2=="Hep")
 DefaultAssay(so_celltype) <- "RNA" 
 
@@ -543,34 +609,38 @@ ncol(so_celltype) #130124 nuclei
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
-rm(so_celltype)
+# # Subset Seurat object to only HVGs
+# # so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# subset_counts <- GetAssayData(so_celltype, layer = "counts")[hvgs, ]
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+# rm(so_celltype)
 ```
 
 ### i. NEBULA
 #### Unadjusted
 ```{r}
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
+
 #Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
 
 #Round counts layer for nb
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
 
 # List of genes
 genes_list <- rownames(counts_hvg)
 # # count_gene <- counts_hvg[g, , drop = FALSE]
-# meta_gene_hvg <- so_celltype_hvg@meta.data
-# id <- meta_gene_hvg$Kit_Lot
+# meta_gene_hvg <- .subset(so_celltype_hvg,features=g)@meta.data
 # pred_gene_hvg <- model.matrix(~steatosis_cat, data = meta_gene_hvg)
 # data_g_hvg = list(count = counts_hvg, id = id, pred = pred_gene_hvg)
 # offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
 # With parallelization
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -578,9 +648,10 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- subset(so_celltype,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    # library <- meta_gene$pooled_offset
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -630,12 +701,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -643,9 +714,9 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_offset_new.csv"))
-full_results <- read.csv(fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_offset_new.csv")) %>%
-  dplyr::rename(`logFC_steatosis_catHigh Steatosis (2+3)`=logFC_steatosis_catHigh.Steatosis..2.3.)
+write.csv(full_results,fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset.csv"))
+# full_results <- read.csv(fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
+#   dplyr::rename(`logFC_steatosis_catHigh Steatosis (2+3)`=logFC_steatosis_catHigh.Steatosis..2.3.)
 
 full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "#990000",
                              ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "#003366", "lightgray"))
@@ -666,39 +737,39 @@ max <- max(full_results$`logFC_steatosis_catHigh Steatosis (2+3)`)
 # max <- 3.1
 min <- min(full_results$`logFC_steatosis_catHigh Steatosis (2+3)`)
 # Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis (2+3)`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
-    subtitle = "Hepatocytes, Unadjusted (REML,Log Normal,Offset)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Nuclei = ",Nuclei,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  xlim(min,max)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-
-volcano_plot
-
-# pdf(fs::path(dir.results,"Plot_NEBULA_Hepatocytes_Steatosis_unadjusted_2000_hvg_reml_offset.pdf"),width=10,height=7)
+# volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis (2+3)`, y = PValue10, color = color)) +
+#   geom_point(alpha = 0.7) +  # Plot points with transparency
+#   scale_color_identity() +  # Use the color column directly
+#   theme_minimal() +  # Minimal theme
+#   labs(
+#     title = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
+#     subtitle = "Hepatocytes, Unadjusted (REML,Log Normal,Pooled Offset)",
+#     x = "FC",
+#     y = "-log10(P-Value)",
+#     color = "FC Direction Direction",
+#     caption = paste0("FDR < 0.05, Genes = ",Genes,", Nuclei = ",Nuclei,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
+#   ) +
+#   theme(
+#     plot.title = element_text(hjust = 0),
+#     axis.text.x = element_text(angle = 0, hjust = 1)
+#   )+
+#   xlim(min,max)+
+#   # # Add labels for significant points
+#   geom_text(data = significant_df, aes(label = gene),
+#             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+# # Add labels for significant points with ggrepel
+# # geom_text_repel(data = significant_df, aes(label = Gene),
+# #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+# 
+# volcano_plot
+# 
+# # pdf(fs::path(dir.results,"Plot_NEBULA_Hepatocytes_Steatosis_unadjusted_2000_hvg_reml_offset.pdf"),width=10,height=7)
+# # print(volcano_plot)
+# # dev.off()
+# png(fs::path(dir.results, "Plot_NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset.png"),
+#     width = 3000, height = 2100, res = 300)
 # print(volcano_plot)
 # dev.off()
-png(fs::path(dir.results, "Plot_NEBULA_Hepatocytes_Steatosis_unadjusted_2000_offset_new.ong"),
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
 
 
 volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis (2+3)`, y = PValue10, color = color)) +
@@ -728,30 +799,90 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis 
   # # Add labels for significant points
   geom_text(data = significant_df, aes(label = gene),
             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black",fontface="bold")
-  # With this:C
-  # geom_label(data = significant_df, aes(label = gene),
-  #            vjust = 1, hjust = 1, size = 3, color = "black",fontface="bold", fill = "white", alpha = 0.8, label.size = 0.2)
-   # Use geom_label_repel instead of geom_label to avoid overlaps
- # # Repelling labels without connector lines
- #  geom_label_repel(
- #    data = significant_df,
- #    aes(label = gene),
- #    size = 3,
- #    color = "black",
- #    fontface = "bold",
- #    fill = "white",
- #    alpha = 0.8,
- #    label.size = 0.2,
- #    box.padding = 0.5,
- #    point.padding = 0.1,
- #    max.overlaps = 40,
- #    segment.color = NA  # <--- disables lines
- #  )
+
 volcano_plot
-png(fs::path(dir.results, "Plot_NEBULA_Hepatocytes_Steatosis_unadjusted_2000_poster_figure.png"),
-    width = 1500, height = 1500, res = 300)
+png(fs::path(dir.results, "Plot_NEBULA_Hepatocytes_Steatosis_unadjusted_2000.png"),
+    width = 2500, height = 2000, res = 300)
 print(volcano_plot)
 dev.off()
+```
+
+### iii. GSEA
+```{r echo = F}
+full_results <- read.csv(fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
+  clean_names() %>% 
+  dplyr::select(-x) %>% 
+  dplyr::rename(Gene=gene,LogFC=log_fc_steatosis_cat_high_steatosis_2_3)
+
+# Filter out the gmt files for KEGG, Reactome and GOBP
+list.files(bg_path)
+gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+gmt_files
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
+
+# rank genes by t-stats in DiD
+rankings_Hepatocytes <- full_results$LogFC
+names(rankings_Hepatocytes) <- full_results$Gene
+rankings_Hepatocytes <- sort(rankings_Hepatocytes, decreasing = TRUE)
+plot(rankings_Hepatocytes)
+min(rankings_Hepatocytes)
+max(rankings_Hepatocytes)
+
+set.seed(1234)
+
+kegg_legacy_res_Hepatocytes <- fgsea(pathways = kegg_legacy,
+                                     stats = rankings_Hepatocytes,
+                                     scoreType = 'std', 
+                                     minSize = 3,
+                                     maxSize = 500,
+                                     nproc = 1)
+
+reactome_res_Hepatocytes <- fgsea(pathways = reactome,
+                                  stats = rankings_Hepatocytes,
+                                  scoreType = 'std', 
+                                  minSize = 3,
+                                  maxSize = 500,
+                                  nproc = 1)
+go_res_Hepatocytes <- fgsea(pathways = go,
+                            stats = rankings_Hepatocytes,
+                            scoreType = 'std', 
+                            minSize = 5,
+                            maxSize = 500,
+                            nproc = 1)
+
+Hepatocytes_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_Hepatocytes[, padj < 0.05]), sum(kegg_legacy_res_Hepatocytes[, pval < 0.05])),
+                                "REACTOME"=c(sum(reactome_res_Hepatocytes[, padj < 0.05]), sum(reactome_res_Hepatocytes[, pval < 0.05])),
+                                "GO"=c(sum(go_res_Hepatocytes[, padj < 0.05]), sum(go_res_Hepatocytes[, pval < 0.05])))
+rownames(Hepatocytes_fgsea) <- c("adj.pval", "p.val")
+Hepatocytes_fgsea
+
+# ##### KEGG Legacy
+# a <- plot_fgsea_transpose(kegg_legacy_res_Hepatocytes, title = "Hepatocytes Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
+
+# ggsave(fs::path(dir.results,"Hepatocytes_top30_kegg_pathways_unadjusted.jpeg"),
+#        width = 13, height = 10, scale = 1)
+
+##### REACTOME
+b <- plot_fgsea_transpose(reactome_res_Hepatocytes, title = "Hepatocytes Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
+
+# ggsave(fs::path(dir.results,"Hepatocytes_top30_reactome_pathways_unadjusted.jpeg"),
+#        width = 13, height = 10, scale = 1)
+##### GO
+c <- plot_fgsea_transpose(go_res_Hepatocytes, title = "Hepatocytes Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
+
+# ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
+#        width = 13, height = 10, scale = 1)
+
+# combined_plot <- b + c + plot_layout(ncol = 3)
+# print(combined_plot)
+# ggsave(fs::path(dir.results,"Hepatocytes_top30_pathways_unadjusted.jpeg"),
+#        width = 40, height = 10, scale = 1)
+combined_plot <- b + c + plot_layout(ncol = 1)
+print(combined_plot)
+ggsave(fs::path(dir.results,"Hepatocytes_top30_pathways_unadjusted.jpeg"),
+       width = 15, height = 20, scale = 1)
 ```
 #### Adjusted
 ```{r}
@@ -766,14 +897,14 @@ counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load coun
 # List of genes
 genes_list <- rownames(counts_hvg)
 # # count_gene <- counts_hvg[g, , drop = FALSE]
-# meta_gene_hvg <- so_celltype_hvg@meta.data
+# meta_gene_hvg <- .subset(so_celltype_hvg,features=g)@meta.data
 # id <- meta_gene_hvg$Kit_Lot
 # pred_gene_hvg <- model.matrix(~steatosis_cat, data = meta_gene_hvg)
 # data_g_hvg = list(count = counts_hvg, id = id, pred = pred_gene_hvg)
 # offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
 # With parallelization
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -781,9 +912,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- .subset(so_celltype_hvg,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat+a1c, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -833,12 +964,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -873,7 +1004,7 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis 
   theme_minimal() +  # Minimal theme
   labs(
     title = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
-    subtitle = "Hepatocytes, Adjusted for HbA1c (REML,Log Normal,Offset)",
+    subtitle = "Hepatocytes, Adjusted for HbA1c (REML,Log Normal,Pooled Offset)",
     x = "FC",
     y = "-log10(P-Value)",
     color = "FC Direction Direction",
@@ -962,7 +1093,7 @@ expr_matrix$cellname <- rownames(expr_matrix)
 rownames(expr_matrix) <- NULL
 
 # Extract the metadata
-metadata <- so_celltype_hvg@meta.data
+metadata <- .subset(so_celltype_hvg,features=g)@meta.data
 
 #Create cell variable to merge metadata into gene expression data
 metadata$cellname <- rownames(metadata)
@@ -979,79 +1110,6 @@ data$steatosis_cat <- relevel(data$steatosis_cat,ref="Low Steatosis (0+1)")
 
 ```
 
-### iii. GSEA
-```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_offset_new.csv")) %>%
-  clean_names() %>% 
-  dplyr::select(-x) %>% 
-  dplyr::rename(Gene=gene,LogFC=log_fc_steatosis_cat_high_steatosis_2_3)
-
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
-
-# rank genes by t-stats in DiD
-rankings_Hepatocytes <- full_results$LogFC
-names(rankings_Hepatocytes) <- full_results$Gene
-rankings_Hepatocytes <- sort(rankings_Hepatocytes, decreasing = TRUE)
-plot(rankings_Hepatocytes)
-min(rankings_Hepatocytes)
-max(rankings_Hepatocytes)
-
-set.seed(1234)
-
-kegg_legacy_res_Hepatocytes <- fgsea(pathways = kegg_legacy,
-                                     stats = rankings_Hepatocytes,
-                                     scoreType = 'std', 
-                                     minSize = 3,
-                                     maxSize = 500,
-                                     nproc = 1)
-
-reactome_res_Hepatocytes <- fgsea(pathways = reactome,
-                                  stats = rankings_Hepatocytes,
-                                  scoreType = 'std', 
-                                  minSize = 3,
-                                  maxSize = 500,
-                                  nproc = 1)
-go_res_Hepatocytes <- fgsea(pathways = go,
-                            stats = rankings_Hepatocytes,
-                            scoreType = 'std', 
-                            minSize = 5,
-                            maxSize = 500,
-                            nproc = 1)
-
-Hepatocytes_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_Hepatocytes[, padj < 0.05]), sum(kegg_legacy_res_Hepatocytes[, pval < 0.05])),
-                                "REACTOME"=c(sum(reactome_res_Hepatocytes[, padj < 0.05]), sum(reactome_res_Hepatocytes[, pval < 0.05])),
-                                "GO"=c(sum(go_res_Hepatocytes[, padj < 0.05]), sum(go_res_Hepatocytes[, pval < 0.05])))
-rownames(Hepatocytes_fgsea) <- c("adj.pval", "p.val")
-Hepatocytes_fgsea
-
-##### KEGG Legacy
-a <- plot_fgsea_transpose(kegg_legacy_res_Hepatocytes, title = "Hepatocytes Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
-
-# ggsave(fs::path(dir.results,"Hepatocytes_top30_kegg_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-##### REACTOME
-b <- plot_fgsea_transpose(reactome_res_Hepatocytes, title = "Hepatocytes Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
-
-# ggsave(fs::path(dir.results,"Hepatocytes_top30_reactome_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-##### GO
-c <- plot_fgsea_transpose(go_res_Hepatocytes, title = "Hepatocytes Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-combined_plot <- a + b + c + plot_layout(ncol = 3)
-print(combined_plot)
-ggsave(fs::path(dir.results,"Hepatocytes_top30_pathways_unadjusted.jpeg"),
-       width = 40, height = 10, scale = 1)
-```
 
 ### iv. Targeted Genes
 ```{r}
@@ -1083,9 +1141,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- .subset(so_celltype_hvg,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -1134,12 +1192,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -1230,6 +1288,9 @@ ggplot(df, aes(x = MTOR, fill = steatosis_cat)) +
 #Filter to PT Cells
 so_celltype <- subset(so_liver_sn,celltype=="Hep-1")
 DefaultAssay(so_celltype) <- "RNA" 
+so_celltype@assays
+head(GetAssayData(so_celltype, layer = "counts")[, 1:5])  # Raw counts
+head(GetAssayData(so_celltype, layer = "data")[, 1:5])  
 
 nrow(so_celltype) #11300 genes
 ncol(so_celltype) #24808 nuclei
@@ -1238,32 +1299,31 @@ ncol(so_celltype) #24808 nuclei
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
+# # Subset Seurat object to only HVGs
+# so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+
 ```
 
 ### i. NEBULA
 ```{r}
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
+
 #Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
 
 #Round counts layer for nb
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
 
 # List of genes
 genes_list <- rownames(counts_hvg)
-# # count_gene <- counts_hvg[g, , drop = FALSE]
-# meta_gene_hvg <- so_celltype_hvg@meta.data
-# id <- meta_gene_hvg$Kit_Lot
-# pred_gene_hvg <- model.matrix(~steatosis_cat, data = meta_gene_hvg)
-# data_g_hvg = list(count = counts_hvg, id = id, pred = pred_gene_hvg)
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
 # With parallelization
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -1271,9 +1331,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- subset(so_celltype,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -1323,12 +1383,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -1336,16 +1396,18 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_Hep_1_Steatosis_unadjusted_2000_offset_new.csv"))
+write.csv(full_results,fs::path(dir.results,"NEBULA_Hep_1_Steatosis_unadjusted_2000_pooled_offset.csv"))
 
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
+# full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
+#                              ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
+full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "#990000",
+                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "#003366", "lightgray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- full_results[full_results$fdr < 0.05, ]
 
 Genes <- length(unique(full_results$gene))
-Nuclei <- ncol(so_celltype_hvg)
+Nuclei <- ncol(so_celltype)
 Nonconvergence_Rate <- nebula_nonconverged_percent
 # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 > 0, "lightcoral",
 #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 < 0, "lightblue", "gray"))
@@ -1363,7 +1425,7 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis 
   theme_minimal() +  # Minimal theme
   labs(
     title = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
-    subtitle = "Hep-1, Unadjusted (REML,Log Normal,Offset)",
+    subtitle = "Hep-1, Unadjusted (REML,Log Normal,Pooled Offset)",
     x = "FC",
     y = "-log10(P-Value)",
     color = "FC Direction Direction",
@@ -1386,16 +1448,266 @@ volcano_plot
 # pdf(fs::path(dir.results,"Plot_NEBULA_Hep_1_Steatosis_unadjusted_2000_hvg_reml_offset.pdf"),width=10,height=7)
 # print(volcano_plot)
 # dev.off()
-png(fs::path(dir.results, "Plot_NEBULA_Hep_1_Steatosis_unadjusted_2000_offset_new.ong"),
-    width = 3000, height = 2100, res = 300)
+png(fs::path(dir.results, "Plot_NEBULA_Hep_1_Steatosis_unadjusted_2000_pooled_offset.png"),
+    width = 2500, height = 2100, res = 300)
 print(volcano_plot)
 dev.off()
+```
+
+### iii. GSEA
+```{r echo = F}
+full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_1_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
+  clean_names() %>% 
+  dplyr::select(-x) %>% 
+  dplyr::rename(Gene=gene,LogFC=log_fc_steatosis_cat_high_steatosis_2_3)
+
+# Filter out the gmt files for KEGG, Reactome and GOBP
+list.files(bg_path)
+gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+gmt_files
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
+
+# rank genes by t-stats in DiD
+rankings_Hepatocytes <- full_results$LogFC
+names(rankings_Hepatocytes) <- full_results$Gene
+rankings_Hepatocytes <- sort(rankings_Hepatocytes, decreasing = TRUE)
+plot(rankings_Hepatocytes)
+min(rankings_Hepatocytes)
+max(rankings_Hepatocytes)
+
+set.seed(1234)
+
+kegg_legacy_res_Hepatocytes <- fgsea(pathways = kegg_legacy,
+                                     stats = rankings_Hepatocytes,
+                                     scoreType = 'std', 
+                                     minSize = 3,
+                                     maxSize = 500,
+                                     nproc = 1)
+
+reactome_res_Hepatocytes <- fgsea(pathways = reactome,
+                                  stats = rankings_Hepatocytes,
+                                  scoreType = 'std', 
+                                  minSize = 3,
+                                  maxSize = 500,
+                                  nproc = 1)
+go_res_Hepatocytes <- fgsea(pathways = go,
+                            stats = rankings_Hepatocytes,
+                            scoreType = 'std', 
+                            minSize = 5,
+                            maxSize = 500,
+                            nproc = 1)
+
+Hepatocytes_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_Hepatocytes[, padj < 0.05]), sum(kegg_legacy_res_Hepatocytes[, pval < 0.05])),
+                                "REACTOME"=c(sum(reactome_res_Hepatocytes[, padj < 0.05]), sum(reactome_res_Hepatocytes[, pval < 0.05])),
+                                "GO"=c(sum(go_res_Hepatocytes[, padj < 0.05]), sum(go_res_Hepatocytes[, pval < 0.05])))
+rownames(Hepatocytes_fgsea) <- c("adj.pval", "p.val")
+Hepatocytes_fgsea
+
+##### KEGG Legacy
+a <- plot_fgsea_transpose(kegg_legacy_res_Hepatocytes, title = "Hep-1 Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
+
+# ggsave(fs::path(dir.results,"Hepatocytes_top30_kegg_pathways_unadjusted.jpeg"),
+#        width = 13, height = 10, scale = 1)
+
+##### REACTOME
+b <- plot_fgsea_transpose(reactome_res_Hepatocytes, title = "Hep-1 Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
+
+# ggsave(fs::path(dir.results,"Hepatocytes_top30_reactome_pathways_unadjusted.jpeg"),
+#        width = 13, height = 10, scale = 1)
+##### GO
+c <- plot_fgsea_transpose(go_res_Hepatocytes, title = "Hep-1 Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
+
+# ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
+#        width = 13, height = 10, scale = 1)
+
+# combined_plot <- b + c + plot_layout(ncol = 3)
+# print(combined_plot)
+# ggsave(fs::path(dir.results,"Hep_1_top30_pathways_unadjusted.jpeg"),
+#        width = 40, height = 10, scale = 1)
+combined_plot <- b + c + plot_layout(ncol = 1)
+print(combined_plot)
+ggsave(fs::path(dir.results,"Hep_1_top30_pathways_unadjusted.jpeg"),
+       width = 15, height = 20, scale = 1)
+```
+
+### iv. Targeted Genes
+```{r}
+#Filter to PT Cells
+so_celltype <- subset(so_liver_sn,celltype=="Hep-1")
+DefaultAssay(so_celltype) <- "RNA" 
+
+genes_list <- c("PNPLA3","GCKR","TM6SF2","APOC3","MTOR")
+so_celltype_hvg <- subset(so_celltype, features =genes_list)
+DefaultAssay(so_celltype_hvg) <- "RNA"
+
+nrow(so_celltype_hvg) #28964 genes
+Nuclei <- ncol(so_celltype_hvg) #130124 nuclei
+
+counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+
+#Make sure exposure/independent/x variable or group variable is a factor variable
+so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+#Make sure to set reference level
+so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+
+# With parallelization
+
+cl <- makeCluster(2)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- counts_hvg[g, , drop = FALSE]
+    meta_gene <- .subset(so_celltype_hvg,features=g)@meta.data
+    pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
+    library <- meta_gene$pooled_offset
+    data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
+    
+    if (is.null(data_g_gene)) {
+      data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+    }
+    
+    #With offset
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+    
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+
+stopCluster(cl)
+end_time <- Sys.time()
+print(end_time - start_time)
+
+# set the names of results based on gene names
+nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+
+hep_nebula_converged <- map_dfr(
+  names(nebula_results_list),
+  function(gene_name) {
+    converged <- nebula_results_list[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+nebula_summaries <- map_dfr(
+  names(nebula_results_list),
+  function(gene_name) {
+    df <- nebula_results_list[[gene_name]]$summary
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40)]
+) 
+
+full_results <- as.data.frame(nebula_summaries)
+#Calculate number of genes filtered out for low expression 
+low_exp <- length(genes_list)-length(full_results$gene)
+#Filter out non-converging genes
+full_results <- full_results %>% 
+  filter(!gene %in%  nonconverge_genes)
+#Calculate nonconvergence rate
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
+# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+full_results <- full_results %>%
+  mutate(fdr=p.adjust(`p_steatosis_catHigh Steatosis (2+3)`,method="fdr"))  
+# mutate(fdr3=p.adjust(PValue3,method="fdr"))
+full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
+
+write.csv(full_results,fs::path(dir.results,"Targeted_Genes_NEBULA_Hep_1_Steatosis_unadjusted.csv"))
+
+# Calculate Confidence Intervals (95% CI)
+full_results <- full_results %>%
+  mutate(
+    CI_Lower = `logFC_steatosis_catHigh Steatosis (2+3)` - 1.96 * `se_steatosis_catHigh Steatosis (2+3)`,
+    CI_Upper = `logFC_steatosis_catHigh Steatosis (2+3)` + 1.96 * `se_steatosis_catHigh Steatosis (2+3)`
+  )
+full_results <- full_results %>% 
+  mutate(sig=ifelse(`p_steatosis_catHigh Steatosis (2+3)`<0.05,"*",""))
+
+# Create the coefficient plot
+dot_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis (2+3)`, y = Gene)) +
+  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2, color="orange") +  # Add horizontal error bars for CIs
+  geom_point(size = 3,color="purple") +  # Add points for the Beta (Log2FC)
+  # geom_point(size = 3,aes(color=sig)) +  # Add points for the Beta (Log2FC)
+  labs(title = "Steatosis (High vs. Low) in All Cell Types",
+       subtitle = "Hep-1, Unadjusted (REML, Log Normal, Offset)",
+       x = "LogFC", y = "Gene",
+       caption=paste0("Nuclei = ",Nuclei) )+
+  geom_vline(xintercept = 0, linetype = "dotted", color = "black") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 10),
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        text =element_text(size=10)) 
+dot_plot
+
+
+#Examine distributions 
+target_genes <- c("PNPLA3","GCKR","TM6SF2","APOC3","MTOR")
+# Step 1: Pull expression for gene PNPLA3
+gene_expr <- FetchData(so_celltype, vars = target_genes)
+
+# Step 2: Pull metadata for steatosis_cat
+metadata <- so_celltype@meta.data["steatosis_cat"]
+
+# Step 3: Combine into one dataframe
+df <- cbind(gene_expr, metadata)
+# colnames(df) <- c("PNPLA3", "steatosis_cat")
+
+# Step 4: Plot using ggplot
+ggplot(df, aes(x = PNPLA3, fill = steatosis_cat)) + 
+  geom_histogram(bins = 30, position = "identity", alpha = 0.6) + 
+  theme_minimal() +
+  labs(title = "PNPLA3 Expression by Steatosis Category",
+       x = "PNPLA3 Expression",
+       y = "Cell Count")
+
+ggplot(df, aes(x = GCKR, fill = steatosis_cat)) + 
+  geom_histogram(bins = 30, position = "identity", alpha = 0.6) + 
+  theme_minimal() +
+  labs(title = "GCKR Expression by Steatosis Category",
+       x = "GCKR Expression",
+       y = "Cell Count")
+
+ggplot(df, aes(x = TM6SF2, fill = steatosis_cat)) + 
+  geom_histogram(bins = 30, position = "identity", alpha = 0.6) + 
+  theme_minimal() +
+  labs(title = "TM6SF2 Expression by Steatosis Category",
+       x = "TM6SF2 Expression",
+       y = "Cell Count")
+
+ggplot(df, aes(x = APOC3, fill = steatosis_cat)) + 
+  geom_histogram(bins = 30, position = "identity", alpha = 0.6) + 
+  theme_minimal() +
+  labs(title = "APOC3 Expression by Steatosis Category",
+       x = "APOC3 Expression",
+       y = "Cell Count")
+
+ggplot(df, aes(x = MTOR, fill = steatosis_cat)) + 
+  geom_histogram(bins = 30, position = "identity", alpha = 0.6) + 
+  theme_minimal() +
+  labs(title = "MTOR Expression by Steatosis Category",
+       x = "MTOR Expression",
+       y = "Cell Count")
 ```
 
 ### ii. Pathway Enrichment
 ```{r echo = F}
 #Hep-1
-full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_1_Steatosis_unadjusted_2000_offset_new.csv")) %>%
+full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_1_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
   clean_names() %>% 
   dplyr::select(-x) %>% 
   dplyr::select(c("gene","log_fc_steatosis_cat_high_steatosis_2_3","fdr")) %>% 
@@ -1585,292 +1897,47 @@ ggsave(fs::path(dir.results, "NEBULA_Negative_Hep_1_gsea_figure.jpeg"), figure, 
 
 ```
 
-### iii. GSEA
-```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_1_Steatosis_unadjusted_2000_offset_new.csv")) %>%
-  clean_names() %>% 
-  dplyr::select(-x) %>% 
-  dplyr::rename(Gene=gene,LogFC=log_fc_steatosis_cat_high_steatosis_2_3)
-
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
-
-# rank genes by t-stats in DiD
-rankings_Hepatocytes <- full_results$LogFC
-names(rankings_Hepatocytes) <- full_results$Gene
-rankings_Hepatocytes <- sort(rankings_Hepatocytes, decreasing = TRUE)
-plot(rankings_Hepatocytes)
-min(rankings_Hepatocytes)
-max(rankings_Hepatocytes)
-
-set.seed(1234)
-
-kegg_legacy_res_Hepatocytes <- fgsea(pathways = kegg_legacy,
-                                     stats = rankings_Hepatocytes,
-                                     scoreType = 'std', 
-                                     minSize = 3,
-                                     maxSize = 500,
-                                     nproc = 1)
-
-reactome_res_Hepatocytes <- fgsea(pathways = reactome,
-                                  stats = rankings_Hepatocytes,
-                                  scoreType = 'std', 
-                                  minSize = 3,
-                                  maxSize = 500,
-                                  nproc = 1)
-go_res_Hepatocytes <- fgsea(pathways = go,
-                            stats = rankings_Hepatocytes,
-                            scoreType = 'std', 
-                            minSize = 5,
-                            maxSize = 500,
-                            nproc = 1)
-
-Hepatocytes_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_Hepatocytes[, padj < 0.05]), sum(kegg_legacy_res_Hepatocytes[, pval < 0.05])),
-                                "REACTOME"=c(sum(reactome_res_Hepatocytes[, padj < 0.05]), sum(reactome_res_Hepatocytes[, pval < 0.05])),
-                                "GO"=c(sum(go_res_Hepatocytes[, padj < 0.05]), sum(go_res_Hepatocytes[, pval < 0.05])))
-rownames(Hepatocytes_fgsea) <- c("adj.pval", "p.val")
-Hepatocytes_fgsea
-
-##### KEGG Legacy
-a <- plot_fgsea_transpose(kegg_legacy_res_Hepatocytes, title = "Hep-1 Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
-
-# ggsave(fs::path(dir.results,"Hepatocytes_top30_kegg_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-##### REACTOME
-b <- plot_fgsea_transpose(reactome_res_Hepatocytes, title = "Hep-1 Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
-
-# ggsave(fs::path(dir.results,"Hepatocytes_top30_reactome_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-##### GO
-c <- plot_fgsea_transpose(go_res_Hepatocytes, title = "Hep-1 Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-combined_plot <- a + b + c + plot_layout(ncol = 3)
-print(combined_plot)
-ggsave(fs::path(dir.results,"Hep_1_top30_pathways_unadjusted.jpeg"),
-       width = 40, height = 10, scale = 1)
-```
-
-### iv. Targeted Genes
-```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_liver_sn,celltype=="Hep-1")
-DefaultAssay(so_celltype) <- "RNA" 
-
-genes_list <- c("PNPLA3","GCKR","TM6SF2","APOC3","MTOR")
-so_celltype_hvg <- subset(so_celltype, features =genes_list)
-DefaultAssay(so_celltype_hvg) <- "RNA"
-
-nrow(so_celltype_hvg) #28964 genes
-Nuclei <- ncol(so_celltype_hvg) #130124 nuclei
-
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
-#Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
-
-# With parallelization
-
-cl <- makeCluster(2)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
-    pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-hep_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40)]
-) 
-
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_steatosis_catHigh Steatosis (2+3)`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
-
-write.csv(full_results,fs::path(dir.results,"Targeted_Genes_NEBULA_Hep_1_Steatosis_unadjusted.csv"))
-
-# Calculate Confidence Intervals (95% CI)
-full_results <- full_results %>%
-  mutate(
-    CI_Lower = `logFC_steatosis_catHigh Steatosis (2+3)` - 1.96 * `se_steatosis_catHigh Steatosis (2+3)`,
-    CI_Upper = `logFC_steatosis_catHigh Steatosis (2+3)` + 1.96 * `se_steatosis_catHigh Steatosis (2+3)`
-  )
-full_results <- full_results %>% 
-  mutate(sig=ifelse(`p_steatosis_catHigh Steatosis (2+3)`<0.05,"*",""))
-
-# Create the coefficient plot
-dot_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis (2+3)`, y = Gene)) +
-  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2, color="orange") +  # Add horizontal error bars for CIs
-  geom_point(size = 3,color="purple") +  # Add points for the Beta (Log2FC)
-  # geom_point(size = 3,aes(color=sig)) +  # Add points for the Beta (Log2FC)
-  labs(title = "Steatosis (High vs. Low) in All Cell Types",
-       subtitle = "Hep-1, Unadjusted (REML, Log Normal, Offset)",
-       x = "LogFC", y = "Gene",
-       caption=paste0("Nuclei = ",Nuclei) )+
-  geom_vline(xintercept = 0, linetype = "dotted", color = "black") +
-  theme_minimal() +
-  theme(axis.text.y = element_text(size = 10),
-        axis.title.x = element_text(size = 10),
-        axis.title.y = element_text(size = 10),
-        text =element_text(size=10)) 
-dot_plot
-
-
-#Examine distributions 
-target_genes <- c("PNPLA3","GCKR","TM6SF2","APOC3","MTOR")
-# Step 1: Pull expression for gene PNPLA3
-gene_expr <- FetchData(so_celltype, vars = target_genes)
-
-# Step 2: Pull metadata for steatosis_cat
-metadata <- so_celltype@meta.data["steatosis_cat"]
-
-# Step 3: Combine into one dataframe
-df <- cbind(gene_expr, metadata)
-# colnames(df) <- c("PNPLA3", "steatosis_cat")
-
-# Step 4: Plot using ggplot
-ggplot(df, aes(x = PNPLA3, fill = steatosis_cat)) + 
-  geom_histogram(bins = 30, position = "identity", alpha = 0.6) + 
-  theme_minimal() +
-  labs(title = "PNPLA3 Expression by Steatosis Category",
-       x = "PNPLA3 Expression",
-       y = "Cell Count")
-
-ggplot(df, aes(x = GCKR, fill = steatosis_cat)) + 
-  geom_histogram(bins = 30, position = "identity", alpha = 0.6) + 
-  theme_minimal() +
-  labs(title = "GCKR Expression by Steatosis Category",
-       x = "GCKR Expression",
-       y = "Cell Count")
-
-ggplot(df, aes(x = TM6SF2, fill = steatosis_cat)) + 
-  geom_histogram(bins = 30, position = "identity", alpha = 0.6) + 
-  theme_minimal() +
-  labs(title = "TM6SF2 Expression by Steatosis Category",
-       x = "TM6SF2 Expression",
-       y = "Cell Count")
-
-ggplot(df, aes(x = APOC3, fill = steatosis_cat)) + 
-  geom_histogram(bins = 30, position = "identity", alpha = 0.6) + 
-  theme_minimal() +
-  labs(title = "APOC3 Expression by Steatosis Category",
-       x = "APOC3 Expression",
-       y = "Cell Count")
-
-ggplot(df, aes(x = MTOR, fill = steatosis_cat)) + 
-  geom_histogram(bins = 30, position = "identity", alpha = 0.6) + 
-  theme_minimal() +
-  labs(title = "MTOR Expression by Steatosis Category",
-       x = "MTOR Expression",
-       y = "Cell Count")
-```
-
-
 ## c. Hep-2
 ```{r}
 #Filter to PT Cells
 so_celltype <- subset(so_liver_sn,celltype=="Hep-2")
 DefaultAssay(so_celltype) <- "RNA" 
+# so_celltype@assays
+# head(GetAssayData(so_celltype, layer = "counts")[, 1:5])  # Raw counts
+# head(GetAssayData(so_celltype, layer = "data")[, 1:5])  
 
 nrow(so_celltype) #11300 genes
-ncol(so_celltype) #22983 nuclei
+ncol(so_celltype) #24808 nuclei
 
 ## Select Highly Variable Genes (HVGs)
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
+# # Subset Seurat object to only HVGs
+# so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+
 ```
 
 ### i. NEBULA
 ```{r}
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
+
 #Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
 
 #Round counts layer for nb
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
 
 # List of genes
 genes_list <- rownames(counts_hvg)
-# # count_gene <- counts_hvg[g, , drop = FALSE]
-# meta_gene_hvg <- so_celltype_hvg@meta.data
-# id <- meta_gene_hvg$Kit_Lot
-# pred_gene_hvg <- model.matrix(~steatosis_cat, data = meta_gene_hvg)
-# data_g_hvg = list(count = counts_hvg, id = id, pred = pred_gene_hvg)
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
 # With parallelization
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -1878,9 +1945,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- subset(so_celltype,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -1930,12 +1997,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -1943,16 +2010,18 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_Hep_2_Steatosis_unadjusted_2000_offset_new.csv"))
+write.csv(full_results,fs::path(dir.results,"NEBULA_Hep_2_Steatosis_unadjusted_2000_pooled_offset.csv"))
 
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
+# full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
+#                              ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
+full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "#990000",
+                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "#003366", "lightgray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- full_results[full_results$fdr < 0.05, ]
 
 Genes <- length(unique(full_results$gene))
-Nuclei <- ncol(so_celltype_hvg)
+Nuclei <- ncol(so_celltype)
 Nonconvergence_Rate <- nebula_nonconverged_percent
 # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 > 0, "lightcoral",
 #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 < 0, "lightblue", "gray"))
@@ -1970,7 +2039,7 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis 
   theme_minimal() +  # Minimal theme
   labs(
     title = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
-    subtitle = "Hep-2, Unadjusted (REML,Log Normal,Offset)",
+    subtitle = "Hep-2, Unadjusted (REML,Log Normal,Pooled Offset)",
     x = "FC",
     y = "-log10(P-Value)",
     color = "FC Direction Direction",
@@ -1993,208 +2062,15 @@ volcano_plot
 # pdf(fs::path(dir.results,"Plot_NEBULA_Hep_2_Steatosis_unadjusted_2000_hvg_reml_offset.pdf"),width=10,height=7)
 # print(volcano_plot)
 # dev.off()
-png(fs::path(dir.results, "Plot_NEBULA_Hep_2_Steatosis_unadjusted_2000_offset_new.ong"),
-    width = 3000, height = 2100, res = 300)
+png(fs::path(dir.results, "Plot_NEBULA_Hep_2_Steatosis_unadjusted_2000_pooled_offset.png"),
+    width = 2500, height = 2100, res = 300)
 print(volcano_plot)
 dev.off()
 ```
 
-### ii. Pathway Enrichment
-```{r echo = F}
-#Hep-2
-full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_2_Steatosis_unadjusted_2000_hvg_reml.csv")) %>%
-  clean_names() %>% 
-  dplyr::select(-x) %>% 
-  dplyr::select(c("gene","log_fc_steatosis_cat_high_steatosis_2_3","fdr")) %>% 
-  dplyr::rename(Gene=gene,LogFC=log_fc_steatosis_cat_high_steatosis_2_3)
-sig_pos <- full_results %>% 
-  filter(LogFC>0 & fdr<0.05)
-sig_neg <- full_results %>% 
-  filter(LogFC<0 & fdr<0.05)
-
-#Run postive enricher analysis 
-sig_pos_en <- enrichr(as.character(sig_pos$Gene), dbs)
-#Plot results
-# Convert enrichment results to a dataframe
-sig_pos_en_df <- as.data.frame(sig_pos_en[[1]])
-# Extract the number of overlapping genes
-sig_pos_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_pos_en_df$Overlap))
-# Filter pathways with at least 3 overlapping genes
-filtered_results <- subset(sig_pos_en_df, Num_Genes >= 3)
-# Plot the filtered results
-# plotEnrich(filtered_results, title = "Model 1 Positive Hep-2 - GO")
-p1 <- plotEnrich(filtered_results, title = "GO")
-# ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_go.jpeg"),width=10,height=7)
-
-# Convert enrichment results to a dataframe
-sig_pos_en_df <- as.data.frame(sig_pos_en[[2]])
-# Extract the number of overlapping genes
-sig_pos_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_pos_en_df$Overlap))
-# Filter pathways with at least 3 overlapping genes
-filtered_results <- subset(sig_pos_en_df, Num_Genes >= 3)
-# Plot the filtered results
-p2 <- plotEnrich(filtered_results, title = "KEGG")
-# plotEnrich(filtered_results, title = "Model 1 Positive Hep-2 - Kegg")
-# plotEnrich(as.data.frame(sig_pos_en[[2]]), title = "Model 1 Positive Hep-2 - Kegg")
-# ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_kegg.jpeg"),width=10,height=7)
-
-# sig_pos_en_df <- as.data.frame(sig_pos_en[[3]])
-# # Extract the number of overlapping genes
-# sig_pos_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_pos_en_df$Overlap))
-# # Filter pathways with at least 3 overlapping genes
-# filtered_results <- subset(sig_pos_en_df, Num_Genes >= 3)
-# # Plot the filtered results
-# # plotEnrich(filtered_results, title = "Model 1 Positive Hep-2 - Reactome '22")
-# p3 <- plotEnrich(filtered_results, title = "Positive Hep-2 - Reactome '22")
-# # plotEnrich(as.data.frame(sig_pos_en[[3]]), title = "Model 1 Positive Hep-2 - Reactome '22")
-# # ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_reactome22.jpeg"),width=10,height=7)
-
-sig_pos_en_df <- as.data.frame(sig_pos_en[[3]])
-# Extract the number of overlapping genes
-sig_pos_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_pos_en_df$Overlap))
-# Filter pathways with at least 3 overlapping genes
-filtered_results <- subset(sig_pos_en_df, Num_Genes >= 3)
-# Plot the filtered results
-# plotEnrich(filtered_results, title = "Model 1 Positive Hep-2 - Reactome '24")
-p3 <- plotEnrich(filtered_results, title = "Reactome '24")
-# plotEnrich(as.data.frame(sig_pos_en[[4]]), title = "Model 1 Positive Hep-2 - Reactome '24")
-# ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_reactome24.jpeg"),width=10,height=7)
-
-# sig_pos_en_df <- as.data.frame(sig_pos_en[[5]])
-# # Extract the number of overlapping genes
-# sig_pos_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_pos_en_df$Overlap))
-# # Filter pathways with at least 3 overlapping genes
-# filtered_results <- subset(sig_pos_en_df, Num_Genes >= 3)
-# # Plot the filtered results
-# p5 <- plotEnrich(filtered_results, title = "Positive Hep-2 - MsigDB Computational")
-# # plotEnrich(filtered_results, title = "Model 1 Positive Hep-2 - MsigDB Computational")
-# # plotEnrich(as.data.frame(sig_pos_en[[4]]), title = "Model 1 Positive Hep-2 - Reactome '24")
-# # ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_reactome24.jpeg"),width=10,height=7)
-
-sig_pos_en_df <- as.data.frame(sig_pos_en[[4]])
-# Extract the number of overlapping genes
-sig_pos_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_pos_en_df$Overlap))
-# Filter pathways with at least 3 overlapping genes
-filtered_results <- subset(sig_pos_en_df, Num_Genes >= 3)
-# Plot the filtered results
-# plotEnrich(filtered_results, title = "Model 1 Positive Hep-2 - MsigDB Hallmark '20")
-# plotEnrich(as.data.frame(sig_pos_en[[4]]), title = "Model 1 Positive Hep-2 - Reactome '24")
-# ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_reactome24.jpeg"),width=10,height=7)
-p4 <- plotEnrich(filtered_results, title = "MsigDB '20")
-
-# # Arrange 6 plots in 3 rows x 2 columns
-# combined_plot <- (p1 | p2) / 
-#   (p3 | p4) 
-# 
-# # Display or save the plot
-# figure <- combined_plot + 
-#   plot_annotation(
-#     title = "Positive Gene Set Enrichment Analysis for Hep-2 vs. Steatosis (High/Low)",
-#     theme = theme(
-#       plot.title = element_text(
-#         hjust = 0.5,         # Center title
-#         size = 18,           # Bigger font
-#         face = "bold"        # Bold text
-#       )
-#     )
-#   )
-
-# ggsave(fs::path(dir.results, "Positive_Hep-2_gsea_figure.jpeg"), figure, width = 18, height = 10)
-
-#Run negative enricher analysis 
-sig_neg_en <- enrichr(as.character(sig_neg$Gene), dbs)
-#Plot results
-# Convert enrichment results to a dataframe
-sig_neg_en_df <- as.data.frame(sig_neg_en[[1]])
-# Extract the number of overlapping genes
-sig_neg_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_neg_en_df$Overlap))
-# Filter pathways with at least 3 overlapping genes
-filtered_results <- subset(sig_neg_en_df, Num_Genes >= 3)
-# Plot the filtered results
-# plotEnrich(filtered_results, title = "Model 1 Negative Hep-2 - GO")
-p1 <- plotEnrich(filtered_results, title = "GO")
-# ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_go.jpeg"),width=10,height=7)
-
-# Convert enrichment results to a dataframe
-sig_neg_en_df <- as.data.frame(sig_neg_en[[2]])
-# Extract the number of overlapping genes
-sig_neg_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_neg_en_df$Overlap))
-# Filter pathways with at least 3 overlapping genes
-filtered_results <- subset(sig_neg_en_df, Num_Genes >= 3)
-# Plot the filtered results
-p2 <- plotEnrich(filtered_results, title = "KEGG")
-# plotEnrich(filtered_results, title = "Model 1 Negative Hep-2 - Kegg")
-# plotEnrich(as.data.frame(sig_neg_en[[2]]), title = "Model 1 Negative Hep-2 - Kegg")
-# ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_kegg.jpeg"),width=10,height=7)
-
-# sig_neg_en_df <- as.data.frame(sig_neg_en[[3]])
-# # Extract the number of overlapping genes
-# sig_neg_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_neg_en_df$Overlap))
-# # Filter pathways with at least 3 overlapping genes
-# filtered_results <- subset(sig_neg_en_df, Num_Genes >= 3)
-# # Plot the filtered results
-# # plotEnrich(filtered_results, title = "Model 1 Negative Hep-2 - Reactome '22")
-# p3 <- plotEnrich(filtered_results, title = "Negative Hep-2 - Reactome '22")
-# # plotEnrich(as.data.frame(sig_neg_en[[3]]), title = "Model 1 Negative Hep-2 - Reactome '22")
-# # ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_reactome22.jpeg"),width=10,height=7)
-
-sig_neg_en_df <- as.data.frame(sig_neg_en[[3]])
-# Extract the number of overlapping genes
-sig_neg_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_neg_en_df$Overlap))
-# Filter pathways with at least 3 overlapping genes
-filtered_results <- subset(sig_neg_en_df, Num_Genes >= 3)
-# Plot the filtered results
-# plotEnrich(filtered_results, title = "Model 1 Negative Hep-2 - Reactome '24")
-p3 <- plotEnrich(filtered_results, title = "Reactome '24")
-# plotEnrich(as.data.frame(sig_neg_en[[4]]), title = "Model 1 Negative Hep-2 - Reactome '24")
-# ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_reactome24.jpeg"),width=10,height=7)
-
-# sig_neg_en_df <- as.data.frame(sig_neg_en[[5]])
-# # Extract the number of overlapping genes
-# sig_neg_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_neg_en_df$Overlap))
-# # Filter pathways with at least 3 overlapping genes
-# filtered_results <- subset(sig_neg_en_df, Num_Genes >= 3)
-# # Plot the filtered results
-# p5 <- plotEnrich(filtered_results, title = "Negative Hep-2 - MsigDB Computational")
-# # plotEnrich(filtered_results, title = "Model 1 Negative Hep-2 - MsigDB Computational")
-# # plotEnrich(as.data.frame(sig_neg_en[[4]]), title = "Model 1 Negative Hep-2 - Reactome '24")
-# # ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_reactome24.jpeg"),width=10,height=7)
-
-sig_neg_en_df <- as.data.frame(sig_neg_en[[4]])
-# Extract the number of overlapping genes
-sig_neg_en_df$Num_Genes <- as.numeric(sub("/.*", "", sig_neg_en_df$Overlap))
-# Filter pathways with at least 3 overlapping genes
-filtered_results <- subset(sig_neg_en_df, Num_Genes >= 3)
-# Plot the filtered results
-# plotEnrich(filtered_results, title = "Model 1 Negative Hep-2 - MsigDB Hallmark '20")
-# plotEnrich(as.data.frame(sig_neg_en[[4]]), title = "Model 1 Negative Hep-2 - Reactome '24")
-# ggsave(fs::path(dir.results,"All_Cell_Types_pos_gsea_reactome24.jpeg"),width=10,height=7)
-p4 <- plotEnrich(filtered_results, title = "MsigDB '20")
-
-# Arrange 6 plots in 3 rows x 2 columns
-combined_plot <- (p1 | p2) / 
-  (p3 | p4) 
-
-# Display or save the plot
-figure <- combined_plot + 
-  plot_annotation(
-    title = "Negative Gene Set Enrichment Analysis for Hep-2 vs. Steatosis (High/Low)",
-    theme = theme(
-      plot.title = element_text(
-        hjust = 0.5,         # Center title
-        size = 18,           # Bigger font
-        face = "bold"        # Bold text
-      )
-    )
-  )
-
-ggsave(fs::path(dir.results, "NEBULA_Negative_Hep_2_gsea_figure.jpeg"), figure, width = 18, height = 10)
-
-```
-
 ### iii. GSEA
 ```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_2_Steatosis_unadjusted_2000_offset_new.csv")) %>%
+full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_2_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
   clean_names() %>% 
   dplyr::select(-x) %>% 
   dplyr::rename(Gene=gene,LogFC=log_fc_steatosis_cat_high_steatosis_2_3)
@@ -2260,10 +2136,10 @@ c <- plot_fgsea_transpose(go_res_Hepatocytes, title = "Hep-2 Unadjusted Top 30 G
 # ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
 #        width = 13, height = 10, scale = 1)
 
-combined_plot <- a + b + c + plot_layout(ncol = 3)
+combined_plot <- b + c + plot_layout(ncol = 1)
 print(combined_plot)
 ggsave(fs::path(dir.results,"Hep_2_top30_pathways_unadjusted.jpeg"),
-       width = 40, height = 10, scale = 1)
+       width = 15, height = 20, scale = 1)
 ```
 
 ### iv. Targeted Genes
@@ -2296,9 +2172,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- .subset(so_celltype_hvg,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -2347,12 +2223,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>%
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -2398,38 +2274,37 @@ so_celltype <- subset(so_liver_sn,celltype=="Hep-3")
 DefaultAssay(so_celltype) <- "RNA" 
 
 nrow(so_celltype) #11300 genes
-ncol(so_celltype) #22983 nuclei
+ncol(so_celltype) #24808 nuclei
 
 ## Select Highly Variable Genes (HVGs)
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
+# # Subset Seurat object to only HVGs
+# so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+
 ```
 
 ### i. NEBULA
 ```{r}
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
+
 #Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
 
 #Round counts layer for nb
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
 
 # List of genes
 genes_list <- rownames(counts_hvg)
-# # count_gene <- counts_hvg[g, , drop = FALSE]
-# meta_gene_hvg <- so_celltype_hvg@meta.data
-# id <- meta_gene_hvg$Kit_Lot
-# pred_gene_hvg <- model.matrix(~steatosis_cat, data = meta_gene_hvg)
-# data_g_hvg = list(count = counts_hvg, id = id, pred = pred_gene_hvg)
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
 # With parallelization
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -2437,9 +2312,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- subset(so_celltype,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -2489,12 +2364,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -2502,16 +2377,18 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_Hep_3_Steatosis_unadjusted_2000_offset_new.csv"))
+write.csv(full_results,fs::path(dir.results,"NEBULA_Hep_3_Steatosis_unadjusted_2000_pooled_offset.csv"))
 
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
+# full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
+#                              ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
+full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "#990000",
+                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "#003366", "lightgray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- full_results[full_results$fdr < 0.05, ]
 
 Genes <- length(unique(full_results$gene))
-Nuclei <- ncol(so_celltype_hvg)
+Nuclei <- ncol(so_celltype)
 Nonconvergence_Rate <- nebula_nonconverged_percent
 # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 > 0, "lightcoral",
 #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 < 0, "lightblue", "gray"))
@@ -2529,7 +2406,7 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis 
   theme_minimal() +  # Minimal theme
   labs(
     title = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
-    subtitle = "Hep-3, Unadjusted (REML,Log Normal,Offset)",
+    subtitle = "Hep-3, Unadjusted (REML,Log Normal,Pooled Offset)",
     x = "FC",
     y = "-log10(P-Value)",
     color = "FC Direction Direction",
@@ -2552,15 +2429,15 @@ volcano_plot
 # pdf(fs::path(dir.results,"Plot_NEBULA_Hep_3_Steatosis_unadjusted_2000_hvg_reml_offset.pdf"),width=10,height=7)
 # print(volcano_plot)
 # dev.off()
-png(fs::path(dir.results, "Plot_NEBULA_Hep_3_Steatosis_unadjusted_2000_offset_new.ong"),
-    width = 3000, height = 2100, res = 300)
+png(fs::path(dir.results, "Plot_NEBULA_Hep_3_Steatosis_unadjusted_2000_pooled_offset.png"),
+    width = 2500, height = 2100, res = 300)
 print(volcano_plot)
 dev.off()
 ```
 
 ### iii. GSEA
 ```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_3_Steatosis_unadjusted_2000_offset_new.csv")) %>%
+full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_3_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
   clean_names() %>% 
   dplyr::select(-x) %>% 
   dplyr::rename(Gene=gene,LogFC=log_fc_steatosis_cat_high_steatosis_2_3)
@@ -2626,10 +2503,10 @@ c <- plot_fgsea_transpose(go_res_Hepatocytes, title = "Hep-3 Unadjusted Top 30 G
 # ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
 #        width = 13, height = 10, scale = 1)
 
-combined_plot <- a + b + c + plot_layout(ncol = 3)
+combined_plot <- b + c + plot_layout(ncol = 1)
 print(combined_plot)
 ggsave(fs::path(dir.results,"Hep_3_top30_pathways_unadjusted.jpeg"),
-       width = 40, height = 10, scale = 1)
+       width = 15, height = 20, scale = 1)
 ```
 
 ### iv. Targeted Genes
@@ -2662,9 +2539,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- .subset(so_celltype_hvg,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -2713,12 +2590,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>%
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -2764,38 +2641,37 @@ so_celltype <- subset(so_liver_sn,celltype=="Hep-4")
 DefaultAssay(so_celltype) <- "RNA" 
 
 nrow(so_celltype) #11300 genes
-ncol(so_celltype) #22983 nuclei
+ncol(so_celltype) #24808 nuclei
 
 ## Select Highly Variable Genes (HVGs)
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
+# # Subset Seurat object to only HVGs
+# so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+
 ```
 
 ### i. NEBULA
 ```{r}
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
+
 #Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
 
 #Round counts layer for nb
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
 
 # List of genes
 genes_list <- rownames(counts_hvg)
-# # count_gene <- counts_hvg[g, , drop = FALSE]
-# meta_gene_hvg <- so_celltype_hvg@meta.data
-# id <- meta_gene_hvg$Kit_Lot
-# pred_gene_hvg <- model.matrix(~steatosis_cat, data = meta_gene_hvg)
-# data_g_hvg = list(count = counts_hvg, id = id, pred = pred_gene_hvg)
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
 # With parallelization
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -2803,9 +2679,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- subset(so_celltype,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -2855,12 +2731,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -2868,16 +2744,18 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_Hep_4_Steatosis_unadjusted_2000_offset_new.csv"))
+write.csv(full_results,fs::path(dir.results,"NEBULA_Hep_4_Steatosis_unadjusted_2000_pooled_offset.csv"))
 
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
+# full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
+#                              ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
+full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "#990000",
+                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "#003366", "lightgray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- full_results[full_results$fdr < 0.05, ]
 
 Genes <- length(unique(full_results$gene))
-Nuclei <- ncol(so_celltype_hvg)
+Nuclei <- ncol(so_celltype)
 Nonconvergence_Rate <- nebula_nonconverged_percent
 # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 > 0, "lightcoral",
 #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 < 0, "lightblue", "gray"))
@@ -2895,7 +2773,7 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis 
   theme_minimal() +  # Minimal theme
   labs(
     title = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
-    subtitle = "Hep-4, Unadjusted (REML,Log Normal,Offset)",
+    subtitle = "Hep-4, Unadjusted (REML,Log Normal,Pooled Offset)",
     x = "FC",
     y = "-log10(P-Value)",
     color = "FC Direction Direction",
@@ -2918,15 +2796,15 @@ volcano_plot
 # pdf(fs::path(dir.results,"Plot_NEBULA_Hep_4_Steatosis_unadjusted_2000_hvg_reml_offset.pdf"),width=10,height=7)
 # print(volcano_plot)
 # dev.off()
-png(fs::path(dir.results, "Plot_NEBULA_Hep_4_Steatosis_unadjusted_2000_offset_new.ong"),
-    width = 3000, height = 2100, res = 300)
+png(fs::path(dir.results, "Plot_NEBULA_Hep_4_Steatosis_unadjusted_2000_pooled_offset.png"),
+    width = 2500, height = 2100, res = 300)
 print(volcano_plot)
 dev.off()
 ```
 
 ### iii. GSEA
 ```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_4_Steatosis_unadjusted_2000_offset_new.csv")) %>%
+full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_4_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
   clean_names() %>% 
   dplyr::select(-x) %>% 
   dplyr::rename(Gene=gene,LogFC=log_fc_steatosis_cat_high_steatosis_2_3)
@@ -2992,10 +2870,10 @@ c <- plot_fgsea_transpose(go_res_Hep4, title = "Hep-4 Unadjusted Top 30 GO (REML
 # ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
 #        width = 13, height = 10, scale = 1)
 
-combined_plot <- a + b + c + plot_layout(ncol = 3)
+combined_plot <- b + c + plot_layout(ncol = 1)
 print(combined_plot)
 ggsave(fs::path(dir.results,"Hep_4_top30_pathways_unadjusted.jpeg"),
-       width = 40, height = 10, scale = 1)
+       width = 15, height = 20, scale = 1)
 ```
 
 ### iv. Targeted Genes
@@ -3028,9 +2906,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- .subset(so_celltype_hvg,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -3079,12 +2957,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>%
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -3130,38 +3008,37 @@ so_celltype <- subset(so_liver_sn,celltype=="Hep-5")
 DefaultAssay(so_celltype) <- "RNA" 
 
 nrow(so_celltype) #11300 genes
-ncol(so_celltype) #22983 nuclei
+ncol(so_celltype) #24808 nuclei
 
 ## Select Highly Variable Genes (HVGs)
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
+# # Subset Seurat object to only HVGs
+# so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+
 ```
 
 ### i. NEBULA
 ```{r}
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
+
 #Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
 
 #Round counts layer for nb
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
 
 # List of genes
 genes_list <- rownames(counts_hvg)
-# # count_gene <- counts_hvg[g, , drop = FALSE]
-# meta_gene_hvg <- so_celltype_hvg@meta.data
-# id <- meta_gene_hvg$Kit_Lot
-# pred_gene_hvg <- model.matrix(~steatosis_cat, data = meta_gene_hvg)
-# data_g_hvg = list(count = counts_hvg, id = id, pred = pred_gene_hvg)
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
 # With parallelization
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -3169,9 +3046,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- subset(so_celltype,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -3221,12 +3098,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -3234,16 +3111,22 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_Hep_5_Steatosis_unadjusted_2000_offset_new.csv"))
+write.csv(full_results,fs::path(dir.results,"NEBULA_Hep_5_Steatosis_unadjusted_2000_pooled_offset.csv"))
+full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_5_Steatosis_unadjusted_2000_pooled_offset.csv")) %>% 
+  dplyr::select(-X) %>% 
+  dplyr::rename(`logFC_steatosis_catHigh Steatosis (2+3)`=logFC_steatosis_catHigh.Steatosis..2.3.)
 
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
+
+# full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
+#                              ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
+full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "#990000",
+                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "#003366", "lightgray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- full_results[full_results$fdr < 0.05, ]
 
 Genes <- length(unique(full_results$gene))
-Nuclei <- ncol(so_celltype_hvg)
+Nuclei <- ncol(so_celltype)
 Nonconvergence_Rate <- nebula_nonconverged_percent
 # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 > 0, "lightcoral",
 #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 < 0, "lightblue", "gray"))
@@ -3261,7 +3144,7 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis 
   theme_minimal() +  # Minimal theme
   labs(
     title = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
-    subtitle = "Hep-5, Unadjusted (REML,Log Normal,Offset)",
+    subtitle = "Hep-5, Unadjusted (REML,Log Normal,Pooled Offset)",
     x = "FC",
     y = "-log10(P-Value)",
     color = "FC Direction Direction",
@@ -3272,7 +3155,7 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis 
     axis.text.x = element_text(angle = 0, hjust = 1)
   )+
   # xlim(min,max)+
-  xlim(-4,3)+
+  xlim(-2.5,2.5)+
   # # Add labels for significant points
   geom_text(data = significant_df, aes(label = gene),
             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
@@ -3285,15 +3168,15 @@ volcano_plot
 # pdf(fs::path(dir.results,"Plot_NEBULA_Hep_5_Steatosis_unadjusted_2000_hvg_reml_offset.pdf"),width=10,height=7)
 # print(volcano_plot)
 # dev.off()
-png(fs::path(dir.results, "Plot_NEBULA_Hep_5_Steatosis_unadjusted_2000_without_outlier.png"),
-    width = 3000, height = 2100, res = 300)
+png(fs::path(dir.results, "Plot_NEBULA_Hep_5_Steatosis_unadjusted_2000_pooled_offset.png"),
+    width = 2500, height = 2100, res = 300)
 print(volcano_plot)
 dev.off()
 ```
 
 ### iii. GSEA
 ```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_5_Steatosis_unadjusted_2000_offset_new.csv")) %>%
+full_results <- read.csv(fs::path(dir.results,"NEBULA_Hep_5_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
   clean_names() %>% 
   dplyr::select(-x) %>% 
   dplyr::rename(Gene=gene,LogFC=log_fc_steatosis_cat_high_steatosis_2_3)
@@ -3359,10 +3242,10 @@ c <- plot_fgsea_transpose(go_res_Hep5, title = "Hep-5 Unadjusted Top 30 GO (REML
 # ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
 #        width = 13, height = 10, scale = 1)
 
-combined_plot <- a + b + c + plot_layout(ncol = 3)
+combined_plot <- b + c + plot_layout(ncol = 1)
 print(combined_plot)
 ggsave(fs::path(dir.results,"Hep_5_top30_pathways_unadjusted.jpeg"),
-       width = 40, height = 10, scale = 1)
+       width = 15, height = 20, scale = 1)
 ```
 
 ### iv. Targeted Genes
@@ -3395,9 +3278,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- .subset(so_celltype_hvg,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -3446,12 +3329,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>%
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -3497,38 +3380,37 @@ so_celltype <- subset(so_liver_sn,celltype=="dHep")
 DefaultAssay(so_celltype) <- "RNA" 
 
 nrow(so_celltype) #11300 genes
-ncol(so_celltype) #22983 nuclei
+ncol(so_celltype) #24808 nuclei
 
 ## Select Highly Variable Genes (HVGs)
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
+# # Subset Seurat object to only HVGs
+# so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+
 ```
 
 ### i. NEBULA
 ```{r}
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
+
 #Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
 
 #Round counts layer for nb
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
 
 # List of genes
 genes_list <- rownames(counts_hvg)
-# # count_gene <- counts_hvg[g, , drop = FALSE]
-# meta_gene_hvg <- so_celltype_hvg@meta.data
-# id <- meta_gene_hvg$Kit_Lot
-# pred_gene_hvg <- model.matrix(~steatosis_cat, data = meta_gene_hvg)
-# data_g_hvg = list(count = counts_hvg, id = id, pred = pred_gene_hvg)
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
 # With parallelization
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -3536,9 +3418,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- subset(so_celltype,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -3588,12 +3470,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -3601,10 +3483,10 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_dHep_Steatosis_unadjusted_2000_offset_new.csv"))
-# full_results <- read.csv(fs::path(dir.results,"NEBULA_dHep_Steatosis_unadjusted_2000_offset_new.csv")) %>% 
-#   dplyr::rename(`logFC_steatosis_catHigh Steatosis (2+3)`=logFC_steatosis_catHigh.Steatosis..2.3.)
+write.csv(full_results,fs::path(dir.results,"NEBULA_dHep_Steatosis_unadjusted_2000_pooled_offset.csv"))
 
+# full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
+#                              ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
 full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "#990000",
                              ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "#003366", "lightgray"))
 
@@ -3612,7 +3494,7 @@ full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steat
 significant_df <- full_results[full_results$fdr < 0.05, ]
 
 Genes <- length(unique(full_results$gene))
-Nuclei <- ncol(so_celltype_hvg)
+Nuclei <- ncol(so_celltype)
 Nonconvergence_Rate <- nebula_nonconverged_percent
 # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 > 0, "lightcoral",
 #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 < 0, "lightblue", "gray"))
@@ -3630,7 +3512,7 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis 
   theme_minimal() +  # Minimal theme
   labs(
     title = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
-    subtitle = "dHep, Unadjusted (REML,Log Normal,Offset)",
+    subtitle = "dHep, Unadjusted (REML,Log Normal,Pooled Offset)",
     x = "FC",
     y = "-log10(P-Value)",
     color = "FC Direction Direction",
@@ -3640,8 +3522,7 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis 
     plot.title = element_text(hjust = 0),
     axis.text.x = element_text(angle = 0, hjust = 1)
   )+
-  # xlim(min,max)+
-  xlim(-4,3)+
+  xlim(-2.5,2.5)+
   # # Add labels for significant points
   geom_text(data = significant_df, aes(label = gene),
             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
@@ -3654,68 +3535,15 @@ volcano_plot
 # pdf(fs::path(dir.results,"Plot_NEBULA_dHep_Steatosis_unadjusted_2000_hvg_reml_offset.pdf"),width=10,height=7)
 # print(volcano_plot)
 # dev.off()
-png(fs::path(dir.results, "Plot_NEBULA_dHep_Steatosis_unadjusted_2000_without_outlier.png"),
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
-
-
-volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis (2+3)`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.6) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  # scale_color_identity(guide = "legend", 
-  #                    name = "LogFC Direction", 
-  #                    labels = c("Downregulated", "N.S.", "Upregulated"), 
-  #                    breaks = c("#003366", "lightgrey", "#990000"))+
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "Differentially Expressed Genes in High Steatosis vs. Low Steatosis",
-    subtitle = "Degenerative Hepatocytes",
-    x = "LogFC",
-    y = "-log10(P-Value)",
-    color = "LogFC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Nuclei = ",Nuclei,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0,face="bold"),
-    plot.subtitle = element_text(face="bold"),
-    axis.text.x = element_text(angle = 0, hjust = 1),
-    legend.text = element_text(face="bold")
-  )+
-  # xlim(min,max)+
-  xlim(-2,1.6)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black",fontface="bold")
-  # With this:C
-  # geom_label(data = significant_df, aes(label = gene),
-  #            vjust = 1, hjust = 1, size = 3, color = "black",fontface="bold", fill = "white", alpha = 0.8, label.size = 0.2)
-   # Use geom_label_repel instead of geom_label to avoid overlaps
- # # Repelling labels without connector lines
- #  geom_label_repel(
- #    data = significant_df,
- #    aes(label = gene),
- #    size = 3,
- #    color = "black",
- #    fontface = "bold",
- #    fill = "white",
- #    alpha = 0.8,
- #    label.size = 0.2,
- #    box.padding = 0.5,
- #    point.padding = 0.1,
- #    max.overlaps = 40,
- #    segment.color = NA  # <--- disables lines
- #  )
-volcano_plot
-png(fs::path(dir.results, "Plot_NEBULA_dHep_Steatosis_unadjusted_2000_poster_figure.png"),
-    width = 1500, height = 1500, res = 300)
+png(fs::path(dir.results, "Plot_NEBULA_dHep_Steatosis_unadjusted_2000_pooled_offset.png"),
+    width = 2500, height = 2100, res = 300)
 print(volcano_plot)
 dev.off()
 ```
 
 ### iii. GSEA
 ```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"NEBULA_dHep_Steatosis_unadjusted_2000_offset_new.csv")) %>%
+full_results <- read.csv(fs::path(dir.results,"NEBULA_dHep_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
   clean_names() %>% 
   dplyr::select(-x) %>% 
   dplyr::rename(Gene=gene,LogFC=log_fc_steatosis_cat_high_steatosis_2_3)
@@ -3781,10 +3609,10 @@ c <- plot_fgsea_transpose(go_res_dHep, title = "dHep Unadjusted Top 30 GO (REML,
 # ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
 #        width = 13, height = 10, scale = 1)
 
-combined_plot <- a + b + c + plot_layout(ncol = 3)
+combined_plot <- b + c + plot_layout(ncol = 1)
 print(combined_plot)
 ggsave(fs::path(dir.results,"dHep_top30_pathways_unadjusted.jpeg"),
-       width = 40, height = 10, scale = 1)
+       width = 15, height = 20, scale = 1)
 ```
 
 ### iv. Targeted Genes
@@ -3817,9 +3645,9 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- .subset(so_celltype_hvg,features=g)@meta.data
     pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
     if (is.null(data_g_gene)) {
@@ -3868,12 +3696,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>%
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -3968,7 +3796,7 @@ ggsave(fs::path(dir.results, "NEBULA_Targeted_dHep_Steatosis_unadjusted_poster.j
 # 4. Oroboros Analysis 
 ## a. HEP Cells 
 ```{r}
-#Filter to PT Cells
+#Filter to Hep Cells
 so_celltype <- subset(so_liver_sn,celltype2=="Hep")
 DefaultAssay(so_celltype) <- "RNA" 
 
@@ -3979,29 +3807,37 @@ ncol(so_celltype) #130124 nuclei
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
+# # Subset Seurat object to only HVGs
+# # so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# subset_counts <- GetAssayData(so_celltype, layer = "counts")[hvgs, ]
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+# rm(so_celltype)
 ```
 
 ### i. NEBULA
 ```{r}
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
-# meta_hvg_tal <- attempt_so_hvg_tal@meta.data
-# pred = model.matrix(~treatment*visit, data = meta_hvg_tal)
-# data_g_hvg_tal = group_cell(count=counts_hvg_tal, id=meta_hvg_tal$subject, pred=pred)
-
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
+
 #Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
-oro <- colnames(so_liver_sn@meta.data[,c(85:114)])
+# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
+
+#Round counts layer for nb
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
+
+# List of genes
+genes_list <- rownames(counts_hvg)[1:20]
+# # count_gene <- counts_hvg[g, , drop = FALSE]
+# meta_gene_hvg <- .subset(so_celltype_hvg,features=g)@meta.data
+# pred_gene_hvg <- model.matrix(~steatosis_cat, data = meta_gene_hvg)
+# data_g_hvg = list(count = counts_hvg, id = id, pred = pred_gene_hvg)
+# offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
 # With parallelization
-# List of genes
-genes_list <- rownames(counts_hvg)
-
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -4009,11 +3845,19 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype_hvg, features = g)@meta.data
-    pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene)
+    meta_gene <- subset(so_celltype,features=g)@meta.data
+    pred_gene <- model.matrix(~carbfccp, data = meta_gene)
+    # library <- meta_gene$pooled_offset
+    library <- meta_gene$pooled_offset
+    data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
-    result <- nebula(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, ncore = 1,output_re = T)
+    if (is.null(data_g_gene)) {
+      data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+    }
+    
+    #With offset
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+    
     list(gene = g, result = result)  # return both gene name and result
     
   }, error = function(e) {
@@ -4026,105 +3870,180 @@ end_time <- Sys.time()
 print(end_time - start_time)
 
 
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
 
-hep_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
+
+
+
+
+
+#Round counts layer for nb
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
+
+# List of genes
+genes_list <- rownames(counts_hvg)
+
+#Oroboros Variables
+oro <- colnames(so_liver_sn@meta.data[,c(85:114)])
+# Carb_cytoc
+# Carb_s
+# Carb_omy
+# Carb_fccp
+#  
+# Lipid_cytoc
+# Lipid_s
+# Lipid_omy
+# Lipid_fccp
+
+# With parallelization
+oro <- oro[1]
+total_results <- data.frame()
+for (exposure in oro) {
+  cl <- makeCluster(20)
+  registerDoParallel(cl)
+  
+  start_time <- Sys.time()
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_hvg[g, , drop = FALSE]
+      # meta_gene <- subset(so_celltype,features=g)@meta.data
+      # Get expression data for that gene
+      gene_expr <- FetchData(so_celltype, vars = g)
+      # Define which cells express the gene (e.g., expression > 0)
+      cells_use <- rownames(gene_expr[gene_expr[[g]] > 0, ])
+      so_subset <- subset(so_celltype, cells = cells_use)
+      meta_gene <- so_subset@meta.data
+      pred.formula <- as.formula(paste0("~",exposure))
+      pred_gene <- model.matrix(pred.formula, data = meta_gene)
+      # library <- meta_gene$library_size
+      library <- meta_gene$pooled_offset
+      
+      if (ncol(data_g_gene$count) != nrow(data_g_gene$pred)) {
+        data_g_gene$count <- t(data_g_gene$count)
+      }
+      
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      list(gene = g, summary = NA, overdispersion = NA, convergence = NA, algorithm = NA, covariance = NA, random_effect = NA)
+    })
   }
-)
-# Use lapply to pull all summaries and add gene names
-# nebula_summaries <- do.call(rbind, lapply(names(nebula_results_list), function(gene) {
-#   if (!is.null(nebula_results_list[[gene]]$summary)) {
-#     df <- nebula_results_list[[gene]]$summary
-#     df$gene <- gene  # Add gene name as a new column
-#     return(df)
-#   } else {
-#     NULL
-#   }
-# }))
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40)]
-) 
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  hep_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40)]
+  ) 
+  
+  full_results <- as.data.frame(nebula_summaries)
+  colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept","p_value","gene_id","gene","Gene")
+  full_results$Variable <- exposure
+  
+  #Calculate number of genes filtered out for low expression 
+  low_exp <- length(genes_list)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+  # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
+  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+  full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
+  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+  full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
+  total_results <- rbind(total_results,full_results)
+}
 
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_steatosis_catHigh Steatosis (2+3)`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
+write.csv(total_results,fs::path(dir.results,"NEBULA_Hepatocytes_Oroboros_unadjusted_2000_hvg.csv"))
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_hvg_reml.csv"))
+# Define significance stars
+total_results <- total_results %>%
+  mutate(signif = case_when(
+    fdr < 0.01 ~ "**",
+    fdr < 0.05 ~ "*",
+    TRUE ~ ""
+  ))
 
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` > 0, "lightcoral",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)` < 0, "lightblue", "gray"))
+# Select only the needed columns and rename LogFC for clarity
+heatmap_data <- total_results %>%
+  dplyr::select(Gene, Variable, logFC, signif)
 
-# Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
+custom_order <- oro
+heatmap_data$Variable <- factor(heatmap_data$Variable, levels = custom_order)
+custom_labels <- str_to_title(str_replace_all(oro,"_"," "))
 
-Genes <- length(unique(full_results$gene))
-Nuclei <- ncol(so_celltype_hvg)
-Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_steatosis_catHigh Steatosis (2+3)`3 < 0, "lightblue", "gray"))
-# 
-# # Identify significant points (fdr < 0.05)
-# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+# Carb_cytoc
+# Carb_s
+# Carb_omy
+# Carb_fccp
+#  
+# Lipid_cytoc
+# Lipid_s
+# Lipid_omy
+# Lipid_fccp
 
-max <- max(full_results$`logFC_steatosis_catHigh Steatosis (2+3)`)
-# max <- 3.1
-min <- min(full_results$`logFC_steatosis_catHigh Steatosis (2+3)`)
-# Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis (2+3)`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
-    subtitle = "Hepatocytes, Unadjusted (REML)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Nuclei = ",Nuclei,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
+
+heat_map_p <- ggplot(heatmap_data, aes(x = Variable, y = Gene, fill = logFC)) +
+  geom_tile(color = "grey90") +
+  geom_text(aes(label = signif), size = 3, color = "black") +
+  scale_fill_gradient2(
+    low = "#264653", mid = "white", high = "darkred",
+    midpoint = 0,
+    name = "LogFC"
   ) +
+  theme_minimal() +
+  labs(title = "TCA Cycle Genes vs. PET Variables (T2D)",
+       subtitle = "Proximal Tubule Cells",
+       x = "Exposure",
+       y = "Gene") +
+  scale_x_discrete(labels = setNames(custom_labels, custom_order))+
   theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  xlim(min,max)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+    text = element_text(face="bold"),
+    axis.text.y = element_text(size = 6),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.ticks.y = element_blank(),
+    axis.title.x = element_blank(),
+    panel.grid = element_blank()
+  )
 
-volcano_plot
+# custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
 
-pdf(fs::path(dir.results,"Plot_NEBULA_Hepatocytes_Steatosis_unadjusted_2000_hvg_reml.pdf"),width=10,height=7)
-print(volcano_plot)
+png(fs::path(dir.results, "Heatmap_TCA_cycle_NEBULA_PT_PET_unadjusted_pooled_offset_T2D.png"), 
+    width = 1500, height = 2000, res = 300)
+print(heat_map_p)
 dev.off()
 
 ```
@@ -4189,7 +4108,7 @@ expr_matrix$cellname <- rownames(expr_matrix)
 rownames(expr_matrix) <- NULL
 
 # Extract the metadata
-metadata <- so_celltype_hvg@meta.data
+metadata <- .subset(so_celltype_hvg,features=g)@meta.data
 
 #Create cell variable to merge metadata into gene expression data
 metadata$cellname <- rownames(metadata)
@@ -4365,12 +4284,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -4414,6 +4333,9 @@ ggsave(fs::path(dir.results, "NEBULA_Targeted_Hepatocytes_Steatosis_unadjusted_r
 #Filter to PT Cells
 so_celltype <- subset(so_liver_sn,celltype=="Hep-1")
 DefaultAssay(so_celltype) <- "RNA" 
+so_celltype@assays
+head(GetAssayData(so_celltype, layer = "counts")[, 1:5])  # Raw counts
+head(GetAssayData(so_celltype, layer = "data")[, 1:5])  
 
 nrow(so_celltype) #11300 genes
 ncol(so_celltype) #24808 nuclei
@@ -4422,29 +4344,23 @@ ncol(so_celltype) #24808 nuclei
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
+# # Subset Seurat object to only HVGs
+# so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+
 ```
 
 ### i. NEBULA
 ```{r}
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
-# meta_hvg_tal <- attempt_so_hvg_tal@meta.data
-# pred = model.matrix(~treatment*visit, data = meta_hvg_tal)
-# data_g_hvg_tal = group_cell(count=counts_hvg_tal, id=meta_hvg_tal$subject, pred=pred)
+#Round counts layer for nb
+# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
 
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
-#Make sure to set reference level
-so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
-
-
-# With parallelization
 # List of genes
 genes_list <- rownames(counts_hvg)
 
-cl <- makeCluster(10)
+# With parallelization
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -4452,11 +4368,18 @@ start_time <- Sys.time()
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype_hvg, features = g)@meta.data
-    pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene)
+    meta_gene <- subset(so_celltype,features=g)@meta.data
+    pred_gene <- model.matrix(~carbp_m, data = meta_gene)
+    library <- meta_gene$pooled_offset
+    data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
     
-    result <- nebula(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, ncore = 1,output_re = T)
+    if (is.null(data_g_gene)) {
+      data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+    }
+    
+    #With offset
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+    
     list(gene = g, result = result)  # return both gene name and result
     
   }, error = function(e) {
@@ -4465,7 +4388,6 @@ nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")
 }
 
 stopCluster(cl)
-
 end_time <- Sys.time()
 print(end_time - start_time)
 
@@ -4499,12 +4421,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -4888,12 +4810,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -4968,7 +4890,7 @@ so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low 
 # List of genes
 genes_list <- rownames(counts_hvg)
 
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -5023,12 +4945,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -5441,12 +5363,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -5520,7 +5442,7 @@ so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low 
 # List of genes
 genes_list <- rownames(counts_hvg)
 
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -5575,12 +5497,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -5798,12 +5720,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -5877,7 +5799,7 @@ so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low 
 # List of genes
 genes_list <- rownames(counts_hvg)
 
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -5932,12 +5854,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -6155,12 +6077,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -6234,7 +6156,7 @@ so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low 
 # List of genes
 genes_list <- rownames(counts_hvg)
 
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -6289,12 +6211,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -6518,12 +6440,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -6597,7 +6519,7 @@ so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low 
 # List of genes
 genes_list <- rownames(counts_hvg)
 
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -6652,12 +6574,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -6881,12 +6803,12 @@ nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged
 
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -6924,3 +6846,1206 @@ dot_plot
 ggsave(fs::path(dir.results, "NEBULA_Targeted_dHep_Steatosis_unadjusted_reml.jpeg"), dot_plot, width = 7, height = 6)
 
 ```
+
+
+#5. Pseudotime Analysis 
+##a. Prepare for Analysis 
+```{r}
+## Make SO into SCE object for pseudotime analysis
+sce_HEP <- as.SingleCellExperiment(subset(so_liver_sn,celltype2=="Hep"), assay = "RNA")
+
+#Barcharts by Steatosis Groups
+n_low <- nrow(so_liver_sn@meta.data %>% filter(celltype2=="Hep" & steatosis_cat=="Low Steatosis (0+1)"))
+n_high <- nrow(so_liver_sn@meta.data %>% filter(celltype2=="Hep" & steatosis_cat=="High Steatosis (2+3)"))
+
+# By PT subtypes (by celltype)
+cellcount<- so_liver_sn@meta.data %>% 
+  filter(celltype2=="Hep") %>%
+  dplyr::group_by(steatosis_cat, celltype) %>%
+  dplyr::summarise(count = n()) %>%
+  dplyr::mutate(n = case_when(steatosis_cat == "Low Steatosis (0+1)" ~ n_low, steatosis_cat == "High Steatosis (2+3)" ~ n_high),
+         ratio = count / n) %>% ungroup() %>%
+  group_by(celltype) %>%
+  dplyr::mutate(proportion = ratio/sum(ratio)) %>%
+  dplyr::select(proportion, steatosis_cat, celltype) %>%
+  ggplot(aes(x= celltype, y= proportion, fill = steatosis_cat)) + 
+  geom_bar(stat = "identity", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion",
+       fill = "Steatosis Grade") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  ggtitle("Proportion of cells") +
+  scale_fill_manual(values = c("#264653", "#2a9d8f"))
+
+cellcount
+png(fs::path(dir.results, "Barchart_Hep_Cells_by_Steatosis_Cat.png"),
+    width = 2500, height = 2000, res = 300)
+print(cellcount)
+dev.off()
+
+n_hep1 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-1"))
+n_hep2 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-2"))
+n_hep3 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-3"))
+n_hep4 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-4"))
+n_hep5 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-5"))
+n_dhep <- nrow(so_liver_sn@meta.data %>% filter(celltype == "dHep"))
+
+# By PT subtypes (by celltype)
+cellcount2 <- so_liver_sn@meta.data %>% 
+  filter(!is.na(steatosis_cat)) %>%
+  filter(celltype2 == "Hep") %>%
+  dplyr::group_by(steatosis_cat, celltype) %>%
+  dplyr::summarise(count = n()) %>%
+  dplyr::mutate(n = case_when(celltype == "Hep-1" ~ n_hep1, 
+                              celltype == "Hep-2" ~ n_hep2,
+                              celltype == "Hep-3" ~ n_hep3, 
+                              celltype == "Hep-4" ~ n_hep4,
+                              celltype == "Hep-5" ~ n_hep5,
+                              celltype == "dHep" ~ n_dhep),
+         ratio = count / n) %>% ungroup() %>%
+  group_by(steatosis_cat) %>%
+  dplyr::mutate(proportion = ratio/sum(ratio)) %>%
+  dplyr::select(proportion, steatosis_cat, celltype) %>%
+  ggplot(aes(x= steatosis_cat, y= proportion, fill = celltype)) + 
+  geom_bar(stat = "identity", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = NULL,
+       fill = "celltype") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold", size = 15),
+        text = element_text(size = 20)) +
+  ggtitle("Proportion of Cells by Steatosis Category") +
+  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+
+cellcount2
+png(fs::path(dir.results, "Barchart_Hep_Cells_by_Steatosis.png"),
+    width = 1500, height = 2500, res = 300)
+print(cellcount2)
+dev.off()
+
+#By ALT
+so_liver_sn$alt_cat <- factor(so_liver_sn$alt)
+n_hep1 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-1"))
+n_hep2 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-2"))
+n_hep3 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-3"))
+n_hep4 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-4"))
+n_hep5 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-5"))
+n_dhep <- nrow(so_liver_sn@meta.data %>% filter(celltype == "dHep"))
+
+# By PT subtypes (by celltype)
+cellcount_alt <- so_liver_sn@meta.data %>% 
+  filter(!is.na(alt_cat)) %>%
+  filter(celltype2 == "Hep") %>%
+  dplyr::group_by(alt_cat, celltype) %>%
+  dplyr::summarise(count = n()) %>%
+  dplyr::mutate(n = case_when(celltype == "Hep-1" ~ n_hep1, 
+                              celltype == "Hep-2" ~ n_hep2,
+                              celltype == "Hep-3" ~ n_hep3, 
+                              celltype == "Hep-4" ~ n_hep4,
+                              celltype == "Hep-5" ~ n_hep5,
+                              celltype == "dHep" ~ n_dhep),
+         ratio = count / n) %>% ungroup() %>%
+  group_by(alt_cat) %>%
+  dplyr::mutate(proportion = ratio/sum(ratio)) %>%
+  dplyr::select(proportion, alt_cat, celltype) %>%
+  ggplot(aes(x= alt_cat, y= proportion, fill = celltype)) + 
+  geom_bar(stat = "identity", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = NULL,
+       fill = "celltype") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold", size = 15),
+        text = element_text(size = 20)) +
+  ggtitle("ALT") +
+  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+
+cellcount_alt
+png(fs::path(dir.results, "Barchart_Hep_Cells_by_ALT.png"),
+    width = 2500, height = 2000, res = 300)
+print(cellcount_alt)
+dev.off()
+
+#By AST
+so_liver_sn$ast_cat <- factor(so_liver_sn$ast)
+n_hep1 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-1"))
+n_hep2 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-2"))
+n_hep3 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-3"))
+n_hep4 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-4"))
+n_hep5 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-5"))
+n_dhep <- nrow(so_liver_sn@meta.data %>% filter(celltype == "dHep"))
+
+# By Hep subtypes (by celltype)
+cellcount_ast <- so_liver_sn@meta.data %>% 
+  filter(!is.na(ast_cat)) %>%
+  filter(celltype2 == "Hep") %>%
+  dplyr::group_by(ast_cat, celltype) %>%
+  dplyr::summarise(count = n()) %>%
+  dplyr::mutate(n = case_when(celltype == "Hep-1" ~ n_hep1, 
+                              celltype == "Hep-2" ~ n_hep2,
+                              celltype == "Hep-3" ~ n_hep3, 
+                              celltype == "Hep-4" ~ n_hep4,
+                              celltype == "Hep-5" ~ n_hep5,
+                              celltype == "dHep" ~ n_dhep),
+         ratio = count / n) %>% ungroup() %>%
+  group_by(ast_cat) %>%
+  dplyr::mutate(proportion = ratio/sum(ratio)) %>%
+  dplyr::select(proportion, ast_cat, celltype) %>%
+  ggplot(aes(x= ast_cat, y= proportion, fill = celltype)) + 
+  geom_bar(stat = "identity", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = NULL,
+       fill = "celltype") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold", size = 15),
+        text = element_text(size = 20)) +
+  ggtitle("AST") +
+  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+
+png(fs::path(dir.results, "Barchart_Hep_Cells_by_AST.png"),
+    width = 2500, height = 2000, res = 300)
+print(cellcount_ast)
+dev.off()
+
+#By ggt
+so_liver_sn$ggt_cat <- factor(so_liver_sn$ggt)
+n_hep1 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-1"))
+n_hep2 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-2"))
+n_hep3 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-3"))
+n_hep4 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-4"))
+n_hep5 <- nrow(so_liver_sn@meta.data %>% filter(celltype == "Hep-5"))
+n_dhep <- nrow(so_liver_sn@meta.data %>% filter(celltype == "dHep"))
+
+# By PT subtypes (by celltype)
+cellcount_ggt <- so_liver_sn@meta.data %>% 
+  filter(!is.na(ggt_cat)) %>%
+  filter(celltype2 == "Hep") %>%
+  dplyr::group_by(ggt_cat, celltype) %>%
+  dplyr::summarise(count = n()) %>%
+  dplyr::mutate(n = case_when(celltype == "Hep-1" ~ n_hep1, 
+                              celltype == "Hep-2" ~ n_hep2,
+                              celltype == "Hep-3" ~ n_hep3, 
+                              celltype == "Hep-4" ~ n_hep4,
+                              celltype == "Hep-5" ~ n_hep5,
+                              celltype == "dHep" ~ n_dhep),
+         ratio = count / n) %>% ungroup() %>%
+  group_by(ggt_cat) %>%
+  dplyr::mutate(proportion = ratio/sum(ratio)) %>%
+  dplyr::select(proportion, ggt_cat, celltype) %>%
+  ggplot(aes(x= ggt_cat, y= proportion, fill = celltype)) + 
+  geom_bar(stat = "identity", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = NULL,
+       fill = "celltype") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold", size = 15),
+        text = element_text(size = 20)) +
+  ggtitle("GGT") +
+  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+
+png(fs::path(dir.results, "Barchart_Hep_Cells_by_ggt.png"),
+    width = 2500, height = 2000, res = 300)
+print(cellcount_ggt)
+dev.off()
+
+#Marker genes of healthy hepatocytes: 
+healthy_hepatocyte_genes <- c("ALB", "CYP3A4", "ARG1", "IGF1", "HNF4A", "APOE", "SLC10A2", "FASN", "ABCB1", "GLUL")
+
+#Marker genes of adaptive/mal adaptive hepatocytes: 
+adaptive_maladaptive_genes <- c("COL1A1", "ACTA2", "TNF", "IL6", "FASN", "CASP3", "SOD1", "CAT", "HGF", "PCNA")
+
+# Healthy markers
+DotPlot(so_Hep, features = healthy_hepatocyte_genes, group.by = "celltype") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Healthy Hepatocyte Marker Expression")
+
+# Adaptive/maladaptive markers
+DotPlot(so_Hep, features = adaptive_maladaptive_genes, group.by = "celltype") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ggtitle("Adaptive/Maladaptive Hepatocyte Marker Expression")
+
+```
+
+##b. Visualize 
+```{r, echo = F}
+# so_liver_sn <- FindVariableFeatures(object = so_liver_sn)
+# so_liver_sn <- RunPCA(so_liver_sn, features = VariableFeatures(object = so_liver_sn),assay="RNA")
+# ElbowPlot(so_liver_sn)
+# 
+# # # Find neighbors and clusters (again using integrated data)
+# so_liver_sn <- FindNeighbors(so_liver_sn, assay = "RNA", dims = 1:20)
+# so_liver_sn <- FindClusters(so_liver_sn, resolution = 0.5)
+# 
+# # Perform UMAP 
+# #Print plot
+# png(fs::path(dir.results, "UMAP_by_celltype.png"),
+#     width = 4500, height = 3000, res = 300)
+# p <- DimPlot(so_liver_sn, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+#   ggtitle("UMAP Plot by Cell Type")
+# print(p)
+# dev.off()
+# 
+# 
+# #Print plot
+# png(fs::path(dir.results, "UMAP_by_Steatosis.png"),
+#     width = 4500, height = 3000, res = 300)
+# p <- DimPlot(
+#   so_liver_sn,
+#   reduction = "umap",
+#   group.by = "steatosis_cat",
+#   label = FALSE,
+#   raster = FALSE
+# ) +
+#   scale_color_manual(values = c("darkblue","lightgray")) +
+#   ggtitle("UMAP by Steatosis Status")
+# print(p)
+# dev.off()
+# 
+# #Barcharts of proportions
+# cellcount <- so_liver_sn@meta.data
+# prop_plot <- ggplot(data=cellcount,aes(StudyID, fill = celltype)) + 
+#   geom_bar(stat = "count", position = "fill") +
+#   theme_classic() +
+#   labs(x = NULL,
+#        y = "Proportion of Cells",
+#        fill = "Cell type") +
+#   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+#   theme(plot.title = element_text(hjust=0.5, face="bold"),
+#         text = element_text(size = 20)) 
+# # ggtitle("PT Cells") +
+# # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+# png(fs::path(dir.results, "Barchart_All_Participants_All_Cells.png"),width = 4500, height = 3000, res = 300)
+# print(prop_plot)
+# dev.off()
+# 
+# prop_plot <- ggplot(data=cellcount,aes(steatosis_cat, fill = celltype)) + 
+#   geom_bar(stat = "count", position = "fill") +
+#   theme_classic() +
+#   labs(x = NULL,
+#        y = "Proportion of Cells",
+#        fill = "Cell Type") +
+#   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+#   theme(plot.title = element_text(hjust=0.5, face="bold"),
+#         text = element_text(size = 20)) 
+# png(fs::path(dir.results, "Barchart_Steatosis_Cat_All_Cells.png"),width = 3000, height = 3000, res = 300)
+# print(prop_plot)
+# dev.off()
+
+#Hep cells (Hep-1 thru dHep)
+so_Hep <- subset(so_liver_sn, celltype2 == "Hep")
+so_Hep <- NormalizeData(so_Hep)
+so_Hep <- ScaleData(so_Hep)
+so_Hep <- FindVariableFeatures(object = so_Hep)
+so_Hep <- RunPCA(so_Hep, features = VariableFeatures(object = so_Hep),assay="RNA")
+ElbowPlot(so_Hep)
+
+# # Find neighbors and clusters (again using integrated data)
+so_Hep <- FindNeighbors(so_Hep, assay = "RNA", dims = 1:20)
+so_Hep <- FindClusters(so_Hep, resolution = 0.5)
+
+# Perform UMAP 
+#Print plot
+png(fs::path(dir.results, "UMAP_by_Hep_Celltypes.png"),
+width = 4000, height = 3000, res = 300)
+p <- DimPlot(so_Hep, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  ggtitle("UMAP Plot by Cell Type")+
+   theme(legend.position = "none")
+print(p)
+dev.off()
+
+
+#Print plot
+png(fs::path(dir.results, "UMAP_by_Steatosis_Hep.png"),
+    width = 4000, height = 3000, res = 300)
+p <- DimPlot(
+  so_Hep,
+  reduction = "umap",
+  group.by = "steatosis_cat",
+  label = FALSE,
+  raster = FALSE
+) +
+  scale_color_manual(values = c("darkblue","lightgray")) +
+  ggtitle("UMAP by Steatosis Status")+
+   theme(legend.position = "none")
+print(p)
+dev.off()
+
+#Barcharts of proportions
+cellcount <- so_Hep@meta.data
+prop_plot <- ggplot(data=cellcount,aes(StudyID, fill = celltype)) + 
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion of Cells",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+# ggtitle("PT Cells") +
+scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+png(fs::path(dir.results, "Barchart_All_Participants_Hep_Cells.png"),width = 4500, height = 3000, res = 300)
+print(prop_plot)
+dev.off()
+
+prop_plot <- ggplot(data=cellcount,aes(steatosis_cat, fill = celltype)) + 
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion of Cells",
+       fill = "Cell Type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+png(fs::path(dir.results, "Barchart_Steatosis_Cat_All_Cells.png"),width = 3000, height = 3000, res = 300)
+print(prop_plot)
+dev.off()
+
+
+# so_Hep <- NormalizeData(so_Hep)
+# so_Hep <- ScaleData(so_Hep)
+# 
+# so_Hep <- FindVariableFeatures(object = so_Hep)
+# so_Hep <- RunPCA(so_Hep, features = VariableFeatures(object = so_Hep),assay="RNA")
+# ElbowPlot(so_Hep)
+# 
+# # # Find neighbors and clusters (again using integrated data)
+# so_Hep <- FindNeighbors(so_Hep, assay = "RNA", dims = 1:20)
+# so_Hep <- FindClusters(so_Hep, resolution = 0.5)
+# 
+# so_Hep <- RunUMAP(so_Hep, dims = 1:20)
+# so_Hep <- RunTSNE(so_Hep, dimred = "UMAP")
+# 
+DimPlot(object = so_Hep, reduction = "umap")
+DimPlot(object = so_Hep, reduction = "umap", group.by = "steatosis_cat")
+DimPlot(object = so_Hep, reduction = "umap", group.by = "celltype")
+# 
+# umap_keep <- rownames(as.data.frame(so_Hep@reductions$umap@cell.embeddings) %>%
+#   filter(UMAP_1 < 5 | UMAP_2 > 0))
+# 
+# so_Hep <- so_Hep[, umap_keep]
+# DimPlot(object = so_Hep, reduction = "umap")
+# DimPlot(object = so_Hep, reduction = "umap", group.by = "steatosis_cat")
+# DimPlot(object = so_Hep, reduction = "umap", group.by = "celltype")
+# 
+# #Print plot
+# png(fs::path(dir.results, "UMAP_by_Hep_Celltypes2.png"),
+# width = 4000, height = 3000, res = 300)
+# p <- DimPlot(so_Hep, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+#   ggtitle("UMAP Plot by Cell Type")+
+#    theme(legend.position = "none")
+# print(p)
+# dev.off()
+# 
+# 
+# #Print plot
+# png(fs::path(dir.results, "UMAP_by_Steatosis_Hep2.png"),
+#     width = 4000, height = 3000, res = 300)
+# p <- DimPlot(
+#   so_Hep,
+#   reduction = "umap",
+#   group.by = "steatosis_cat",
+#   label = FALSE,
+#   raster = FALSE
+# ) +
+#   scale_color_manual(values = c("darkblue","lightgray")) +
+#   ggtitle("UMAP by Steatosis Status")+
+#    theme(legend.position = "none")
+# print(p)
+# dev.off()
+```
+
+##c. Fit Slingshot
+```{r echo = F}
+# After visualizing UMAP by cell type clusters, we fit slingshot two ways: 
+#   i) setting start cluster as PT-3, ending cluster as PT-4 (PT-3 having the most "healthy" cells, PT-4 having the most "diseased" cells),
+#   ii) unsupervised.
+#   
+# The first method resulted in two trajectories (lineage 1: PT-3  PT-2  PT-5  PT-4; lineage 2: PT-3  PT-2  PT-1), and the second method also resulted in two trajectories (lineage 1: PT-4  PT-5  PT-2  PT-3; lineage 2: PT-4  PT-5  PT-2  PT-1).
+# 
+# Lineage 1 of the unsupervised method was the exact inverse of lineage 1 of the supervised method. Therefore, we moved forward with the initial method.
+
+
+# # PT-3 to PT-4
+# sce_PT <- as.SingleCellExperiment(so_PT)
+# sce_PT <- slingshot(sce_PT, reducedDim = 'UMAP', clusterLabels = colData(sce_PT)$celltype,
+#                                    start.clus = 'PT-3', end.clus = 'PT-4')
+# shuffle <- sample(ncol(sce_PT))
+# 
+# jpeg("/home/yejichoi2/Documents/lin_temp_folder/PT_slingshot_UMAP.jpeg", width = 900, height = 800, quality = 100)
+# par(mar = c(5, 6, 1, 1)) 
+# plot(reducedDims(sce_PT)$UMAP[shuffle, ], asp = 1, pch = 16,
+#      xlab = "UMAP-1", ylab = "UMAP-2",
+#      col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_PT$slingPseudotime_1, breaks = 100)][shuffle],
+#      cex.lab = 3, cex.axis = 2)
+# lines(SlingshotDataSet(sce_PT), type = "lineages")
+# lines(SlingshotDataSet(sce_PT))
+# dev.off()
+# 
+# SlingshotDataSet(sce_PT)
+
+#Unsupervised 
+sce_Hep_unsupervised <- as.SingleCellExperiment(so_Hep)
+sce_Hep_unsupervised <- PrepareTotem(sce_Hep_unsupervised)
+print(dim(sce_Hep_unsupervised)) #11224 genes, 103101 hepatocytes
+sce_Hep_unsupervised <- RunDimRed(object = sce_Hep_unsupervised,
+                 dim.red.method = "lmds",
+                 dim.red.features = NULL,
+                 dim.reduction.par.list = list(ndim=5))
+# # extract the generated embedding and set it again into the same slot
+# own_dim_red <- reducedDim(sce_Hep_unsupervised)
+# reducedDim(sce_Hep_unsupervised,type = "lmds") <- own_dim_red # use any name
+
+#Clustering
+sce_Hep_unsupervised <- RunClustering(sce_Hep_unsupervised,
+                         k.range = 3:20,
+                         min.cluster.size = 5,
+                         N.clusterings=10000)
+VizCellConnectivity(sce_Hep_unsupervised,viz.dim.red = dim_red)
+
+
+
+sce_Hep_unsupervised <- slingshot(sce_Hep_unsupervised, reducedDim = 'PCA', clusterLabels = colData(sce_Hep_unsupervised)$celltype)
+shuffle <- sample(ncol(sce_Hep_unsupervised))
+plot(reducedDims(sce_Hep_unsupervised)$UMAP[shuffle, ], asp = 1, pch = 16,
+     xlab = "UMAP-1", ylab = "UMAP-2",
+     col = hcl.colors(100, alpha = 0.5, palette = "PinkYl")[cut(sce_Hep_unsupervised$slingPseudotime_1, breaks = 100)][shuffle])
+lines(SlingshotDataSet(sce_Hep_unsupervised), type = "lineages")
+lines(SlingshotDataSet(sce_Hep_unsupervised))
+SlingshotDataSet(sce_Hep_unsupervised)
+
+plot_df <- as.data.frame(slingPseudotime(sce_Hep_unsupervised)) %>%
+  dplyr::mutate(Group = colData(sce_Hep_unsupervised)$Group,
+                gbm_thick_quartile = colData(sce_Hep_unsupervised)$gbm_thick_quartile,
+                bmi_quartile = colData(sce_Hep_unsupervised)$bmi_quartile,
+                bmi_manual_cat = colData(sce_Hep_unsupervised)$bmi_manual_cat,
+                diabetes_duration_quartile = colData(sce_Hep_unsupervised)$diabetes_duration_quartile,
+                diabetes_duration_manual_cat = colData(sce_Hep_unsupervised)$diabetes_duration_manual_cat,
+                age_quartile = colData(sce_Hep_unsupervised)$age_quartile,
+                raw_m_quartile = colData(sce_Hep_unsupervised)$raw_m_quartile)
+lines(SlingshotDataSet(sce_Hep_unsupervised))
+
+plot(reducedDims(sce_Hep_unsupervised)$UMAP[shuffle, ], asp = 1, pch = 16,
+     xlab = "UMAP-1", ylab = "UMAP-2",
+     col = sce_Hep_unsupervised$Group)
+
+lines(SlingshotDataSet(sce_Hep_unsupervised), type = "lineages")
+legend("topright", pch = 16, col = alpha(c("HC" = "#ffcb77", "T1D" = "#fe6d73"), 0.4), bty = "n",
+       legend = levels(factor(colData(sce)$Group)))
+
+plotUMAP(sce_Hep_unsupervised, colour_by="pseudotime", point_alpha=0.3) +
+    geom_segment(data=grid.df,
+        mapping=aes(x=start.1, y=start.2, xend=end.1, yend=end.2),
+        arrow=arrow(length=unit(0.05, "inches"), type="closed"))
+```
+
+```{r echo = F}
+# Function to plot all smooth after fitGAM
+plot_smooth <- function(sce, gene, title = gene) {
+  non_missing_cells <- (colData(sce)$tradeSeq$conditions != "NA")
+  non_missing_cells <- as.data.frame(non_missing_cells) %>% 
+    dplyr::mutate(non_missing_cells = case_when(non_missing_cells == T ~ 1))
+  cnt <- assays(sce)$counts[gene, , drop=F]
+  cnt <- as.data.frame(t(cnt))
+  cnt <- cnt*non_missing_cells
+  colnames(cnt) <- "exp"
+  cnt <- cnt %>% filter(!is.na(exp))
+  pseudotime <- (colData(sce)$crv$pseudotime.Lineage1 * non_missing_cells %>%
+    filter(!is.na(non_missing_cells)))$non_missing_cells
+  condition <- colData(sce)$tradeSeq$conditions
+  
+  if ("NA" %in% condition){
+    condition <- condition[condition != "NA"]
+  }
+  
+  ncondition <- length(unique(condition))
+  
+  if (ncondition == 2){
+    colors = c("#007e5d",  "#ff8989")
+  }
+  if (ncondition == 3){
+    colors = c("#ef767a", "#456990", "#49beaa")
+  }
+  if(ncondition == 4){
+    colors = c("#003049", "#d62828", "#f77f00", "#fcbf49")
+  }
+  if(ncondition == 5){
+    colors = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")
+  }
+  
+  cnt_smooth <- predictSmooth(sce, gene, nPoints=100) %>%
+    filter(lineage == 1) %>% dplyr::select(-lineage)
+  cnt_smooth <- cnt_smooth[, c("yhat", "time", "condition")]
+  colnames(cnt_smooth) <- c("exp", "pseudotime", "condition")
+  cnt_smooth <- cnt_smooth %>% filter(condition!="NA")
+  
+  p <- ggplot(NULL, aes(x=pseudotime, y=log1p(exp), color=condition)) + 
+    geom_point(data=cnt, size=1, alpha = 0.3) +
+    geom_line(data=cnt_smooth, linewidth=1.5) +
+    labs(x = "Pseudotime",
+         y = "Log(expression + 1)", 
+         title = title,
+         color = "Group") +
+    theme_minimal() +
+    theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) +
+    scale_color_manual(values = colors)
+  return(p)
+}
+```
+
+
+
+
+
+#6. Proteomics Analysis
+## a. TODAY 
+###i. New
+```{r}
+#Load in AST and ALT in today 
+today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL.csv")) # length(unique(today$releaseid)) - 699 ids
+today <- today %>%
+  filter(mvisit!="R")
+#dplyr::select(c("releaseid","ALT","AST"))
+#Load in Proteomics in Today
+prot <- readRDS(fs::path(dir.dat,"Liver project","TODAY_proteomics.rds"))
+prot <- prot[c(7326,7397,7404,which(grepl("seq.",colnames(prot))))] #length(unique(prot$releaseid)) - 376 unique ids
+proteins <- colnames(prot)[which(grepl("seq.",colnames(prot)))]
+
+#rm(today,today_M0,prot)
+
+# #Determine which proteins correlate with genes associated with alt and ast
+# #AST
+# ast_genes <- read.xlsx(fs::path(dir.dat,"Liver project","Results","Bulk_Results_for_Ast Di (High vs. Low).xlsx"))
+# ast_genes_pos <- ast_genes %>%
+#   filter(p_val_adj<0.05) %>%
+#   filter(avg_log2FC>0) %>%
+#   arrange(desc(avg_log2FC)) %>%
+#   dplyr::slice(1:200) 
+# ast_genes_pos <- ast_genes_pos$Gene
+# ast_genes_neg <- ast_genes %>%
+#   filter(p_val_adj<0.05) %>%
+#   filter(avg_log2FC<0) %>%
+#   arrange(avg_log2FC) %>%
+#   dplyr::slice(1:200) 
+# ast_genes_neg <- ast_genes_neg$Gene
+# ast_genes <- c(ast_genes_pos,ast_genes_neg)
+
+#Key Protein Gene
+key <- readRDS(fs::path(dir.dat,"Liver project","gene_prot.RDS"))
+sens_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% sens_genes)]
+prot <- prot[c("releaseid","AGEBASE","sex",sens_proteins)]
+
+#Calculate sensoring and time to event
+baseline <- today %>% 
+  filter(mvisit=="M00") %>% 
+  mutate(baseline_alt=ALT,
+         baseline_ast=AST) %>% 
+  dplyr::select(all_of(c("releaseid","baseline_alt","baseline_ast"))) 
+dat <- tidylog::left_join(today,baseline,by="releaseid")
+dat <- dat %>% 
+  mutate(event_alt=ifelse(ALT>=2*(baseline_alt),1,0)) %>% 
+  mutate(event_ast=ifelse(AST>=2*(baseline_ast),1,0)) 
+#Calculate time to event & censoring
+dat_alt <- dat %>% 
+  group_by(releaseid) %>%
+  summarize(
+    event_status_alt = ifelse(any(event_alt == 1, na.rm = TRUE), 1, 0), # 1 if event occurred, 0 if censored
+    time_to_event_alt = ifelse(
+      any(event_alt == 1, na.rm = TRUE), 
+      min(days[event_alt == 1], na.rm = TRUE), # Time of first event
+      max(days, na.rm = TRUE)                 # Time of last observation (censoring)
+    )) %>% 
+  ungroup()
+dat_ast <- dat %>% 
+  group_by(releaseid) %>%
+  summarize(
+    event_status_ast = ifelse(any(event_ast == 1, na.rm = TRUE), 1, 0), # 1 if event occurred, 0 if censored
+    time_to_event_ast = ifelse(
+      any(event_ast == 1, na.rm = TRUE), 
+      min(days[event_ast == 1], na.rm = TRUE), # Time of first event
+      max(days, na.rm = TRUE)                 # Time of last observation (censoring)
+    )) %>% 
+  ungroup()
+
+dat_covs <- today %>% 
+  filter(mvisit=="M00") %>% 
+  dplyr::select(all_of(c("releaseid","HbA1c")))
+#Merge proteins in 
+dat <- tidylog::right_join(dat_covs,prot,by="releaseid")
+dat <- tidylog::right_join(dat_alt,dat,by="releaseid")
+dat <- tidylog::right_join(dat_ast,dat,by="releaseid")
+rm(baseline,dat_alt,dat_ast,dat_covs,prot,today)
+
+#Create loop for linear regression between proteins & liver enzymes
+results <- data.frame()
+for(y in c("alt","ast")) {
+  for (x in sens_proteins) {
+    M0 <- as.formula(paste0("Surv(time_to_event_alt,event_status_alt) ~ ",x,"+HbA1c+sex+AGEBASE"))
+    M0 <- as.formula(paste0("Surv(time_to_event_",y,",event_status_",y,") ~ ",x))
+    M1 <- coxph(M0,data=dat)
+    logHR <- summary(M1)$coef[1,1]
+    pval <- summary(M1)$coef[1,5]
+    results_full <- data.frame(Protein=x,Outcome=paste0("Time to doubling of ",str_to_upper(y)),LogHR=logHR,Pvalue=pval)
+    results <- rbind(results,results_full)
+  }
+}
+#ALT
+results_alt <- results %>%
+  filter(Outcome=="Time to doubling of ALT") %>% 
+  mutate(fdr = p.adjust(Pvalue,method="fdr"))
+results_alt <- results_alt %>%
+  mutate(sig=ifelse(fdr<0.05,"*",""))
+#AST
+results_ast <- results %>%
+  filter(Outcome=="Time to doubling of AST") %>% 
+  mutate(fdr = p.adjust(Pvalue,method="fdr"))
+results_ast <- results_ast %>%
+  mutate(sig=ifelse(fdr<0.05,"*",""))
+results_total <- rbind(results_ast,results_alt)
+
+#Match to gene name
+key$Protein <- key$AptName
+results_total <- tidylog::left_join(results_total,key,by="Protein")
+
+sig_results <- results_total %>% 
+  filter(sig=="*")
+
+write.csv(results_total,fs::path(dir.results,"TODAY_proteomics_alt_ast_adj.csv"))
+```
+###ii. Old
+```{r}
+#Load in AST and ALT in today 
+today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL.csv"))
+# length(unique(today$releaseid)) - 699 ids
+# today_M0 <- today %>%
+#   filter(mvisit=="M00")
+#dplyr::select(c("releaseid","ALT","AST"))
+#Load in Proteomics in Today
+prot <- readRDS(fs::path(dir.dat,"Liver project","TODAY_proteomics.rds"))
+prot <- prot[c(7326,7404,7397,which(grepl("seq.",colnames(prot))))] #length(unique(prot$releaseid)) - 376 unique ids
+proteins <- colnames(prot)[which(grepl("seq.",colnames(prot)))]
+
+#rm(today,today_M0,prot)
+
+# #Determine which proteins correlate with genes associated with alt and ast
+# #AST
+# ast_genes <- read.xlsx(fs::path(dir.dat,"Liver project","Results","Bulk_Results_for_Ast Di (High vs. Low).xlsx"))
+# ast_genes_pos <- ast_genes %>%
+#   filter(p_val_adj<0.05) %>%
+#   filter(avg_log2FC>0) %>%
+#   arrange(desc(avg_log2FC)) %>%
+#   dplyr::slice(1:200) 
+# ast_genes_pos <- ast_genes_pos$Gene
+# ast_genes_neg <- ast_genes %>%
+#   filter(p_val_adj<0.05) %>%
+#   filter(avg_log2FC<0) %>%
+#   arrange(avg_log2FC) %>%
+#   dplyr::slice(1:200) 
+# ast_genes_neg <- ast_genes_neg$Gene
+# ast_genes <- c(ast_genes_pos,ast_genes_neg)
+
+#Key Protein Gene
+key <- readRDS(fs::path(dir.dat,"Liver project","gene_prot.RDS"))
+sens_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% sens_genes)]
+prot_sens <- prot[c("releaseid","AGEBASE","sex",sens_proteins)]
+data <- tidylog::right_join(today,prot_sens,by="releaseid")
+data <- data %>% #filter out recruitment visits
+  filter(mvisit!="R")
+
+# Compute baseline ALT for each participant
+data <- data %>%
+  group_by(releaseid) %>%
+  mutate(baseline_alt = first(ALT)) %>% 
+  mutate(baseline_ast = first(AST)) %>% 
+  ungroup()
+
+#Check if ALT has doubled at each visit
+data <- data %>%
+  mutate(event_alt = ifelse(ALT >= 2 * baseline_alt, 1, 0)) %>% 
+  mutate(event_ast = ifelse(AST >= 2 * baseline_ast, 1, 0))
+
+# Ensure the event persists after it occurs
+data <- data %>%
+  group_by(releaseid) %>%
+  mutate(event_alt = cummax(event_alt)) %>%  # Marks 1 for all visits after doubling occurs
+  mutate(event_ast = cummax(event_ast)) %>% 
+  ungroup() %>% 
+  mutate(days_to_alt = ifelse(event_alt==1,days,))
+
+#Censor individuals who didnt develop event
+
+
+#Create loop for cox proportional hazards
+#ALT
+results_alt <- data.frame()
+for (protein in sens_proteins){
+  # formula <- as.formula(paste0("Surv(days, event_alt) ~ ", protein))
+  formula <- as.formula(paste0("Surv(days, event_alt) ~ ", protein,"+AGEBASE+sex+HbA1c"))
+  # Fit the Cox model
+  cox_model <- coxph(formula, data = data)
+  
+  # Store the summary or model output
+  LogHR <- summary(cox_model)$coef[1,1]
+  Risk <- ifelse(LogHR>0,"Increased",
+                 ifelse(LogHR<0,"Decreased","No Effect"))
+  Pvalue <- summary(cox_model)$coef[1,5]
+  results_data_alt <- data.frame(Protein=protein,Outcome="ALT",LogHazardRatio=LogHR,Risk=Risk,Pvalue=Pvalue)
+  results_alt <- rbind(results_alt,results_data_alt)
+}
+rm(results_data_alt)
+results_alt <- results_alt %>% 
+  mutate(fdr = p.adjust(Pvalue,method="fdr")) %>% 
+  mutate(sig=case_when(fdr<0.05 & Risk=="Increased" ~ "Significant Positive",
+                       fdr<0.05 & Risk=="Decreased" ~"Significant Negative",
+                       fdr>0.05~"Not Significant"))
+
+#AST
+results_ast <- data.frame()
+for (protein in sens_proteins){
+  # formula <- as.formula(paste0("Surv(days, event_ast) ~ ", protein))
+  formula <- as.formula(paste0("Surv(days, event_ast) ~ ", protein,"+AGEBASE+sex+HbA1c"))
+  # Fit the Cox model
+  cox_model <- coxph(formula, data = data)
+  
+  # Store the summary or model output
+  LogHR <- summary(cox_model)$coef[1,1]
+  Risk <- ifelse(LogHR>0,"Increased",
+                 ifelse(LogHR<0,"Decreased","No Effect"))
+  Pvalue <- summary(cox_model)$coef[1,5]
+  results_data_ast <- data.frame(Protein=protein,Outcome="AST",LogHazardRatio=LogHR,Risk=Risk,Pvalue=Pvalue)
+  results_ast <- rbind(results_ast,results_data_ast)
+}
+rm(results_data_ast)
+results_ast <- results_ast %>% 
+  mutate(fdr = p.adjust(Pvalue,method="fdr")) %>% 
+  mutate(sig=case_when(fdr<0.05 & Risk=="Increased" ~ "Significant Positive",
+                       fdr<0.05 & Risk=="Decreased" ~"Significant Negative",
+                       fdr>0.05~"Not Significant"))
+
+#Combine Results
+results <- rbind(results_ast,results_alt)
+results <- results %>% 
+  dplyr::rename(AptName=Protein)
+results <- tidylog::left_join(results,key,by="AptName")
+results <- results %>% 
+  mutate(Gene_Name=paste0(EntrezGeneSymbol,"_",SeqId))
+results_alt <- results %>% 
+  filter(Outcome=="ALT") 
+results_ast <- results %>% 
+  filter(Outcome=="AST") 
+
+#Save results
+# write.csv(results_alt,fs::path(dir.results,"ALT_cox_results_unadjusted.csv"))
+# write.csv(results_ast,fs::path(dir.results,"AST_cox_results_unadjusted.csv"))
+write.csv(results_alt,fs::path(dir.results,"ALT_cox_results_adjusted.csv"))
+write.csv(results_ast,fs::path(dir.results,"AST_cox_results_adjusted.csv"))
+
+# Create the volcano plot
+volcano_plot_alt <- ggplot(results_alt, aes(x = LogHazardRatio, y = -log10(fdr), color = sig)) +
+  geom_point(alpha = 0.8, size = 2) +  # Points with transparency
+  # scale_color_manual(values = c("grey", "red")) +  # Custom colors for significance
+  scale_color_manual(values = c("Not Significant" = "grey", 
+                                "Significant Positive" = "red", 
+                                "Significant Negative" = "blue")) +
+  theme_minimal() +  # Clean theme
+  labs(
+    title = "Cox Proportional Hazards Model for Senescence Proteins and Doubling of ALT (U/L), adjusted for Age, Sex, and HbA1c",
+    # title = "Cox Proportional Hazards Model for Senescence Proteins and Doubling of ALT (U/L)",
+    x = "Log Hazard Ratio",
+    y = "-log10(FDR)"
+  ) +
+  theme(
+    legend.position = "top",
+    legend.title = element_blank()
+  )
+
+# Highlight top significant genes (optional)
+top_genes_alt <- subset(results_alt, sig== "Significant Positive" | sig=="Significant Negative")
+if (nrow(top_genes_alt) > 0) {
+  volcano_plot_alt <- volcano_plot_alt +
+    # geom_text(data = top_genes_alt, aes(label = EntrezGeneSymbol), 
+    #           vjust = 1.5, size = 5, color = "black")
+    geom_text_repel(data = top_genes_alt, aes(label = Gene_Name), 
+                    box.padding = 0.35, 
+                    point.padding = 0.5, 
+                    max.overlaps = Inf,  # Prevent overlap
+                    size = 3, 
+                    color = "black", 
+                    segment.size = 0.5)
+}
+plot(volcano_plot_alt)
+
+# Create the volcano plot
+volcano_plot_ast <- ggplot(results_ast, aes(x = LogHazardRatio, y = -log10(fdr), color = sig)) +
+  geom_point(alpha = 0.8, size = 2) +  # Points with transparency
+  # scale_color_manual(values = c("grey", "red")) +  # Custom colors for significance
+  scale_color_manual(values = c("Not Significant" = "grey", 
+                                "Significant Positive" = "red", 
+                                "Significant Negative" = "blue")) +
+  theme_minimal() +  # Clean theme
+  labs(
+    title = "Cox Proportional Hazards Model for Senescence Proteins and Doubling of AST (U/L), adjusted for Age, Sex, and HbA1c",
+    # title = "Cox Proportional Hazards Model for Senescence Proteins and Doubling of AST (U/L)",
+    x = "Log Hazard Ratio",
+    y = "-log10(FDR)"
+  ) +
+  theme(
+    legend.position = "top",
+    legend.title = element_blank()
+  )
+
+# Highlight top significant genes (optional)
+top_genes_ast <- subset(results_ast, sig== "Significant Positive" | sig=="Significant Negative")
+if (nrow(top_genes_ast) > 0) {
+  volcano_plot_ast <- volcano_plot_ast +
+    # geom_text(data = top_genes_ast, aes(label = EntrezGeneSymbol), 
+    #           vjust = 1.5, size = 5, color = "black")
+    geom_text_repel(data = top_genes_ast, aes(label = Gene_Name), 
+                    box.padding = 0.35, 
+                    point.padding = 0.5, 
+                    max.overlaps = Inf,  # Prevent overlap
+                    size = 3, 
+                    color = "black", 
+                    segment.size = 0.5)
+}
+plot(volcano_plot_ast)
+
+#Make barchart of significant with alt/ast & proteins
+
+
+#Compare significant results from alt/ast to transcriptomics alt/ast 
+
+
+```
+
+#b. TEEN-LABs
+###i. New
+```{r}
+ 
+#Proteomics teen labs 
+load(fs::path(dir.dat,"Teen Labs","Data_Cleaned","analysis_dataset.RData"))
+dat_baseline <- df %>% 
+  filter(visit=="Month 1")
+dat_followup <- df %>% 
+  filter(visit=="Month 6") 
+dat <- df %>% 
+  filter(visit=="Month 1" | visit=="Month 6")
+
+#Protein key
+key <- analyte_info %>% 
+  dplyr::select(all_of(c("AptName","SeqId","EntrezGeneSymbol")))
+
+#Senescence Proteins
+sens_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% sens_genes)]
+prot <- df[c("ID","visit",sens_proteins)]
+protein <- colnames(prot)[-c(1,2)]
+prot_baseline <- prot %>% 
+  filter(visit=="Month 1")
+prot_followup <- prot %>% 
+  filter(visit=="Month 6")
+#Name proteins baseline or followup 
+colnames(prot_baseline)[-c(1,2)] <- paste0(colnames(prot_baseline)[-c(1,2)],"_baseline")
+colnames(prot_followup)[-c(1,2)] <- paste0(colnames(prot_followup)[-c(1,2)],"_followup")
+prot_baseline <- prot_baseline %>% 
+  dplyr::select(-visit)
+prot_baseline_dat <- prot_baseline
+prot_followup <- prot_followup %>% 
+  dplyr::select(-visit)
+
+prot <- tidylog::left_join(prot_baseline,prot_followup,by="ID")
+# Find columns with "baseline" and "followup"
+baseline_cols <- grep("_baseline$", colnames(prot), value = TRUE)
+followup_cols <- grep("_followup$", colnames(prot), value = TRUE)
+
+# Sort to ensure matching order
+baseline_cols <- sort(baseline_cols)
+followup_cols <- sort(followup_cols)
+
+# Create new columns for differences
+for (i in seq_along(baseline_cols)) {
+  protein_name <- sub("_baseline$", "", baseline_cols[i])  # Get protein name (e.g., "protein1")
+  diff_col <- paste0(protein_name, "_diff")               # Create a difference column name
+  prot[[diff_col]] <- prot[[followup_cols[i]]] - prot[[baseline_cols[i]]]
+}
+
+#Covariates at baseline
+dat_cov <- dat %>% 
+  filter(visit=="Month 1") %>% 
+  dplyr::select(all_of(c("ID","SEX","HBA1C","age"))) 
+
+rm(df,analyte_info)
+
+#ALT/AST
+liv <- read.csv(fs::path(dir.dat,"Liver Project","Teen-LABS_AST_ALT.csv"))
+liv <- liv %>% 
+  dplyr::rename(visit=Visit) %>% 
+  filter(visit==1 | visit==6) %>% 
+  mutate(visit=case_when(visit==1~"Month 1",
+                         visit==6~"Month 6")) %>% 
+  mutate(across(everything(),~ifelse(.==-5,NA,.))) %>% 
+  mutate(across(everything(),~ifelse(.==-7,1,.)))
+liv_baseline <- liv %>% 
+  filter(visit=="Month 1") %>% 
+  dplyr::select(-visit) %>% 
+  dplyr::rename(ALT_baseline=ALT,
+                AST_baseline=AST)
+liv_followup <- liv %>% 
+  filter(visit=="Month 6") %>% 
+  dplyr::select(-visit) %>% 
+  dplyr::rename(ALT_followup=ALT,
+                AST_followup=AST)
+liv <- tidylog::left_join(liv_baseline,liv_followup,by="ID")
+liv <- liv %>% 
+  mutate(ALT_diff = ALT_followup-ALT_baseline,
+         AST_diff = AST_followup-AST_baseline) 
+
+
+dat_cov$ID <- as.character(dat_cov$ID)
+prot$ID<- as.character(prot$ID)
+
+#Baseline proteins & baseline covariates and baseline and followup alt/ast
+dat_all <- tidylog::right_join(dat_cov,liv,by=c("ID"))
+dat_all <- tidylog::left_join(dat_all,prot,by=c("ID"))
+
+#Run linear mixed effect model & difference model 
+protein_diff <- paste0(protein,"_diff")
+results <- data.frame()
+covs <- c("age","SEX","HBA1C")
+for (x in protein_diff) {
+  for (y in c("AST_diff","ALT_diff")) {
+    M0_crude <- as.formula(paste0(y,"~",x))
+    M0_adj <- as.formula(paste0(y,"~",x,"+",paste(covs, collapse = "+")))
+    M1_crude <- lm(M0_crude,data=dat_all)
+    M1_adj <- lm(M0_adj,data=dat_all)
+    coef_crude <- summary(M1_crude)$coef[2,1]
+    coef_adj <- summary(M1_adj)$coef[2,1]
+    p_crude <- summary(M1_crude)$coef[2,4]
+    p_adj <- summary(M1_adj)$coef[2,4]
+    diff_results <- data.frame(Protein=x,Enzyme=y,Coef=coef_adj,PValue=p_adj)
+    results <- rbind(results,diff_results)
+  }
+}
+r_alt <- results %>% 
+  filter(Enzyme=="ALT_diff") %>% 
+  mutate(fdr=p.adjust(PValue,method="fdr"))
+r_ast <- results %>% 
+  filter(Enzyme=="AST_diff") %>% 
+  mutate(fdr=p.adjust(PValue,method="fdr"))
+results <- rbind(r_alt,r_ast)
+results <- results %>% 
+  mutate(sig=ifelse(fdr<0.05,"*",""))
+write.csv(results,fs::path(dir.results,"Diff_Results_Liver_Teenlabs_Imputed.csv"))
+
+#Baseline protein with change in ALT/AST pre and post surgery
+liv <- read.csv(fs::path(dir.dat,"Liver Project","Teen-LABS_AST_ALT.csv"))
+liv <- liv %>% 
+  dplyr::rename(visit=Visit) %>% 
+  filter(visit==1 | visit==6) %>% 
+  mutate(visit=case_when(visit==1~"Month 1",
+                         visit==6~"Month 6")) %>% 
+  mutate(across(everything(),~ifelse(.==-5,NA,.))) %>% 
+  mutate(across(everything(),~ifelse(.==-7,NA,.)))
+prot_baseline_dat$ID <- as.character(prot_baseline_dat$ID)
+dat_baseline <- tidylog::left_join(liv,prot_baseline_dat,by=c("ID"))
+dat_baseline <- tidylog::left_join(dat_cov,dat_baseline,by="ID")
+dat_baseline <- dat_baseline %>% 
+  mutate(time=case_when(visit=="Month 1"~1,
+                        visit=="Month 6"~6))
+
+#Linear Mixed Effects Model
+protein_baseline <- paste0(protein,"_baseline")
+covs <- c("age","SEX","HBA1C")
+
+results <- data.frame()
+for (x in c("AST","ALT")) {
+for (y in protein_baseline) {
+    M0_crude <- as.formula(paste0(y,"~",x,"+time+(1|ID)"))
+    M0_adj <- as.formula(paste0(y,"~",x,"*time+",paste(covs, collapse = "+"),"+(1|ID)"))
+    M1_crude <- lmer(M0_crude,data=dat_baseline)
+    M1_adj <- lmer(M0_adj,data=dat_baseline)
+    Main <- summary(M1_adj)$coef[2,1]
+    Main_p <- summary(M1_adj)$coef[2,5]
+    Time <- summary(M1_adj)$coef[3,1]
+    Time_p <- summary(M1_adj)$coef[3,5]
+    Int <- summary(M1_adj)$coef[7,1]
+    Int_p <- summary(M1_adj)$coef[7,5]
+    results_int <- data.frame(Protein=x,Enzyme=y,Main,Main_p,Time,Time_p,Int,Int_p)
+    results <- rbind(results,results_int)
+  }
+}
+r_alt <- results %>% 
+  filter(Enzyme=="ALT") %>% 
+  mutate(Main_fdr=p.adjust(Main_p,method="fdr")) %>% 
+  mutate(Int_fdr=p.adjust(Int_p,method="fdr"))
+r_ast <- results %>% 
+  filter(Enzyme=="AST") %>% 
+  mutate(Main_fdr=p.adjust(Main_p,method="fdr")) %>% 
+  mutate(Int_fdr=p.adjust(Int_p,method="fdr"))
+results <- rbind(r_alt,r_ast)
+results <- results %>% 
+  mutate(Main_sig=ifelse(Main_fdr<0.05,"*","")) %>% 
+  mutate(Int_sig=ifelse(Int_fdr<0.05,"*",""))
+results$AptName <- str_remove(results$Protein,"_baseline")
+results <- tidylog::left_join(results,key,by="AptName")
+write.csv(results,fs::path(dir.results,"LMEM_TeenLabs_Liver_Results_Imputed.csv"))
+```
+###ii. Old
+```{r}
+#Proteomics teen labs 
+load(fs::path(dir.dat,"Teen Labs","Data_Cleaned","analysis_dataset.RData"))
+#Senescence Proteins
+sens_proteins <- analyte_info$AptName[which(analyte_info$EntrezGeneSymbol %in% sens_genes)]
+
+alt_ast <- read.csv(fs::path(dir.dat,"Liver Project","Teen-LABS_AST_ALT.csv")) %>% 
+  filter(Visit==1|Visit==6) %>% 
+  mutate(Visit=ifelse(Visit==1,"PreSurgery","PostSurgery"))
+df_baseline <- df %>% 
+  filter(visit=="Month 1") %>% 
+  dplyr::rename(Visit=visit) %>% 
+  mutate(Visit="PreSurgery") %>% 
+  mutate(ID=as.character(ID)) %>% 
+  dplyr::select(all_of(c("ID",sens_proteins)))
+# df_followup <- df %>% 
+#   filter(visit=="Month 6") %>% 
+#   dplyr::rename(Visit=visit) %>% 
+#   mutate(Visit="PostSurgery") %>% 
+#   mutate(ID=as.character(ID)) %>% 
+#   dplyr::select(all_of(c("ID","Visit",sens_proteins)))
+
+#Prepare data
+dat_baseline <- tidylog::left_join(alt_ast,df_baseline,by=c("ID"))
+dat <- dat_baseline
+rm(dat_baseline)
+# dat_followup <- tidylog::left_join(dat,df_followup,by=c("ID"))
+# dat_all <- tidylog::left_join(dat,df,by=c("ID","Visit"))
+
+hist(dat$AST)
+hist(dat$ALT)
+#Log transform alt and ast
+dat$ALT_log <- log(dat$ALT)
+dat$AST_log <- log(dat$AST)
+dat$Visit <- factor(dat$Visit)
+dat$Visit <- relevel(dat$Visit, ref = "PreSurgery")
+
+# #Make sure everyone has baseline proteins
+# prot <- df %>% 
+#   dplyr::select(c("ID","Visit",sens_proteins))
+
+#Linear Mixed Effects Model
+#ALT
+plot_list <- list()
+results <- data.frame()
+for (protein in sens_proteins) {
+  gene_name <- paste0(analyte_info$EntrezGeneSymbol[which(analyte_info$AptName %in% protein)],"_",analyte_info$SeqId[which(analyte_info$AptName %in% protein)])
+  M0 <- as.formula(paste0("ALT_log ~ ",protein,"*Visit + (1 | ID)"))
+  M1 <- lmer(M0, data = dat)
+  main_effect <- summary(M1)$coef[2,1]
+  main_p <- summary(M1)$coef[2,5]
+  time_effect <- summary(M1)$coef[3,1]
+  time_p <- summary(M1)$coef[3,5]
+  int_effect <- summary(M1)$coef[4,1]
+  int_p <- summary(M1)$coef[4,5]
+  results_dat <- data.frame(Apt=gene_name,Outcome="ALT_log",MainEffect=main_effect,MainPVal=main_p,TimeEffect=time_effect,TimePVal=time_p,Interaction=int_effect,IntPVal=int_p)
+  results <- rbind(results,results_dat)
+  
+  int_plot <- ggplot(dat, aes(x = !!sym(protein), y = ALT_log, color = Visit)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    labs(title = paste0("Interaction between ",gene_name," and Visit on ALT_log"))+
+    theme_minimal()
+  
+  # Create the spaghetti plot
+  spaghetti_plot <- ggplot(dat, aes(x = Visit, y = ALT_log, group = ID, color = !!sym(protein))) +
+    geom_line() +  # Connect ALT levels for each individual
+    geom_point() +  # Add points for ALT levels at each time point
+    # scale_color_viridis_d(guide = "none") +  # Optional: Viridis color palette, hide legend
+    # scale_color_viridis_c(guide = "colorbar", name = "Protein") +
+    scale_color_gradient(low = "blue", high = "red", name = gene_name) +
+    # scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = median(dat[[protein]],na.rm=T), name = "Protein") +
+    labs(
+      title = paste0("Spaghetti Plot of ALT Levels Pre- and Post-Surgery by ",gene_name),
+      x = "Visit",
+      y = "ALT Levels"
+    ) +
+    theme_minimal() +
+    theme(panel.grid.major = element_line(color = "gray85")) 
+  
+  # Combine the two plots
+  combined_plot <- plot_grid(int_plot, spaghetti_plot, ncol = 1, labels = c("A", "B"))
+  
+  # Add to the list
+  plot_list[[protein]] <- combined_plot
+}
+
+write.csv(results,fs::path(dir.results,paste0("Interaction between ",gene_name," and Visit on ALT_log.csv")))
+# # Save all combined plots to a single PDF
+# pdf("combined_interaction_and_spaghetti_plots.pdf", width = 10, height = 14)
+# for (combined_plot in plot_list) {
+#   plot(combined_plot)
+# }
+# dev.off()
+
+#AST
+plot_list <- list()
+results <- data.frame()
+for (protein in sens_proteins) {
+  gene_name <- paste0(analyte_info$EntrezGeneSymbol[which(analyte_info$AptName %in% protein)],"_",analyte_info$SeqId[which(analyte_info$AptName %in% protein)])
+  M0 <- as.formula(paste0("AST_log ~ ",protein,"*Visit + (1 | ID)"))
+  M1 <- lmer(M0, data = dat)
+  main_effect <- summary(M1)$coef[2,1]
+  main_p <- summary(M1)$coef[2,5]
+  time_effect <- summary(M1)$coef[3,1]
+  time_p <- summary(M1)$coef[3,5]
+  int_effect <- summary(M1)$coef[4,1]
+  int_p <- summary(M1)$coef[4,5]
+  results_dat <- data.frame(Apt=gene_name,Outcome="AST_log",MainEffect=main_effect,MainPVal=main_p,TimeEffect=time_effect,TimePVal=time_p,Interaction=int_effect,IntPVal=int_p)
+  results <- rbind(results,results_dat)
+  
+  int_plot <- ggplot(dat, aes(x = !!sym(protein), y = ALT_log, color = Visit)) +
+    geom_point() +
+    geom_smooth(method = "lm", se = TRUE) +
+    labs(title = paste0("Interaction between ",gene_name," and Visit on AST_log"))+
+    theme_minimal()
+  
+  # Create the spaghetti plot
+  spaghetti_plot <- ggplot(dat, aes(x = Visit, y = ALT_log, group = ID, color = !!sym(protein))) +
+    geom_line() +  # Connect ALT levels for each individual
+    geom_point() +  # Add points for ALT levels at each time point
+    # scale_color_viridis_d(guide = "none") +  # Optional: Viridis color palette, hide legend
+    # scale_color_viridis_c(guide = "colorbar", name = "Protein") +
+    scale_color_gradient(low = "blue", high = "red", name = gene_name) +
+    # scale_color_gradient2(low = "blue", mid = "white", high = "red", midpoint = median(dat[[protein]],na.rm=T), name = "Protein") +
+    labs(
+      title = paste0("Spaghetti Plot of AST Levels Pre- and Post-Surgery by ",gene_name),
+      x = "Visit",
+      y = "ALT Levels"
+    ) +
+    theme_minimal() +
+    theme(panel.grid.major = element_line(color = "gray85")) 
+  
+  # Combine the two plots
+  combined_plot <- plot_grid(int_plot, spaghetti_plot, ncol = 1, labels = c("A", "B"))
+  
+  # Add to the list
+  plot_list[[protein]] <- combined_plot
+}
+
+write.csv(results,fs::path(dir.results,paste0("Interaction between ",gene_name," and Visit on AST_log.csv")))
+# # Save all combined plots to a single PDF
+# pdf("combined_interaction_and_spaghetti_plots.pdf", width = 10, height = 14)
+# for (combined_plot in plot_list) {
+#   plot(combined_plot)
+# }
+# dev.off()
+
+
+```
+
+
