@@ -1019,7 +1019,7 @@ rm(counts)
 ```{r}
 #Categorical Covariates
 #Get metadata for everyone
-dat <- so_subset@meta.data %>%
+dat <- harmonized_data %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(mrn, visit))
@@ -1032,7 +1032,7 @@ label(dat$sex) <- "Sex"
 label(dat$race_ethnicity) <- "Race/Ethnicity"
 label(dat$bmi) <- "BMI (kg/m2)"
 label(dat$triglycerides) <- "Triglycerides (mg/dL)"
-label(dat$medication) <- "GLP-1/SGLT2i Status"
+#label(dat$medication) <- "GLP-1/SGLT2i Status"
 label(dat$epic_mfm_1) <- "Metformin"
 label(dat$epic_insulin_1) <- "Insulin"
 label(dat$pah_clear_bsa) <- "PAH Clearance (BSA)"
@@ -1044,8 +1044,14 @@ label(dat$epic_mfm_1) <- "Metformin"
 label(dat$epic_insulin_1) <- "Insulin"
 
 dat$group <- factor(dat$group)
+
+dat <- dat %>% mutate(group2 = ifelse(group == 'Lean Control', 'Lean Control', 
+                                      ifelse(epic_sglti2_1 == 'Yes', 'T2D-SGLTi2', 'T2D-No SGLTi2')))
+
+
+
 # table1(~ age + sex + race_ethnicity  + bmi + triglycerides + hba1c + medication| study, data=dat)
-table1(~ age + sex + race_ethnicity  + bmi + triglycerides + hba1c + epic_sglti2_1+ medication| group, data=dat)
+table1::table1(~ age + sex + race_ethnicity  + bmi + triglycerides + hba1c + epic_sglti2_1| group2, data=dat %>% filter(!is.na(group2)))
 # table1(~pah_clear_bsa + eGFR_CKD_epi +acr_u +mfm_1+insulin_1| study, data=dat)
 # 
 # table1(~ age + sex + bmi + triglycerides + hba1c + medication| group, data=dat)
