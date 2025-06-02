@@ -28,6 +28,7 @@ library(gtsummary)
 library(gt)
 home_dir <- switch(Sys.info()["sysname"],
   "Darwin" = "/Users/tim/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
+  "Windows" = "C:/Users/Tim/OneDrive - The University of Colorado Denver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
   "Linux" = "/home/timvigers/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO"
 )
 knitr::opts_knit$set(root.dir = home_dir)
@@ -107,6 +108,7 @@ dfs <- lapply(dfs, function(d) {
   d$lifestyle_remove <- visits_exclude(d, "lifestyle")
   d$progesterone_remove <- visits_exclude(d, "progesterone", remove_all_after = T)
   d$weight_loss_remove <- visits_exclude(d, "weight_loss", remove_all_after = T)
+  d$atypical_remove <- visits_exclude(d, "cv_medications___17", remove_all_after = T)
   # Return new dataframe for combining later
   return(d)
 })
@@ -121,7 +123,7 @@ df <- df %>%
   )
 # For weight loss medication and progesterone, remove all visits after
 # they first start
-df <- df %>% filter(is.na(weight_loss_remove), is.na(progesterone_remove))
+df <- df %>% filter(is.na(weight_loss_remove), is.na(progesterone_remove), is.na(atypical_remove))
 # Additional labels
 label(df$combined_race) <- "Race"
 label(df$ethnicity) <- "Ethnicity"
@@ -141,7 +143,7 @@ label(df$progesterone) <- "On Progesterone-Containing Medication?"
 
 # Methods
 
-For each continuous outcome, we fit a linear mixed effects model with random intercept for participant and random slope for time if possible (if the random slope model did not converge we used just the random intercept), and an interaction effect between time and medication status. 
+For each continuous outcome, we fit a linear mixed effects model with random intercept for participant and random slope for time if possible (if the random slope model did not converge we used just the random intercept), and an interaction effect between time and medication status.
 
 To evaluate the effect of starting a new medication on each outcome, we also fit a linear spline model with months from medication start as the time variable and a single knot at 0 (medication start). For the spline analysis, we limited the dataset to people who were on a given medication at some point. We also limited the "before" medication data to observations within 12 months prior to medication start.
 
@@ -1693,8 +1695,6 @@ In the above table, the row labeled "Months From First Lifestyle" is the slope p
 
 # LARC
 
-- For the analyses below, we changed the definition of progesterone medication to either `cv_medications___9` or `cv_medications___12` being checked.
-
 ```{r}
 # Data cleaning is a little different for LARC because we obviously don't
 # exclude all progesterone meds
@@ -1710,11 +1710,6 @@ levels(df$combined_race) <- c(
   "Other"
 )
 df$combined_race <- relevel(df$combined_race, ref = "Caucasian")
-# New progesterone variable
-df$progesterone <-
-  df$cv_medications___9 == "Checked" | df$cv_medications___12 == "Checked"
-df$progesterone <-
-  factor(df$progesterone, levels = c(F, T), labels = c("No", "Yes"))
 # This is probably not the most elegant approach, but it seems to work.
 dfs <- split(data.frame(df), df$record_number)
 dfs <- lapply(dfs, function(d) {
@@ -1723,8 +1718,8 @@ dfs <- lapply(dfs, function(d) {
   d$metformin_remove <- visits_exclude(d, "metformin")
   d$lifestyle_remove <- visits_exclude(d, "lifestyle")
   d$larc_remove <- visits_exclude(d, "larc")
-  d$progesterone_remove <- visits_exclude(d, "progesterone", remove_all_after = T)
   d$weight_loss_remove <- visits_exclude(d, "weight_loss", remove_all_after = T)
+  d$atypical_remove <- visits_exclude(d, "cv_medications___17", remove_all_after = T)
   # Return new dataframe for combining later
   return(d)
 })
@@ -1737,9 +1732,8 @@ df <- df %>%
     baseline_weight = first(cv_weight, na_rm = T),
     baseline_bmi = first(cv_bmi, na_rm = T)
   )
-# For weight loss medication and progesterone, remove all visits after
-# they first start
-df <- df %>% filter(is.na(weight_loss_remove), is.na(progesterone_remove))
+# For weight loss medication, remove all visits after they first start
+df <- df %>% filter(is.na(weight_loss_remove), is.na(atypical_remove))
 # Additional labels
 label(df$combined_race) <- "Race"
 label(df$ethnicity) <- "Ethnicity"
@@ -1749,12 +1743,11 @@ label(df$metformin) <- "On Metformin?"
 label(df$lifestyle) <- "On Lifestyle Medicine?"
 label(df$larc) <- "On LARC?"
 label(df$weight_loss) <- "On Weight Loss Medication?"
-label(df$progesterone) <- "On Progesterone-Containing Medication?"
 # Stratify by weight group
 # df <- df %>% filter(weight_cat == "Normal weight")
 # Create the LARC dataset
 larc_df <- df %>%
-  filter(is.na(larc_remove)) %>%
+  # filter(is.na(larc_remove)) %>%
   mutate(
     time_of_first_larc = first(cv_monthssincepcosdx[larc == "Yes"], na_rm = T),
     time_from_first_larc = cv_monthssincepcosdx - time_of_first_larc
@@ -1763,7 +1756,7 @@ larc_df <- df %>%
     record_number, combined_race, ethnicity, insur_type, baseline_weight,
     baseline_bmi, cv_age, cv_monthssincepcosdx, time_from_first_larc, larc,
     cv_medications___16, cv_weight, cv_bmi, cv_a1c, cv_tg, cv_hdl,
-    cv_alt, cv_sbp, weight_cat
+    cv_alt, cv_sbp, weight_cat, pcosdx_age
   )
 # Create a spline model dataset
 larc_12_month_spline <- larc_df %>%
@@ -1789,18 +1782,25 @@ Some participants do not have a diagnostic visit entered in REDCap (e.g. BCH8), 
 ```{r results='asis'}
 t1_df <- larc_df %>%
   group_by(record_number) %>%
-  mutate(larc_ever = any(larc == "Yes")) %>%
+  mutate(
+    larc_ever = any(larc == "Yes"),
+    age_first_larc = first(cv_age[larc == "Yes"])
+  ) %>%
   slice_min(cv_monthssincepcosdx)
 t1_df$larc_ever <- factor(t1_df$larc_ever,
   levels = c(F, T),
   labels = c("Never on LARC", "Ever on LARC")
 )
 t1 <- tableby(
-  larc_ever ~ cv_age + combined_race + ethnicity + fe(insur_type) + cv_weight +
-    cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt + cv_sbp + cv_monthssincepcosdx,
-  data = t1_df
+  larc_ever ~ pcosdx_age + age_first_larc + combined_race + ethnicity +
+    fe(insur_type) + cv_weight + cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt +
+    cv_sbp + cv_monthssincepcosdx,
+  data = t1_df, labels
 )
-summary(t1, pfootnote = T)
+summary(t1,
+  pfootnote = T,
+  labelTranslations = list(age_first_larc = "Age at first LARC")
+)
 ```
 
 ### By BMI percentile
@@ -1822,7 +1822,7 @@ summary(t1, pfootnote = T)
 # Fit mixed model
 mod <- lmer(
   cv_weight ~ cv_monthssincepcosdx * larc + cv_age + baseline_weight +
-    combined_race + insur_type + cv_medications___16 +
+    combined_race + insur_type + cv_medications___16 + metformin +
     (1 | record_number),
   data = larc_df
 )
@@ -1846,7 +1846,7 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 ```{r}
 # Fit mixed model with change point
 change_mod <- lmer(cv_weight ~ time_from_first_larc + x + baseline_weight +
-  cv_age + combined_race + insur_type + cv_medications___16 +
+  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
   (1 | record_number), data = larc_12_month_spline)
 # Model plot
 mod_df <- change_mod@frame
@@ -1886,7 +1886,7 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 # Fit mixed model
 mod <- lmer(
   cv_bmi ~ cv_monthssincepcosdx * larc + cv_age + baseline_bmi +
-    combined_race + insur_type + cv_medications___16 +
+    combined_race + insur_type + cv_medications___16 + metformin +
     (1 | record_number),
   data = larc_df
 )
@@ -1910,7 +1910,7 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 ```{r}
 # Fit mixed model with change point
 change_mod <- lmer(cv_bmi ~ time_from_first_larc + x + baseline_bmi +
-  cv_age + combined_race + insur_type + cv_medications___16 +
+  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
   (1 | record_number), data = larc_12_month_spline)
 # Model plot
 mod_df <- change_mod@frame
@@ -1950,7 +1950,7 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 # Fit mixed model
 mod <- lmer(
   cv_a1c ~ cv_monthssincepcosdx * larc + cv_age +
-    combined_race + insur_type + cv_medications___16 +
+    combined_race + insur_type + cv_medications___16 + metformin +
     (1 | record_number),
   data = larc_df
 )
@@ -1974,7 +1974,7 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 ```{r}
 # Fit mixed model with change point
 change_mod <- lmer(cv_a1c ~ time_from_first_larc + x +
-  cv_age + combined_race + insur_type + cv_medications___16 +
+  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
   (1 | record_number), data = larc_12_month_spline)
 # Model plot
 mod_df <- change_mod@frame
@@ -2013,7 +2013,7 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 # Fit mixed model
 mod <- lmer(
   cv_tg ~ cv_monthssincepcosdx * larc + cv_age +
-    combined_race + insur_type + cv_medications___16 +
+    combined_race + insur_type + cv_medications___16 + metformin +
     (1 | record_number),
   data = larc_df
 )
@@ -2037,7 +2037,7 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 ```{r}
 # Fit mixed model with change point
 change_mod <- lmer(cv_tg ~ time_from_first_larc + x +
-  cv_age + combined_race + insur_type + cv_medications___16 +
+  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
   (1 | record_number), data = larc_12_month_spline)
 # Model plot
 mod_df <- change_mod@frame
@@ -2076,7 +2076,7 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 # Fit mixed model
 mod <- lmer(
   cv_hdl ~ cv_monthssincepcosdx * larc + cv_age +
-    combined_race + insur_type + cv_medications___16 +
+    combined_race + insur_type + cv_medications___16 + metformin +
     (1 | record_number),
   data = larc_df
 )
@@ -2100,7 +2100,7 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 ```{r}
 # Fit mixed model with change point
 change_mod <- lmer(cv_hdl ~ time_from_first_larc + x +
-  cv_age + combined_race + insur_type + cv_medications___16 +
+  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
   (1 | record_number), data = larc_12_month_spline)
 # Model plot
 mod_df <- change_mod@frame
@@ -2139,7 +2139,7 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 # Fit mixed model
 mod <- lmer(
   cv_alt ~ cv_monthssincepcosdx * larc + cv_age +
-    combined_race + insur_type + cv_medications___16 +
+    combined_race + insur_type + cv_medications___16 + metformin +
     (1 | record_number),
   data = larc_df
 )
@@ -2163,7 +2163,7 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 ```{r}
 # Fit mixed model with change point
 change_mod <- lmer(cv_alt ~ time_from_first_larc + x +
-  cv_age + combined_race + insur_type + cv_medications___16 +
+  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
   (1 | record_number), data = larc_12_month_spline)
 # Model plot
 mod_df <- change_mod@frame
@@ -2202,7 +2202,7 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 # Fit mixed model
 mod <- lmer(
   cv_sbp ~ cv_monthssincepcosdx * larc + cv_age +
-    combined_race + insur_type + cv_medications___16 +
+    combined_race + insur_type + cv_medications___16 + metformin +
     (1 | record_number),
   data = larc_df
 )
@@ -2226,7 +2226,7 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 ```{r}
 # Fit mixed model with change point
 change_mod <- lmer(cv_sbp ~ time_from_first_larc + x +
-  cv_age + combined_race + insur_type + cv_medications___16 +
+  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
   (1 | record_number), data = larc_12_month_spline)
 # Model plot
 mod_df <- change_mod@frame
