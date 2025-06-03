@@ -106,6 +106,7 @@ library(future)
 # BiocManager::install("scran")
 library(scran)
 library(BiocParallel)
+library(DESeq2)
 
 # #Mac laptop
 # dir.dat <- c("//Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
@@ -626,6 +627,14 @@ hist(sc_org$pooled_offset)
 # # sc_org$KPMP_celltype2 <- as.character(sc_org$KPMP_celltype)
 # sc_org$celltype2 <- ifelse(sc_org$KPMP_celltype=="Proximal tubule cells","PT",sc_org$KPMP_celltype2)))
 
+#Create treatment variable
+sc_org$treatment <- ifelse(grepl("15$",sc_org$samples),"15","30")
+
+#Format gene names for results
+gene_annotations <- gene_annotations %>% 
+  dplyr::rename(Gene = `NA.`) %>%
+  dplyr::select(c("Gene","input"))
+rownames(gene_annotations) <- NULL
 
 ```
 
@@ -4073,16 +4082,19 @@ ggsave(fs::path(dir.results,"Pathways_Biopsy_aTAL_top30_unadjusted.jpeg"),
 ```
 
 ## II. Organoid
-## PT Cells 
-##a. PT Cells all
 ### i. NEBULA
+#### a. 15
 ```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_kpmp_sc,celltype2=="PT")
+#15 glucose
+so_subset <- subset(sc_org,treatment=="15")
+#Filter to celltype of interest
+celltypes <- unique(so_subset$`ScType-Kidney-human`)
+for (celltype in celltypes) {
+so_celltype <- subset(so_subset,`ScType-Kidney-human`==celltype)
 DefaultAssay(so_celltype) <- "RNA" 
 
-nrow(so_celltype) #9196 genes
-ncol(so_celltype) #2127 cells
+# nrow(so_celltype) #9196 genes
+# ncol(so_celltype) #2127 cells
 
 ## Select Highly Variable Genes (HVGs)
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
@@ -4100,9 +4112,13 @@ hvgs <- VariableFeatures(so_celltype)
 #Make sure exposure/independent/x variable or group variable is a factor variable
 so_celltype$group <- factor(so_celltype$group)
 #Make sure to set reference level
-so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
+so_celltype$group <- relevel(so_celltype$group,ref="Lean Control")
+
+# so_celltype$treatment <- factor(so_celltype$treatment)
 
 counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+
+
 
 # offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
@@ -4111,7 +4127,7 @@ counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts a
 # genes_list <- rownames(counts_hvg)
 genes_list <- hvgs
 
-cl <- makeCluster(20)
+cl <- makeCluster(60)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
@@ -4129,7 +4145,7 @@ nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")
     }
     
     #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset,verbose=TRUE)
     
     list(gene = g, result = result)  # return both gene name and result
     
@@ -4165,52 +4181,68 @@ nebula_summaries <- map_dfr(
     return(df)
   }
 )
-nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
+nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40|PT_nebula_converged$Convergence_Code==-50|PT_nebula_converged$Convergence_Code==-60)]) 
 
 #Make dataframe of final results
-full_results <- as.data.frame(nebula_summaries)
+full_results <- as.data.frame(nebula_summaries) %>% 
+  dplyr::select(-Gene) %>% 
+  dplyr::rename(input=gene)
+
+#Change gene names
+full_results <- tidylog::left_join(full_results,gene_annotations,by="input")
+
 #Calculate number of genes filtered out for low expression 
 low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
+  filter(!input %in%  nonconverge_genes)
 #Calculate nonconvergence rate
 nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+  mutate(fdr=p.adjust(`p_groupType 2 Diabetes`,method="fdr"))  
+  # mutate(fdr_int=p.adjust(`p_groupType 2 Diabetes:treatment15`,method="fdr"))
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+full_results$PValue10 <- -log10(pmax(full_results$`p_groupType 2 Diabetes`, 1e-10))  # Avoid log(0)
+# full_results$PValue10_int <- -log10(pmax(full_results$`p_groupType 2 Diabetes:treatment15`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"Biopsy_NEBULA_PT_cells_diabetes_unadjusted_2000.csv"))
+write.csv(full_results,fs::path(dir.results,paste0("Organoid_NEBULA_",celltype,"_diabetes_lc_treatment15_adj_2000.csv")))
 
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
+full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType 2 Diabetes` > 0, "#990000",
+                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType 2 Diabetes` < 0, "#003366", "gray"))
+# full_results$color_int <- ifelse(full_results$fdr_int < 0.05 & full_results$`logFC_groupType 2 Diabetes:treatment15` > 0, "#990000",
+#                              ifelse(full_results$fdr_int < 0.05 & full_results$`logFC_groupType 2 Diabetes:treatment15` < 0, "#003366", "gray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- full_results[full_results$fdr < 0.05, ]
+# significant_df_int <- full_results[full_results$fdr_int < 0.05, ]
 
-Genes <- length(unique(full_results$gene))
+Genes <- length(unique(full_results$Gene))
 Cells <- ncol(so_celltype)
 Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 < 0, "lightblue", "gray"))
+# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType 2 Diabetes`3 > 0, "lightcoral",
+#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType 2 Diabetes`3 < 0, "lightblue", "gray"))
 # 
 # # Identify significant points (fdr < 0.05)
 # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
 
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
+max <- max(full_results$`logFC_groupType 2 Diabetes`)
 # max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
+min <- min(full_results$`logFC_groupType 2 Diabetes`)
+
+# max_int <- max(full_results$`logFC_groupType 2 Diabetes:treatment15`)
+# max <- 3.1
+# min_int <- min(full_results$`logFC_groupType 2 Diabetes:treatment15`)
+
 # Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
+volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType 2 Diabetes`, y = PValue10, color = color)) +
   geom_point(alpha = 0.7) +  # Plot points with transparency
   scale_color_identity() +  # Use the color column directly
   theme_minimal() +  # Minimal theme
   labs(
     title = "Type 2 Diabetes vs. Lean Controls",
-    subtitle = "PT, Unadjusted (REML, Log Normal, Offset)",
+    subtitle = paste0(celltype,", Treatment 15 (REML, Log Normal, Pooled Offset)"),
     x = "FC",
     y = "-log10(P-Value)",
     color = "FC Direction Direction",
@@ -4222,8 +4254,230 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = P
   )+
   # xlim(min,max)+
   xlim(-3,3)+
+  ylim(0,11)+
   # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
+  geom_text(data = significant_df, aes(label = Gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+# Add labels for significant points with ggrepel
+# geom_text_repel(data = significant_df, aes(label = Gene),
+#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+
+volcano_plot
+# 
+# volcano_plot_int <- ggplot(full_results, aes(x = `logFC_groupType 2 Diabetes:treatment15`, y = PValue10_int, color = color_int)) +
+#   geom_point(alpha = 0.7) +  # Plot points with transparency
+#   scale_color_identity() +  # Use the color column directly
+#   theme_minimal() +  # Minimal theme
+#   labs(
+#     title = "Type 2 Diabetes vs. Lean Controls Interaction with Treatment",
+#     subtitle = paste0(celltype,", Unadjusted (REML, Log Normal, Pooled Offset)"),
+#     x = "Treatment Interaction FC",
+#     y = "-log10(P-Value)",
+#     color = "Treatment Interaction FC Direction Direction",
+#     caption = paste0("FDR Interaction < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
+#   ) +
+#   theme(
+#     plot.title = element_text(hjust = 0),
+#     axis.text.x = element_text(angle = 0, hjust = 1)
+#   )+
+#   # xlim(min_int,max_int)+
+#   xlim(-3,3)+
+#   # # Add labels for significant points
+#   geom_text(data = significant_df_int, aes(label = Gene),
+#             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+# Add labels for significant points with ggrepel
+# geom_text_repel(data = significant_df, aes(label = Gene),
+#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+
+# volcano_plot_int
+
+# combined_plot <- volcano_plot + volcano_plot_int + plot_layout(ncol = 2)
+
+# pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
+# print(volcano_plot)
+# dev.off()
+png(fs::path(dir.results, paste0("Plot_Organoid_NEBULA_",celltype,"_Diabetes_lc_2000_offset_15.png")), 
+    width = 1500, height = 2100, res = 150)
+print(volcano_plot)
+dev.off()
+}
+```
+
+#### b. 30
+```{r}
+#30 glucose
+so_subset <- subset(sc_org,treatment=="30")
+#Filter to celltype of interest
+celltypes <- unique(so_subset$`ScType-Kidney-human`)
+for (celltype in celltypes) {
+so_celltype <- subset(so_subset,`ScType-Kidney-human`==celltype)
+DefaultAssay(so_celltype) <- "RNA" 
+
+# nrow(so_celltype) #9196 genes
+# ncol(so_celltype) #2127 cells
+
+## Select Highly Variable Genes (HVGs)
+so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+hvgs <- VariableFeatures(so_celltype)
+
+# # Subset Seurat object to only HVGs
+# so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
+
+###
+# meta_hvg <- so_celltype@meta.data
+# pred = model.matrix(~group, data = meta_hvg)
+# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
+
+#Make sure exposure/independent/x variable or group variable is a factor variable
+so_celltype$group <- factor(so_celltype$group)
+#Make sure to set reference level
+so_celltype$group <- relevel(so_celltype$group,ref="Lean Control")
+
+# so_celltype$treatment <- factor(so_celltype$treatment)
+
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+
+
+
+# offset_hvg = Matrix::colSums(data_g_hvg$count) 
+
+# With parallelization
+# List of genes
+# genes_list <- rownames(counts_hvg)
+genes_list <- hvgs
+
+cl <- makeCluster(60)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- counts_hvg[g, , drop = FALSE]
+    meta_gene <- subset(so_celltype,features=g)@meta.data
+    pred_gene <- model.matrix(~group, data = meta_gene)
+    # library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
+    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+    
+    if (is.null(data_g_gene)) {
+      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+    }
+    
+    #With offset
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1,model="NBLMM",reml=1,output_re = T,covariance=T,offset=data_g_gene$offset)
+    #model="NBLMM",reml=T
+    
+    list(gene = g, result = result)  # return both gene name and result
+    
+  }, error = function(e) {
+    NULL
+  })
+}
+
+stopCluster(cl)
+end_time <- Sys.time()
+print(end_time - start_time)
+
+# set the names of results based on gene names
+nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+
+PT_nebula_converged <- map_dfr(
+  names(nebula_results_list),
+  function(gene_name) {
+    converged <- nebula_results_list[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name,
+                     Convergence_Code = converged)
+    return(df)
+  }
+)
+
+nebula_summaries <- map_dfr(
+  names(nebula_results_list),
+  function(gene_name) {
+    df <- nebula_results_list[[gene_name]]$summary
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40|PT_nebula_converged$Convergence_Code==-50|PT_nebula_converged$Convergence_Code==-60)]) 
+
+#Make dataframe of final results
+full_results <- as.data.frame(nebula_summaries) %>% 
+  dplyr::select(-Gene) %>% 
+  dplyr::rename(input=gene)
+
+#Change gene names
+full_results <- tidylog::left_join(full_results,gene_annotations,by="input")
+
+#Calculate number of genes filtered out for low expression 
+low_exp <- length(genes_list)-length(full_results$gene)
+#Filter out non-converging genes
+full_results <- full_results %>% 
+  filter(!input %in%  nonconverge_genes)
+#Calculate nonconvergence rate
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
+# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+full_results <- full_results %>%
+  mutate(fdr=p.adjust(`p_groupType 2 Diabetes`,method="fdr"))  
+  # mutate(fdr_int=p.adjust(`p_groupType 2 Diabetes:treatment30`,method="fdr"))
+# mutate(fdr3=p.adjust(PValue3,method="fdr"))
+full_results$PValue10 <- -log10(pmax(full_results$`p_groupType 2 Diabetes`, 1e-10))  # Avoid log(0)
+# full_results$PValue10_int <- -log10(pmax(full_results$`p_groupType 2 Diabetes:treatment30`, 1e-10))  # Avoid log(0)
+
+write.csv(full_results,fs::path(dir.results,paste0("Organoid_NEBULA_",celltype,"_diabetes_lc_treatment30_adj_2000_LME.csv")))
+
+full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType 2 Diabetes` > 0, "#990000",
+                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType 2 Diabetes` < 0, "#003366", "gray"))
+# full_results$color_int <- ifelse(full_results$fdr_int < 0.05 & full_results$`logFC_groupType 2 Diabetes:treatment30` > 0, "#990000",
+#                              ifelse(full_results$fdr_int < 0.05 & full_results$`logFC_groupType 2 Diabetes:treatment30` < 0, "#003366", "gray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- full_results[full_results$fdr < 0.05, ]
+# significant_df_int <- full_results[full_results$fdr_int < 0.05, ]
+
+Genes <- length(unique(full_results$Gene))
+Cells <- ncol(so_celltype)
+Nonconvergence_Rate <- nebula_nonconverged_percent
+# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType 2 Diabetes`3 > 0, "lightcoral",
+#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType 2 Diabetes`3 < 0, "lightblue", "gray"))
+# 
+# # Identify significant points (fdr < 0.05)
+# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+
+max <- max(full_results$`logFC_groupType 2 Diabetes`)
+# max <- 3.1
+min <- min(full_results$`logFC_groupType 2 Diabetes`)
+
+# max_int <- max(full_results$`logFC_groupType 2 Diabetes:treatment30`)
+# max <- 3.1
+# min_int <- min(full_results$`logFC_groupType 2 Diabetes:treatment30`)
+
+# Create the volcano plot using ggplot
+volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType 2 Diabetes`, y = PValue10, color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  theme_minimal() +  # Minimal theme
+  labs(
+    title = "Type 2 Diabetes vs. Lean Controls",
+    subtitle = paste0(celltype,", Treatment 30 (NBLMM, REML, Pooled Offset)"),
+    x = "FC",
+    y = "-log10(P-Value)",
+    color = "FC Direction Direction",
+    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  xlim(min,max)+
+  # xlim(-3,3)+
+  ylim(0,11)+
+  # # Add labels for significant points
+  geom_text(data = significant_df, aes(label = Gene),
             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
 # Add labels for significant points with ggrepel
 # geom_text_repel(data = significant_df, aes(label = Gene),
@@ -4231,16 +4485,770 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = P
 
 volcano_plot
 
-# pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
-# print(volcano_plot)
-# dev.off()
-png(fs::path(dir.results, "Plot_Biopsy_NEBULA_PT_Diabetes_unadjusted_2000_offset.png"), 
-    width = 3000, height = 2100, res = 300)
+png(fs::path(dir.results, paste0("Plot_Organoid_NEBULA_",celltype,"_Diabetes_lc_2000_offset_30_NBLMM_REML.png")), 
+    width = 2500, height = 2100, res = 300)
+print(volcano_plot)
+dev.off()
+}
+```
+
+### ii. Find Markers
+#### a. 15 Glucose
+```{r}
+#15 glucose
+so_subset <- subset(sc_org,treatment=="15")
+#Filter to celltype of interest
+celltypes <- unique(so_subset$`ScType-Kidney-human`)
+for (celltype in celltypes) {
+so_celltype <- subset(so_subset,`ScType-Kidney-human`==celltype)
+DefaultAssay(so_celltype) <- "RNA" 
+
+# nrow(so_celltype) #9196 genes
+# ncol(so_celltype) #2127 cells
+
+## Select Highly Variable Genes (HVGs)
+so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+hvgs <- VariableFeatures(so_celltype)
+
+# # Subset Seurat object to only HVGs
+so_celltype <- subset(so_celltype, features = hvgs)
+DefaultAssay(so_celltype) <- "RNA"
+
+###
+# meta_hvg <- so_celltype@meta.data
+# pred = model.matrix(~group, data = meta_hvg)
+# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
+
+#Make sure exposure/independent/x variable or group variable is a factor variable
+so_celltype$group <- factor(so_celltype$group)
+#Make sure to set reference level
+so_celltype$group <- relevel(so_celltype$group,ref="Lean Control")
+
+# so_celltype$treatment <- factor(so_celltype$treatment)
+
+# counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+
+#Find markers
+# Set identities to the 'group' column
+Idents(so_celltype) <- "group"
+markers <- FindMarkers(
+  object = so_celltype,
+  ident.1 = "Type 2 Diabetes",
+  ident.2 = "Lean Control",  # optional: if omitted, compared to all other cells
+  # group.by = "group",  # optional
+  min.pct = 0,      # only test genes expressed in >10% of cells
+  logfc.threshold = 0  # only return genes with log2FC > 0.25
+)
+
+markers$input <- rownames(markers)
+markers <- tidylog::left_join(markers,gene_annotations,by="input")
+
+# ggplot(markers, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
+#   geom_point(aes(color = p_val_adj < 0.05 & abs(avg_log2FC) > 0.25), alpha = 0.6) +
+#   scale_color_manual(values = c("grey", "red")) +
+#   theme_minimal() +
+#   labs(
+#     title = "Volcano Plot: T2D vs Lean Control",
+#     x = "Log2 Fold Change",
+#     y = "-log10 Adjusted p-value"
+#   ) +
+#   theme(legend.position = "none")
+
+
+# markers <- markers %>%
+#   mutate(fdr=p.adjust(`p_groupType 2 Diabetes`,method="fdr"))  
+  # mutate(fdr_int=p.adjust(`p_groupType 2 Diabetes:treatment30`,method="fdr"))
+# mutate(fdr3=p.adjust(PValue3,method="fdr"))
+# markers$PValue10 <- -log10(pmax(markers$`p_groupType 2 Diabetes`, 1e-10))  # Avoid log(0)
+# markers$PValue10_int <- -log10(pmax(markers$`p_groupType 2 Diabetes:treatment30`, 1e-10))  # Avoid log(0)
+
+write.csv(markers,fs::path(dir.results,paste0("Organoid_FindMarkers_",celltype,"_diabetes_lc_treatment15_adj_2000.csv")))
+
+markers$color <- ifelse(markers$p_val_adj < 0.05 & markers$avg_log2FC > 0, "#990000",
+                             ifelse(markers$p_val_adj < 0.05 & markers$avg_log2FC < 0, "#003366", "gray"))
+# markers$color_int <- ifelse(markers$fdr_int < 0.05 & markers$`logFC_groupType 2 Diabetes:treatment30` > 0, "#990000",
+#                              ifelse(markers$fdr_int < 0.05 & markers$`logFC_groupType 2 Diabetes:treatment30` < 0, "#003366", "gray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- markers[markers$p_val_adj < 0.05, ]
+# significant_df_int <- markers[markers$fdr_int < 0.05, ]
+
+Genes <- length(unique(markers$Gene))
+Cells <- ncol(so_celltype)
+# Nonconvergence_Rate <- nebula_nonconverged_percent
+# markers$color3 <- ifelse(markers$fdr3 < 0.2 & markers$`logFC_groupType 2 Diabetes`3 > 0, "lightcoral",
+#                               ifelse(markers$fdr3 < 0.2 & markers$`logFC_groupType 2 Diabetes`3 < 0, "lightblue", "gray"))
+# 
+# # Identify significant points (fdr < 0.05)
+# significant_df3 <- markers[markers$fdr3 < 0.2, ]
+
+top_up <- markers %>%
+  filter(p_val_adj < 0.05, avg_log2FC > 0) %>%
+  arrange(p_val_adj, desc(avg_log2FC)) %>%
+  head(10)
+
+top_down <- markers %>%
+  filter(p_val_adj < 0.05, avg_log2FC < 0) %>%
+  arrange(p_val_adj, avg_log2FC) %>%
+  head(10)
+
+top_markers <- bind_rows(top_up, top_down)
+
+max <- max(markers$avg_log2FC)
+# max <- 3.1
+min <- min(markers$avg_log2FC)
+
+
+# Create the volcano plot using ggplot
+volcano_plot <- ggplot(markers, aes(x = avg_log2FC, y = -log10(p_val_adj), color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  theme_minimal() +  # Minimal theme
+  labs(
+    title = "Type 2 Diabetes vs. Lean Controls",
+    subtitle = paste0(celltype,", Treatment 15"),
+    x = "FC",
+    y = "-log10(P-Value)",
+    color = "Log2FC Direction Direction",
+    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  xlim(min,max)+
+  # xlim(-3,3)+
+  # ylim(0,11)+
+  # # Add labels for significant points
+  # geom_text(data = significant_df, aes(label = Gene),
+  #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+# Add labels for significant points with ggrepel
+geom_text_repel(data = top_markers, aes(label = Gene),
+                size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+  # geom_text_repel(data = top_markers, aes(label = Gene),
+  #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = Inf)
+
+volcano_plot
+
+
+
+png(fs::path(dir.results, paste0("Plot_Organoid_FindMarkers_",celltype,"_Diabetes_lc_2000_treatment_15.png")), 
+    width = 2500, height = 2100, res = 300)
+print(volcano_plot)
+dev.off()
+}
+```
+
+#### b. 30 Glucose
+```{r}
+#15 glucose
+so_subset <- subset(sc_org,treatment=="30")
+#Filter to celltype of interest
+celltypes <- unique(so_subset$`ScType-Kidney-human`)
+for (celltype in celltypes) {
+so_celltype <- subset(so_subset,`ScType-Kidney-human`==celltype)
+DefaultAssay(so_celltype) <- "RNA" 
+
+# nrow(so_celltype) #9196 genes
+# ncol(so_celltype) #2127 cells
+
+## Select Highly Variable Genes (HVGs)
+so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+hvgs <- VariableFeatures(so_celltype)
+
+# # Subset Seurat object to only HVGs
+so_celltype <- subset(so_celltype, features = hvgs)
+DefaultAssay(so_celltype) <- "RNA"
+
+###
+# meta_hvg <- so_celltype@meta.data
+# pred = model.matrix(~group, data = meta_hvg)
+# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
+
+#Make sure exposure/independent/x variable or group variable is a factor variable
+so_celltype$group <- factor(so_celltype$group)
+#Make sure to set reference level
+so_celltype$group <- relevel(so_celltype$group,ref="Lean Control")
+
+# so_celltype$treatment <- factor(so_celltype$treatment)
+
+# counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+
+#Find markers
+# Set identities to the 'group' column
+Idents(so_celltype) <- "group"
+markers <- FindMarkers(
+  object = so_celltype,
+  ident.1 = "Type 2 Diabetes",
+  ident.2 = "Lean Control",  # optional: if omitted, compared to all other cells
+  # group.by = "group",  # optional
+  min.pct = 0,      # only test genes expressed in >10% of cells
+  logfc.threshold = 0  # only return genes with log2FC > 0.25
+)
+
+markers$input <- rownames(markers)
+markers <- tidylog::left_join(markers,gene_annotations,by="input")
+
+# ggplot(markers, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
+#   geom_point(aes(color = p_val_adj < 0.05 & abs(avg_log2FC) > 0.25), alpha = 0.6) +
+#   scale_color_manual(values = c("grey", "red")) +
+#   theme_minimal() +
+#   labs(
+#     title = "Volcano Plot: T2D vs Lean Control",
+#     x = "Log2 Fold Change",
+#     y = "-log10 Adjusted p-value"
+#   ) +
+#   theme(legend.position = "none")
+
+
+# markers <- markers %>%
+#   mutate(fdr=p.adjust(`p_groupType 2 Diabetes`,method="fdr"))  
+  # mutate(fdr_int=p.adjust(`p_groupType 2 Diabetes:treatment30`,method="fdr"))
+# mutate(fdr3=p.adjust(PValue3,method="fdr"))
+# markers$PValue10 <- -log10(pmax(markers$`p_groupType 2 Diabetes`, 1e-10))  # Avoid log(0)
+# markers$PValue10_int <- -log10(pmax(markers$`p_groupType 2 Diabetes:treatment30`, 1e-10))  # Avoid log(0)
+
+write.csv(markers,fs::path(dir.results,paste0("Organoid_FindMarkers_",celltype,"_diabetes_lc_treatment30_adj_2000.csv")))
+
+markers$color <- ifelse(markers$p_val_adj < 0.05 & markers$avg_log2FC > 0, "#990000",
+                             ifelse(markers$p_val_adj < 0.05 & markers$avg_log2FC < 0, "#003366", "gray"))
+# markers$color_int <- ifelse(markers$fdr_int < 0.05 & markers$`logFC_groupType 2 Diabetes:treatment30` > 0, "#990000",
+#                              ifelse(markers$fdr_int < 0.05 & markers$`logFC_groupType 2 Diabetes:treatment30` < 0, "#003366", "gray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- markers[markers$p_val_adj < 0.05, ]
+# significant_df_int <- markers[markers$fdr_int < 0.05, ]
+
+Genes <- length(unique(markers$Gene))
+Cells <- ncol(so_celltype)
+# Nonconvergence_Rate <- nebula_nonconverged_percent
+# markers$color3 <- ifelse(markers$fdr3 < 0.2 & markers$`logFC_groupType 2 Diabetes`3 > 0, "lightcoral",
+#                               ifelse(markers$fdr3 < 0.2 & markers$`logFC_groupType 2 Diabetes`3 < 0, "lightblue", "gray"))
+# 
+# # Identify significant points (fdr < 0.05)
+# significant_df3 <- markers[markers$fdr3 < 0.2, ]
+
+top_up <- markers %>%
+  filter(p_val_adj < 0.05, avg_log2FC > 0) %>%
+  arrange(p_val_adj, desc(avg_log2FC)) %>%
+  head(10)
+
+top_down <- markers %>%
+  filter(p_val_adj < 0.05, avg_log2FC < 0) %>%
+  arrange(p_val_adj, avg_log2FC) %>%
+  head(10)
+
+top_markers <- bind_rows(top_up, top_down)
+
+max <- max(markers$avg_log2FC)
+# max <- 3.1
+min <- min(markers$avg_log2FC)
+
+
+# Create the volcano plot using ggplot
+volcano_plot <- ggplot(markers, aes(x = avg_log2FC, y = -log10(p_val_adj), color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  theme_minimal() +  # Minimal theme
+  labs(
+    title = "Type 2 Diabetes vs. Lean Controls",
+    subtitle = paste0(celltype,", Treatment 30"),
+    x = "FC",
+    y = "-log10(P-Value)",
+    color = "Log2FC Direction Direction",
+    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  xlim(min,max)+
+  # xlim(-3,3)+
+  # ylim(0,11)+
+  # # Add labels for significant points
+  # geom_text(data = significant_df, aes(label = Gene),
+  #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+# Add labels for significant points with ggrepel
+geom_text_repel(data = top_markers, aes(label = Gene),
+                size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+  # geom_text_repel(data = top_markers, aes(label = Gene),
+  #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = Inf)
+
+volcano_plot
+
+
+
+png(fs::path(dir.results, paste0("Plot_Organoid_FindMarkers_",celltype,"_Diabetes_lc_2000_30.png")), 
+    width = 2500, height = 2100, res = 300)
+print(volcano_plot)
+dev.off()
+}
+```
+
+### iii. Pseudobulk
+#### a. 15 Glucose
+```{r}
+#15 glucose
+so_subset <- subset(sc_org,treatment=="15")
+#Filter to celltype of interest
+celltypes <- unique(so_subset$`ScType-Kidney-human`)
+for (celltype in celltypes) {
+so_celltype <- subset(so_subset,`ScType-Kidney-human`==celltype)
+DefaultAssay(so_celltype) <- "RNA" 
+
+# nrow(so_celltype) #9196 genes
+# ncol(so_celltype) #2127 cells
+
+## Select Highly Variable Genes (HVGs)
+so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+hvgs <- VariableFeatures(so_celltype)
+
+# # Subset Seurat object to only HVGs
+so_celltype <- subset(so_celltype, features = hvgs)
+DefaultAssay(so_celltype) <- "RNA"
+
+###
+# meta_hvg <- so_celltype@meta.data
+# pred = model.matrix(~group, data = meta_hvg)
+# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
+
+#Make sure exposure/independent/x variable or group variable is a factor variable
+so_celltype$group <- factor(so_celltype$group)
+#Make sure to set reference level
+so_celltype$group <- relevel(so_celltype$group,ref="Lean Control")
+
+# so_celltype$treatment <- factor(so_celltype$treatment)
+
+# counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+
+#Find markers
+# Set identities to the 'group' column
+Idents(so_celltype) <- "group"
+markers <- FindMarkers(
+  object = so_celltype,
+  ident.1 = "Type 2 Diabetes",
+  ident.2 = "Lean Control",  # optional: if omitted, compared to all other cells
+  # group.by = "group",  # optional
+  min.pct = 0,      # only test genes expressed in >10% of cells
+  logfc.threshold = 0  # only return genes with log2FC > 0.25
+)
+
+markers$input <- rownames(markers)
+markers <- tidylog::left_join(markers,gene_annotations,by="input")
+
+# ggplot(markers, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
+#   geom_point(aes(color = p_val_adj < 0.05 & abs(avg_log2FC) > 0.25), alpha = 0.6) +
+#   scale_color_manual(values = c("grey", "red")) +
+#   theme_minimal() +
+#   labs(
+#     title = "Volcano Plot: T2D vs Lean Control",
+#     x = "Log2 Fold Change",
+#     y = "-log10 Adjusted p-value"
+#   ) +
+#   theme(legend.position = "none")
+
+
+# markers <- markers %>%
+#   mutate(fdr=p.adjust(`p_groupType 2 Diabetes`,method="fdr"))  
+  # mutate(fdr_int=p.adjust(`p_groupType 2 Diabetes:treatment30`,method="fdr"))
+# mutate(fdr3=p.adjust(PValue3,method="fdr"))
+# markers$PValue10 <- -log10(pmax(markers$`p_groupType 2 Diabetes`, 1e-10))  # Avoid log(0)
+# markers$PValue10_int <- -log10(pmax(markers$`p_groupType 2 Diabetes:treatment30`, 1e-10))  # Avoid log(0)
+
+write.csv(markers,fs::path(dir.results,paste0("Organoid_FindMarkers_",celltype,"_diabetes_lc_treatment15_adj_2000.csv")))
+
+markers$color <- ifelse(markers$p_val_adj < 0.05 & markers$avg_log2FC > 0, "#990000",
+                             ifelse(markers$p_val_adj < 0.05 & markers$avg_log2FC < 0, "#003366", "gray"))
+# markers$color_int <- ifelse(markers$fdr_int < 0.05 & markers$`logFC_groupType 2 Diabetes:treatment30` > 0, "#990000",
+#                              ifelse(markers$fdr_int < 0.05 & markers$`logFC_groupType 2 Diabetes:treatment30` < 0, "#003366", "gray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- markers[markers$p_val_adj < 0.05, ]
+# significant_df_int <- markers[markers$fdr_int < 0.05, ]
+
+Genes <- length(unique(markers$Gene))
+Cells <- ncol(so_celltype)
+# Nonconvergence_Rate <- nebula_nonconverged_percent
+# markers$color3 <- ifelse(markers$fdr3 < 0.2 & markers$`logFC_groupType 2 Diabetes`3 > 0, "lightcoral",
+#                               ifelse(markers$fdr3 < 0.2 & markers$`logFC_groupType 2 Diabetes`3 < 0, "lightblue", "gray"))
+# 
+# # Identify significant points (fdr < 0.05)
+# significant_df3 <- markers[markers$fdr3 < 0.2, ]
+
+top_up <- markers %>%
+  filter(p_val_adj < 0.05, avg_log2FC > 0) %>%
+  arrange(p_val_adj, desc(avg_log2FC)) %>%
+  head(10)
+
+top_down <- markers %>%
+  filter(p_val_adj < 0.05, avg_log2FC < 0) %>%
+  arrange(p_val_adj, avg_log2FC) %>%
+  head(10)
+
+top_markers <- bind_rows(top_up, top_down)
+
+max <- max(markers$avg_log2FC)
+# max <- 3.1
+min <- min(markers$avg_log2FC)
+
+
+# Create the volcano plot using ggplot
+volcano_plot <- ggplot(markers, aes(x = avg_log2FC, y = -log10(p_val_adj), color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  theme_minimal() +  # Minimal theme
+  labs(
+    title = "Type 2 Diabetes vs. Lean Controls",
+    subtitle = paste0(celltype,", Treatment 15"),
+    x = "FC",
+    y = "-log10(P-Value)",
+    color = "Log2FC Direction Direction",
+    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  xlim(min,max)+
+  # xlim(-3,3)+
+  # ylim(0,11)+
+  # # Add labels for significant points
+  # geom_text(data = significant_df, aes(label = Gene),
+  #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+# Add labels for significant points with ggrepel
+geom_text_repel(data = top_markers, aes(label = Gene),
+                size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+  # geom_text_repel(data = top_markers, aes(label = Gene),
+  #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = Inf)
+
+volcano_plot
+
+
+
+png(fs::path(dir.results, paste0("Plot_Organoid_FindMarkers_",celltype,"_Diabetes_lc_2000_treatment_15.png")), 
+    width = 2500, height = 2100, res = 300)
+print(volcano_plot)
+dev.off()
+}
+```
+
+#### b. 30 Glucose
+```{r}
+#30 glucose
+so_subset <- subset(sc_org,treatment=="30")
+#Filter to celltype of interest
+celltypes <- unique(so_subset$`ScType-Kidney-human`)
+for (celltype in celltypes) {
+so_celltype <- subset(so_subset,`ScType-Kidney-human`==celltype)
+DefaultAssay(so_celltype) <- "RNA" 
+
+## Select Highly Variable Genes (HVGs)
+so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+hvgs <- VariableFeatures(so_celltype)
+
+# # Subset Seurat object to only HVGs
+so_celltype <- subset(so_celltype, features = hvgs)
+DefaultAssay(so_celltype) <- "RNA"
+
+
+# library(Matrix)
+# library(dplyr)
+
+# Add a unique pseudobulk ID: e.g. donor_group or sample_type_group
+so_celltype$sample_id <- paste0(so_celltype$record_id, "_", so_celltype$group)
+
+# Get raw counts
+# counts <- GetAssayData(so_celltype, slot = "counts")
+counts <- round(GetAssayData(so_celltype, layer = "counts")) 
+
+# Create named list of cells by sample
+cell_groups <- split(colnames(so_celltype), so_celltype$sample_id)
+
+# Pseudobulk: sum counts for each gene across cells in each sample_id
+pseudobulk_counts <- sapply(cell_groups, function(cells) {
+  Matrix::rowSums(counts[, cells, drop = FALSE])
+})
+
+# Convert to matrix (genes x pseudobulk samples)
+pseudobulk_counts <- as.matrix(pseudobulk_counts)
+
+
+
+# Get raw counts (RNA assay assumed)
+# counts <- GetAssayData(so_celltype, slot = "counts")
+# counts <- round(GetAssayData(so_celltype, layer = "counts")) 
+
+# Set identities if not already set
+so_celltype$group <- str_replace_all(so_celltype$group," ","_")
+so_celltype$group <- factor(so_celltype$group)
+Idents(so_celltype) <- "group"
+
+# Metadata must match column names of count matrix
+metadata <- so_celltype@meta.data
+
+dds <- DESeqDataSetFromMatrix(
+  countData = counts,
+  colData = metadata,
+  design = ~ group  # or ~ your_variable
+)
+
+dds <- DESeq(dds)
+# dds <- DESeq(dds, fitType = "mean")
+# dds <- DESeq(dds, fitType = "local")
+
+
+# Compare B vs A (reference level is A)
+res <- results(dds, contrast = c("group", "Type_2_Diabetes", "Lean_Control"))
+
+# Order by adjusted p-value
+res <- res[order(res$padj), ]
+
+resLFC <- lfcShrink(dds, coef = "group_Type_2_Diabetes_vs_Lean_Control", type = "apeglm")
+# Assume 'res' is your DESeq2 results object (e.g., from results(dds))
+res_df <- as.data.frame(res)
+
+# # Add gene names (row names into column)
+# res_df$gene <- rownames(res_df)
+res_df$input <- rownames(res_df)
+res_df <- tidylog::left_join(res_df,gene_annotations,by="input")
+
+write.csv(res_df,fs::path(dir.results,paste0("Organoid_DESeq2_",celltype,"_diabetes_lc_treatment30.csv")))
+
+res_df$color <- ifelse(res_df$padj < 0.05 & res_df$log2FoldChange > 0, "#990000",
+                             ifelse(res_df$padj < 0.05 & res_df$log2FoldChange < 0, "#003366", "gray"))
+# res_df$color_int <- ifelse(res_df$fdr_int < 0.05 & res_df$`logFC_groupType 2 Diabetes:treatment30` > 0, "#990000",
+#                              ifelse(res_df$fdr_int < 0.05 & res_df$`logFC_groupType 2 Diabetes:treatment30` < 0, "#003366", "gray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- res_df[res_df$padj < 0.05, ]
+# significant_df_int <- res_df[res_df$fdr_int < 0.05, ]
+
+Genes <- length(unique(res_df$Gene))
+Cells <- ncol(so_celltype)
+# Nonconvergence_Rate <- nebula_nonconverged_percent
+# res_df$color3 <- ifelse(res_df$fdr3 < 0.2 & res_df$`logFC_groupType 2 Diabetes`3 > 0, "lightcoral",
+#                               ifelse(res_df$fdr3 < 0.2 & res_df$`logFC_groupType 2 Diabetes`3 < 0, "lightblue", "gray"))
+# 
+# # Identify significant points (fdr < 0.05)
+# significant_df3 <- res_df[res_df$fdr3 < 0.2, ]
+
+top_up <- res_df %>%
+  filter(padj < 0.05, log2FoldChange > 0) %>%
+  arrange(padj, desc(log2FoldChange)) %>%
+  head(10)
+
+top_down <- res_df %>%
+  filter(padj < 0.05, log2FoldChange < 0) %>%
+  arrange(padj, log2FoldChange) %>%
+  head(10)
+
+top_res_df <- bind_rows(top_up, top_down)
+
+max <- max(res_df$log2FoldChange)
+# max <- 3.1
+min <- min(res_df$log2FoldChange)
+
+
+# Create the volcano plot using ggplot
+volcano_plot <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  theme_minimal() +  # Minimal theme
+  labs(
+    title = "Type 2 Diabetes vs. Lean Controls",
+    subtitle = paste0(celltype,", Treatment 30 (DESeq2)"),
+    x = "FC",
+    y = "-log10(P-Value)",
+    color = "Log2FC Direction Direction",
+    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  xlim(min,max)+
+  # xlim(-3,3)+
+  # ylim(0,11)+
+  # # Add labels for significant points
+  # geom_text(data = significant_df, aes(label = Gene),
+  #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+# Add labels for significant points with ggrepel
+geom_text_repel(data = top_res_df, aes(label = Gene),
+                size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+  # geom_text_repel(data = top_res_df, aes(label = Gene),
+  #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = Inf)
+
+volcano_plot
+
+
+
+png(fs::path(dir.results, paste0("Plot_Organoid_DESeq2_",celltype,"_Diabetes_lc_2000_30.png")), 
+    width = 2500, height = 2100, res = 300)
 print(volcano_plot)
 dev.off()
 
+
+# # # Add significance label
+# # res_df <- res_df %>%
+# #   mutate(
+# #     sig = case_when(
+# #       padj < 0.05 & abs(log2FoldChange) > 1 ~ "Significant",
+# #       TRUE ~ "Not Significant"
+# #     )
+# #   )
+# 
+# # write.csv(as.data.frame(res), "deseq2_results.csv")
+# 
+# 
+# 
+# # dds <- DESeqDataSetFromMatrix(countData = cts,
+# #                               colData = coldata,
+# #                               design= ~ batch + condition)
+# # dds <- DESeq(dds)
+# # resultsNames(dds) # lists the coefficients
+# # res <- results(dds, name="condition_trt_vs_untrt")
+# # # or to shrink log fold changes association with condition:
+# # res <- lfcShrink(dds, coef="condition_trt_vs_untrt", type="apeglm")
+# # 
+# 
+# 
+# # nrow(so_celltype) #9196 genes
+# # ncol(so_celltype) #2127 cells
+# 
+# ## Select Highly Variable Genes (HVGs)
+# so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+# hvgs <- VariableFeatures(so_celltype)
+# 
+# # # Subset Seurat object to only HVGs
+# so_celltype <- subset(so_celltype, features = hvgs)
+# DefaultAssay(so_celltype) <- "RNA"
+# 
+# ###
+# # meta_hvg <- so_celltype@meta.data
+# # pred = model.matrix(~group, data = meta_hvg)
+# # data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
+# 
+# #Make sure exposure/independent/x variable or group variable is a factor variable
+# so_celltype$group <- factor(so_celltype$group)
+# #Make sure to set reference level
+# so_celltype$group <- relevel(so_celltype$group,ref="Lean Control")
+# 
+# # so_celltype$treatment <- factor(so_celltype$treatment)
+# 
+# # counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+# 
+# #Find markers
+# # Set identities to the 'group' column
+# Idents(so_celltype) <- "group"
+# markers <- FindMarkers(
+#   object = so_celltype,
+#   ident.1 = "Type 2 Diabetes",
+#   ident.2 = "Lean Control",  # optional: if omitted, compared to all other cells
+#   # group.by = "group",  # optional
+#   min.pct = 0,      # only test genes expressed in >10% of cells
+#   logfc.threshold = 0  # only return genes with log2FC > 0.25
+# )
+# 
+# markers$input <- rownames(markers)
+# markers <- tidylog::left_join(markers,gene_annotations,by="input")
+# 
+# # ggplot(markers, aes(x = avg_log2FC, y = -log10(p_val_adj))) +
+# #   geom_point(aes(color = p_val_adj < 0.05 & abs(avg_log2FC) > 0.25), alpha = 0.6) +
+# #   scale_color_manual(values = c("grey", "red")) +
+# #   theme_minimal() +
+# #   labs(
+# #     title = "Volcano Plot: T2D vs Lean Control",
+# #     x = "Log2 Fold Change",
+# #     y = "-log10 Adjusted p-value"
+# #   ) +
+# #   theme(legend.position = "none")
+# 
+# 
+# # markers <- markers %>%
+# #   mutate(fdr=p.adjust(`p_groupType 2 Diabetes`,method="fdr"))  
+#   # mutate(fdr_int=p.adjust(`p_groupType 2 Diabetes:treatment30`,method="fdr"))
+# # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+# # markers$PValue10 <- -log10(pmax(markers$`p_groupType 2 Diabetes`, 1e-10))  # Avoid log(0)
+# # markers$PValue10_int <- -log10(pmax(markers$`p_groupType 2 Diabetes:treatment30`, 1e-10))  # Avoid log(0)
+# 
+# write.csv(markers,fs::path(dir.results,paste0("Organoid_FindMarkers_",celltype,"_diabetes_lc_treatment30_adj_2000.csv")))
+# 
+# markers$color <- ifelse(markers$p_val_adj < 0.05 & markers$avg_log2FC > 0, "#990000",
+#                              ifelse(markers$p_val_adj < 0.05 & markers$avg_log2FC < 0, "#003366", "gray"))
+# # markers$color_int <- ifelse(markers$fdr_int < 0.05 & markers$`logFC_groupType 2 Diabetes:treatment30` > 0, "#990000",
+# #                              ifelse(markers$fdr_int < 0.05 & markers$`logFC_groupType 2 Diabetes:treatment30` < 0, "#003366", "gray"))
+# 
+# # Identify significant points (fdr < 0.05)
+# significant_df <- markers[markers$p_val_adj < 0.05, ]
+# # significant_df_int <- markers[markers$fdr_int < 0.05, ]
+# 
+# Genes <- length(unique(markers$Gene))
+# Cells <- ncol(so_celltype)
+# # Nonconvergence_Rate <- nebula_nonconverged_percent
+# # markers$color3 <- ifelse(markers$fdr3 < 0.2 & markers$`logFC_groupType 2 Diabetes`3 > 0, "lightcoral",
+# #                               ifelse(markers$fdr3 < 0.2 & markers$`logFC_groupType 2 Diabetes`3 < 0, "lightblue", "gray"))
+# # 
+# # # Identify significant points (fdr < 0.05)
+# # significant_df3 <- markers[markers$fdr3 < 0.2, ]
+# 
+# top_up <- markers %>%
+#   filter(p_val_adj < 0.05, avg_log2FC > 0) %>%
+#   arrange(p_val_adj, desc(avg_log2FC)) %>%
+#   head(10)
+# 
+# top_down <- markers %>%
+#   filter(p_val_adj < 0.05, avg_log2FC < 0) %>%
+#   arrange(p_val_adj, avg_log2FC) %>%
+#   head(10)
+# 
+# top_markers <- bind_rows(top_up, top_down)
+# 
+# max <- max(markers$avg_log2FC)
+# # max <- 3.1
+# min <- min(markers$avg_log2FC)
+# 
+# 
+# # Create the volcano plot using ggplot
+# volcano_plot <- ggplot(markers, aes(x = avg_log2FC, y = -log10(p_val_adj), color = color)) +
+#   geom_point(alpha = 0.7) +  # Plot points with transparency
+#   scale_color_identity() +  # Use the color column directly
+#   theme_minimal() +  # Minimal theme
+#   labs(
+#     title = "Type 2 Diabetes vs. Lean Controls",
+#     subtitle = paste0(celltype,", Treatment 30"),
+#     x = "FC",
+#     y = "-log10(P-Value)",
+#     color = "Log2FC Direction Direction",
+#     caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells)
+#   ) +
+#   theme(
+#     plot.title = element_text(hjust = 0),
+#     axis.text.x = element_text(angle = 0, hjust = 1)
+#   )+
+#   xlim(min,max)+
+#   # xlim(-3,3)+
+#   # ylim(0,11)+
+#   # # Add labels for significant points
+#   # geom_text(data = significant_df, aes(label = Gene),
+#   #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+# # Add labels for significant points with ggrepel
+# geom_text_repel(data = top_markers, aes(label = Gene),
+#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+#   # geom_text_repel(data = top_markers, aes(label = Gene),
+#   #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = Inf)
+# 
+# volcano_plot
+# 
+# 
+# 
+# png(fs::path(dir.results, paste0("Plot_Organoid_FindMarkers_",celltype,"_Diabetes_lc_2000_30.png")), 
+#     width = 2500, height = 2100, res = 300)
+# print(volcano_plot)
+# dev.off()
+}
 ```
-### ii. GSEA
+
+### iv. GSEA
 ```{r echo = F}
 full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_PT_cells_diabetes_unadjusted_2000.csv")) %>%
   clean_names() %>% 
@@ -4387,7 +5395,7 @@ ggsave(fs::path(dir.results,"Biopsy_PT_top30_pathways_unadjusted.jpeg"),
 ```{r}
 #GENES: ROBO4 and FN1
 target_genes <- c("ROBO4","FN1")
-so_celltype <- subset(so_kpmp_sc,celltype2=="PT")
+so_celltype <- subset(sc_org,celltype2=="PT")
 DefaultAssay(so_celltype) <- "RNA" 
 
 nrow(so_celltype) #9196 genes
@@ -4488,2297 +5496,11 @@ nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(noncon
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+  mutate(fdr=p.adjust(`p_groupType 2 Diabetes`,method="fdr"))  
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+full_results$PValue10 <- -log10(pmax(full_results$`p_groupType 2 Diabetes`, 1e-10))  # Avoid log(0)
 
 
 
 
 ```
-
-##b. aPT 
-### i. NEBULA
-```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_kpmp_sc,KPMP_celltype=="aPT")
-DefaultAssay(so_celltype) <- "RNA" 
-
-nrow(so_celltype) #9196 genes
-ncol(so_celltype) #2127 cells
-
-## Select Highly Variable Genes (HVGs)
-so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(so_celltype)
-
-# # Subset Seurat object to only HVGs
-# so_celltype_hvg <- subset(so_celltype, features = hvgs)
-# DefaultAssay(so_celltype_hvg) <- "RNA" 
-
-###
-# meta_hvg <- so_celltype@meta.data
-# pred = model.matrix(~group, data = meta_hvg)
-# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
-#Make sure to set reference level
-so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
-
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
-
-# With parallelization
-# List of genes
-# genes_list <- rownames(counts_hvg)
-genes_list <- hvgs
-
-cl <- makeCluster(20)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
-    # library <- meta_gene$library_size
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-PT_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-
-#Make dataframe of final results
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- length(genes_list)-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
-
-write.csv(full_results,fs::path(dir.results,"Biopsy_NEBULA_aPT_cells_diabetes_unadjusted_2000.csv"))
-
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
-
-# Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
-
-Genes <- length(unique(full_results$gene))
-Cells <- ncol(so_celltype)
-Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 < 0, "lightblue", "gray"))
-# 
-# # Identify significant points (fdr < 0.05)
-# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
-# max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
-# Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "Type 2 Diabetes vs. Lean Controls",
-    subtitle = "aPT, Unadjusted (REML, Log Normal, Offset)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  # xlim(min,max)+
-  xlim(-5,5)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-
-volcano_plot
-
-# pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
-# print(volcano_plot)
-# dev.off()
-png(fs::path(dir.results, "Plot_Biopsy_NEBULA_aPT_Diabetes_unadjusted_2000_offset.png"), 
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
-
-```
-### ii. GSEA
-```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_aPT_cells_diabetes_unadjusted_2000.csv")) %>%
-  clean_names() %>% 
-  dplyr::select(-x) %>% 
-  dplyr::rename(Gene=gene,LogFC=log_fc_group_type_2_diabetes)
-
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
-
-# rank genes by t-stats in DiD
-rankings_PT <- full_results$LogFC
-names(rankings_PT) <- full_results$Gene
-rankings_PT <- sort(rankings_PT, decreasing = TRUE)
-plot(rankings_PT)
-min(rankings_PT)
-max(rankings_PT)
-
-set.seed(1234)
-
-kegg_legacy_res_PT <- fgsea(pathways = kegg_legacy,
-                                     stats = rankings_PT,
-                                     scoreType = 'std', 
-                                     minSize = 3,
-                                     maxSize = 500,
-                                     nproc = 1)
-
-reactome_res_PT <- fgsea(pathways = reactome,
-                                  stats = rankings_PT,
-                                  scoreType = 'std', 
-                                  minSize = 3,
-                                  maxSize = 500,
-                                  nproc = 1)
-go_res_PT <- fgsea(pathways = go,
-                            stats = rankings_PT,
-                            scoreType = 'std', 
-                            minSize = 5,
-                            maxSize = 500,
-                            nproc = 1)
-
-PT_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_PT[, padj < 0.05]), sum(kegg_legacy_res_PT[, pval < 0.05])),
-                                "REACTOME"=c(sum(reactome_res_PT[, padj < 0.05]), sum(reactome_res_PT[, pval < 0.05])),
-                                "GO"=c(sum(go_res_PT[, padj < 0.05]), sum(go_res_PT[, pval < 0.05])))
-rownames(PT_fgsea) <- c("adj.pval", "p.val")
-PT_fgsea
-
-# ##### KEGG Legacy
-# a <- plot_fgsea_transpose(kegg_legacy_res_PT, title = "PT Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_kegg_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-##### REACTOME
-b <- plot_fgsea_transpose(reactome_res_PT, title = "aPT Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_reactome_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-##### GO
-c <- plot_fgsea_transpose(go_res_PT, title = "aPT Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_go_pathways_unadjusted_reml_offset.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-# combined_plot <- b + c + plot_layout(ncol = 3)
-# print(combined_plot)
-# ggsave(fs::path(dir.results,"PT_top30_pathways_unadjusted.jpeg"),
-#        width = 40, height = 10, scale = 1)
-combined_plot <- b + c + plot_layout(ncol = 1)
-print(combined_plot)
-ggsave(fs::path(dir.results,"Pathways_Biopsy_aPT_top30_unadjusted.jpeg"),
-       width = 15, height = 20, scale = 1)
-```
-
-## c. PT-S1/S2 
-### i. NEBULA
-```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_kpmp_sc,KPMP_celltype=="PT-S1/S2")
-DefaultAssay(so_celltype) <- "RNA" 
-
-nrow(so_celltype) #9196 genes
-ncol(so_celltype) #2127 cells
-
-## Select Highly Variable Genes (HVGs)
-so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(so_celltype)
-
-# # Subset Seurat object to only HVGs
-# so_celltype_hvg <- subset(so_celltype, features = hvgs)
-# DefaultAssay(so_celltype_hvg) <- "RNA" 
-
-###
-# meta_hvg <- so_celltype@meta.data
-# pred = model.matrix(~group, data = meta_hvg)
-# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
-#Make sure to set reference level
-so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
-
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
-
-# With parallelization
-# List of genes
-# genes_list <- rownames(counts_hvg)
-genes_list <- hvgs
-
-cl <- makeCluster(20)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
-    # library <- meta_gene$library_size
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-PT_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-
-#Make dataframe of final results
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- length(genes_list)-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
-
-write.csv(full_results,fs::path(dir.results,"Biopsy_NEBULA_PT_S1_S2_cells_diabetes_unadjusted_2000.csv"))
-
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
-
-# Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
-
-Genes <- length(unique(full_results$gene))
-Cells <- ncol(so_celltype)
-Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 < 0, "lightblue", "gray"))
-# 
-# # Identify significant points (fdr < 0.05)
-# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
-# max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
-# Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "Type 2 Diabetes vs. Lean Controls",
-    subtitle = "PT-S1/S2, Unadjusted (REML, Log Normal, Offset)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  # xlim(min,max)+
-  xlim(-5,5)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-
-volcano_plot
-
-# pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
-# print(volcano_plot)
-# dev.off()
-png(fs::path(dir.results, "Plot_Biopsy_NEBULA_PT_S1_S2_Diabetes_unadjusted_2000_offset.png"), 
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
-
-```
-
-### ii. GSEA
-```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_PT_S1_S2_cells_diabetes_unadjusted_2000.csv")) %>%
-  clean_names() %>% 
-  dplyr::select(-x) %>% 
-  dplyr::rename(Gene=gene,LogFC=log_fc_group_type_2_diabetes)
-
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
-
-# rank genes by t-stats in DiD
-rankings_PT <- full_results$LogFC
-names(rankings_PT) <- full_results$Gene
-rankings_PT <- sort(rankings_PT, decreasing = TRUE)
-plot(rankings_PT)
-min(rankings_PT)
-max(rankings_PT)
-
-set.seed(1234)
-
-kegg_legacy_res_PT <- fgsea(pathways = kegg_legacy,
-                                     stats = rankings_PT,
-                                     scoreType = 'std', 
-                                     minSize = 3,
-                                     maxSize = 500,
-                                     nproc = 1)
-
-reactome_res_PT <- fgsea(pathways = reactome,
-                                  stats = rankings_PT,
-                                  scoreType = 'std', 
-                                  minSize = 3,
-                                  maxSize = 500,
-                                  nproc = 1)
-go_res_PT <- fgsea(pathways = go,
-                            stats = rankings_PT,
-                            scoreType = 'std', 
-                            minSize = 5,
-                            maxSize = 500,
-                            nproc = 1)
-
-PT_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_PT[, padj < 0.05]), sum(kegg_legacy_res_PT[, pval < 0.05])),
-                                "REACTOME"=c(sum(reactome_res_PT[, padj < 0.05]), sum(reactome_res_PT[, pval < 0.05])),
-                                "GO"=c(sum(go_res_PT[, padj < 0.05]), sum(go_res_PT[, pval < 0.05])))
-rownames(PT_fgsea) <- c("adj.pval", "p.val")
-PT_fgsea
-
-# ##### KEGG Legacy
-# a <- plot_fgsea_transpose(kegg_legacy_res_PT, title = "PT Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_kegg_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-##### REACTOME
-b <- plot_fgsea_transpose(reactome_res_PT, title = "PT-1/2 Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_reactome_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-##### GO
-c <- plot_fgsea_transpose(go_res_PT, title = "PT-1/2 Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_go_pathways_unadjusted_reml_offset.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-# combined_plot <- b + c + plot_layout(ncol = 3)
-# print(combined_plot)
-# ggsave(fs::path(dir.results,"PT_top30_pathways_unadjusted.jpeg"),
-#        width = 40, height = 10, scale = 1)
-combined_plot <- b + c + plot_layout(ncol = 1)
-print(combined_plot)
-ggsave(fs::path(dir.results,"Pathways_Biopsy_PT_S1_S2_top30_unadjusted.jpeg"),
-       width = 15, height = 20, scale = 1)
-```
-
-## d. PT-S3 
-### i. NEBULA
-```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_kpmp_sc,KPMP_celltype=="PT-S3")
-DefaultAssay(so_celltype) <- "RNA" 
-
-nrow(so_celltype) #9196 genes
-ncol(so_celltype) #2127 cells
-
-## Select Highly Variable Genes (HVGs)
-so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(so_celltype)
-
-# # Subset Seurat object to only HVGs
-# so_celltype_hvg <- subset(so_celltype, features = hvgs)
-# DefaultAssay(so_celltype_hvg) <- "RNA" 
-
-###
-# meta_hvg <- so_celltype@meta.data
-# pred = model.matrix(~group, data = meta_hvg)
-# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
-#Make sure to set reference level
-so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
-
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
-
-# With parallelization
-# List of genes
-# genes_list <- rownames(counts_hvg)
-genes_list <- hvgs
-
-cl <- makeCluster(20)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
-    # library <- meta_gene$library_size
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-PT_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-
-#Make dataframe of final results
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- length(genes_list)-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
-
-write.csv(full_results,fs::path(dir.results,"Biopsy_NEBULA_PT_S3_cells_diabetes_unadjusted_2000.csv"))
-
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
-
-# Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
-
-Genes <- length(unique(full_results$gene))
-Cells <- ncol(so_celltype)
-Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 < 0, "lightblue", "gray"))
-# 
-# # Identify significant points (fdr < 0.05)
-# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
-# max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
-# Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "Type 2 Diabetes vs. Lean Controls",
-    subtitle = "PT-S3, Unadjusted (REML, Log Normal, Offset)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  # xlim(min,max)+
-  xlim(-5,5)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-
-volcano_plot
-
-png(fs::path(dir.results, "Plot_Biopsy_NEBULA_PT_S3_Diabetes_unadjusted_2000_offset.png"), 
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
-
-```
-### ii. GSEA
-```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_PT_S3_cells_diabetes_unadjusted_2000.csv")) %>%
-  clean_names() %>% 
-  dplyr::select(-x) %>% 
-  dplyr::rename(Gene=gene,LogFC=log_fc_group_type_2_diabetes)
-
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
-
-# rank genes by t-stats in DiD
-rankings_PT <- full_results$LogFC
-names(rankings_PT) <- full_results$Gene
-rankings_PT <- sort(rankings_PT, decreasing = TRUE)
-plot(rankings_PT)
-min(rankings_PT)
-max(rankings_PT)
-
-set.seed(1234)
-
-kegg_legacy_res_PT <- fgsea(pathways = kegg_legacy,
-                                     stats = rankings_PT,
-                                     scoreType = 'std', 
-                                     minSize = 3,
-                                     maxSize = 500,
-                                     nproc = 1)
-
-reactome_res_PT <- fgsea(pathways = reactome,
-                                  stats = rankings_PT,
-                                  scoreType = 'std', 
-                                  minSize = 3,
-                                  maxSize = 500,
-                                  nproc = 1)
-go_res_PT <- fgsea(pathways = go,
-                            stats = rankings_PT,
-                            scoreType = 'std', 
-                            minSize = 5,
-                            maxSize = 500,
-                            nproc = 1)
-
-PT_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_PT[, padj < 0.05]), sum(kegg_legacy_res_PT[, pval < 0.05])),
-                                "REACTOME"=c(sum(reactome_res_PT[, padj < 0.05]), sum(reactome_res_PT[, pval < 0.05])),
-                                "GO"=c(sum(go_res_PT[, padj < 0.05]), sum(go_res_PT[, pval < 0.05])))
-rownames(PT_fgsea) <- c("adj.pval", "p.val")
-PT_fgsea
-
-# ##### KEGG Legacy
-# a <- plot_fgsea_transpose(kegg_legacy_res_PT, title = "PT Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_kegg_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-##### REACTOME
-b <- plot_fgsea_transpose(reactome_res_PT, title = "PT-S3 Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_reactome_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-##### GO
-c <- plot_fgsea_transpose(go_res_PT, title = "PT-S3 Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_go_pathways_unadjusted_reml_offset.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-# combined_plot <- b + c + plot_layout(ncol = 3)
-# print(combined_plot)
-# ggsave(fs::path(dir.results,"PT_top30_pathways_unadjusted.jpeg"),
-#        width = 40, height = 10, scale = 1)
-combined_plot <- b + c + plot_layout(ncol = 1)
-print(combined_plot)
-ggsave(fs::path(dir.results,"Pathways_Biopsy_PT_S3_top30_unadjusted.jpeg"),
-       width = 15, height = 20, scale = 1)
-```
-
-
-## TAL
-## a. TAL Cells all
-### i. NEBULA
-```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_kpmp_sc,celltype2=="TAL")
-DefaultAssay(so_celltype) <- "RNA" 
-
-nrow(so_celltype) #9196 genes
-ncol(so_celltype) #2127 cells
-
-## Select Highly Variable Genes (HVGs)
-so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(so_celltype)
-
-# # Subset Seurat object to only HVGs
-# so_celltype_hvg <- subset(so_celltype, features = hvgs)
-# DefaultAssay(so_celltype_hvg) <- "RNA" 
-
-###
-# meta_hvg <- so_celltype@meta.data
-# pred = model.matrix(~group, data = meta_hvg)
-# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
-#Make sure to set reference level
-so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
-
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
-
-# With parallelization
-# List of genes
-# genes_list <- rownames(counts_hvg)
-genes_list <- hvgs
-
-cl <- makeCluster(20)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
-    # library <- meta_gene$library_size
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-PT_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-
-#Make dataframe of final results
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- length(genes_list)-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
-
-write.csv(full_results,fs::path(dir.results,"Biopsy_NEBULA_TAL_cells_diabetes_unadjusted_2000.csv"))
-
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
-
-# Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
-
-Genes <- length(unique(full_results$gene))
-Cells <- ncol(so_celltype)
-Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 < 0, "lightblue", "gray"))
-# 
-# # Identify significant points (fdr < 0.05)
-# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
-# max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
-# Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "Type 2 Diabetes vs. Lean Controls",
-    subtitle = "TAL, Unadjusted (REML, Log Normal, Offset)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  # xlim(min,max)+
-  xlim(-5,5)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-
-volcano_plot
-
-# pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
-# print(volcano_plot)
-# dev.off()
-png(fs::path(dir.results, "Plot_Biopsy_NEBULA_TAL_Diabetes_unadjusted_2000_offset.png"), 
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
-
-```
-### ii. GSEA
-```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_TAL_cells_diabetes_unadjusted_2000.csv")) %>%
-  clean_names() %>% 
-  dplyr::select(-x) %>% 
-  dplyr::rename(Gene=gene,LogFC=log_fc_group_type_2_diabetes)
-
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
-
-# rank genes by t-stats in DiD
-rankings_PT <- full_results$LogFC
-names(rankings_PT) <- full_results$Gene
-rankings_PT <- sort(rankings_PT, decreasing = TRUE)
-plot(rankings_PT)
-min(rankings_PT)
-max(rankings_PT)
-
-set.seed(1234)
-
-kegg_legacy_res_PT <- fgsea(pathways = kegg_legacy,
-                                     stats = rankings_PT,
-                                     scoreType = 'std', 
-                                     minSize = 3,
-                                     maxSize = 500,
-                                     nproc = 1)
-
-reactome_res_PT <- fgsea(pathways = reactome,
-                                  stats = rankings_PT,
-                                  scoreType = 'std', 
-                                  minSize = 3,
-                                  maxSize = 500,
-                                  nproc = 1)
-go_res_PT <- fgsea(pathways = go,
-                            stats = rankings_PT,
-                            scoreType = 'std', 
-                            minSize = 5,
-                            maxSize = 500,
-                            nproc = 1)
-
-PT_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_PT[, padj < 0.05]), sum(kegg_legacy_res_PT[, pval < 0.05])),
-                                "REACTOME"=c(sum(reactome_res_PT[, padj < 0.05]), sum(reactome_res_PT[, pval < 0.05])),
-                                "GO"=c(sum(go_res_PT[, padj < 0.05]), sum(go_res_PT[, pval < 0.05])))
-rownames(PT_fgsea) <- c("adj.pval", "p.val")
-PT_fgsea
-
-# ##### KEGG Legacy
-# a <- plot_fgsea_transpose(kegg_legacy_res_PT, title = "PT Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_kegg_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-##### REACTOME
-b <- plot_fgsea_transpose(reactome_res_PT, title = "TAL Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_reactome_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-##### GO
-c <- plot_fgsea_transpose(go_res_PT, title = "TAL Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_go_pathways_unadjusted_reml_offset.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-# combined_plot <- b + c + plot_layout(ncol = 3)
-# print(combined_plot)
-# ggsave(fs::path(dir.results,"PT_top30_pathways_unadjusted.jpeg"),
-#        width = 40, height = 10, scale = 1)
-combined_plot <- b + c + plot_layout(ncol = 1)
-print(combined_plot)
-ggsave(fs::path(dir.results,"Pathways_Biopsy_TAL_top30_unadjusted.jpeg"),
-       width = 15, height = 20, scale = 1)
-```
-
-## b. C-TAL-1 
-### i. NEBULA
-```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_kpmp_sc,KPMP_celltype=="C-TAL-1")
-DefaultAssay(so_celltype) <- "RNA" 
-
-nrow(so_celltype) #9196 genes
-ncol(so_celltype) #2127 cells
-
-## Select Highly Variable Genes (HVGs)
-so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(so_celltype)
-
-# # Subset Seurat object to only HVGs
-# so_celltype_hvg <- subset(so_celltype, features = hvgs)
-# DefaultAssay(so_celltype_hvg) <- "RNA" 
-
-###
-# meta_hvg <- so_celltype@meta.data
-# pred = model.matrix(~group, data = meta_hvg)
-# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
-#Make sure to set reference level
-so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
-
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
-
-# With parallelization
-# List of genes
-# genes_list <- rownames(counts_hvg)
-genes_list <- hvgs
-
-cl <- makeCluster(20)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
-    # library <- meta_gene$library_size
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-PT_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-
-#Make dataframe of final results
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- length(genes_list)-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
-
-write.csv(full_results,fs::path(dir.results,"Biopsy_NEBULA_C_TAL_1_cells_diabetes_unadjusted_2000.csv"))
-
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
-
-# Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
-
-Genes <- length(unique(full_results$gene))
-Cells <- ncol(so_celltype)
-Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 < 0, "lightblue", "gray"))
-# 
-# # Identify significant points (fdr < 0.05)
-# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
-# max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
-# Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "Type 2 Diabetes vs. Lean Controls",
-    subtitle = "C-TAL-1, Unadjusted (REML, Log Normal, Offset)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  # xlim(min,max)+
-  xlim(-5,5)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-
-volcano_plot
-
-# pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
-# print(volcano_plot)
-# dev.off()
-png(fs::path(dir.results, "Plot_Biopsy_NEBULA_C_TAL_1_Diabetes_unadjusted_2000_offset.png"), 
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
-
-```
-### ii. GSEA
-```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_C_TAL_1_cells_diabetes_unadjusted_2000.csv")) %>%
-  clean_names() %>% 
-  dplyr::select(-x) %>% 
-  dplyr::rename(Gene=gene,LogFC=log_fc_group_type_2_diabetes)
-
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
-
-# rank genes by t-stats in DiD
-rankings_PT <- full_results$LogFC
-names(rankings_PT) <- full_results$Gene
-rankings_PT <- sort(rankings_PT, decreasing = TRUE)
-plot(rankings_PT)
-min(rankings_PT)
-max(rankings_PT)
-
-set.seed(1234)
-
-kegg_legacy_res_PT <- fgsea(pathways = kegg_legacy,
-                                     stats = rankings_PT,
-                                     scoreType = 'std', 
-                                     minSize = 3,
-                                     maxSize = 500,
-                                     nproc = 1)
-
-reactome_res_PT <- fgsea(pathways = reactome,
-                                  stats = rankings_PT,
-                                  scoreType = 'std', 
-                                  minSize = 3,
-                                  maxSize = 500,
-                                  nproc = 1)
-go_res_PT <- fgsea(pathways = go,
-                            stats = rankings_PT,
-                            scoreType = 'std', 
-                            minSize = 5,
-                            maxSize = 500,
-                            nproc = 1)
-
-PT_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_PT[, padj < 0.05]), sum(kegg_legacy_res_PT[, pval < 0.05])),
-                                "REACTOME"=c(sum(reactome_res_PT[, padj < 0.05]), sum(reactome_res_PT[, pval < 0.05])),
-                                "GO"=c(sum(go_res_PT[, padj < 0.05]), sum(go_res_PT[, pval < 0.05])))
-rownames(PT_fgsea) <- c("adj.pval", "p.val")
-PT_fgsea
-
-# ##### KEGG Legacy
-# a <- plot_fgsea_transpose(kegg_legacy_res_PT, title = "PT Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_kegg_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-##### REACTOME
-b <- plot_fgsea_transpose(reactome_res_PT, title = "TAL-1 Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_reactome_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-##### GO
-c <- plot_fgsea_transpose(go_res_PT, title = "TAL-1 Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_go_pathways_unadjusted_reml_offset.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-# combined_plot <- b + c + plot_layout(ncol = 3)
-# print(combined_plot)
-# ggsave(fs::path(dir.results,"PT_top30_pathways_unadjusted.jpeg"),
-#        width = 40, height = 10, scale = 1)
-combined_plot <- b + c + plot_layout(ncol = 1)
-print(combined_plot)
-ggsave(fs::path(dir.results,"Pathways_Biopsy_C_TAL_1_top30_unadjusted.jpeg"),
-       width = 15, height = 20, scale = 1)
-```
-### iii. Targeted Genes
-```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_kpmp_sc,KPMP_celltype=="C-TAL-1")
-DefaultAssay(so_celltype) <- "RNA" 
-
-nrow(so_celltype) #9196 genes
-ncol(so_celltype) #2127 cells
-
-# ## Select Highly Variable Genes (HVGs)
-# so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-# hvgs <- VariableFeatures(so_celltype)
-
-# # Subset Seurat object to only HVGs
-# so_celltype_hvg <- subset(so_celltype, features = hvgs)
-# DefaultAssay(so_celltype_hvg) <- "RNA" 
-
-###
-# meta_hvg <- so_celltype@meta.data
-# pred = model.matrix(~group, data = meta_hvg)
-# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
-#Make sure to set reference level
-so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
-
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
-
-# With parallelization
-# List of genes
-# genes_list <- rownames(counts_hvg)
-rownames(so_celltype)[which(grepl("ROB",rownames(so_celltype)))]
-rownames(so_celltype)[which(grepl("FN1",rownames(so_celltype)))]
-
-genes_list <- c("FN1")
-
-cl <- makeCluster(20)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
-    # library <- meta_gene$library_size
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-PT_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-
-#Make dataframe of final results
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- length(genes_list)-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
-
-write.csv(full_results,fs::path(dir.results,"Targeted_Biopsy_NEBULA_C_TAL_1_cells_diabetes_unadjusted_2000.csv"))
-
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
-
-# Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
-
-Genes <- length(unique(full_results$gene))
-Cells <- ncol(so_celltype)
-Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 < 0, "lightblue", "gray"))
-# 
-# # Identify significant points (fdr < 0.05)
-# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
-# max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
-# Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "Type 2 Diabetes vs. Lean Controls",
-    subtitle = "C-TAL-1, Unadjusted (REML, Log Normal, Offset)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  # xlim(min,max)+
-  xlim(-5,5)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-
-volcano_plot
-
-# pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
-# print(volcano_plot)
-# dev.off()
-png(fs::path(dir.results, "Targeted_Plot_Biopsy_NEBULA_C_TAL_1_Diabetes.png"), 
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
-
-```
-
-## c. C-TAL-2
-### i. NEBULA
-```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_kpmp_sc,KPMP_celltype=="C-TAL-2")
-DefaultAssay(so_celltype) <- "RNA" 
-
-nrow(so_celltype) #9196 genes
-ncol(so_celltype) #2127 cells
-
-## Select Highly Variable Genes (HVGs)
-so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(so_celltype)
-
-# # Subset Seurat object to only HVGs
-# so_celltype_hvg <- subset(so_celltype, features = hvgs)
-# DefaultAssay(so_celltype_hvg) <- "RNA" 
-
-###
-# meta_hvg <- so_celltype@meta.data
-# pred = model.matrix(~group, data = meta_hvg)
-# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
-#Make sure to set reference level
-so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
-
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
-
-# With parallelization
-# List of genes
-# genes_list <- rownames(counts_hvg)
-genes_list <- hvgs
-
-cl <- makeCluster(20)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
-    # library <- meta_gene$library_size
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-PT_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-
-#Make dataframe of final results
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- length(genes_list)-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
-
-write.csv(full_results,fs::path(dir.results,"Biopsy_NEBULA_C_TAL_2_cells_diabetes_unadjusted_2000.csv"))
-
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
-
-# Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
-
-Genes <- length(unique(full_results$gene))
-Cells <- ncol(so_celltype)
-Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 < 0, "lightblue", "gray"))
-# 
-# # Identify significant points (fdr < 0.05)
-# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
-# max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
-# Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "Type 2 Diabetes vs. Lean Controls",
-    subtitle = "C-TAL-2, Unadjusted (REML, Log Normal, Offset)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  # xlim(min,max)+
-  xlim(-5,5)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-
-volcano_plot
-
-# pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
-# print(volcano_plot)
-# dev.off()
-png(fs::path(dir.results, "Plot_Biopsy_NEBULA_C_TAL_2_Diabetes_unadjusted_2000_offset.png"), 
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
-
-```
-### ii. GSEA
-```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_C_TAL_2_cells_diabetes_unadjusted_2000.csv")) %>%
-  clean_names() %>% 
-  dplyr::select(-x) %>% 
-  dplyr::rename(Gene=gene,LogFC=log_fc_group_type_2_diabetes)
-
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
-
-# rank genes by t-stats in DiD
-rankings_PT <- full_results$LogFC
-names(rankings_PT) <- full_results$Gene
-rankings_PT <- sort(rankings_PT, decreasing = TRUE)
-plot(rankings_PT)
-min(rankings_PT)
-max(rankings_PT)
-
-set.seed(1234)
-
-kegg_legacy_res_PT <- fgsea(pathways = kegg_legacy,
-                                     stats = rankings_PT,
-                                     scoreType = 'std', 
-                                     minSize = 3,
-                                     maxSize = 500,
-                                     nproc = 1)
-
-reactome_res_PT <- fgsea(pathways = reactome,
-                                  stats = rankings_PT,
-                                  scoreType = 'std', 
-                                  minSize = 3,
-                                  maxSize = 500,
-                                  nproc = 1)
-go_res_PT <- fgsea(pathways = go,
-                            stats = rankings_PT,
-                            scoreType = 'std', 
-                            minSize = 5,
-                            maxSize = 500,
-                            nproc = 1)
-
-PT_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_PT[, padj < 0.05]), sum(kegg_legacy_res_PT[, pval < 0.05])),
-                                "REACTOME"=c(sum(reactome_res_PT[, padj < 0.05]), sum(reactome_res_PT[, pval < 0.05])),
-                                "GO"=c(sum(go_res_PT[, padj < 0.05]), sum(go_res_PT[, pval < 0.05])))
-rownames(PT_fgsea) <- c("adj.pval", "p.val")
-PT_fgsea
-
-# ##### KEGG Legacy
-# a <- plot_fgsea_transpose(kegg_legacy_res_PT, title = "PT Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_kegg_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-##### REACTOME
-b <- plot_fgsea_transpose(reactome_res_PT, title = "TAL-2 Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_reactome_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-##### GO
-c <- plot_fgsea_transpose(go_res_PT, title = "TAL-2 Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_go_pathways_unadjusted_reml_offset.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-# combined_plot <- b + c + plot_layout(ncol = 3)
-# print(combined_plot)
-# ggsave(fs::path(dir.results,"PT_top30_pathways_unadjusted.jpeg"),
-#        width = 40, height = 10, scale = 1)
-combined_plot <- b + c + plot_layout(ncol = 1)
-print(combined_plot)
-ggsave(fs::path(dir.results,"Pathways_Biopsy_C_TAL_2_top30_unadjusted.jpeg"),
-       width = 15, height = 20, scale = 1)
-```
-### iii. Targeted Genes
-```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_kpmp_sc,KPMP_celltype=="C-TAL-2")
-DefaultAssay(so_celltype) <- "RNA" 
-
-nrow(so_celltype) #9196 genes
-ncol(so_celltype) #2127 cells
-
-# ## Select Highly Variable Genes (HVGs)
-# so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-# hvgs <- VariableFeatures(so_celltype)
-
-# # Subset Seurat object to only HVGs
-# so_celltype_hvg <- subset(so_celltype, features = hvgs)
-# DefaultAssay(so_celltype_hvg) <- "RNA" 
-
-###
-# meta_hvg <- so_celltype@meta.data
-# pred = model.matrix(~group, data = meta_hvg)
-# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
-#Make sure to set reference level
-so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
-
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
-
-# With parallelization
-# List of genes
-# genes_list <- rownames(counts_hvg)
-genes_list <- c("FN1")
-
-cl <- makeCluster(20)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
-    # library <- meta_gene$library_size
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-PT_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-
-#Make dataframe of final results
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- length(genes_list)-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
-
-write.csv(full_results,fs::path(dir.results,"Targeted_Biopsy_NEBULA_C_TAL_2_cells_diabetes_unadjusted_2000.csv"))
-
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
-
-# Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
-
-Genes <- length(unique(full_results$gene))
-Cells <- ncol(so_celltype)
-Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 < 0, "lightblue", "gray"))
-# 
-# # Identify significant points (fdr < 0.05)
-# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
-# max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
-# Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "Type 2 Diabetes vs. Lean Controls",
-    subtitle = "C-TAL-2, Unadjusted (REML, Log Normal, Offset)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  # xlim(min,max)+
-  xlim(-5,5)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-
-volcano_plot
-
-# pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
-# print(volcano_plot)
-# dev.off()
-png(fs::path(dir.results, "Targeted_Plot_Biopsy_NEBULA_C_TAL_2_Diabetes.png"), 
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
-
-```
-
-## d. dTAL
-### i. NEBULA
-```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_kpmp_sc,KPMP_celltype=="dTAL")
-DefaultAssay(so_celltype) <- "RNA" 
-
-nrow(so_celltype) #9196 genes
-ncol(so_celltype) #2127 cells
-
-## Select Highly Variable Genes (HVGs)
-so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(so_celltype)
-
-# # Subset Seurat object to only HVGs
-# so_celltype_hvg <- subset(so_celltype, features = hvgs)
-# DefaultAssay(so_celltype_hvg) <- "RNA" 
-
-###
-# meta_hvg <- so_celltype@meta.data
-# pred = model.matrix(~group, data = meta_hvg)
-# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
-#Make sure to set reference level
-so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
-
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
-
-# With parallelization
-# List of genes
-# genes_list <- rownames(counts_hvg)
-genes_list <- hvgs
-
-cl <- makeCluster(20)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
-    # library <- meta_gene$library_size
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-PT_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-
-#Make dataframe of final results
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- length(genes_list)-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
-
-write.csv(full_results,fs::path(dir.results,"Biopsy_NEBULA_dTAL_cells_diabetes_unadjusted_2000.csv"))
-
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
-
-# Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
-
-Genes <- length(unique(full_results$gene))
-Cells <- ncol(so_celltype)
-Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 < 0, "lightblue", "gray"))
-# 
-# # Identify significant points (fdr < 0.05)
-# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
-# max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
-# Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "Type 2 Diabetes vs. Lean Controls",
-    subtitle = "dTAL, Unadjusted (REML, Log Normal, Offset)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  # xlim(min,max)+
-  xlim(-5,5)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-
-volcano_plot
-
-# pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
-# print(volcano_plot)
-# dev.off()
-png(fs::path(dir.results, "Plot_Biopsy_NEBULA_dTAL_Diabetes_unadjusted_2000_offset.png"), 
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
-
-```
-### ii. GSEA
-```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_dTAL_cells_diabetes_unadjusted_2000.csv")) %>%
-  clean_names() %>% 
-  dplyr::select(-x) %>% 
-  dplyr::rename(Gene=gene,LogFC=log_fc_group_type_2_diabetes)
-
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
-
-# rank genes by t-stats in DiD
-rankings_PT <- full_results$LogFC
-names(rankings_PT) <- full_results$Gene
-rankings_PT <- sort(rankings_PT, decreasing = TRUE)
-plot(rankings_PT)
-min(rankings_PT)
-max(rankings_PT)
-
-set.seed(1234)
-
-kegg_legacy_res_PT <- fgsea(pathways = kegg_legacy,
-                                     stats = rankings_PT,
-                                     scoreType = 'std', 
-                                     minSize = 3,
-                                     maxSize = 500,
-                                     nproc = 1)
-
-reactome_res_PT <- fgsea(pathways = reactome,
-                                  stats = rankings_PT,
-                                  scoreType = 'std', 
-                                  minSize = 3,
-                                  maxSize = 500,
-                                  nproc = 1)
-go_res_PT <- fgsea(pathways = go,
-                            stats = rankings_PT,
-                            scoreType = 'std', 
-                            minSize = 5,
-                            maxSize = 500,
-                            nproc = 1)
-
-PT_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_PT[, padj < 0.05]), sum(kegg_legacy_res_PT[, pval < 0.05])),
-                                "REACTOME"=c(sum(reactome_res_PT[, padj < 0.05]), sum(reactome_res_PT[, pval < 0.05])),
-                                "GO"=c(sum(go_res_PT[, padj < 0.05]), sum(go_res_PT[, pval < 0.05])))
-rownames(PT_fgsea) <- c("adj.pval", "p.val")
-PT_fgsea
-
-# ##### KEGG Legacy
-# a <- plot_fgsea_transpose(kegg_legacy_res_PT, title = "PT Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_kegg_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-##### REACTOME
-b <- plot_fgsea_transpose(reactome_res_PT, title = "dTAL Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_reactome_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-##### GO
-c <- plot_fgsea_transpose(go_res_PT, title = "dTAL Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_go_pathways_unadjusted_reml_offset.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-# combined_plot <- b + c + plot_layout(ncol = 3)
-# print(combined_plot)
-# ggsave(fs::path(dir.results,"PT_top30_pathways_unadjusted.jpeg"),
-#        width = 40, height = 10, scale = 1)
-combined_plot <- b + c + plot_layout(ncol = 1)
-print(combined_plot)
-ggsave(fs::path(dir.results,"Pathways_Biopsy_dTAL_top30_unadjusted.jpeg"),
-       width = 15, height = 20, scale = 1)
-```
-
-## e. aTAL
-### i. NEBULA
-```{r}
-#Filter to PT Cells
-so_celltype <- subset(so_kpmp_sc,KPMP_celltype=="aTAL")
-DefaultAssay(so_celltype) <- "RNA" 
-
-nrow(so_celltype) #9196 genes
-ncol(so_celltype) #2127 cells
-
-## Select Highly Variable Genes (HVGs)
-so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(so_celltype)
-
-# # Subset Seurat object to only HVGs
-# so_celltype_hvg <- subset(so_celltype, features = hvgs)
-# DefaultAssay(so_celltype_hvg) <- "RNA" 
-
-###
-# meta_hvg <- so_celltype@meta.data
-# pred = model.matrix(~group, data = meta_hvg)
-# data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
-#Make sure to set reference level
-so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
-
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-
-# offset_hvg = Matrix::colSums(data_g_hvg$count) 
-
-# With parallelization
-# List of genes
-# genes_list <- rownames(counts_hvg)
-genes_list <- hvgs
-
-cl <- makeCluster(20)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
-    # library <- meta_gene$library_size
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-PT_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-
-#Make dataframe of final results
-full_results <- as.data.frame(nebula_summaries)
-#Calculate number of genes filtered out for low expression 
-low_exp <- length(genes_list)-length(full_results$gene)
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-#Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-# nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
-# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
-
-write.csv(full_results,fs::path(dir.results,"Biopsy_NEBULA_aTAL_cells_diabetes_unadjusted_2000.csv"))
-
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
-
-# Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
-
-Genes <- length(unique(full_results$gene))
-Cells <- ncol(so_celltype)
-Nonconvergence_Rate <- nebula_nonconverged_percent
-# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 > 0, "lightcoral",
-#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_groupType_2_Diabetes`3 < 0, "lightblue", "gray"))
-# 
-# # Identify significant points (fdr < 0.05)
-# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
-# max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
-# Create the volcano plot using ggplot
-volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_minimal() +  # Minimal theme
-  labs(
-    title = "Type 2 Diabetes vs. Lean Controls",
-    subtitle = "aTAL, Unadjusted (REML, Log Normal, Offset)",
-    x = "FC",
-    y = "-log10(P-Value)",
-    color = "FC Direction Direction",
-    caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  # xlim(min,max)+
-  xlim(-5,5)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-
-volcano_plot
-
-# pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
-# print(volcano_plot)
-# dev.off()
-png(fs::path(dir.results, "Plot_Biopsy_NEBULA_aTAL_Diabetes_unadjusted_2000_offset.png"), 
-    width = 3000, height = 2100, res = 300)
-print(volcano_plot)
-dev.off()
-
-```
-### ii. GSEA
-```{r echo = F}
-full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_aTAL_cells_diabetes_unadjusted_2000.csv")) %>%
-  clean_names() %>% 
-  dplyr::select(-x) %>% 
-  dplyr::rename(Gene=gene,LogFC=log_fc_group_type_2_diabetes)
-
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
-
-# rank genes by t-stats in DiD
-rankings_PT <- full_results$LogFC
-names(rankings_PT) <- full_results$Gene
-rankings_PT <- sort(rankings_PT, decreasing = TRUE)
-plot(rankings_PT)
-min(rankings_PT)
-max(rankings_PT)
-
-set.seed(1234)
-
-kegg_legacy_res_PT <- fgsea(pathways = kegg_legacy,
-                                     stats = rankings_PT,
-                                     scoreType = 'std', 
-                                     minSize = 3,
-                                     maxSize = 500,
-                                     nproc = 1)
-
-reactome_res_PT <- fgsea(pathways = reactome,
-                                  stats = rankings_PT,
-                                  scoreType = 'std', 
-                                  minSize = 3,
-                                  maxSize = 500,
-                                  nproc = 1)
-go_res_PT <- fgsea(pathways = go,
-                            stats = rankings_PT,
-                            scoreType = 'std', 
-                            minSize = 5,
-                            maxSize = 500,
-                            nproc = 1)
-
-PT_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_PT[, padj < 0.05]), sum(kegg_legacy_res_PT[, pval < 0.05])),
-                                "REACTOME"=c(sum(reactome_res_PT[, padj < 0.05]), sum(reactome_res_PT[, pval < 0.05])),
-                                "GO"=c(sum(go_res_PT[, padj < 0.05]), sum(go_res_PT[, pval < 0.05])))
-rownames(PT_fgsea) <- c("adj.pval", "p.val")
-PT_fgsea
-
-# ##### KEGG Legacy
-# a <- plot_fgsea_transpose(kegg_legacy_res_PT, title = "PT Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_kegg_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-##### REACTOME
-b <- plot_fgsea_transpose(reactome_res_PT, title = "aTAL Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)", xlimit = 5) + theme(legend.position = c(0.15, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_reactome_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-##### GO
-c <- plot_fgsea_transpose(go_res_PT, title = "aTAL Unadjusted Top 30 GO (REML, Log Normal, Offset)", xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"PT_top30_go_pathways_unadjusted_reml_offset.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-# combined_plot <- b + c + plot_layout(ncol = 3)
-# print(combined_plot)
-# ggsave(fs::path(dir.results,"PT_top30_pathways_unadjusted.jpeg"),
-#        width = 40, height = 10, scale = 1)
-combined_plot <- b + c + plot_layout(ncol = 1)
-print(combined_plot)
-ggsave(fs::path(dir.results,"Pathways_Biopsy_aTAL_top30_unadjusted.jpeg"),
-       width = 15, height = 20, scale = 1)
-```
-
-
-
-## III. Integrated
