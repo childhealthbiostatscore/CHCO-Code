@@ -178,6 +178,21 @@ nrow(so_t1d_hc) #31,242 genes
 
 meta.data <- so_t1d_hc@meta.data
 
+
+test <- meta.data %>% dplyr::select(record_id, cohort, group, visit, age, sex)
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+dat <- harmonized_data %>%
+     arrange(screen_date) %>% 
+     dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                      across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                      .by = c(record_id, visit))
+
+dat <- dat %>% dplyr::select(record_id, mrn, bmi, sex, age)
+test <- test %>% left_join(dat, by='record_id')
+test <- test %>% filter(!duplicated(record_id))
+table1(~age + sex + bmi + cohort | group, data = test)
+
 rm(so)
 save.image('C:/Users/netio/Documents/UofW/cGAS_Analysis/cGWAS_sot1d_hc_data.RData')
 
