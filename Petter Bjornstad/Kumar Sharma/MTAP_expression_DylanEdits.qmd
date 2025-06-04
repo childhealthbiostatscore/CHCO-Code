@@ -112,50 +112,6 @@ length(which(rownames(so) %in% ribo_genes)) #0
 ncol(so) #211,218 cells
 nrow(so) #31,242 genes
 
-
-
-expr_matrix <- as.matrix(GetAssayData(so, layer = "counts"))
-expr_matrix <- as.matrix(GetAssayData(so, assay = "RNA", layer = "counts"))
-# expr_matrix <- so_kpmp_sc@assays$RNA@counts
-# Calculate the proportion of cells expressing each gene
-num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
-total_cells <- ncol(expr_matrix)  # Total number of cells
-gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
-remove(expr_matrix)
-# Keep genes expressed in at least "gene_pct" of cells
-genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
-so <- subset(so, features = genes_to_keep)
-
-
-
-
-
-
-
-jpeg('C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_KPMP_celltype.jpeg', width=900, 
-     height=900)
-DimPlot(so, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
-dev.off()
-
-jpeg("C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_celltype.jpeg", width=900, 
-     height=900)
-DimPlot(so, reduction = "umap.harmony", group.by = "celltype_harmony", raster = F, alpha = 0.2, label = T)
-dev.off()
-
-```
-
-# HC vs. T1D in PB90
-
-## All cell types combined
-
-```{r echo = F}
-
-cgas <- data.table::fread("C:/Users/netio/Documents/UofW/cGAS_Analysis/cGAS_genes_AmiGO2.txt",
-                          header=F)
-cgas[2] <- 'TMEM173'
-
-
-
 so <- subset(so, 
                       subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 10)
 
@@ -171,12 +127,25 @@ sizeFactors(sce)
 so$pooled_offset <- (sizeFactors(sce))
 
 
-
 so_t1d_hc <- subset(so, group %in% c("Type_1_Diabetes","Lean_Control"))
-ncol(so_t1d_hc) #40,346 cells
-nrow(so_t1d_hc) #31,242 genes
+
+#Filter to only CROCODILE
+so_t1d_hc <- subset(so_t1d_hc, cohort == 'CROCODILE')
+
+expr_matrix <- as.matrix(GetAssayData(so_t1d_hc, layer = "counts"))
+expr_matrix <- as.matrix(GetAssayData(so_t1d_hc, assay = "RNA", layer = "counts"))
+# expr_matrix <- so_kpmp_sc@assays$RNA@counts
+# Calculate the proportion of cells expressing each gene
+num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
+total_cells <- ncol(expr_matrix)  # Total number of cells
+gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
+remove(expr_matrix)
+# Keep genes expressed in at least "gene_pct" of cells
+genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
+so_t1d_hc<- subset(so_t1d_hc, features = genes_to_keep)
 
 meta.data <- so_t1d_hc@meta.data
+
 
 
 test <- meta.data %>% dplyr::select(record_id, cohort, group, visit, age, sex)
@@ -191,7 +160,42 @@ dat <- harmonized_data %>%
 dat <- dat %>% dplyr::select(record_id, mrn, bmi, sex, age)
 test <- test %>% left_join(dat, by='record_id')
 test <- test %>% filter(!duplicated(record_id))
+test <- test %>% dplyr::select(record_id, cohort, group, 
+                               age = age.y, sex = sex.y, bmi)
 table1(~age + sex + bmi + cohort | group, data = test)
+
+
+
+
+
+
+
+
+jpeg('C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_KPMP_celltype.jpeg', width=900, 
+     height=900)
+DimPlot(so_t1d_hc, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
+dev.off()
+
+jpeg("C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_celltype.jpeg", width=900, 
+     height=900)
+DimPlot(so_t1d_hc, reduction = "umap.harmony", group.by = "celltype_harmony", raster = F, alpha = 0.2, label = T)
+dev.off()
+
+```
+
+# HC vs. T1D in PB90
+
+## All cell types combined
+
+```{r echo = F}
+
+cgas <- data.table::fread("C:/Users/netio/Documents/UofW/cGAS_Analysis/cGAS_genes_AmiGO2.txt",
+                          header=F)
+cgas[2] <- 'TMEM173'
+
+
+meta.data <- so_t1d_hc@meta.data
+
 
 rm(so)
 save.image('C:/Users/netio/Documents/UofW/cGAS_Analysis/cGWAS_sot1d_hc_data.RData')
