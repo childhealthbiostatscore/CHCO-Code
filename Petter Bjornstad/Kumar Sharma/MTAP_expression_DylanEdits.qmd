@@ -359,6 +359,27 @@ sig_results <- as.data.frame(result_allcells) %>% dplyr::select(Gene = summary.g
 
 
 
+#just testing which is compared to which 
+meta.data <- so_t1d_hc@meta.data
+meta.data <- meta.data %>% dplyr::mutate(group2 = ifelse(group == 'Type_1_Diabetes', 1, 0))
+so_t1d_hc@meta.data$group2 <- meta.data$group2
+
+
+#Type 1 Diabetes as 1, controls as 0
+counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
+counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
+meta_gene <- subset(so_t1d_hc, features = "MTAP")@meta.data
+pred_gene <- model.matrix(~group2*sex, data = meta_gene)
+data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
+result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = so_t1d_hc$pooled_offset,
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+
+result_allcells$summary
+
+
+
+
 
 
 
@@ -831,6 +852,12 @@ result_pec$summary
 
 
 attempt_so <- readRDS("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/scRNA/data_raw/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS")
+
+
+meta.data <- attempt_so@meta.data
+
+
+
 
 
 sum(grepl("^MT-", rownames(attempt_so))) 
