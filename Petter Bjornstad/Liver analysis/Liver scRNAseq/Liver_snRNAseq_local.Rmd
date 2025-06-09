@@ -371,6 +371,23 @@ prop_plot <- ggplot(data=cellcount,aes(steatosis_cat, fill = celltype)) +
 png(fs::path(dir.results, "Barchart_Steatosis_Cat_All_Cells.png"),width = 3000, height = 3000, res = 300)
 print(prop_plot)
 dev.off()
+
+
+prop_plot <- ggplot(data=cellcount,aes(steatosis_grade, fill = celltype)) + 
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion of Cells",
+       fill = "Cell Type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+png(fs::path(dir.results, "Barchart_Steatosis_Grade_All_Cells.png"),width = 3500, height = 3000, res = 300)
+print(prop_plot)
+dev.off()
+
+
 ```
 
 
@@ -7403,17 +7420,21 @@ DotPlot(so_Hep, features = adaptive_maladaptive_genes, group.by = "celltype") +
 # dev.off()
 
 #Hep cells (Hep-1 thru dHep)
+so_liver_sn
 so_Hep <- subset(so_liver_sn, celltype2 == "Hep")
+so_Hep
+DefaultAssay(so_Hep) <- "RNA"
 so_Hep <- NormalizeData(so_Hep)
 so_Hep <- ScaleData(so_Hep)
 so_Hep <- FindVariableFeatures(object = so_Hep)
-so_Hep <- RunPCA(so_Hep, features = VariableFeatures(object = so_Hep),assay="RNA")
+# so_Hep <- RunPCA(so_Hep, features = VariableFeatures(object = so_Hep),assay="RNA")
 ElbowPlot(so_Hep)
 
 # # Find neighbors and clusters (again using integrated data)
 so_Hep <- FindNeighbors(so_Hep, assay = "RNA", dims = 1:20)
+so_Hep@graphs
 so_Hep <- FindClusters(so_Hep, resolution = 0.5)
-
+DefaultAssay(so_Hep) <- "RNA"
 # Perform UMAP 
 #Print plot
 png(fs::path(dir.results, "UMAP_by_Hep_Celltypes.png"),
@@ -7488,11 +7509,76 @@ dev.off()
 # so_Hep <- RunTSNE(so_Hep, dimred = "UMAP")
 # 
 DimPlot(object = so_Hep, reduction = "umap")
-DimPlot(object = so_Hep, reduction = "umap", group.by = "steatosis_cat")
+DimPlot(object = so_Hep, reduction = "umap", group.by = "steatosis_grade")
 DimPlot(object = so_Hep, reduction = "umap", group.by = "celltype")
-# 
-# umap_keep <- rownames(as.data.frame(so_Hep@reductions$umap@cell.embeddings) %>%
-#   filter(UMAP_1 < 5 | UMAP_2 > 0))
+
+DimPlot(so_Hep, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  ggtitle("UMAP Plot by Cell Type")+
+   theme(legend.position = "none")
+
+umap_df <- as.data.frame(so_Hep@reductions$umap@cell.embeddings)
+umap_df <- umap_df %>% 
+  filter(UMAP_1 < 5) %>% 
+  filter(UMAP_2 > -8)
+umap_keep <- rownames(umap_df)
+length(umap_keep)  # confirm how many cells are kept - 103031
+
+so_Hep_filtered <- subset(so_Hep, cells = umap_keep)
+nrow(so_Hep_filtered)
+ncol(so_Hep_filtered)
+# png(fs::path(dir.results, "UMAP_by_Hep_Filtered_5_neg8.png"),
+# width = 4000, height = 3000, res = 300)
+p <- DimPlot(so_Hep_filtered, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  ggtitle("UMAP Plot by Cell Type")+
+   theme(legend.position = "none")
+print(p)
+# dev.off()
+
+# png(fs::path(dir.results, "UMAP_by_Hep_Unfiltered.png"),
+# width = 4000, height = 3000, res = 300)
+p <- DimPlot(so_Hep, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  ggtitle("UMAP Plot by Cell Type")+
+   theme(legend.position = "none")
+# print(p)
+# dev.off()
+
+umap_df <- as.data.frame(so_Hep@reductions$umap@cell.embeddings)
+umap_df <- umap_df %>% 
+  filter(UMAP_1 < 4) %>% 
+  filter(UMAP_2 > -7)
+umap_keep <- rownames(umap_df)
+length(umap_keep)
+
+so_Hep_filtered <- subset(so_Hep, cells = umap_keep)
+nrow(so_Hep_filtered)
+ncol(so_Hep_filtered)
+# png(fs::path(dir.results, "UMAP_by_Hep_Filtered_5_neg8.png"),
+# width = 4000, height = 3000, res = 300)
+p <- DimPlot(so_Hep_filtered, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  ggtitle("UMAP Plot by Cell Type")+
+   theme(legend.position = "none")
+print(p)
+# dev.off()
+
+umap_df <- as.data.frame(so_Hep@reductions$umap@cell.embeddings)
+umap_df <- umap_df %>% 
+  filter(UMAP_1 < 4.6) %>% 
+  filter(UMAP_2 > -7)
+umap_keep <- rownames(umap_df)
+length(umap_keep)
+
+so_Hep_filtered <- subset(so_Hep, cells = umap_keep)
+nrow(so_Hep_filtered)
+ncol(so_Hep_filtered)
+# png(fs::path(dir.results, "UMAP_by_Hep_Filtered_5_neg8.png"),
+# width = 4000, height = 3000, res = 300)
+p <- DimPlot(so_Hep_filtered, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  ggtitle("UMAP Plot by Cell Type")+
+   theme(legend.position = "none")
+print(p)
+
+# png(fs::path(dir.results, "UMAP_by_Hep_Celltypes2.png"),
+# width = 4000, height = 3000, res = 300)
 # 
 # so_Hep <- so_Hep[, umap_keep]
 # DimPlot(object = so_Hep, reduction = "umap")
@@ -7536,78 +7622,231 @@ DimPlot(object = so_Hep, reduction = "umap", group.by = "celltype")
 # 
 # Lineage 1 of the unsupervised method was the exact inverse of lineage 1 of the supervised method. Therefore, we moved forward with the initial method.
 
+# End with Hep-5
+sce_HEP <- as.SingleCellExperiment(so_Hep)
+reducedDim(sce_HEP, "UMAP") <- Embeddings(so_Hep, reduction = "umap")
 
-# # PT-3 to PT-4
-# sce_PT <- as.SingleCellExperiment(so_PT)
-# sce_PT <- slingshot(sce_PT, reducedDim = 'UMAP', clusterLabels = colData(sce_PT)$celltype,
-#                                    start.clus = 'PT-3', end.clus = 'PT-4')
-# shuffle <- sample(ncol(sce_PT))
+sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, end.clus = 'Hep-5')
+shuffle <- sample(ncol(sce_HEP))
+
+jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_end_hep5.jpeg"), width = 1000, height =800, quality = 100)
+par(mar = c(5, 6, 1, 1))
+plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
+     xlab = "UMAP-1", ylab = "UMAP-2",
+     col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
+     cex.lab = 3, cex.axis = 2)
+lines(SlingshotDataSet(sce_HEP), type = "lineages")
+lines(SlingshotDataSet(sce_HEP))
+dev.off()
+
+SlingshotDataSet(sce_HEP)
+
+
+# #start point hep-1
+# sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, start.clus = 'Hep-1')
+# shuffle <- sample(ncol(sce_HEP))
 # 
-# jpeg("/home/yejichoi2/Documents/lin_temp_folder/PT_slingshot_UMAP.jpeg", width = 900, height = 800, quality = 100)
-# par(mar = c(5, 6, 1, 1)) 
-# plot(reducedDims(sce_PT)$UMAP[shuffle, ], asp = 1, pch = 16,
+# jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_end_dHep.jpeg"), width = 1000, height =800, quality = 100)
+# par(mar = c(5, 6, 1, 1))
+# plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
 #      xlab = "UMAP-1", ylab = "UMAP-2",
-#      col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_PT$slingPseudotime_1, breaks = 100)][shuffle],
+#      col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
 #      cex.lab = 3, cex.axis = 2)
-# lines(SlingshotDataSet(sce_PT), type = "lineages")
-# lines(SlingshotDataSet(sce_PT))
+# lines(SlingshotDataSet(sce_HEP), type = "lineages")
+# lines(SlingshotDataSet(sce_HEP))
 # dev.off()
 # 
-# SlingshotDataSet(sce_PT)
+# SlingshotDataSet(sce_HEP)
+# 
+# #start point hep-2
+# sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, start.clus = 'Hep-2')
+# shuffle <- sample(ncol(sce_HEP))
+# 
+# jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_end_dHep.jpeg"), width = 1000, height =800, quality = 100)
+# par(mar = c(5, 6, 1, 1))
+# plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
+#      xlab = "UMAP-1", ylab = "UMAP-2",
+#      col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
+#      cex.lab = 3, cex.axis = 2)
+# lines(SlingshotDataSet(sce_HEP), type = "lineages")
+# lines(SlingshotDataSet(sce_HEP))
+# dev.off()
+# 
+# SlingshotDataSet(sce_HEP)
 
-#Unsupervised 
-sce_Hep_unsupervised <- as.SingleCellExperiment(so_Hep)
-sce_Hep_unsupervised <- PrepareTotem(sce_Hep_unsupervised)
-print(dim(sce_Hep_unsupervised)) #11224 genes, 103101 hepatocytes
-sce_Hep_unsupervised <- RunDimRed(object = sce_Hep_unsupervised,
-                 dim.red.method = "lmds",
-                 dim.red.features = NULL,
-                 dim.reduction.par.list = list(ndim=5))
-# # extract the generated embedding and set it again into the same slot
-# own_dim_red <- reducedDim(sce_Hep_unsupervised)
-# reducedDim(sce_Hep_unsupervised,type = "lmds") <- own_dim_red # use any name
+#Hep-5 after filtering
+sce_HEP <- as.SingleCellExperiment(so_Hep_filtered)
+reducedDim(sce_HEP, "UMAP") <- Embeddings(so_Hep_filtered, reduction = "umap")
 
-#Clustering
-sce_Hep_unsupervised <- RunClustering(sce_Hep_unsupervised,
-                         k.range = 3:20,
-                         min.cluster.size = 5,
-                         N.clusterings=10000)
-VizCellConnectivity(sce_Hep_unsupervised,viz.dim.red = dim_red)
+sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, end.clus = 'Hep-5')
+shuffle <- sample(ncol(sce_HEP))
 
-
-
-sce_Hep_unsupervised <- slingshot(sce_Hep_unsupervised, reducedDim = 'PCA', clusterLabels = colData(sce_Hep_unsupervised)$celltype)
-shuffle <- sample(ncol(sce_Hep_unsupervised))
-plot(reducedDims(sce_Hep_unsupervised)$UMAP[shuffle, ], asp = 1, pch = 16,
+jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_end_hep5_filtered.jpeg"), width = 1000, height =800, quality = 100)
+par(mar = c(5, 6, 1, 1))
+plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
      xlab = "UMAP-1", ylab = "UMAP-2",
-     col = hcl.colors(100, alpha = 0.5, palette = "PinkYl")[cut(sce_Hep_unsupervised$slingPseudotime_1, breaks = 100)][shuffle])
-lines(SlingshotDataSet(sce_Hep_unsupervised), type = "lineages")
-lines(SlingshotDataSet(sce_Hep_unsupervised))
-SlingshotDataSet(sce_Hep_unsupervised)
+     col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
+     cex.lab = 3, cex.axis = 2)
+lines(SlingshotDataSet(sce_HEP), type = "lineages")
+lines(SlingshotDataSet(sce_HEP))
+dev.off()
 
-plot_df <- as.data.frame(slingPseudotime(sce_Hep_unsupervised)) %>%
-  dplyr::mutate(Group = colData(sce_Hep_unsupervised)$Group,
-                gbm_thick_quartile = colData(sce_Hep_unsupervised)$gbm_thick_quartile,
-                bmi_quartile = colData(sce_Hep_unsupervised)$bmi_quartile,
-                bmi_manual_cat = colData(sce_Hep_unsupervised)$bmi_manual_cat,
-                diabetes_duration_quartile = colData(sce_Hep_unsupervised)$diabetes_duration_quartile,
-                diabetes_duration_manual_cat = colData(sce_Hep_unsupervised)$diabetes_duration_manual_cat,
-                age_quartile = colData(sce_Hep_unsupervised)$age_quartile,
-                raw_m_quartile = colData(sce_Hep_unsupervised)$raw_m_quartile)
-lines(SlingshotDataSet(sce_Hep_unsupervised))
+SlingshotDataSet(sce_HEP)
 
-plot(reducedDims(sce_Hep_unsupervised)$UMAP[shuffle, ], asp = 1, pch = 16,
+#dHep after filtering
+# sce_HEP <- as.SingleCellExperiment(so_Hep_filtered)
+# reducedDim(sce_HEP, "UMAP") <- Embeddings(so_Hep_filtered, reduction = "umap")
+
+sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, end.clus = 'dHep')
+shuffle <- sample(ncol(sce_HEP))
+
+jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_end_dHep_filtered.jpeg"), width = 1000, height =800, quality = 100)
+par(mar = c(5, 6, 1, 1))
+plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
      xlab = "UMAP-1", ylab = "UMAP-2",
-     col = sce_Hep_unsupervised$Group)
+     col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
+     cex.lab = 3, cex.axis = 2)
+lines(SlingshotDataSet(sce_HEP), type = "lineages")
+lines(SlingshotDataSet(sce_HEP))
+dev.off()
 
-lines(SlingshotDataSet(sce_Hep_unsupervised), type = "lineages")
-legend("topright", pch = 16, col = alpha(c("HC" = "#ffcb77", "T1D" = "#fe6d73"), 0.4), bty = "n",
-       legend = levels(factor(colData(sce)$Group)))
+SlingshotDataSet(sce_HEP)
 
-plotUMAP(sce_Hep_unsupervised, colour_by="pseudotime", point_alpha=0.3) +
-    geom_segment(data=grid.df,
-        mapping=aes(x=start.1, y=start.2, xend=end.1, yend=end.2),
-        arrow=arrow(length=unit(0.05, "inches"), type="closed"))
+#Try start and end point
+sce_HEP <- as.SingleCellExperiment(so_Hep_filtered)
+reducedDim(sce_HEP, "UMAP") <- Embeddings(so_Hep_filtered, reduction = "umap")
+sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, start.clus = "Hep-1", end.clus = 'dHep')
+shuffle <- sample(ncol(sce_HEP))
+
+jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_start_hep1_end_dHep_filtered.jpeg"), width = 1000, height =800, quality = 100)
+par(mar = c(5, 6, 1, 1))
+plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
+     xlab = "UMAP-1", ylab = "UMAP-2",
+     col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
+     cex.lab = 3, cex.axis = 2)
+lines(SlingshotDataSet(sce_HEP), type = "lineages")
+lines(SlingshotDataSet(sce_HEP))
+dev.off()
+
+SlingshotDataSet(sce_HEP)
+
+#Just hep-1 start point
+sce_HEP <- as.SingleCellExperiment(so_Hep_filtered)
+reducedDim(sce_HEP, "UMAP") <- Embeddings(so_Hep_filtered, reduction = "umap")
+sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, start.clus = "Hep-1")
+shuffle <- sample(ncol(sce_HEP))
+
+jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_start_hep1_filtered.jpeg"), width = 1000, height =800, quality = 100)
+par(mar = c(5, 6, 1, 1))
+plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
+     xlab = "UMAP-1", ylab = "UMAP-2",
+     col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
+     cex.lab = 3, cex.axis = 2)
+lines(SlingshotDataSet(sce_HEP), type = "lineages")
+lines(SlingshotDataSet(sce_HEP))
+dev.off()
+
+SlingshotDataSet(sce_HEP)
+
+
+#Just hep2 start point
+sce_HEP <- as.SingleCellExperiment(so_Hep_filtered)
+reducedDim(sce_HEP, "UMAP") <- Embeddings(so_Hep_filtered, reduction = "umap")
+sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, start.clus = "Hep-2")
+shuffle <- sample(ncol(sce_HEP))
+
+jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_start_hep2_filtered.jpeg"), width = 1000, height =800, quality = 100)
+par(mar = c(5, 6, 1, 1))
+plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
+     xlab = "UMAP-1", ylab = "UMAP-2",
+     col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
+     cex.lab = 3, cex.axis = 2)
+lines(SlingshotDataSet(sce_HEP), type = "lineages")
+lines(SlingshotDataSet(sce_HEP))
+dev.off()
+
+SlingshotDataSet(sce_HEP)
+
+#Just hep2 start point to Hep-5
+sce_HEP <- as.SingleCellExperiment(so_Hep_filtered)
+reducedDim(sce_HEP, "UMAP") <- Embeddings(so_Hep_filtered, reduction = "umap")
+sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, start.clus = "Hep-2",end.clus="Hep-5")
+shuffle <- sample(ncol(sce_HEP))
+
+jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_start_hep2_end_hep5_filtered.jpeg"), width = 1000, height =800, quality = 100)
+par(mar = c(5, 6, 1, 1))
+plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
+     xlab = "UMAP-1", ylab = "UMAP-2",
+     col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
+     cex.lab = 3, cex.axis = 2)
+lines(SlingshotDataSet(sce_HEP), type = "lineages")
+lines(SlingshotDataSet(sce_HEP))
+dev.off()
+
+SlingshotDataSet(sce_HEP)
+
+#Just hep1 start point to Hep-5
+sce_HEP <- as.SingleCellExperiment(so_Hep_filtered)
+reducedDim(sce_HEP, "UMAP") <- Embeddings(so_Hep_filtered, reduction = "umap")
+sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, start.clus = "Hep-1",end.clus="Hep-5")
+shuffle <- sample(ncol(sce_HEP))
+
+jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_start_hep1_end_hep5_filtered.jpeg"), width = 1000, height =800, quality = 100)
+par(mar = c(5, 6, 1, 1))
+plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
+     xlab = "UMAP-1", ylab = "UMAP-2",
+     col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
+     cex.lab = 3, cex.axis = 2)
+lines(SlingshotDataSet(sce_HEP), type = "lineages")
+lines(SlingshotDataSet(sce_HEP))
+dev.off()
+
+SlingshotDataSet(sce_HEP)
+
+# #Remove dHep
+# so_Hep_filtered2 <- subset(so_Hep_filtered,celltype!="dHep")
+# sce_HEP <- as.SingleCellExperiment(so_Hep_filtered2)
+# reducedDim(sce_HEP, "UMAP") <- Embeddings(so_Hep_filtered2, reduction = "umap")
+# 
+# sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, end.clus = 'Hep-5')
+# shuffle <- sample(ncol(sce_HEP))
+
+# jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_end_hep5_filtered_no_dHep.jpeg"), width = 1000, height =800, quality = 100)
+# par(mar = c(5, 6, 1, 1))
+# plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
+#      xlab = "UMAP-1", ylab = "UMAP-2",
+#      col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
+#      cex.lab = 3, cex.axis = 2)
+# lines(SlingshotDataSet(sce_HEP), type = "lineages")
+# lines(SlingshotDataSet(sce_HEP))
+# dev.off()
+# 
+# SlingshotDataSet(sce_HEP)
+
+# 
+# plot_df <- as.data.frame(slingPseudotime(sce_Hep_unsupervised)) %>%
+#   dplyr::mutate(Group = colData(sce_Hep_unsupervised)$Group,
+#                 gbm_thick_quartile = colData(sce_Hep_unsupervised)$gbm_thick_quartile,
+#                 bmi_quartile = colData(sce_Hep_unsupervised)$bmi_quartile,
+#                 bmi_manual_cat = colData(sce_Hep_unsupervised)$bmi_manual_cat,
+#                 diabetes_duration_quartile = colData(sce_Hep_unsupervised)$diabetes_duration_quartile,
+#                 diabetes_duration_manual_cat = colData(sce_Hep_unsupervised)$diabetes_duration_manual_cat,
+#                 age_quartile = colData(sce_Hep_unsupervised)$age_quartile,
+#                 raw_m_quartile = colData(sce_Hep_unsupervised)$raw_m_quartile)
+# lines(SlingshotDataSet(sce_Hep_unsupervised))
+
+# plot(reducedDims(sce_Hep_unsupervised)$UMAP[shuffle, ], asp = 1, pch = 16,
+#      xlab = "UMAP-1", ylab = "UMAP-2",
+#      col = sce_Hep_unsupervised$Group)
+# 
+# lines(SlingshotDataSet(sce_Hep_unsupervised), type = "lineages")
+# legend("topright", pch = 16, col = alpha(c("HC" = "#ffcb77", "T1D" = "#fe6d73"), 0.4), bty = "n",
+#        legend = levels(factor(colData(sce)$Group)))
+# 
+# plotUMAP(sce_Hep_unsupervised, colour_by="pseudotime", point_alpha=0.3) +
+#     geom_segment(data=grid.df,
+#         mapping=aes(x=start.1, y=start.2, xend=end.1, yend=end.2),
+#         arrow=arrow(length=unit(0.05, "inches"), type="closed"))
 ```
 
 ```{r echo = F}
