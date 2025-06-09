@@ -635,6 +635,7 @@ gene_annotations <- gene_annotations %>%
   dplyr::rename(Gene = `NA.`) %>%
   dplyr::select(c("Gene","input"))
 rownames(gene_annotations) <- NULL
+rm(sce,counts_layer)
 
 ```
 
@@ -4118,8 +4119,10 @@ so_celltype$group <- relevel(so_celltype$group,ref="Lean Control")
 
 counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
 
-
-
+# #Center gene expression variables
+# counts_dense <- as.matrix(counts_hvg)
+# counts_centered <- sweep(counts_dense, 1, rowMeans(counts_dense), "-")
+# counts_hvg <- counts_centered
 # offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
 # With parallelization
@@ -4252,8 +4255,8 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType 2 Diabetes`, y = P
     plot.title = element_text(hjust = 0),
     axis.text.x = element_text(angle = 0, hjust = 1)
   )+
-  # xlim(min,max)+
-  xlim(-3,3)+
+  xlim(min,max)+
+  # xlim(-3,3)+
   ylim(0,11)+
   # # Add labels for significant points
   geom_text(data = significant_df, aes(label = Gene),
@@ -4785,7 +4788,582 @@ dev.off()
 }
 ```
 
-### iii. Pseudobulk
+### iii. Pseudobulk FindMarkers & DESeq2
+#### a. 15 Glucose
+```{r}
+#15 glucose
+so_subset <- subset(sc_org,treatment=="15")
+#Filter to celltype of interest
+celltypes <- unique(so_subset$`ScType-Kidney-human`)
+# rm(so_subset)
+gene_annotations2 <- gene_annotations %>% 
+  dplyr::rename(gene = input)
+for (celltype in celltypes) {
+so_celltype <- subset(so_subset,`ScType-Kidney-human`==celltype)
+DefaultAssay(so_celltype) <- "RNA" 
+
+# Optional sanity check
+# table(so_celltype$record_id, so_celltype$group)
+  # Lean Control Type 2 Diabetes
+  # CRC-03          1681               0
+  # CRC-10           436               0
+  # CRC-11            24               0
+  # IT_19              0              13
+  # RH-50-T            0              24
+  # RH-62-T            0             340
+  # RH-72-T            0             117
+# nrow(so_celltype) #9196 genes
+# ncol(so_celltype) #2127 cells
+
+## Select Highly Variable Genes (HVGs)
+so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+hvgs <- VariableFeatures(so_celltype)
+
+# # Subset Seurat object to only HVGs
+so_celltype <- subset(so_celltype, features = hvgs)
+DefaultAssay(so_celltype) <- "RNA"
+
+#Pseudobulk data for Pseudobulk analyses
+# Get the raw counts matrix (genes x cells)
+counts <- as.data.frame(round(GetAssayData(so_celltype, layer = "counts")))
+# counts <- as.data.frame(as.matrix(so_celltype[["RNA"]]@counts))
+counts$gene <- rownames(counts)
+
+# Pivot to long format (gene, cell, count)
+counts_long <- counts %>%
+  pivot_longer(-gene, names_to = "cell", values_to = "count")
+
+# Add metadata (celltype and individual)
+meta <- so_celltype@meta.data %>%
+  mutate(cell = rownames(so_celltype@meta.data)) %>% 
+  dplyr::select(c("cell","record_id"))
+  # dplyr::select(cell = rownames(so_celltype@meta.data), record_id, `ScType-Kidney-human`)
+
+# Join counts and metadata
+counts_annotated <- counts_long %>%
+  inner_join(meta, by = "cell")
+
+counts_annotated <- tidylog::left_join(counts_annotated,gene_annotations2,by="gene")
+counts_annotated <- counts_annotated %>% 
+  dplyr::select(-c("gene")) 
+
+# Group by gene, individual, and celltype and sum counts
+pseudobulk_df <- counts_annotated %>%
+  group_by(Gene, record_id) %>%
+  summarise(pseudobulk_count = sum(count), .groups = "drop")
+
+# Optional: Pivot back to wide format (genes as rows)
+pseudobulk_matrix <- pseudobulk_df %>%
+  # mutate(sample = paste(individual, celltype, sep = "_")) %>%
+  # select(Gene, record_id, pseudobulk_count) %>%
+  pivot_wider(names_from = record_id, values_from = pseudobulk_count) %>%
+  as.data.frame()
+
+# Set gene names as rownames
+rownames(pseudobulk_matrix) <- pseudobulk_matrix$Gene
+pseudobulk_matrix$Gene <- NULL
+
+# Reconstruct sample metadata from Seurat object
+sample_info <- so_celltype@meta.data %>%
+  mutate(cell=rownames(so_celltype@meta.data)) %>% 
+  dplyr::select(cell,record_id, group) %>%  # add other covariates if needed
+  distinct(record_id, .keep_all = TRUE) 
+rownames(sample_info) <- NULL
+sample_info <- sample_info %>%
+  column_to_rownames("record_id")
+
+# Ensure column order matches pseudobulk matrix
+sample_info <- sample_info[colnames(pseudobulk_matrix), ]
+
+sample_info$group <- str_replace_all(sample_info$group," ","_")
+sample_info$group <- factor(sample_info$group)
+
+dds <- DESeqDataSetFromMatrix(
+  countData = pseudobulk_matrix,
+  colData = sample_info,
+  design = ~ group  # or ~ batch + condition, etc.
+)
+
+dds <- DESeq(dds)
+
+# Example: condition A vs B
+res <- results(dds, contrast = c("group", "Type_2_Diabetes", "Lean_Control"))
+
+# Assume DESeq2 results are in `res`
+res_df <- as.data.frame(res)
+
+# Add gene names (if not already)
+res_df$gene <- rownames(res_df)
+
+res_df$color <- ifelse(res_df$padj < 0.05 & res_df$log2FoldChange > 0, "#990000",
+                             ifelse(res_df$padj < 0.05 & res_df$log2FoldChange < 0, "#003366", "gray"))
+# res_df$color_int <- ifelse(res_df$fdr_int < 0.05 & res_df$`logFC_groupType 2 Diabetes:treatment15` > 0, "#990000",
+#                              ifelse(res_df$fdr_int < 0.05 & res_df$`logFC_groupType 2 Diabetes:treatment15` < 0, "#003366", "gray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- res_df[res_df$padj < 0.05, ]
+# significant_df_int <- res_df[res_df$fdr_int < 0.05, ]
+
+Genes <- length(unique(res_df$gene))
+Cells <- ncol(so_celltype)
+
+write.csv(res_df,fs::path(dir.results,paste0("Organoid_Pseudobulk_DESeq2_",celltype,"_diabetes_lc_treatment15_adj_2000.csv")))
+
+# Nonconvergence_Rate <- nebula_nonconverged_percent
+# res_df$color3 <- ifelse(res_df$fdr3 < 0.2 & res_df$`logFC_groupType 2 Diabetes`3 > 0, "lightcoral",
+#                               ifelse(res_df$fdr3 < 0.2 & res_df$`logFC_groupType 2 Diabetes`3 < 0, "lightblue", "gray"))
+# 
+# # Identify significant points (fdr < 0.05)
+# significant_df3 <- res_df[res_df$fdr3 < 0.2, ]
+
+top_up <- res_df %>%
+  filter(padj < 0.05, log2FoldChange > 0) %>%
+  arrange(padj, desc(log2FoldChange)) %>%
+  head(10)
+
+top_down <- res_df %>%
+  filter(padj < 0.05, log2FoldChange < 0) %>%
+  arrange(padj, log2FoldChange) %>%
+  head(10)
+
+# Pull specific genes of interest if significant
+roi_genes <- c("ROBO1", "ROBO2", "FN1")
+roi_significant <- res_df %>%
+  filter(gene %in% roi_genes, padj < 0.05)
+
+# Combine with top DE genes
+top_res_df <- bind_rows(top_up, top_down, roi_significant) %>%
+  distinct(gene, .keep_all = TRUE)  # avoid duplicates
+
+# Set axis limits
+max <- max(res_df$log2FoldChange, na.rm = TRUE)
+min <- min(res_df$log2FoldChange, na.rm = TRUE)
+
+# Volcano plot
+volcano_plot <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color = color)) +
+  geom_point(alpha = 0.7) +
+  scale_color_identity() +
+  theme_minimal() +
+  labs(
+    title = "Type 2 Diabetes vs. Lean Controls",
+    subtitle = paste0(celltype, ", Treatment 15"),
+    x = "FC",
+    y = "-log10(P-Value)",
+    color = "Log2FC Direction",
+    caption = paste0("FDR < 0.05, Genes = ", Genes, ", Cells = ", Cells)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +
+  geom_text_repel(data = top_res_df, aes(label = gene),
+                  size = 3, color = "black", box.padding = 0.5, max.overlaps = Inf)
+
+volcano_plot
+# top_res_df <- bind_rows(top_up, top_down)
+# 
+# max <- max(res_df$log2FoldChange)
+# # max <- 3.1
+# min <- min(res_df$log2FoldChange)
+# 
+# 
+# # Create the volcano plot using ggplot
+# volcano_plot <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color = color)) +
+#   geom_point(alpha = 0.7) +  # Plot points with transparency
+#   scale_color_identity() +  # Use the color column directly
+#   theme_minimal() +  # Minimal theme
+#   labs(
+#     title = "Type 2 Diabetes vs. Lean Controls",
+#     subtitle = paste0(celltype,", Treatment 15"),
+#     x = "FC",
+#     y = "-log10(P-Value)",
+#     color = "Log2FC Direction Direction",
+#     caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells)
+#   ) +
+#   theme(
+#     plot.title = element_text(hjust = 0),
+#     axis.text.x = element_text(angle = 0, hjust = 1)
+#   )+
+#   xlim(min,max)+
+#   # xlim(-3,3)+
+#   # ylim(0,11)+
+#   # # Add labels for significant points
+#   # geom_text(data = significant_df, aes(label = Gene),
+#   #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+# # Add labels for significant points with ggrepel
+# geom_text_repel(data = top_res_df, aes(label = gene),
+#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+#   # geom_text_repel(data = top_res_df, aes(label = Gene),
+#   #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = Inf)
+# 
+# volcano_plot
+
+png(fs::path(dir.results, paste0("Plot_Pseudobulk_Organoid_DESeq2_",celltype,"_Diabetes_lc_2000_treatment_15.png")), 
+    width = 2500, height = 2100, res = 300)
+print(volcano_plot)
+dev.off()
+
+# full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_aTAL_cells_diabetes_unadjusted_2000.csv")) %>%
+res_df <- res_df %>% 
+  # clean_names() %>% 
+  # dplyr::select(-x) %>% 
+  dplyr::rename(Gene=gene,LogFC=log2FoldChange)
+
+# Filter out the gmt files for KEGG, Reactome and GOBP
+list.files(bg_path)
+gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+gmt_files
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(res_df$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(res_df$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(res_df$Gene), savefile = FALSE)
+
+# rank genes by t-stats in DiD
+rankings_PT <- res_df$LogFC
+names(rankings_PT) <- res_df$Gene
+rankings_PT <- sort(rankings_PT, decreasing = TRUE)
+plot(rankings_PT)
+min(rankings_PT)
+max(rankings_PT)
+
+set.seed(1234)
+
+kegg_legacy_res_PT <- fgsea(pathways = kegg_legacy,
+                                     stats = rankings_PT,
+                                     scoreType = 'std', 
+                                     minSize = 3,
+                                     maxSize = 500,
+                                     nproc = 1)
+
+reactome_res_PT <- fgsea(pathways = reactome,
+                                  stats = rankings_PT,
+                                  scoreType = 'std', 
+                                  minSize = 3,
+                                  maxSize = 500,
+                                  nproc = 1)
+go_res_PT <- fgsea(pathways = go,
+                            stats = rankings_PT,
+                            scoreType = 'std', 
+                            minSize = 5,
+                            maxSize = 500,
+                            nproc = 1)
+
+PT_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_PT[, padj < 0.05]), sum(kegg_legacy_res_PT[, pval < 0.05])),
+                                "REACTOME"=c(sum(reactome_res_PT[, padj < 0.05]), sum(reactome_res_PT[, pval < 0.05])),
+                                "GO"=c(sum(go_res_PT[, padj < 0.05]), sum(go_res_PT[, pval < 0.05])))
+rownames(PT_fgsea) <- c("adj.pval", "p.val")
+PT_fgsea
+
+# ##### KEGG Legacy
+# a <- plot_fgsea_transpose(kegg_legacy_res_PT, title = "PT Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
+
+# ggsave(fs::path(dir.results,"PT_top30_kegg_pathways_unadjusted.jpeg"),
+#        width = 13, height = 10, scale = 1)
+
+##### REACTOME
+b <- plot_fgsea_transpose(reactome_res_PT, title = paste0(celltype," Top 30 REACTOME, Treatment 15"), xlimit = 5) + theme(legend.position = c(0.15, 0.5))
+
+# ggsave(fs::path(dir.results,"PT_top30_reactome_pathways_unadjusted.jpeg"),
+#        width = 13, height = 10, scale = 1)
+##### GO
+c <- plot_fgsea_transpose(go_res_PT, title = paste0(celltype," Top 30 GO, Treatment 15"), xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
+
+combined_plot <- b + c + plot_layout(ncol = 1)
+print(combined_plot)
+ggsave(fs::path(dir.results,paste0("Pathways_Organoid_",celltype,"_top30_treatment15.jpeg")),
+       width = 15, height = 20, scale = 1)
+
+}
+```
+
+#### b. 30 Glucose
+```{r}
+#30 glucose
+so_subset <- subset(sc_org,treatment=="30")
+#Filter to celltype of interest
+celltypes <- unique(so_subset$`ScType-Kidney-human`)
+# rm(so_subset)
+gene_annotations2 <- gene_annotations %>% 
+  dplyr::rename(gene = input)
+for (celltype in celltypes) {
+so_celltype <- subset(so_subset,`ScType-Kidney-human`==celltype)
+DefaultAssay(so_celltype) <- "RNA" 
+
+# Optional sanity check
+# table(so_celltype$record_id, so_celltype$group)
+  # Lean Control Type 2 Diabetes
+  # CRC-03          1681               0
+  # CRC-10           436               0
+  # CRC-11            24               0
+  # IT_19              0              13
+  # RH-50-T            0              24
+  # RH-62-T            0             340
+  # RH-72-T            0             117
+# nrow(so_celltype) #9196 genes
+# ncol(so_celltype) #2127 cells
+
+## Select Highly Variable Genes (HVGs)
+so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+hvgs <- VariableFeatures(so_celltype)
+
+# # Subset Seurat object to only HVGs
+so_celltype <- subset(so_celltype, features = hvgs)
+DefaultAssay(so_celltype) <- "RNA"
+
+#Pseudobulk data for Pseudobulk analyses
+# Get the raw counts matrix (genes x cells)
+counts <- as.data.frame(round(GetAssayData(so_celltype, layer = "counts")))
+# counts <- as.data.frame(as.matrix(so_celltype[["RNA"]]@counts))
+counts$gene <- rownames(counts)
+
+# Pivot to long format (gene, cell, count)
+counts_long <- counts %>%
+  pivot_longer(-gene, names_to = "cell", values_to = "count")
+
+# Add metadata (celltype and individual)
+meta <- so_celltype@meta.data %>%
+  mutate(cell = rownames(so_celltype@meta.data)) %>% 
+  dplyr::select(c("cell","record_id"))
+  # dplyr::select(cell = rownames(so_celltype@meta.data), record_id, `ScType-Kidney-human`)
+
+# Join counts and metadata
+counts_annotated <- counts_long %>%
+  inner_join(meta, by = "cell")
+
+counts_annotated <- tidylog::left_join(counts_annotated,gene_annotations2,by="gene")
+counts_annotated <- counts_annotated %>% 
+  dplyr::select(-c("gene")) 
+
+# Group by gene, individual, and celltype and sum counts
+pseudobulk_df <- counts_annotated %>%
+  group_by(Gene, record_id) %>%
+  summarise(pseudobulk_count = sum(count), .groups = "drop")
+
+# Optional: Pivot back to wide format (genes as rows)
+pseudobulk_matrix <- pseudobulk_df %>%
+  # mutate(sample = paste(individual, celltype, sep = "_")) %>%
+  # select(Gene, record_id, pseudobulk_count) %>%
+  pivot_wider(names_from = record_id, values_from = pseudobulk_count) %>%
+  as.data.frame()
+
+# Set gene names as rownames
+rownames(pseudobulk_matrix) <- pseudobulk_matrix$Gene
+pseudobulk_matrix$Gene <- NULL
+
+# Reconstruct sample metadata from Seurat object
+sample_info <- so_celltype@meta.data %>%
+  mutate(cell=rownames(so_celltype@meta.data)) %>% 
+  dplyr::select(cell,record_id, group) %>%  # add other covariates if needed
+  distinct(record_id, .keep_all = TRUE) 
+rownames(sample_info) <- NULL
+sample_info <- sample_info %>%
+  column_to_rownames("record_id")
+
+# Ensure column order matches pseudobulk matrix
+sample_info <- sample_info[colnames(pseudobulk_matrix), ]
+
+sample_info$group <- str_replace_all(sample_info$group," ","_")
+sample_info$group <- factor(sample_info$group)
+
+dds <- DESeqDataSetFromMatrix(
+  countData = pseudobulk_matrix,
+  colData = sample_info,
+  design = ~ group  # or ~ batch + condition, etc.
+)
+
+dds <- DESeq(dds)
+
+# Example: condition A vs B
+res <- results(dds, contrast = c("group", "Type_2_Diabetes", "Lean_Control"))
+
+# Assume DESeq2 results are in `res`
+res_df <- as.data.frame(res)
+
+# Add gene names (if not already)
+res_df$gene <- rownames(res_df)
+
+res_df$color <- ifelse(res_df$padj < 0.05 & res_df$log2FoldChange > 0, "#990000",
+                             ifelse(res_df$padj < 0.05 & res_df$log2FoldChange < 0, "#003366", "gray"))
+# res_df$color_int <- ifelse(res_df$fdr_int < 0.05 & res_df$`logFC_groupType 2 Diabetes:treatment30` > 0, "#990000",
+#                              ifelse(res_df$fdr_int < 0.05 & res_df$`logFC_groupType 2 Diabetes:treatment30` < 0, "#003366", "gray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- res_df[res_df$padj < 0.05, ]
+# significant_df_int <- res_df[res_df$fdr_int < 0.05, ]
+
+Genes <- length(unique(res_df$gene))
+Cells <- ncol(so_celltype)
+
+write.csv(res_df,fs::path(dir.results,paste0("Organoid_Pseudobulk_DESeq2_",celltype,"_diabetes_lc_treatment30_adj_2000.csv")))
+
+# Nonconvergence_Rate <- nebula_nonconverged_percent
+# res_df$color3 <- ifelse(res_df$fdr3 < 0.2 & res_df$`logFC_groupType 2 Diabetes`3 > 0, "lightcoral",
+#                               ifelse(res_df$fdr3 < 0.2 & res_df$`logFC_groupType 2 Diabetes`3 < 0, "lightblue", "gray"))
+# 
+# # Identify significant points (fdr < 0.05)
+# significant_df3 <- res_df[res_df$fdr3 < 0.2, ]
+
+top_up <- res_df %>%
+  filter(padj < 0.05, log2FoldChange > 0) %>%
+  arrange(padj, desc(log2FoldChange)) %>%
+  head(10)
+
+top_down <- res_df %>%
+  filter(padj < 0.05, log2FoldChange < 0) %>%
+  arrange(padj, log2FoldChange) %>%
+  head(10)
+
+# Pull specific genes of interest if significant
+roi_genes <- c("ROBO1", "ROBO2", "FN1")
+roi_significant <- res_df %>%
+  filter(gene %in% roi_genes, padj < 0.05)
+
+# Combine with top DE genes
+top_res_df <- bind_rows(top_up, top_down, roi_significant) %>%
+  distinct(gene, .keep_all = TRUE)  # avoid duplicates
+
+# Set axis limits
+max <- max(res_df$log2FoldChange, na.rm = TRUE)
+min <- min(res_df$log2FoldChange, na.rm = TRUE)
+
+# Volcano plot
+volcano_plot <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color = color)) +
+  geom_point(alpha = 0.7) +
+  scale_color_identity() +
+  theme_minimal() +
+  labs(
+    title = "Type 2 Diabetes vs. Lean Controls",
+    subtitle = paste0(celltype, ", Treatment 30"),
+    x = "FC",
+    y = "-log10(P-Value)",
+    color = "Log2FC Direction",
+    caption = paste0("FDR < 0.05, Genes = ", Genes, ", Cells = ", Cells)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +
+  geom_text_repel(data = top_res_df, aes(label = gene),
+                  size = 3, color = "black", box.padding = 0.5, max.overlaps = Inf)
+
+volcano_plot
+# top_res_df <- bind_rows(top_up, top_down)
+# 
+# max <- max(res_df$log2FoldChange)
+# # max <- 3.1
+# min <- min(res_df$log2FoldChange)
+# 
+# 
+# # Create the volcano plot using ggplot
+# volcano_plot <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(padj), color = color)) +
+#   geom_point(alpha = 0.7) +  # Plot points with transparency
+#   scale_color_identity() +  # Use the color column directly
+#   theme_minimal() +  # Minimal theme
+#   labs(
+#     title = "Type 2 Diabetes vs. Lean Controls",
+#     subtitle = paste0(celltype,", Treatment 30"),
+#     x = "FC",
+#     y = "-log10(P-Value)",
+#     color = "Log2FC Direction Direction",
+#     caption = paste0("FDR < 0.05, Genes = ",Genes,", Cells = ",Cells)
+#   ) +
+#   theme(
+#     plot.title = element_text(hjust = 0),
+#     axis.text.x = element_text(angle = 0, hjust = 1)
+#   )+
+#   xlim(min,max)+
+#   # xlim(-3,3)+
+#   # ylim(0,11)+
+#   # # Add labels for significant points
+#   # geom_text(data = significant_df, aes(label = Gene),
+#   #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+# # Add labels for significant points with ggrepel
+# geom_text_repel(data = top_res_df, aes(label = gene),
+#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+#   # geom_text_repel(data = top_res_df, aes(label = Gene),
+#   #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = Inf)
+# 
+# volcano_plot
+
+png(fs::path(dir.results, paste0("Plot_Pseudobulk_Organoid_DESeq2_",celltype,"_Diabetes_lc_2000_treatment_30.png")), 
+    width = 2500, height = 2100, res = 300)
+print(volcano_plot)
+dev.off()
+############
+
+# full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_aTAL_cells_diabetes_unadjusted_2000.csv")) %>%
+res_df <- res_df %>% 
+  # clean_names() %>% 
+  # dplyr::select(-x) %>% 
+  dplyr::rename(Gene=gene,LogFC=log2FoldChange)
+
+# Filter out the gmt files for KEGG, Reactome and GOBP
+list.files(bg_path)
+gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+gmt_files
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(res_df$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(res_df$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(res_df$Gene), savefile = FALSE)
+
+# rank genes by t-stats in DiD
+rankings_PT <- res_df$LogFC
+names(rankings_PT) <- res_df$Gene
+rankings_PT <- sort(rankings_PT, decreasing = TRUE)
+plot(rankings_PT)
+min(rankings_PT)
+max(rankings_PT)
+
+set.seed(1234)
+
+kegg_legacy_res_PT <- fgsea(pathways = kegg_legacy,
+                                     stats = rankings_PT,
+                                     scoreType = 'std', 
+                                     minSize = 3,
+                                     maxSize = 500,
+                                     nproc = 1)
+
+reactome_res_PT <- fgsea(pathways = reactome,
+                                  stats = rankings_PT,
+                                  scoreType = 'std', 
+                                  minSize = 3,
+                                  maxSize = 500,
+                                  nproc = 1)
+go_res_PT <- fgsea(pathways = go,
+                            stats = rankings_PT,
+                            scoreType = 'std', 
+                            minSize = 5,
+                            maxSize = 500,
+                            nproc = 1)
+
+PT_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_PT[, padj < 0.05]), sum(kegg_legacy_res_PT[, pval < 0.05])),
+                                "REACTOME"=c(sum(reactome_res_PT[, padj < 0.05]), sum(reactome_res_PT[, pval < 0.05])),
+                                "GO"=c(sum(go_res_PT[, padj < 0.05]), sum(go_res_PT[, pval < 0.05])))
+rownames(PT_fgsea) <- c("adj.pval", "p.val")
+PT_fgsea
+
+# ##### KEGG Legacy
+# a <- plot_fgsea_transpose(kegg_legacy_res_PT, title = "PT Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position = c(0.2, 0.5))
+
+# ggsave(fs::path(dir.results,"PT_top30_kegg_pathways_unadjusted.jpeg"),
+#        width = 13, height = 10, scale = 1)
+
+##### REACTOME
+b <- plot_fgsea_transpose(reactome_res_PT, title = paste0(celltype," Top 30 REACTOME, Treatment 30"), xlimit = 5) + theme(legend.position = c(0.15, 0.5))
+
+# ggsave(fs::path(dir.results,"PT_top30_reactome_pathways_unadjusted.jpeg"),
+#        width = 13, height = 10, scale = 1)
+##### GO
+c <- plot_fgsea_transpose(go_res_PT, title = paste0(celltype," Top 30 GO, Treatment 30"), xlimit = 8)+ theme(legend.position = c(0.1, 0.5))
+
+combined_plot <- b + c + plot_layout(ncol = 1)
+print(combined_plot)
+ggsave(fs::path(dir.results,paste0("Pathways_Organoid_",celltype,"_top30_treatment30.jpeg")),
+       width = 15, height = 20, scale = 1)
+}
+```
+
+###iv. DESeq2
 #### a. 15 Glucose
 ```{r}
 #15 glucose
@@ -5248,7 +5826,7 @@ dev.off()
 }
 ```
 
-### iv. GSEA
+### v. GSEA
 ```{r echo = F}
 full_results <- read.csv(fs::path(dir.results,"Biopsy_NEBULA_PT_cells_diabetes_unadjusted_2000.csv")) %>%
   clean_names() %>% 
