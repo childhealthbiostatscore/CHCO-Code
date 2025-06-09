@@ -1558,6 +1558,8 @@ so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
 
 counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
 
+
+
 # With parallelization
 #TCA Cycle
 # List of genes
@@ -1568,6 +1570,53 @@ registerDoParallel(cl)
 
 start_time <- Sys.time()
 
+
+
+if(ncol(counts_matrix) > 0) {
+  so_celltype[["RNA"]] <- CreateAssayObject(counts = counts_matrix)
+}
+
+identical(colnames(so_celltype), rownames(so_celltype@meta.data))
+identical(colnames(so_celltype), colnames(so_celltype[["RNA"]]))
+
+so_celltype[["RNA"]] <- so_celltype[["RNA"]][, colnames(so_celltype)]
+
+expr_matrix <- as.matrix(GetAssayData(so_celltype, assay = "RNA", slot = "data"))
+counts_matrix <- as.matrix(GetAssayData(so_celltype, assay = "RNA", slot = "counts"))
+
+
+
+
+
+results_list <- list()
+for(i in c(1:length(genes_list))){
+  g <- genes_list[[i]]
+  # Subset to your genes directly from the matrix
+gene_expr <- expr_matrix[g, ]
+gene_counts <- counts_matrix[g, ] %>% as.matrix()
+
+
+  count_gene <- counts_path[g, , drop = FALSE]
+  count_matrix <- t(Matrix(gene_counts, sparse = TRUE))
+    meta_gene <- so_celltype@meta.data
+    pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
+    # library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
+    data_g_gene <- group_cell(count = count_matrix, id = meta_gene$kit_id, pred = pred_gene ,offset=library)
+  
+      if (is.null(data_g_gene)) {
+      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+    }
+    
+    #With offset
+    result <- nebula(count = count_matrix, id = meta_gene$kit_id, pred = pred_gene, reml=T,model="NBLMM",output_re = T,covariance=T,offset=library, 
+                     verbose = TRUE, method = 'LN')
+    
+    results_list[[i]] <- list(gene = g, result = result)  # return both gene name and result
+  
+}
+
+
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_path[g, , drop = FALSE]
@@ -1575,7 +1624,7 @@ nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")
     pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
     # library <- meta_gene$library_size
     library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offsetlibrary)
     
     if (is.null(data_g_gene)) {
       data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
