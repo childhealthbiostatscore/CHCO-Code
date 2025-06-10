@@ -58,6 +58,7 @@ library(glmmTMB)
 library(reshape2)
 library(broom.mixed)
 library(nebula)
+#library(table1)
 
 
 
@@ -177,7 +178,7 @@ temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
 s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
 so_kpmp_sc <- readRDS(temp_file)
 
-so_kmpm_sc <- readRDS('C:/Users/netio/Downloads/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds')
+so_kpmp_sc <- readRDS("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/scRNA/data_raw/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds")
 
 
 
@@ -205,7 +206,7 @@ gc()
 # tca1 <- tca1$genesymbol
 
 # #Local
-tca1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/tca_cycle_genes.csv")$genesymbol
+tca1 <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/tca_cycle_genes.csv")$genesymbol
 tca2 <- c(
   "ACO1", "ACO2", "IDH1", "IDH2", "IDH3A", "IDH3B", "IDH3G", "OGDH", "OGDHL",
   "SUCLA2", "SUCLG1", "SUCLG2", "SDHA", "SDHB", "SDHC", "SDHD", "FH", "MDH1",
@@ -224,7 +225,7 @@ tca <- unique(c(tca1,tca2))
 # ox_phos1 <- ox_phos1$genesymbol
 
 #Local
-ox_phos1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/ox_phos_genes.csv")$genesymbol
+ox_phos1 <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/ox_phos_genes.csv")$genesymbol
 ox_phos2 <- c(
   "NDUFS6",  "SDHB", "SDHC", "SDHD",
   "UQCRC1", "UQCRC2", "COX4I1", "COX4I2", "ATP5PF") #47 genes
@@ -255,11 +256,15 @@ so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="kl-0023998")] <- "KL-0023998"
 # #Load raw harmonized dataset
 harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
 
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+
 dat <- harmonized_data %>%
   arrange(screen_date) %>% 
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(record_id, visit))
+
 length(unique(dat$mrn))#467
 length(unique(dat$record_id))#644
 
@@ -710,6 +715,8 @@ length(which(rownames(so_kpmp_sc) %in% ribo_genes)) #0
 ncol(so_kpmp_sc) #65,062 cells
 nrow(so_kpmp_sc) #15103 genes
 
+save.image('C:/Users/netio/Documents/UoFW/Rockies/SGLT2i_T2D_Line717.RData')
+
 #Renormalize & Scale after filtering
 so_kpmp_sc <- NormalizeData(so_kpmp_sc)
 so_kpmp_sc <- ScaleData(so_kpmp_sc, features = VariableFeatures(so_kpmp_sc))
@@ -730,12 +737,14 @@ so_kpmp_sc$library_size <- library_size
 bp <- MulticoreParam(workers = 63) 
 sce <- SingleCellExperiment(assays = list(counts = counts_layer))
 # sce <- computeSumFactors(sce)
-sce <- computeSumFactors(sce, BPPARAM = bp)
+sce <- computeSumFactors(sce)
 # View size factors
 # sizeFactors(sce)
 # STEP 3: Calculate offset → log(size factors)
 pooled_offset <- sizeFactors(sce)
 so_kpmp_sc$pooled_offset <- pooled_offset
+
+save.image('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_724.RData')
 #----------------------------------------------------------------------------
 
 #Create general hepatocyte cell type variable
@@ -815,42 +824,59 @@ unique(so_kpmp_sc$KPMP_celltype)
 so_kpmp_sc$DCT_celltype <- ifelse((so_kpmp_sc$KPMP_celltype=="DCT" | 
                                      so_kpmp_sc$KPMP_celltype=="dDCT"), "DCT","Non-DCT")
 
+
+
+
+###Load Line785_Rockies
+
+
+
 # #Calculate K2 and F variables
-# so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
-#   rowwise() %>%
-#   mutate(avg_c_k2 = (lc_k2+rc_k2)/2) %>%
-#   mutate(avg_m_k2 = (lm_k2+rm_k2)/2) %>%
-#   mutate(avg_c_f = (lc_f+rc_f)/2) %>%
-#   mutate(avg_m_f = (lm_f+rm_f)/2) %>%
-#   ungroup()
-# so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
-#   rowwise() %>%
-#   mutate(avg_c_k2_f = (avg_c_k2/avg_c_f)) %>%
-#   mutate(avg_m_k2_f = (avg_m_k2/avg_m_f)) %>%
-#   ungroup()
+ so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
+   rowwise() %>%
+   mutate(avg_c_k2 = (lc_k2+rc_k2)/2) %>%
+   mutate(avg_m_k2 = (lm_k2+rm_k2)/2) %>%
+   mutate(avg_c_f = (lc_f+rc_f)/2) %>%
+   mutate(avg_m_f = (lm_f+rm_f)/2) %>%
+   ungroup()
+so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
+   rowwise() %>%
+   mutate(avg_c_k2_f = (avg_c_k2/avg_c_f)) %>%
+   mutate(avg_m_k2_f = (avg_m_k2/avg_m_f)) %>%
+  ungroup()
+
+
+save.image('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_849.RData')
+
 
 #Filter to TCA cycle & Ox Phos Genes
 genes <- unique(c(tca,ox_phos))
+DefaultAssay(so_kpmp_sc) <- 'RNA'
 so_subset <- subset(so_kpmp_sc, features = genes)
-DefaultAssay(so_subset) <- "RNA"
+so_subset <- subset(so_kpmp_sc, cells = WhichCells(so_kpmp_sc, expression = RNA@data[genes, ] > 0))
+
+
 rownames(so_subset) #34 genes remain
 nrow(so_subset) #34
 ncol(so_subset) #68909 cells
 rm(counts_layer,meta,sce)
 # 
 # #Calculate K2 and F variables
-# so_subset@meta.data <- so_subset@meta.data %>%
-#   rowwise() %>%
-#   mutate(avg_c_k2 = (lc_k2+rc_k2)/2) %>%
-#   mutate(avg_m_k2 = (lm_k2+rm_k2)/2) %>%
-#   mutate(avg_c_f = (lc_f+rc_f)/2) %>%
-#   mutate(avg_m_f = (lm_f+rm_f)/2) %>%
-#   ungroup()
-# so_subset@meta.data <- so_subset@meta.data %>%
-#   rowwise() %>%
-#   mutate(avg_c_k2_f = (avg_c_k2/avg_c_f)) %>%
-#   mutate(avg_m_k2_f = (avg_m_k2/avg_m_f)) %>%
-#   ungroup()
+ so_subset@meta.data <- so_subset@meta.data %>%
+   rowwise() %>%
+   mutate(avg_c_k2 = (lc_k2+rc_k2)/2) %>%
+   mutate(avg_m_k2 = (lm_k2+rm_k2)/2) %>%
+   mutate(avg_c_f = (lc_f+rc_f)/2) %>%
+   mutate(avg_m_f = (lm_f+rm_f)/2) %>%
+   ungroup()
+ so_subset@meta.data <- so_subset@meta.data %>%
+   rowwise() %>%
+   mutate(avg_c_k2_f = (avg_c_k2/avg_c_f)) %>%
+   mutate(avg_m_k2_f = (avg_m_k2/avg_m_f)) %>%
+   ungroup()
+ 
+ 
+ save.image('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_879.RData')
 ```
 
 ## d. Explore Distribution & Zero-Inflation
@@ -987,6 +1013,7 @@ label(dat$epic_insulin_1) <- "Insulin"
 label(dat$pah_clear_bsa) <- "PAH Clearance (BSA)"
 label(dat$eGFR_CKD_epi) <- "Estimated Glomerular Filtration Rate (eGFR)"
 label(dat$acr_u) <- "ACRu"
+label(dat$epic_sglti2_1) <- 'SGLTi2 Use'
 # label(dat$SGLT2) <- "SGLT2i"
 label(dat$group) <- "Type 2 Diabetes Status"
 label(dat$epic_mfm_1) <- "Metformin"
@@ -995,7 +1022,7 @@ label(dat$epic_insulin_1) <- "Insulin"
 dat$group <- factor(dat$group)
 
 #Check
-table1(~age + sex + bmi + triglycerides + hba1c+ eGFR_CKD_epi+gfr_bsa_plasma +acr_u +epic_mfm_1+epic_insulin_1+group | epic_sglti2_1,data=dat)
+table1(~age + sex + bmi + triglycerides + hba1c+ eGFR_CKD_epi+gfr_bsa_plasma +acr_u +epic_mfm_1+epic_insulin_1+group+epic_sglti2_1 | epic_sglti2_1,data=dat)
 
 #Examine covariates
 cat_covariates <- c("sex", "race_ethnicity","epic_mfm_1","epic_insulin_1")
@@ -1047,6 +1074,15 @@ dev.off()
 ## h. Visualizations 
 ```{r}
 # PCA
+
+save.image('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_1078.RData')
+
+load('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_1078.RData')
+
+
+
+
+
 so_kpmp_sc <- FindVariableFeatures(object = so_kpmp_sc)
 so_kpmp_sc <- RunPCA(so_kpmp_sc, features = VariableFeatures(object = so_kpmp_sc),assay="RNA")
 ElbowPlot(so_kpmp_sc)
@@ -1498,6 +1534,16 @@ table1(~age + sex + bmi + triglycerides + hba1c+pah_clear_bsa + eGFR_CKD_epi+gfr
 ####TCA Cycle 
 ```{r}
 #Filter to PT Cells
+
+save.image('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_1538.RData')
+
+load('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_1538.RData')
+
+
+
+
+
+
 so_celltype <- so_subset
 # so_celltype <- subset(so_celltype,group=="Type_2_Diabetes")
 DefaultAssay(so_celltype) <- "RNA" 
@@ -1512,6 +1558,8 @@ so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
 
 counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
 
+
+
 # With parallelization
 #TCA Cycle
 # List of genes
@@ -1522,6 +1570,53 @@ registerDoParallel(cl)
 
 start_time <- Sys.time()
 
+
+
+if(ncol(counts_matrix) > 0) {
+  so_celltype[["RNA"]] <- CreateAssayObject(counts = counts_matrix)
+}
+
+identical(colnames(so_celltype), rownames(so_celltype@meta.data))
+identical(colnames(so_celltype), colnames(so_celltype[["RNA"]]))
+
+so_celltype[["RNA"]] <- so_celltype[["RNA"]][, colnames(so_celltype)]
+
+expr_matrix <- as.matrix(GetAssayData(so_celltype, assay = "RNA", slot = "data"))
+counts_matrix <- as.matrix(GetAssayData(so_celltype, assay = "RNA", slot = "counts"))
+
+
+
+
+
+results_list <- list()
+for(i in c(1:length(genes_list))){
+  g <- genes_list[[i]]
+  # Subset to your genes directly from the matrix
+gene_expr <- expr_matrix[g, ]
+gene_counts <- counts_matrix[g, ] %>% as.matrix()
+
+
+  count_gene <- counts_path[g, , drop = FALSE]
+  count_matrix <- t(Matrix(gene_counts, sparse = TRUE))
+    meta_gene <- so_celltype@meta.data
+    pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
+    # library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
+    data_g_gene <- group_cell(count = count_matrix, id = meta_gene$kit_id, pred = pred_gene ,offset=library)
+  
+      if (is.null(data_g_gene)) {
+      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+    }
+    
+    #With offset
+    result <- nebula(count = count_matrix, id = meta_gene$kit_id, pred = pred_gene, reml=T,model="NBLMM",output_re = T,covariance=T,offset=library, 
+                     verbose = TRUE, method = 'LN')
+    
+    results_list[[i]] <- list(gene = g, result = result)  # return both gene name and result
+  
+}
+
+
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_path[g, , drop = FALSE]
@@ -1529,7 +1624,7 @@ nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")
     pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
     # library <- meta_gene$library_size
     library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offsetlibrary)
     
     if (is.null(data_g_gene)) {
       data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)

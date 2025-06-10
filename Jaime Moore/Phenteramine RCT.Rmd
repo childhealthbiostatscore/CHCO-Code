@@ -103,7 +103,7 @@ num_vars <- c("height_analysis", "Weight.1..kg.", "Weight.2..kg.", "Weight.3..kg
               "Diastolic.Blood.Pressure.1", "Diastolic.Blood.Pressure.2", "Diastolic.Blood.Pressure.3")
 ht_wt_vitals[num_vars] <- apply(ht_wt_vitals[,num_vars],2,as.numeric)
 ht_wt_vitals$height_m <- ht_wt_vitals$height_analysis/100
-ht_wt_vitals$wt <- rowMeans(ht_wt_vitals[, c("Weight.1..kg.", "Weight.2..kg.", "Weight.3..kg.")])
+ht_wt_vitals$wt <- rowMeans(ht_wt_vitals[, c("Weight.1..kg.", "Weight.2..kg.", "Weight.3..kg.")], na.rm = TRUE)
 ht_wt_vitals$sbp <- rowMeans(ht_wt_vitals[, c("Systolic.Blood.Pressure.1", "Systolic.Blood.Pressure.2", "Systolic.Blood.Pressure.3")])
 ht_wt_vitals$dbp <- rowMeans(ht_wt_vitals[, c("Diastolic.Blood.Pressure.1", "Diastolic.Blood.Pressure.2", "Diastolic.Blood.Pressure.3")])
 ht_wt_vitals$hr <- rowMeans(ht_wt_vitals[, c("Heart.Rate.1.", "Heart.Rate.2.", "Heart.Rate.3.")])
@@ -170,20 +170,33 @@ t1_data <- merge(t1_data, cesd_keep, by="Record.ID", all.x = T, all.y = F)
 t1_data$cesd_score_ge20 <- as.factor(ifelse(t1_data$cesd_score >= 20, 1, 0))
 
 # DEXA
-dxa <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/PilotRCTPhentermineT-LPDEXA_DATA_2024-09-08_2155.csv")
+dxa <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/PilotRCTPhentermineT-LPDEXA_DATA_2025-05-29_1730.csv")
+dxa$Record.ID <- dxa$record_id
+dxa$Record.ID <- str_pad(dxa$Record.ID, 3, pad = "0")
+dxa$Record.ID <- ifelse(dxa$Record.ID == "002", "0002", dxa$Record.ID)
+dxa$Record.ID <- ifelse(dxa$Record.ID == "045", "45", dxa$Record.ID)
+dxa <- dxa %>% filter(!(record_id %in% c("Jacky Test","Jacky Test 2")))
+dxa <- dxa %>% filter(redcap_event_name %in% c("study_visit_1_arm_1", "study_visit_4_arm_1"))
 dxa_long <- dxa
-dxa <- dxa %>% filter(redcap_event_name == "study_visit_1_arm_1")
 dxa_long <- dxa_long %>% filter(!is.na(dexa_complete))
-dxa_long <- dxa_long %>% filter(record_id %in% t1_data$Record.ID)
-dxa_long$Record.ID <- dxa_long$record_id
+dxa_long <- dxa_long %>% filter(Record.ID %in% t1_data$Record.ID)
 dxa_long <- dxa_long %>% select(Record.ID, redcap_event_name, totalmass, fatmass_absolute, ffm_absolute, pctfatmass, 
-                                pctffm, vat_area, lean_mass, fmi, lmi)
+                                pctffm, vat_area, lean_mass, fmi, lmi, almi, abmd_femneck, zscore_abmd_femneck,
+                                abmd_totalhip, zscore_abmd_totalhip, abmd_lumbarspine, zscore_abmd_lumbarspine)
 dxa_wide <- reshape(dxa_long, direction = "wide", idvar = "Record.ID", timevar = "redcap_event_name")
 dxa_wide$change_percent_fat_mass <- dxa_wide$pctfatmass.study_visit_4_arm_1 - dxa_wide$pctfatmass.study_visit_1_arm_1
 dxa_wide$delta_percent_fat_mass <- dxa_wide$pctfatmass.study_visit_4_arm_1 - dxa_wide$pctfatmass.study_visit_1_arm_1
+dxa_wide$delta_pctffm <- dxa_wide$pctffm.study_visit_4_arm_1 - dxa_wide$pctffm.study_visit_1_arm_1
 dxa_wide$delta_fmi <- dxa_wide$fmi.study_visit_4_arm_1 - dxa_wide$fmi.study_visit_1_arm_1
 dxa_wide$delta_lmi <- dxa_wide$lmi.study_visit_4_arm_1 - dxa_wide$lmi.study_visit_1_arm_1
 dxa_wide$delta_vat <- dxa_wide$vat_area.study_visit_4_arm_1 - dxa_wide$vat_area.study_visit_1_arm_1
+dxa_wide$delta_almi <- dxa_wide$almi.study_visit_4_arm_1 - dxa_wide$almi.study_visit_1_arm_1
+dxa_wide$delta_abmd_femneck <- dxa_wide$abmd_femneck.study_visit_4_arm_1 - dxa_wide$abmd_femneck.study_visit_1_arm_1
+dxa_wide$delta_zscore_abmd_femneck <- dxa_wide$zscore_abmd_femneck.study_visit_4_arm_1 - dxa_wide$zscore_abmd_femneck.study_visit_1_arm_1
+dxa_wide$delta_abmd_totalhip <- dxa_wide$abmd_totalhip.study_visit_4_arm_1 - dxa_wide$abmd_totalhip.study_visit_1_arm_1
+dxa_wide$delta_zscore_totalhip <- dxa_wide$zscore_abmd_totalhip.study_visit_4_arm_1 - dxa_wide$zscore_abmd_totalhip.study_visit_1_arm_1
+dxa_wide$delta_abmd_lumbarspine <- dxa_wide$abmd_lumbarspine.study_visit_4_arm_1 - dxa_wide$abmd_lumbarspine.study_visit_1_arm_1
+dxa_wide$delta_zscore_lumbarspine <- dxa_wide$zscore_abmd_lumbarspine.study_visit_4_arm_1 - dxa_wide$zscore_abmd_lumbarspine.study_visit_1_arm_1
 
 # RMR
 rmr <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/PilotRCTPhentermineT-LPRMR_DATA_2024-09-09_1604.csv")
@@ -241,6 +254,28 @@ simp_AE$Record.ID <- ifelse(simp_AE$Record.ID == "002", "0002", simp_AE$Record.I
 simp_AE$Record.ID <- ifelse(simp_AE$Record.ID == "045", "45", simp_AE$Record.ID)
 
 # diet diary
+# dd <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/PilotRCTPhentermineT-LPDietDiary_DATA_2024-12-15_2011.csv")
+# dd <- dd %>% filter(!is.na(dds_id) & !(dds_id == ""))
+# dd$Record.ID <- dd$record_id
+# dd <- dd %>% select(Record.ID, redcap_event_name, dds_kcal)
+# dd$Record.ID <- str_pad(dd$Record.ID, 3, pad = "0")
+# dd$Record.ID <- ifelse(dd$Record.ID == "002", "0002", dd$Record.ID)
+# dd$Record.ID <- ifelse(dd$Record.ID == "045", "45", dd$Record.ID)
+# dd_summary <- dd %>% group_by(Record.ID, redcap_event_name) %>% summarise(mean_kcal = mean(dds_kcal))
+# dd_wide <- data.frame(unique(dd_summary$Record.ID))
+# times <- unique(dd$redcap_event_name)
+# for (t in times) {
+#   values <- dd_summary$mean_kcal[dd_summary$redcap_event_name == t]
+#   dd_wide <- cbind(dd_wide, values)
+# }
+# # Renaming of columns
+# colnames(dd_wide)[-1] <- paste0("mean_kcal_", times)
+# colnames(dd_wide)[1] <- "Record.ID"
+#dd_summary <- dd %>% group_by(Record.ID, redcap_event_name) %>% summarise(mean_kcal = mean(dds_kcal), .groups = "drop")
+
+#####
+# testing with Claude
+
 dd <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/PilotRCTPhentermineT-LPDietDiary_DATA_2024-12-15_2011.csv")
 dd <- dd %>% filter(!is.na(dds_id) & !(dds_id == ""))
 dd$Record.ID <- dd$record_id
@@ -248,17 +283,21 @@ dd <- dd %>% select(Record.ID, redcap_event_name, dds_kcal)
 dd$Record.ID <- str_pad(dd$Record.ID, 3, pad = "0")
 dd$Record.ID <- ifelse(dd$Record.ID == "002", "0002", dd$Record.ID)
 dd$Record.ID <- ifelse(dd$Record.ID == "045", "45", dd$Record.ID)
-dd_summary <- dd %>% group_by(Record.ID, redcap_event_name) %>% summarise(mean_kcal = mean(dds_kcal))
-dd_wide <- data.frame(unique(dd_summary$Record.ID))
-times <- unique(dd$redcap_event_name)
-for (t in times) {
-  values <- dd_summary$mean_kcal[dd_summary$redcap_event_name == t]
-  dd_wide <- cbind(dd_wide, values)
-}
-# Renaming of columns
-colnames(dd_wide)[-1] <- paste0("mean_kcal_", times)
-colnames(dd_wide)[1] <- "Record.ID"
+
+# Try using aggregate instead of dplyr summarise
+dd_summary <- aggregate(dds_kcal ~ Record.ID + redcap_event_name, 
+                       data = dd, 
+                       FUN = mean, 
+                       na.rm = TRUE)
+colnames(dd_summary)[3] <- "mean_kcal"
+
+# Then pivot
+dd_wide <- dd_summary %>%
+  pivot_wider(names_from = redcap_event_name, 
+              values_from = mean_kcal,
+              names_prefix = "mean_kcal_")
 dd_wide$delta_mean_kcal <- dd_wide$mean_kcal_study_visit_4_arm_1 - dd_wide$mean_kcal_study_visit_1_arm_1
+####
 
 # create dataframe for Table 2
 t2_data <- t1_data %>% select(Record.ID, topdose_tolerated, phentdose_tolerated, randomization_grp)
@@ -334,6 +373,8 @@ labs_long_003 <- labs_long_003 %>% group_by(Record.ID, redcap_event_name) %>% su
                                                                      labs_alt = mean(labs_alt),
                                                                      labs_a1c = mean(labs_a1c),
                                                                      labs_trig = mean(labs_trig))
+labs_long_003$Record.ID <- "003"
+labs_long_003$redcap_event_name <- "study_visit_2_arm_1" 
 labs_long$labs_date <- NULL
 labs_long <- rbind(labs_long, labs_long_003)
 labs_long <- labs_long %>% arrange(Record.ID, redcap_event_name)
@@ -404,21 +445,29 @@ cssrs$pos_screen <- ifelse(is.na(cssrs$cssrs_1a) | is.na(cssrs$cssrs_2a) | is.na
                            ifelse(cssrs$cssrs_1a == 1 | cssrs$cssrs_2a == 1 | cssrs$cssrs_6a == 1, 1, 0))
 cssrs$Record.ID <- cssrs$record_id
 cssrs_long <- cssrs %>% select(Record.ID, cssrs_dateofvisit, redcap_event_name, pos_screen)
-cssrs_long <- cssrs_long %>% group_by(Record.ID, redcap_event_name) %>% summarise(pos_screen = max(pos_screen)) %>% ungroup(Record.ID)
+cssrs_long <- cssrs_long %>% group_by(Record.ID, redcap_event_name) %>% mutate(pos_screen = max(pos_screen)) %>% ungroup()
 cssrs_long$visnum <- ifelse(cssrs_long$redcap_event_name == "screeningenrollmen_arm_1", 0, 
                             ifelse(cssrs_long$redcap_event_name == "study_visit_1_arm_1", 1,
                             ifelse(cssrs_long$redcap_event_name == "study_visit_2_arm_1", 2,
                             ifelse(cssrs_long$redcap_event_name == "study_visit_3_arm_1", 3, 4))))
-cssrs_long <- cssrs_long %>% complete(redcap_event_name, nesting(Record.ID))
-cssrs_wide <- data.frame(unique(cssrs_long$Record.ID))
-times <- unique(cssrs_long$redcap_event_name)
-for (t in times) {
-  values <- cssrs_long$pos_screen[cssrs_long$redcap_event_name == t]
-  cssrs_wide <- cbind(cssrs_wide, values)
-}
+# old syntax broke
+#cssrs_long <- cssrs_long %>% complete(redcap_event_name, nesting(Record.ID))
+#cssrs_long <- cssrs_long %>% complete(Record.ID, redcap_event_name)
+#cssrs_wide <- data.frame(unique(cssrs_long$Record.ID))
+#times <- unique(cssrs_long$redcap_event_name)
+#for (t in times) {
+#  values <- cssrs_long$pos_screen[cssrs_long$redcap_event_name == t]
+#  cssrs_wide <- cbind(cssrs_wide, values)
+#}
+cssrs_wide <- cssrs_long %>%
+  select(Record.ID, redcap_event_name, pos_screen) %>%
+  pivot_wider(names_from = redcap_event_name, 
+              values_from = pos_screen,
+              values_fn = max,  # in case of duplicates, take the max
+              names_prefix = "pos_screen_")
 # Renaming of columns
-colnames(cssrs_wide)[-1] <- paste0("pos_screen_", times)
-colnames(cssrs_wide)[1] <- "Record.ID"
+#colnames(cssrs_wide)[-1] <- paste0("pos_screen_", times)
+#colnames(cssrs_wide)[1] <- "Record.ID"
 
 cssrs_wide$pos_CSSRS_v1_v4 <- as.factor(ifelse(cssrs_wide$pos_screen_study_visit_1_arm_1 == 1 | cssrs_wide$pos_screen_study_visit_2_arm_1 == 1 | cssrs_wide$pos_screen_study_visit_3_arm_1 == 1| cssrs_wide$pos_screen_study_visit_4_arm_1 == 1, 1, 
                                       ifelse(is.na(cssrs_wide$pos_screen_study_visit_1_arm_1) | is.na(cssrs_wide$pos_screen_study_visit_2_arm_1) | is.na(cssrs_wide$pos_screen_study_visit_3_arm_1) | is.na(cssrs_wide$pos_screen_study_visit_4_arm_1), NA, 0)))
@@ -453,21 +502,45 @@ satisfaction_wide$Record.ID <- ifelse(satisfaction_wide$Record.ID == "045", "45"
 t2_data <- left_join(t2_data, satisfaction_wide, by = "Record.ID")
 
 # IWQOL - Self
-iwqol_self <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/PilotRCTPhentermineT-IWQOLParticipant5172_DATA_2024-09-09_1345.csv")
+iwqol <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/PilotRCTPhentermineT-IWQOL_DATA_2025-05-29_2332.csv")
+iwqol_self <- iwqol %>% filter(redcap_repeat_instrument == "iwqolkids")
 iwqol_self <- iwqol_self %>% filter(!is.na(iwqolkids_dateofvisit) & !(iwqolkids_dateofvisit == ""))
 iwqol_self$Record.ID <- iwqol_self$record_id
+iwqol_self$Record.ID <- str_pad(iwqol_self$Record.ID, 3, pad = "0")
+iwqol_self$Record.ID <- ifelse(iwqol_self$Record.ID == "002", "0002", iwqol_self$Record.ID)
+iwqol_self$Record.ID <- ifelse(iwqol_self$Record.ID == "045", "45", iwqol_self$Record.ID)
+# fix some duplicates
+iwqol_self <- iwqol_self %>% filter(!(Record.ID == "0002" & redcap_repeat_instance == 1 & redcap_event_name == "study_visit_1_arm_1"))
+iwqol_self <- iwqol_self %>% filter(!(Record.ID == "009" & redcap_repeat_instance == 1 & redcap_event_name == "study_visit_1_arm_1"))
 iwqol_self <- iwqol_self %>% select(Record.ID, redcap_event_name, iwqol_kids_physscore,  iwqol_kids_esteemscore,
                                     iwqol_kids_socialscore, iwqol_kids_famscore, iwqol_kids_score,
                                     iwqol_lite_physscore, iwqol_lite_esteemscore, iwqol_lite_sexualscore,
                                     iwqol_lite_publicscore, iwqol_lite_workscore, iwqol_lite_score)
 iwqol_self_wide <- reshape(iwqol_self, direction = "wide", idvar = "Record.ID", timevar = "redcap_event_name")
+iwqol_self_wide$delta_iwqol_kids_score <- iwqol_self_wide$iwqol_kids_score.study_visit_4_arm_1 - iwqol_self_wide$iwqol_kids_score.study_visit_1_arm_1
+iwqol_self_wide$delta_iwqol_kids_physscore <- iwqol_self_wide$iwqol_kids_physscore.study_visit_4_arm_1 - iwqol_self_wide$iwqol_kids_physscore.study_visit_1_arm_1
+iwqol_self_wide$delta_iwqol_kids_esteemscore <- iwqol_self_wide$iwqol_kids_esteemscore.study_visit_4_arm_1 - iwqol_self_wide$iwqol_kids_esteemscore.study_visit_1_arm_1
+iwqol_self_wide$delta_iwqol_kids_socialscore <- iwqol_self_wide$iwqol_kids_socialscore.study_visit_4_arm_1 - iwqol_self_wide$iwqol_kids_socialscore.study_visit_1_arm_1
+iwqol_self_wide$delta_iwqol_kids_famscore <- iwqol_self_wide$iwqol_kids_famscore.study_visit_4_arm_1 - iwqol_self_wide$iwqol_kids_famscore.study_visit_1_arm_1
+
 # IWQOL - Parent
-iwqol_parent <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/PilotRCTPhentermineT-IWQOLParent51723_DATA_2024-09-09_1345.csv")
+iwqol_parent <- iwqol %>% filter(redcap_repeat_instrument == "iwqolparent")
 iwqol_parent <- iwqol_parent %>% filter(!is.na(iwqolp_dateofvisit) & !(iwqolp_dateofvisit == ""))
 iwqol_parent$Record.ID <- iwqol_parent$record_id
+iwqol_parent$Record.ID <- str_pad(iwqol_parent$Record.ID, 3, pad = "0")
+iwqol_parent$Record.ID <- ifelse(iwqol_parent$Record.ID == "002", "0002", iwqol_parent$Record.ID)
+iwqol_parent$Record.ID <- ifelse(iwqol_parent$Record.ID == "045", "45", iwqol_parent$Record.ID)
+# fix some duplicates
+iwqol_parent <- iwqol_parent %>% filter(!(Record.ID == "0002" & redcap_repeat_instance == 1 & redcap_event_name == "study_visit_1_arm_1"))
 iwqol_parent <- iwqol_parent %>% select(Record.ID, redcap_event_name, iwqol_parent_physscore, iwqol_parent_esteemscore,
                                         iwqol_parent_socialscore, iwqol_parent_famscore, iwqol_parent_score)
 iwqol_parent_wide <- reshape(iwqol_parent, direction = "wide", idvar = "Record.ID", timevar = "redcap_event_name")
+iwqol_parent_wide$delta_iwqol_parent_score <- iwqol_parent_wide$iwqol_parent_score.study_visit_4_arm_1 - iwqol_parent_wide$iwqol_parent_score.study_visit_1_arm_1
+iwqol_parent_wide$delta_iwqol_parent_physscore <- iwqol_parent_wide$iwqol_parent_physscore.study_visit_4_arm_1 - iwqol_parent_wide$iwqol_parent_physscore.study_visit_1_arm_1
+iwqol_parent_wide$delta_iwqol_parent_esteemscore <- iwqol_parent_wide$iwqol_parent_esteemscore.study_visit_4_arm_1 - iwqol_parent_wide$iwqol_parent_esteemscore.study_visit_1_arm_1
+iwqol_parent_wide$delta_iwqol_parent_socialscore <- iwqol_parent_wide$iwqol_parent_socialscore.study_visit_4_arm_1 - iwqol_parent_wide$iwqol_parent_socialscore.study_visit_1_arm_1
+iwqol_parent_wide$delta_iwqol_parent_famscore <- iwqol_parent_wide$iwqol_parent_famscore.study_visit_4_arm_1 - iwqol_parent_wide$iwqol_parent_famscore.study_visit_1_arm_1
+
 # PEDS-QL - Self
 #pedsql_self <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/PilotRCTPhentermineT-PedsQLSelf52123_DATA_2024-09-09_1348.csv")
 pedsql_self <- read.csv('/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Moore/Phenteramine RCT/Data raw/182793_PedsQLSelf_SCORED_3.5.251_DeId.csv')
@@ -584,6 +657,8 @@ t4_data_wide <- left_join(t4_data_wide, rmr_wide, by = "Record.ID")
 t4_data_wide <- left_join(t4_data_wide, pedsql_self_wide, by = "Record.ID")
 t4_data_wide <- left_join(t4_data_wide, pedsql_parent_wide, by = "Record.ID")
 t4_data_wide <- left_join(t4_data_wide, dxa_wide, by = "Record.ID")
+t4_data_wide <- left_join(t4_data_wide, iwqol_self_wide, by = "Record.ID")
+t4_data_wide <- left_join(t4_data_wide, iwqol_parent_wide, by = "Record.ID")
 ```
 
 # Results
@@ -625,8 +700,16 @@ t2 <- tableby(randomization_grp ~ phentdose_tolerated + topdose_tolerated  +
                                               delta_hr +  hr_ge_100 +  delta_sbp +  sbp_120_129 +  sbp_ge_130 +  delta_dbp +  dbp_ge_80 + 
                                               delta_bicarb +  bicarb_lt_20 +  creat_above_ULN +  delta_creat +  delta_K +  K_lt_3.5 + 
                                               delta_cesd +  cesd_score_lt20_ge20 +  pos_CSSRS_v1_v4 +  pos_CSSRS_v1_v4_new + 
-                                              kwt(med_score_Caregiver, "median", "q1q3") +  kwt(med_score_Youth, "median", "q1q3"), data = t2_data)
-
+                                              kwt(med_score_Caregiver, "median", "q1q3") +  kwt(med_score_Youth, "median", "q1q3") +
+                                              as.factor(severeae) + as.factor(ae_dosereduce) + as.factor(ae_discont) + as.factor(aes_fever) + as.factor(aes_flushing) + 
+                                   as.factor(aes_sweating) + as.factor(aes_cooldown) + as.factor(aes_fatigue) + as.factor(aes_energy) + as.factor(aes_vision) + 
+                                   as.factor(aes_eye) + as.factor(nutrdifficult) + as.factor(aes_mouth) + as.factor(aes_taste) + as.factor(aes_abd) + as.factor(aes_nv) + 
+                                   as.factor(aes_dia) + as.factor(aes_const) + as.factor(aes_cp) + as.factor(aes_hr) + as.factor(aes_sob) + as.factor(aes_exin) + as.factor(aes_cycle) + 
+                                   as.factor(aes_back) + as.factor(aes_swell) + as.factor(aes_rash) + as.factor(aes_sleep) + as.factor(aes_tingle) + as.factor(aes_foggy) + 
+                                   as.factor(aes_conc) + as.factor(aes_mem) + as.factor(aes_words) + as.factor(aes_ir)+ as.factor(aes_rest) + as.factor(aes_anx) + as.factor(aes_dep) + 
+                                   as.factor(aes_allergy) + as.factor(cesd_screen) + as.factor(cssrs_screen) + as.factor(lowbicarb) + as.factor(lowk) + as.factor(highcr) + 
+                                   as.factor(highsbp) + as.factor(highdbp) + as.factor(highhr) + as.factor(hightemp) + as.factor(covid_ae) + as.factor(aes_other_yn) + 
+                                   as.factor(ae_count) + as.factor(any_ae), data = t2_data)
 
 ```
 
@@ -664,7 +747,12 @@ summary(t3)
 ```{r, include=FALSE}
 t4 <- tableby(randomization_grp ~ delta_trig + delta_ldl + delta_hdl + delta_alt + delta_a1c + delta_mean_kcal + delta_rmr + delta_pedsql_physical_self +
                 delta_pedsql_psych_self + delta_pedsql_total_self + delta_pedsql_physical_parent + delta_pedsql_psych_parent + delta_pedsql_total_parent +
-                delta_percent_fat_mass, data = t4_data_wide)
+                delta_percent_fat_mass + delta_pctffm + delta_fmi + delta_lmi + delta_vat + delta_almi + delta_abmd_femneck + 
+                delta_zscore_abmd_femneck + delta_abmd_totalhip + delta_zscore_totalhip + delta_abmd_lumbarspine + delta_zscore_lumbarspine +
+                delta_iwqol_kids_score + delta_iwqol_kids_physscore + delta_iwqol_kids_esteemscore + delta_iwqol_kids_socialscore +
+                delta_iwqol_kids_famscore + delta_iwqol_parent_score + delta_iwqol_parent_physscore + delta_iwqol_parent_esteemscore + 
+                delta_iwqol_parent_socialscore + delta_iwqol_parent_famscore, data = t4_data_wide)
+
 ```
 
 ```{r, include=TRUE, results='asis'}

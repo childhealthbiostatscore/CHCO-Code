@@ -106,6 +106,7 @@ library(furrr)
 library(future)
 # BiocManager::install("scran")
 library(scran)
+library(BiocParallel)
 
 # #Mac laptop
 # dir.dat <- c("//Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
@@ -113,10 +114,10 @@ library(scran)
 # dir.code <- c("/Users/hhampson/Documents/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
 # dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
 
-# #Mac Studio File Path
-# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
-# dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/scRNA")
-# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results")
+#Mac Studio File Path
+dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/scRNA")
+dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
 
 ##c. Load functions ----
 source("Kidney_functions_sc.R")
@@ -135,14 +136,16 @@ ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
 
 #Load harmonized data that has been filtered from 90 to the 83 participants that have baseline single cell data
 # harm_meta_data <- read.csv(fs::path(dir.dat,"Kidney scRNAseq Project","Data","harmonized_data_kidney_sc_all_metadata2.csv"))
-harm_meta_data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",na="")
+# harm_meta_data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",na="")
+harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
+
 harm_meta_data <- harm_meta_data %>%   
   arrange(screen_date) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(record_id, visit))
 
-##e. Filter to 6 organoid samples ----
+##e. Filter to 7 organoid samples ----
 meta <- harm_meta_data %>% 
   # dplyr::select(-X) %>% 
   filter(visit=="baseline") %>% 
@@ -306,18 +309,19 @@ hist(so_kpmp_sc$library_size)
 # so_kpmp_sc$tmm_offset <- tmm_offset
 
 # Pooled offset
+bp <- MulticoreParam(workers = 63) 
 sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-sce <- computeSumFactors(sce)
+# sce <- computeSumFactors(sce)
+sce <- computeSumFactors(sce, BPPARAM = bp)
 # View size factors
-sizeFactors(sce)
+# sizeFactors(sce)
 # STEP 3: Calculate offset → log(size factors)
-# pooled_offset <- log(sizeFactors(sce))
 pooled_offset <- sizeFactors(sce)
 so_kpmp_sc$pooled_offset <- pooled_offset
 hist(so_kpmp_sc$pooled_offset)
 
 # saveRDS(so_kpmp_sc,fs::path(dir.dat,"scRNA","data_clean","organoid_scRNA_cleaned.RDS"))
-so_kpmp_sc <- readRDS(fs::path(dir.dat,"scRNA","data_clean","organoid_scRNA_cleaned.RDS")))
+so_kpmp_sc <- readRDS(fs::path(dir.dat,"scRNA","data_clean","organoid_scRNA_cleaned.RDS"))
 #Create general hepatocyte cell type variable
 #Create PT and TAL pseudobulk cell type variable
 so_kpmp_sc$celltype1 <- case_when(grepl("PT-",so_kpmp_sc$celltype_rpca)~"PT",
@@ -1036,23 +1040,29 @@ label(dat$race_ethnicity) <- "Race/Ethnicity"
 label(dat$bmi) <- "BMI (kg/m2)"
 label(dat$triglycerides) <- "Triglycerides (mg/dL)"
 label(dat$medication) <- "GLP-1/SGLT2i Status"
-label(dat$mfm_1) <- "Metformin"
-label(dat$insulin_1) <- "Insulin"
+label(dat$epic_mfm_1) <- "Metformin"
+label(dat$epic_insulin_1) <- "Insulin"
 label(dat$pah_clear_bsa) <- "PAH Clearance (BSA)"
 label(dat$eGFR_CKD_epi) <- "Estimated Glomerular Filtration Rate (eGFR)"
 label(dat$acr_u) <- "ACRu"
 # label(dat$SGLT2) <- "SGLT2i"
 label(dat$group) <- "Type 2 Diabetes Status"
 
-cat_covariates <- c("sex", "race_ethnicity", "medication", "mfm_1", "insulin_1")
+
+cat_covariates <- c("sex", "race_ethnicity","epic_mfm_1","epic_insulin_1")
 plot_list <- list()
 
+custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
+
+png(fs::path(dir.results, "Plot_Categorical_Covariates_NoMed.png"),
+    width = 3000, height = 3000, res = 300)
 for (covariate in cat_covariates) {
   p <- ggplot(dat, aes_string(x = "group", fill = covariate)) +
     geom_bar(position = "fill") +  # use "dodge" for absolute counts
-    labs(title = paste0("Distribution of ", covariate),
-         y = "Proportion", x = NULL) +
+    labs(y = "Proportion", x = NULL) +
+    # title = paste0("Distribution of ", covariate, " by Diabetes Status")
     scale_y_continuous(labels = scales::percent_format()) +
+    scale_fill_manual(values = custom_colors) +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
   
@@ -1061,26 +1071,67 @@ for (covariate in cat_covariates) {
 
 # Display all plots together (adjust depending on how many you have)
 wrap_plots(plot_list, ncol = 2)
-
+dev.off()
 
 #Continuous Covariates
-con_covariates <- c("age", "bmi", "triglycerides", "hba1c", "pah_clear_bsa", "eGFR_CKD_epi", "acr_u")
+con_covariates <- c("age", "bmi", "triglycerides", "hba1c","pah_clear_bsa","eGFR_CKD_epi","gfr_bsa_plasma","acr_u")
+# "avg_c_k2","avg_c_f","avg_m_k2","avg_m_f","avg_c_k2_f","avg_m_k2_f")
 plot_list <- list()
+custom_colors <- c("#f4a261", "darkred")
 
+# Display all plots together (adjust ncol/nrow as needed)
+png(fs::path(dir.results, "Plot_Continuous_Covariates_NoMed.png"),
+    width = 3000, height = 3000, res = 300)
 for (covariate in con_covariates) {
   p <- ggplot(dat, aes_string(x = "group", y = covariate, fill = "group")) +
     geom_boxplot(outlier.shape = NA, alpha = 0.7) +
-    geom_jitter(width = 0.2, alpha = 0.4, color = "black") +  # optional: show points
-    labs(title = paste0("Distribution of ", covariate),
-         x = "Group", y = covariate) +
+    geom_jitter(width = 0.2, alpha = 0.4, color = "black") +
+    scale_fill_manual(values = custom_colors) +
     theme_minimal() +
     theme(legend.position = "none")
   
   plot_list[[covariate]] <- p
 }
+wrap_plots(plot_list, ncol = 2 )
+dev.off()
 
-# Display all plots together (adjust ncol/nrow as needed)
-wrap_plots(plot_list, ncol = 3)
+# cat_covariates <- c("sex", "race_ethnicity", "medication", "epic_mfm_1", "epic_insulin_1")
+# plot_list <- list()
+# 
+# for (covariate in cat_covariates) {
+#   p <- ggplot(dat, aes_string(x = "group", fill = covariate)) +
+#     geom_bar(position = "fill") +  # use "dodge" for absolute counts
+#     labs(title = paste0("Distribution of ", covariate),
+#          y = "Proportion", x = NULL) +
+#     scale_y_continuous(labels = scales::percent_format()) +
+#     theme_minimal() +
+#     theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#   
+#   plot_list[[covariate]] <- p
+# }
+# 
+# # Display all plots together (adjust depending on how many you have)
+# wrap_plots(plot_list, ncol = 2)
+# 
+# 
+# #Continuous Covariates
+# con_covariates <- c("age", "bmi", "triglycerides", "hba1c", "pah_clear_bsa", "eGFR_CKD_epi", "acr_u")
+# plot_list <- list()
+# 
+# for (covariate in con_covariates) {
+#   p <- ggplot(dat, aes_string(x = "group", y = covariate, fill = "group")) +
+#     geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+#     geom_jitter(width = 0.2, alpha = 0.4, color = "black") +  # optional: show points
+#     labs(title = paste0("Distribution of ", covariate),
+#          x = "Group", y = covariate) +
+#     theme_minimal() +
+#     theme(legend.position = "none")
+#   
+#   plot_list[[covariate]] <- p
+# }
+# 
+# # Display all plots together (adjust ncol/nrow as needed)
+# wrap_plots(plot_list, ncol = 3)
 ```
 
 #4. Analysis 
@@ -1100,9 +1151,9 @@ ncol(so_celltype) #2127 cells
 so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(so_celltype)
 
-# Subset Seurat object to only HVGs
-so_celltype_hvg <- subset(so_celltype, features = hvgs)
-DefaultAssay(so_celltype_hvg) <- "RNA" 
+# # Subset Seurat object to only HVGs
+# so_celltype_hvg <- subset(so_celltype, features = hvgs)
+# DefaultAssay(so_celltype_hvg) <- "RNA" 
 
 ###
 # meta_hvg <- so_celltype@meta.data
@@ -1110,11 +1161,11 @@ DefaultAssay(so_celltype_hvg) <- "RNA"
 # data_g_hvg = list(count=counts_hvg, id=meta_hvg$kit_id, pred=pred)
 
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype_hvg$group <- factor(so_celltype_hvg$group)
+so_celltype$group <- factor(so_celltype$group)
 #Make sure to set reference level
-so_celltype_hvg$group <- relevel(so_celltype_hvg$group,ref="Lean_Control")
+so_celltype$group <- relevel(so_celltype$group,ref="Lean_Control")
 
-counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
 
 # offset_hvg = Matrix::colSums(data_g_hvg$count) 
 
@@ -1122,16 +1173,16 @@ counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load coun
 # List of genes
 genes_list <- rownames(counts_hvg)
 
-cl <- makeCluster(10)
+cl <- makeCluster(20)
 registerDoParallel(cl)
 
 start_time <- Sys.time()
-
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- so_celltype_hvg@meta.data
+    meta_gene <- subset(so_celltype,features=g)@meta.data
     pred_gene <- model.matrix(~group, data = meta_gene)
+    # library <- meta_gene$library_size
     library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
     
@@ -1140,7 +1191,7 @@ nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")
     }
     
     #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$offset)
     
     list(gene = g, result = result)  # return both gene name and result
     
@@ -1181,12 +1232,12 @@ nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$C
 #Make dataframe of final results
 full_results <- as.data.frame(nebula_summaries)
 #Calculate number of genes filtered out for low expression 
-low_exp <- 2000-length(full_results$gene)
+low_exp <- length(genes_list)-length(full_results$gene)
 #Filter out non-converging genes
 full_results <- full_results %>% 
   filter(!gene %in%  nonconverge_genes)
 #Calculate nonconvergence rate
-nebula_nonconverged_percent <- paste0(round((1-(2000-length(nonconverge_genes))/2000)*100,3),"%")
+nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
 # nebula_nonconverged_percent <- (length(rownames(counts_hvg))-length(unique(full_results$gene)))/length(rownames(counts_hvg))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
@@ -1194,10 +1245,10 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_PT_cells_diabetes_unadjusted_2000.csv"))
+write.csv(full_results,fs::path(dir.results,"Biopsy_NEBULA_PT_cells_diabetes_unadjusted_2000.csv"))
 
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "lightcoral",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "lightblue", "gray"))
+full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
+                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- full_results[full_results$fdr < 0.05, ]
@@ -1232,7 +1283,7 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = P
     axis.text.x = element_text(angle = 0, hjust = 1)
   )+
   # xlim(min,max)+
-  xlim(-5,5)+
+  xlim(-3,3)+
   # # Add labels for significant points
   geom_text(data = significant_df, aes(label = gene),
             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
@@ -1245,7 +1296,7 @@ volcano_plot
 # pdf(fs::path(dir.results,"Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg.pdf"),width=10,height=7)
 # print(volcano_plot)
 # dev.off()
-png(fs::path(dir.results, "Plot_NEBULA_PT_Diabetes_unadjusted_2000_hvg_new_offset.png"), 
+png(fs::path(dir.results, "Plot_Biopsy_NEBULA_PT_Diabetes_unadjusted_2000_offset.png"), 
     width = 3000, height = 2100, res = 300)
 print(volcano_plot)
 dev.off()

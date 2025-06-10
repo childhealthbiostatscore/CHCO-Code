@@ -54,6 +54,10 @@ library(glmmTMB)
 library(reshape2)
 library(broom.mixed)
 library(nebula)
+library(table1)
+library(clusterProfiler)
+library('org.Hs.eg.db')
+
 ```
 
 ```{r include = F}
@@ -112,31 +116,6 @@ length(which(rownames(so) %in% ribo_genes)) #0
 ncol(so) #211,218 cells
 nrow(so) #31,242 genes
 
-
-jpeg('C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_KPMP_celltype.jpeg', width=900, 
-     height=900)
-DimPlot(so, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
-dev.off()
-
-jpeg("C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_celltype.jpeg", width=900, 
-     height=900)
-DimPlot(so, reduction = "umap.harmony", group.by = "celltype_harmony", raster = F, alpha = 0.2, label = T)
-dev.off()
-
-```
-
-# HC vs. T1D in PB90
-
-## All cell types combined
-
-```{r echo = F}
-
-cgas <- data.table::fread("C:/Users/netio/Documents/UofW/cGAS_Analysis/cGAS_genes_AmiGO2.txt",
-                          header=F)
-cgas[2] <- 'TMEM173'
-
-
-
 so <- subset(so, 
                       subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 10)
 
@@ -152,12 +131,70 @@ sizeFactors(sce)
 so$pooled_offset <- (sizeFactors(sce))
 
 
-
 so_t1d_hc <- subset(so, group %in% c("Type_1_Diabetes","Lean_Control"))
-ncol(so_t1d_hc) #40,346 cells
-nrow(so_t1d_hc) #31,242 genes
+
+#Filter to only CROCODILE
+so_t1d_hc <- subset(so_t1d_hc, cohort == 'CROCODILE')
+
+#expr_matrix <- as.matrix(GetAssayData(so_t1d_hc, layer = "counts"))
+#expr_matrix <- as.matrix(GetAssayData(so_t1d_hc, assay = "RNA", layer = "counts"))
+# expr_matrix <- so_kpmp_sc@assays$RNA@counts
+# Calculate the proportion of cells expressing each gene
+#num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
+#total_cells <- ncol(expr_matrix)  # Total number of cells
+#gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
+#remove(expr_matrix)
+# Keep genes expressed in at least "gene_pct" of cells
+#genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
+#so_t1d_hc<- subset(so_t1d_hc, features = genes_to_keep)
 
 meta.data <- so_t1d_hc@meta.data
+
+
+
+test <- meta.data %>% dplyr::select(record_id, cohort, group, visit, age, sex)
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+dat <- harmonized_data %>%
+     arrange(screen_date) %>% 
+     dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                      across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                      .by = c(record_id, visit))
+
+dat <- dat %>% dplyr::select(record_id, mrn, bmi, sex, age)
+test <- test %>% left_join(dat, by='record_id')
+test <- test %>% filter(!duplicated(record_id))
+test <- test %>% dplyr::select(record_id, cohort, group, 
+                               age = age.y, sex = sex.y, bmi)
+table1(~age + sex + bmi + cohort | group, data = test)
+
+
+
+jpeg('C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_KPMP_celltype.jpeg', width=900, 
+     height=900)
+DimPlot(so_t1d_hc, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
+dev.off()
+
+jpeg("C:/Users/netio/Documents/UofW/cGAS_Analysis/UMAP_celltype.jpeg", width=900, 
+     height=900)
+DimPlot(so_t1d_hc, reduction = "umap.harmony", group.by = "celltype_harmony", raster = F, alpha = 0.2, label = T)
+dev.off()
+
+```
+
+# HC vs. T1D in PB90
+
+## All cell types combined
+
+```{r echo = F}
+
+cgas <- data.table::fread("C:/Users/netio/Documents/UofW/cGAS_Analysis/cGAS_genes_AmiGO2.txt",
+                          header=F)
+cgas[2] <- 'TMEM173'
+
+
+meta.data <- so_t1d_hc@meta.data
+
 
 rm(so)
 save.image('C:/Users/netio/Documents/UofW/cGAS_Analysis/cGWAS_sot1d_hc_data.RData')
@@ -168,6 +205,15 @@ ggplot(meta.data %>% filter(celltype_rpca != 'ATL'), aes(x=group, fill=celltype_
   geom_bar(position='fill')+theme_classic()+labs(x='Condition Group', fill='Cell Type')+
   theme(text = element_text(size=25))
 dev.off()
+
+jpeg('C:/Users/netio/Documents/UofW/cGAS_Analysis/CellDistributions_EC.jpeg', height= 1500, width = 1200)
+ggplot(meta.data %>% filter(celltype_rpca != 'ATL') %>% filter(celltype_harmony %in% c("EC-PTC", "EC-GC", "EC-AEA", "EC-LYM")), aes(x=group, fill=celltype_harmony))+
+  geom_bar(position='fill')+theme_classic()+labs(x='Condition Group', fill='Cell Type')+
+  theme(text = element_text(size=25))
+dev.off()
+
+
+
 
 
 
@@ -285,7 +331,7 @@ full_counts <- round(GetAssayData(full_analysis, layer = "counts"))
 
 
 meta_gene <- full_analysis@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = full_analysis, id = meta_gene$record_id, pred = pred_gene)
 result_allcells <- nebula(count = full_counts, id = full_analysis$record_id, pred = data_g_gene$pred, 
                           offset = full_analysis$pooled_offset,
@@ -298,12 +344,50 @@ write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA
             quote=F, sep='\t')
 
 
+plotting_function(as.data.frame(result_allcells), 'Top2000HVGs')
+
+sig_results <- as.data.frame(result_allcells) %>% dplyr::select(Gene = summary.gene, LogFC = summary.logFC_groupType_1_Diabetes, pvalue = summary.p_groupType_1_Diabetes) %>% filter(pvalue < 0.05)
+
+enrich_GO_BP <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "BP") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+enrich_GO_CC <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "CC") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+enrich_GO_MF <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "MF") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+
+sig_results <- as.data.frame(result_allcells) %>% dplyr::select(Gene = summary.gene, LogFC = summary.logFC_groupType_1_Diabetes.sexMale, pvalue = summary.p_groupType_1_Diabetes.sexMale) %>% filter(pvalue < 0.05)
+
+
+
+#just testing which is compared to which 
+meta.data <- so_t1d_hc@meta.data
+meta.data <- meta.data %>% dplyr::mutate(group2 = ifelse(group == 'Type_1_Diabetes', 1, 0))
+so_t1d_hc@meta.data$group2 <- meta.data$group2
+
+
+#Type 1 Diabetes as 1, controls as 0
+counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
+counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
+meta_gene <- subset(so_t1d_hc, features = "MTAP")@meta.data
+pred_gene <- model.matrix(~group2*sex, data = meta_gene)
+data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
+result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = so_t1d_hc$pooled_offset,
+                 ncore = 1, output_re = T, covariance = T,
+                 reml = T, model = "NBLMM")
+
+result_allcells$summary
+
+
+
+
+
+
 
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
 meta_gene <- subset(so_t1d_hc, features = "MTAP")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
 result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = so_t1d_hc$pooled_offset,
                  ncore = 1, output_re = T, covariance = T,
@@ -319,7 +403,7 @@ write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
 counts_t1d_hc_nos3 <- counts_t1d_hc["NOS3",]
 meta_gene <- subset(so_t1d_hc, features = "NOS3")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_nos3, id = meta_gene$record_id, pred = pred_gene)
 result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = so_t1d_hc$pooled_offset,
                  ncore = 1, output_re = T, covariance = T,
@@ -333,7 +417,7 @@ write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
 counts_t1d_hc_cgas <- counts_t1d_hc[cgas$V1,]
 meta_gene <- subset(so_t1d_hc, features = cgas$V1)@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_cgas, id = meta_gene$record_id, pred = pred_gene)
 result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = so_t1d_hc$pooled_offset,
                  ncore = 1, output_re = T, covariance = T,
@@ -347,78 +431,6 @@ write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA
 rm(list=c(counts_t1d_hc_nos3, counts_t1d_hc_cgas, counts_t1d_hc_mtap))
 
 
-
-##########With sex analysis 
-
-
-
-full_analysis <- FindVariableFeatures(so_t1d_hc, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(full_analysis)
-full_analysis <- subset(so_t1d_hc, features = hvgs)
-full_counts <- round(GetAssayData(full_analysis, layer = "counts")) 
-
-
-meta_gene <- full_analysis@meta.data
-pred_gene <- model.matrix(~group*sex, data = meta_gene)
-data_g_gene <- list(count = full_analysis, id = meta_gene$record_id, pred = pred_gene)
-result_allcells <- nebula(count = full_counts, id = full_analysis$record_id, pred = data_g_gene$pred, 
-                          offset = full_analysis$pooled_offset,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_allcells$summary
-
-write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_fullanalysis_offset_withsex.txt', row.names=F,
-            quote=F, sep='\t')
-
-
-
-
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
-counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
-meta_gene <- subset(so_t1d_hc, features = "MTAP")@meta.data
-pred_gene <- model.matrix(~group*sex, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
-result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = so_t1d_hc$pooled_offset,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_allcells$summary
-
-
-write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_MTAP_analysis_offset_withsex.txt', row.names=F,
-            quote=F, sep='\t')
-
-
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
-counts_t1d_hc_nos3 <- counts_t1d_hc["NOS3",]
-meta_gene <- subset(so_t1d_hc, features = "NOS3")@meta.data
-pred_gene <- model.matrix(~group*sex, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_nos3, id = meta_gene$record_id, pred = pred_gene)
-result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = so_t1d_hc$pooled_offset,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_allcells$summary
-
-write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_NOS3_analysis_offset_withsex.txt', row.names=F,
-            quote=F, sep='\t')
-
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc, layer = "counts")) # load counts and round
-counts_t1d_hc_cgas <- counts_t1d_hc[cgas$V1,]
-meta_gene <- subset(so_t1d_hc, features = cgas$V1)@meta.data
-pred_gene <- model.matrix(~group*sex, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_cgas, id = meta_gene$record_id, pred = pred_gene)
-result_allcells <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, offset = so_t1d_hc$pooled_offset,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_allcells$summary
-
-write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_cGAS_analysis_offset_withsex.txt', row.names=F,
-            quote=F, sep='\t')
-
-rm(list=c(counts_t1d_hc_nos3, counts_t1d_hc_cgas, counts_t1d_hc_mtap))
 
 
 #Plotting top 2,000 genes expressions 
@@ -443,12 +455,18 @@ plotting_function <- function(sig_markers, file_name){
     names(tmp_df) <- c('Gene', 'LogFC', 'Pvalue')
     tmp_df <- tmp_df %>% filter(!is.na(Pvalue))
     tmp_df$diffexp <- 'No'
-    tmp_df$diffexp[tmp_df$LogFC > 0.6 & tmp_df$Pvalue < 0.05] <- 'Up'
-    tmp_df$diffexp[tmp_df$LogFC < -0.6 & tmp_df$Pvalue < 0.05] <- 'Down'
+    tmp_df$diffexp[tmp_df$Pvalue < 0.05 & tmp_df$LogFC > 0] <- 'Up'
+    tmp_df$diffexp[tmp_df$Pvalue < 0.05 & tmp_df$LogFC < 0] <- 'Down'
     tmp_df <- tmp_df %>% arrange(Pvalue)
     tmp_df$label <- NA
     tmp_df$label[1:10] <- tmp_df$Gene[1:10]
-
+    
+    list_to_remove <- tmp_df %>% filter(Pvalue > 0.05 & abs(LogFC) > 8)
+    
+    if(nrow(list_to_remove) > 0){
+    tmp_df <- tmp_df %>% filter(!Gene %in% list_to_remove$Gene)
+    }
+    
 #Making graph
     if(length(unique(tmp_df$diffexp)) > 1){
 tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
@@ -457,7 +475,7 @@ tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label
   scale_color_manual(values = c('orange', 'grey', 'purple'),
                      labels = c('Downregulated', 'Not significant', 'Upregulated'))+
   geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
-  geom_vline(xintercept = c(-0.6, 0.6), col='blue', linetype ='dashed')+
+  geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
   theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                        title = paste0(tmp_label, ' in NEBULA Analysis'))
 }else{
@@ -467,7 +485,7 @@ tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label
   scale_color_manual(values = c('grey'),
                      labels = c('Not significant'))+
   geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
-  geom_vline(xintercept = c(-0.6, 0.6), col='blue', linetype ='dashed')+
+      geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
   theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
                        title = paste0(tmp_label, ' in NEBULA Analysis'))
   
@@ -563,23 +581,25 @@ write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA
 
 
 
+plotting_function(as.data.frame(result_allcells), 'EC_Top2000HVGs')
+
+sig_results <- as.data.frame(result_allcells) %>% dplyr::select(Gene = summary.gene, LogFC = summary.logFC_groupType_1_Diabetes, pvalue = summary.p_groupType_1_Diabetes) %>% filter(pvalue < 0.05)
+
+enrich_GO_BP <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "BP") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+enrich_GO_CC <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "CC") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+enrich_GO_MF <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "MF") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+
+sig_results <- as.data.frame(result_allcells) %>% dplyr::select(Gene = summary.gene, LogFC = summary.logFC_groupType_1_Diabetes.sexMale, pvalue = summary.p_groupType_1_Diabetes.sexMale) %>% filter(pvalue < 0.05)
+
 
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc_ec, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
 meta_gene <- subset(so_t1d_hc_ec, features = "MTAP")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
-result_ec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_ec$summary
-
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc_ec, layer = "counts")) # load counts and round
-counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
-meta_gene <- subset(so_t1d_hc_ec, features = "MTAP")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
 result_ec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
                  ncore = 1, output_re = T, covariance = T, offset = so_t1d_hc_ec$pooled_offset,
@@ -588,25 +608,12 @@ result_ec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_
 result_ec$summary
 
 #NOS
-counts_layer <- round(GetAssayData(so_t1d_hc_ec, layer = 'counts'))
-library_size <- Matrix::colSums(counts_layer)
-so_t1d_hc$library_size <- library_size
+
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc_ec, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc["NOS3",]
 meta_gene <- subset(so_t1d_hc_ec, features = "NOS3")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
-result_ec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_ec$summary
-
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc_ec, layer = "counts")) # load counts and round
-counts_t1d_hc_mtap <- counts_t1d_hc["NOS3",]
-meta_gene <- subset(so_t1d_hc_ec, features = "NOS3")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
 result_ec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
                  ncore = 1, output_re = T, covariance = T, offset = so_t1d_hc_ec$pooled_offset,
@@ -616,21 +623,11 @@ result_ec$summary
 
 #cGAS-STING
 
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc_ec, layer = "counts")) # load counts and round
-counts_t1d_hc_mtap <- counts_t1d_hc[cgas$V1,]
-meta_gene <- subset(so_t1d_hc_ec, features = cgas$V1)@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
-result_ec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_ec$summary
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc_ec, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc[cgas$V1,]
 meta_gene <- subset(so_t1d_hc_ec, features = cgas$V1)@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
 result_ec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
                  ncore = 1, output_re = T, covariance = T, offset = so_t1d_hc_ec$pooled_offset,
@@ -678,24 +675,26 @@ write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA
             quote=F, sep='\t')
 
 
-plotting_function(result_allcells, 'POD_')
+plotting_function(as.data.frame(result_allcells), 'POD__Top2000HVGs')
+
+
+sig_results <- as.data.frame(result_allcells) %>% dplyr::select(Gene = summary.gene, LogFC = summary.logFC_groupType_1_Diabetes, pvalue = summary.p_groupType_1_Diabetes) %>% filter(pvalue < 0.05)
+
+enrich_GO_BP <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "BP") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+enrich_GO_CC <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "CC") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+enrich_GO_MF <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "MF") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+
+sig_results <- as.data.frame(result_allcells) %>% dplyr::select(Gene = summary.gene, LogFC = summary.logFC_groupType_1_Diabetes.sexMale, pvalue = summary.p_groupType_1_Diabetes.sexMale) %>% filter(pvalue < 0.05)
+
 
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pod, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
 meta_gene <- subset(so_t1d_hc_pod, features = "MTAP")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
-result_pod <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_pod$summary
-
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pod, layer = "counts")) # load counts and round
-counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
-meta_gene <- subset(so_t1d_hc_pod, features = "MTAP")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
 result_pod <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
                  ncore = 1, output_re = T, covariance = T, offset = so_t1d_hc_pod$pooled_offset,
@@ -704,25 +703,11 @@ result_pod <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data
 result_pod$summary
 
 #NOS
-counts_layer <- round(GetAssayData(so_t1d_hc_pod, layer = 'counts'))
-library_size <- Matrix::colSums(counts_layer)
-so_t1d_hc$library_size <- library_size
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pod, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc["NOS3",]
 meta_gene <- subset(so_t1d_hc_pod, features = "NOS3")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
-result_pod <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_pod$summary
-
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pod, layer = "counts")) # load counts and round
-counts_t1d_hc_mtap <- counts_t1d_hc["NOS3",]
-meta_gene <- subset(so_t1d_hc_pod, features = "NOS3")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
 result_pod <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
                  ncore = 1, output_re = T, covariance = T, offset = so_t1d_hc_pod$pooled_offset,
@@ -732,21 +717,11 @@ result_pod$summary
 
 #cGAS-STING
 
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pod, layer = "counts")) # load counts and round
-counts_t1d_hc_mtap <- counts_t1d_hc[cgas$V1,]
-meta_gene <- subset(so_t1d_hc_pod, features = cgas$V1)@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
-result_pod <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_pod$summary
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pod, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc[cgas$V1,]
 meta_gene <- subset(so_t1d_hc_pod, features = cgas$V1)@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
 result_pod <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
                  ncore = 1, output_re = T, covariance = T, offset = so_t1d_hc_pod$pooled_offset,
@@ -806,25 +781,26 @@ result_allcells$summary
 write.table(result_allcells, 'C:/Users/netio/Documents/UofW/cGAS_Analysis/NEBULA_pec_fullanalysis_offset_withsex.txt', row.names=F,
             quote=F, sep='\t')
 
-plotting_function(as.data.frame(result_allcells), 'PEC')
+plotting_function(as.data.frame(result_allcells), 'PEC_Top2000HVGs')
+
+
+sig_results <- as.data.frame(result_allcells) %>% dplyr::select(Gene = summary.gene, LogFC = summary.logFC_groupType_1_Diabetes, pvalue = summary.p_groupType_1_Diabetes) %>% filter(pvalue < 0.05)
+
+enrich_GO_BP <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "BP") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+enrich_GO_CC <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "CC") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+enrich_GO_MF <- enrichGO(gene = sig_results$Gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "MF") %>% as.data.frame() %>% select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
+
+sig_results <- as.data.frame(result_allcells) %>% dplyr::select(Gene = summary.gene, LogFC = summary.logFC_groupType_1_Diabetes.sexMale, pvalue = summary.p_groupType_1_Diabetes.sexMale) %>% filter(pvalue < 0.05)
 
 
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pec, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
 meta_gene <- subset(so_t1d_hc_pec, features = "MTAP")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
-result_pec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_pec$summary
-
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pec, layer = "counts")) # load counts and round
-counts_t1d_hc_mtap <- counts_t1d_hc["MTAP",]
-meta_gene <- subset(so_t1d_hc_pec, features = "MTAP")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
 result_pec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
                  ncore = 1, output_re = T, covariance = T, offset = so_t1d_hc_pec$pooled_offset,
@@ -833,25 +809,11 @@ result_pec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data
 result_pec$summary
 
 #NOS
-counts_layer <- round(GetAssayData(so_t1d_hc_pec, layer = 'counts'))
-library_size <- Matrix::colSums(counts_layer)
-so_t1d_hc$library_size <- library_size
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pec, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc["NOS3",]
 meta_gene <- subset(so_t1d_hc_pec, features = "NOS3")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
-result_pec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_pec$summary
-
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pec, layer = "counts")) # load counts and round
-counts_t1d_hc_mtap <- counts_t1d_hc["NOS3",]
-meta_gene <- subset(so_t1d_hc_pec, features = "NOS3")@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
 result_pec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
                  ncore = 1, output_re = T, covariance = T, offset = so_t1d_hc_pec$pooled_offset,
@@ -861,27 +823,94 @@ result_pec$summary
 
 #cGAS-STING
 
-counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pec, layer = "counts")) # load counts and round
-counts_t1d_hc_mtap <- counts_t1d_hc[cgas$V1,]
-meta_gene <- subset(so_t1d_hc_pec, features = cgas$V1)@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
-data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
-result_pec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
-                 ncore = 1, output_re = T, covariance = T,
-                 reml = T, model = "NBLMM")
-
-result_pec$summary
 
 counts_t1d_hc <- round(GetAssayData(so_t1d_hc_pec, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc[cgas$V1,]
 meta_gene <- subset(so_t1d_hc_pec, features = cgas$V1)@meta.data
-pred_gene <- model.matrix(~group, data = meta_gene)
+pred_gene <- model.matrix(~group*sex, data = meta_gene)
 data_g_gene <- list(count = counts_t1d_hc_mtap, id = meta_gene$record_id, pred = pred_gene)
 result_pec <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
                  ncore = 1, output_re = T, covariance = T, offset = so_t1d_hc_pec$pooled_offset,
                  reml = T, model = "NBLMM")
 
 result_pec$summary
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##ATTEMPT PIO Analysis
+
+
+attempt_so <- readRDS("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/scRNA/data_raw/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS")
+
+
+meta.data <- attempt_so@meta.data
+
+
+
+
+
+sum(grepl("^MT-", rownames(attempt_so))) 
+
+# Identify mitochondrial genes (human: start with "MT-")
+mito_genes <- grep("^MT-", rownames(attempt_so), value = TRUE)
+attempt_so <- subset(attempt_so, features = setdiff(rownames(attempt_so), mito_genes))
+
+#Check the number of Mitochondrial genes after filtering to ensure filtering step was successful
+sum(grepl("^MT-", rownames(attempt_so))) #Should be 0
+
+
+#Ribosomal genes
+# Identify ribosomal genes
+ribo_genes <- c(
+  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
+  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
+  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
+  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
+  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
+  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
+  "RPL10", "RPS4Y1")
+
+attempt_so <- subset(attempt_so, features = setdiff(rownames(so), ribo_genes))
+# sum(grepl("^MT-", rownames(so_kpmp_sc))) #0
+length(which(rownames(attempt_so) %in% ribo_genes)) #0
+ncol(attempt_so) #211,218 cells
+nrow(attempt_so) #31,242 genes
+
+attempt_so <- subset(attempt_so, 
+                      subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 10)
+
+#Make sure IDs are right
+
+
+
+
+
+
+
+counts_layer <- round(GetAssayData(attempt_so, layer = 'counts'))
+library_size <- Matrix::colSums(round(GetAssayData(attempt_so, layer = 'counts')))
+attempt_so$library_size <- library_size
+sce <- SingleCellExperiment::SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce)
+# View size factors
+sizeFactors(sce)
+## Calculate offset → (size factors)
+attempt_so$pooled_offset <- (sizeFactors(sce))
+
+
+
+
 
 
 
