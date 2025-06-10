@@ -58,7 +58,7 @@ library(glmmTMB)
 library(reshape2)
 library(broom.mixed)
 library(nebula)
-library(table1)
+#library(table1)
 
 
 
@@ -824,6 +824,13 @@ unique(so_kpmp_sc$KPMP_celltype)
 so_kpmp_sc$DCT_celltype <- ifelse((so_kpmp_sc$KPMP_celltype=="DCT" | 
                                      so_kpmp_sc$KPMP_celltype=="dDCT"), "DCT","Non-DCT")
 
+
+
+
+###Load Line785_Rockies
+
+
+
 # #Calculate K2 and F variables
  so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
    rowwise() %>%
@@ -839,7 +846,7 @@ so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
   ungroup()
 
 
-save.image('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_841.RData')
+save.image('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_849.RData')
 
 
 #Filter to TCA cycle & Ox Phos Genes
@@ -867,6 +874,9 @@ rm(counts_layer,meta,sce)
    mutate(avg_c_k2_f = (avg_c_k2/avg_c_f)) %>%
    mutate(avg_m_k2_f = (avg_m_k2/avg_m_f)) %>%
    ungroup()
+ 
+ 
+ save.image('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_879.RData')
 ```
 
 ## d. Explore Distribution & Zero-Inflation
@@ -1064,6 +1074,15 @@ dev.off()
 ## h. Visualizations 
 ```{r}
 # PCA
+
+save.image('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_1078.RData')
+
+load('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_1078.RData')
+
+
+
+
+
 so_kpmp_sc <- FindVariableFeatures(object = so_kpmp_sc)
 so_kpmp_sc <- RunPCA(so_kpmp_sc, features = VariableFeatures(object = so_kpmp_sc),assay="RNA")
 ElbowPlot(so_kpmp_sc)
@@ -1515,6 +1534,16 @@ table1(~age + sex + bmi + triglycerides + hba1c+pah_clear_bsa + eGFR_CKD_epi+gfr
 ####TCA Cycle 
 ```{r}
 #Filter to PT Cells
+
+save.image('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_1538.RData')
+
+load('C:/Users/netio/Documents/UofW/Rockies/pooledoffset_1538.RData')
+
+
+
+
+
+
 so_celltype <- so_subset
 # so_celltype <- subset(so_celltype,group=="Type_2_Diabetes")
 DefaultAssay(so_celltype) <- "RNA" 
@@ -1529,6 +1558,8 @@ so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
 
 counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
 
+
+
 # With parallelization
 #TCA Cycle
 # List of genes
@@ -1539,6 +1570,53 @@ registerDoParallel(cl)
 
 start_time <- Sys.time()
 
+
+
+if(ncol(counts_matrix) > 0) {
+  so_celltype[["RNA"]] <- CreateAssayObject(counts = counts_matrix)
+}
+
+identical(colnames(so_celltype), rownames(so_celltype@meta.data))
+identical(colnames(so_celltype), colnames(so_celltype[["RNA"]]))
+
+so_celltype[["RNA"]] <- so_celltype[["RNA"]][, colnames(so_celltype)]
+
+expr_matrix <- as.matrix(GetAssayData(so_celltype, assay = "RNA", slot = "data"))
+counts_matrix <- as.matrix(GetAssayData(so_celltype, assay = "RNA", slot = "counts"))
+
+
+
+
+
+results_list <- list()
+for(i in c(1:length(genes_list))){
+  g <- genes_list[[i]]
+  # Subset to your genes directly from the matrix
+gene_expr <- expr_matrix[g, ]
+gene_counts <- counts_matrix[g, ] %>% as.matrix()
+
+
+  count_gene <- counts_path[g, , drop = FALSE]
+  count_matrix <- t(Matrix(gene_counts, sparse = TRUE))
+    meta_gene <- so_celltype@meta.data
+    pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
+    # library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
+    data_g_gene <- group_cell(count = count_matrix, id = meta_gene$kit_id, pred = pred_gene ,offset=library)
+  
+      if (is.null(data_g_gene)) {
+      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+    }
+    
+    #With offset
+    result <- nebula(count = count_matrix, id = meta_gene$kit_id, pred = pred_gene, reml=T,model="NBLMM",output_re = T,covariance=T,offset=library, 
+                     verbose = TRUE, method = 'LN')
+    
+    results_list[[i]] <- list(gene = g, result = result)  # return both gene name and result
+  
+}
+
+
 nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
   tryCatch({
     count_gene <- counts_path[g, , drop = FALSE]
@@ -1546,7 +1624,7 @@ nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")
     pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
     # library <- meta_gene$library_size
     library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offsetlibrary)
     
     if (is.null(data_g_gene)) {
       data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
