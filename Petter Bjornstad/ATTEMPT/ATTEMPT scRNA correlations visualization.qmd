@@ -33,6 +33,7 @@ library(stringr)
 library(jsonlite)
 library(aws.s3)
 library(fgsea)
+library(reshape2)
 ```
 
 ```{r echo = F}
@@ -115,7 +116,10 @@ Sys.setenv(
 ```
 
 ```{r echo = F}
-plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suffix, p_thresh = 0.05) {
+plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suffix, p_thresh = 0.05,
+                         positive_text = "Positively associated with Dapagliflozin", 
+                         negative_text = "Negatively associated with Dapagliflozin",
+                         formula = "treatment") {
   set.seed(1)
   top_pos <- data %>%
     dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
@@ -133,7 +137,8 @@ plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suf
                                  TRUE ~ "#ced4da"),
            top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
            top_lab  = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), Gene, ""))
-
+  max_fc <- max(data[[fc]], na.rm = TRUE)
+  min_fc <- min(data[[fc]], na.rm = TRUE)
   p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
     geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
@@ -150,7 +155,37 @@ plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suf
           panel.grid = element_blank(),
           text = element_text(size = 15),
           title = element_text(size = 9)) +
-    guides(color = "none", size = "none")
+    guides(color = "none", size = "none")   +
+  annotate("segment", 
+           x=max_fc/8, 
+           xend=(max_fc*7)/8, 
+           y=-1.5,
+           col="#f28482", arrow=arrow(length=unit(0.2, "cm"))) +
+  annotate("text", 
+           x=mean(c(max_fc/8, (max_fc*7)/8)), 
+           y=-2, 
+           label=positive_text,
+           size=3, color="#f28482") +
+  annotate("segment", 
+           x=min_fc/8, 
+           xend=(min_fc*7)/8, 
+           y=-1.5,
+           col="#457b9d", arrow=arrow(length=unit(0.2, "cm"))) +
+  annotate("text", 
+           x=mean(c(min_fc/8, (min_fc*7)/8)), 
+           y=-2, 
+           label=negative_text,
+           size=3, color="#457b9d") +
+    annotate("text", 
+           x=max_fc * 0.95,
+           y=-3.5, 
+           hjust = 1,
+           label=paste0("Formula: ~ ", formula, " + (1|subject)"),
+           size=3, color="#343a40") +
+  scale_y_continuous(expand=c(0,0)) +
+  coord_cartesian(ylim = c(0, 15), clip="off") +
+  theme(plot.margin = margin(t = 10, r = 20, b = 28, l = 20), 
+        axis.title.x = element_text(margin = margin(t = 28)))
 
   ggsave(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/", file_suffix, ".jpeg"), plot = p, width = 7, height = 5)
   return(p)
@@ -208,14 +243,20 @@ plot_volcano(pt_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta",
              "PT Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(p-value)",
-             "nebula/pt_mgfr_raw")
+             "nebula/pt_mgfr_raw",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(pt_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta", 
              "fdr_interaction",
              "PT Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/pt_mgfr_raw_fdr")
+             "nebula/pt_mgfr_raw_fdr",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -419,14 +460,20 @@ plot_volcano(pt_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta",
              "PT BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(p-value)",
-             "nebula/pt_mgfr_bsa")
+             "nebula/pt_mgfr_bsa",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(pt_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta", 
              "fdr_interaction",
              "PT BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/pt_mgfr_bsa_fdr")
+             "nebula/pt_mgfr_bsa_fdr",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -630,14 +677,20 @@ plot_volcano(pt_hba1c_res_combined, "logFC_hba1c_delta",
              "PT HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(p-value)",
-             "nebula/pt_hba1c")
+             "nebula/pt_hba1c",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with HbA1c",
+             negative_text = "Negatively associated with HbA1c")
 
 plot_volcano(pt_hba1c_res_combined, "logFC_hba1c_delta", 
              "fdr_interaction",
              "PT HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(FDR adjusted p-value)",
-             "nebula/pt_hba1c_fdr")
+             "nebula/pt_hba1c_fdr",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -842,14 +895,20 @@ plot_volcano(pt_weight_res_combined, "logFC_weight_delta",
              "PT Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(p-value)",
-             "nebula/pt_weight")
+             "nebula/pt_weight",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 
 plot_volcano(pt_weight_res_combined, "logFC_weight_delta", 
              "fdr_interaction",
              "PT Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(FDR adjusted p-value)",
-             "nebula/pt_weight_fdr")
+             "nebula/pt_weight_fdr",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 ```
 
 #### GSEA (fgsea)
@@ -1054,14 +1113,20 @@ plot_volcano(subset(pt_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logFC
              "PT Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(p-value)",
-             "nebula/pt_avg_c_r2")
+             "nebula/pt_avg_c_r2",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 
 plot_volcano(subset(pt_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logFC_avg_c_r2_delta", 
              "fdr_interaction",
              "PT Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/pt_avg_c_r2_fdr")
+             "nebula/pt_avg_c_r2_fdr",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 ```
 
 #### GSEA (fgsea)
@@ -1267,14 +1332,20 @@ plot_volcano(subset(pt_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logFC
              "PT Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(p-value)",
-             "nebula/pt_avg_k_r2")
+             "nebula/pt_avg_k_r2",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 
 plot_volcano(subset(pt_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logFC_avg_k_r2_delta", 
              "fdr_interaction",
              "PT Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/pt_avg_k_r2_fdr")
+             "nebula/pt_avg_k_r2_fdr",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 ```
 
 #### GSEA (fgsea)
@@ -1480,14 +1551,20 @@ plot_volcano(tal_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta",
              "TAL Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(p-value)",
-             "nebula/tal_mgfr_raw")
+             "nebula/tal_mgfr_raw",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(tal_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta", 
              "fdr_interaction",
              "TAL Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/tal_mgfr_raw_fdr")
+             "nebula/tal_mgfr_raw_fdr",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -1613,14 +1690,20 @@ plot_volcano(tal_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta",
              "TAL BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(p-value)",
-             "nebula/tal_mgfr_bsa")
+             "nebula/tal_mgfr_bsa",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(tal_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta", 
              "fdr_interaction",
              "TAL BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/tal_mgfr_bsa_fdr")
+             "nebula/tal_mgfr_bsa_fdr",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -1746,14 +1829,20 @@ plot_volcano(tal_hba1c_res_combined, "logFC_hba1c_delta",
              "TAL HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(p-value)",
-             "nebula/tal_hba1c")
+             "nebula/tal_hba1c",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with HbA1c",
+             negative_text = "Negatively associated with HbA1c")
 
 plot_volcano(tal_hba1c_res_combined, "logFC_hba1c_delta", 
              "fdr_interaction",
              "TAL HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(FDR adjusted p-value)",
-             "nebula/tal_hba1c_fdr")
+             "nebula/tal_hba1c_fdr",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with HbA1c",
+             negative_text = "Negatively associated with HbA1c")
 ```
 
 #### GSEA (fgsea)
@@ -1880,14 +1969,20 @@ plot_volcano(tal_weight_res_combined, "logFC_weight_delta",
              "TAL Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(p-value)",
-             "nebula/tal_weight")
+             "nebula/tal_weight",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 
 plot_volcano(tal_weight_res_combined, "logFC_weight_delta", 
              "fdr_interaction",
              "TAL Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(FDR adjusted p-value)",
-             "nebula/tal_weight_fdr")
+             "nebula/tal_weight_fdr",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 ```
 
 #### GSEA (fgsea)
@@ -2014,14 +2109,20 @@ plot_volcano(subset(tal_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logF
              "TAL Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(p-value)",
-             "nebula/tal_avg_c_r2")
+             "nebula/tal_avg_c_r2",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 
 plot_volcano(subset(tal_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logFC_avg_c_r2_delta", 
              "fdr_interaction",
              "TAL Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/tal_avg_c_r2_fdr")
+             "nebula/tal_avg_c_r2_fdr",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 ```
 
 #### GSEA (fgsea)
@@ -2149,14 +2250,20 @@ plot_volcano(subset(tal_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logF
              "TAL Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(p-value)",
-             "nebula/tal_avg_k_r2")
+             "nebula/tal_avg_k_r2",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 
 plot_volcano(subset(tal_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logFC_avg_k_r2_delta", 
              "fdr_interaction",
              "TAL Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/tal_avg_k_r2_fdr")
+             "nebula/tal_avg_k_r2_fdr",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 ```
 
 #### GSEA (fgsea)
@@ -2284,14 +2391,20 @@ plot_volcano(immune_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta",
              "Immune Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(p-value)",
-             "nebula/immune_mgfr_raw")
+             "nebula/immune_mgfr_raw",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(immune_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta", 
              "fdr_interaction",
              "Immune Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/immune_mgfr_raw_fdr")
+             "nebula/immune_mgfr_raw_fdr",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -2417,14 +2530,20 @@ plot_volcano(immune_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta",
              "Immune BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(p-value)",
-             "nebula/immune_mgfr_bsa")
+             "nebula/immune_mgfr_bsa",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(immune_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta", 
              "fdr_interaction",
              "Immune BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/immune_mgfr_bsa_fdr")
+             "nebula/immune_mgfr_bsa_fdr",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -2550,14 +2669,20 @@ plot_volcano(immune_hba1c_res_combined, "logFC_hba1c_delta",
              "Immune HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(p-value)",
-             "nebula/immune_hba1c")
+             "nebula/immune_hba1c",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with HbA1c",
+             negative_text = "Negatively associated with HbA1c")
 
 plot_volcano(immune_hba1c_res_combined, "logFC_hba1c_delta", 
              "fdr_interaction",
              "Immune HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(FDR adjusted p-value)",
-             "nebula/immune_hba1c_fdr")
+             "nebula/immune_hba1c_fdr",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with HbA1c",
+             negative_text = "Negatively associated with HbA1c")
 ```
 
 #### GSEA (fgsea)
@@ -2684,14 +2809,20 @@ plot_volcano(immune_weight_res_combined, "logFC_weight_delta",
              "Immune Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(p-value)",
-             "nebula/immune_weight")
+             "nebula/immune_weight",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 
 plot_volcano(immune_weight_res_combined, "logFC_weight_delta", 
              "fdr_interaction",
              "Immune Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(FDR adjusted p-value)",
-             "nebula/immune_weight_fdr")
+             "nebula/immune_weight_fdr",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 ```
 
 #### GSEA (fgsea)
@@ -2818,14 +2949,20 @@ plot_volcano(subset(immune_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "l
              "Immune Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(p-value)",
-             "nebula/immune_avg_c_r2")
+             "nebula/immune_avg_c_r2",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 
 plot_volcano(subset(immune_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logFC_avg_c_r2_delta", 
              "fdr_interaction",
              "Immune Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/immune_avg_c_r2_fdr")
+             "nebula/immune_avg_c_r2_fdr",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 ```
 
 #### GSEA (fgsea)
@@ -2953,14 +3090,20 @@ plot_volcano(subset(immune_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "l
              "Immune Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(p-value)",
-             "nebula/immune_avg_k_r2")
+             "nebula/immune_avg_k_r2",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 
 plot_volcano(subset(immune_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logFC_avg_k_r2_delta", 
              "fdr_interaction",
              "Immune Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/immune_avg_k_r2_fdr")
+             "nebula/immune_avg_k_r2_fdr",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 ```
 
 #### GSEA (fgsea)
@@ -3088,14 +3231,20 @@ plot_volcano(pc_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta",
              "PC Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(p-value)",
-             "nebula/pc_mgfr_raw")
+             "nebula/pc_mgfr_raw",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(pc_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta", 
              "fdr_interaction",
              "PC Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/pc_mgfr_raw_fdr")
+             "nebula/pc_mgfr_raw_fdr",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -3221,14 +3370,20 @@ plot_volcano(pc_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta",
              "PC BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(p-value)",
-             "nebula/pc_mgfr_bsa")
+             "nebula/pc_mgfr_bsa",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(pc_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta", 
              "fdr_interaction",
              "PC BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/pc_mgfr_bsa_fdr")
+             "nebula/pc_mgfr_bsa_fdr",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -3488,14 +3643,20 @@ plot_volcano(pc_weight_res_combined, "logFC_weight_delta",
              "PC Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(p-value)",
-             "nebula/pc_weight")
+             "nebula/pc_weight",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 
 plot_volcano(pc_weight_res_combined, "logFC_weight_delta", 
              "fdr_interaction",
              "PC Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(FDR adjusted p-value)",
-             "nebula/pc_weight_fdr")
+             "nebula/pc_weight_fdr",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 ```
 
 #### GSEA (fgsea)
@@ -3622,14 +3783,20 @@ plot_volcano(subset(pc_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logFC
              "PC Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(p-value)",
-             "nebula/pc_avg_c_r2")
+             "nebula/pc_avg_c_r2",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 
 plot_volcano(subset(pc_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logFC_avg_c_r2_delta", 
              "fdr_interaction",
              "PC Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/pc_avg_c_r2_fdr")
+             "nebula/pc_avg_c_r2_fdr",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 ```
 
 #### GSEA (fgsea)
@@ -3757,14 +3924,20 @@ plot_volcano(subset(pc_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logFC
              "PC Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(p-value)",
-             "nebula/pc_avg_k_r2")
+             "nebula/pc_avg_k_r2",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 
 plot_volcano(subset(pc_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logFC_avg_k_r2_delta", 
              "fdr_interaction",
              "PC Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/pc_avg_k_r2_fdr")
+             "nebula/pc_avg_k_r2_fdr",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 ```
 
 #### GSEA (fgsea)
@@ -3892,14 +4065,20 @@ plot_volcano(ic_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta",
              "IC Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(p-value)",
-             "nebula/ic_mgfr_raw")
+             "nebula/ic_mgfr_raw",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(ic_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta", 
              "fdr_interaction",
              "IC Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/ic_mgfr_raw_fdr")
+             "nebula/ic_mgfr_raw_fdr",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -4025,14 +4204,20 @@ plot_volcano(ic_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta",
              "IC BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(p-value)",
-             "nebula/ic_mgfr_bsa")
+             "nebula/ic_mgfr_bsa",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(ic_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta", 
              "fdr_interaction",
              "IC BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/ic_mgfr_bsa_fdr")
+             "nebula/ic_mgfr_bsa_fdr",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -4158,14 +4343,20 @@ plot_volcano(ic_hba1c_res_combined, "logFC_hba1c_delta",
              "IC HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(p-value)",
-             "nebula/ic_hba1c")
+             "nebula/ic_hba1c",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with HbA1c",
+             negative_text = "Negatively associated with HbA1c")
 
 plot_volcano(ic_hba1c_res_combined, "logFC_hba1c_delta", 
              "fdr_interaction",
              "IC HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(FDR adjusted p-value)",
-             "nebula/ic_hba1c_fdr")
+             "nebula/ic_hba1c_fdr",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with HbA1c",
+             negative_text = "Negatively associated with HbA1c")
 ```
 
 #### GSEA (fgsea)
@@ -4292,14 +4483,20 @@ plot_volcano(ic_weight_res_combined, "logFC_weight_delta",
              "IC Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(p-value)",
-             "nebula/ic_weight")
+             "nebula/ic_weight",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 
 plot_volcano(ic_weight_res_combined, "logFC_weight_delta", 
              "fdr_interaction",
              "IC Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(FDR adjusted p-value)",
-             "nebula/ic_weight_fdr")
+             "nebula/ic_weight_fdr",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 ```
 
 #### GSEA (fgsea)
@@ -4426,14 +4623,20 @@ plot_volcano(subset(ic_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logFC
              "IC Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(p-value)",
-             "nebula/ic_avg_c_r2")
+             "nebula/ic_avg_c_r2",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 
 plot_volcano(subset(ic_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logFC_avg_c_r2_delta", 
              "fdr_interaction",
              "IC Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/ic_avg_c_r2_fdr")
+             "nebula/ic_avg_c_r2_fdr",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 ```
 
 #### GSEA (fgsea)
@@ -4561,14 +4764,20 @@ plot_volcano(subset(ic_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logFC
              "IC Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(p-value)",
-             "nebula/ic_avg_k_r2")
+             "nebula/ic_avg_k_r2",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 
 plot_volcano(subset(ic_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logFC_avg_k_r2_delta", 
              "fdr_interaction",
              "IC Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/ic_avg_k_r2_fdr")
+             "nebula/ic_avg_k_r2_fdr",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 ```
 
 #### GSEA (fgsea)
@@ -4696,14 +4905,20 @@ plot_volcano(ec_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta",
              "EC Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(p-value)",
-             "nebula/ec_mgfr_raw")
+             "nebula/ec_mgfr_raw",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(ec_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta", 
              "fdr_interaction",
              "EC Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/ec_mgfr_raw_fdr")
+             "nebula/ec_mgfr_raw_fdr",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -4829,14 +5044,20 @@ plot_volcano(ec_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta",
              "EC BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(p-value)",
-             "nebula/ec_mgfr_bsa")
+             "nebula/ec_mgfr_bsa",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(ec_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta", 
              "fdr_interaction",
              "EC BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/ec_mgfr_bsa_fdr")
+             "nebula/ec_mgfr_bsa_fdr",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -4962,14 +5183,20 @@ plot_volcano(ec_hba1c_res_combined, "logFC_hba1c_delta",
              "EC HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(p-value)",
-             "nebula/ec_hba1c")
+             "nebula/ec_hba1c",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with HbA1c",
+             negative_text = "Negatively associated with HbA1c")
 
 plot_volcano(ec_hba1c_res_combined, "logFC_hba1c_delta", 
              "fdr_interaction",
              "EC HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(FDR adjusted p-value)",
-             "nebula/ec_hba1c_fdr")
+             "nebula/ec_hba1c_fdr",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with HbA1c",
+             negative_text = "Negatively associated with HbA1c")
 ```
 
 #### GSEA (fgsea)
@@ -5230,14 +5457,20 @@ plot_volcano(subset(ec_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logFC
              "EC Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(p-value)",
-             "nebula/ec_avg_c_r2")
+             "nebula/ec_avg_c_r2",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 
 plot_volcano(subset(ec_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logFC_avg_c_r2_delta", 
              "fdr_interaction",
              "EC Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/ec_avg_c_r2_fdr")
+             "nebula/ec_avg_c_r2_fdr",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 ```
 
 #### GSEA (fgsea)
@@ -5365,14 +5598,20 @@ plot_volcano(subset(ec_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logFC
              "EC Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(p-value)",
-             "nebula/ec_avg_k_r2")
+             "nebula/ec_avg_k_r2",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 
 plot_volcano(subset(ec_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logFC_avg_k_r2_delta", 
              "fdr_interaction",
              "EC Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/ec_avg_k_r2_fdr")
+             "nebula/ec_avg_k_r2_fdr",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 ```
 
 #### GSEA (fgsea)
@@ -5501,14 +5740,20 @@ plot_volcano(fibvsmc_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta",
              "FIB, VSMC/P Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(p-value)",
-             "nebula/fibvsmc_mgfr_raw")
+             "nebula/fibvsmc_mgfr_raw",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(fibvsmc_mgfr_raw_res_combined, "logFC_gfr_raw_plasma_delta", 
              "fdr_interaction",
              "FIB, VSMC/P Raw mGFR (REML & Pooled offset)", 
              "logFC mGFR (Raw)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/fibvsmc_mgfr_raw_fdr")
+             "nebula/fibvsmc_mgfr_raw_fdr",
+             formula = "mGFR (Raw) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -5634,14 +5879,20 @@ plot_volcano(fibvsmc_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta",
              "FIB, VSMC/P BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(p-value)",
-             "nebula/fibvsmc_mgfr_bsa")
+             "nebula/fibvsmc_mgfr_bsa",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 
 plot_volcano(fibvsmc_mgfr_bsa_res_combined, "logFC_gfr_bsa_plasma_delta", 
              "fdr_interaction",
              "FIB, VSMC/P BSA mGFR (REML & Pooled offset)", 
              "logFC mGFR (BSA)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/fibvsmc_mgfr_bsa_fdr")
+             "nebula/fibvsmc_mgfr_bsa_fdr",
+             formula = "mGFR (BSA) + treatment",
+             positive_text = "Positively associated with mGFR",
+             negative_text = "Negatively associated with mGFR")
 ```
 
 #### GSEA (fgsea)
@@ -5767,14 +6018,20 @@ plot_volcano(fibvsmc_hba1c_res_combined, "logFC_hba1c_delta",
              "FIB, VSMC/P HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(p-value)",
-             "nebula/fibvsmc_hba1c")
+             "nebula/fibvsmc_hba1c",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with HbA1c",
+             negative_text = "Negatively associated with HbA1c")
 
 plot_volcano(fibvsmc_hba1c_res_combined, "logFC_hba1c_delta", 
              "fdr_interaction",
              "FIB, VSMC/P HbA1c (REML & Pooled offset)", 
              "logFC HbA1c", 
              "-log10(FDR adjusted p-value)",
-             "nebula/fibvsmc_hba1c_fdr")
+             "nebula/fibvsmc_hba1c_fdr",
+             formula = "HbA1c + treatment",
+             positive_text = "Positively associated with HbA1c",
+             negative_text = "Negatively associated with HbA1c")
 ```
 
 #### GSEA (fgsea)
@@ -5901,14 +6158,20 @@ plot_volcano(fibvsmc_weight_res_combined, "logFC_weight_delta",
              "FIB, VSMC/P Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(p-value)",
-             "nebula/fibvsmc_weight")
+             "nebula/fibvsmc_weight",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 
 plot_volcano(fibvsmc_weight_res_combined, "logFC_weight_delta", 
              "fdr_interaction",
              "FIB, VSMC/P Weight (REML & Pooled offset)", 
              "logFC Weight", 
              "-log10(FDR adjusted p-value)",
-             "nebula/fibvsmc_weight_fdr")
+             "nebula/fibvsmc_weight_fdr",
+             formula = "weight + treatment",
+             positive_text = "Positively associated with weight",
+             negative_text = "Negatively associated with weight")
 ```
 
 #### GSEA (fgsea)
@@ -6035,14 +6298,20 @@ plot_volcano(subset(fibvsmc_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "
              "FIB, VSMC/P Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(p-value)",
-             "nebula/fibvsmc_avg_c_r2")
+             "nebula/fibvsmc_avg_c_r2",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 
 plot_volcano(subset(fibvsmc_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-50), "logFC_avg_c_r2_delta", 
              "fdr_interaction",
              "FIB, VSMC/P Avg Cortical R2* (REML & Pooled offset)", 
              "logFC Avg Cortical R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/fibvsmc_avg_c_r2_fdr")
+             "nebula/fibvsmc_avg_c_r2_fdr",
+             formula = "avg cortical R2* + treatment",
+             positive_text = "Positively associated with avg cortical R2*",
+             negative_text = "Negatively associated with avg cortical R2*")
 ```
 
 #### GSEA (fgsea)
@@ -6170,14 +6439,20 @@ plot_volcano(subset(fibvsmc_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "
              "FIB, VSMC/P Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(p-value)",
-             "nebula/fibvsmc_avg_k_r2")
+             "nebula/fibvsmc_avg_k_r2",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 
 plot_volcano(subset(fibvsmc_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-50), "logFC_avg_k_r2_delta", 
              "fdr_interaction",
              "FIB, VSMC/P Avg Kidney R2* (REML & Pooled offset)", 
              "logFC Avg Kidney R2*", 
              "-log10(FDR adjusted p-value)",
-             "nebula/fibvsmc_avg_k_r2_fdr")
+             "nebula/fibvsmc_avg_k_r2_fdr",
+             formula = "avg kidney R2* + treatment",
+             positive_text = "Positively associated with avg kidney R2*",
+             negative_text = "Negatively associated with avg kidney R2*")
 ```
 
 #### GSEA (fgsea)
