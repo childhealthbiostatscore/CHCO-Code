@@ -34,19 +34,7 @@ home_dir <- switch(Sys.info()["sysname"],
 knitr::opts_knit$set(root.dir = home_dir)
 ```
 
-```{r data import}
-# Load data
-load("./Data_Clean/analysis_data.RData")
-# Combine factor levels
-levels(df$insur_type) <- c(
-  "Public", "Private", "Military", "Other/None", "Other/None"
-)
-df$insur_type <- relevel(df$insur_type, ref = "Private")
-levels(df$combined_race) <- c(
-  "African American", "Other", "Asian", "Caucasian", "More than one", "Other",
-  "Other"
-)
-df$combined_race <- relevel(df$combined_race, ref = "Caucasian")
+```{r functions}
 # Write a function to determine which visits to include
 visits_exclude <- function(data = d, column, remove_all_after = F) {
   # To dataframe
@@ -99,6 +87,21 @@ visits_exclude <- function(data = d, column, remove_all_after = F) {
   # Return
   return(data$remove)
 }
+```
+
+```{r data import}
+# Load data
+load("./Data_Clean/analysis_data.RData")
+# Combine factor levels
+levels(df$insur_type) <- c(
+  "Public", "Private", "Military", "Other/None", "Other/None"
+)
+df$insur_type <- relevel(df$insur_type, ref = "Private")
+levels(df$combined_race) <- c(
+  "African American", "Other", "Asian", "Caucasian", "More than one", "Other",
+  "Other"
+)
+df$combined_race <- relevel(df$combined_race, ref = "Caucasian")
 # This is probably not the most elegant approach, but it seems to work.
 dfs <- split(data.frame(df), df$record_number)
 dfs <- lapply(dfs, function(d) {
@@ -1714,9 +1717,6 @@ df$combined_race <- relevel(df$combined_race, ref = "Caucasian")
 dfs <- split(data.frame(df), df$record_number)
 dfs <- lapply(dfs, function(d) {
   # Get removal vector for each med
-  d$ec_remove <- visits_exclude(d, "ec")
-  d$metformin_remove <- visits_exclude(d, "metformin")
-  d$lifestyle_remove <- visits_exclude(d, "lifestyle")
   d$larc_remove <- visits_exclude(d, "larc")
   d$weight_loss_remove <- visits_exclude(d, "weight_loss", remove_all_after = T)
   d$atypical_remove <- visits_exclude(d, "cv_medications___17", remove_all_after = T)
@@ -1724,16 +1724,20 @@ dfs <- lapply(dfs, function(d) {
   return(d)
 })
 df <- do.call(rbind, dfs)
-# Get baseline weight and BMI
+# Get baseline weight and BMI, ever LARC, and age at first LARC
 df <- df %>%
   arrange(record_number, cv_monthssincepcosdx) %>%
   group_by(record_number) %>%
   mutate(
     baseline_weight = first(cv_weight, na_rm = T),
-    baseline_bmi = first(cv_bmi, na_rm = T)
+    baseline_bmi = first(cv_bmi, na_rm = T),
+    larc_ever = any(larc == "Yes"),
+    age_first_larc = first(cv_age[larc == "Yes"])
   )
-# For weight loss medication, remove all visits after they first start
-df <- df %>% filter(is.na(weight_loss_remove), is.na(atypical_remove))
+df$larc_ever <- factor(df$larc_ever,
+  levels = c(F, T),
+  labels = c("No", "Yes")
+)
 # Additional labels
 label(df$combined_race) <- "Race"
 label(df$ethnicity) <- "Ethnicity"
@@ -1743,11 +1747,17 @@ label(df$metformin) <- "On Metformin?"
 label(df$lifestyle) <- "On Lifestyle Medicine?"
 label(df$larc) <- "On LARC?"
 label(df$weight_loss) <- "On Weight Loss Medication?"
+label(df$larc_ever) <- "Ever on LARC?"
+label(df$age_first_larc) <- "Age at First LARC"
 # Stratify by weight group
 # df <- df %>% filter(weight_cat == "Normal weight")
 # Create the LARC dataset
 larc_df <- df %>%
-  # filter(is.na(larc_remove)) %>%
+  # Remove visits after weight loss or atypical antipsychotic start, and those
+  # visits where we're not really sure if they're on LARC or not.
+  filter(
+    is.na(larc_remove), is.na(weight_loss_remove), is.na(atypical_remove)
+  ) %>%
   mutate(
     time_of_first_larc = first(cv_monthssincepcosdx[larc == "Yes"], na_rm = T),
     time_from_first_larc = cv_monthssincepcosdx - time_of_first_larc
@@ -1755,8 +1765,8 @@ larc_df <- df %>%
   select(
     record_number, combined_race, ethnicity, insur_type, baseline_weight,
     baseline_bmi, cv_age, cv_monthssincepcosdx, time_from_first_larc, larc,
-    cv_medications___16, cv_weight, cv_bmi, cv_a1c, cv_tg, cv_hdl,
-    cv_alt, cv_sbp, weight_cat, pcosdx_age
+    metformin, cv_medications___16, cv_weight, cv_bmi, cv_a1c, cv_tg, cv_hdl,
+    cv_alt, cv_sbp, weight_cat, pcosdx_age, age_first_larc, larc_ever
   )
 # Create a spline model dataset
 larc_12_month_spline <- larc_df %>%
@@ -1782,20 +1792,12 @@ Some participants do not have a diagnostic visit entered in REDCap (e.g. BCH8), 
 ```{r results='asis'}
 t1_df <- larc_df %>%
   group_by(record_number) %>%
-  mutate(
-    larc_ever = any(larc == "Yes"),
-    age_first_larc = first(cv_age[larc == "Yes"])
-  ) %>%
   slice_min(cv_monthssincepcosdx)
-t1_df$larc_ever <- factor(t1_df$larc_ever,
-  levels = c(F, T),
-  labels = c("Never on LARC", "Ever on LARC")
-)
 t1 <- tableby(
   larc_ever ~ pcosdx_age + age_first_larc + combined_race + ethnicity +
     fe(insur_type) + cv_weight + cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt +
     cv_sbp + cv_monthssincepcosdx,
-  data = t1_df, labels
+  data = t1_df
 )
 summary(t1,
   pfootnote = T,
@@ -1807,8 +1809,9 @@ summary(t1,
 
 ```{r results='asis'}
 t1 <- tableby(
-  weight_cat ~ cv_age + combined_race + ethnicity + fe(insur_type) + cv_weight +
-    cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt + cv_sbp + cv_monthssincepcosdx,
+  weight_cat ~ pcosdx_age + age_first_larc + larc_ever + ethnicity +
+    fe(insur_type) + cv_weight + cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt +
+    cv_sbp + cv_monthssincepcosdx,
   data = t1_df
 )
 summary(t1, pfootnote = T)
