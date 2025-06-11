@@ -16,7 +16,7 @@ library(purrr)
 # setwd(home_dir)
 
 #setwd("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/")
-setwd("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive")
+setwd("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive")
 
 ###################
 # ANML ADAT FILES #
@@ -94,8 +94,34 @@ analytes_attempt <- analytes_attempt %>% filter(!Target == "Fc_MOUSE")
 analytes_attempt <- analytes_attempt %>% filter(!Target == "No Protein")
 analytes_attempt <- analytes_attempt %>% filter(Organism == "Human")
 analytes_attempt <- analytes_attempt %>% filter(Type == "Protein")
-
 additional_proteins9k <- colnames(attempt)[colnames(attempt) %nin% colnames(soma)]
+# add in ATTEMPT urine proteomics
+attempt_urine <- read_adat("./Local cohort Somalogic data/ATTEMPT/20250527_Petter_SOMAscan7k_Urine_WUS_25_015_SR007698_data_export/WUS_25_015_v4.1_Urine.hybNorm.medNormInt.plateScale.anmlQC.qcCheck.AddLOD.anmlSMP.adat")
+attempt_urine <- attempt_urine %>% filter(!is.na(SampleDescription))
+attempt_urine <- attempt_urine %>% select(-SampleNumber)
+urine_analytes <- getAnalyteInfo(attempt_urine)
+# remove fc mouse and no protein
+attempt_urine <- attempt_urine %>% select(!all_of(apt_drop))
+attempt_urine[additional_proteins9k] <- NA
+attempt_urine[,c("NormScale_20","NormScale_0_005","NormScale_0_5","ANMLFractionUsed_20","ANMLFractionUsed_0_005","ANMLFractionUsed_0_5")] <- NA
+drop <- urine_analytes %>% filter(Target == "Fc_MOUSE" | Target == "No Protein" | !(Organism == "Human") | !(Type == "Protein"))
+apt_drop <- drop$AptName
+attempt_urine <- attempt_urine %>% select(!all_of(apt_drop))
+urine_analytes <- urine_analytes %>% filter(!Target == "Fc_MOUSE")
+urine_analytes <- urine_analytes %>% filter(!Target == "No Protein")
+urine_analytes <- urine_analytes %>% filter(Organism == "Human")
+urine_analytes <- urine_analytes %>% filter(Type == "Protein")
+# add _urine to colnames in the urine proteomics dataset
+new_names <- paste0(colnames(attempt_urine), "_urine")
+colnames(attempt_urine) <- new_names
+# recode one ID
+attempt_urine$SampleDescription_urine <- ifelse(attempt_urine$SampleDescription_urine == "a10397", "10397", attempt_urine$SampleDescription_urine)
+# merge ATTEMPT blood and urine proteomics by SampleDescription and TimePoint (need to remove _urine from urine variable names)
+attempt_urine$SampleDescription <- as.numeric(attempt_urine$SampleDescription_urine)
+attempt_urine$TimePoint <- attempt_urine$TimePoint_urine
+attempt <- full_join(attempt, attempt_urine, by = c("SampleDescription", "TimePoint"))
+# still not merging because of missing row names
+
 soma[additional_proteins9k] <- NA
 soma2[additional_proteins9k] <- NA
 panther[additional_proteins9k] <- NA
@@ -114,25 +140,6 @@ soma <- soma %>%  mutate(
   )
 )
 soma[,c("NormScale_75_S1","NormScale_75_S3","NormScale_75_S2","ANMLFractionUsed_75_S1","ANMLFractionUsed_75_S3","ANMLFractionUsed_75_S2")] <- NA
-
-# add in ATTEMPT urine proteomics
-attempt_urine <- read_adat("./Local cohort Somalogic data/ATTEMPT/20250527_Petter_SOMAscan7k_Urine_WUS_25_015_SR007698_data_export/WUS_25_015_v4.1_Urine.hybNorm.medNormInt.plateScale.anmlQC.qcCheck.AddLOD.anmlSMP.adat")
-attempt_urine <- attempt_urine %>% filter(!is.na(SampleDescription))
-attempt_urine <- attempt_urine %>% select(-SampleNumber)
-urine_analytes <- getAnalyteInfo(attempt_urine)
-# remove fc mouse and no protein
-attempt_urine <- attempt_urine %>% select(!all_of(apt_drop))
-attempt_urine[additional_proteins9k] <- NA
-attempt_urine[,c("NormScale_20","NormScale_0_005","NormScale_0_5","ANMLFractionUsed_20","ANMLFractionUsed_0_005","ANMLFractionUsed_0_5")] <- NA
-drop <- urine_analytes %>% filter(Target == "Fc_MOUSE" | Target == "No Protein" | !(Organism == "Human") | !(Type == "Protein"))
-apt_drop <- drop$AptName
-attempt_urine <- attempt_urine %>% select(!all_of(apt_drop))
-urine_analytes <- urine_analytes %>% filter(!Target == "Fc_MOUSE")
-urine_analytes <- urine_analytes %>% filter(!Target == "No Protein")
-urine_analytes <- urine_analytes %>% filter(Organism == "Human")
-urine_analytes <- urine_analytes %>% filter(Type == "Protein")
-
-soma_combined <- rbind(soma, attempt_urine) 
 
 # read in harmonized dataset to get group information
 # df <- read.csv("/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/Data Harmonization/Data Clean/harmonized_dataset.csv", 
