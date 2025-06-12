@@ -84,6 +84,8 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
   
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
   
+  celltype <- str_replace_all(celltype, pattern='/', replacement = '_')
+  
   # With parallelization
   #TCA Cycle
   # List of genes
@@ -223,7 +225,12 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
   heatmap_data <- total_results %>%
     dplyr::select(Gene, Variable, logFC, signif)
   
+  if(median == TRUE){
   custom_order <- c("avg_c_k2_med", "avg_m_k2_med", "avg_c_f_med", "avg_m_f_med", "avg_c_k2_f_med", "avg_m_k2_f_med")
+  }else{
+  custom_order <- c("avg_c_k2", "avg_m_k2", "avg_c_f", "avg_m_f", "avg_c_k2_f", "avg_m_k2_f")
+  }
+  
   heatmap_data$Variable <- factor(heatmap_data$Variable, levels = custom_order)
   custom_labels <- c("Average Cortical K2","Average Medulla K2","Average Cortical F","Average Medulla F",
                      "Average Cortical K2/F","Average Medulla K2/F")
