@@ -183,7 +183,17 @@ kidneyimaging_analysis <- function(celltype, genes, median = F, adjustment = NUL
     total_results <- rbind(total_results,full_results)
   }
   
-  write.csv(total_results,fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_PET_Variables_unadjusted_pooled_offset.csv"))
+  if(is.null(adjustment)){
+    file.name <- paste0('NEBULA_', as.character(substitute(genes_list)), 
+                        '_', celltype, '_cells_PET_unadjusted_pooled_offset_T2D.png')
+  }else{
+    file.name <- paste0('NEBULA_', as.character(substitute(genes_list)), 
+                        '_', celltype, '_cells_PET_adjusted_pooled_offset_T2D.png')
+  }
+  
+  
+  write.csv(total_results,fs::path(dir.results,
+                                   file.name))
   # total_results <- read.csv(fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_PET_Variables_unadjusted_pooled_offset.csv"))
   
   # Define significance stars
@@ -213,7 +223,7 @@ kidneyimaging_analysis <- function(celltype, genes, median = F, adjustment = NUL
     ) +
     theme_minimal() +
     labs(title = "TCA Cycle Genes vs. PET Variables (T2D)",
-         subtitle = "Proximal Tubule Cells",
+         subtitle = celltype,
          x = "Exposure",
          y = "Gene") +
     scale_x_discrete(labels = setNames(custom_labels, custom_order))+
@@ -227,13 +237,13 @@ kidneyimaging_analysis <- function(celltype, genes, median = F, adjustment = NUL
     )
   
   # custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
-  celltype_name <- paste(celltype, collapse = '_')
+
   if(is.null(adjustment)){
   file.name <- paste0('Heatmap_', as.character(substitute(genes_list)), 
-                      'NEBULA_', celltype_name, '_PET_unadjusted_pooled_offset_T2D.png')
+                      'NEBULA_', celltype, '_PET_unadjusted_pooled_offset_T2D.png')
   }else{
     file.name <- paste0('Heatmap_', as.character(substitute(genes_list)), 
-                        'NEBULA_', celltype_name, '_PET_adjusted_pooled_offset_T2D.png')  
+                        'NEBULA_', celltype, '_PET_adjusted_pooled_offset_T2D.png')  
   }
   png(fs::path(dir.results, file.name), 
       width = 1500, height = 2000, res = 300)
@@ -242,8 +252,71 @@ kidneyimaging_analysis <- function(celltype, genes, median = F, adjustment = NUL
   
 }
 
-
+#Finishing PT Analysis
 kidneyimaging_analysis('PT', median = T, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+#PT Subtypes
+kidneyimaging_analysis('PT-S1/S2', median = F, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('PT-S1/S2', median = F, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+kidneyimaging_analysis('PT-S1/S2', median = T, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('PT-S1/S2', median = T, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+#S3
+kidneyimaging_analysis('PT-S3', median = F, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('PT-S3', median = F, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+kidneyimaging_analysis('PT-S3', median = T, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('PT-S3', median = T, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+#aPT
+kidneyimaging_analysis('aPT', median = F, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('aPT', median = F, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+kidneyimaging_analysis('aPT', median = T, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('aPT', median = T, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+#TAL
+kidneyimaging_analysis('TAL', median = F, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('TAL', median = F, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+kidneyimaging_analysis('TAL', median = T, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('TAL', median = T, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+#C-TAL-1
+kidneyimaging_analysis('C-TAL-1', median = F, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('C-TAL-1', median = F, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+kidneyimaging_analysis('C-TAL-1', median = T, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('C-TAL-1', median = T, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+#C-TAL-2
+kidneyimaging_analysis('C-TAL-2', median = F, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('C-TAL-2', median = F, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+kidneyimaging_analysis('C-TAL-2', median = T, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('C-TAL-2', median = T, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+#dTAL
+kidneyimaging_analysis('dTAL', median = F, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('dTAL', median = F, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+kidneyimaging_analysis('dTAL', median = T, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('dTAL', median = T, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+#DCT
+kidneyimaging_analysis('DCT', median = F, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('DCT', median = F, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+kidneyimaging_analysis('DCT', median = T, genes = tca_genes, adjustment = 'epic_sglti2_1')
+kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
+
+
+
+
+
+
+
 
 
 
