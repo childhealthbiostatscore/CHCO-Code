@@ -34,24 +34,18 @@ simulate_scrna_splatter <- function(
   # Estimate parameters from a reference (using default Splat parameters)
   params <- newSplatParams()
   
-  # Set basic parameters
+  # Set parameters using the updated API (nGroups is determined by length of group.prob)
   params <- setParams(params, 
                       nGenes = n_genes,
-                      nCells = total_cells,
-                      seed = seed)
-  
-  # Set group parameters
-  params <- setParams(params,
-                      group.prob = group_prob,
+                      batchCells = total_cells,
+                      group.prob = group_prob,  # This determines nGroups automatically
                       de.prob = de_prob,
                       de.facLoc = de_facLoc,
-                      de.facScale = de_facScale)
-  
-  # Set dropout parameters
-  params <- setParams(params,
+                      de.facScale = de_facScale,
                       dropout.type = dropout_type,
-                      dropout.mid = 3,    # midpoint of dropout logistic
-                      dropout.shape = -1) # shape parameter
+                      dropout.mid = 3,
+                      dropout.shape = -1,
+                      seed = seed)
   
   # Simulate the base data
   sim <- splatSimulate(params, method = "groups", verbose = FALSE)
