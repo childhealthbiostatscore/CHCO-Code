@@ -4086,7 +4086,7 @@ DefaultAssay(so_celltype) <- "RNA"
 meta <- so_celltype@meta.data
 oro_vars <- colnames(meta)[85:114]
 
-hist(meta$carb_adp)
+hist(meta$carbp_m)
 ```
 
 ##II. Analyze
@@ -4098,10 +4098,17 @@ DefaultAssay(so_Hep) <- "RNA"
 
 nrow(so_Hep) #28964 genes
 ncol(so_Hep) #130124 nuclei
-
+meta <- so_celltype@meta.data
+oro_vars <- colnames(meta)[85:114]
+# "carbp_m"             "carb_adp"            "carb_g"              "carb_cytoc"          "carb_s"              "carb_omy"
+#  [7] "carbfccp"            "carbrcr_pm"          "carbrcr_pmgs"        "carbpe_pmgs"         "carb_ep"             "carbrcr_state2"
+# [13] "carbrcr_state4_c1"   "carbrcr_state4_c12"  "carb_le"             "lipidpc_m"           "lipid_adp"           "lipid_cytoc"
+# [19] "lipid_g"             "lipid_s"             "lipid_omy"           "lipidfccp"           "lipidrcr_pcm"        "lipidrcr_pcmgs"
+# [25] "lipidpe_pcmgs"       "lipid_ep"            "lipidrcr_state2"     "lipidrcr_state4_c1"  "lipidrcr_state4_c12" "lipid_le"
 ## Select Highly Variable Genes (HVGs)
-results_total <- data.frame()
-for (oro in oro_vars) {
+# results_total <- data.frame()
+# for (oro in oro_vars) {
+  oro <- "lipidrcr_state4_c1"
   cells_to_keep <- !is.na(so_Hep@meta.data[[oro]])
   so_celltype <- subset(so_Hep, cells = colnames(so_Hep)[cells_to_keep])
   
@@ -4110,7 +4117,7 @@ for (oro in oro_vars) {
   counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ])
   genes_list <- hvgs
   
-  cl <- makeCluster(20)
+  cl <- makeCluster(10)
   registerDoParallel(cl)
   
   start_time <- Sys.time()
@@ -4172,7 +4179,7 @@ for (oro in oro_vars) {
   
   full_results <- as.data.frame(nebula_summaries)
   colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept","p_value","gene_id","gene","Gene")
-  full_results$Variable <- exposure
+  full_results$Variable <- oro
   
   #Calculate number of genes filtered out for low expression 
   low_exp <- length(genes_list)-length(full_results$gene)
@@ -4186,10 +4193,18 @@ for (oro in oro_vars) {
   full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
-  results_total <- rbind(results_total,full_results)
+  # results_total <- rbind(results_total,full_results)
+write.csv(full_results,fs::path(dir.results,paste0("NEBULA_Hepatocytes_",oro,"_unadjusted_2000_hvg.csv")))
+# }
+
+
+results_total <- data.frame()
+for (oro in oro_vars) {
+  results <- read.csv(fs::path(dir.results,paste0("NEBULA_Hepatocytes_",oro,"_unadjusted_2000_hvg.csv")))
+  results_total <- rbind(results_total,results)
 }
 
-write.csv(results_total,fs::path(dir.results,"NEBULA_Hepatocytes_Oroboros_unadjusted_2000_hvg.csv"))
+# write.csv(results_total,fs::path(dir.results,"NEBULA_Hepatocytes_Oroboros_unadjusted_2000_hvg.csv"))
 
 # Define significance stars
 results_total <- results_total %>%
@@ -8268,9 +8283,9 @@ rm(baseline,dat_alt,dat_ast,dat_covs,prot,today)
 #Create loop for linear regression between proteins & liver enzymes
 results <- data.frame()
 for(y in c("alt","ast")) {
-  for (x in sens_proteins) {
-    M0 <- as.formula(paste0("Surv(time_to_event_alt,event_status_alt) ~ ",x,"+AGEBASE"))
-    # M0 <- as.formula(paste0("Surv(time_to_event_",y,",event_status_",y,") ~ ",x))
+  for (x in hvg_proteins) {
+    # M0 <- as.formula(paste0("Surv(time_to_event_alt,event_status_alt) ~ ",x,"+AGEBASE"))
+    M0 <- as.formula(paste0("Surv(time_to_event_",y,",event_status_",y,") ~ ",x))
     M1 <- coxph(M0,data=dat)
     logHR <- summary(M1)$coef[1,1]
     pval <- summary(M1)$coef[1,5]
@@ -8284,22 +8299,30 @@ results_alt <- results %>%
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_alt <- results_alt %>%
   mutate(sig=ifelse(fdr<0.05,"*",""))
+write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_ALT_hvg.csv"))
+
 #AST
 results_ast <- results %>%
   filter(Outcome=="Time to doubling of AST") %>% 
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_ast <- results_ast %>%
   mutate(sig=ifelse(fdr<0.05,"*",""))
+write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
+
 results_total <- rbind(results_ast,results_alt)
 
 #Match to gene name
 key$Protein <- key$AptName
 results_total <- tidylog::left_join(results_total,key,by="Protein")
+results_ast <- tidylog::left_join(results_ast,key,by="Protein")
+results_alt <- tidylog::left_join(results_alt,key,by="Protein")
+write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
+write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_ALT_hvg.csv"))
 
 sig_results <- results_total %>% 
   filter(sig=="*")
 
-write.csv(results_total,fs::path(dir.results,"TODAY_proteomics_alt_ast_adj_hvg_adj_age.csv"))
+write.csv(results_total,fs::path(dir.results,"TODAY_proteomics_alt_ast_hvg_adj_age.csv"))
 
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 results_total$PValue10 <- -log10(pmax(results_total$Pvalue, 1e-10))  # Avoid log(0)
@@ -8362,10 +8385,100 @@ volcano_plot
 
 png(fs::path(dir.results, "Plot_ALT_AST_Proteomics_adj_2000_hvg.png"), 
     width = 3000, height = 1500, res = 300)
-
 print(volcano_plot)
-
 dev.off()
+
+#GSEA
+full_results <- read.csv(fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv")) %>%
+  # clean_names() %>% 
+  dplyr::select(-X) %>%
+  dplyr::rename(Gene=EntrezGeneSymbol)
+
+gene_direction_summary <- full_results %>%
+  # mutate(Direction=ifelse(LogHR))
+  group_by(Gene) %>%
+  summarise(
+    n_aptamers = n(),
+    n_positive = sum(LogHR > 0),
+    n_negative = sum(LogHR < 0),
+    n_significant = sum(Pvalue < 0.05),
+    direction_consistent = n_distinct(sign(LogHR)) == 1,
+    LogHR_range = paste0(round(min(LogHR), 3), " to ", round(max(LogHR), 3)),
+    .groups = "drop"
+  ) %>%
+  filter(n_aptamers > 1)  
+
+
+gene_stats <- full_results %>%
+  filter(!is.na(logHR)) %>%  # remove NAs
+  group_by(Gene) %>%
+  arrange(desc(abs(logHR))) %>%  # sort by magnitude
+  slice(1) %>%  # take the top one
+  ungroup()
+
+# Filter out the gmt files for KEGG, Reactome and GOBP
+list.files(bg_path)
+gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+gmt_files
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(gene_logHRs$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(gene_logHRs$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(gene_logHRs$Gene), savefile = FALSE)
+
+# rank genes by t-logHRs in DiD
+rankings_dHep <- full_results$LogHR
+names(rankings_dHep) <- full_results$Gene
+rankings_dHep <- sort(rankings_dHep, decreasing = TRUE)
+plot(rankings_dHep)
+min(rankings_dHep)
+max(rankings_dHep)
+
+
+set.seed(1234)
+
+kegg_legacy_res_dHep <- fgsea(pathways = kegg_legacy,
+                              stats = rankings_dHep,
+                              # scoreType = 'std', 
+                              scoreType = 'pos', 
+                              minSize = 3,
+                              maxSize = 500,
+                              nproc = 1)
+
+reactome_res_dHep <- fgsea(pathways = reactome,
+                           stats = rankings_dHep,
+                           scoreType = 'std', 
+                           minSize = 3,
+                           maxSize = 500,
+                           nproc = 1)
+go_res_dHep <- fgsea(pathways = go,
+                     stats = rankings_dHep,
+                     scoreType = 'std', 
+                     minSize = 5,
+                     maxSize = 500,
+                     nproc = 1)
+
+dHep_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_dHep[, padj < 0.05]), sum(kegg_legacy_res_dHep[, pval < 0.05])),
+                         "REACTOME"=c(sum(reactome_res_dHep[, padj < 0.05]), sum(reactome_res_dHep[, pval < 0.05])),
+                         "GO"=c(sum(go_res_dHep[, padj < 0.05]), sum(go_res_dHep[, pval < 0.05])))
+rownames(dHep_fgsea) <- c("adj.pval", "p.val")
+dHep_fgsea
+
+##### KEGG Legacy
+plot_fgsea_transpose(kegg_legacy_res_dHep, title = "dHep Unadjusted Top 30 KEGG", xnudge = 0.03)
+
+ggsave(fs::path(dir.results,"dHep_top30_kegg_pathways_unadjusted_reml.jpeg"),
+       width = 13, height = 10, scale = 1)
+
+##### REACTOME
+plot_fgsea_transpose(reactome_res_dHep, title = "dHep Unadjusted Top 30 REACTOME", xlimit = 5)
+
+ggsave(fs::path(dir.results,"dHep_top30_reactome_pathways_unadjusted_reml.jpeg"),
+       width = 13, height = 10, scale = 1)
+
+##### GO
+plot_fgsea_transpose(go_res_dHep, title = "dHep Unadjusted Top 30 GO", xlimit = 8)
+
+ggsave(fs::path(dir.results,"dHep_top30_go_pathways_unadjusted_reml.jpeg"),
+       width = 13, height = 10, scale = 1)
 ```
 ###ii. Old
 ```{r}
