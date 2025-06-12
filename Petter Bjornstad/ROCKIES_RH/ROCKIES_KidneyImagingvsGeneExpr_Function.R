@@ -55,9 +55,22 @@ load('C:/Users/netio/Documents/UofW/Rockies/Line4875_Rockies.RData')
 
 
 
-kidneyimaging_analysis <- function(celltype, median = F, adjustment = NULL){
-  rm(so_celltype)
-  so_celltype <- subset(so_subset,celltype2==celltype)
+kidneyimaging_analysis <- function(celltype, genes, median = F, adjustment = NULL){
+  if(median == F){
+  k2_vars <- c("avg_c_k2","avg_m_k2","avg_c_f","avg_m_f","avg_c_k2_f","avg_m_k2_f")
+  }else{
+    k2_vars <- c("avg_c_k2_med","avg_m_k2_med","avg_c_f_med","avg_m_f_med","avg_c_k2_f_med","avg_m_k2_f_med")
+  }
+  
+  if(celltype == 'PT'){
+  so_celltype <- subset(so_subset,celltype2 == celltype)
+  }else if(celltype == 'TAL'){
+    so_celltype <- subset(so_subset, TAL_celltype == celltype)
+  }else if(celltype == 'DCT'){
+    so_celltype <- subset(so_subset, DCT_celltype == celltype)
+  }else{
+    so_celltype <- subset(so_subset, KPMP_celltype == celltype)
+  }
   # so_celltype <- subset(so_celltype,group=="Type_2_Diabetes")
   k2_ids <- unique(so_celltype$kit_id[which(!is.na(so_celltype$avg_c_k2))])
   so_celltype <- subset(so_celltype, kit_id %in% k2_ids)
@@ -71,9 +84,8 @@ kidneyimaging_analysis <- function(celltype, median = F, adjustment = NULL){
   # With parallelization
   #TCA Cycle
   # List of genes
-  genes_list <- tca_genes
-  
-  k2_vars <- c("avg_c_k2_med","avg_m_k2_med","avg_c_f_med","avg_m_f_med","avg_c_k2_f_med","avg_m_k2_f_med")
+  genes_list <- genes
+
   total_results <- data.frame()
   for (exposure in k2_vars) {
     cl <- makeCluster(1)
@@ -84,7 +96,14 @@ kidneyimaging_analysis <- function(celltype, median = F, adjustment = NULL){
       tryCatch({
         count_gene <- counts_path[g, , drop = FALSE]
         meta_gene <- subset(so_celltype,features=g)@meta.data
-        pred.formula <- as.formula(paste0("~",exposure))
+        
+        if(!is.null(adjustment)){
+          tmp.formula <- as.formula(paste0('~', exposure, '+', adjustment))
+        }else{
+          tmp.formula <- as.formula(paste0('~', exposure))
+        }
+        
+        pred.formula <- as.formula(tmp.formula)
         pred_gene <- model.matrix(pred.formula, data = meta_gene)
         # library <- meta_gene$library_size
         library <- meta_gene$pooled_offset
@@ -135,7 +154,19 @@ kidneyimaging_analysis <- function(celltype, median = F, adjustment = NULL){
     
     #Make dataframe of final results
     full_results <- as.data.frame(nebula_summaries)
-    colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept","p_value","gene_id","gene","Gene")
+    
+    
+    if(is.null(adjustment)){
+      colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept",
+                                  "p_value","gene_id","gene","Gene")
+    }else{
+      colnames(full_results) <- c("logFC_Intercept","logFC",'logFC_SGLTi2', "se_Intercept",
+                                  "se",'se_SGLTi2', "p_Intercept","p_value",'p_value_SGLTi2', "gene_id","gene",
+                                  "Gene")
+    }
+    
+    
+    
     full_results$Variable <- exposure
     #Calculate number of genes filtered out for low expression 
     full_results$low_exp <- length(tca_genes)-length(full_results$gene)
@@ -196,24 +227,23 @@ kidneyimaging_analysis <- function(celltype, median = F, adjustment = NULL){
     )
   
   # custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
-  
-  png(fs::path(dir.results, "Heatmap_TCA_cycle_NEBULA_PT_PET_unadjusted_pooled_offset_T2D.png"), 
+  celltype_name <- paste(celltype, collapse = '_')
+  if(is.null(adjustment)){
+  file.name <- paste0('Heatmap_', as.character(substitute(genes_list)), 
+                      'NEBULA_', celltype_name, '_PET_unadjusted_pooled_offset_T2D.png')
+  }else{
+    file.name <- paste0('Heatmap_', as.character(substitute(genes_list)), 
+                        'NEBULA_', celltype_name, '_PET_adjusted_pooled_offset_T2D.png')  
+  }
+  png(fs::path(dir.results, file.name), 
       width = 1500, height = 2000, res = 300)
   print(heat_map_p)
   dev.off()
   
-  
-  
-  
-  
-  
-  
-  
-  
 }
 
 
-
+kidneyimaging_analysis('PT', median = T, genes = ox_phos_genes, adjustment = 'epic_sglti2_1')
 
 
 
