@@ -183,7 +183,7 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
     full_results$nebula_nonconverged_percent <- paste0(round((1-(length(tca_genes)-length(nonconverge_genes))/length(tca_genes))*100,3),"%")
     # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
     # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-    full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
+    full_results$fdr <- p.adjust(full_results$p_value,method="fdr")  
     # mutate(fdr3=p.adjust(PValue3,method="fdr"))
     full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
     total_results <- rbind(total_results,full_results)
