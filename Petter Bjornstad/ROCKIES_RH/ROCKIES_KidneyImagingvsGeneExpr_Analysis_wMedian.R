@@ -893,8 +893,8 @@ for (exposure in k2_vars) {
   
   #Make dataframe of final results
   full_results <- as.data.frame(nebula_summaries)
-  colnames(full_results) <- c("logFC_Intercept","logFC",'logFC_SGLTi2', "se_Intercept",
-                              "se",'se_SGLTi2', "p_Intercept","p_value",'p_value_SGLTi2', "gene_id","gene",
+  colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept",
+                              "se","p_Intercept","p_value","gene_id","gene",
                               "Gene")
   full_results$Variable <- exposure
   #Calculate number of genes filtered out for low expression 
@@ -1341,8 +1341,8 @@ for (exposure in k2_vars) {
   
   #Make dataframe of final results
   full_results <- as.data.frame(nebula_summaries)
-  colnames(full_results) <- c("logFC_Intercept","logFC",'logFC_SGLTi2', "se_Intercept",
-                              "se",'se_SGLTi2', "p_Intercept","p_value",'p_value_SGLTi2', "gene_id","gene",
+  colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept",
+                              "se", "p_Intercept","p_value","gene_id","gene",
                               "Gene")
   full_results$Variable <- exposure
   #Calculate number of genes filtered out for low expression 
@@ -7489,12 +7489,15 @@ for (exposure in k2_vars) {
     names(nebula_results_list),
     function(gene_name) {
       converged <- nebula_results_list[[gene_name]]$convergence
+      if(is.null(converged)){
+        converged <- NA
+      }
       df <- data.frame(Gene = gene_name,
                        Convergence_Code = converged)
       return(df)
     }
   )
-  
+  tryCatch({
   nebula_summaries <- map_dfr(
     names(nebula_results_list),
     function(gene_name) {
@@ -7503,6 +7506,8 @@ for (exposure in k2_vars) {
       return(df)
     }
   )
+  })
+  
   nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
   
   #Make dataframe of final results
