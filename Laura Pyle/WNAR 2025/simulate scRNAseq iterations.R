@@ -125,7 +125,7 @@ simulate_scrna_splatter <- function(
   )
   
   # Add normalized data
-  sce <- scater::logNormCounts(sce)
+  sce <- logNormCounts(sce)
   
   return(list(
     sce = sce,
@@ -259,20 +259,200 @@ calculate_achieved_effects <- function(sim_data) {
       round(time_effect_treatment / time_effect_control, 2), "\n")
 }
 
-# Example usage
-cat("=== Simulating scRNA-seq data with Splatter ===\n")
+# Function for power analysis
+run_power_analysis <- function(
+    n_simulations = 100,               # Number of simulated datasets
+    n_cells_per_condition = 250,
+    effect_size = 1.5,                 # Effect size to test
+    alpha = 0.05,                      # Significance threshold
+    test_type = "wilcox",              # Test type: "wilcox", "t.test", etc.
+    ...                                # Other parameters passed to simulation
+) {
+  
+  cat("Running power analysis with", n_simulations, "simulations...\n")
+  
+  # Store results
+  results <- data.frame(
+    simulation = 1:n_simulations,
+    n_de_detected = NA,
+    n_true_de = NA,
+    power = NA,
+    fdr = NA
+  )
+  
+  # Progress tracking
+  pb <- txtProgressBar(min = 0, max = n_simulations, style = 3)
+  
+  for(i in 1:n_simulations) {
+    
+    # Generate simulation with different seed each time
+    sim_data <- simulate_scrna_splatter(
+      n_cells_per_condition = n_cells_per_condition,
+      group_effect_size = effect_size,
+      seed = i,  # Different seed for each simulation
+      ...
+    )
+    
+    # Run differential expression test (example with simple t-test)
+    de_results <- run_de_test(sim_data, test_type = test_type, alpha = alpha)
+    
+    # Calculate metrics
+    results$n_de_detected[i] <- de_results$n_significant
+    results$n_true_de[i] <- length(sim_data$de_genes)
+    results$power[i] <- de_results$true_positives / length(sim_data$de_genes)
+    results$fdr[i] <- de_results$false_positives / max(de_results$n_significant, 1)
+    
+    setTxtProgressBar(pb, i)
+  }
+  close(pb)
+  
+  # Summary statistics
+  summary_stats <- data.frame(
+    mean_power = mean(results$power, na.rm = TRUE),
+    se_power = sd(results$power, na.rm = TRUE) / sqrt(n_simulations),
+    mean_fdr = mean(results$fdr, na.rm = TRUE),
+    se_fdr = sd(results$fdr, na.rm = TRUE) / sqrt(n_simulations)
+  )
+  
+  cat("\n=== Power Analysis Results ===\n")
+  cat("Effect size tested:", effect_size, "\n")
+  cat("Mean power:", round(summary_stats$mean_power, 3), "±", round(summary_stats$se_power, 3), "\n")
+  cat("Mean FDR:", round(summary_stats$mean_fdr, 3), "±", round(summary_stats$se_fdr, 3), "\n")
+  
+  return(list(
+    individual_results = results,
+    summary = summary_stats,
+    parameters = list(
+      n_simulations = n_simulations,
+      effect_size = effect_size,
+      n_cells_per_condition = n_cells_per_condition
+    )
+  ))
+}
 
-# Simulation with moderate effects
-# effect size is fold change (e.g., 1.5 = 50% increase
+# Simple DE testing function (you'd replace this with your preferred method)
+run_de_test <- function(sim_data, test_type = "wilcox", alpha = 0.05) {
+  
+  # Example: test group effect at T1 timepoint
+  t1_cells <- sim_data$cell_metadata$Time == "T1"
+  control_cells <- sim_data$cell_metadata$Group == "Control" & t1_cells
+  treatment_cells <- sim_data$cell_metadata$Group == "Treatment" & t1_cells
+  
+  n_genes <- nrow(sim_data$counts)
+  p_values <- numeric(n_genes)
+  
+  # Run statistical test for each gene
+  for(g in 1:n_genes) {
+    control_expr <- sim_data$counts[g, control_cells]
+    treatment_expr <- sim_data$counts[g, treatment_cells]
+    
+    if(test_type == "wilcox") {
+      test_result <- wilcox.test(treatment_expr, control_expr)
+    } else if(test_type == "t.test") {
+      test_result <- t.test(treatment_expr, control_expr)
+    }
+    
+    p_values[g] <- test_result$p.value
+  }
+  
+  # Multiple testing correction
+  p_adj <- p.adjust(p_values, method = "BH")
+  significant_genes <- which(p_adj < alpha)
+  
+  # Calculate true/false positives
+  true_de_genes <- sim_data$de_genes
+  true_positives <- sum(significant_genes %in% true_de_genes)
+  false_positives <- length(significant_genes) - true_positives
+  
+  return(list(
+    p_values = p_values,
+    p_adj = p_adj,
+    significant_genes = significant_genes,
+    n_significant = length(significant_genes),
+    true_positives = true_positives,
+    false_positives = false_positives
+  ))
+}
+
+# Example: Power analysis across different effect sizes
+power_analysis_example <- function() {
+  effect_sizes <- c(1.2, 1.5, 2.0, 2.5)
+  power_results <- list()
+  
+  for(i in seq_along(effect_sizes)) {
+    cat("\n--- Testing effect size:", effect_sizes[i], "---\n")
+    power_results[[i]] <- run_power_analysis(
+      n_simulations = 50,  # Use fewer for testing, increase to 500-1000 for real analysis
+      effect_size = effect_sizes[i],
+      n_cells_per_condition = 200,
+      n_genes = 500,
+      de_prob = 0.1
+    )
+  }
+  
+  # Combine results
+  power_summary <- data.frame(
+    effect_size = effect_sizes,
+    power = sapply(power_results, function(x) x$summary$mean_power),
+    power_se = sapply(power_results, function(x) x$summary$se_power)
+  )
+  
+  # Plot power curve
+  library(ggplot2)
+  p <- ggplot(power_summary, aes(x = effect_size, y = power)) +
+    geom_line() +
+    geom_point() +
+    geom_errorbar(aes(ymin = power - power_se, ymax = power + power_se), width = 0.05) +
+    ylim(0, 1) +
+    labs(title = "Power Analysis", x = "Effect Size (Fold Change)", y = "Statistical Power") +
+    theme_minimal()
+  
+  print(p)
+  
+  return(power_summary)
+}
+
+# Example usage - Single simulation
+cat("=== Single Simulation Example ===\n")
 sim_data <- simulate_scrna_splatter(
   n_cells_per_condition = 250,
   n_genes = 1000,
-  de_prob = 0.15,                    # 15% of genes are DE
-  group_effect_size = 1.8,           # 1.8x fold change for group effect
-  time_effect_size = 1.5,            # 1.5x fold change for time effect  
-  interaction_effect_size = 1.3,     # 1.3x additional effect for interaction
+  de_prob = 0.15,
+  group_effect_size = 1.8,
+  time_effect_size = 1.5,
+  interaction_effect_size = 1.3,
   seed = 123
 )
+
+# Generate and display plots
+cat("\n=== Generating Plots ===\n")
+plots <- plot_splatter_simulation(sim_data)
+
+# Display plots
+print(plots$umi_plot + plots$genes_plot)
+print(plots$expression_plot)
+print(plots$pca_plot)
+
+# Calculate and display effect sizes
+calculate_achieved_effects(sim_data)
+
+# Summary statistics
+cat("\n=== Summary Statistics ===\n")
+cat("Total cells:", ncol(sim_data$counts), "\n")
+cat("Total genes:", nrow(sim_data$counts), "\n") 
+cat("DE genes:", length(sim_data$de_genes), "\n")
+cat("Median UMI per cell:", median(sim_data$cell_metadata$Total_UMI), "\n")
+cat("Median genes per cell:", median(sim_data$cell_metadata$Genes_Detected), "\n")
+
+cat("\n=== Usage ===\n")
+cat("Access the SingleCellExperiment object: sim_data$sce\n")
+cat("Access raw counts: sim_data$counts\n")
+cat("Access metadata: sim_data$cell_metadata\n")
+cat("DE gene indices: sim_data$de_genes\n")
+
+cat("\n=== Power Analysis Example ===\n")
+cat("Uncomment the line below to run power analysis:\n")
+cat("# power_results <- power_analysis_example()\n")
 
 # Generate plots
 plots <- plot_splatter_simulation(sim_data)
