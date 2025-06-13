@@ -398,11 +398,6 @@ kidneyimaging_analysis('DCT', median = T, genes = tca_genes,
                        dir.results = 'C:/Users/netio/Documents/UofW/Rockies/')
 kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes, 
                        gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
-                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/')
-
-
-
-
 
 
 
