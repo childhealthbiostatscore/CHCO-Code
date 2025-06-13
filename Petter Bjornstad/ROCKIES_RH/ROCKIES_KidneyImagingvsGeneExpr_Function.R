@@ -397,7 +397,26 @@ kidneyimaging_analysis('DCT', median = T, genes = tca_genes,
                        gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
                        dir.results = 'C:/Users/netio/Documents/UofW/Rockies/')
 kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes, 
-                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1',)
+
+
+
+
+#Visualizing the Expression
+
+
+
+celltypes_to_keep <- c('PT-S1/S2', 'PT-S3', 'aPT', 'C-TAL-1', 'C-TAL-2', 'dTAL', 'dDCT')
+so_celltypes <- subset(so_subset, KPMP_celltype %in% celltypes_to_keep)
+
+pdf(paste0(dir.results, 'TCA_Expressionprofiles.pdf'), width = 15, height = 30)
+RidgePlot(so_celltypes, features = tca_genes,  ncol = 4)
+dev.off()
+
+
+pdf(paste0(dir.results, 'OxPhos_Expressionprofiles.pdf'), width = 15, height = 15)
+RidgePlot(so_celltypes, features = ox_phos_genes,  ncol = 4)
+dev.off()
 
 
 
@@ -405,4 +424,19 @@ kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes,
 
 
 
+
+
+if(celltype == 'PT'){
+  so_celltype <- subset(so_subset,celltype2 == celltype)
+  cat('PT Cells')
+}else if(celltype == 'TAL'){
+  so_celltype <- subset(so_subset, TAL_celltype == celltype)
+  cat('TAL Cells')
+}else if(celltype == 'DCT'){
+  so_celltype <- subset(so_subset, DCT_celltype == celltype)
+  cat('DCT Cells')
+}else{
+  so_celltype <- subset(so_subset, KPMP_celltype == celltype)
+  cat('Other celltypes')
+}
 
