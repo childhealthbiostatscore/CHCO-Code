@@ -1083,12 +1083,14 @@ reactome_res_Hepatocytes <- fgsea(pathways = reactome,
                                   minSize = 3,
                                   maxSize = 500,
                                   nproc = 1)
+saveRDS(reactome_res_Hepatocytes,fs::path(dir.results,"Hepatocytes_Steatosis_Reactome.rds"))
 go_res_Hepatocytes <- fgsea(pathways = go,
                             stats = rankings_Hepatocytes,
                             scoreType = 'std', 
                             minSize = 5,
                             maxSize = 500,
                             nproc = 1)
+saveRDS(go_res_Hepatocytes,fs::path(dir.results,"Hepatocytes_Steatosis_GO.rds"))
 
 Hepatocytes_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_Hepatocytes[, padj < 0.05]), sum(kegg_legacy_res_Hepatocytes[, pval < 0.05])),
                                 "REACTOME"=c(sum(reactome_res_Hepatocytes[, padj < 0.05]), sum(reactome_res_Hepatocytes[, pval < 0.05])),
@@ -8031,7 +8033,7 @@ cat("Cells in celltypes:", n_celltypes, "\n")
 
 # Check if dimensions match
 if (n_cells_sce != n_cells_dimred || n_cells_sce != n_celltypes) {
-    cat("WARNING: Dimension mismatch detected!\n")
+  cat("WARNING: Dimension mismatch detected!\n")
 }
 
 # Step 3: Check clustering integrity
@@ -8043,7 +8045,7 @@ print(table(celltypes))
 # Check for empty or problematic groups
 empty_groups <- names(table(celltypes))[table(celltypes) == 0]
 if (length(empty_groups) > 0) {
-    cat("Empty groups found:", empty_groups, "\n")
+  cat("Empty groups found:", empty_groups, "\n")
 }
 
 # Step 4: Fix the data alignment
@@ -8051,35 +8053,35 @@ cat("\n=== Fixing Data Alignment ===\n")
 
 # Method 1: If you have cell names/barcodes, use them for alignment
 if (!is.null(colnames(sce_HEP)) && !is.null(rownames(dim_red))) {
-    # Find common cells
-    common_cells <- intersect(colnames(sce_HEP), rownames(dim_red))
-    cat("Common cells found:", length(common_cells), "\n")
+  # Find common cells
+  common_cells <- intersect(colnames(sce_HEP), rownames(dim_red))
+  cat("Common cells found:", length(common_cells), "\n")
+  
+  if (length(common_cells) > 0) {
+    # Subset to common cells
+    sce_HEP_aligned <- sce_HEP[, common_cells]
+    dim_red_aligned <- dim_red[common_cells, , drop = FALSE]
     
-    if (length(common_cells) > 0) {
-        # Subset to common cells
-        sce_HEP_aligned <- sce_HEP[, common_cells]
-        dim_red_aligned <- dim_red[common_cells, , drop = FALSE]
-        
-        # If celltypes has names, align by names
-        if (!is.null(names(celltypes))) {
-            celltypes_aligned <- celltypes[common_cells]
-        } else {
-            # If no names, you'll need to manually align
-            cat("WARNING: celltypes has no names - manual alignment needed\n")
-            celltypes_aligned <- celltypes[1:length(common_cells)]
-        }
+    # If celltypes has names, align by names
+    if (!is.null(names(celltypes))) {
+      celltypes_aligned <- celltypes[common_cells]
+    } else {
+      # If no names, you'll need to manually align
+      cat("WARNING: celltypes has no names - manual alignment needed\n")
+      celltypes_aligned <- celltypes[1:length(common_cells)]
     }
+  }
 } else {
-    # Method 2: If no cell names, ensure same order and length
-    cat("No cell names found - using positional alignment\n")
-    
-    # Find minimum length
-    min_length <- min(ncol(sce_HEP), nrow(dim_red), length(celltypes))
-    cat("Using first", min_length, "cells\n")
-    
-    sce_HEP_aligned <- sce_HEP[, 1:min_length]
-    dim_red_aligned <- dim_red[1:min_length, , drop = FALSE]
-    celltypes_aligned <- celltypes[1:min_length]
+  # Method 2: If no cell names, ensure same order and length
+  cat("No cell names found - using positional alignment\n")
+  
+  # Find minimum length
+  min_length <- min(ncol(sce_HEP), nrow(dim_red), length(celltypes))
+  cat("Using first", min_length, "cells\n")
+  
+  sce_HEP_aligned <- sce_HEP[, 1:min_length]
+  dim_red_aligned <- dim_red[1:min_length, , drop = FALSE]
+  celltypes_aligned <- celltypes[1:min_length]
 }
 
 # Step 5: Remove any remaining NA values
@@ -8100,18 +8102,18 @@ cat("\n=== Attempting Visualization ===\n")
 
 # First try VizMST (usually more robust)
 tryCatch({
-    VizMST(sce_HEP_final, clustering = celltypes_final, viz.dim.red = dim_red_final)
-    cat("VizMST successful!\n")
+  VizMST(sce_HEP_final, clustering = celltypes_final, viz.dim.red = dim_red_final)
+  cat("VizMST successful!\n")
 }, error = function(e) {
-    cat("VizMST failed:", e$message, "\n")
+  cat("VizMST failed:", e$message, "\n")
 })
 
 # Then try VizClustering
 tryCatch({
-    VizClustering(sce_HEP_final, clustering = celltypes_final, viz.dim.red = dim_red_final)
-    cat("VizClustering successful!\n")
+  VizClustering(sce_HEP_final, clustering = celltypes_final, viz.dim.red = dim_red_final)
+  cat("VizClustering successful!\n")
 }, error = function(e) {
-    cat("VizClustering failed:", e$message, "\n")
+  cat("VizClustering failed:", e$message, "\n")
 })
 
 # Alternative visualization approach
@@ -8120,38 +8122,38 @@ library(ggplot2)
 
 # Create a simple scatter plot
 plot_df <- data.frame(
-    dim_red_final,
-    celltype = as.factor(celltypes_final)
+  dim_red_final,
+  celltype = as.factor(celltypes_final)
 )
 
 p <- ggplot(plot_df, aes(x = X1, y = X2, color = celltype)) +
-    geom_point(alpha = 0.7, size = 0.8) +
-    theme_minimal() +
-    labs(title = "Cell Types on Dimensionality Reduction",
-         x = "Dimension 1", y = "Dimension 2",
-         color = "Cell Type") +
-    guides(color = guide_legend(override.aes = list(size = 2, alpha = 1)))
+  geom_point(alpha = 0.7, size = 0.8) +
+  theme_minimal() +
+  labs(title = "Cell Types on Dimensionality Reduction",
+       x = "Dimension 1", y = "Dimension 2",
+       color = "Cell Type") +
+  guides(color = guide_legend(override.aes = list(size = 2, alpha = 1)))
 
 print(p)
 
 # If you want to add trajectory information
 if (exists("sds")) {  # sds is your SlingshotDataSet
-    tryCatch({
-        # Extract trajectory information
-        curves <- slingCurves(sds)
-        
-        # Add curves to plot
-        for (i in seq_along(curves)) {
-            curve_coords <- curves[[i]]$s[curves[[i]]$ord, ]
-            p <- p + geom_path(data = data.frame(X1 = curve_coords[,1], 
-                                               X2 = curve_coords[,2]),
-                             aes(x = X1, y = X2), 
-                             color = "black", size = 1, inherit.aes = FALSE)
-        }
-        print(p)
-    }, error = function(e) {
-        cat("Could not add trajectories:", e$message, "\n")
-    })
+  tryCatch({
+    # Extract trajectory information
+    curves <- slingCurves(sds)
+    
+    # Add curves to plot
+    for (i in seq_along(curves)) {
+      curve_coords <- curves[[i]]$s[curves[[i]]$ord, ]
+      p <- p + geom_path(data = data.frame(X1 = curve_coords[,1], 
+                                           X2 = curve_coords[,2]),
+                         aes(x = X1, y = X2), 
+                         color = "black", size = 1, inherit.aes = FALSE)
+    }
+    print(p)
+  }, error = function(e) {
+    cat("Could not add trajectories:", e$message, "\n")
+  })
 }
 ```
 
@@ -8617,21 +8619,38 @@ dat <- tidylog::right_join(dat_alt,dat,by="releaseid")
 dat <- tidylog::right_join(dat_ast,dat,by="releaseid")
 rm(baseline,dat_alt,dat_ast,dat_covs,prot,today)
 
+length(colnames(dat))
+length(unique(colnames(dat)))
+length(hvg_proteins)
+length(unique(hvg_proteins))
+
 #Create loop for linear regression between proteins & liver enzymes
-results <- data.frame()
-for(y in c("alt","ast")) {
-  for (x in hvg_proteins) {
-    # M0 <- as.formula(paste0("Surv(time_to_event_alt,event_status_alt) ~ ",x,"+AGEBASE"))
-    M0 <- as.formula(paste0("Surv(time_to_event_",y,",event_status_",y,") ~ ",x))
-    M1 <- coxph(M0,data=dat)
-    logHR <- summary(M1)$coef[1,1]
-    pval <- summary(M1)$coef[1,5]
-    results_full <- data.frame(Protein=x,Outcome=paste0("Time to doubling of ",str_to_upper(y)),LogHR=logHR,Pvalue=pval)
-    results <- rbind(results,results_full)
-  }
+results_alt <- data.frame()
+for (x in hvg_proteins) {
+  # M0 <- as.formula(paste0("Surv(time_to_event_alt,event_status_alt) ~ ",x,"+AGEBASE"))
+  M0 <- as.formula(paste0("Surv(time_to_event_alt,event_status_alt) ~ ",x))
+  M1 <- coxph(M0,data=dat)
+  logHR <- summary(M1)$coef[1,1]
+  pval <- summary(M1)$coef[1,5]
+  results_full_alt <- data.frame(Protein=x,Outcome=paste0("Time to doubling of ALT"),LogHR=logHR,Pvalue=pval)
+  results_alt <- rbind(results_alt,results_full_alt)
 }
+
+
+results_ast <- data.frame()
+for (x in hvg_proteins) {
+  # M0 <- as.formula(paste0("Surv(time_to_event_ast,event_status_ast) ~ ",x,"+AGEBASE"))
+  M0 <- as.formula(paste0("Surv(time_to_event_ast,event_status_ast) ~ ",x))
+  M1 <- coxph(M0,data=dat)
+  logHR <- summary(M1)$coef[1,1]
+  pval <- summary(M1)$coef[1,5]
+  results_full_ast <- data.frame(Protein=x,Outcome=paste0("Time to doubling of AST"),LogHR=logHR,Pvalue=pval)
+  results_ast <- rbind(results_ast,results_full_ast)
+}
+
+
 #ALT
-results_alt <- results %>%
+results_alt <- results_alt %>%
   filter(Outcome=="Time to doubling of ALT") %>% 
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_alt <- results_alt %>%
@@ -8639,12 +8658,12 @@ results_alt <- results_alt %>%
 write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_ALT_hvg.csv"))
 
 #AST
-results_ast <- results %>%
+results_ast <- results_ast %>%
   filter(Outcome=="Time to doubling of AST") %>% 
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_ast <- results_ast %>%
   mutate(sig=ifelse(fdr<0.05,"*",""))
-write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
+write.csv(results_ast,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
 
 results_total <- rbind(results_ast,results_alt)
 
@@ -8653,42 +8672,42 @@ key$Protein <- key$AptName
 results_total <- tidylog::left_join(results_total,key,by="Protein")
 results_ast <- tidylog::left_join(results_ast,key,by="Protein")
 results_alt <- tidylog::left_join(results_alt,key,by="Protein")
-write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
+write.csv(results_ast,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
 write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_ALT_hvg.csv"))
 
 sig_results <- results_total %>% 
   filter(sig=="*")
 
-write.csv(results_total,fs::path(dir.results,"TODAY_proteomics_alt_ast_hvg_adj_age.csv"))
+# write.csv(results_total,fs::path(dir.results,"TODAY_proteomics_alt_ast_hvg_adj_age.csv"))
 
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-results_total$PValue10 <- -log10(pmax(results_total$Pvalue, 1e-10))  # Avoid log(0)
+results_ast$PValue10 <- -log10(pmax(results_ast$Pvalue, 1e-10))  # Avoid log(0)
 
 
-results_total <- results_total %>% 
+results_ast <- results_ast %>% 
   dplyr::rename(Gene=EntrezGeneSymbol)
 
-results_total$color <- ifelse(results_total$fdr < 0.05 & results_total$LogHR > 0, "lightcoral",
-                              ifelse(results_total$fdr < 0.05 & results_total$LogHR < 0, "lightblue", "gray"))
+results_ast$color <- ifelse(results_ast$fdr < 0.05 & results_ast$LogHR > 0, "lightcoral",
+                            ifelse(results_ast$fdr < 0.05 & results_ast$LogHR < 0, "lightblue", "gray"))
 
 # Identify significant points (fdr < 0.05)
-significant_df <- results_total[results_total$fdr < 0.05, ]
+significant_df <- results_ast[results_ast$fdr < 0.05, ]
 
-Genes <- length(unique(results_total$Gene))
+Genes <- length(unique(results_ast$Gene))
 # Nuclei <- ncol(so_celltype_hvg)
 N <- length(unique(dat$releaseid))
 # Nonconvergence_Rate <- nebula_nonconverged_percent
-# results_total$color3 <- ifelse(results_total$fdr3 < 0.2 & results_total$LogHR3 > 0, "lightcoral",
-#                               ifelse(results_total$fdr3 < 0.2 & results_total$LogHR3 < 0, "lightblue", "gray"))
+# results_ast$color3 <- ifelse(results_ast$fdr3 < 0.2 & results_ast$LogHR3 > 0, "lightcoral",
+#                               ifelse(results_ast$fdr3 < 0.2 & results_ast$LogHR3 < 0, "lightblue", "gray"))
 # 
 # # Identify significant points (fdr < 0.05)
-# significant_df3 <- results_total[results_total$fdr3 < 0.2, ]
+# significant_df3 <- results_ast[results_ast$fdr3 < 0.2, ]
 
-max <- max(results_total$LogHR)
+max <- max(results_ast$LogHR)
 # max <- 3.1
-min <- min(results_total$LogHR)
+min <- min(results_ast$LogHR)
 # Create the volcano plot using ggplot
-volcano_plot <- ggplot(results_total, aes(x = LogHR, y = PValue10, color = color)) +
+volcano_plot <- ggplot(results_ast, aes(x = LogHR, y = PValue10, color = color)) +
   geom_point(alpha = 0.7) +  # Plot points with transparency
   scale_color_identity() +  # Use the color column directly
   # theme_minimal() +  # Minimal theme
@@ -8716,14 +8735,70 @@ volcano_plot <- ggplot(results_total, aes(x = LogHR, y = PValue10, color = color
 
 volcano_plot
 
-# pdf(fs::path(dir.results,"Plot_NEBULA_Hepatocytes_Steatosis_unadjusted_2000_hvg_reml.pdf"),width=10,height=7)
-# print(volcano_plot)
-# dev.off()
-
-png(fs::path(dir.results, "Plot_ALT_AST_Proteomics_adj_2000_hvg.png"), 
-    width = 3000, height = 1500, res = 300)
+png(fs::path(dir.results, "Plot_AST_Proteomics_2000_hvg.png"), 
+    width = 2000, height = 1700, res = 300)
 print(volcano_plot)
 dev.off()
+
+#ALT
+# Avoid log(0)
+results_alt$PValue10 <- -log10(pmax(results_alt$Pvalue, 1e-10))
+
+# Rename gene column
+results_alt <- results_alt %>%
+  dplyr::rename(Gene = EntrezGeneSymbol)
+
+# Set color based on significance and direction
+results_alt$color <- ifelse(results_alt$fdr < 0.05 & results_alt$LogHR > 0, "lightcoral",
+                            ifelse(results_alt$fdr < 0.05 & results_alt$LogHR < 0, "lightblue", "gray"))
+
+# Select top 10 up and down LogHR genes per Outcome
+top_labels <- results_alt %>%
+  group_by(Outcome) %>%
+  arrange(desc(LogHR), .by_group = TRUE) %>%
+  slice_head(n = 20) %>%
+  bind_rows(
+    results_alt %>%
+      group_by(Outcome) %>%
+      arrange(LogHR, .by_group = TRUE) %>%
+      slice_head(n = 20)
+  ) %>%
+  ungroup()
+
+# Metadata
+Genes <- length(unique(results_alt$Gene))
+N <- length(unique(dat$releaseid))
+
+# Plot bounds
+max <- max(results_alt$LogHR)
+min <- min(results_alt$LogHR)
+
+# Create the volcano plot
+volcano_plot <- ggplot(results_alt, aes(x = LogHR, y = PValue10, color = color)) +
+  geom_point(alpha = 0.7) +
+  scale_color_identity() +
+  theme_bw() +
+  labs(
+    x = "logHR",
+    caption = paste0("FDR < 0.05, Proteins = ", Genes, ", N = ", N)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +
+  geom_text(data = top_labels, aes(label = Gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black") +
+  facet_wrap(~Outcome)
+
+volcano_plot
+png(fs::path(dir.results, "Plot_ALT_Proteomics_2000_hvg.png"), 
+    width = 1700, height = 1500, res = 300)
+print(volcano_plot)
+dev.off()
+
+
+
 
 #GSEA
 full_results <- read.csv(fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv")) %>%
@@ -9348,31 +9423,1765 @@ write.csv(results,fs::path(dir.results,paste0("Interaction between ",gene_name,"
 
 
 #7. Overlap Analysis & Interpretation
+##a. DEGs
 ```{r}
+# Gene Expression Pattern Analysis Across Multiple Datasets
+# Author: Generated for multi-dataset comparison
+# Purpose: Compare gene expression patterns across 6 CSV files
 
-Hep1 <- readRDS(fs::path(dir.results,"Hep_1_Steatosis_Reactome.rds"))
-Hep2 <- readRDS(fs::path(dir.results,"Hep_2_Steatosis_Reactome.rds"))
-Hep3 <- readRDS(fs::path(dir.results,"Hep_3_Steatosis_Reactome.rds"))
-Hep4 <- readRDS(fs::path(dir.results,"Hep_4_Steatosis_Reactome.rds"))
-Hep5 <- readRDS(fs::path(dir.results,"Hep_5_Steatosis_Reactome.rds"))
-dHep <- readRDS(fs::path(dir.results,"dHep_Steatosis_Reactome.rds"))
+# Load required libraries
+library(dplyr)
+library(readr)
+library(purrr)
+library(ggplot2)
+library(VennDiagram)
+library(pheatmap)
 
-# Create a named list of the 6 cell type data frames
-hep_list <- list(
-  dHep = dHep,
-  Hep1 = Hep1,
-  Hep2 = Hep2,
-  Hep3 = Hep3,
-  Hep4 = Hep4,
-  Hep5 = Hep5
+# Function to read and process a single CSV file
+process_gene_data <- function(file_path, dataset_name) {
+  # Read the CSV file
+  data <- read.csv(file_path)
+  
+  #Format
+  data <- data %>% 
+    dplyr::rename(LogFC=`logFC_steatosis_catHigh.Steatosis..2.3.`)
+  
+  # Filter for significant genes (FDR < 0.05)
+  sig_data <- data %>%
+    filter(fdr < 0.05) %>%
+    mutate(
+      dataset = dataset_name,
+      direction = case_when(
+        LogFC > 0 ~ "Up",
+        LogFC < 0 ~ "Down",
+        TRUE ~ "No_change"
+      ),
+      abs_logfc = abs(LogFC)
+    ) %>%
+    dplyr::select(Gene, LogFC, fdr, dataset, direction, abs_logfc)
+  
+  return(sig_data)
+}
+
+# Main analysis function
+analyze_gene_patterns <- function(file_paths, dataset_names) {
+  
+  # Check if file_paths and dataset_names have same length
+  if(length(file_paths) != length(dataset_names)) {
+    stop("Number of file paths must match number of dataset names")
+  }
+  
+  # Process all files
+  cat("Processing", length(file_paths), "datasets...\n")
+  
+  all_data <- map2_dfr(file_paths, dataset_names, process_gene_data)
+  
+  # Summary statistics
+  cat("\n=== DATASET SUMMARY ===\n")
+  summary_stats <- all_data %>%
+    group_by(dataset) %>%
+    summarise(
+      total_sig_genes = n(),
+      upregulated = sum(direction == "Up"),
+      downregulated = sum(direction == "Down"),
+      mean_abs_logfc = round(mean(abs_logfc), 3),
+      .groups = 'drop'
+    )
+  
+  print(summary_stats)
+  
+  # Find genes present in multiple datasets
+  gene_counts <- all_data %>%
+    group_by(Gene) %>%
+    summarise(
+      n_datasets = n_distinct(dataset),
+      datasets = paste(unique(dataset), collapse = ", "),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(n_datasets))
+  
+  # Genes in multiple datasets
+  multi_dataset_genes <- gene_counts %>%
+    filter(n_datasets > 1)
+  
+  cat("\n=== GENES FOUND IN MULTIPLE DATASETS ===\n")
+  cat("Total genes appearing in >1 dataset:", nrow(multi_dataset_genes), "\n")
+  
+  # Detailed comparison for genes in multiple datasets
+  detailed_comparison <- all_data %>%
+    filter(Gene %in% multi_dataset_genes$Gene) %>%
+    dplyr::select(Gene, dataset, LogFC, fdr, direction) %>%
+    arrange(Gene, dataset)
+  
+  # Create direction consistency summary
+  direction_summary <- detailed_comparison %>%
+    group_by(Gene) %>%
+    summarise(
+      n_datasets = n(),
+      datasets = paste(dataset, collapse = ", "),
+      directions = paste(direction, collapse = ", "),
+      logfc_values = paste(round(LogFC, 3), collapse = ", "),
+      consistent_direction = length(unique(direction)) == 1,
+      direction_type = ifelse(length(unique(direction)) == 1, 
+                              unique(direction), 
+                              "Mixed"),
+      mean_abs_logfc = round(mean(abs(LogFC)), 3),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(n_datasets), desc(mean_abs_logfc))
+  
+  cat("\n=== DIRECTION CONSISTENCY ANALYSIS ===\n")
+  consistency_stats <- direction_summary %>%
+    group_by(consistent_direction) %>%
+    summarise(
+      count = n(),
+      .groups = 'drop'
+    )
+  
+  print(consistency_stats)
+  
+  cat("\n=== TOP GENES WITH CONSISTENT DIRECTIONS ===\n")
+  consistent_genes <- direction_summary %>%
+    filter(consistent_direction == TRUE) %>%
+    head(20)
+  
+  print(consistent_genes)
+  
+  cat("\n=== GENES WITH INCONSISTENT DIRECTIONS ===\n")
+  inconsistent_genes <- direction_summary %>%
+    filter(consistent_direction == FALSE)
+  
+  if(nrow(inconsistent_genes) > 0) {
+    print(inconsistent_genes)
+  } else {
+    cat("No genes with inconsistent directions found.\n")
+  }
+  
+  # Create visualization data
+  viz_data <- all_data %>%
+    group_by(dataset, direction) %>%
+    summarise(count = n(), .groups = 'drop')
+  
+  # Plot 1: Bar plot of up/down regulation by dataset
+  p1 <- ggplot(viz_data, aes(x = dataset, y = count, fill = direction)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = "Significant Gene Expression by Dataset and Direction",
+         x = "Dataset", y = "Number of Genes", fill = "Direction") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = c("Up" = "darkred", "Down" = "#264653"))
+  
+  # Plot 2: Heatmap of gene presence across datasets (for top multi-dataset genes)
+  # if(nrow(multi_dataset_genes) > 0) {
+  #   top_genes <- head(multi_dataset_genes$Gene, 2000)  # Top 50 genes
+  #   
+  #   heatmap_data <- all_data %>%
+  #     filter(Gene %in% top_genes) %>%
+  #     dplyr::select(Gene, dataset, LogFC) %>%
+  #     tidyr::pivot_wider(names_from = dataset, values_from = LogFC, values_fill = 0) %>%
+  #     column_to_rownames("Gene") %>%
+  #     as.matrix()
+  #   
+  #   # Create heatmap
+  #   if(nrow(heatmap_data) > 1) {
+  #     p <- pheatmap(heatmap_data, 
+  #              main = "LogFC Heatmap for Top Multi-Dataset Genes",
+  #              cluster_rows = TRUE,
+  #              cluster_cols = TRUE,
+  #              scale = "none",
+  #              color = colorRampPalette(c("blue", "white", "red"))(100))
+  #   }
+  # }
+  # Plot 2: Heatmap of gene presence across datasets (for top multi-dataset genes)
+  if (nrow(multi_dataset_genes) > 0) {
+    top_genes <- head(multi_dataset_genes$Gene, 2000)  # Top 50 genes
+    
+    # Create the main heatmap matrix
+    heatmap_data <- all_data %>%
+      filter(Gene %in% top_genes) %>%
+      dplyr::select(Gene, dataset, LogFC) %>%
+      tidyr::pivot_wider(names_from = dataset, values_from = LogFC, values_fill = 0) %>%
+      column_to_rownames("Gene") %>%
+      as.matrix()
+    
+    # Create star matrix where fdr < 0.05
+    star_matrix_data <- all_data %>%
+      filter(Gene %in% top_genes) %>%
+      mutate(star = ifelse(fdr < 0.05, "*", "")) %>%
+      dplyr::select(Gene, dataset, star) %>%
+      tidyr::pivot_wider(names_from = dataset, values_from = star, values_fill = "") %>%
+      column_to_rownames("Gene") %>%
+      as.matrix()
+    
+    
+    # Define your desired column order
+    custom_order <- c("Hepatocytes","Hep1","Hep2","Hep3","Hep4","Hep5","dHep")  # Replace with your actual order
+    
+    # Reorder columns
+    # Reorder columns
+    heatmap_data <- heatmap_data[, custom_order]
+    star_matrix_data <- star_matrix_data[, custom_order]
+    
+    
+    
+    # Plot heatmap with stars
+    if (nrow(heatmap_data) > 1) {
+      p <- pheatmap(
+        heatmap_data,
+        main = "LogFC Heatmap for Top Multi-Dataset Genes\n* = FDR < 0.05",
+        cluster_rows = TRUE,
+        cluster_cols = FALSE,
+        scale = "none",
+        color = colorRampPalette(c("darkblue", "white", "darkred"))(100),
+        display_numbers = star_matrix_data,
+        fontsize_number = 14,
+        angle_col = 45 
+      )
+    }
+  }
+  # Return results
+  results <- list(
+    summary_stats = summary_stats,
+    multi_dataset_genes = multi_dataset_genes,
+    direction_summary = direction_summary,
+    detailed_comparison = detailed_comparison,
+    all_data = all_data,
+    plot = p1,
+    heatmap = p
+  )
+  
+  return(results)
+}
+
+# Example usage:
+# Replace these with your actual file paths and names
+file_paths <- c(
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hep_1_Steatosis_unadjusted_2000_pooled_offset.csv", 
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hep_2_Steatosis_unadjusted_2000_pooled_offset.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hep_3_Steatosis_unadjusted_2000_pooled_offset.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hep_4_Steatosis_unadjusted_2000_pooled_offset.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hep_5_Steatosis_unadjusted_2000_pooled_offset.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_dHep_Steatosis_unadjusted_2000_pooled_offset.csv"
 )
 
-# Run comparison
-overlap_results <- compare_pathways(ast, hep_list)
+dataset_names <- c(
+  "Hepatocytes",
+  "Hep1",
+  "Hep2", 
+  "Hep3",
+  "Hep4", 
+  "Hep5",
+  "dHep"
+)
 
-# View the result
-print(overlap_results)
+# Run the analysis
+results <- analyze_gene_patterns(file_paths, dataset_names)
+#Save heatmap
+png(fs::path(dir.results, "Gene_Overlap_Heatmap_Hepatocytes.png"), 
+    width = 3000, height = 2100, res = 300)
+print(results$heatmap)
+dev.off()
 
 
+# Additional utility functions
+
+# Function to create Venn diagram for gene overlap (works for 2-5 datasets)
+create_venn_diagram <- function(results_data, max_datasets = 5) {
+  
+  datasets <- unique(results_data$all_data$dataset)
+  
+  if(length(datasets) > max_datasets) {
+    datasets <- datasets[1:max_datasets]
+    cat("Limiting Venn diagram to first", max_datasets, "datasets\n")
+  }
+  
+  gene_lists <- list()
+  
+  for(ds in datasets) {
+    gene_lists[[ds]] <- results_data$all_data %>%
+      filter(dataset == ds) %>%
+      pull(Gene)
+  }
+  
+  # Create Venn diagram
+  venn.plot <- venn.diagram(
+    x = gene_lists,
+    category.names = names(gene_lists),
+    filename = NULL,
+    output = TRUE,
+    fill = rainbow(length(gene_lists)),
+    alpha = 0.5
+  )
+  
+  grid::grid.draw(venn.plot)
+}
+create_venn_diagram(results)
+create_venn_diagram(results, selected_datasets = c("Dataset1", "Dataset2", "Dataset3"))
+create_venn_diagram(results, selected_datasets = c("Dataset1", "Dataset2", "Dataset3", "Dataset4"))
+# Modified function that saves to file
+create_venn_diagram_file <- function(results_data, selected_datasets = NULL, filename = "venn_diagram.png") {
+  
+  datasets <- unique(results_data$all_data$dataset)
+  
+  if(!is.null(selected_datasets)) {
+    datasets <- intersect(datasets, selected_datasets)
+  }
+  
+  if(length(datasets) < 2 || length(datasets) > 5) {
+    cat("Need 2-5 datasets for Venn diagram\n")
+    return(NULL)
+  }
+  
+  gene_lists <- list()
+  
+  for(ds in datasets) {
+    gene_lists[[ds]] <- results_data$all_data %>%
+      filter(dataset == ds) %>%
+      pull(Gene)
+  }
+  
+  # Create and save Venn diagram
+  venn.plot <- venn.diagram(
+    x = gene_lists,
+    category.names = names(gene_lists),
+    filename = filename,  # This saves to file
+    output = TRUE,
+    fill = rainbow(length(gene_lists)),
+    alpha = 0.5,
+    margin = 0.1,
+    resolution = 300,
+    compression = "lzw"
+  )
+  
+  cat("Venn diagram saved to:", filename, "\n")
+  return(venn.plot)
+}
+
+# Use it like this:
+create_venn_diagram_file(results, 
+                         selected_datasets = c("Hep1","Hep2","Hep3","Hep4","Hep5"),
+                         filename = "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/venn_hep1_to_hep5.png")
+
+
+# Function to export results to files
+export_results <- function(results, output_dir = dir.results) {
+  
+  if(!dir.exists(output_dir)) {
+    dir.create(output_dir)
+  }
+  
+  # Export summary tables
+  write_csv(results$summary_stats, 
+            file.path(output_dir, "dataset_summary.csv"))
+  
+  write_csv(results$direction_summary, 
+            file.path(output_dir, "direction_consistency_summary.csv"))
+  
+  write_csv(results$detailed_comparison, 
+            file.path(output_dir, "detailed_gene_comparison.csv"))
+  
+  # Save plot
+  ggsave(file.path(output_dir, "expression_direction_plot.png"), 
+         results$plot, width = 10, height = 6, dpi = 300)
+  
+  cat("Results exported to:", output_dir, "\n")
+}
+export_results(results)
+
+# Instructions:
+cat("=== INSTRUCTIONS FOR USE ===\n")
+cat("1. Update 'file_paths' with your actual CSV file paths\n")
+cat("2. Update 'dataset_names' with descriptive names for your datasets\n")
+cat("3. Run: results <- analyze_gene_patterns(file_paths, dataset_names)\n")
+cat("4. Optional: create_venn_diagram(results)\n")
+cat("5. Optional: export_results(results)\n")
+cat("6. View results$direction_summary for main findings\n")
+# Run 
+results <- analyze_gene_patterns(file_paths, dataset_names)
+```
+
+##b. Pathways
+###i. Go
+```{r}
+# Pathway Analysis Across Multiple Datasets
+# Author: Generated for multi-dataset pathway comparison
+# Purpose: Compare pathway enrichment patterns across multiple CSV files
+
+# Load required libraries
+library(dplyr)
+library(readr)
+library(purrr)
+library(ggplot2)
+library(VennDiagram)
+library(pheatmap)
+
+# Function to read and process a single pathway file
+process_pathway_data <- function(file_path, dataset_name) {
+  # Read the CSV/RDS file
+  if(grepl("\\.rds$", file_path)) {
+    data <- readRDS(file_path)
+  } else {
+    data <- read_csv(file_path)
+  }
+  
+  # Filter for significant pathways (pval < 0.05)
+  sig_data <- data %>%
+    filter(pval < 0.05) %>%
+    mutate(
+      dataset = dataset_name,
+      direction = case_when(
+        NES > 0 ~ "Positive",
+        NES < 0 ~ "Negative",
+        TRUE ~ "No_change"
+      ),
+      abs_nes = abs(NES)
+    ) %>%
+    dplyr::select(pathway, NES, pval, dataset, direction, abs_nes)
+  
+  return(sig_data)
+}
+
+# Main analysis function
+analyze_pathway_patterns <- function(file_paths, dataset_names) {
+  
+  # Check if file_paths and dataset_names have same length
+  if(length(file_paths) != length(dataset_names)) {
+    stop("Number of file paths must match number of dataset names")
+  }
+  
+  # Process all files
+  cat("Processing", length(file_paths), "datasets...\n")
+  
+  all_data <- map2_dfr(file_paths, dataset_names, process_pathway_data)
+  
+  # Summary statistics
+  cat("\n=== DATASET SUMMARY ===\n")
+  summary_stats <- all_data %>%
+    group_by(dataset) %>%
+    summarise(
+      total_sig_pathways = n(),
+      positive_enriched = sum(direction == "Positive"),
+      negative_enriched = sum(direction == "Negative"),
+      mean_abs_nes = round(mean(abs_nes), 3),
+      .groups = 'drop'
+    )
+  
+  print(summary_stats)
+  
+  # Find pathways present in multiple datasets
+  pathway_counts <- all_data %>%
+    group_by(pathway) %>%
+    summarise(
+      n_datasets = n_distinct(dataset),
+      datasets = paste(unique(dataset), collapse = ", "),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(n_datasets))
+  
+  # Pathways in multiple datasets
+  multi_dataset_pathways <- pathway_counts %>%
+    filter(n_datasets > 1)
+  
+  cat("\n=== PATHWAYS FOUND IN MULTIPLE DATASETS ===\n")
+  cat("Total pathways appearing in >1 dataset:", nrow(multi_dataset_pathways), "\n")
+  
+  # Detailed comparison for pathways in multiple datasets
+  detailed_comparison <- all_data %>%
+    filter(pathway %in% multi_dataset_pathways$pathway) %>%
+    dplyr::select(pathway, dataset, NES, pval, direction) %>%
+    arrange(pathway, dataset)
+  
+  # Create direction consistency summary
+  direction_summary <- detailed_comparison %>%
+    group_by(pathway) %>%
+    summarise(
+      n_datasets = n(),
+      datasets = paste(dataset, collapse = ", "),
+      directions = paste(direction, collapse = ", "),
+      nes_values = paste(round(NES, 3), collapse = ", "),
+      consistent_direction = length(unique(direction)) == 1,
+      direction_type = ifelse(length(unique(direction)) == 1, 
+                              unique(direction), 
+                              "Mixed"),
+      mean_abs_nes = round(mean(abs(NES)), 3),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(n_datasets), desc(mean_abs_nes))
+  
+  cat("\n=== DIRECTION CONSISTENCY ANALYSIS ===\n")
+  consistency_stats <- direction_summary %>%
+    group_by(consistent_direction) %>%
+    summarise(
+      count = n(),
+      .groups = 'drop'
+    )
+  
+  print(consistency_stats)
+  
+  cat("\n=== TOP PATHWAYS WITH CONSISTENT DIRECTIONS ===\n")
+  consistent_pathways <- direction_summary %>%
+    filter(consistent_direction == TRUE) %>%
+    head(20)
+  
+  print(consistent_pathways)
+  
+  cat("\n=== PATHWAYS WITH INCONSISTENT DIRECTIONS ===\n")
+  inconsistent_pathways <- direction_summary %>%
+    filter(consistent_direction == FALSE)
+  
+  if(nrow(inconsistent_pathways) > 0) {
+    print(inconsistent_pathways)
+  } else {
+    cat("No pathways with inconsistent directions found.\n")
+  }
+  
+  # Create visualization data
+  viz_data <- all_data %>%
+    group_by(dataset, direction) %>%
+    summarise(count = n(), .groups = 'drop')
+  
+  # Plot 1: Bar plot of positive/negative enrichment by dataset
+  p1 <- ggplot(viz_data, aes(x = dataset, y = count, fill = direction)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = "Significant Pathway Enrichment by Dataset and Direction",
+         x = "Dataset", y = "Number of Pathways", fill = "Direction") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = c("Positive" = "darkred", "Negative" = "darkblue"))
+  
+  # Plot 2: Heatmap of pathway NES scores across datasets
+  if (nrow(multi_dataset_pathways) > 0) {
+    
+    top_pathways <- head(multi_dataset_pathways$pathway, 100)  # Top 50 pathways
+    
+    # Create the main heatmap matrix
+    heatmap_data <- all_data %>%
+      filter(pathway %in% top_pathways) %>%
+      dplyr::select(pathway, dataset, NES) %>%
+      tidyr::pivot_wider(names_from = dataset, values_from = NES, values_fill = 0) %>%
+      column_to_rownames("pathway") %>%
+      as.matrix()
+    
+    # Create star matrix where pval < 0.05
+    star_matrix_data <- all_data %>%
+      filter(pathway %in% top_pathways) %>%
+      mutate(star = ifelse(pval < 0.05, "*", "")) %>%
+      dplyr::select(pathway, dataset, star) %>%
+      tidyr::pivot_wider(names_from = dataset, values_from = star, values_fill = "") %>%
+      column_to_rownames("pathway") %>%
+      as.matrix()
+    
+    # Define your desired column order (update with your actual dataset names)
+    custom_order <- intersect(dataset_names, colnames(heatmap_data))
+    
+    # Reorder columns
+    heatmap_data <- heatmap_data[, custom_order]
+    star_matrix_data <- star_matrix_data[, custom_order]
+    
+    # Plot heatmap with stars
+    if (nrow(heatmap_data) > 1) {
+      p2 <- pheatmap(
+        heatmap_data,
+        main = "NES Heatmap for Top Multi-Dataset Pathways\n* = p-value < 0.05",
+        cluster_rows = TRUE,
+        cluster_cols = FALSE,
+        scale = "none",
+        color = colorRampPalette(c("darkblue", "white", "darkred"))(100),
+        display_numbers = star_matrix_data,
+        fontsize_number = 14,
+        angle_col = 45,
+        fontsize_row = 8,
+        number_color = "white"
+      )
+    }
+  }
+  
+  # Return results
+  results <- list(
+    summary_stats = summary_stats,
+    multi_dataset_pathways = multi_dataset_pathways,
+    direction_summary = direction_summary,
+    detailed_comparison = detailed_comparison,
+    all_data = all_data,
+    plot = p1,
+    heatmap = if(exists("p2")) p2 else NULL
+  )
+  
+  return(results)
+}
+
+# Function to create Venn diagram for pathway overlap
+create_pathway_venn_diagram <- function(results_data, selected_datasets = NULL, max_datasets = 5) {
+  
+  datasets <- unique(results_data$all_data$dataset)
+  
+  if(!is.null(selected_datasets)) {
+    datasets <- intersect(datasets, selected_datasets)
+  }
+  
+  if(length(datasets) > max_datasets) {
+    datasets <- datasets[1:max_datasets]
+    cat("Limiting Venn diagram to first", max_datasets, "datasets\n")
+  }
+  
+  if(length(datasets) < 2 || length(datasets) > 5) {
+    cat("Need 2-5 datasets for Venn diagram\n")
+    return(NULL)
+  }
+  
+  pathway_lists <- list()
+  
+  for(ds in datasets) {
+    pathway_lists[[ds]] <- results_data$all_data %>%
+      filter(dataset == ds) %>%
+      pull(pathway)
+  }
+  
+  # Create Venn diagram
+  venn.plot <- venn.diagram(
+    x = pathway_lists,
+    category.names = names(pathway_lists),
+    filename = NULL,
+    output = TRUE,
+    fill = rainbow(length(pathway_lists)),
+    alpha = 0.5
+  )
+  
+  grid::grid.draw(venn.plot)
+  return(venn.plot)
+}
+
+# Function to save Venn diagram to file
+create_pathway_venn_diagram_file <- function(results_data, selected_datasets = NULL, filename = "GO_pathway_venn_diagram.png") {
+  
+  datasets <- unique(results_data$all_data$dataset)
+  
+  if(!is.null(selected_datasets)) {
+    datasets <- intersect(datasets, selected_datasets)
+  }
+  
+  if(length(datasets) < 2 || length(datasets) > 5) {
+    cat("Need 2-5 datasets for Venn diagram\n")
+    return(NULL)
+  }
+  
+  pathway_lists <- list()
+  
+  for(ds in datasets) {
+    pathway_lists[[ds]] <- results_data$all_data %>%
+      filter(dataset == ds) %>%
+      pull(pathway)
+  }
+  
+  # Create and save Venn diagram
+  venn.plot <- venn.diagram(
+    x = pathway_lists,
+    category.names = names(pathway_lists),
+    filename = filename,
+    output = TRUE,
+    fill = rainbow(length(pathway_lists)),
+    alpha = 0.5,
+    margin = 0.1,
+    resolution = 300,
+    compression = "lzw"
+  )
+  
+  cat("Pathway Venn diagram saved to:", filename, "\n")
+  return(venn.plot)
+}
+
+# Function to export results to files
+export_pathway_results <- function(results, output_dir = dir.results) {
+  
+  if(!dir.exists(output_dir)) {
+    dir.create(output_dir)
+  }
+  
+  # Export summary tables
+  write_csv(results$summary_stats, 
+            file.path(output_dir, "GO_pathway_dataset_summary.csv"))
+  
+  write_csv(results$direction_summary, 
+            file.path(output_dir, "GO_pathway_direction_consistency_summary.csv"))
+  
+  write_csv(results$detailed_comparison, 
+            file.path(output_dir, "GO_detailed_pathway_comparison.csv"))
+  
+  # Save plot
+  ggsave(file.path(output_dir, "GO_pathway_enrichment_direction_plot.png"), 
+         results$plot, width = 10, height = 6, dpi = 300)
+  
+  # Save heatmap if it exists
+  if(!is.null(results$heatmap)) {
+    png(file.path(output_dir, "GO_pathway_overlap_heatmap.png"), 
+        width = 3000, height = 2100, res = 300)
+    print(results$heatmap)
+    dev.off()
+  }
+  
+  cat("Pathway results exported to:", output_dir, "\n")
+}
+
+# Example usage:
+# Replace these with your actual file paths and names
+file_paths <- c(
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hepatocytes_Steatosis_GO.rds",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hep_1_Steatosis_GO.rds", 
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hep_2_Steatosis_GO.rds",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hep_3_Steatosis_GO.rds",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hep_4_Steatosis_GO.rds",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hep_5_Steatosis_GO.rds",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/dHep_Steatosis_GO.rds"
+)
+
+dataset_names <- c(
+  "Hepatocytes",
+  "Hep1",
+  "Hep2", 
+  "Hep3",
+  "Hep4", 
+  "Hep5",
+  "dHep"
+)
+
+# Run the analysis
+results <- analyze_pathway_patterns(file_paths, dataset_names)
+
+#Save heatmap
+png(fs::path(dir.results, "Pathway_Overlap_Heatmap_Hepatocytes_GO.png"), 
+    width = 5000, height = 6000, res = 300)
+print(results$heatmap)
+dev.off()
+
+# Create visualizations
+# create_pathway_venn_diagram(results)
+# create_pathway_venn_diagram_file(results, filename = "my_pathway_venn.png")
+
+# Export results
+export_pathway_results(results)
+
+# Instructions:
+cat("=== INSTRUCTIONS FOR USE ===\n")
+cat("1. Update 'file_paths' with your actual pathway file paths\n")
+cat("2. Update 'dataset_names' with descriptive names for your datasets\n")
+cat("3. Ensure your data files have columns: 'pathway', 'pval', 'NES'\n")
+cat("4. Run: results <- analyze_pathway_patterns(file_paths, dataset_names)\n")
+cat("5. Optional: create_pathway_venn_diagram(results)\n")
+cat("6. Optional: export_pathway_results(results)\n")
+cat("7. View results$direction_summary for main findings\n")
+cat("8. Look for pathways with consistent vs inconsistent NES directions\n")
+```
+###ii. Reactome
+```{r}
+# Pathway Analysis Across Multiple Datasets
+# Author: Generated for multi-dataset pathway comparison
+# Purpose: Compare pathway enrichment patterns across multiple CSV files
+
+# Load required libraries
+library(dplyr)
+library(readr)
+library(purrr)
+library(ggplot2)
+library(VennDiagram)
+library(pheatmap)
+
+# Function to read and process a single pathway file
+process_pathway_data <- function(file_path, dataset_name) {
+  # Read the CSV/RDS file
+  if(grepl("\\.rds$", file_path)) {
+    data <- readRDS(file_path)
+  } else {
+    data <- read_csv(file_path)
+  }
+  
+  # Filter for significant pathways (pval < 0.05)
+  sig_data <- data %>%
+    filter(pval < 0.05) %>%
+    mutate(
+      dataset = dataset_name,
+      direction = case_when(
+        NES > 0 ~ "Positive",
+        NES < 0 ~ "Negative",
+        TRUE ~ "No_change"
+      ),
+      abs_nes = abs(NES)
+    ) %>%
+    dplyr::select(pathway, NES, pval, dataset, direction, abs_nes)
+  
+  return(sig_data)
+}
+
+# Main analysis function
+analyze_pathway_patterns <- function(file_paths, dataset_names) {
+  
+  # Check if file_paths and dataset_names have same length
+  if(length(file_paths) != length(dataset_names)) {
+    stop("Number of file paths must match number of dataset names")
+  }
+  
+  # Process all files
+  cat("Processing", length(file_paths), "datasets...\n")
+  
+  all_data <- map2_dfr(file_paths, dataset_names, process_pathway_data)
+  
+  # Summary statistics
+  cat("\n=== DATASET SUMMARY ===\n")
+  summary_stats <- all_data %>%
+    group_by(dataset) %>%
+    summarise(
+      total_sig_pathways = n(),
+      positive_enriched = sum(direction == "Positive"),
+      negative_enriched = sum(direction == "Negative"),
+      mean_abs_nes = round(mean(abs_nes), 3),
+      .groups = 'drop'
+    )
+  
+  print(summary_stats)
+  
+  # Find pathways present in multiple datasets
+  pathway_counts <- all_data %>%
+    group_by(pathway) %>%
+    summarise(
+      n_datasets = n_distinct(dataset),
+      datasets = paste(unique(dataset), collapse = ", "),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(n_datasets))
+  
+  # Pathways in multiple datasets
+  multi_dataset_pathways <- pathway_counts %>%
+    filter(n_datasets > 1)
+  
+  cat("\n=== PATHWAYS FOUND IN MULTIPLE DATASETS ===\n")
+  cat("Total pathways appearing in >1 dataset:", nrow(multi_dataset_pathways), "\n")
+  
+  # Detailed comparison for pathways in multiple datasets
+  detailed_comparison <- all_data %>%
+    filter(pathway %in% multi_dataset_pathways$pathway) %>%
+    dplyr::select(pathway, dataset, NES, pval, direction) %>%
+    arrange(pathway, dataset)
+  
+  # Create direction consistency summary
+  direction_summary <- detailed_comparison %>%
+    group_by(pathway) %>%
+    summarise(
+      n_datasets = n(),
+      datasets = paste(dataset, collapse = ", "),
+      directions = paste(direction, collapse = ", "),
+      nes_values = paste(round(NES, 3), collapse = ", "),
+      consistent_direction = length(unique(direction)) == 1,
+      direction_type = ifelse(length(unique(direction)) == 1, 
+                              unique(direction), 
+                              "Mixed"),
+      mean_abs_nes = round(mean(abs(NES)), 3),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(n_datasets), desc(mean_abs_nes))
+  
+  cat("\n=== DIRECTION CONSISTENCY ANALYSIS ===\n")
+  consistency_stats <- direction_summary %>%
+    group_by(consistent_direction) %>%
+    summarise(
+      count = n(),
+      .groups = 'drop'
+    )
+  
+  print(consistency_stats)
+  
+  cat("\n=== TOP PATHWAYS WITH CONSISTENT DIRECTIONS ===\n")
+  consistent_pathways <- direction_summary %>%
+    filter(consistent_direction == TRUE) %>%
+    head(20)
+  
+  print(consistent_pathways)
+  
+  cat("\n=== PATHWAYS WITH INCONSISTENT DIRECTIONS ===\n")
+  inconsistent_pathways <- direction_summary %>%
+    filter(consistent_direction == FALSE)
+  
+  if(nrow(inconsistent_pathways) > 0) {
+    print(inconsistent_pathways)
+  } else {
+    cat("No pathways with inconsistent directions found.\n")
+  }
+  
+  # Create visualization data
+  viz_data <- all_data %>%
+    group_by(dataset, direction) %>%
+    summarise(count = n(), .groups = 'drop')
+  
+  # Plot 1: Bar plot of positive/negative enrichment by dataset
+  p1 <- ggplot(viz_data, aes(x = dataset, y = count, fill = direction)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = "Significant Pathway Enrichment by Dataset and Direction",
+         x = "Dataset", y = "Number of Pathways", fill = "Direction") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = c("Positive" = "darkred", "Negative" = "darkblue"))
+  
+  # Plot 2: Heatmap of pathway NES scores across datasets
+  if (nrow(multi_dataset_pathways) > 0) {
+    
+    top_pathways <- head(multi_dataset_pathways$pathway, 2000)  # Top 50 pathways
+    
+    # Create the main heatmap matrix
+    heatmap_data <- all_data %>%
+      filter(pathway %in% top_pathways) %>%
+      dplyr::select(pathway, dataset, NES) %>%
+      tidyr::pivot_wider(names_from = dataset, values_from = NES, values_fill = 0) %>%
+      column_to_rownames("pathway") %>%
+      as.matrix()
+    
+    # Create star matrix where pval < 0.05
+    star_matrix_data <- all_data %>%
+      filter(pathway %in% top_pathways) %>%
+      mutate(star = ifelse(pval < 0.05, "*", "")) %>%
+      dplyr::select(pathway, dataset, star) %>%
+      tidyr::pivot_wider(names_from = dataset, values_from = star, values_fill = "") %>%
+      column_to_rownames("pathway") %>%
+      as.matrix()
+    
+    # Define your desired column order (update with your actual dataset names)
+    custom_order <- intersect(dataset_names, colnames(heatmap_data))
+    
+    # Reorder columns
+    heatmap_data <- heatmap_data[, custom_order]
+    star_matrix_data <- star_matrix_data[, custom_order]
+    
+    # Plot heatmap with stars
+    if (nrow(heatmap_data) > 1) {
+      p2 <- pheatmap(
+        heatmap_data,
+        main = "NES Heatmap for Top Multi-Dataset Pathways\n* = p-value < 0.05",
+        cluster_rows = TRUE,
+        cluster_cols = FALSE,
+        scale = "none",
+        color = colorRampPalette(c("darkblue", "white", "darkred"))(100),
+        display_numbers = star_matrix_data,
+        fontsize_number = 14,
+        angle_col = 45,
+        fontsize_row = 8,
+        number_color = "white"
+      )
+    }
+  }
+  
+  # Return results
+  results <- list(
+    summary_stats = summary_stats,
+    multi_dataset_pathways = multi_dataset_pathways,
+    direction_summary = direction_summary,
+    detailed_comparison = detailed_comparison,
+    all_data = all_data,
+    plot = p1,
+    heatmap = if(exists("p2")) p2 else NULL
+  )
+  
+  return(results)
+}
+
+# Function to create Venn diagram for pathway overlap
+create_pathway_venn_diagram <- function(results_data, selected_datasets = NULL, max_datasets = 5) {
+  
+  datasets <- unique(results_data$all_data$dataset)
+  
+  if(!is.null(selected_datasets)) {
+    datasets <- intersect(datasets, selected_datasets)
+  }
+  
+  if(length(datasets) > max_datasets) {
+    datasets <- datasets[1:max_datasets]
+    cat("Limiting Venn diagram to first", max_datasets, "datasets\n")
+  }
+  
+  if(length(datasets) < 2 || length(datasets) > 5) {
+    cat("Need 2-5 datasets for Venn diagram\n")
+    return(NULL)
+  }
+  
+  pathway_lists <- list()
+  
+  for(ds in datasets) {
+    pathway_lists[[ds]] <- results_data$all_data %>%
+      filter(dataset == ds) %>%
+      pull(pathway)
+  }
+  
+  # Create Venn diagram
+  venn.plot <- venn.diagram(
+    x = pathway_lists,
+    category.names = names(pathway_lists),
+    filename = NULL,
+    output = TRUE,
+    fill = rainbow(length(pathway_lists)),
+    alpha = 0.5
+  )
+  
+  grid::grid.draw(venn.plot)
+  return(venn.plot)
+}
+
+# Function to save Venn diagram to file
+create_pathway_venn_diagram_file <- function(results_data, selected_datasets = NULL, filename = "pathway_venn_diagram.png") {
+  
+  datasets <- unique(results_data$all_data$dataset)
+  
+  if(!is.null(selected_datasets)) {
+    datasets <- intersect(datasets, selected_datasets)
+  }
+  
+  if(length(datasets) < 2 || length(datasets) > 5) {
+    cat("Need 2-5 datasets for Venn diagram\n")
+    return(NULL)
+  }
+  
+  pathway_lists <- list()
+  
+  for(ds in datasets) {
+    pathway_lists[[ds]] <- results_data$all_data %>%
+      filter(dataset == ds) %>%
+      pull(pathway)
+  }
+  
+  # Create and save Venn diagram
+  venn.plot <- venn.diagram(
+    x = pathway_lists,
+    category.names = names(pathway_lists),
+    filename = filename,
+    output = TRUE,
+    fill = rainbow(length(pathway_lists)),
+    alpha = 0.5,
+    margin = 0.1,
+    resolution = 300,
+    compression = "lzw"
+  )
+  
+  cat("Pathway Venn diagram saved to:", filename, "\n")
+  return(venn.plot)
+}
+
+# Function to export results to files
+export_pathway_results <- function(results, output_dir = dir.results) {
+  
+  if(!dir.exists(output_dir)) {
+    dir.create(output_dir)
+  }
+  
+  # Export summary tables
+  write_csv(results$summary_stats, 
+            file.path(output_dir, "pathway_dataset_summary.csv"))
+  
+  write_csv(results$direction_summary, 
+            file.path(output_dir, "pathway_direction_consistency_summary.csv"))
+  
+  write_csv(results$detailed_comparison, 
+            file.path(output_dir, "detailed_pathway_comparison.csv"))
+  
+  # Save plot
+  ggsave(file.path(output_dir, "pathway_enrichment_direction_plot.png"), 
+         results$plot, width = 10, height = 6, dpi = 300)
+  
+  # Save heatmap if it exists
+  if(!is.null(results$heatmap)) {
+    png(file.path(output_dir, "pathway_overlap_heatmap.png"), 
+        width = 3000, height = 2100, res = 300)
+    print(results$heatmap)
+    dev.off()
+  }
+  
+  cat("Pathway results exported to:", output_dir, "\n")
+}
+
+# Example usage:
+# Replace these with your actual file paths and names
+file_paths <- c(
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hepatocytes_Steatosis_Reactome.rds",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hep_1_Steatosis_Reactome.rds", 
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hep_2_Steatosis_Reactome.rds",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hep_3_Steatosis_Reactome.rds",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hep_4_Steatosis_Reactome.rds",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Hep_5_Steatosis_Reactome.rds",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/dHep_Steatosis_Reactome.rds"
+)
+
+dataset_names <- c(
+  "Hepatocytes",
+  "Hep1",
+  "Hep2", 
+  "Hep3",
+  "Hep4", 
+  "Hep5",
+  "dHep"
+)
+
+# Run the analysis
+results <- analyze_pathway_patterns(file_paths, dataset_names)
+
+#Save heatmap
+png(fs::path(dir.results, "Pathway_Overlap_Heatmap_Hepatocytes.png"), 
+    width = 4000, height = 2100, res = 300)
+print(results$heatmap)
+dev.off()
+
+# Create visualizations
+# create_pathway_venn_diagram(results)
+# create_pathway_venn_diagram_file(results, filename = "my_pathway_venn.png")
+
+# Export results
+export_pathway_results(results)
+
+# Instructions:
+cat("=== INSTRUCTIONS FOR USE ===\n")
+cat("1. Update 'file_paths' with your actual pathway file paths\n")
+cat("2. Update 'dataset_names' with descriptive names for your datasets\n")
+cat("3. Ensure your data files have columns: 'pathway', 'pval', 'NES'\n")
+cat("4. Run: results <- analyze_pathway_patterns(file_paths, dataset_names)\n")
+cat("5. Optional: create_pathway_venn_diagram(results)\n")
+cat("6. Optional: export_pathway_results(results)\n")
+cat("7. View results$direction_summary for main findings\n")
+cat("8. Look for pathways with consistent vs inconsistent NES directions\n")
+```
+
+##c. With ALT/AST
+###i. DEGs
+####I. Format
+```{r}
+# Replace these with your actual file paths and names
+file_paths <- c(
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hep_1_Steatosis_unadjusted_2000_pooled_offset.csv", 
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hep_2_Steatosis_unadjusted_2000_pooled_offset.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hep_3_Steatosis_unadjusted_2000_pooled_offset.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hep_4_Steatosis_unadjusted_2000_pooled_offset.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hep_5_Steatosis_unadjusted_2000_pooled_offset.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_dHep_Steatosis_unadjusted_2000_pooled_offset.csv"
+)
+
+dataset_names <- c(
+  "Hepatocytes",
+  "Hep1",
+  "Hep2", 
+  "Hep3",
+  "Hep4", 
+  "Hep5",
+  "dHep"
+)
+# all_data <-read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/NEBULA_Hep_3_Steatosis_unadjusted_2000_pooled_offset.csv")
+process_gene_data <- function(file_path, dataset_name) {
+  # Read the CSV file
+  data <- read.csv(file_path)
+  
+  #Format
+  data <- data %>% 
+    dplyr::rename(LogFC=`logFC_steatosis_catHigh.Steatosis..2.3.`) %>% 
+    dplyr::rename(p_value=`p_steatosis_catHigh.Steatosis..2.3.`)
+  
+  # Filter for significant genes (FDR < 0.05)
+  sig_data <- data %>%
+    filter(fdr < 0.05) %>%
+    mutate(
+      dataset = dataset_name,
+      direction = case_when(
+        LogFC > 0 ~ "Up",
+        LogFC < 0 ~ "Down",
+        TRUE ~ "No_change"
+      ),
+      abs_logfc = abs(LogFC)
+    ) %>%
+    dplyr::select(Gene, LogFC, p_value,fdr, dataset, direction, abs_logfc)
+  
+  return(sig_data)
+}
+analyze_gene_patterns <- function(file_paths, dataset_names) {
+  
+  # Check if file_paths and dataset_names have same length
+  if(length(file_paths) != length(dataset_names)) {
+    stop("Number of file paths must match number of dataset names")
+  }
+  
+  # Process all files
+  cat("Processing", length(file_paths), "datasets...\n")
+  
+  all_data <- map2_dfr(file_paths, dataset_names, process_gene_data)
+  
+  # Summary statistics
+  cat("\n=== DATASET SUMMARY ===\n")
+  summary_stats <- all_data %>%
+    group_by(dataset) %>%
+    summarise(
+      total_sig_genes = n(),
+      upregulated = sum(direction == "Up"),
+      downregulated = sum(direction == "Down"),
+      mean_abs_logfc = round(mean(abs_logfc), 3),
+      .groups = 'drop'
+    )
+  
+  print(summary_stats)
+  
+  # Find genes present in multiple datasets
+  gene_counts <- all_data %>%
+    group_by(Gene) %>%
+    summarise(
+      n_datasets = n_distinct(dataset),
+      datasets = paste(unique(dataset), collapse = ", "),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(n_datasets))
+  
+  # Genes in multiple datasets
+  multi_dataset_genes <- gene_counts %>%
+    filter(n_datasets > 1)
+  
+  cat("\n=== GENES FOUND IN MULTIPLE DATASETS ===\n")
+  cat("Total genes appearing in >1 dataset:", nrow(multi_dataset_genes), "\n")
+  
+  # Detailed comparison for genes in multiple datasets
+  detailed_comparison <- all_data %>%
+    filter(Gene %in% multi_dataset_genes$Gene) %>%
+    dplyr::select(Gene, dataset, LogFC, fdr, direction) %>%
+    arrange(Gene, dataset)
+  
+  # Create direction consistency summary
+  direction_summary <- detailed_comparison %>%
+    group_by(Gene) %>%
+    summarise(
+      n_datasets = n(),
+      datasets = paste(dataset, collapse = ", "),
+      directions = paste(direction, collapse = ", "),
+      logfc_values = paste(round(LogFC, 3), collapse = ", "),
+      consistent_direction = length(unique(direction)) == 1,
+      direction_type = ifelse(length(unique(direction)) == 1, 
+                              unique(direction), 
+                              "Mixed"),
+      mean_abs_logfc = round(mean(abs(LogFC)), 3),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(n_datasets), desc(mean_abs_logfc))
+  
+  cat("\n=== DIRECTION CONSISTENCY ANALYSIS ===\n")
+  consistency_stats <- direction_summary %>%
+    group_by(consistent_direction) %>%
+    summarise(
+      count = n(),
+      .groups = 'drop'
+    )
+  
+  print(consistency_stats)
+  
+  cat("\n=== TOP GENES WITH CONSISTENT DIRECTIONS ===\n")
+  consistent_genes <- direction_summary %>%
+    filter(consistent_direction == TRUE) %>%
+    head(20)
+  
+  print(consistent_genes)
+  
+  cat("\n=== GENES WITH INCONSISTENT DIRECTIONS ===\n")
+  inconsistent_genes <- direction_summary %>%
+    filter(consistent_direction == FALSE)
+  
+  if(nrow(inconsistent_genes) > 0) {
+    print(inconsistent_genes)
+  } else {
+    cat("No genes with inconsistent directions found.\n")
+  }
+  
+  # Create visualization data
+  viz_data <- all_data %>%
+    group_by(dataset, direction) %>%
+    summarise(count = n(), .groups = 'drop')
+  
+  # Plot 1: Bar plot of up/down regulation by dataset
+  p1 <- ggplot(viz_data, aes(x = dataset, y = count, fill = direction)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = "Significant Gene Expression by Dataset and Direction",
+         x = "Dataset", y = "Number of Genes", fill = "Direction") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = c("Up" = "darkred", "Down" = "#264653"))
+  
+  # Plot 2: Heatmap of gene presence across datasets (for top multi-dataset genes)
+  # if(nrow(multi_dataset_genes) > 0) {
+  #   top_genes <- head(multi_dataset_genes$Gene, 2000)  # Top 50 genes
+  #   
+  #   heatmap_data <- all_data %>%
+  #     filter(Gene %in% top_genes) %>%
+  #     dplyr::select(Gene, dataset, LogFC) %>%
+  #     tidyr::pivot_wider(names_from = dataset, values_from = LogFC, values_fill = 0) %>%
+  #     column_to_rownames("Gene") %>%
+  #     as.matrix()
+  #   
+  #   # Create heatmap
+  #   if(nrow(heatmap_data) > 1) {
+  #     p <- pheatmap(heatmap_data, 
+  #              main = "LogFC Heatmap for Top Multi-Dataset Genes",
+  #              cluster_rows = TRUE,
+  #              cluster_cols = TRUE,
+  #              scale = "none",
+  #              color = colorRampPalette(c("blue", "white", "red"))(100))
+  #   }
+  # }
+  # Plot 2: Heatmap of gene presence across datasets (for top multi-dataset genes)
+  if (nrow(multi_dataset_genes) > 0) {
+    top_genes <- head(multi_dataset_genes$Gene, 2000)  # Top 50 genes
+    
+    # Create the main heatmap matrix
+    heatmap_data <- all_data %>%
+      filter(Gene %in% top_genes) %>%
+      dplyr::select(Gene, dataset, LogFC) %>%
+      tidyr::pivot_wider(names_from = dataset, values_from = LogFC, values_fill = 0) %>%
+      column_to_rownames("Gene") %>%
+      as.matrix()
+    
+    # Create star matrix where fdr < 0.05
+    star_matrix_data <- all_data %>%
+      filter(Gene %in% top_genes) %>%
+      mutate(star = ifelse(fdr < 0.05, "*", "")) %>%
+      dplyr::select(Gene, dataset, star) %>%
+      tidyr::pivot_wider(names_from = dataset, values_from = star, values_fill = "") %>%
+      column_to_rownames("Gene") %>%
+      as.matrix()
+    
+    
+    # Define your desired column order
+    custom_order <- c("Hepatocytes","Hep1","Hep2","Hep3","Hep4","Hep5","dHep")  # Replace with your actual order
+    
+    # Reorder columns
+    # Reorder columns
+    heatmap_data <- heatmap_data[, custom_order]
+    star_matrix_data <- star_matrix_data[, custom_order]
+    
+    
+    
+    # Plot heatmap with stars
+    if (nrow(heatmap_data) > 1) {
+      p <- pheatmap(
+        heatmap_data,
+        main = "LogFC Heatmap for Top Multi-Dataset Genes\n* = FDR < 0.05",
+        cluster_rows = TRUE,
+        cluster_cols = FALSE,
+        scale = "none",
+        color = colorRampPalette(c("darkblue", "white", "darkred"))(100),
+        display_numbers = star_matrix_data,
+        fontsize_number = 14,
+        angle_col = 45 
+      )
+    }
+  }
+  # Return results
+  results <- list(
+    summary_stats = summary_stats,
+    multi_dataset_genes = multi_dataset_genes,
+    direction_summary = direction_summary,
+    detailed_comparison = detailed_comparison,
+    all_data = all_data,
+    plot = p1,
+    heatmap = p
+  )
+  
+  return(results)
+}
+# Function to create summary dataframe matching original format
+create_gene_summary <- function(results) {
+  
+  # Extract all data from the results object
+  all_data <- results$all_data
+  # all_data <- all_data %>% 
+  #   dplyr::rename(LogFC=`logFC_steatosis_catHigh.Steatosis..2.3.`) %>% 
+  # dplyr::rename(p_value=`p_steatosis_catHigh.Steatosis..2.3.`)
+  # 
+  # Create summary with same column structure as original data
+  gene_summary <- all_data %>%
+    group_by(Gene) %>%
+    summarise(
+      LogFC = mean(LogFC),  # Average LogFC across all datasets
+      Pvalue = min(p_value), 
+      fdr = min(fdr),       # Best (minimum) FDR across all datasets
+      .groups = 'drop'
+    ) %>%
+    mutate(
+      dataset = "Summary",
+      direction = case_when(
+        LogFC > 0 ~ "Up",
+        LogFC < 0 ~ "Down",
+        TRUE ~ "No_change"
+      ),
+      abs_logfc = abs(LogFC)
+    ) %>%
+    dplyr::select(Gene, LogFC, Pvalue, fdr, dataset, direction, abs_logfc)
+  
+  return(gene_summary)
+}
+
+results <- analyze_gene_patterns(file_paths, dataset_names)
+summary_data <- create_gene_summary(results)
+saveRDS(summary_data,fs::path(dir.results,"Summary_Hepatocytes_Dataframe.rds"))
+write.csv(summary_data,fs::path(dir.results,"Summary_Hepatocytes_Dataframe.csv"))
+
+#Alter alt and ast names
+data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/TODAY_proteomics_ALT_hvg.csv")
+data <- data %>% 
+  dplyr::rename(LogFC=LogHR) %>% 
+  dplyr::rename(Gene=EntrezGeneSymbol)
+write.csv(data,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_ALT_hvg.csv")
+
+data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/TODAY_proteomics_AST_hvg.csv")
+data <- data %>% 
+  dplyr::rename(LogFC=LogHR) %>% 
+  dplyr::rename(Gene=EntrezGeneSymbol)
+write.csv(data,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_AST_hvg.csv")
+```
+
+####II. Analyze
+```{r}
+# Function to read and process a single CSV file
+process_gene_data <- function(file_path, dataset_name) {
+  # Read the CSV file
+  data <- read.csv(file_path)
+  
+  #Format
+  # data <- data %>% 
+  #   dplyr::rename(LogFC=LogHR) %>% 
+  #   dplyr::rename(Gene=EntrezGeneSymbol)
+  
+  # Filter for significant genes (FDR < 0.05)
+  sig_data <- data %>%
+    filter(Pvalue < 0.2) %>%
+    mutate(
+      dataset = dataset_name,
+      direction = case_when(
+        LogFC > 0 ~ "Up",
+        LogFC < 0 ~ "Down",
+        TRUE ~ "No_change"
+      ),
+      abs_logfc = abs(LogFC)
+    ) %>%
+    dplyr::select(Gene, LogFC, Pvalue,fdr, dataset, direction, abs_logfc)
+  
+  return(sig_data)
+}
+
+# Main analysis function
+analyze_gene_patterns <- function(file_paths, dataset_names) {
+  
+  # Check if file_paths and dataset_names have same length
+  if(length(file_paths) != length(dataset_names)) {
+    stop("Number of file paths must match number of dataset names")
+  }
+  
+  # Process all files
+  cat("Processing", length(file_paths), "datasets...\n")
+  
+  all_data <- map2_dfr(file_paths, dataset_names, process_gene_data)
+  
+  # Summary statistics
+  cat("\n=== DATASET SUMMARY ===\n")
+  summary_stats <- all_data %>%
+    group_by(dataset) %>%
+    summarise(
+      total_sig_genes = n(),
+      upregulated = sum(direction == "Up"),
+      downregulated = sum(direction == "Down"),
+      mean_abs_logfc = round(mean(abs_logfc), 3),
+      .groups = 'drop'
+    )
+  
+  print(summary_stats)
+  
+  # Find genes present in multiple datasets
+  gene_counts <- all_data %>%
+    group_by(Gene) %>%
+    summarise(
+      n_datasets = n_distinct(dataset),
+      datasets = paste(unique(dataset), collapse = ", "),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(n_datasets))
+  
+  # Genes in multiple datasets
+  multi_dataset_genes <- gene_counts %>%
+    filter(n_datasets > 1)
+  
+  cat("\n=== GENES FOUND IN MULTIPLE DATASETS ===\n")
+  cat("Total genes appearing in >1 dataset:", nrow(multi_dataset_genes), "\n")
+  
+  # Detailed comparison for genes in multiple datasets
+  detailed_comparison <- all_data %>%
+    filter(Gene %in% multi_dataset_genes$Gene) %>%
+    dplyr::select(Gene, dataset, Pvalue, LogFC, fdr, direction) %>%
+    arrange(Gene, dataset)
+  
+  # Create direction consistency summary
+  direction_summary <- detailed_comparison %>%
+    group_by(Gene) %>%
+    summarise(
+      n_datasets = n(),
+      datasets = paste(dataset, collapse = ", "),
+      directions = paste(direction, collapse = ", "),
+      logfc_values = paste(round(LogFC, 3), collapse = ", "),
+      consistent_direction = length(unique(direction)) == 1,
+      direction_type = ifelse(length(unique(direction)) == 1, 
+                              unique(direction), 
+                              "Mixed"),
+      mean_abs_logfc = round(mean(abs(LogFC)), 3),
+      .groups = 'drop'
+    ) %>%
+    arrange(desc(n_datasets), desc(mean_abs_logfc))
+  
+  cat("\n=== DIRECTION CONSISTENCY ANALYSIS ===\n")
+  consistency_stats <- direction_summary %>%
+    group_by(consistent_direction) %>%
+    summarise(
+      count = n(),
+      .groups = 'drop'
+    )
+  
+  print(consistency_stats)
+  
+  cat("\n=== TOP GENES WITH CONSISTENT DIRECTIONS ===\n")
+  consistent_genes <- direction_summary %>%
+    filter(consistent_direction == TRUE) 
+  # head(20)
+  
+  print(consistent_genes)
+  
+  cat("\n=== GENES WITH INCONSISTENT DIRECTIONS ===\n")
+  inconsistent_genes <- direction_summary %>%
+    filter(consistent_direction == FALSE)
+  
+  if(nrow(inconsistent_genes) > 0) {
+    print(inconsistent_genes)
+  } else {
+    cat("No genes with inconsistent directions found.\n")
+  }
+  
+  # Create visualization data
+  viz_data <- all_data %>%
+    group_by(dataset, direction) %>%
+    summarise(count = n(), .groups = 'drop')
+  
+  # Plot 1: Bar plot of up/down regulation by dataset
+  p1 <- ggplot(viz_data, aes(x = dataset, y = count, fill = direction)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = "Significant Gene Expression by Dataset and Direction",
+         x = "Dataset", y = "Number of Genes", fill = "Direction") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_fill_manual(values = c("Up" = "darkred", "Down" = "darkblue"))
+  
+  # Plot 2: Heatmap of gene presence across datasets (for top multi-dataset genes)
+  if (nrow(multi_dataset_genes) > 0) {
+    top_genes <- (multi_dataset_genes$Gene)  # Top 50 genes
+    
+    # Create the main heatmap matrix
+    heatmap_data <- all_data %>%
+      filter(Gene %in% top_genes) %>%
+      dplyr::select(Gene, dataset, LogFC) %>%
+      complete(Gene, dataset, fill = list(LogFC = 0))  # <-- fills in missing combinations with 0
+    
+    heatmap_data <- heatmap_data %>% 
+      group_by(dataset,Gene) %>% 
+      summarise(LogFC = mean(LogFC, na.rm = TRUE), .groups = "drop") %>% 
+      ungroup()
+    
+    heatmap_data <- heatmap_data %>% 
+      pivot_wider(names_from = dataset, values_from = LogFC) %>%
+      column_to_rownames("Gene") %>%
+      as.matrix()
+    
+    # Create star matrix where fdr < 0.05
+    star_matrix_data <- all_data %>%
+      filter(Gene %in% top_genes) %>%
+      complete(Gene, dataset, fill = list(Pvalue = 1))   # <-- fills in missing combinations with 0
+    
+    star_matrix_data <- star_matrix_data %>% 
+      group_by(dataset,Gene) %>% 
+      summarise(Pvalue = min(Pvalue, na.rm = TRUE), .groups = "drop") %>% 
+      ungroup() %>% 
+      mutate(star = ifelse(Pvalue < 0.05, "*", "")) %>%
+      dplyr::select(Gene, dataset, star) 
+      
+      star_matrix_data <- star_matrix_data %>% 
+      pivot_wider(names_from = dataset, values_from = star) %>%
+      column_to_rownames("Gene") %>%
+      as.matrix()
+    
+    
+    # Define your desired column order
+    # custom_order <- c("Hepatocytes","AST","ALT")  # Replace with your actual order
+    
+    # Reorder columns
+    # Reorder columns
+    # heatmap_data <- heatmap_data[, custom_order]
+    # star_matrix_data <- star_matrix_data[, custom_order]
+    
+    
+    
+    # Plot heatmap with stars
+    if (nrow(heatmap_data) > 1) {
+      p <- pheatmap(
+        heatmap_data,
+        main = "LogFC Heatmap for Top Multi-Dataset Genes\n* = Pvalue < 0.05",
+        cluster_rows = TRUE,
+        cluster_cols = TRUE,
+        scale = "none",
+        color = colorRampPalette(c("darkblue", "white", "darkred"))(100),
+        display_numbers = star_matrix_data,
+        fontsize_number = 14,
+        angle_col = 45 
+      )
+    }
+  }
+  # Return results
+  results <- list(
+    summary_stats = summary_stats,
+    multi_dataset_genes = multi_dataset_genes,
+    direction_summary = direction_summary,
+    detailed_comparison = detailed_comparison,
+    all_data = all_data,
+    plot = p1,
+    heatmap = p
+  )
+  
+  return(results)
+}
+
+
+# Replace these with your actual file paths and names
+file_paths <- c(
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Summary_Hepatocytes_Dataframe.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_ALT_hvg.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_AST_hvg.csv"
+)
+
+dataset_names <- c(
+  "Hepatocytes",
+  "ALT",
+  "AST"
+)
+
+# Run the analysis
+results <- analyze_gene_patterns(file_paths, dataset_names)
+#Save heatmap
+png(fs::path(dir.results, "Gene_Overlap_Heatmap_Transcriptomics_Proteomics.png"), 
+    width = 3000, height = 3000, res = 300)
+print(results$heatmap)
+dev.off()
+
+
+# Additional utility functions
+# Function to create Venn diagram for gene overlap (works for 2-5 datasets)
+create_venn_diagram <- function(results_data, max_datasets = 5) {
+  
+  datasets <- unique(results_data$all_data$dataset)
+  
+  if(length(datasets) > max_datasets) {
+    datasets <- datasets[1:max_datasets]
+    cat("Limiting Venn diagram to first", max_datasets, "datasets\n")
+  }
+  
+  gene_lists <- list()
+  
+  for(ds in datasets) {
+    gene_lists[[ds]] <- results_data$all_data %>%
+      filter(dataset == ds) %>%
+      pull(Gene)
+  }
+  
+  # Create Venn diagram
+  venn.plot <- venn.diagram(
+    x = gene_lists,
+    category.names = names(gene_lists),
+    filename = NULL,
+    output = TRUE,
+    fill = rainbow(length(gene_lists)),
+    alpha = 0.5
+  )
+  
+  grid::grid.draw(venn.plot)
+}
+create_venn_diagram(results)
+# create_venn_diagram(results, selected_datasets = c("Dataset1", "Dataset2", "Dataset3"))
+# create_venn_diagram(results, selected_datasets = c("Dataset1", "Dataset2", "Dataset3", "Dataset4"))
+# Modified function that saves to file
+create_venn_diagram_file <- function(results_data, selected_datasets = NULL, filename = "venn_diagram.png") {
+  
+  datasets <- unique(results_data$all_data$dataset)
+  
+  if(!is.null(selected_datasets)) {
+    datasets <- intersect(datasets, selected_datasets)
+  }
+  
+  if(length(datasets) < 2 || length(datasets) > 5) {
+    cat("Need 2-5 datasets for Venn diagram\n")
+    return(NULL)
+  }
+  
+  gene_lists <- list()
+  
+  for(ds in datasets) {
+    gene_lists[[ds]] <- results_data$all_data %>%
+      filter(dataset == ds) %>%
+      pull(Gene)
+  }
+  
+  # Create and save Venn diagram
+  venn.plot <- venn.diagram(
+    x = gene_lists,
+    category.names = names(gene_lists),
+    filename = filename,  # This saves to file
+    output = TRUE,
+    fill = rainbow(length(gene_lists)),
+    alpha = 0.5,
+    margin = 0.1,
+    resolution = 300,
+    compression = "lzw"
+  )
+  
+  cat("Venn diagram saved to:", filename, "\n")
+  return(venn.plot)
+}
+
+# Use it like this:
+create_venn_diagram_file(results, 
+                         selected_datasets = c("Hepatocytes","ALT","AST"),
+                         filename = "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/venn_Hep_ALT_AST.png")
+
+
+# Function to export results to files
+export_results <- function(results, output_dir = dir.results) {
+  
+  if(!dir.exists(output_dir)) {
+    dir.create(output_dir)
+  }
+  
+  # Export summary tables
+  write_csv(results$summary_stats, 
+            file.path(output_dir, "dataset_summary.csv"))
+  
+  write_csv(results$direction_summary, 
+            file.path(output_dir, "direction_consistency_summary.csv"))
+  
+  write_csv(results$detailed_comparison, 
+            file.path(output_dir, "detailed_gene_comparison.csv"))
+  
+  # Save plot
+  ggsave(file.path(output_dir, "expression_direction_plot.png"), 
+         results$plot, width = 6, height = 6, dpi = 300)
+  
+  cat("Results exported to:", output_dir, "\n")
+}
+export_results(results)
+
+# Instructions:
+cat("=== INSTRUCTIONS FOR USE ===\n")
+cat("1. Update 'file_paths' with your actual CSV file paths\n")
+cat("2. Update 'dataset_names' with descriptive names for your datasets\n")
+cat("3. Run: results <- analyze_gene_patterns(file_paths, dataset_names)\n")
+cat("4. Optional: create_venn_diagram(results)\n")
+cat("5. Optional: export_results(results)\n")
+cat("6. View results$direction_summary for main findings\n")
+# Run 
+results <- analyze_gene_patterns(file_paths, dataset_names)
 ```
 
