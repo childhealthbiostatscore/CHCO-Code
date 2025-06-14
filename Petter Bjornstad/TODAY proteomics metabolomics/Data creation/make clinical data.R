@@ -6,7 +6,7 @@ if(Sys.info()["sysname"] == "Windows"){
 } else if (Sys.info()["sysname"] == "Linux"){
   home_dir = "~/UCD/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward"
 } else if (Sys.info()["sysname"] == "Darwin"){
-  home_dir = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
+  home_dir = "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
 }
 
 setwd(home_dir)
@@ -310,11 +310,13 @@ save(yr10risk,file = "./Clinical data/TODAY/yr10risk.Rdata")
 BASELINE <- read.csv("./Clinical data/TODAY/BASELINE.csv")
 BASELINE$visit <- "M00"
 BASELINE_keep <- BASELINE %>% select(releaseid,visit,bmi)
+BASELINE_keep$height <- NA
+BASELINE_keep$weight <- NA
 
 # TODAY VISIT - BMI 
 VISIT <- read.csv("./Clinical data/TODAY/VISIT.csv")
 VISIT$visit <- VISIT$mvisit
-VISIT_keep <- VISIT %>% select(releaseid,visit,bmi)
+VISIT_keep <- VISIT %>% select(releaseid,visit,bmi,height,weight)
 
 # TODAY CBL - eIS
 CBL <- read.csv("./Clinical data/TODAY/CBL.csv")
@@ -336,7 +338,11 @@ VISIT_TODAY2 <- read.csv("./Clinical data/TODAY2/VISIT.csv")
 VISIT_TODAY2$releaseid <- VISIT_TODAY2$RELEASEID
 VISIT_TODAY2$bmi <- VISIT_TODAY2$BMI
 VISIT_TODAY2$visit <- VISIT_TODAY2$PVISIT
-VISIT_TODAY2_KEEP <- VISIT_TODAY2 %>% select(releaseid, visit, bmi)
+VISIT_TODAY2_KEEP <- VISIT_TODAY2 %>% select(releaseid, visit, bmi, HEIGHT, WEIGHT)
+VISIT_TODAY2_KEEP$height <- VISIT_TODAY2_KEEP$HEIGHT
+VISIT_TODAY2_KEEP$weight <- VISIT_TODAY2_KEEP$WEIGHT
+VISIT_TODAY2_KEEP$HEIGHT <- NULL
+VISIT_TODAY2_KEEP$WEIGHT <- NULL
 
 # TODAY2 CBL - eIS and coDI
 CBL_TODAY2 <- read.csv("./Clinical data/TODAY2/CBL.csv")
