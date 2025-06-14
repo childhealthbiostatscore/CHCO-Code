@@ -3,7 +3,7 @@ library(ggrepel)
 library(ggpubr)
 
 # test_ipa <- readxl::read_xls("/Users/choiyej/Dropbox/PANTHER/IPA results/tanner_stage_12_345_rh_de_table_export.xls", skip = 1)
-test_ipa <- readxl::read_xls("/Users/hhampson/Documents/IPA/Pathways/PT_T2D_glp1_sglt2_vs_glp1.xls", skip = 1)
+test_ipa <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways.xls", skip = 1)
 
 colnames(test_ipa) <- c("pathway", "neglog_p", "ratio", "zscore", "molecules")
 
@@ -98,7 +98,7 @@ ipa_plot <- function(data){
   data$up_down <- factor(data$up_down, levels = unique(data$up_down))
   p <- ggplot(data, aes(reorder(`Ingenuity Canonical Pathways`, `-log(p-value)`), `-log(p-value)`, fill = up_down))+
     geom_col() +
-    scale_y_continuous(limits = c(0, 6)) +
+    # scale_y_continuous(limits = c(0, 6)) +
     ylab("-log(p-value)") +
     xlab("Pathway") + theme(legend.position="none") +
     scale_fill_manual(values = c("-1" = "steelblue", "0" = "grey", "1" = "indianred")) 
@@ -107,16 +107,28 @@ ipa_plot <- function(data){
 
 # alb <- read_xls("/Volumes/PEDS/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/Results/Linear and Cox models/IPA/Output from IPA/albuminuria.xls",
 #                 skip = 1)
-alb <- readxl::read_xls("/Users/hhampson/Documents/IPA/Pathways/EC_cells_T2D_sglt2_glp1_vs_sglt2.xls", skip = 1)
+alb <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways.xls", skip = 1)
+
+alb <- alb %>% arrange(desc("-log(p-value)")) 
+alb_keep <- alb[1:60,]
+
+alb_plot <- ipa_plot(alb_keep)
+alb_plot 
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways.pdf",width=12,height=10)
+plot(alb_plot)
+dev.off()
+
+alb <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/ALT_pathways.xls", skip = 1)
 
 alb <- alb %>% arrange(desc("-log(p-value)")) 
 alb_keep <- alb[1:20,]
 
 alb_plot <- ipa_plot(alb_keep)
 alb_plot 
-pdf(fs::path(dir.results,"EC_cells_T2D_sglt2_glp1_vs_sglt2.xls_Pathways.pdf"),width=12,height=10)
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/ALT_pathways.pdf",width=12,height=10)
 plot(alb_plot)
 dev.off()
+
 
 # 
 # hyp_plot <- ipa_plot(hyp_keep)
