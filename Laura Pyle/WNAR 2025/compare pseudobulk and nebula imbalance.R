@@ -909,9 +909,9 @@ imbalanced_method_comparison_example <- function() {
     effect_labels = c("Small (1.2x)", "Medium (1.8x)", "Large (2.5x)"),
     imbalance_ratios = list(c(1, 1), c(2, 1), c(5, 1)),
     imbalance_labels = c("Balanced (1:1)", "Moderate (2:1)", "Extreme (5:1)"),
-    n_simulations = 20,
+    n_simulations = 50,
     methods = c("pseudobulk", "nebula"),
-    base_cells = 300,
+    base_cells = 5000,
     n_genes = 500,
     de_prob = 0.1,
     alpha = 0.05
