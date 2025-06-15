@@ -109,15 +109,15 @@ library(BiocParallel)
 # library(DESeq2)
 
 # #Mac laptop
-dir.dat <- c("//Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
-dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA")
-dir.code <- c("/Users/hhampson/Documents/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
-dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
+# dir.dat <- c("//Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
+# dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA")
+# dir.code <- c("/Users/hhampson/Documents/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
+# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
 
-# #Mac Studio File Path
-# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
-# dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/scRNA")
-# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
+#Mac Studio File Path
+dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/scRNA")
+dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
 
 ##c. Load functions ----
 source("Kidney_functions_sc.R")
@@ -387,7 +387,7 @@ sc_org@meta.data <- sc_org@meta.data %>%
 # meta <- sc_org@meta.data
 
 #Get gene annotations & rename rows
-gene_annotations <- data.frame(sc_org@misc$gene_annotations)
+# gene_annotations <- data.frame(sc_org@misc$gene_annotations)
 nrow(sc_org) #62,754 genes
 ncol(sc_org) #194,063 cells
 rownames(sc_org)
@@ -536,7 +536,8 @@ sc_org <- subset(sc_org,
                        nFeature_RNA < 5000 &
                        percent.mt < 50)
 
-
+nrow(sc_org) #62,754 genes before filtering
+ncol(sc_org) #156387 cells after filltering
 
 expr_matrix <- GetAssayData(sc_org, assay = "RNA", layer = "counts")
 
@@ -549,8 +550,8 @@ remove(expr_matrix)
 # Keep genes expressed in at least "gene_pct" of cells
 genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
 sc_org <- subset(sc_org, features = genes_to_keep)
-ncol(sc_org) #11386 Cells
-nrow(sc_org) # 9209 genes
+ncol(sc_org) #156387 Cells
+nrow(sc_org) # 7472 genes
 
 # Step 2: Remove mitochondrial genes (those starting with "MT")
 mito_genes <- grep("^MT-", rownames(sc_org), value = TRUE)
@@ -567,8 +568,8 @@ sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), mito_genes))
 # dim(sc_org@assays$RNA@data) #9276 186125
 # dim(sc_org@assays$RNA)#9276 186125
 sum(grepl("^MT-", rownames(sc_org))) #0
-ncol(sc_org) #11386 cells
-nrow(sc_org) #9196 genes
+ncol(sc_org) #156387 cells
+nrow(sc_org) #7472 genes
 
 #Step 3: Remove ribosomal Genes
 # Identify ribosomal genes
@@ -584,8 +585,8 @@ ribo_genes <- c(
 sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), ribo_genes))
 # sum(grepl("^MT-", rownames(sc_org))) #0
 length(which(rownames(sc_org) %in% ribo_genes)) #0
-ncol(sc_org) #65,062 cells
-nrow(sc_org) #15103 genes
+ncol(sc_org) #156387 cells
+nrow(sc_org) #7472 genes
 
 #Renormalize & Scale after filtering
 sc_org <- NormalizeData(sc_org)
@@ -641,12 +642,37 @@ hist(sc_org$pooled_offset)
 #Create treatment variable
 sc_org$treatment <- ifelse(grepl("15$",sc_org$samples),"15","30")
 
-#Format gene names for results
-gene_annotations <- gene_annotations %>% 
-  dplyr::rename(Gene = `NA.`) %>%
-  dplyr::select(c("Gene","input"))
-rownames(gene_annotations) <- NULL
+# #Format gene names for results
+# gene_annotations <- gene_annotations %>% 
+#   dplyr::rename(Gene = `NA.`) %>%
+#   dplyr::select(c("Gene","input"))
+# rownames(gene_annotations) <- NULL
 rm(sce,counts_layer)
+
+#Merge gene names
+sc_org <- NormalizeData(sc_org)
+sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
+
+
+gene_annotations <- data.frame(sc_org@misc$gene_annotations)
+colnames(gene_annotations)
+head(gene_annotations$NA.)  # Column with gene names you want to use
+gene_annotations$Gene <- gene_annotations$NA.
+gene_annotations <- gene_annotations[,-c(2:4)]
+
+# Reorder gene annotations to match Seurat feature order
+gene_annotations_ordered <- gene_annotations[match(rownames(sc_org[["RNA"]]), gene_annotations$input), ]
+# Extract gene names from column named "NA"
+gene_symbols <- make.unique(gene_annotations_ordered$Gene)
+
+# Apply new names to all assay slots
+match(rownames(sc_org@assays$RNA@counts),gene_annotations_ordered$input)
+match(rownames(sc_org@assays$RNA@scale.data),gene_annotations_ordered$input)
+rownames(sc_org@assays$RNA@counts) <- gene_symbols
+rownames(sc_org@assays$RNA@data) <- gene_symbols
+if (!is.null(sc_org@assays$RNA@scale.data)) {
+  rownames(sc_org@assays$RNA@scale.data) <- gene_symbols
+}
 
 ```
 
@@ -1052,6 +1078,250 @@ rm(cellcount,plot1,prop_plot1)
 
 ```
 ###ii. Organoid
+####a. Annotations
+```{r}
+
+
+#Low resolution human KPMP marker genes annotation
+marker.genes <- list(
+  PT = c("CUBN", "LRP2"),
+  DTL = c("AQP1", "ID1"),
+  ATL = c("CLDN3", "CLCNKA"),
+  TAL = c("UMOD", "SLC12A1"),
+  DCT = c("SLC12A3"),
+  CNT = c("SLC8A1"),
+  PC = c("FXYD4"),
+  IC = c("ATP6V0D2"),
+  EC = c("EMCN"),
+  Immune = c("PTPRC"),
+  Interstitial = c("ACTA2", "RGS5")
+)
+
+# Add module scores
+for (celltype in names(marker.genes)) {
+  sc_org <- AddModuleScore(sc_org, features = list(marker.genes[[celltype]]),
+                               name = paste0(celltype, "_Score"))
+}
+
+# Extract scores from metadata
+score_cols <- grep("_Score1", colnames(sc_org@meta.data), value = TRUE)
+
+# Assign cell type with highest score
+sc_org$predicted_celltype <- apply(sc_org@meta.data[, score_cols], 1, function(x) {
+  names(marker.genes)[which.max(x)]
+})
+
+DimPlot(sc_org, group.by = "predicted_celltype", label = TRUE, repel = TRUE)
+
+# Map dominant predicted type per cluster
+cluster_annotations <- sc_org@meta.data %>%
+  group_by(seurat_clusters) %>%
+  count(predicted_celltype) %>%
+  top_n(n = 1, wt = n) %>%
+  ungroup()
+
+# Create a named vector for mapping
+cluster_to_celltype <- setNames(cluster_annotations$predicted_celltype, cluster_annotations$seurat_clusters)
+
+# Assign to object metadata
+sc_org$cluster_celltype <- cluster_to_celltype[as.character(sc_org$seurat_clusters)]
+
+DimPlot(seurat_obj, group.by = "cluster_celltype", label = TRUE, repel = TRUE)
+
+
+
+# PCA
+sc_org <- NormalizeData(sc_org)
+sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
+sc_org <- FindVariableFeatures(object = sc_org)
+sc_org <- RunPCA(sc_org, features = VariableFeatures(object = sc_org),assay="RNA")
+ElbowPlot(sc_org)
+
+# # Find neighbors and clusters (again using integrated data)
+sc_org <- FindNeighbors(sc_org, assay = "RNA", dims = 1:20)
+sc_org <- FindClusters(sc_org, resolution = 0.5)
+
+# Perform UMAP and tSNE
+# so_liver_sc <- RunUMAP(so_liver_sc, dims = 1:15)
+sc_org@reductions
+DimPlot(sc_org, reduction = "umap", raster = F)
+
+DimPlot(sc_org, reduction = "umap", group.by = "ScType-Kidney-human", raster = FALSE)
+png(fs::path(dir.results,"UMAP_Celltypes_Organoid.png"),width = 5000, height = 3000, res=300)
+# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
+plot(DimPlot(sc_org, reduction = "umap", group.by = "ScType-Kidney-human", raster = FALSE))
+dev.off()
+
+plot1 <- DimPlot(sc_org, reduction = "umap", group.by = "ScType-Kidney-human",raster = FALSE, label = TRUE, label.size = 4)+
+  ggtitle("UMAP Plot with Cell Type Labels")
+
+png(fs::path(dir.results,"UMAP_Celltypes_Biopsy.png"),width = 5000, height = 3000, res=300)
+# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
+plot(plot1)
+dev.off()
+
+sc_org$group <- factor(sc_org$group)
+plot2 <- DimPlot(sc_org, reduction = "umap",group.by = "group",label=F,raster=F) +
+  ggtitle(paste0("UMAP by Disease Category"))
+
+png(fs::path(dir.results,"UMAP_Celltypes_Organoid_by_DiseaseStatus.png"),width = 5000, height = 3000, res=300)
+# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
+plot(plot2)
+dev.off()
+
+DimPlot(sc_org, reduction = "umap.rpca", raster = F)
+DimPlot(sc_org, reduction = "umap.rpca", group.by = "KPMP_celltype", raster = FALSE)
+DimPlot(sc_org, reduction = "umap.rpca", group.by = "KPMP_celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  ggtitle("rpca UMAP Plot with Cell Type Labels")
+
+sc_org$group <- factor(sc_org$group)
+DimPlot(sc_org, reduction = "umap",group.by = "group",label=F,raster=F) +
+  ggtitle(paste0("rpca UMAP by Disease Category"))
+
+#Barcharts of proportions
+# By PT subtypes
+cellcount <- sc_org@meta.data 
+  # filter(`ScType-Kidney-human` == "Proximal tubule cells")
+
+label(cellcount$group) <- "Disease Status"
+# label(cellcount$steatosis_cat) <- "Steatosis Category"
+# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
+# cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
+cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
+# cellcount <- cellcount %>% 
+#   filter(group!="Obese Controls")
+
+prop_plot1 <- ggplot(data=cellcount,aes(group, fill = `ScType-Kidney-human`)) + 
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion of Cells",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  ggtitle("Disease Status") 
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+
+prop_plot1 
+png(fs::path(dir.results,"Barchart_Cells_by_Group.png"),width = 3000, height = 2500, res=300)
+# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
+plot(prop_plot1 )
+dev.off()
+
+#Individual
+prop_plot1 <- ggplot(data=cellcount,aes(samples, fill = `ScType-Kidney-human`)) + 
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion of Cells",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  ggtitle("Kidney Organoids")
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+
+prop_plot1 
+png(fs::path(dir.results,"Barchart_PT_Cells_by_Individual.png"),width = 4500, height = 3000, res=300)
+# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
+plot(prop_plot1)
+dev.off()
+
+prop_plot2 <- ggplot(data=cellcount,aes(record_id, fill = KPMP_celltype)) + 
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion of Cells",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  ggtitle("Individual") +
+  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+
+prop_plot2 
+
+#Barcharts of proportions
+# By PT subtypes
+cellcount <- sc_org@meta.data %>% 
+  filter(celltype2 == "TAL")
+
+label(cellcount$group) <- "Disease Status"
+# label(cellcount$steatosis_cat) <- "Steatosis Category"
+# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
+# cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
+# cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
+# cellcount <- cellcount %>%
+#   filter(group!="Obese Controls")
+
+prop_plot1 <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion of Cells",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  ggtitle("Disease Status") +
+  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+
+prop_plot1 
+png(fs::path(dir.results,"Barchart_TAL_Cells_by_Group.png"),width = 2500, height = 2500, res=300)
+# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
+plot(prop_plot1)
+dev.off()
+
+#Individual
+prop_plot1 <- ggplot(data=cellcount,aes(record_id, fill = KPMP_celltype)) + 
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion of Cells",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  ggtitle("Kidney Biopsy") +
+  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+
+prop_plot1 
+png(fs::path(dir.results,"Barchart_TAL_Cells_by_Individual.png"),width = 3500, height = 3000, res=300)
+# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
+plot(prop_plot1)
+dev.off()
+
+#Barcharts of proportions
+# By PT subtypes
+cellcount <- sc_org@meta.data %>% 
+  filter(grepl("EC-",KPMP_celltype) | grepl("EC/VSMC",KPMP_celltype))
+
+label(cellcount$group) <- "Disease Status"
+# label(cellcount$steatosis_cat) <- "Steatosis Category"
+# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
+# cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
+# cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
+cellcount <- cellcount %>%
+  filter(group!="Obese Controls")
+
+prop_plot1 <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion of Cells",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  ggtitle("Disease Status") +
+  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
+
+prop_plot1
+rm(cellcount,plot1,prop_plot1)
+
+```
+####b. Visualizations
 ```{r}
 # PCA
 sc_org <- NormalizeData(sc_org)

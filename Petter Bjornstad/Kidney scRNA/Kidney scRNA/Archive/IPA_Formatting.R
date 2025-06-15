@@ -3,7 +3,7 @@ library(ggrepel)
 library(ggpubr)
 
 # test_ipa <- readxl::read_xls("/Users/choiyej/Dropbox/PANTHER/IPA results/tanner_stage_12_345_rh_de_table_export.xls", skip = 1)
-test_ipa <- readxl::read_xls("/Users/hhampson/Documents/IPA/Pathways/PT_T2D_glp1_sglt2_vs_glp1.xls", skip = 1)
+test_ipa <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways.xls", skip = 1)
 
 colnames(test_ipa) <- c("pathway", "neglog_p", "ratio", "zscore", "molecules")
 
@@ -98,56 +98,58 @@ ipa_plot <- function(data){
   data$up_down <- factor(data$up_down, levels = unique(data$up_down))
   p <- ggplot(data, aes(reorder(`Ingenuity Canonical Pathways`, `-log(p-value)`), `-log(p-value)`, fill = up_down))+
     geom_col() +
-    scale_y_continuous(limits = c(0, 6)) +
+    geom_hline(yintercept = -log(0.05), linetype = "dashed", color = "black") +
+    theme_classic()+
+    # scale_y_continuous(limits = c(0, 6)) +
     ylab("-log(p-value)") +
-    xlab("Pathway") + theme(legend.position="none") +
+    xlab("Pathway") + 
+    # theme(legend.position="none") +
     scale_fill_manual(values = c("-1" = "steelblue", "0" = "grey", "1" = "indianred")) 
   p <- p + coord_flip()
 }
 
 # alb <- read_xls("/Volumes/PEDS/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/Results/Linear and Cox models/IPA/Output from IPA/albuminuria.xls",
 #                 skip = 1)
-alb <- readxl::read_xls("/Users/hhampson/Documents/IPA/Pathways/EC_cells_T2D_sglt2_glp1_vs_sglt2.xls", skip = 1)
+ast <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways.xls", skip = 1)
 
-alb <- alb %>% arrange(desc("-log(p-value)")) 
-alb_keep <- alb[1:20,]
+ast <- ast %>% arrange(desc("-log(p-value)")) 
+ast_keep <- ast[1:60,]
 
-alb_plot <- ipa_plot(alb_keep)
-alb_plot 
-pdf(fs::path(dir.results,"EC_cells_T2D_sglt2_glp1_vs_sglt2.xls_Pathways.pdf"),width=12,height=10)
-plot(alb_plot)
+ast_plot <- ipa_plot(ast_keep)
+ast_plot 
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways.pdf",width=10,height=8)
+plot(ast_plot)
 dev.off()
 
-# 
-# hyp_plot <- ipa_plot(hyp_keep)
-# rapid_plot <- ipa_plot(rapid_keep)
-# 
-# p <- ggarrange(alb_plot, hyp_plot, rapid_plot, ncol = 1, nrow = 3, align = "hv", labels = c("A", "B", "C"))
-# 
-# png('/Volumes/PEDS/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/Results/Linear and Cox models/IPA/Output from IPA/TODAY_DKD_IPA_pathway.png', 
-#     res = 600, width = 15, height = 6, units = "in")
-# p
-# dev.off()
-# 
-# htn <- read_xls("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/Results/Linear and Cox models/IPA/Output from IPA/HTN.xls",
-#                 skip = 1)
-# htn <- htn %>% arrange(desc("-log(p-value)")) 
-# #htn_keep <- htn[htn$`-log(p-value)` > 1.3,]
-# htn_keep <- htn[1:20,]
-# htn_plot <- ipa_plot(htn_keep)
-# png('/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/Results/Linear and Cox models/IPA/Output from IPA/TODAY_HTN_IPA_pathway.png', 
-#     res = 600, width = 15, height = 6, units = "in")
-# htn_plot
-# dev.off()
-# 
-# glyc <- read_xls("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/Results/Linear and Cox models/IPA/Output from IPA/GLYC.xls",
-#                  skip = 1)
-# glyc <- glyc %>% arrange(desc("-log(p-value)")) 
-# glyc_keep <- glyc[1:30,]
-# glyc_plot <- ipa_plot(glyc_keep)
-# png('/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/Results/Linear and Cox models/IPA/Output from IPA/TODAY_GLYC_IPA_pathway.png', 
-#     res = 600, width = 15, height = 6, units = "in")
-# glyc_plot
-# dev.off()
-# file.copy("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/Results/Linear and Cox models/IPA/Output from IPA/TODAY_GLYC_IPA_pathway.png",
-#           "/Users/pylell/Dropbox/TODAY glycemic manuscript [shared]/Analysis output/TODAY_GLYC_IPA_pathway.png",overwrite = TRUE)
+ast <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways_02_pval.xls", skip = 1)
+
+ast <- ast %>% arrange(desc("-log(p-value)")) 
+ast_keep <- ast[1:60,]
+
+ast_plot <- ipa_plot(ast_keep)
+ast_plot 
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways_02_pval.pdf",width=10,height=8)
+plot(ast_plot)
+dev.off()
+
+alt <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/ALT_pathways.xls", skip = 1)
+
+alt <- alt %>% arrange(desc("-log(p-value)")) 
+alt_keep <- alt[1:60,]
+
+alt_plot <- ipa_plot(alt_keep)
+alt_plot 
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/ALT_pathways.pdf",width=10,height=8)
+plot(alt_plot)
+dev.off()
+
+alt <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/alt_pathways_02_pval.xls", skip = 1)
+
+alt <- alt %>% arrange(desc("-log(p-value)")) 
+alt_keep <- alt[1:60,]
+
+alt_plot <- ipa_plot(alt_keep)
+alt_plot 
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/alt_pathways_02_pval.pdf",width=10,height=8)
+plot(alt_plot)
+dev.off()
