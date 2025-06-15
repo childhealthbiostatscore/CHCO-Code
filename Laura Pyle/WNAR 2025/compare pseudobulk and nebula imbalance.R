@@ -768,11 +768,11 @@ run_multi_effect_comparison <- function(
 run_imbalanced_comparison <- function(
     effect_sizes = c(1.2, 1.3, 1.8, 2.5),
     effect_labels = c("Very Small", "Small", "Medium", "Large"),
-    imbalance_ratios = list(c(1, 1), c(2, 1), c(3, 1), c(5, 1)),
-    imbalance_labels = c("Balanced (1:1)", "Moderate (2:1)", "High (3:1)", "Extreme (5:1)"),
+    imbalance_ratios = list(c(1, 1), c(2, 1), c(3, 1), c(5, 1), c(10,1)),
+    imbalance_labels = c("Balanced (1:1)", "Low (2:1)", "Moderate (3:1)", "High (5:1)", "Extreme (10:1)"),
     n_simulations = 25,
     methods = c("pseudobulk", "nebula"),
-    base_cells = 400,
+    base_cells = 1000,
     alpha = 0.05,
     ...
 ) {
@@ -898,18 +898,40 @@ enhanced_method_comparison_example <- function() {
   return(multi_results)
 }
 
+# imbalanced_method_comparison_example <- function() {
+#   
+#   cat("=== Imbalanced Cell Type Analysis ===\n")
+#   cat("Testing how cell imbalance affects DE method performance\n")
+#   
+#  # Run comprehensive imbalanced comparison
+#   imbalanced_results <- run_imbalanced_comparison(
+#     effect_sizes = c(1.2, 1.8, 2.5),
+#     effect_labels = c("Small (1.2x)", "Medium (1.8x)", "Large (2.5x)"),
+#     imbalance_ratios = list(c(1, 1), c(2, 1), c(5, 1)),
+#     imbalance_labels = c("Balanced (1:1)", "Moderate (2:1)", "Extreme (5:1)"),
+#     n_simulations = 50,
+#     methods = c("pseudobulk", "nebula"),
+#     base_cells = 5000,
+#     n_genes = 500,
+#     de_prob = 0.1,
+#     alpha = 0.05
+#   )
+#   
+#   return(imbalanced_results)
+# }
+
 imbalanced_method_comparison_example <- function() {
-  
   cat("=== Imbalanced Cell Type Analysis ===\n")
   cat("Testing how cell imbalance affects DE method performance\n")
   
-  # Run comprehensive imbalanced comparison
+  # Use ALL combinations (this will take longer)
   imbalanced_results <- run_imbalanced_comparison(
-    effect_sizes = c(1.2, 1.8, 2.5),
-    effect_labels = c("Small (1.2x)", "Medium (1.8x)", "Large (2.5x)"),
-    imbalance_ratios = list(c(1, 1), c(2, 1), c(5, 1)),
-    imbalance_labels = c("Balanced (1:1)", "Moderate (2:1)", "Extreme (5:1)"),
-    n_simulations = 50,
+    # Remove the parameters to use defaults, or specify all:
+    effect_sizes = c(1.2, 1.3, 1.8, 2.5),
+    effect_labels = c("Very Small (1.2x)", "Small (1.3x)", "Medium (1.8x)", "Large (2.5x)"),
+    imbalance_ratios = list(c(1, 1), c(2, 1), c(3, 1), c(5, 1), c(10,1)),
+    imbalance_labels = c("Balanced (1:1)", "Low (2:1)", "Moderate (3:1)", "High (5:1)", "Extreme (10:1)"),
+    n_simulations = 20,
     methods = c("pseudobulk", "nebula"),
     base_cells = 5000,
     n_genes = 500,
