@@ -230,7 +230,7 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
   
   write.table(total_results,file.name, row.names=F, quote=F, sep='\t')
   
-  cat(paste0(nrow(total_results), ' genes passed QC and were analysed in NEBULA'))
+  cat(paste0(nrow(full_results), ' genes passed QC and were analysed in NEBULA \n'))
   # total_results <- read.csv(fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_PET_Variables_unadjusted_pooled_offset.csv"))
   
   # Define significance stars
@@ -460,7 +460,7 @@ kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes,
 
 kidneyimaging_analysis('PT-S3', median = F, genes = tca_genes, 
                        gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
-                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', cpc = 0.5)
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', cpc = 0.7)
 
 
 
