@@ -30,33 +30,50 @@ library(readxl)
 library(limma)
 library(glue)
 library(purrr)
+library(stringr)
 ```
 
 ```{r load-data, echo = F, include = F}
 # Load dictionary function and file
-source("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
-source("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+source("/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+source("/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 ```
 
 ```{r prep-data, echo = F, include = F}
 # Load clinical data
-harm_dat <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
-exclude <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
+harm_dat <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
+exclude <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
 
-dat <- harm_dat %>% filter(study == "PANTHER" & visit %in% c("baseline", "screening")) %>%
+dat <- harm_dat %>% filter(study == "PANTHER" & procedure == "ivgtt" & visit %in% c("baseline", "screening")) %>%
   mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
          mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
-  filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(mrn, visit)) %>%
-  # filter(participation_status!="Removed"|is.na(participation_status)) %>%
-  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" & 
+  filter(record_id %nin% exclude) 
+
+# keep only the variables we need
+matching_cols_cpep <- names(dat)[startsWith(names(dat), "cpep")]
+matching_cols_ins <- names(dat)[startsWith(names(dat), "ins")]
+matching_cols_ins <- matching_cols_ins[2:47]
+matching_cols_glu <- names(dat)[startsWith(names(dat), "glu")]
+matching_cols_glu <- c(matching_cols_glu[1:30], matching_cols_glu[40:100], matching_cols_glu[107:112])
+dat_keep <- dat %>% select(mrn, visit, record_id, matching_cols_cpep, matching_cols_ins, matching_cols_glu)
+# looks like multiple versions of c-peptide variables? not sure which to keep 
+write.csv(dat_keep, "/Users/laurapyle/Documents/temp/PANTHER IVGTT vars.csv", row.names = FALSE)
+
+# need to compare by risk groups and Tanner stage so need to pull from harmonized data
+temp <- harm_dat %>% filter(study == "PANTHER" & visit %in% c("baseline", "screening")) %>%
+   mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
+          mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
+   filter(record_id %nin% exclude) 
+preds <- temp %>% 
+   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                    .by = c(mrn, visit)) %>%
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
                                                 ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
-                                              race == "Black or African American" & 
+                                              race == "Black or African American" &
                                                 ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
                                               ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
-                                              T ~ "Not Hispanic or Latino Other"),
+                                              T ~ "Not Hispanic (or Latino Other"),
          tanner_stage_comp = coalesce(tan_fgd, tan_fph, tan_tveq, tan_mgd, tan_mph, breast_tanner),
          tanner_stage_comp_panther = case_when(tanner_stage_comp > 3 ~ 4, T~ tanner_stage_comp),
          tanner_stage_cat = case_when(tanner_stage_comp <3 ~ "I_II",
@@ -67,7 +84,7 @@ dat <- harm_dat %>% filter(study == "PANTHER" & visit %in% c("baseline", "screen
          tanner_stage_cat_3 = case_when(tanner_stage_comp < 2 ~ "I_II",
                                         tanner_stage_comp == 3 ~ "III",
                                         tanner_stage_comp >= 4 ~ "IV_V"),
-         tanner_stage_comp_panther_cat = 
+         tanner_stage_comp_panther_cat =
                   case_when(tanner_stage_comp_panther == 4 ~ "4 & 5",
                             T ~ as.character(tanner_stage_comp_panther)),
          age_mo = (age * 12),
@@ -101,96 +118,92 @@ dat <- harm_dat %>% filter(study == "PANTHER" & visit %in% c("baseline", "screen
   # filter(!is.na(dexa_body_fat)) %>% # filter based on DEXA (to filter those who may just be screen fails)
   filter(!is.na(male_ind)) %>%
   filter(record_id %nin% c("PAN_205_O", "PAN_209_O", "PAN_210_O")) # awaiting study visit
-# %>% # PAN-54-T is currently missing all data except MRI
-#   filter(!is.na(seq.10000.28)) # no need to subset to proteomics yet...
-
-dat$tanner_stage_comp <- as.factor(dat$tanner_stage_comp)
-
-bp_percentile = p_bp(q_sbp = dat$sbp, q_dbp = dat$dbp, age = dat$age_mo, male = dat$male_ind)
-dat$sbp_p <- bp_percentile$sbp_p
-dat$dbp_p <- bp_percentile$dbp_p
-
-bmi_percentile = ext_bmiz(data = subset(dat, 
-                                        select = c("record_id", "sex", "age_mo", "weight", "height", "bmi")), 
-                          age = "age_mo", 
-                          wt = "weight", 
-                          ht = "height", 
-                          bmi = "bmi", 
-                          adjust.integer.age = F) %>% 
+preds$tanner_stage_comp <- as.factor(preds$tanner_stage_comp)
+bp_percentile = p_bp(q_sbp = preds$sbp, q_dbp = preds$dbp, age = preds$age_mo, male = preds$male_ind)
+preds$sbp_p <- bp_percentile$sbp_p
+preds$dbp_p <- bp_percentile$dbp_p
+bmi_percentile = ext_bmiz(data = subset(preds,
+                                        select = c("record_id", "sex", "age_mo", "weight", "height", "bmi")),
+                          age = "age_mo",
+                          wt = "weight",
+                          ht = "height",
+                          bmi = "bmi",
+                          adjust.integer.age = F) %>%
   dplyr:: select(record_id, bmip, bmiz) %>%
   filter(!is.na(bmip))
-dat <- left_join(dat, bmi_percentile, by = "record_id") %>%
+preds <- left_join(preds, bmi_percentile, by = "record_id") %>%
   dplyr::mutate(group_risk = case_when(bmip >= 95 | hba1c >=6 | group == "Type 2 Diabetes" ~ "High",
                                        T ~ "Low"),
                 sex_group_risk = case_when(sex == "male" & group_risk == "High" ~ "M, High",
                                            sex == "male" & group_risk == "Low" ~ "M, Low",
                                            sex == "female" & group_risk == "High" ~ "F, High",
                                            sex == "female" & group_risk == "Low" ~ "F, Low"))
+preds_keep <- preds[,c("record_id", "visit", "tanner_stage_comp", "sex", "sex_group_risk", "group_risk")]
 
-# Load and modify dictionary file
-dict <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv")
+final_dat <- left_join(dat_keep, preds_keep, by = c("record_id", "visit"))
 
-dict <- label_harmonized_dict(dat, dict) %>%
-  dplyr::mutate(tanner_stage_comp = "Tanner stage",
-                tanner_stage_comp_panther = "Tanner stage",
-                tanner_stage_comp_ord = "Tanner stage",
-                tanner_stage_cat = "Tanner stage categorized (1/2, 3/4/5)",
-                tanner_stage_cat2 = "Tanner stage categorized (1, 2/3, 4/5)",
-                mm_airg = "AIRg",
-                mm_bcell = "Beta cell function",
-                mm_di = "DI",
-                mm_ir = "Insulin resistance",
-                mm_si = "Insulin sensitivity",
-                bmip = "BMI percentile",
-                bmiz = "BMI Z score",
-                total_kidney_volume_ml_manual = "TKV (mL; manual)",
-                ht_adj_tkv_manual = "Height Adjusted TKV (mL/m; manual)",
-                combined_tkv = "Collapsed Total Kidney Volume (mL)", 
-                combined_ht_tkv = "Collapsed Height Adjusted Total Kidney Volume (mL/m)",
-                fsh = "FSH", 
-                lh = "LH", 
-                estrad = "Estradiol",
-                tot_test = "Total testosterone",
-                free_test = "Free testosterone",
-                igf_1 = "IGF-1",
-                igf1_z_score = "IGF-1 Z-score",
-                avg_c_t1 = "Avg cortical T1",
-                avg_pcascl = "Avg pCASCL",
-                avg_c_adc_tkv = "Avg cortical ADC/TKV",
-                avg_c_r2_tkv = "Avg cortical R2*/TKV",
-                avg_pcascl_tkv = "Avg cortical ASL/TKV",
-                avg_c_t1_tkv = "Avg cortical T1/TKV", 
-                sbp_p = "SBP percentile",
-                dbp_p = "DBP percentile",
-                birthweight = "Birthweight",
-                bl_dheas = "DHEA-S",
-                log_acr_u = "ln(UACR)",
-                log_tot_test = "ln(Total testosterone)",
-                log_free_test = "ln(Free testosterone)",
-                log_lh = "ln(LH)",
-                log_estrad = "ln(Estradiol)",
-                race_ethnicity_condensed = "Race/Ethnicity", 
-                eGFR_CKiD_U25_CystatinC = "eGFR CKiD U25 CystC",
-                eGFR_CKiD_U25_Creat ="eGFR CKiD U25 Creat",
-                eGFR_CKiD_U25_avg ="eGFR CKiD U25 CystC & Creat",
-                bl_dheas = "DHEA-S",
-                gfr_raw_plasma = "mGFR",
-                gfr_bsa_plasma = "mGFR (BSA)",
-                erpf_raw_plasma = "ERPF",
-                erpf_bsa_plasma = "ERPF (BSA)",
-                eGFR_fas_cr = "eGFR - FAScr",
-                glomerular_pressure = "Glomerular pressure",
-                dexa_bone_mineral_density = "BMD",
-                mm_bcell = "Insulin secretion capacity",
-                u24_mab = "Urine AER 24 hours")%>%
-  dplyr::select(-starts_with("seq."))
 
-# Label data
-dat <- label_harmonized(dat, dict)
+```
 
-# keep only the variables we need
-dat_keep <- dat %>% select(mrn, visit, record_id, cpeptide_0:cpeptide_255)
-# looks like multiple versions of c-peptide variables? not sure which to keep 
+
+```{r echo=FALSE, include=FALSE}
+mixed <- function(data, outcome){
+  data <- as.data.frame(data)
+  data$time <- as.factor(data$time)
+  form = as.formula(paste0(outcome,"~ study_visit_mttt*time"))
+  mod <- lme(as.formula(form),random=~1|subject_id,data = data,na.action = na.omit, correlation = corCompSymm(form = ~1|subject_id))
+  anova <- anova.lme(mod, type="marginal")
+  m <- emmeans(mod,c("study_visit_mttt","time"))
+  prs <-  pairs(m,adjust="tukey",by="time")
+  return(list(anova,m,prs))
+}
+
+plot_mixed <- function(mixed_output, data, ylab) {
+  emmeans_result <- mixed_output[[2]]
+  emmeans_result <- as.data.frame(emmeans_result)
+  emmeans_result$group <- ifelse(emmeans_result$study_visit_mttt == "1", "Before VSG", "After VSG")
+  # Create line plot
+  p <-  ggplot(emmeans_result, aes(x = time, y = emmean, color = group, group = group, 
+                                  line = group)) +
+    geom_line() +
+    geom_point() +
+    labs(x = "Time", y = ylab, color = "study_visit_mmtt") +
+    theme_bw() + 
+    #geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL), linetype = 1, alpha = 0.1) +
+    theme(legend.title=element_blank())
+}
+
+mixed_adj <- function(data, outcome){
+  data <- as.data.frame(data)
+  data$time <- as.factor(data$time)
+  form = as.formula(paste0(outcome,"~ study_visit_mttt*time + per_wtloss"))
+  mod <- lme(as.formula(form),random=~1|subject_id,data = data,na.action = na.omit, correlation = corCompSymm(form = ~1|subject_id))
+  anova <- anova.lme(mod, type="marginal")
+  m <- emmeans(mod,c("study_visit_mttt","time"))
+  prs <-  pairs(m,adjust="tukey",by="time")
+  plot_dat <- data$outcome
+  return(list(anova,m,prs))
+}
+
+mixed_omm <- function(data, outcome){
+  data <- as.data.frame(data)
+  form = as.formula(paste0(outcome,"~ Visit"))
+  mod <- lme(as.formula(form),random=~1|ID,data = data,na.action = na.omit, correlation = corCompSymm(form = ~1|ID))
+  anova <- anova.lme(mod, type="marginal")
+  m <- emmeans(mod,c("Visit"))
+  prs <-  pairs(m,adjust="tukey", simple="each")
+  return(list(anova,m,prs))
+}
+
+mixed_adj_omm <- function(data, outcome){
+  data <- as.data.frame(data)
+  form = as.formula(paste0(outcome,"~ Visit + per_wtloss"))
+  mod <- lme(as.formula(form),random=~1|ID,data = data,na.action = na.omit, correlation = corCompSymm(form = ~1|ID))
+  anova <- anova.lme(mod, type="marginal")
+  m <- emmeans(mod,c("Visit"))
+  prs <-  pairs(m,adjust="tukey", simple="each")
+  return(list(anova,m,prs))
+}
 ```
 
 # Questions
