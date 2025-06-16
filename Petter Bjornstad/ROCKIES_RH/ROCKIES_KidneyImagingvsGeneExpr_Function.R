@@ -143,21 +143,49 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
     PT_nebula_converged <- map_dfr(
       names(nebula_results_list),
       function(gene_name) {
-        converged <- nebula_results_list[[gene_name]]$convergence
-        df <- data.frame(Gene = gene_name,
-                         Convergence_Code = converged)
-        return(df)
+        # Safely extract convergence code
+        converged <- tryCatch({
+          conv <- nebula_results_list[[gene_name]]$convergence
+          if (is.null(conv) || length(conv) == 0) NA else conv
+        }, error = function(e) NA)
+        
+        data.frame(Gene = gene_name,
+                   Convergence_Code = converged)
       }
     )
     
     nebula_summaries <- map_dfr(
       names(nebula_results_list),
       function(gene_name) {
-        df <- nebula_results_list[[gene_name]]$summary
-        df <- df %>% mutate(Gene = gene_name)
-        return(df)
+        tryCatch({
+          # Check if the result exists and has summary info
+          result <- nebula_results_list[[gene_name]]
+          
+          if (is.null(result) || is.null(result$summary)) {
+            # If no summary info, return NULL (will be filtered out by map_dfr)
+            return(NULL)
+          } else {
+            df <- result$summary
+            
+            # Check if summary is empty or not a data.frame
+            if (is.null(df) || nrow(df) == 0 || !is.data.frame(df)) {
+              return(NULL)
+            } else {
+              df <- df %>% mutate(Gene = gene_name)
+              return(df)
+            }
+          }
+        }, error = function(e) {
+          # If any error occurs, return NULL (will be filtered out)
+          cat("Error processing gene", gene_name, ":", e$message, "\n")
+          return(NULL)
+        })
       }
     )
+    
+    
+    
+    
     nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
     
     #Make dataframe of final results
@@ -201,6 +229,8 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
   
   
   write.table(total_results,file.name, row.names=F, quote=F, sep='\t')
+  
+  cat(paste0(nrow(total_results), ' genes passed QC and were analysed in NEBULA'))
   # total_results <- read.csv(fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_PET_Variables_unadjusted_pooled_offset.csv"))
   
   # Define significance stars
@@ -430,7 +460,7 @@ kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes,
 
 kidneyimaging_analysis('PT-S3', median = F, genes = tca_genes, 
                        gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
-                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', cpc = 0.05)
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', cpc = 0.5)
 
 
 
