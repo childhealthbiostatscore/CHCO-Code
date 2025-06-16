@@ -55,7 +55,7 @@ load('C:/Users/netio/Documents/UofW/Rockies/Line4875_Rockies.RData')
 
 
 kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', median = F, adjustment = NULL,
-                                   dir.results, cl_number = 1){
+                                   dir.results, cl_number = 1, cpc = 0.005){
   if(median == F){
   k2_vars <- c("avg_c_k2","avg_m_k2","avg_c_f","avg_m_f","avg_c_k2_f","avg_m_k2_f")
   }else{
@@ -120,7 +120,9 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
         }
         
         #With offset
-        result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+        result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                         ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,
+                         offset=data_g_gene$library, cpc= cpc)
         
         list(gene = g, result = result)  # return both gene name and result
         
@@ -398,6 +400,26 @@ kidneyimaging_analysis('DCT', median = T, genes = tca_genes,
                        dir.results = 'C:/Users/netio/Documents/UofW/Rockies/')
 kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes, 
                        gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1',)
+
+
+
+
+
+#Figuring out good CPC threshold for NEBULA
+
+kidneyimaging_analysis('PT-S3', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', cpc = 0.01)
+
+
+
+
+
+
+
+
+
+
 
 
 
