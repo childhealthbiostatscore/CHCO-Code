@@ -270,10 +270,31 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
     file.name <- paste0(dir.results, 'NEBULA_', gene_list_name, 
                         'NEBULA_', 'median', median, '_', celltype, '_PET_adjusted_pooled_offset_T2D.png')  
   }
-  png(file.name, 
-      width = 1500, height = 2000, res = 300)
-  print(heat_map_p)
-  dev.off()
+  
+  
+  # Ensure clean graphics device state
+  while(dev.cur() > 1) dev.off()
+  
+  # Remove existing file if it exists
+  if (file.exists(file.name)) {
+    file.remove(file.name)
+  }
+  
+  # Create PNG with error handling
+  tryCatch({
+    png(file.name, 
+        width = 1500, height = 2000, res = 300)
+    print(heat_map_p)
+  }, finally = {
+    dev.off()
+  })
+  
+  # Verify file was created
+  if(file.exists(file.name)) {
+    cat("PNG file successfully created:", file.name, "\n")
+  } else {
+    cat("Failed to create PNG file:", file.name, "\n")
+  }
   
 }
 
@@ -409,7 +430,7 @@ kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes,
 
 kidneyimaging_analysis('PT-S3', median = F, genes = tca_genes, 
                        gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
-                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', cpc = 0.01)
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', cpc = 0.05)
 
 
 
