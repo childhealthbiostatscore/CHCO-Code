@@ -16,7 +16,7 @@ library(purrr)
 # setwd(home_dir)
 
 #setwd("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/")
-setwd("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive")
+setwd("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive")
 
 ###################
 # ANML ADAT FILES #
@@ -102,7 +102,7 @@ attempt_urine <- attempt_urine %>% select(-SampleNumber)
 urine_analytes <- getAnalyteInfo(attempt_urine)
 # remove fc mouse and no protein
 attempt_urine <- attempt_urine %>% select(!all_of(apt_drop))
-attempt_urine[additional_proteins9k] <- NA
+#attempt_urine[additional_proteins9k] <- NA
 attempt_urine[,c("NormScale_20","NormScale_0_005","NormScale_0_5","ANMLFractionUsed_20","ANMLFractionUsed_0_005","ANMLFractionUsed_0_5")] <- NA
 drop <- urine_analytes %>% filter(Target == "Fc_MOUSE" | Target == "No Protein" | !(Organism == "Human") | !(Type == "Protein"))
 apt_drop <- drop$AptName
@@ -119,14 +119,26 @@ attempt_urine$SampleDescription_urine <- ifelse(attempt_urine$SampleDescription_
 # merge ATTEMPT blood and urine proteomics by SampleDescription and TimePoint (need to remove _urine from urine variable names)
 attempt_urine$SampleDescription <- as.numeric(attempt_urine$SampleDescription_urine)
 attempt_urine$TimePoint <- attempt_urine$TimePoint_urine
+rownames(attempt) <- NULL
+rownames(attempt_urine) <- NULL
+additional_proteins7k <- colnames(attempt_urine)[colnames(attempt_urine) %nin% colnames(soma)]
 attempt <- full_join(attempt, attempt_urine, by = c("SampleDescription", "TimePoint"))
-# still not merging because of missing row names
+attempt$SampleDescription <- as.character(attempt$SampleDescription)
 
-soma[additional_proteins9k] <- NA
-soma2[additional_proteins9k] <- NA
-panther[additional_proteins9k] <- NA
+#soma[additional_proteins9k] <- NA
+#soma2[additional_proteins9k] <- NA
+#panther[additional_proteins9k] <- NA
 # combine blood proteomics dfs
-soma <- rbind(soma,soma2,panther,attempt)
+#soma <- rbind(soma,soma2,panther,attempt)
+rownames(soma) <- NULL
+rownames(soma2) <- NULL
+soma <- rbind(soma, soma2)
+rownames(panther) <- NULL
+soma <- rbind(soma, panther)
+#soma$VolumeSubmitted <- as.numeric(soma$VolumeSubmitted)
+# BELOW IS NOT WORKING
+soma <- bind_rows(soma, attempt)
+# for some reason, colnames with same names are not getting merged
 # delete Pima data
 soma <- soma %>% filter(!str_detect(SampleDescription,"CKDS"))
 # fix sample IDs on a few RH2 participants who changed groups
