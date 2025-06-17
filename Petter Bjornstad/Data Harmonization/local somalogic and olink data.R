@@ -16,7 +16,7 @@ library(purrr)
 # setwd(home_dir)
 
 #setwd("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/")
-setwd("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive")
+setwd("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive")
 
 ###################
 # ANML ADAT FILES #
@@ -135,10 +135,9 @@ rownames(soma2) <- NULL
 soma <- rbind(soma, soma2)
 rownames(panther) <- NULL
 soma <- rbind(soma, panther)
-#soma$VolumeSubmitted <- as.numeric(soma$VolumeSubmitted)
-# BELOW IS NOT WORKING
+soma$VolumeSubmitted <- NA
+attempt$VolumeSubmitted <- NA
 soma <- bind_rows(soma, attempt)
-# for some reason, colnames with same names are not getting merged
 # delete Pima data
 soma <- soma %>% filter(!str_detect(SampleDescription,"CKDS"))
 # fix sample IDs on a few RH2 participants who changed groups
@@ -188,6 +187,7 @@ soma[,c("NormScale_75_S1","NormScale_75_S3","NormScale_75_S2","ANMLFractionUsed_
 # soma_harmonized <- left_join(soma_harmonized, df, by = c("record_id", "visit"))
 
 # some extra spaces in the sample IDs
+soma_combined <- soma
 soma_combined$SampleDescription <- str_trim(soma_combined$SampleDescription)
 # add labels
 labels <- paste0("log(",analytes_attempt$EntrezGeneSymbol[match(colnames(soma_combined), analytes_attempt$AptName)],")")
