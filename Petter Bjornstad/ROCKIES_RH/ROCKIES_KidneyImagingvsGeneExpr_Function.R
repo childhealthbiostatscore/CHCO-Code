@@ -128,7 +128,8 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
         list(gene = g, result = result)  # return both gene name and result
         
       }, error = function(e) {
-        list(gene = g, summary = NA, overdispersion = NA, convergence = NA, algorithm = NA, covariance = NA, random_effect = NA)
+        list(gene = g, summary = NA, overdispersion = NA, convergence = NA, 
+             algorithm = NA, covariance = NA, random_effect = NA)
       })
     }
     
@@ -217,6 +218,9 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
     full_results$fdr <- p.adjust(full_results$p_value,method="fdr")  
     # mutate(fdr3=p.adjust(PValue3,method="fdr"))
     full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
+    
+
+  
     total_results <- rbind(total_results,full_results)
   }
   
@@ -255,6 +259,13 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
     subtitle2 <- paste0('with no adjustment')
   }
   subtitle <- paste0(subtitle1, subtitle2)
+  
+  
+  if(set_cutoff == TRUE){
+    rem_index <- which(abs(total_results$logFC) > logFC_thresh & total_results$p_value > pvalue_thresh)
+    total_results$logFC[rem_index] <- NA
+  }
+  
   
   heatmap_data <- total_results %>%
     dplyr::select(Gene, Variable, logFC, signif)
@@ -462,7 +473,7 @@ kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes,
 kidneyimaging_analysis('PT-S3', median = F, genes = tca_genes, 
                        gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
                        dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', 
-                      cpc = 0.01)
+                       set_cutoff = TRUE)
 
 
 
