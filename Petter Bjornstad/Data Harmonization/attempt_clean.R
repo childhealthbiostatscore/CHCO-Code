@@ -8,6 +8,8 @@ attempt_mri_file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries
 attempt_mri_labs_file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_MRI_HCT_SBP_TorontoLondon.csv"
 # attempt data from Antoine on 3/14/25 after SOMAScan results
 attempt_031425_raw <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250314.csv")
+# attempd TIR data from Antoine on 5/28/25
+attempt_052825_raw <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250528.csv")
 
 # non-Denver data formatting to match
 attempt_mri <- read.csv(attempt_mri_file) %>%
@@ -80,14 +82,16 @@ data_frames <- list(attempt_031425 = attempt_031425,
   urineemu = urineemu, urine_24h = urine_24h, 
   bloodlab_local = bloodlab_local, 
   bloodlab_central = bloodlab_central, compliance = compliance, 
-  egfr = egfr, mgfr = mgfr, mri = mri, attempt_mri_labs = attempt_mri_labs)
+  egfr = egfr, mgfr = mgfr, mri = mri, attempt_mri_labs = attempt_mri_labs,
+  tir = attempt_052825_raw)
 
 data_frames <- lapply(data_frames, function(df) {
   df %>%
-    dplyr::mutate(visit = case_when(str_detect(visit, "V1|V2|R1") ~ "baseline",
-                             str_detect(visit, "V3") ~ "safety",
-                             str_detect(visit, "V4|V5|R3") ~ "4_months_post")) %>%
-    dplyr::select(-site)
+    dplyr::mutate(visit = case_when(str_detect(visit, "V1") ~ "screening",
+                                    str_detect(visit, "V2|R1") ~ "baseline",
+                                    str_detect(visit, "V3") ~ "4_weeks_post",
+                                    str_detect(visit, "V4|R3") ~ "4_months_post",
+                                    str_detect(visit, "V5") ~ "follow_up"))
 })
 
 # Define categories
@@ -100,7 +104,7 @@ eth_names <- c("White",
                "South East Asian",
                "Mixed")
 
-merged_data <- reduce(data_frames, ~ full_join(.x, .y)) %>%
+merged_data <- purrr::reduce(data_frames, ~ full_join(.x, .y)) %>%
   group_by(subject_id) %>%
   fill(-c(visit), .direction = "downup") %>%
   ungroup() %>% rowwise() %>%
@@ -152,8 +156,8 @@ merged_data <- reduce(data_frames, ~ full_join(.x, .y)) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA, last(na.omit(.x)))),
                    across(where(is.numeric),  ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(subject_id, visit)) %>%
-  filter(visit %in% c("baseline", "4_months_post")) %>%
-  select(-c(age_baseline, sbp_mmhg, mri_sbp, dbp_mmhg, hct_ll, hct_percent_us)) %>%
+  # filter(visit %in% c("baseline", "4_months_post")) %>%
+  dplyr::select(-c(age_baseline, sbp_mmhg, mri_sbp, dbp_mmhg, hct_ll, hct_percent_us)) %>%
   dplyr::rename(record_id = subject_id,
                 date = date_visit,
                 weight = weight_kg, 
@@ -162,9 +166,7 @@ merged_data <- reduce(data_frames, ~ full_join(.x, .y)) %>%
                 pulse = heart_rate_bpm, 
                 diabetes_dx_duration = t1d_duration, 
                 creatinine_s = creatinine_blood_local,
-                cystatin_c_s = cystatin_c_serum_mgl,
-                gfr_raw_plasma = mgfr_si,
-                gfr_bsa_plasma = mgfr_si_adjusted)
+                cystatin_c_s = cystatin_c_serum_mgl)
 
 date_cols <- grep("(^date$|_date$|^date_|_date_)", names(merged_data), value = TRUE)
 time_cols <- grep("(^time$|time$|^time_|_time_)", names(merged_data), value = TRUE)
