@@ -50,13 +50,77 @@ library(doParallel)
 
 
 
+
+
+
+
 load('C:/Users/netio/Documents/UofW/Rockies/Line4875_Rockies.RData')
+
+
+#Identifying issues with imaging data 
+meta.data <- so_subset@meta.data
+small_meta.data <- meta.data %>% dplyr::select(kit_id, record_id, avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, avg_c_k2_f, avg_m_k2_f, avg_c_k2_med, 
+                                                 avg_m_k2_med, avg_c_f_med, avg_m_f_med, avg_c_k2_f_med, avg_m_k2_f_med)
+small_meta.data_unique <- small_meta.data %>% filter(!duplicated(kit_id))
+
+#Try so_kpmp_sc
+
+meta.data <- so_kpmp_sc@meta.data
+meta.data <- meta.data %>% filter(record_id %in% small_meta.data_unique$record_id)
+
+big_meta.data <- meta.data %>% dplyr::select(kit_id, record_id, lc_k2) %>%
+  filter(!duplicated(kit_id))
+
+#Harmonized data? 
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+harmonized_data %>% filter(kit_id %in% small_meta.data_unique$kit_id) %>% 
+  dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2)
+
+harmonized_data2 <- harmonized_data %>% filter(record_id %in% small_meta.data_unique$record_id)
+
+
+
+dat <- harmonized_data %>%
+  arrange(screen_date) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+
+dat <- dat %>% 
+  filter(kit_id %in% small_meta.data_unique$kit_id) %>% 
+    mutate(avg_c_k2 = (lc_k2+rc_k2)/2) %>%
+     mutate(avg_m_k2 = (lm_k2+rm_k2)/2) %>%
+     mutate(avg_c_f = (lc_f+rc_f)/2) %>%
+     mutate(avg_m_f = (lm_f+rm_f)/2) %>%
+     mutate(avg_c_k2_f = (avg_c_k2/avg_c_f)) %>%
+     mutate(avg_m_k2_f = (avg_m_k2/avg_m_f)) %>% 
+  filter(!duplicated(record_id))
+
+dat <- dat %>% dplyr::select(record_id, kit_id, avg_c_k2, avg_m_k2, 
+                      avg_c_f, avg_m_f, 
+                      avg_c_k2_f, avg_m_k2_f)
+  
+#Try to add this data from dat 
+so_subset@meta.data <- so_subset@meta.data[, !colnames(so_subset@meta.data) %in% c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 'avg_c_k2_f', 'avg_m_k2_f')]
+
+so_subset@meta.data <- so_subset@meta.data %>%
+  tibble::rownames_to_column("cell_id") %>%
+  left_join(dat, by = "kit_id") %>%
+  tibble::column_to_rownames("cell_id")
+
+# Verify integrity after joining
+stopifnot(identical(rownames(so_object@meta.data), colnames(so_object)))
+
+
+
 
 
 
 kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', median = F, adjustment = NULL,
                                    dir.results, cl_number = 1, cpc = 0.005, 
                                    set_cutoff = F, logFC_thresh = 10, pvalue_thresh = 0.1){
+  
   if(median == F){
   k2_vars <- c("avg_c_k2","avg_m_k2","avg_c_f","avg_m_f","avg_c_k2_f","avg_m_k2_f")
   }else{
