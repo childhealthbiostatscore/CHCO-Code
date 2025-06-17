@@ -47,7 +47,7 @@ library(limma)
 library(reshape2)
 library(data.table)
 library(knitr)
-library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+# library(TxDb.Hsapiens.UCSC.hg19.knownGene)
 library(stringr)
 #library(NMF)
 library(rsvd)
@@ -96,7 +96,7 @@ dbs <- c("GO_Biological_Process_2023",
 library(edgeR)
 library(devtools)
 # install_github("lhe17/nebula")
-library(nebula)
+# library(nebula)
 
 # remove.packages("boot")  # Remove broken version
 # install.packages("boot", type = "source")  # Reinstall from source
@@ -123,6 +123,48 @@ dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics
 source("Kidney_functions_sc.R")
 ```
 
+## a. Hyak Data Load
+```{r, Cyberduck setup}
+# knitr::opts_knit$set(root.dir = dir.results)
+# install.packages("reticulate")
+# Sys.setenv(RETICULATE_PYTHON = "/home/hailey/miniconda3/envs/py310_env/bin/python")
+library(reticulate)
+reticulate::py_config()
+# library(reticulate)
+# reticulate::use_condaenv("py310_env", required = TRUE)
+# reticulate::py_config()
+# Sys.setenv(LD_LIBRARY_PATH = "/usr/lib/x86_64-linux-gnu")
+# reticulate::use_python("/home/hailey/miniconda3/bin/python")
+# reticulate::use_condaenv("base", required = TRUE)
+
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+# install.packages("jsonlite")  # Install if not already installed
+library(jsonlite)  # Load the package
+
+keys <- fromJSON("/mmfs1/home/hhampson/keys.json") # replace with your Lambda username
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
+so_kpmp_sc <- readRDS(temp_file)
+# so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
+
+
+```
+
+
 # 2. Pre-Processing & Qualtiy Control
 ## a. Load Data
 ### i. Biopsy Data
@@ -131,7 +173,7 @@ source("Kidney_functions_sc.R")
 ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
 
 ##d. Load Data ----
-so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
+# so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
 so_kpmp_sc <- subset(so_kpmp_sc,record_id %in% ids)
 
 #Load harmonized data that has been filtered from 90 to the 83 participants that have baseline single cell data
@@ -365,7 +407,16 @@ ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
 #41 iPS clone I
 # 41 iPS clone G
 
-sc_org <- readRDS(fs::path(dir.dat,"scRNA","data_raw","organoids_processed_matrix.rds"))
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "data_raw/organoids_processed_matrix.rds", temp_file)
+sc_org <- readRDS(temp_file)
+# so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
+
+
+
+# sc_org <- readRDS(fs::path(dir.dat,"scRNA","data_raw","organoids_processed_matrix.rds"))
 meta <- sc_org@meta.data
 
 diab_ids <- c("sample_50_15","sample_50_30","sample_72_15","sample_72_30","sample_42_15","sample_42_30","ITD19_15","ITD19_30")
