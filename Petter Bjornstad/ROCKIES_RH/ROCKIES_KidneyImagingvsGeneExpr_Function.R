@@ -55,7 +55,8 @@ load('C:/Users/netio/Documents/UofW/Rockies/Line4875_Rockies.RData')
 
 
 kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', median = F, adjustment = NULL,
-                                   dir.results, cl_number = 1, cpc = 0.005){
+                                   dir.results, cl_number = 1, cpc = 0.005, 
+                                   set_cutoff = F, logFC_thresh = 10, pvalue_thresh = 0.1){
   if(median == F){
   k2_vars <- c("avg_c_k2","avg_m_k2","avg_c_f","avg_m_f","avg_c_k2_f","avg_m_k2_f")
   }else{
@@ -460,7 +461,8 @@ kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes,
 
 kidneyimaging_analysis('PT-S3', median = F, genes = tca_genes, 
                        gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
-                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', cpc = 0.7)
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', 
+                      cpc = 0.01)
 
 
 
