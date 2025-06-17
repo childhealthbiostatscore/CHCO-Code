@@ -55,7 +55,7 @@ load('C:/Users/netio/Documents/UofW/Rockies/Line4875_Rockies.RData')
 
 
 kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', median = F, adjustment = NULL,
-                                   dir.results, cl_number = 1){
+                                   dir.results, cl_number = 1, cpc = 0.005){
   if(median == F){
   k2_vars <- c("avg_c_k2","avg_m_k2","avg_c_f","avg_m_f","avg_c_k2_f","avg_m_k2_f")
   }else{
@@ -120,7 +120,9 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
         }
         
         #With offset
-        result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+        result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                         ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,
+                         offset=data_g_gene$library, cpc= cpc)
         
         list(gene = g, result = result)  # return both gene name and result
         
@@ -141,21 +143,49 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
     PT_nebula_converged <- map_dfr(
       names(nebula_results_list),
       function(gene_name) {
-        converged <- nebula_results_list[[gene_name]]$convergence
-        df <- data.frame(Gene = gene_name,
-                         Convergence_Code = converged)
-        return(df)
+        # Safely extract convergence code
+        converged <- tryCatch({
+          conv <- nebula_results_list[[gene_name]]$convergence
+          if (is.null(conv) || length(conv) == 0) NA else conv
+        }, error = function(e) NA)
+        
+        data.frame(Gene = gene_name,
+                   Convergence_Code = converged)
       }
     )
     
     nebula_summaries <- map_dfr(
       names(nebula_results_list),
       function(gene_name) {
-        df <- nebula_results_list[[gene_name]]$summary
-        df <- df %>% mutate(Gene = gene_name)
-        return(df)
+        tryCatch({
+          # Check if the result exists and has summary info
+          result <- nebula_results_list[[gene_name]]
+          
+          if (is.null(result) || is.null(result$summary)) {
+            # If no summary info, return NULL (will be filtered out by map_dfr)
+            return(NULL)
+          } else {
+            df <- result$summary
+            
+            # Check if summary is empty or not a data.frame
+            if (is.null(df) || nrow(df) == 0 || !is.data.frame(df)) {
+              return(NULL)
+            } else {
+              df <- df %>% mutate(Gene = gene_name)
+              return(df)
+            }
+          }
+        }, error = function(e) {
+          # If any error occurs, return NULL (will be filtered out)
+          cat("Error processing gene", gene_name, ":", e$message, "\n")
+          return(NULL)
+        })
       }
     )
+    
+    
+    
+    
     nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
     
     #Make dataframe of final results
@@ -199,6 +229,8 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
   
   
   write.table(total_results,file.name, row.names=F, quote=F, sep='\t')
+  
+  cat(paste0(nrow(full_results), ' genes passed QC and were analysed in NEBULA \n'))
   # total_results <- read.csv(fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_PET_Variables_unadjusted_pooled_offset.csv"))
   
   # Define significance stars
@@ -268,10 +300,31 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
     file.name <- paste0(dir.results, 'NEBULA_', gene_list_name, 
                         'NEBULA_', 'median', median, '_', celltype, '_PET_adjusted_pooled_offset_T2D.png')  
   }
-  png(file.name, 
-      width = 1500, height = 2000, res = 300)
-  print(heat_map_p)
-  dev.off()
+  
+  
+  # Ensure clean graphics device state
+  while(dev.cur() > 1) dev.off()
+  
+  # Remove existing file if it exists
+  if (file.exists(file.name)) {
+    file.remove(file.name)
+  }
+  
+  # Create PNG with error handling
+  tryCatch({
+    png(file.name, 
+        width = 1500, height = 2000, res = 300)
+    print(heat_map_p)
+  }, finally = {
+    dev.off()
+  })
+  
+  # Verify file was created
+  if(file.exists(file.name)) {
+    cat("PNG file successfully created:", file.name, "\n")
+  } else {
+    cat("Failed to create PNG file:", file.name, "\n")
+  }
   
 }
 
@@ -398,6 +451,26 @@ kidneyimaging_analysis('DCT', median = T, genes = tca_genes,
                        dir.results = 'C:/Users/netio/Documents/UofW/Rockies/')
 kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes, 
                        gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1',)
+
+
+
+
+
+#Figuring out good CPC threshold for NEBULA
+
+kidneyimaging_analysis('PT-S3', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', cpc = 0.7)
+
+
+
+
+
+
+
+
+
+
 
 
 
