@@ -72,46 +72,48 @@ test <- harmonized_data %>% filter(kit_id %in% small_meta.data_unique$kit_id)
 test2 <- harmonized_data %>% filter(mrn %in% test$mrn)
 
 test3 <- harmonized_data %>% filter(mrn %in% test2$mrn) %>% 
-  dplyr::select(record_id, kit_id, mrn, lc_k2, rc_k2, lm_k2, rm_k2) %>% group_by(mrn) %>% 
+  dplyr::select(record_id, kit_id, mrn, lc_k2, rc_k2, lc_f, rc_f, 
+                lm_k2, rm_k2, lm_f, rm_f) %>% group_by(mrn) %>% 
   summarize(lc_k2 = mean(lc_k2, na.rm=T), rc_k2 = mean(rc_k2, na.rm=T), 
-            lm_k2 = mean(lm_k2, na.rm=T), rm_k2 = mean(rm_k2, na.rm=T))
+            lm_k2 = mean(lm_k2, na.rm=T), rm_k2 = mean(rm_k2, na.rm=T),
+            lc_f = mean(lc_f, na.rm=T), rc_f = mean(rc_f, na.rm=T),
+            lm_f = mean(lm_f, na.rm=T), rm_f = mean(rm_f, na.rm=T))
   
 write.table(test3, 'C:/Users/netio/Documents/UofW/Rockies/T2D_rawimagingdata.txt', row.names=F, quote=F, sep='\t')
   
 fixed_data <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/T2D_rawimagingdata.txt')
 
+# #Calculate K2 and F variables
+fixed_data <- fixed_data %>%
+  mutate(avg_c_k2 = (lc_k2+rc_k2)/2) %>%
+  mutate(avg_m_k2 = (lm_k2+rm_k2)/2) %>%
+  mutate(avg_c_f = (lc_f+rc_f)/2) %>%
+  mutate(avg_m_f = (lm_f+rm_f)/2)
+fixed_data <- fixed_data %>%
+  rowwise() %>%
+  mutate(avg_c_k2_f = (avg_c_k2/avg_c_f)) %>%
+  mutate(avg_m_k2_f = (avg_m_k2/avg_m_f))
+
+
+
+
 #Try to add this data from dat 
-so_subset@meta.data <- so_subset@meta.data[, !colnames(so_subset@meta.data) %in% c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+so_subset@meta.data <- so_subset@meta.data[, !colnames(so_subset@meta.data) %in% c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 
+                                                                                   'avg_m_f', 
                                                                                    'avg_c_k2_f', 'avg_m_k2_f',
                                                                                    'lc_k2', 'rc_k2', 'lm_k2', 
-                                                                                   'rm_k2')]
+                                                                                   'rm_k2', 'lm_f', 'rm_f')]
 
 so_subset@meta.data <- so_subset@meta.data %>%
   tibble::rownames_to_column("cell_id") %>%
   left_join(fixed_data, by = "mrn") %>%
   tibble::column_to_rownames("cell_id")
 
-# Verify integrity after joining
-stopifnot(identical(rownames(so_object@meta.data), colnames(so_object)))
 
 
 #Verify findings
 test_results <- so_subset@meta.data %>% dplyr::select(record_id, mrn, lc_k2, rc_k2, lm_k2, rm_k2) %>%
   filter(!duplicated(record_id))
-
-# #Calculate K2 and F variables
- so_subset@meta.data <- so_subset@meta.data %>%
-   rowwise() %>%
-   mutate(avg_c_k2 = (lc_k2+rc_k2)/2) %>%
-   mutate(avg_m_k2 = (lm_k2+rm_k2)/2) %>%
-   mutate(avg_c_f = (lc_f+rc_f)/2) %>%
-   mutate(avg_m_f = (lm_f+rm_f)/2) %>%
-   ungroup()
- so_subset@meta.data <- so_subset@meta.data %>%
-   rowwise() %>%
-   mutate(avg_c_k2_f = (avg_c_k2/avg_c_f)) %>%
-   mutate(avg_m_k2_f = (avg_m_k2/avg_m_f)) %>%
-   ungroup()
 
 
 kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', median = F, adjustment = NULL,
@@ -533,8 +535,7 @@ kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes,
 
 kidneyimaging_analysis('PT-S3', median = F, genes = tca_genes, 
                        gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
-                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/', 
-                       set_cutoff = TRUE)
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/')
 
 
 
