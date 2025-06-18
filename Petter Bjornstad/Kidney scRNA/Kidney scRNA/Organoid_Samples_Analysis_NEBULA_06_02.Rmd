@@ -173,7 +173,7 @@ so_kpmp_sc <- readRDS(temp_file)
 ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
 
 ##d. Load Data ----
-# so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
+so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
 so_kpmp_sc <- subset(so_kpmp_sc,record_id %in% ids)
 
 #Load harmonized data that has been filtered from 90 to the 83 participants that have baseline single cell data
@@ -407,16 +407,29 @@ ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
 #41 iPS clone I
 # 41 iPS clone G
 
-gc()
-bucket <- "scrna" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-s3$download_file(bucket, "data_raw/organoids_processed_matrix.rds", temp_file)
-sc_org <- readRDS(temp_file)
-# so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket, "data_raw/organoids_processed_matrix.rds", temp_file)
+# sc_org <- readRDS(temp_file)
+
+
+sc_org <- readRDS(fs::path(dir.dat,"scRNA","data_raw","organoids_processed_matrix.rds"))
+
+#Rename rwonames of sc_org with gene names
+# Make sure the gene names are aligned in the same order
+gene_ids <- rownames(sc_org)
+new_gene_names <- sc_org@misc$gene_annotations$name
+
+gene_map <- data.frame(
+  feature_id = gene_ids,
+  gene_name = new_gene_names,
+  row.names = gene_ids,  # Keep feature_id as rownames so we can cbind
+  stringsAsFactors = FALSE
+)
 
 
 
-# sc_org <- readRDS(fs::path(dir.dat,"scRNA","data_raw","organoids_processed_matrix.rds"))
 meta <- sc_org@meta.data
 
 diab_ids <- c("sample_50_15","sample_50_30","sample_72_15","sample_72_30","sample_42_15","sample_42_30","ITD19_15","ITD19_30")
@@ -443,6 +456,8 @@ nrow(sc_org) #62,754 genes
 ncol(sc_org) #194,063 cells
 rownames(sc_org)
 colnames(sc_org)
+
+
 
 # # #Load harmonized data that has been filtered from 90 to the 83 participants that have baseline single cell data
 # harm_meta_data <- read.csv(fs::path(dir.dat,"Kidney scRNAseq Project","Data","harmonized_data_kidney_sc_all_metadata2.csv"))
@@ -703,28 +718,6 @@ rm(sce,counts_layer)
 #Merge gene names
 sc_org <- NormalizeData(sc_org)
 sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
-
-
-gene_annotations <- data.frame(sc_org@misc$gene_annotations)
-colnames(gene_annotations)
-head(gene_annotations$NA.)  # Column with gene names you want to use
-gene_annotations$Gene <- gene_annotations$NA.
-gene_annotations <- gene_annotations[,-c(2:4)]
-
-# Reorder gene annotations to match Seurat feature order
-gene_annotations_ordered <- gene_annotations[match(rownames(sc_org[["RNA"]]), gene_annotations$input), ]
-# Extract gene names from column named "NA"
-gene_symbols <- make.unique(gene_annotations_ordered$Gene)
-
-# Apply new names to all assay slots
-match(rownames(sc_org@assays$RNA@counts),gene_annotations_ordered$input)
-match(rownames(sc_org@assays$RNA@scale.data),gene_annotations_ordered$input)
-rownames(sc_org@assays$RNA@counts) <- gene_symbols
-rownames(sc_org@assays$RNA@data) <- gene_symbols
-if (!is.null(sc_org@assays$RNA@scale.data)) {
-  rownames(sc_org@assays$RNA@scale.data) <- gene_symbols
-}
-
 ```
 
 ## b. Explore Distribution & Zero-Inflation
