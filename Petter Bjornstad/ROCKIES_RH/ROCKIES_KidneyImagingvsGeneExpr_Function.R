@@ -74,8 +74,16 @@ big_meta.data <- meta.data %>% dplyr::select(kit_id, record_id, lc_k2) %>%
 #Harmonized data? 
 harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 
-harmonized_data %>% filter(kit_id %in% small_meta.data_unique$kit_id) %>% 
-  dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2)
+
+test <- harmonized_data %>% filter(kit_id %in% small_meta.data_unique$kit_id)
+test2 <- harmonized_data %>% filter(mrn %in% test$mrn)
+
+test3 <- harmonized_data %>% filter(mrn %in% test2$mrn) %>% 
+  dplyr::select(record_id, kit_id, mrn, lc_k2, rc_k2, lm_k2, rm_k2) %>% group_by(mrn) %>% 
+  summarize(lc_k2 = mean(lc_k2, na.rm=T), rc_k2 = mean(rc_k2, na.rm=T), 
+            lm_k2 = mean(lm_k2, na.rm=T), rm_k2 = mean(rm_k2, na.rm=T))
+  
+
 
 harmonized_data2 <- harmonized_data %>% filter(record_id %in% small_meta.data_unique$record_id)
 
