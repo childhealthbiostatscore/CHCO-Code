@@ -153,9 +153,9 @@ library(scran)
 # dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/DECODE/DECODE Analysis/Results")
 # # dir.ipa <- c("/Users/hhampson/Documents/IPA/Results")
 
-#Mac laptop file path
-dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
-dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/DECODE/DECODE Analysis/Results")
+# #Mac laptop file path
+# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
+# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/DECODE/DECODE Analysis/Results")
 
 #Load functions
 # source("Kidney_functions_sc.R")
@@ -251,7 +251,24 @@ so_kpmp_sc <- readRDS(temp_file)
 # so_kpmp_sc <- readRDS(temp_file)
 ```
 
-### ii. Local Load 
+### ii. Hyak load
+```{r, include=F}
+#Load PB90 with new KPMP Cell Types
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
+so_kpmp_sc <- readRDS(temp_file)
+
+# #Load Formatted PB90 dataset
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/Formatted_KPMP_Decode.rds", temp_file)
+# so_kpmp_sc <- readRDS(temp_file)
+```
+
+### iii. Local Load 
 ```{r}
 # #Mac Studio pathway
 # so_kpmp_sc <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/scRNA/data_raw/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds")
@@ -305,14 +322,14 @@ so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="KI-0014643")] <- "KL-0014643"
 so_kpmp_sc$kit_id[which(so_kpmp_sc$kit_id=="kl-0023998")] <- "KL-0023998"
 
 
-# #Lambda load
-# bucket <- "harmonized.dataset" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-# s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
-# harmonized_data <- read.csv(temp_file,na="")
+# #Lambda load/Hyak Load
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
+harmonized_data <- read.csv(temp_file,na="")
 
-#Load raw harmonized dataset
-harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
+# #Load raw harmonized dataset
+# harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na="")
 
 dat <- harmonized_data %>%
   arrange(screen_date) %>% 
@@ -337,7 +354,7 @@ length(ids) #52
 
 
 #Filter pb90 to these 52 kit ids for aim 1
-# so_kpmp_sc <- subset(so_kpmp_sc, kit_id %in% ids)
+so_kpmp_sc <- subset(so_kpmp_sc, kit_id %in% ids)
 
 #Check that the ids are there 
 length(unique(so_kpmp_sc$kit_id)) #46 - 6 missing
@@ -592,10 +609,34 @@ so_kpmp_sc$pooled_offset <- pooled_offset
 
 #Lambda save
 # write file
-# bucket <- "scrna" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-# write.csv(df, temp_file, row.names = FALSE) # save the temp file locally (will delete after R session)
-# s3$upload_file(temp_file, bucket, 'data_clean/Cleaned_DECODE_so.rds')
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+write.csv(df, temp_file, row.names = FALSE) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, bucket, 'data_clean/Cleaned_DECODE_so.rds')
+
+
+library(reticulate)
+boto3 <- import("boto3")
+
+# Create client
+s3 <- boto3$client("s3")
+
+# Create temporary file
+temp_file <- tempfile(fileext = ".rds")
+write.csv(df, temp_file, row.names = FALSE)
+
+# Open the file in binary mode using Python built-in open()
+# Prepare the Python command with the R temp file path inserted
+py_cmd <- sprintf("f = open(r'%s', 'rb')", temp_file)
+
+# Run it in Python via reticulate
+py_run_string(py_cmd)
+
+# Upload using upload_fileobj()
+s3$upload_fileobj(py$f, bucket, "data_clean/Cleaned_DECODE_so.rds")
+
+# Close the file
+py$f$close()
 
 
 # saveRDS(so_kpmp_sc,"Cleaned_DECODE_so2.rds")

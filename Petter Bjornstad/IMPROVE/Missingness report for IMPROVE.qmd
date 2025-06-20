@@ -1,60 +1,1143 @@
 ---
 title: "Missingness & outlier report for IMPROVE"
 author: "Ye Ji Choi"
-format: html
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
 ---
 
-# To do
 
-* Iohexol from Mo
-
-* PAH reports from Mo
-
-* Renal flow (GFR)
-
-* UACR (albumin and creatinine)
-
-* MRI
-
-* Cystatin C
-
-* TKV manual by Phoom (tkv_outcomes = 1 & volume_right_manual, volume_left_manual)
-
-* Who's missing the most data? by visit ID, record_id's
-
-* outliers
-
-
-
-```{r echo = F}
+```{r echo = F, include = F}
 library(dplyr)
 library(purrr)
 library(arsenal)
 library(tidyr)
 library(naniar)
+library(knitr)
+library(ggplot2)
 ```
 
 
-```{r echo = F}
+```{r echo = F, include = F}
 harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
 
-improve <- harm_dat %>% filter(study == "IMPROVE") %>%
+improve_harm <- harm_dat %>% filter(study == "IMPROVE") %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id)) %>%
-  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" & 
+                   .by = c(record_id, visit)) %>%
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
                                                        ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
-                                                     race == "Black or African American" & 
+                                                     race == "Black or African American" &
                                                        ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
                                                      ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
                                                      T ~ "Not Hispanic or Latino Other")) %>%
   arrange(record_id) %>%
-  select(-mrn)
+  dplyr::rename(subject_id = record_id) %>%
+  mutate(visit = case_when(visit == "baseline" ~ "Baseline", 
+                           visit == "3_months_post_surgery" ~ "3mo",
+                           visit == "12_months_post_surgery" ~ "12mo",
+                           T ~ visit))
+
+improve_harm_outcomes <- improve_harm %>%
+  dplyr::select(subject_id, visit, ff, rbf, deltapf, cm, pg, glomerular_pressure, rvr, re, ra, gir_190, starts_with("eGFR"), -eGFR_Schwartz) %>%
+  dplyr::rename(m_value = gir_190,
+                filtration_pressure = deltapf, 
+                mean_plasma_protein = cm, 
+                glomerular_onco_pressure = pg,
+                eff_arteriolar_resistance = re, 
+                aff_arteriolar_resistance = ra)
+colnames(improve_harm_outcomes)
+
+library(REDCapR)
+tokens <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
+improve_redcap <- redcap_read(redcap_uri = "https://redcap.ucdenver.edu/api/",
+            token = tokens$Token[tokens$Study=="IMPROVE"])$data
+
+race_labels <- c(
+  "race___1" = "American Indian or Alaskan Native",
+  "race___2" = "Asian",
+  "race___3" = "Black or African American",
+  "race___4" = "Native Hawaiian or Pacific Islander",
+  "race___5" = "White",
+  "race___6" = "More than one race",
+  "race___7" = "Unknown / Not reported"
+)
+# Define mapping for ethnicity
+ethnicity_labels <- c(
+  "ethnicity___1" = "Hispanic or Latino",
+  "ethnicity___2" = "Not Hispanic or Latino",
+  "ethnicity___3" = "Unknown / Not reported"
+)
+
+
+improve <- improve_redcap %>%
+  mutate(visit = case_when(study_visit == 1 ~ "Baseline",
+                           study_visit == 2 ~ "3mo",
+                           study_visit == 3 ~ "12mo",
+                           T ~ "Screening"),
+         race = case_when(race___1 == 1 ~ race_labels["race___1"],
+                          race___2 == 1 ~ race_labels["race___2"],
+                          race___3 == 1 ~ race_labels["race___3"],
+                          race___4 == 1 ~ race_labels["race___4"],
+                          race___5 == 1 ~ race_labels["race___5"],
+                          race___6 == 1 ~ race_labels["race___6"],
+                          race___7 == 1 ~ race_labels["race___7"]),
+         ethnicity = case_when(ethnicity___1 == 1 ~ ethnicity_labels["ethnicity___1"],
+                               ethnicity___2 == 1 ~ ethnicity_labels["ethnicity___2"],
+                               ethnicity___3 == 1 ~ ethnicity_labels["ethnicity___3"])) %>%
+  dplyr::select(-c(ff, rbf, filtration_pressure, mean_plasma_protein, glomerular_onco_pressure, glomerular_pressure, eff_arteriolar_resistance, aff_arteriolar_resistance, m_value))
+improve$visit <- factor(improve$visit, levels = c("Screening", "Baseline", "3mo", "12mo"))
+improve[improve == -9999 | improve == -999 | improve == -99999] <- NA
+
+improve <- left_join(improve, improve_harm_outcomes)
 ```
 
-# Table of characteristics
+```{r echo = F, include=F}
+# Demographics
+demographics_var <- c(
+  "age_current", "gender", "race", "ethnicity"
+)
+
+# Medical History
+med_hist_var <- c(
+  "length_of_diabetes", "diabetes_age", "incl", "steriods", "psychosis", "psychotic_typ",
+  "psychosis_atyp", "incl_allergies", "incl_dka", "incl_hh", "incl_anemia", "incl_meds", "incl_mri"
+)
+
+# Patient Medications
+patient_meds_var <- c(
+  "current_db_dx", "insulin_la_tdd", "hypertension", "hypertenstion_controlled", "htn_meds",
+  "htn_manage", "addl_dx", "meds_weight", "apnea", "apnea_cpap", "uric_acid_med", "mra_med"
+)
+
+# Physical Exam
+phys_exam_var <- c(
+  "screen_height", "screen_weight", "screen_bmi", "screen_bmi_percentile", "waist_circumference",
+  "hip_circumference", "sys_bp", "dys_bp", "map", "pulse", "activity_factor_male",
+  "activity_factor_female", "schofield_male", "schofield_female", "phys_norm",
+  "breast_tanner", "testicular_volume"
+)
+
+# MMTT + Metabolic Cart
+mmtt_var <- c(
+  "mmtt_vitals", "mmtt_ht", "mmtt_wt", "mmtt_waist", "mmtt_hip", "waist_hip_ratio", "mmtt_hr",
+  "mmtt_sys_bp", "mmtt_dia_bp", "mmtt_map", "mmtt_pregnant", "mmtt_brmr", "brmr_vo2_ml",
+  "brmr_vo2_l", "brmr_vco2", "brmr_rq", "brmr_ree", "brmr_fo", "brmr_co", "mmtt_60rmr",
+  "srmr_vo2_ml", "srmr_vo2_l", "srmr_co2", "srmr_rq", "srmr_ree", "srmr_fo", "srmr_co",
+  "mmtt_bg_base", "mmtt_base_labs", "mmtt_hba1c_base", "mmtt_chol_base", "mmtt_hdl_base",
+  "mmtt_ldl_base", "mmtt_tri_base", "mmtt_na_base", "mmtt_k_base", "mmtt_cl_base", "mmtt_bicarb_base",
+  "mmtt_gluc_base", "mmtt_bun_base", "mmtt_creat_base", "mmtt_ca_base", "mmtt_totprot_base",
+  "mmtt_alb_base", "mmtt_ag_base", "mmtt_bili_base", "mmtt_alkphos_base", "mmtt_gptalt_base",
+  "mmtt_gotast_base", "mmtt_ffa_labs", "ffa_neg_10", "ffa_0", "ffa_30", "ffa_60", "ffa_120",
+  "ffa_180", "ffa_240", "mmtt_insulin", "mmtt_insulin_neg_10", "mmtt_insulin_0", "mmtt_insulin_10",
+  "mmtt_insulin_20", "mmtt_insulin_30", "mmtt_insulin_45", "mmtt_insulin_60", "mmtt_insulin_90",
+  "mmtt_insulin_120", "mmtt_insulin_150", "mmtt_insulin_180", "mmtt_insulin_210", "mmtt_insulin_240",
+  "mmtt_glp1", "glp1_neg_10", "glp1_0", "glp1_10", "glp1_30", "glp1_45", "glp1_60", "glp1_120",
+  "glp1_240", "mmtt_cpep", "mmtt_cpep_neg_10", "mmtt_cpep_0", "mmtt_cpep_10", "mmtt_cpep_20",
+  "mmtt_cpep_30", "mmtt_cpep_60", "mmtt_cpep_90", "mmtt_cpep_120", "mmtt_cpep_180", "mmtt_cpep_240",
+  "mmtt_yy", "mmtt_yy_neg10", "mmtt_yy_0", "mmtt_yy_10", "mmtt_yy_30", "mmtt_yy_45", "mmtt_yy_60",
+  "mmtt_yy_120", "mmtt_yy_240", "mmtt_glucagon", "glucagon_neg_10", "glucagon_0", "glucagon_10",
+  "glucagon_30", "glucagon_45", "glucagon_60", "glucagon_120", "glucagon_240", "mmtt_gluc",
+  "mmtt_bg_neg_10", "mmtt_bg_0", "mmtt_bg_10", "mmtt_bg_20", "mmtt_bg_30", "mmtt_bg_45", "mmtt_bg_60",
+  "mmtt_bg_90", "mmtt_bg_120", "mmtt_bg_150", "mmtt_bg_180", "mmtt_bg_210", "mmtt_bg_240",
+  "adipo_ir_mmol_l_pmol_l", "adipo_ir_meq_l_iu_ml", "fasting_insulin_clearance_ng_ml_pmol_l",
+  "fasting_insulin_clearance_nmol_l_pmol_l", "fasting_insulin_clearance_ng_ml_uiu_l"
+)
+
+# Body Composition
+bodycomp_var <- c(
+  "dxa_complete", "dxa_body_fat", "dxa_lean_mass", "dxa_trunk_mass", "dxa_fat_kg", "dxa_lean_kg",
+  "dxa_trunk_kg", "dxa_bmd", "bodpod_complete", "bp_body_fat", "bp_lean_mass", "bp_fat_mass",
+  "bp_lean_kg", "bp_est_rmr", "bia_complete", "bia_body_fat", "bia_lean_mass", "bia_fat_mass_kg",
+  "bia_lean_mass_kg", "tanita_scale_complete", "tanita_body_fat", "tanita_lean_mass",
+  "tanita_fat_mass_kg", "tanita_lean_mass_kg"
+)
+
+# Clamp
+clamp_var <- c(
+  "study_visit_clamp", "baseline", "clamp_height", "clamp_weight", "clamp_bmi", "clamp_sbp",
+  "clamp_dbp", "clamp_map", "clamp_pls", "fasting_labs", "cholesterol", "hdl", "ldl", "triglycerides",
+  "total_protein", "serum_sodium", "cystatin_c", "serum_creatinine", "serum_osmolality", "copeptin",
+  "fbg", "igf_1", "igf_free", "ns_bolus", "ns_number", "ns1_vol", "ns1_bg", "ns2_vol", "ns2_bg",
+  "ns3_vol", "ns3_bg", "d20_bolus_vol", "d20_infusion", "d20_infusion_rate_120", "d20_infusion_rate_220",
+  "d20_infusion_rate_230", "d20_infusion_rate_240", "d20_volume"
+  # you can continue the list here -- it's very long but you get the pattern!
+)
+
+# Outcomes
+outcomes_var <- c(
+  "kidney_outcomes", "eGFR_bedside_Schwartz","eGFR_CKD_epi", "eGFR_CKiD_U25_avg", 
+  "eGFR_CKiD_U25_Creat","eGFR_CKiD_U25_CystatinC","eGFR_fas_cr" ,"eGFR_fas_cr_cysc","eGFR_Zap",
+  "gfr", "gfr_bsa", "abs_pah", "pah_bsa", "rpf", "erpf_bsa", "ecv",
+  "gfr_ecv_percent", "gfr_ecv_std", "ff", "rbf", "filtration_pressure", "mean_plasma_protein",
+  "glomerular_onco_pressure", "glomerular_pressure", "rvr",
+  "aff_arteriolar_resistance", "eff_arteriolar_resistance",
+  "m_value", "metab_outcomes", "o2_sats", "asl_outcomes", "asl_right", "asl_left", "bold_outcomes",
+  "bold_r_bl_cortex", "bold_r_bl_medulla", "bold_r_bl_kidney", "bold_r_pf_cortex", "bold_r_pf_medulla",
+  "bold_r_pf_kidney", "bold_l_bl_cortex", "bold_l_bl_medulla", "bold_l_bl_kidney", "bold_l_pf_cortex",
+  "bold_l_pf_medulla", "bold_l_pf_kidney", "adc_outcomes", "adc_right", "adc_left", "tkv_outcomes",
+  "volume_right", "volume_left", "volume_right_manual", "volume_left_manual"
+)
+
+# Kidney Biopsies
+kidney_bx_var <- c(
+  "bx_labs_yn", "labs_hg", "labs_pltct", "labs_pt", "labs_inr", "labs_ptt", "labs_bun",
+  "bx_vitals_yn","bx_kit_id", "bx_glut_id", "bx_form_id", "bx_rnalater_id", "bx_cryomold_id", 
+  "bx_cryostor_id", "bx_ln2_id", "vitals_sbp", "vitals_dbp", "vitals_pulse", "vitals_rr",
+  "vitals_temp","vitals_height", "vitals_weight", "vitals_bmi", "bx_kit_yn", "procedure_yn", 
+  "procedure_md", "procedure_tech", "procedure_guidance", "procedure_needle", "needle_other", 
+  "kidney_side", "kidney_length", "kidney_location", "passes_attempt"
+)
+
+# Biopsy Results Michigan
+bx_res_var <- c(
+  "cortex_yn", "gloms", "gloms_gs", "ifta", "fia", "glom_tuft_area", "glom_volume_weibel",
+  "glom_volume_wiggins", "glom_volume_con", "mes_matrix_area", "mes_index", "mes_volume_weibel",
+  "mes_volume_wiggins", "mes_volume_con", "glom_nuc_count", "gbm_thick_artmean", "gbm_thick_harmmean",
+  "mes_nuc_count", "art_intima", "art_media", "pod_nuc_density", "pod_cell_volume"
+)
+```
+
+# Missing Data Summary
+
+## Demographics
+```{r echo = F, include=F}
+demographics_screen <- arsenal::tableby(visit ~ age_current+gender+race+ethnicity, data = subset(improve, visit == "Screening"), test = F, digits = 2, total = F)
+summary(demographics_screen)
+```
+
+### Screening
+
 
 ```{r echo = F}
-tab1 <- arsenal::tableby(group ~ age + sex, data = improve)
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "Screening") %>%
+  dplyr::select(subject_id, any_of(demographics_var))
 
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+```
+
+```{r echo = F}
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+## Medical History
+```{r echo = F, include=F}
+med_hist <- arsenal::tableby(visit ~  length_of_diabetes + diabetes_age + incl + steriods +  psychosis + psychotic_typ + psychosis_atyp + incl_allergies + incl_dka + incl_hh + incl_anemia + incl_meds + incl_mri, data = subset(improve, visit == "Screening"), test = F, digits = 2, total = F)
+summary(med_hist)
+```
+
+### Screening
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "Screening") %>%
+  dplyr::select(subject_id, any_of(med_hist_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+
+## Patient Medications
+```{r echo = F, include=F}
+patient_meds <- arsenal::tableby(visit ~ current_db_dx + insulin_la_tdd  + hypertension + hypertenstion_controlled + htn_meds  + htn_manage + addl_dx   + meds_weight + apnea + apnea_cpap + uric_acid_med + mra_med, data = subset(improve, visit != "Screening"), test = F, digits = 2, total = F)
+summary(patient_meds)
+```
+
+### Baseline
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "Baseline") %>%
+  dplyr::select(subject_id, any_of(patient_meds_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+### 3mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "3mo") %>%
+  dplyr::select(subject_id, any_of(patient_meds_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+### 12mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "12mo") %>%
+  dplyr::select(subject_id, any_of(patient_meds_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+## Physical Exam
+```{r echo = F, include=F}
+phys_exam <- arsenal::tableby(visit ~ screen_height + screen_weight + screen_bmi + screen_bmi_percentile + waist_circumference + hip_circumference + sys_bp + dys_bp + map + pulse + activity_factor_male + activity_factor_female + schofield_male + schofield_female + phys_norm + breast_tanner + testicular_volume, data = subset(improve, visit == "Screening"), test = F, digits = 2, total = F)
+summary(phys_exam)
+```
+
+### Screening
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "Screening") %>%
+  dplyr::select(subject_id, any_of(phys_exam_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+## MMTT + Metabolic Cart
+```{r echo = F, include=F}
+mmtt <- arsenal::tableby(visit ~  mmtt_vitals + mmtt_ht + mmtt_wt + mmtt_waist + mmtt_hip + waist_hip_ratio + mmtt_hr + mmtt_sys_bp + mmtt_dia_bp + mmtt_map + mmtt_pregnant + mmtt_brmr + brmr_vo2_ml + brmr_vo2_l + brmr_vco2 + brmr_rq + brmr_ree + brmr_fo + brmr_co + mmtt_60rmr + srmr_vo2_ml + srmr_vo2_l + srmr_co2 + srmr_rq + srmr_ree + srmr_fo + srmr_co + mmtt_bg_base + mmtt_base_labs + mmtt_hba1c_base + mmtt_chol_base + mmtt_hdl_base + mmtt_ldl_base + mmtt_tri_base + mmtt_na_base + mmtt_k_base + mmtt_cl_base + mmtt_bicarb_base + mmtt_gluc_base + mmtt_bun_base + mmtt_creat_base + mmtt_ca_base + mmtt_totprot_base + mmtt_alb_base + mmtt_ag_base + mmtt_bili_base + mmtt_alkphos_base + mmtt_gptalt_base + mmtt_gotast_base + mmtt_ffa_labs + ffa_neg_10 + ffa_0 + ffa_30 + ffa_60 + ffa_120 + ffa_180 + ffa_240 + mmtt_insulin + mmtt_insulin_neg_10 + mmtt_insulin_0 + mmtt_insulin_10 + mmtt_insulin_20 + mmtt_insulin_30 + mmtt_insulin_45 + mmtt_insulin_60 + mmtt_insulin_90 + mmtt_insulin_120 + mmtt_insulin_150 + mmtt_insulin_180 + mmtt_insulin_210 + mmtt_insulin_240 + mmtt_glp1 + glp1_neg_10 + glp1_0 + glp1_10 + glp1_30 + glp1_45 + glp1_60 + glp1_120 + glp1_240 + mmtt_cpep + mmtt_cpep_neg_10 + mmtt_cpep_0 + mmtt_cpep_10 + mmtt_cpep_20 + mmtt_cpep_30 + mmtt_cpep_60 + mmtt_cpep_90 + mmtt_cpep_120 + mmtt_cpep_180 + mmtt_cpep_240 + mmtt_yy + mmtt_yy_neg10 + mmtt_yy_0 + mmtt_yy_10 + mmtt_yy_30 + mmtt_yy_45 + mmtt_yy_60 + mmtt_yy_120 + mmtt_yy_240 + mmtt_glucagon + glucagon_neg_10 + glucagon_0 + glucagon_10 + glucagon_30 + glucagon_45 + glucagon_60 + glucagon_120 + glucagon_240 + mmtt_gluc + mmtt_bg_neg_10 + mmtt_bg_0 + mmtt_bg_10 + mmtt_bg_20 + mmtt_bg_30 + mmtt_bg_45 + mmtt_bg_60 + mmtt_bg_90 + mmtt_bg_120 + mmtt_bg_150 + mmtt_bg_180 + mmtt_bg_210 + mmtt_bg_240 + adipo_ir_mmol_l_pmol_l + adipo_ir_meq_l_iu_ml + fasting_insulin_clearance_ng_ml_pmol_l + fasting_insulin_clearance_nmol_l_pmol_l + fasting_insulin_clearance_ng_ml_uiu_l, data = subset(improve, visit != "Screening"), test = F, digits = 2, total = F)
+summary(mmtt)
+```
+
+### Baseline
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "Baseline") %>%
+  dplyr::select(subject_id, any_of(mmtt_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+### 3mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "3mo") %>%
+  dplyr::select(subject_id, any_of(mmtt_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+### 12mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "12mo") %>%
+  dplyr::select(subject_id, any_of(mmtt_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+## Body Composition
+```{r echo = F, include=F}
+bodycomp <- arsenal::tableby(visit ~  dxa_complete + dxa_body_fat + dxa_lean_mass + dxa_trunk_mass + dxa_fat_kg + dxa_lean_kg + dxa_trunk_kg + dxa_bmd + bodpod_complete + bp_body_fat + bp_lean_mass + bp_fat_mass + bp_lean_kg + bp_est_rmr + bia_complete + bia_body_fat + bia_lean_mass + bia_fat_mass_kg + bia_lean_mass_kg + tanita_scale_complete + tanita_body_fat + tanita_lean_mass + tanita_fat_mass_kg + tanita_lean_mass_kg, data = subset(improve, visit != "Screening"), test = F, digits = 2, total = F)
+summary(bodycomp)
+```
+
+### Baseline
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "Baseline") %>%
+  dplyr::select(subject_id, any_of(mmtt_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+### 3mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "3mo") %>%
+  dplyr::select(subject_id, any_of(mmtt_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+### 12mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "12mo") %>%
+  dplyr::select(subject_id, any_of(mmtt_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+
+## Clamp
+```{r echo = F, include=F}
+clamp <- arsenal::tableby(visit ~ study_visit_clamp + baseline + clamp_height + clamp_weight + clamp_bmi + clamp_sbp + clamp_dbp + clamp_map + clamp_pls + fasting_labs + cholesterol + hdl + ldl + triglycerides + total_protein + serum_sodium + cystatin_c + serum_creatinine + serum_osmolality + copeptin + fbg + igf_1 + igf_free + ns_bolus + ns_number + ns1_vol + ns1_bg + ns2_vol + ns2_bg + ns3_vol + ns3_bg + d20_bolus_vol + d20_infusion + d20_infusion_rate_120 + d20_infusion_rate_220 + d20_infusion_rate_230 + d20_infusion_rate_240 + d20_volume + urine_labs + clamp_urine_mab_baseline + clamp_urine_cre_baseline + clamp_acr_baseline + clamp_urine_sodium + clamp_glucose_bl + urine_osmol + urine_glucose + clamp_urine_mab_250 + clamp_urine_cre_250 + clamp_acr_250 + clamp_urine_vol + bg_labs + glucose_minus_120 + glucose_minus_90 + glucose_minus_20 + glucose_minus_10 + glucose_minus_5 + glucose_10 + glucose_15 + glucose_20 + glucose_25 + glucose_30 + glucose_35 + glucose_40 + glucose_45 + glucose_50 + glucose_55 + glucose_60 + glucose_65 + glucose_70 + glucose_75 + glucose_80 + glucose_85 + glucose_90 + glucose_95 + glucose_100 + glucose_105 + glucose_110 + glucose_115 + glucose_120 + glucose_125 + glucose_130 + glucose_135 + glucose_140 + glucose_145 + glucose_150 + glucose_155 + glucose_160 + glucose_165 + glucose_170 + glucose_175 + glucose_180 + glucose_185 + glucose_190 + glucose_195 + glucose_200 + glucose_205 + glucose_210 + glucose_215 + glucose_220 + glucose_225 + glucose_230 + glucose_235 + glucose_240 + glucose_245 + glucose_249 + glucose_250 + glucose_arg2 + glucose_arg3 + glucose_arg4 + glucose_arg5 + glucose_15post + glucose_30post + cpep_lab + cpeptide_minus_10 + cpeptide_minus_5 + cpeptide_2 + cpeptide_4 + cpeptide_6 + cpeptide_8 + cpeptide_10 + cpeptide_120 + cpeptide_220 + cpeptide_230 + cpeptide_240 + cpeptide_245 + cpeptide_249 + cpeptide_250 + cpeptide_252 + cpeptide_253 + cpeptide_254 + cpeptide_255 + insulin_labs + insulin_minus_10 + insulin_minus_5 + insulin_2 + insulin_4 + insulin_6 + insulin_8 + insulin_10 + insulin_120 + insulin_220 + insulin_230 + insulin_240 + insulin_245 + insulin_249 + insulin_250 + insulin_252 + insulin_253 + insulin_254 + insulin_255 + iohexol_bolus + iohexol_vol + iohexol_minus_10 + iohexol_120 + iohexol_150 + iohexol_180 + iohexol_210 + iohexol_240 + pah_bolus + pah_vol + pah_minus_10 + pah_90 + pah_120 + hct_lab + hematocrit_minus_10 + hematocrit_90 + hematocrit_120 + research_clamp + fasting_glu + fasting_cpep + fasting_insulin + acpr + air + ss_c_pep + ss_insulin_response + acpr_max + air_max + glu_disposal + m_i + ins_clear + di, data = subset(improve, visit != "Screening"), test = F, digits = 2, total = F)
+summary(clamp)
+```
+
+### Baseline
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "Baseline") %>%
+  dplyr::select(subject_id, any_of(clamp_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+### 3mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "3mo") %>%
+  dplyr::select(subject_id, any_of(clamp_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+### 12mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "12mo") %>%
+  dplyr::select(subject_id, any_of(clamp_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+## Outcomes
+
+Calculated by script (not in REDCap): 
+
+* egfr ("eGFR_bedside_Schwartz","eGFR_CKD_epi", "eGFR_CKiD_U25_avg",  "eGFR_CKiD_U25_Creat","eGFR_CKiD_U25_CystatinC","eGFR_fas_cr" ,"eGFR_fas_cr_cysc","eGFR_Zap"), 
+
+* ff, 
+
+* rbf, 
+
+* filtration_pressure, 
+
+* mean_plasma_protein, 
+
+* glomerular_onco_pressure, 
+
+* glomerular_pressure, 
+
+* eff_arteriolar_resistance, 
+
+* aff_arteriolar_resistance, 
+
+* m_value 
+
+```{r echo = F, include=F}
+outcomes <- arsenal::tableby(visit ~ kidney_outcomes + egfr + gfr + gfr_bsa + abs_pah + pah_bsa + rpf + erpf_bsa + ecv + gfr_ecv_percent + gfr_ecv_std + ff + rbf + filtration_pressure + mean_plasma_protein + glomerular_onco_pressure + glomerular_pressure + aff_arteriolar_resistance + eff_arteriolar_resistance + m_value + metab_outcomes + o2_sats + asl_outcomes + asl_right + asl_left + bold_outcomes + bold_r_bl_cortex + bold_r_bl_medulla + bold_r_bl_kidney + bold_r_pf_cortex + bold_r_pf_medulla + bold_r_pf_kidney + bold_l_bl_cortex + bold_l_bl_medulla + bold_l_bl_kidney + bold_l_pf_cortex + bold_l_pf_medulla + bold_l_pf_kidney + adc_outcomes + adc_right + adc_left + tkv_outcomes + volume_right + volume_left
+, data = subset(improve, visit != "Screening"), test = F, digits = 2, total = F)
+summary(outcomes)
+```
+
+### Baseline
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "Baseline") %>%
+  dplyr::select(subject_id, any_of(outcomes_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+### 3mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "3mo") %>%
+  dplyr::select(subject_id, any_of(outcomes_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+### 12mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "12mo") %>%
+  dplyr::select(subject_id, any_of(outcomes_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+## Kidney Biopsies
+```{r echo = F, include=F}
+kidney_bx <- arsenal::tableby(visit ~ bx_labs_yn + labs_hg + labs_pltct + labs_pt + labs_inr + labs_ptt + labs_bun + bx_vitals_yn + vitals_sbp + vitals_dbp + vitals_pulse + vitals_rr + vitals_temp + vitals_height + vitals_weight + vitals_bmi + bx_kit_yn + procedure_yn + procedure_md + procedure_tech + procedure_guidance + procedure_needle + needle_other + kidney_side + kidney_length + kidney_location + passes_attempt + pass1_tissue_yn + pass1_core_cm + pass1_cortex_yn + pass1_cortex_cm + pass1_core_spec + pass2_tissue_yn + pass2_core_cm + pass2_cortex_yn + pass2_cortex_cm + pass2_core_spec + pass3_tissue_yn + pass3_core_cm + pass3_cortex_yn + pass3_cortex_cm + pass3_core_spec + pass4_tissue_yn + pass4_core_cm + pass4_cortex_yn + pass4_cortex_cm + pass4_core_spec + core_diagnostic + diagnostic_pass + core_oct + oct_pass + core_hypo_cryo + cryo_hypo_pass + core_rna + rna_pass
+, data = subset(improve, visit != "Screening"), test = F, digits = 2, total = F)
+summary(kidney_bx)
+```
+### Baseline
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "Baseline") %>%
+  dplyr::select(subject_id, any_of(kidney_bx_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+### 3mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "3mo") %>%
+  dplyr::select(subject_id, any_of(kidney_bx_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+### 12mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "12mo") %>%
+  dplyr::select(subject_id, any_of(kidney_bx_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+## Biopsy Results Michigan
+```{r echo = F, include=F}
+bx_res <- arsenal::tableby(visit ~ cortex_yn  + gloms + gloms_gs + ifta  + fia + glom_tuft_area + glom_volume_weibel + glom_volume_wiggins + glom_volume_con + mes_matrix_area + mes_index + mes_volume_weibel + mes_volume_wiggins + mes_volume_con + glom_nuc_count + gbm_thick_artmean + gbm_thick_harmmean + mes_nuc_count + art_intima + art_media + pod_nuc_density + pod_cell_volume
+, data = subset(improve, visit != "Screening"), test = F, digits = 2, total = F)
+summary(bx_res)
+```
+
+
+### Baseline
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "Baseline") %>%
+  dplyr::select(subject_id, any_of(bx_res_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+### 3mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "3mo") %>%
+  dplyr::select(subject_id, any_of(bx_res_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+### 12mo
+```{r echo = F}
+options(width = 200)  
+# Subset to only variables of interest
+improve_subset <- improve %>% 
+  filter(visit == "12mo") %>%
+  dplyr::select(subject_id, any_of(bx_res_var))
+
+# Create missingness summary - simpler approach
+missing_df <- tibble(
+  Variable = names(improve_subset)[-1],  # exclude subject_id
+  N_miss = colSums(is.na(improve_subset[,-1])),
+  N_total = nrow(improve_subset),
+  Percent_miss = round(100 * colSums(is.na(improve_subset[,-1])) / nrow(improve_subset), 1)
+)
+
+# Add missing_ids using a different approach
+missing_df$ID_miss <- map(missing_df$Variable, function(var_name) {
+  improve_subset %>%
+    filter(is.na(!!sym(var_name))) %>%
+    pull(subject_id) %>%
+    unique()
+})
+missing_df %>%
+  ggplot(aes(x = Variable, y = Percent_miss)) +
+  geom_col() + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 70, hjust = 1))
+
+
+# View the missingness table — without exploding missing_ids in kable (just showing counts here)
+missing_df %>%
+  kable()
+```
+
+# Coenrollment
+
+```{r echo = F}
+kable(improve_harm %>%
+  filter(!is.na(rh2_id)) %>%
+  distinct(subject_id, .keep_all=T) %>%
+  dplyr::select(improve_id, rh2_id))
 ```
