@@ -250,11 +250,11 @@ so_subset$avg_m_k2_f_med <- relevel(so_subset$avg_m_k2_f_med,"Below Median")
 save.image('C:/Users/netio/Documents/UofW/Rockies/Increased_N/LC_vs_T2D/LC_vs_T2D_Line250_Analysis.RData')
 
 
+######START HERE######
 
+load('C:/Users/netio/Documents/UofW/Rockies/Increased_N/LC_vs_T2D/LC_vs_T2D_Line250_Analysis.RData')
 
-
-
-kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', median = F, adjustment = NULL,
+kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', median = F,
                                    dir.results, cl_number = 1, cpc = 0.005, 
                                    set_cutoff = F, logFC_thresh = 10, pvalue_thresh = 0.1){
   
@@ -277,6 +277,12 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
     so_celltype <- subset(so_subset, KPMP_celltype == celltype)
     cat('Other celltypes')
   }
+  
+  
+  genes_data <- rownames(so_celltype)[which(rownames(so_celltype) %in% genes)]
+  
+  
+  
   # so_celltype <- subset(so_celltype,group=="Type_2_Diabetes")
   k2_ids <- unique(so_celltype$kit_id[which(!is.na(so_celltype$avg_c_k2))])
   so_celltype <- subset(so_celltype, kit_id %in% k2_ids)
@@ -292,7 +298,7 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
   # With parallelization
   #TCA Cycle
   # List of genes
-  genes_list <- genes
+  genes_list <- genes_data
   
   total_results <- data.frame()
   for (exposure in k2_vars) {
@@ -305,11 +311,8 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
         count_gene <- counts_path[g, , drop = FALSE]
         meta_gene <- subset(so_celltype,features=g)@meta.data
         
-        if(!is.null(adjustment)){
-          tmp.formula <- as.formula(paste0('~', exposure, '+', adjustment))
-        }else{
-          tmp.formula <- as.formula(paste0('~', exposure))
-        }
+          tmp.formula <- as.formula(paste0('~', exposure, '*group'))
+
         
         pred.formula <- as.formula(tmp.formula)
         pred_gene <- model.matrix(pred.formula, data = meta_gene)
