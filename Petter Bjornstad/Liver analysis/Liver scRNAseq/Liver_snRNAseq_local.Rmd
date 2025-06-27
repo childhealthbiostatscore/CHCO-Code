@@ -9698,7 +9698,8 @@ dat <- dat %>%
   mutate(ratio = ALT/AST) %>% 
   mutate(event_alt=ifelse(ALT>=2*(baseline_alt),1,0)) %>% 
   mutate(event_ast=ifelse(AST>=2*(baseline_ast),1,0)) %>% 
-  mutate(event_ratio=ifelse(ratio>=1.5,1,0))
+  mutate(event_ratio=ifelse(ratio>=1.5,1,0)) %>% 
+  mutate(days=ifelse(mvisit=="M00",0,days))
 #Calculate time to event & censoring
 dat_alt <- dat %>% 
   group_by(releaseid) %>%
@@ -9732,19 +9733,48 @@ dat_ratio <- dat %>%
     )) %>% 
   ungroup()
 
-dat_covs <- today %>% 
-  filter(mvisit=="M00") %>% 
+dat_covs <- today %>%
+  filter(mvisit=="M00") %>%
   dplyr::select(all_of(c("releaseid","HbA1c")))
-#Merge proteins in 
+#Merge proteins in
 dat <- tidylog::right_join(dat_covs,prot,by="releaseid")
 dat <- tidylog::right_join(dat_alt,dat,by="releaseid")
 dat <- tidylog::right_join(dat_ast,dat,by="releaseid")
+dat <- tidylog::right_join(dat_ratio,dat,by="releaseid")
 rm(baseline,dat_alt,dat_ast,dat_covs,prot,today)
 
-length(colnames(dat))
-length(unique(colnames(dat)))
-length(hvg_proteins)
-length(unique(hvg_proteins))
+# length(colnames(dat))
+# length(unique(colnames(dat)))
+# length(hvg_proteins)
+# length(unique(hvg_proteins))
+# 
+#Examine descrptive statostics
+data_covariates <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","BASELINE.csv"))
+data_covariates <- data_covariates %>%
+  filter(days==0) %>%
+  filter(releaseid %in% dat$releaseid)
+dat <- tidylog::left_join(dat,data_covariates,by="releaseid")
+length(unique(dat$releaseid)) #376
+# dat$fibrosis_stage <- as.factor(dat$fibrosis_stage)
+# dat$lobular_inflammation_percent <- as.factor(dat$lobular_inflammation_percent)
+#
+label(dat$AGEBASE)      <- "Age (y)"
+label(dat$sex)      <- "Sex (Male or Female)"
+dat$sex <- factor(dat$sex)
+# label(dat$sglt2_exclusive) <- "SGLT2 Inhibitors (Yes/No)"
+# label(dat$glp1agonist) <- "GLP-1 Receptor Agonists (Yes/No)"
+table1(~sex+HbA1c+AGEBASE+bmi,data=dat)
+dat$obese <- ifelse(dat$bmi>=30,"Obesity","No Obesity")
+label(dat$AGEBASE)      <- "Age (y)"
+label(dat$sex)      <- "Sex (Male or Female)"
+label(dat$obese)      <- "Obesity (BMI > 30: Yes vs. No)"
+dat$obese <- factor(dat$obese)
+dat$event_status_alt <- factor(dat$event_status_alt)
+dat$event_status_ast <- factor(dat$event_status_ast)
+table1(~sex+HbA1c+AGEBASE+obese+time_to_event_alt+event_status_alt+time_to_event_ast+event_status_ast+time_to_event_ratio+event_status_ratio,data=dat)
+dat$obese <- factor(dat$obese)
+table1(~sex+HbA1c+AGEBASE+obese,data=dat)
+
 
 #Create loop for linear regression between proteins & liver enzymes
 results_alt <- data.frame()
@@ -9770,6 +9800,21 @@ for (x in hvg_proteins) {
   results_ast <- rbind(results_ast,results_full_ast)
 }
 
+#Ratio
+dat_ratio <- dat %>% 
+  mutate(event_at_baseline=ifelse(event_status_ratio==1 & time_to_event_ratio==0,"Yes","No"))
+dat_ratio <- dat_ratio %>% 
+  filter(event_at_baseline!="Yes") #Subset of 273 didnt have event at baseline from the 376 with data
+results_ratio <- data.frame()
+for (x in hvg_proteins) {
+  # M0 <- as.formula(paste0("Surv(time_to_event_ast,event_status_ast) ~ ",x,"+AGEBASE"))
+  M0 <- as.formula(paste0("Surv(time_to_event_ratio,event_status_ratio) ~ ",x))
+  M1 <- coxph(M0,data=dat_ratio)
+  logHR <- summary(M1)$coef[1,1]
+  pval <- summary(M1)$coef[1,5]
+  results_full_ratio <- data.frame(Protein=x,Outcome=paste0("Time to ALT/AST Ratio = 1.5"),LogHR=logHR,Pvalue=pval)
+  results_ratio <- rbind(results_ratio,results_full_ratio)
+}
 
 #ALT
 results_alt <- results_alt %>%
@@ -9777,7 +9822,7 @@ results_alt <- results_alt %>%
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_alt <- results_alt %>%
   mutate(sig=ifelse(fdr<0.05,"*",""))
-write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_ALT_hvg.csv"))
+# write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_ALT_hvg.csv"))
 
 #AST
 results_ast <- results_ast %>%
@@ -9785,17 +9830,29 @@ results_ast <- results_ast %>%
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_ast <- results_ast %>%
   mutate(sig=ifelse(fdr<0.05,"*",""))
-write.csv(results_ast,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
+# write.csv(results_ast,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
+
+#Ratio
+results_ratio <- results_ratio %>%
+  filter(Outcome=="Time to ALT/AST Ratio = 1.5") %>% 
+  mutate(fdr = p.adjust(Pvalue,method="fdr"))
+results_ratio <- results_ratio %>%
+  mutate(sig=ifelse(fdr<0.05,"*",""))
+# write.csv(results_ratio,fs::path(dir.results,"TODAY_proteomics_ALT_AST_ratio_hvg.csv"))
 
 results_total <- rbind(results_ast,results_alt)
+results_total <- rbind(results_total,results_ratio)
+
 
 #Match to gene name
 key$Protein <- key$AptName
 results_total <- tidylog::left_join(results_total,key,by="Protein")
 results_ast <- tidylog::left_join(results_ast,key,by="Protein")
 results_alt <- tidylog::left_join(results_alt,key,by="Protein")
+results_ratio <- tidylog::left_join(results_ratio,key,by="Protein")
 write.csv(results_ast,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
 write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_ALT_hvg.csv"))
+write.csv(results_ratio,fs::path(dir.results,"TODAY_proteomics_ALT_AST_ratio_hvg.csv"))
 
 sig_results <- results_total %>% 
   filter(sig=="*")
@@ -9803,6 +9860,174 @@ sig_results <- results_total %>%
 # write.csv(results_total,fs::path(dir.results,"TODAY_proteomics_alt_ast_hvg_adj_age.csv"))
 
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+results_alt$PValue10 <- -log10(pmax(results_alt$Pvalue, 1e-10))  # Avoid log(0)
+
+
+results_alt <- results_alt %>% 
+  dplyr::rename(Gene=EntrezGeneSymbol)
+
+results_alt$color <- ifelse(results_alt$fdr < 0.05 & results_alt$LogHR > 0, "lightcoral",
+                            ifelse(results_alt$fdr < 0.05 & results_alt$LogHR < 0, "lightblue", "gray"))
+
+# Identify significant points (fdr < 0.05)
+# significant_df <- results_alt[results_alt$fdr < 0.05, ]
+# # Select top 10 up and down LogHR genes per Outcome
+top_labels <- results_alt %>%
+  group_by(Outcome) %>%
+  arrange(desc(LogHR), .by_group = TRUE) %>%
+  slice_head(n = 20) %>%
+  bind_rows(
+    results_alt %>%
+      group_by(Outcome) %>%
+      arrange(LogHR, .by_group = TRUE) %>%
+      slice_head(n = 20)
+  ) %>%
+  ungroup()
+
+Genes <- length(unique(results_alt$Gene))
+# Nuclei <- ncol(so_celltype_hvg)
+N <- length(unique(dat$releaseid))
+# Nonconvergence_Rate <- nebula_nonconverged_percent
+# results_alt$color3 <- ifelse(results_alt$fdr3 < 0.2 & results_alt$LogHR3 > 0, "lightcoral",
+#                               ifelse(results_alt$fdr3 < 0.2 & results_alt$LogHR3 < 0, "lightblue", "gray"))
+# 
+# # Identify significant points (fdr < 0.05)
+# significant_df3 <- results_alt[results_alt$fdr3 < 0.2, ]
+
+max <- max(results_alt$LogHR)
+# max <- 3.1
+min <- min(results_alt$LogHR)
+# Create the volcano plot using ggplot
+volcano_plot <- ggplot(results_alt, aes(x = LogHR, y = PValue10, color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  # theme_minimal() +  # Minimal theme
+  theme_bw()+
+  labs(
+    # title = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
+    # subtitle = "Hep-1, Unadjusted (REML)",
+    x = "logHR",
+    # y = "-log10(P-Value)",
+    color = "LogHR Direction Direction",
+    caption = paste0("FDR < 0.05, Proteins = ",Genes,", N = ",N)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  xlim(min,max)+
+  # geom_text(data = top_labels, aes(label = Gene),
+  #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black") +
+  geom_text_repel(data = top_labels, 
+                aes(label = Gene),
+                size = 3,
+                color = "black",
+                # Control line segments
+                segment.color = "gray50",
+                segment.size = 0.5,
+                segment.alpha = 0.8,
+                # Control label positioning
+                box.padding = 0.5,
+                point.padding = 0.3,
+                force = 1,
+                max.overlaps = Inf,  # Show all labels (unlike check_overlap = TRUE)
+                # Optional: limit computation time
+                max.time = 1,
+                max.iter = 10000)+
+  # # Add labels for significant points
+  # geom_text(data = significant_df, aes(label = Gene),
+  #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")+
+  facet_wrap(~Outcome)
+# Add labels for significant points with ggrepel
+# geom_text_repel(data = significant_df, aes(label = Gene),
+#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+
+volcano_plot
+
+png(fs::path(dir.results, "Plot_ALT_Proteomics_2000_hvg.png"), 
+    width = 2200, height = 2000, res = 300)
+print(volcano_plot)
+dev.off()
+
+#Ratio
+# Avoid log(0)
+results_ratio$PValue10 <- -log10(pmax(results_ratio$Pvalue, 1e-10))
+
+# Rename gene column
+results_ratio <- results_ratio %>%
+  dplyr::rename(Gene = EntrezGeneSymbol)
+
+# Set color based on significance and direction
+results_ratio$color <- ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR > 0, "lightcoral",
+                            ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR < 0, "lightblue", "gray"))
+# Identify significant points (fdr < 0.05)
+significant_df <- results_ratio[results_ratio$fdr < 0.05, ]
+
+# # Select top 10 up and down LogHR genes per Outcome
+# top_labels <- results_ratio %>%
+#   group_by(Outcome) %>%
+#   arrange(desc(LogHR), .by_group = TRUE) %>%
+#   slice_head(n = 20) %>%
+#   bind_rows(
+#     results_ratio %>%
+#       group_by(Outcome) %>%
+#       arrange(LogHR, .by_group = TRUE) %>%
+#       slice_head(n = 20)
+#   ) %>%
+#   ungroup()
+
+# Metadata
+Genes <- length(unique(results_ratio$Gene))
+N <- length(unique(dat_ratio$releaseid))
+
+# Plot bounds
+max <- max(results_ratio$LogHR)
+min <- min(results_ratio$LogHR)
+
+# Create the volcano plot
+volcano_plot <- ggplot(results_ratio, aes(x = LogHR, y = PValue10, color = color)) +
+  geom_point(alpha = 0.7) +
+  scale_color_identity() +
+  theme_bw() +
+  labs(
+    x = "logHR",
+    caption = paste0("FDR < 0.05, Proteins = ", Genes, ", N = ", N)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  ) +
+  xlim(min, max) +
+    # # Add labels for significant points
+  # geom_text(data = significant_df, aes(label = Gene),
+  #           vjust = 1, hjust = 1, size = 3, check_overlap = FALSE, color = "black")+
+  # geom_text(data = top_labels, aes(label = Gene),
+  #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black") +
+  geom_text_repel(data = significant_df, 
+                aes(label = Gene),
+                size = 3,
+                color = "black",
+                # Control line segments
+                segment.color = "gray50",
+                segment.size = 0.5,
+                segment.alpha = 0.8,
+                # Control label positioning
+                box.padding = 0.5,
+                point.padding = 0.3,
+                force = 1,
+                max.overlaps = Inf,
+                # Optional: limit how far labels can be from points
+                max.time = 1,
+                max.iter = 10000) +
+  facet_wrap(~Outcome)
+
+volcano_plot
+png(fs::path(dir.results, "Plot_Ratio_Proteomics_2000_hvg.png"), 
+    width = 2200, height = 2000, res = 300)
+print(volcano_plot)
+dev.off()
+
+#AST
 results_ast$PValue10 <- -log10(pmax(results_ast$Pvalue, 1e-10))  # Avoid log(0)
 
 
@@ -9847,9 +10072,25 @@ volcano_plot <- ggplot(results_ast, aes(x = LogHR, y = PValue10, color = color))
     axis.text.x = element_text(angle = 0, hjust = 1)
   )+
   xlim(min,max)+
+    geom_text_repel(data = significant_df, 
+                aes(label = Gene),
+                size = 3,
+                color = "black",
+                # Control line segments
+                segment.color = "gray50",
+                segment.size = 0.5,
+                segment.alpha = 0.8,
+                # Control label positioning
+                box.padding = 0.5,
+                point.padding = 0.3,
+                force = 1,
+                max.overlaps = Inf,
+                # Optional: limit how far labels can be from points
+                max.time = 1,
+                max.iter = 10000) +
   # # Add labels for significant points
-  geom_text(data = significant_df, aes(label = Gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")+
+  # geom_text(data = significant_df, aes(label = Gene),
+  #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")+
   facet_wrap(~Outcome)
 # Add labels for significant points with ggrepel
 # geom_text_repel(data = significant_df, aes(label = Gene),
@@ -9858,164 +10099,9 @@ volcano_plot <- ggplot(results_ast, aes(x = LogHR, y = PValue10, color = color))
 volcano_plot
 
 png(fs::path(dir.results, "Plot_AST_Proteomics_2000_hvg.png"), 
-    width = 2000, height = 1700, res = 300)
+    width = 2200, height = 2000, res = 300)
 print(volcano_plot)
 dev.off()
-
-#ALT
-# Avoid log(0)
-results_alt$PValue10 <- -log10(pmax(results_alt$Pvalue, 1e-10))
-
-# Rename gene column
-results_alt <- results_alt %>%
-  dplyr::rename(Gene = EntrezGeneSymbol)
-
-# Set color based on significance and direction
-results_alt$color <- ifelse(results_alt$fdr < 0.05 & results_alt$LogHR > 0, "lightcoral",
-                            ifelse(results_alt$fdr < 0.05 & results_alt$LogHR < 0, "lightblue", "gray"))
-
-# Select top 10 up and down LogHR genes per Outcome
-top_labels <- results_alt %>%
-  group_by(Outcome) %>%
-  arrange(desc(LogHR), .by_group = TRUE) %>%
-  slice_head(n = 20) %>%
-  bind_rows(
-    results_alt %>%
-      group_by(Outcome) %>%
-      arrange(LogHR, .by_group = TRUE) %>%
-      slice_head(n = 20)
-  ) %>%
-  ungroup()
-
-# Metadata
-Genes <- length(unique(results_alt$Gene))
-N <- length(unique(dat$releaseid))
-
-# Plot bounds
-max <- max(results_alt$LogHR)
-min <- min(results_alt$LogHR)
-
-# Create the volcano plot
-volcano_plot <- ggplot(results_alt, aes(x = LogHR, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +
-  scale_color_identity() +
-  theme_bw() +
-  labs(
-    x = "logHR",
-    caption = paste0("FDR < 0.05, Proteins = ", Genes, ", N = ", N)
-  ) +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  ) +
-  xlim(min, max) +
-  geom_text(data = top_labels, aes(label = Gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black") +
-  facet_wrap(~Outcome)
-
-volcano_plot
-png(fs::path(dir.results, "Plot_ALT_Proteomics_2000_hvg.png"), 
-    width = 1700, height = 1500, res = 300)
-print(volcano_plot)
-dev.off()
-
-
-
-
-#GSEA
-full_results <- read.csv(fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv")) %>%
-  # clean_names() %>% 
-  dplyr::select(-X) %>%
-  dplyr::rename(Gene=EntrezGeneSymbol)
-
-gene_direction_summary <- full_results %>%
-  # mutate(Direction=ifelse(LogHR))
-  group_by(Gene) %>%
-  summarise(
-    n_aptamers = n(),
-    n_positive = sum(LogHR > 0),
-    n_negative = sum(LogHR < 0),
-    n_significant = sum(Pvalue < 0.05),
-    direction_consistent = n_distinct(sign(LogHR)) == 1,
-    LogHR_range = paste0(round(min(LogHR), 3), " to ", round(max(LogHR), 3)),
-    .groups = "drop"
-  ) %>%
-  filter(n_aptamers > 1)  
-
-
-gene_stats <- full_results %>%
-  filter(!is.na(logHR)) %>%  # remove NAs
-  group_by(Gene) %>%
-  arrange(desc(abs(logHR))) %>%  # sort by magnitude
-  slice(1) %>%  # take the top one
-  ungroup()
-
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(gene_logHRs$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(gene_logHRs$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(gene_logHRs$Gene), savefile = FALSE)
-
-# rank genes by t-logHRs in DiD
-rankings_dHep <- full_results$LogHR
-names(rankings_dHep) <- full_results$Gene
-rankings_dHep <- sort(rankings_dHep, decreasing = TRUE)
-plot(rankings_dHep)
-min(rankings_dHep)
-max(rankings_dHep)
-
-
-set.seed(1234)
-
-kegg_legacy_res_dHep <- fgsea(pathways = kegg_legacy,
-                              stats = rankings_dHep,
-                              # scoreType = 'std', 
-                              scoreType = 'pos', 
-                              minSize = 3,
-                              maxSize = 500,
-                              nproc = 1)
-
-reactome_res_dHep <- fgsea(pathways = reactome,
-                           stats = rankings_dHep,
-                           scoreType = 'std', 
-                           minSize = 3,
-                           maxSize = 500,
-                           nproc = 1)
-go_res_dHep <- fgsea(pathways = go,
-                     stats = rankings_dHep,
-                     scoreType = 'std', 
-                     minSize = 5,
-                     maxSize = 500,
-                     nproc = 1)
-
-dHep_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_dHep[, padj < 0.05]), sum(kegg_legacy_res_dHep[, pval < 0.05])),
-                         "REACTOME"=c(sum(reactome_res_dHep[, padj < 0.05]), sum(reactome_res_dHep[, pval < 0.05])),
-                         "GO"=c(sum(go_res_dHep[, padj < 0.05]), sum(go_res_dHep[, pval < 0.05])))
-rownames(dHep_fgsea) <- c("adj.pval", "p.val")
-dHep_fgsea
-
-##### KEGG Legacy
-plot_fgsea_transpose(kegg_legacy_res_dHep, title = "dHep Unadjusted Top 30 KEGG", xnudge = 0.03)
-
-ggsave(fs::path(dir.results,"dHep_top30_kegg_pathways_unadjusted_reml.jpeg"),
-       width = 13, height = 10, scale = 1)
-
-##### REACTOME
-plot_fgsea_transpose(reactome_res_dHep, title = "dHep Unadjusted Top 30 REACTOME", xlimit = 5)
-
-ggsave(fs::path(dir.results,"dHep_top30_reactome_pathways_unadjusted_reml.jpeg"),
-       width = 13, height = 10, scale = 1)
-
-##### GO
-plot_fgsea_transpose(go_res_dHep, title = "dHep Unadjusted Top 30 GO", xlimit = 8)
-
-ggsave(fs::path(dir.results,"dHep_top30_go_pathways_unadjusted_reml.jpeg"),
-       width = 13, height = 10, scale = 1)
-
-
-#Visualize pathway results
 ```
 ###ii. Old
 ```{r}
