@@ -1,0 +1,83 @@
+---
+title: "CALICO Liver Analysis"
+author: "Tim Vigers"
+date: "today"
+date-format: long
+format:
+  html:
+    toc: true
+    toc-depth: 5
+    toc-float: true
+    code-fold: true
+    self-contained: true
+    fig-cap-location: top
+    fig-width: 12
+    fig-height: 9
+    page-layout: full
+editor: source
+---
+
+```{r setup}
+#| include: false
+library(Hmisc)
+library(tidyverse)
+library(arsenal)
+library(kableExtra)
+home_dir <- switch(Sys.info()["sysname"],
+  "Darwin" = "/Users/tim/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
+  "Windows" = "C:/Users/Tim/OneDrive - The University of Colorado Denver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
+  "Linux" = "/home/tim/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO"
+)
+github_dir <- switch(Sys.info()["sysname"],
+  "Darwin" = "/Users/tim/Documents/GitHub",
+  "Windows" = "C:/Users/Tim/Documents/GitHub",
+  "Linux" = "/home/tim/Documents/GitHub"
+)
+knitr::opts_knit$set(root.dir = home_dir)
+```
+
+```{r data import}
+#| include: false
+# Load data
+load("./Data_Clean/analysis_data.RData")
+# LF:FSH ratio
+df$cv_lh_fsh <- df$cv_lh / df$cv_fsh
+label(df$cv_lh_fsh) <- "LH:FSH"
+# Variable lists
+demo_vars <- c(
+  "site", "pcosdx_age", "combined_race", "ethnicity", "insur_type"
+)
+liver_vars <- c(
+  "pcosdx_menarche", "cv_alt", "cv_tg", "cv_hdl", "cv_shbg",
+  "cv_a1c", "cv_fbg", "cv_2hrglucoseogtt", "cv_fastinsulin", "cv_tt_perc",
+  "cv_ft_perc", "cv_dheas_perc", "cv_androstendione_perc", "cv_lh", "cv_fsh",
+  "cv_lh_fsh", "cv_amh_perc", "cv_sbp", "cv_dbp", "pcosdx_famhx_parent___7",
+  "pcosdx_famhx___7", "cv_hirsutism_num", "cv_waist", "cv_acneface",
+  "cv_acanthosisneck", "cv_osa_sx"
+)
+# Basic formula for tables
+f <- as.formula(paste("~", paste(c(demo_vars, liver_vars), collapse = "+")))
+# Set table options
+mycontrols <-
+  tableby.control(
+    numeric.stats = c("N", "Nmiss", "meansd", "medianq1q3", "range"),
+    cat.stats = c("N", "Nmiss", "countpct")
+  )
+# First visit only
+cv1 <- df %>%
+  group_by(record_number) %>%
+  filter(cv_monthssincepcosdx == 0) %>%
+  ungroup()
+```
+
+# Baseline comparisons
+
+## By weight category
+
+```{r results='asis'}
+t1 <- tableby(update(f, weight_cat ~ .), data = cv1, control = mycontrols)
+summary(t1, labelTranslations = labels(df), pfootnote = T)
+# kable(format = "html") %>%
+# kable_styling(position = "center", full_width = F, bootstrap_options = c("striped", "hover")) %>%
+# scroll_box(fixed_thead = T)
+```
