@@ -795,6 +795,181 @@ kidneyimaging_analysis('DCT', median = T, genes = ox_phos_genes,
                        gene_list_name = 'Ox-Phos',
                        dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
 
+#IC-A
+
+kidneyimaging_analysis('IC-A', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-A', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-A', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-A', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+
+
+kidneyimaging_analysis('IC-A', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-A', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-A', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-A', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+
+
+
+#IC-B
+
+kidneyimaging_analysis('IC-B', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-B', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-B', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-B', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+
+
+kidneyimaging_analysis('IC-B', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-B', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-B', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('IC-B', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+
+
+#EC celltypes
+
+kidneyimaging_analysis('EC-GC', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-GC', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-GC', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-GC', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+
+
+kidneyimaging_analysis('EC-GC', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-GC', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-GC', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-GC', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+
+
+
+#PTC
+kidneyimaging_analysis('EC-PTC', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-PTC', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-PTC', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-PTC', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+
+
+kidneyimaging_analysis('EC-PTC', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-PTC', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-PTC', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-PTC', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+
+#VSMC
+kidneyimaging_analysis('EC/VSMC', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC/VSMC', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC/VSMC', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC/VSMC', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+
+
+kidneyimaging_analysis('EC/VSMC', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC/VSMC', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC/VSMC', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC/VSMC', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+
+#AEA
+kidneyimaging_analysis('EC-AEA', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-AEA', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-AEA', median = F, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-AEA', median = F, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+
+
+kidneyimaging_analysis('EC-AEA', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-AEA', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', adjustment = 'epic_sglti2_1', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-AEA', median = T, genes = tca_genes, 
+                       gene_list_name = 'TCA', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
+kidneyimaging_analysis('EC-AEA', median = T, genes = ox_phos_genes, 
+                       gene_list_name = 'Ox-Phos', 
+                       dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
 
 
 
