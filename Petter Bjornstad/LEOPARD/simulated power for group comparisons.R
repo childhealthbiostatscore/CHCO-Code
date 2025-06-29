@@ -9,7 +9,7 @@ library(dplyr)
 
 # read in simulated data, for lean vs. overweight T1D group comparison (N = 24 per group)
 # changed SD of random intercept to 5
-data <- read.csv("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/Grants/LEOPARD power and stats/ald_sim_100_vs_40_per_group.csv")
+data <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Grants/LEOPARD power and stats/Revision/ald_sim_100_vs_40_per_group.csv")
 
 # model checking and plots
 ctrl <- lmeControl(maxIter = 1000)

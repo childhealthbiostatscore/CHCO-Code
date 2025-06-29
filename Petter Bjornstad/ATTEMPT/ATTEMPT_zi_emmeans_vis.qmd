@@ -96,6 +96,59 @@ prepare_gmt <- function(gmt_file, genes_in_data, savefile = FALSE){
 #https://www.gsea-msigdb.org/gsea/msigdb/collections.jsp
 ```
 
+```{r echo = F}
+filter_redundant_pathways <- function(gsea_result, overlap_pct = 0.7) {
+  # Check required columns
+  if (!all(c("pathway", "leadingEdge", "padj") %in% colnames(gsea_result))) {
+    stop("Input data frame must have 'pathway', 'leadingEdge', and 'padj' columns.")
+  }
+  
+  # Extract leading edge and name them
+  leading_edges <- gsea_result$leadingEdge
+  names(leading_edges) <- gsea_result$pathway
+  
+  # Compute Jaccard overlap matrix
+  overlap_matrix <- sapply(leading_edges, function(x) 
+    sapply(leading_edges, function(y) 
+      length(intersect(x, y)) / length(union(x, y))
+    )
+  )
+  
+  # Identify pairs with high overlap
+  overlap_pairs <- which(overlap_matrix > overlap_pct & lower.tri(overlap_matrix), arr.ind = TRUE)
+  
+  # If no overlaps found, return original
+  if (nrow(overlap_pairs) == 0) {
+    message("No redundant pathways found with overlap above threshold.")
+    return(gsea_result)
+  }
+  
+  # Create overlap graph
+  library(igraph)
+  edges <- data.frame(
+    from = rownames(overlap_matrix)[overlap_pairs[,1]],
+    to   = colnames(overlap_matrix)[overlap_pairs[,2]]
+  )
+  g <- graph_from_data_frame(edges, directed = FALSE)
+  components <- components(g)
+  
+  # Cluster terms and select representative from each
+  redundant_clusters <- split(names(components$membership), components$membership)
+  representative_terms <- sapply(redundant_clusters, function(cluster_terms) {
+    sub <- gsea_result[gsea_result$pathway %in% cluster_terms, ]
+    sub[which.min(sub$padj), "pathway"]
+  })
+  
+  # Keep only representative + non-overlapping terms
+  all_overlapping <- unique(unlist(redundant_clusters))
+  non_overlapping <- setdiff(gsea_result$pathway, all_overlapping)
+  final_terms <- c(non_overlapping, representative_terms)
+  
+  # Return filtered GSEA result
+  gsea_result[gsea_result$pathway %in% final_terms, ]
+}
+```
+
 # Model 1 (Nested visit + ZIF)
 ## emmeans
 ### PT
@@ -5442,14 +5495,14 @@ set.seed(1234)
 kegg_legacy_res_pt_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_pt_nebula_reml_offset,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_pt_nebula_reml_offset <- fgsea(pathways = reactome,
                               stats = rankings_pt_nebula_reml_offset,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_pt_nebula_reml_offset <- fgsea(pathways = go,
@@ -5699,14 +5752,14 @@ set.seed(1234)
 kegg_legacy_res_pt_nebula_reml_pooled <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_pt_nebula_reml_pooled,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_pt_nebula_reml_pooled <- fgsea(pathways = reactome,
                               stats = rankings_pt_nebula_reml_pooled,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_pt_nebula_reml_pooled <- fgsea(pathways = go,
@@ -5725,7 +5778,9 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 
 ##### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_pt_nebula_reml_pooled, title = "PT nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
+kegg_legacy_res_pt_nebula_reml_pooled_filtered <- filter_redundant_pathways(kegg_legacy_res_pt_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(kegg_legacy_res_pt_nebula_reml_pooled_filtered, title = "PT nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -5755,7 +5810,7 @@ pt_nebula_res_combined_reml_pooled_DiD$group <- factor(pt_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-kegg_legacy_res_pt_nebula_reml_pooled_pos <- kegg_legacy_res_pt_nebula_reml_pooled %>%
+kegg_legacy_res_pt_nebula_reml_pooled_pos <- kegg_legacy_res_pt_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -5791,7 +5846,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-kegg_legacy_res_pt_nebula_reml_pooled_neg <- kegg_legacy_res_pt_nebula_reml_pooled %>%
+kegg_legacy_res_pt_nebula_reml_pooled_neg <- kegg_legacy_res_pt_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -5924,7 +5979,9 @@ for (i in 1:10) {
 ```
 ##### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_pt_nebula_reml_pooled, title = "PT nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
+reactome_res_pt_nebula_reml_pooled_filtered <- filter_redundant_pathways(reactome_res_pt_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(reactome_res_pt_nebula_reml_pooled_filtered, title = "PT nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -5955,7 +6012,7 @@ pt_nebula_res_combined_reml_pooled_DiD$group <- factor(pt_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-reactome_res_pt_nebula_reml_pooled_pos <- reactome_res_pt_nebula_reml_pooled %>%
+reactome_res_pt_nebula_reml_pooled_pos <- reactome_res_pt_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -5991,7 +6048,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-reactome_res_pt_nebula_reml_pooled_neg <- reactome_res_pt_nebula_reml_pooled %>%
+reactome_res_pt_nebula_reml_pooled_neg <- reactome_res_pt_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -6124,7 +6181,9 @@ for (i in 1:10) {
 ```
 ##### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_pt_nebula_reml_pooled, title = "PT nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
+go_res_pt_nebula_reml_pooled_filtered <- filter_redundant_pathways(go_res_pt_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(go_res_pt_nebula_reml_pooled_filtered, title = "PT nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_go_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -6155,7 +6214,7 @@ pt_nebula_res_combined_reml_pooled_DiD$group <- factor(pt_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-go_res_pt_nebula_reml_pooled_pos <- go_res_pt_nebula_reml_pooled %>%
+go_res_pt_nebula_reml_pooled_pos <- go_res_pt_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -6191,7 +6250,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-go_res_pt_nebula_reml_pooled_neg <- go_res_pt_nebula_reml_pooled %>%
+go_res_pt_nebula_reml_pooled_neg <- go_res_pt_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -6531,14 +6590,14 @@ set.seed(1234)
 kegg_legacy_res_tal_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_tal_nebula_reml_offset,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_tal_nebula_reml_offset <- fgsea(pathways = reactome,
                               stats = rankings_tal_nebula_reml_offset,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_tal_nebula_reml_offset <- fgsea(pathways = go,
@@ -6788,14 +6847,14 @@ set.seed(1234)
 kegg_legacy_res_tal_nebula_reml_pooled <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_tal_nebula_reml_pooled,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_tal_nebula_reml_pooled <- fgsea(pathways = reactome,
                               stats = rankings_tal_nebula_reml_pooled,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_tal_nebula_reml_pooled <- fgsea(pathways = go,
@@ -6814,7 +6873,9 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 
 ##### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_tal_nebula_reml_pooled, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
+kegg_legacy_res_tal_nebula_reml_pooled_filtered <- filter_redundant_pathways(kegg_legacy_res_tal_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(kegg_legacy_res_tal_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -6844,7 +6905,7 @@ tal_nebula_res_combined_reml_pooled_DiD$group <- factor(tal_nebula_res_combined_
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-kegg_legacy_res_tal_nebula_reml_pooled_pos <- kegg_legacy_res_tal_nebula_reml_pooled %>%
+kegg_legacy_res_tal_nebula_reml_pooled_pos <- kegg_legacy_res_tal_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -6880,7 +6941,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-kegg_legacy_res_tal_nebula_reml_pooled_neg <- kegg_legacy_res_tal_nebula_reml_pooled %>%
+kegg_legacy_res_tal_nebula_reml_pooled_neg <- kegg_legacy_res_tal_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -7013,7 +7074,9 @@ for (i in 1:10) {
 ```
 ##### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_tal_nebula_reml_pooled, title = "TAL nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
+reactome_res_tal_nebula_reml_pooled_filtered <- filter_redundant_pathways(reactome_res_tal_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(reactome_res_tal_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -7044,7 +7107,7 @@ tal_nebula_res_combined_reml_pooled_DiD$group <- factor(tal_nebula_res_combined_
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-reactome_res_tal_nebula_reml_pooled_pos <- reactome_res_tal_nebula_reml_pooled %>%
+reactome_res_tal_nebula_reml_pooled_pos <- reactome_res_tal_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -7080,7 +7143,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-reactome_res_tal_nebula_reml_pooled_neg <- reactome_res_tal_nebula_reml_pooled %>%
+reactome_res_tal_nebula_reml_pooled_neg <- reactome_res_tal_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -7213,7 +7276,9 @@ for (i in 1:10) {
 ```
 ##### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_tal_nebula_reml_pooled, title = "TAL nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
+go_res_tal_nebula_reml_pooled_filtered <- filter_redundant_pathways(go_res_tal_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(go_res_tal_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_go_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -7244,7 +7309,7 @@ tal_nebula_res_combined_reml_pooled_DiD$group <- factor(tal_nebula_res_combined_
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-go_res_tal_nebula_reml_pooled_pos <- go_res_tal_nebula_reml_pooled %>%
+go_res_tal_nebula_reml_pooled_pos <- go_res_tal_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -7280,7 +7345,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-go_res_tal_nebula_reml_pooled_neg <- go_res_tal_nebula_reml_pooled %>%
+go_res_tal_nebula_reml_pooled_neg <- go_res_tal_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -7807,14 +7872,14 @@ set.seed(1234)
 kegg_legacy_res_pc_nebula_reml_pooled <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_pc_nebula_reml_pooled,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_pc_nebula_reml_pooled <- fgsea(pathways = reactome,
                               stats = rankings_pc_nebula_reml_pooled,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_pc_nebula_reml_pooled <- fgsea(pathways = go,
@@ -7833,11 +7898,14 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 
 ##### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_pc_nebula_reml_pooled, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
+kegg_legacy_res_pc_nebula_reml_pooled_filtered <- filter_redundant_pathways(kegg_legacy_res_pc_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(kegg_legacy_res_pc_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
+
 ###### KEGG Legacy Top 10 Pathways Group specific changes in addition to DiD
 
 ```{r echo = F}
@@ -7863,7 +7931,7 @@ pc_nebula_res_combined_reml_pooled_DiD$group <- factor(pc_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-kegg_legacy_res_pc_nebula_reml_pooled_pos <- kegg_legacy_res_pc_nebula_reml_pooled %>%
+kegg_legacy_res_pc_nebula_reml_pooled_pos <- kegg_legacy_res_pc_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -7899,7 +7967,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-kegg_legacy_res_pc_nebula_reml_pooled_neg <- kegg_legacy_res_pc_nebula_reml_pooled %>%
+kegg_legacy_res_pc_nebula_reml_pooled_neg <- kegg_legacy_res_pc_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -8032,7 +8100,9 @@ for (i in 1:10) {
 ```
 ##### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_pc_nebula_reml_pooled, title = "TAL nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
+reactome_res_pc_nebula_reml_pooled_filtered <- filter_redundant_pathways(reactome_res_pc_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(reactome_res_pc_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -8063,7 +8133,7 @@ pc_nebula_res_combined_reml_pooled_DiD$group <- factor(pc_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-reactome_res_pc_nebula_reml_pooled_pos <- reactome_res_pc_nebula_reml_pooled %>%
+reactome_res_pc_nebula_reml_pooled_pos <- reactome_res_pc_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -8099,7 +8169,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-reactome_res_pc_nebula_reml_pooled_neg <- reactome_res_pc_nebula_reml_pooled %>%
+reactome_res_pc_nebula_reml_pooled_neg <- reactome_res_pc_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -8232,7 +8302,9 @@ for (i in 1:10) {
 ```
 ##### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_pc_nebula_reml_pooled, title = "TAL nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
+go_res_pc_nebula_reml_pooled_filtered <- filter_redundant_pathways(go_res_pc_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(go_res_pc_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_go_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -8263,7 +8335,7 @@ pc_nebula_res_combined_reml_pooled_DiD$group <- factor(pc_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-go_res_pc_nebula_reml_pooled_pos <- go_res_pc_nebula_reml_pooled %>%
+go_res_pc_nebula_reml_pooled_pos <- go_res_pc_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -8299,7 +8371,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-go_res_pc_nebula_reml_pooled_neg <- go_res_pc_nebula_reml_pooled %>%
+go_res_pc_nebula_reml_pooled_neg <- go_res_pc_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -8645,14 +8717,14 @@ set.seed(1234)
 kegg_legacy_res_pc_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_pc_nebula_reml_offset,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_pc_nebula_reml_offset <- fgsea(pathways = reactome,
                               stats = rankings_pc_nebula_reml_offset,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_pc_nebula_reml_offset <- fgsea(pathways = go,
@@ -8909,14 +8981,14 @@ set.seed(1234)
 kegg_legacy_res_immune_nebula_reml_pooled <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_immune_nebula_reml_pooled,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_immune_nebula_reml_pooled <- fgsea(pathways = reactome,
                               stats = rankings_immune_nebula_reml_pooled,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_immune_nebula_reml_pooled <- fgsea(pathways = go,
@@ -8935,7 +9007,9 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 
 ##### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_immune_nebula_reml_pooled, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
+kegg_legacy_res_immune_nebula_reml_pooled_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(kegg_legacy_res_immune_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -8965,7 +9039,7 @@ immune_nebula_res_combined_reml_pooled_DiD$group <- factor(immune_nebula_res_com
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-kegg_legacy_res_immune_nebula_reml_pooled_pos <- kegg_legacy_res_immune_nebula_reml_pooled %>%
+kegg_legacy_res_immune_nebula_reml_pooled_pos <- kegg_legacy_res_immune_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -9001,7 +9075,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-kegg_legacy_res_immune_nebula_reml_pooled_neg <- kegg_legacy_res_immune_nebula_reml_pooled %>%
+kegg_legacy_res_immune_nebula_reml_pooled_neg <- kegg_legacy_res_immune_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -9134,7 +9208,9 @@ for (i in 1:10) {
 ```
 ##### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_immune_nebula_reml_pooled, title = "TAL nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
+reactome_res_immune_nebula_reml_pooled_filtered <- filter_redundant_pathways(reactome_res_immune_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(reactome_res_immune_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -9165,7 +9241,7 @@ immune_nebula_res_combined_reml_pooled_DiD$group <- factor(immune_nebula_res_com
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-reactome_res_immune_nebula_reml_pooled_pos <- reactome_res_immune_nebula_reml_pooled %>%
+reactome_res_immune_nebula_reml_pooled_pos <- reactome_res_immune_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -9201,7 +9277,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-reactome_res_immune_nebula_reml_pooled_neg <- reactome_res_immune_nebula_reml_pooled %>%
+reactome_res_immune_nebula_reml_pooled_neg <- reactome_res_immune_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -9334,6 +9410,8 @@ for (i in 1:10) {
 ```
 ##### GO
 ```{r echo = F}
+go_res_immune_nebula_reml_pooled_filtered <- filter_redundant_pathways(go_res_immune_nebula_reml_pooled, overlap_pct = 0.7)
+
 plot_fgsea_transpose(go_res_immune_nebula_reml_pooled, title = "TAL nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_go_pathways.jpeg",
@@ -9365,7 +9443,7 @@ immune_nebula_res_combined_reml_pooled_DiD$group <- factor(immune_nebula_res_com
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-go_res_immune_nebula_reml_pooled_pos <- go_res_immune_nebula_reml_pooled %>%
+go_res_immune_nebula_reml_pooled_pos <- go_res_immune_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -9401,7 +9479,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-go_res_immune_nebula_reml_pooled_neg <- go_res_immune_nebula_reml_pooled %>%
+go_res_immune_nebula_reml_pooled_neg <- go_res_immune_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -9705,14 +9783,14 @@ set.seed(1234)
 kegg_legacy_res_immune_myeloid_nebula_reml_pooled <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_immune_myeloid_nebula_reml_pooled,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_immune_myeloid_nebula_reml_pooled <- fgsea(pathways = reactome,
                               stats = rankings_immune_myeloid_nebula_reml_pooled,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_immune_myeloid_nebula_reml_pooled <- fgsea(pathways = go,
@@ -9731,7 +9809,9 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 
 ##### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_immune_myeloid_nebula_reml_pooled, title = "Immune - Myeloid (Myeloid) nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
+kegg_legacy_res_immune_myeloid_nebula_reml_pooled_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_myeloid_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(kegg_legacy_res_immune_myeloid_nebula_reml_pooled_filtered, title = "Immune - Myeloid (Myeloid) nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -9761,7 +9841,7 @@ immune_myeloid_nebula_res_combined_reml_pooled_DiD$group <- factor(immune_myeloi
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-kegg_legacy_res_immune_myeloid_nebula_reml_pooled_pos <- kegg_legacy_res_immune_myeloid_nebula_reml_pooled %>%
+kegg_legacy_res_immune_myeloid_nebula_reml_pooled_pos <- kegg_legacy_res_immune_myeloid_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -9797,7 +9877,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-kegg_legacy_res_immune_myeloid_nebula_reml_pooled_neg <- kegg_legacy_res_immune_myeloid_nebula_reml_pooled %>%
+kegg_legacy_res_immune_myeloid_nebula_reml_pooled_neg <- kegg_legacy_res_immune_myeloid_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -9930,6 +10010,8 @@ for (i in 1:10) {
 ```
 ##### REACTOME
 ```{r echo = F}
+reactome_res_immune_myeloid_nebula_reml_pooled_filtered <- filter_redundant_pathways(reactome_res_immune_myeloid_nebula_reml_pooled, overlap_pct = 0.7)
+
 plot_fgsea_transpose(reactome_res_immune_myeloid_nebula_reml_pooled, title = "Immune - Myeloid (Myeloid) nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_top30_reactome_pathways.jpeg",
@@ -9961,7 +10043,7 @@ immune_myeloid_nebula_res_combined_reml_pooled_DiD$group <- factor(immune_myeloi
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-reactome_res_immune_myeloid_nebula_reml_pooled_pos <- reactome_res_immune_myeloid_nebula_reml_pooled %>%
+reactome_res_immune_myeloid_nebula_reml_pooled_pos <- reactome_res_immune_myeloid_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -9997,7 +10079,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-reactome_res_immune_myeloid_nebula_reml_pooled_neg <- reactome_res_immune_myeloid_nebula_reml_pooled %>%
+reactome_res_immune_myeloid_nebula_reml_pooled_neg <- reactome_res_immune_myeloid_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -10130,6 +10212,8 @@ for (i in 1:10) {
 ```
 ##### GO
 ```{r echo = F}
+go_res_immune_myeloid_nebula_reml_pooled_filtered <- filter_redundant_pathways(go_res_immune_myeloid_nebula_reml_pooled, overlap_pct = 0.7)
+
 plot_fgsea_transpose(go_res_immune_myeloid_nebula_reml_pooled, title = "Immune - Myeloid (Myeloid) nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_top30_go_pathways.jpeg",
@@ -10161,7 +10245,7 @@ immune_myeloid_nebula_res_combined_reml_pooled_DiD$group <- factor(immune_myeloi
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-go_res_immune_myeloid_nebula_reml_pooled_pos <- go_res_immune_myeloid_nebula_reml_pooled %>%
+go_res_immune_myeloid_nebula_reml_pooled_pos <- go_res_immune_myeloid_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -10197,7 +10281,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-go_res_immune_myeloid_nebula_reml_pooled_neg <- go_res_immune_myeloid_nebula_reml_pooled %>%
+go_res_immune_myeloid_nebula_reml_pooled_neg <- go_res_immune_myeloid_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -10501,14 +10585,14 @@ set.seed(1234)
 kegg_legacy_res_immune_lymphoid_nebula_reml_pooled <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_immune_lymphoid_nebula_reml_pooled,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_immune_lymphoid_nebula_reml_pooled <- fgsea(pathways = reactome,
                               stats = rankings_immune_lymphoid_nebula_reml_pooled,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_immune_lymphoid_nebula_reml_pooled <- fgsea(pathways = go,
@@ -10527,6 +10611,8 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 
 ##### KEGG Legacy
 ```{r echo = F}
+kegg_legacy_res_immune_lymphoid_nebula_reml_pooled_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_lymphoid_nebula_reml_pooled, overlap_pct = 0.7)
+
 plot_fgsea_transpose(kegg_legacy_res_immune_lymphoid_nebula_reml_pooled, title = "Immune - Lymphoid (Lymphoid) nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_top30_kegg_pathways.jpeg",
@@ -10557,7 +10643,7 @@ immune_lymphoid_nebula_res_combined_reml_pooled_DiD$group <- factor(immune_lymph
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-kegg_legacy_res_immune_lymphoid_nebula_reml_pooled_pos <- kegg_legacy_res_immune_lymphoid_nebula_reml_pooled %>%
+kegg_legacy_res_immune_lymphoid_nebula_reml_pooled_pos <- kegg_legacy_res_immune_lymphoid_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -10593,7 +10679,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-kegg_legacy_res_immune_lymphoid_nebula_reml_pooled_neg <- kegg_legacy_res_immune_lymphoid_nebula_reml_pooled %>%
+kegg_legacy_res_immune_lymphoid_nebula_reml_pooled_neg <- kegg_legacy_res_immune_lymphoid_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -10726,6 +10812,8 @@ for (i in 1:10) {
 ```
 ##### REACTOME
 ```{r echo = F}
+reactome_res_immune_lymphoid_nebula_reml_pooled_filtered <- filter_redundant_pathways(reactome_res_immune_lymphoid_nebula_reml_pooled, overlap_pct = 0.7)
+
 plot_fgsea_transpose(reactome_res_immune_lymphoid_nebula_reml_pooled, title = "Immune - Lymphoid (Lymphoid) nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_top30_reactome_pathways.jpeg",
@@ -10757,7 +10845,7 @@ immune_lymphoid_nebula_res_combined_reml_pooled_DiD$group <- factor(immune_lymph
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-reactome_res_immune_lymphoid_nebula_reml_pooled_pos <- reactome_res_immune_lymphoid_nebula_reml_pooled %>%
+reactome_res_immune_lymphoid_nebula_reml_pooled_pos <- reactome_res_immune_lymphoid_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -10793,7 +10881,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-reactome_res_immune_lymphoid_nebula_reml_pooled_neg <- reactome_res_immune_lymphoid_nebula_reml_pooled %>%
+reactome_res_immune_lymphoid_nebula_reml_pooled_neg <- reactome_res_immune_lymphoid_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -10926,6 +11014,8 @@ for (i in 1:10) {
 ```
 ##### GO
 ```{r echo = F}
+go_res_immune_lymphoid_nebula_reml_pooled_filtered <- filter_redundant_pathways(go_res_immune_lymphoid_nebula_reml_pooled, overlap_pct = 0.7)
+
 plot_fgsea_transpose(go_res_immune_lymphoid_nebula_reml_pooled, title = "Immune - Lymphoid (Lymphoid) nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_top30_go_pathways.jpeg",
@@ -10957,7 +11047,7 @@ immune_lymphoid_nebula_res_combined_reml_pooled_DiD$group <- factor(immune_lymph
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-go_res_immune_lymphoid_nebula_reml_pooled_pos <- go_res_immune_lymphoid_nebula_reml_pooled %>%
+go_res_immune_lymphoid_nebula_reml_pooled_pos <- go_res_immune_lymphoid_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -10993,7 +11083,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-go_res_immune_lymphoid_nebula_reml_pooled_neg <- go_res_immune_lymphoid_nebula_reml_pooled %>%
+go_res_immune_lymphoid_nebula_reml_pooled_neg <- go_res_immune_lymphoid_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -11333,14 +11423,14 @@ set.seed(1234)
 kegg_legacy_res_ic_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_ic_nebula_reml_offset,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_ic_nebula_reml_offset <- fgsea(pathways = reactome,
                               stats = rankings_ic_nebula_reml_offset,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_ic_nebula_reml_offset <- fgsea(pathways = go,
@@ -11592,14 +11682,14 @@ set.seed(1234)
 kegg_legacy_res_ic_nebula_reml_pooled <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_ic_nebula_reml_pooled,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_ic_nebula_reml_pooled <- fgsea(pathways = reactome,
                               stats = rankings_ic_nebula_reml_pooled,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_ic_nebula_reml_pooled <- fgsea(pathways = go,
@@ -11618,6 +11708,8 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 
 ##### KEGG Legacy
 ```{r echo = F}
+kegg_legacy_res_ic_nebula_reml_pooled_filtered <- filter_redundant_pathways(kegg_legacy_res_ic_nebula_reml_pooled, overlap_pct = 0.7)
+
 plot_fgsea_transpose(kegg_legacy_res_ic_nebula_reml_pooled, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_kegg_pathways.jpeg",
@@ -11648,7 +11740,7 @@ ic_nebula_res_combined_reml_pooled_DiD$group <- factor(ic_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-kegg_legacy_res_ic_nebula_reml_pooled_pos <- kegg_legacy_res_ic_nebula_reml_pooled %>%
+kegg_legacy_res_ic_nebula_reml_pooled_pos <- kegg_legacy_res_ic_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -11684,7 +11776,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-kegg_legacy_res_ic_nebula_reml_pooled_neg <- kegg_legacy_res_ic_nebula_reml_pooled %>%
+kegg_legacy_res_ic_nebula_reml_pooled_neg <- kegg_legacy_res_ic_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -11817,6 +11909,8 @@ for (i in 1:10) {
 ```
 ##### REACTOME
 ```{r echo = F}
+reactome_res_ic_nebula_reml_pooled_filtered <- filter_redundant_pathways(reactome_res_ic_nebula_reml_pooled, overlap_pct = 0.7)
+
 plot_fgsea_transpose(reactome_res_ic_nebula_reml_pooled, title = "TAL nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_reactome_pathways.jpeg",
@@ -11848,7 +11942,7 @@ ic_nebula_res_combined_reml_pooled_DiD$group <- factor(ic_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-reactome_res_ic_nebula_reml_pooled_pos <- reactome_res_ic_nebula_reml_pooled %>%
+reactome_res_ic_nebula_reml_pooled_pos <- reactome_res_ic_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -11884,7 +11978,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-reactome_res_ic_nebula_reml_pooled_neg <- reactome_res_ic_nebula_reml_pooled %>%
+reactome_res_ic_nebula_reml_pooled_neg <- reactome_res_ic_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -12017,6 +12111,8 @@ for (i in 1:10) {
 ```
 ##### GO
 ```{r echo = F}
+go_res_ic_nebula_reml_pooled_filtered <- filter_redundant_pathways(go_res_ic_nebula_reml_pooled, overlap_pct = 0.7)
+
 plot_fgsea_transpose(go_res_ic_nebula_reml_pooled, title = "TAL nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_go_pathways.jpeg",
@@ -12048,7 +12144,7 @@ ic_nebula_res_combined_reml_pooled_DiD$group <- factor(ic_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-go_res_ic_nebula_reml_pooled_pos <- go_res_ic_nebula_reml_pooled %>%
+go_res_ic_nebula_reml_pooled_pos <- go_res_ic_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -12084,7 +12180,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-go_res_ic_nebula_reml_pooled_neg <- go_res_ic_nebula_reml_pooled %>%
+go_res_ic_nebula_reml_pooled_neg <- go_res_ic_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -12423,14 +12519,14 @@ set.seed(1234)
 kegg_legacy_res_ec_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_ec_nebula_reml_offset,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_ec_nebula_reml_offset <- fgsea(pathways = reactome,
                               stats = rankings_ec_nebula_reml_offset,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_ec_nebula_reml_offset <- fgsea(pathways = go,
@@ -12681,14 +12777,14 @@ set.seed(1234)
 kegg_legacy_res_ec_nebula_reml_pooled <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_ec_nebula_reml_pooled,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_ec_nebula_reml_pooled <- fgsea(pathways = reactome,
                               stats = rankings_ec_nebula_reml_pooled,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_ec_nebula_reml_pooled <- fgsea(pathways = go,
@@ -12707,7 +12803,9 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 
 ##### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_ec_nebula_reml_pooled, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
+kegg_legacy_res_ec_nebula_reml_pooled_filtered <- filter_redundant_pathways(kegg_legacy_res_ec_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(kegg_legacy_res_ec_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -12737,7 +12835,7 @@ ec_nebula_res_combined_reml_pooled_DiD$group <- factor(ec_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-kegg_legacy_res_ec_nebula_reml_pooled_pos <- kegg_legacy_res_ec_nebula_reml_pooled %>%
+kegg_legacy_res_ec_nebula_reml_pooled_pos <- kegg_legacy_res_ec_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -12773,7 +12871,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-kegg_legacy_res_ec_nebula_reml_pooled_neg <- kegg_legacy_res_ec_nebula_reml_pooled %>%
+kegg_legacy_res_ec_nebula_reml_pooled_neg <- kegg_legacy_res_ec_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -12906,6 +13004,8 @@ for (i in 1:10) {
 ```
 ##### REACTOME
 ```{r echo = F}
+reactome_res_ec_nebula_reml_pooled_filtered <- filter_redundant_pathways(reactome_res_ec_nebula_reml_pooled, overlap_pct = 0.7)
+
 plot_fgsea_transpose(reactome_res_ec_nebula_reml_pooled, title = "TAL nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_reactome_pathways.jpeg",
@@ -12937,7 +13037,7 @@ ec_nebula_res_combined_reml_pooled_DiD$group <- factor(ec_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-reactome_res_ec_nebula_reml_pooled_pos <- reactome_res_ec_nebula_reml_pooled %>%
+reactome_res_ec_nebula_reml_pooled_pos <- reactome_res_ec_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -12973,7 +13073,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-reactome_res_ec_nebula_reml_pooled_neg <- reactome_res_ec_nebula_reml_pooled %>%
+reactome_res_ec_nebula_reml_pooled_neg <- reactome_res_ec_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -13106,6 +13206,8 @@ for (i in 1:10) {
 ```
 ##### GO
 ```{r echo = F}
+go_res_ec_nebula_reml_pooled_filtered <- filter_redundant_pathways(go_res_ec_nebula_reml_pooled, overlap_pct = 0.7)
+
 plot_fgsea_transpose(go_res_ec_nebula_reml_pooled, title = "TAL nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_go_pathways.jpeg",
@@ -13137,7 +13239,7 @@ ec_nebula_res_combined_reml_pooled_DiD$group <- factor(ec_nebula_res_combined_re
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-go_res_ec_nebula_reml_pooled_pos <- go_res_ec_nebula_reml_pooled %>%
+go_res_ec_nebula_reml_pooled_pos <- go_res_ec_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -13173,7 +13275,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-go_res_ec_nebula_reml_pooled_neg <- go_res_ec_nebula_reml_pooled %>%
+go_res_ec_nebula_reml_pooled_neg <- go_res_ec_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -13511,14 +13613,14 @@ set.seed(1234)
 kegg_legacy_res_fibvsmc_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_fibvsmc_nebula_reml_offset,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_fibvsmc_nebula_reml_offset <- fgsea(pathways = reactome,
                               stats = rankings_fibvsmc_nebula_reml_offset,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_fibvsmc_nebula_reml_offset <- fgsea(pathways = go,
@@ -13771,14 +13873,14 @@ set.seed(1234)
 kegg_legacy_res_fibvsmc_nebula_reml_pooled <- fgsea(pathways = kegg_legacy,
                                  stats = rankings_fibvsmc_nebula_reml_pooled,
                                  scoreType = 'std', 
-                                 minSize = 3,
+                                 minSize = 5,
                                  maxSize = 500,
                                  nproc = 1)
 
 reactome_res_fibvsmc_nebula_reml_pooled <- fgsea(pathways = reactome,
                               stats = rankings_fibvsmc_nebula_reml_pooled,
                               scoreType = 'std', 
-                              minSize = 3,
+                              minSize = 5,
                               maxSize = 500,
                               nproc = 1)
 go_res_fibvsmc_nebula_reml_pooled <- fgsea(pathways = go,
@@ -13797,7 +13899,9 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 
 ##### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_fibvsmc_nebula_reml_pooled, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
+kegg_legacy_res_fibvsmc_nebula_reml_pooled_filtered <- filter_redundant_pathways(kegg_legacy_res_fibvsmc_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(kegg_legacy_res_fibvsmc_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 KEGG (REML & Library size offset)", xmin = 1.2, xmax = 2.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_kegg_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -13827,7 +13931,7 @@ fibvsmc_nebula_res_combined_reml_pooled_DiD$group <- factor(fibvsmc_nebula_res_c
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-kegg_legacy_res_fibvsmc_nebula_reml_pooled_pos <- kegg_legacy_res_fibvsmc_nebula_reml_pooled %>%
+kegg_legacy_res_fibvsmc_nebula_reml_pooled_pos <- kegg_legacy_res_fibvsmc_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -13863,7 +13967,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-kegg_legacy_res_fibvsmc_nebula_reml_pooled_neg <- kegg_legacy_res_fibvsmc_nebula_reml_pooled %>%
+kegg_legacy_res_fibvsmc_nebula_reml_pooled_neg <- kegg_legacy_res_fibvsmc_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -13996,7 +14100,9 @@ for (i in 1:10) {
 ```
 ##### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_fibvsmc_nebula_reml_pooled, title = "TAL nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
+reactome_res_fibvsmc_nebula_reml_pooled_filtered <- filter_redundant_pathways(reactome_res_fibvsmc_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(reactome_res_fibvsmc_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 REACTOME (REML & Library size offset)", xmin = 1.5, xmax = 3.5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_reactome_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -14027,7 +14133,7 @@ fibvsmc_nebula_res_combined_reml_pooled_DiD$group <- factor(fibvsmc_nebula_res_c
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-reactome_res_fibvsmc_nebula_reml_pooled_pos <- reactome_res_fibvsmc_nebula_reml_pooled %>%
+reactome_res_fibvsmc_nebula_reml_pooled_pos <- reactome_res_fibvsmc_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -14063,7 +14169,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-reactome_res_fibvsmc_nebula_reml_pooled_neg <- reactome_res_fibvsmc_nebula_reml_pooled %>%
+reactome_res_fibvsmc_nebula_reml_pooled_neg <- reactome_res_fibvsmc_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
@@ -14196,7 +14302,9 @@ for (i in 1:10) {
 ```
 ##### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_fibvsmc_nebula_reml_pooled, title = "TAL nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
+go_res_fibvsmc_nebula_reml_pooled_filtered <- filter_redundant_pathways(go_res_fibvsmc_nebula_reml_pooled, overlap_pct = 0.7)
+
+plot_fgsea_transpose(go_res_fibvsmc_nebula_reml_pooled_filtered, title = "TAL nebula Top 30 GO (REML & Library size offset)", xmin = 1.4, xmax = 5)
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_go_pathways.jpeg",
        width = 27.5, height = 14, scale = 1)
@@ -14227,7 +14335,7 @@ fibvsmc_nebula_res_combined_reml_pooled_DiD$group <- factor(fibvsmc_nebula_res_c
 ###### Bar plots
 ```{r echo = FALSE}
 # Positive NES
-go_res_fibvsmc_nebula_reml_pooled_pos <- go_res_fibvsmc_nebula_reml_pooled %>%
+go_res_fibvsmc_nebula_reml_pooled_pos <- go_res_fibvsmc_nebula_reml_pooled_filtered %>%
   filter(NES > 0) %>%
   arrange(padj)
 
@@ -14263,7 +14371,7 @@ for (i in 1:10) {
 
 ```{r echo = FALSE}
 # Negative NES
-go_res_fibvsmc_nebula_reml_pooled_neg <- go_res_fibvsmc_nebula_reml_pooled %>%
+go_res_fibvsmc_nebula_reml_pooled_neg <- go_res_fibvsmc_nebula_reml_pooled_filtered %>%
   filter(NES < 0) %>%
   arrange(padj)
 
