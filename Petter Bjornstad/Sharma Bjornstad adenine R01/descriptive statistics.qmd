@@ -1,0 +1,72 @@
+---
+title: "CROCODILE and ATTEMPT descriptive statistics"
+author: "Laura Pyle"
+format:
+  html:
+    toc: true
+    toc-depth: 5
+    toc-float: true
+    code-fold: true
+    self-contained: true
+    page-layout: full
+editor: source
+---
+
+
+```{r}
+#| include: false
+library(tidyverse)
+library(arsenal)
+library(knitr)
+# Import and filter
+df <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
+df <- df %>% filter(visit %in% c("baseline", "4_months_post"))
+df$visit <- ifelse(df$visit == "baseline", 0, 16)
+
+# read in list of samples to keep
+attempt_BL <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Grants/Sharma Bjornstad adenine R01/Second resubmission/Power calculations/ATTEMPT_BL_LN2.csv")
+attempt_BL$study <- "ATTEMPT"
+attempt_4M <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Grants/Sharma Bjornstad adenine R01/Second resubmission/Power calculations/ATTEMPT_4M_LN2.csv")
+attempt_4M$study <- "ATTEMPT"
+croc <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Grants/Sharma Bjornstad adenine R01/Second resubmission/Power calculations/Biopsy master tracker CROC.csv")
+croc$visit <- 0
+croc$treatment <- NA
+croc$subject_id <- croc$Study.ID
+croc$Study.ID <- NULL
+croc$study <- "CROCODILE"
+croc_attempt <- rbind(attempt_4M, attempt_BL, croc)
+
+# keep needed procedures and variables from harmonized data
+df_keep <- df %>% select(record_id, attempt_id, croc_id, visit, procedure, age, sex, bmi, hba1c, insulin_pump_timepoint)
+collapsed_data <- df_keep	%>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+collapsed_data <- collapsed_data %>% filter(!is.na(croc_id) | !is.na(attempt_id))
+collapsed_data$subject_id <- ifelse(!is.na(collapsed_data$croc_id), collapsed_data$croc_id, collapsed_data$attempt_id)
+collapsed_data <- collapsed_data %>% filter(collapsed_data$record_id == collapsed_data$subject_id)
+
+# merge in list of IDs to keep with LN2 biopsy samples
+collapsed_data_keep <- left_join(croc_attempt, collapsed_data, by = c("subject_id", "visit"))
+
+# only baseline visits
+baseline <- collapsed_data_keep %>% filter(visit == 0)
+```
+
+# Descriptive statistics at baseline
+
+```{r results='asis'}
+
+#| tbl-cap: Descriptive statistics at baseline
+t1 <- tableby(study ~ sex + age + bmi + hba1c + as.factor(insulin_pump_timepoint) + as.factor(treatment),
+             data = baseline)
+summary(t1, pfootnote = T, test = F)
+
+```
+
+# Number of each type of visit in ATTEMPT
+
+```{r}
+table(collapsed_data_keep[collapsed_data_keep$study == "ATTEMPT",]$visit)
+
+```
