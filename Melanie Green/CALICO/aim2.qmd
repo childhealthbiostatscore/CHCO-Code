@@ -36,7 +36,7 @@ knitr::opts_knit$set(root.dir = home_dir)
 
 ```{r functions}
 # Write a function to determine which visits to include
-visits_exclude <- function(data = d, column, remove_all_after = F) {
+visits_exclude <- function(data = d, column, value = "Yes", remove_all_after = F) {
   # To dataframe
   data <- as.data.frame(data)
   # Yes and no run lengths, and the length of time between
@@ -52,18 +52,18 @@ visits_exclude <- function(data = d, column, remove_all_after = F) {
   # If they only have one unique value, don't remove anything
   if (nrow(r) == 1) {
     data$remove <- NA
-  } else if (r$value[1] == "Yes") {
+  } else if (r$value[1] == value) {
     # If they start as "Yes" remove everything after first "No"
     data$remove[r$start[2]:nrow(data)] <- "Remove"
   } else if (r$value[1] == "No") {
     # If they start a medication after diagnosis, check that they are on it
     # for at least 3 months
-    first_yes <- which(r$value == "Yes" & r$months > 3)[1]
-    if (is.na(first_yes) & any(r$value == "Yes" & (r$end > r$start))) {
+    first_yes <- which(r$value == value & r$months > 3)[1]
+    if (is.na(first_yes) & any(r$value == value & (r$end > r$start))) {
       # If there is no 3 month stretch, but there are consecutive visits, remove
       # everything after the first "Yes"
       data$remove[r$start[2]:nrow(data)] <- "Remove"
-    } else if (is.na(first_yes) & !any(r$value == "Yes" & (r$end > r$start))) {
+    } else if (is.na(first_yes) & !any(r$value == value & (r$end > r$start))) {
       data$remove <- NA
     } else if (r$end[first_yes] == nrow(data)) {
       # If the first stretch of "yes" values doesn't end, don't exclude anything
@@ -73,14 +73,14 @@ visits_exclude <- function(data = d, column, remove_all_after = F) {
       data$remove[(r$end[first_yes] + 1):nrow(data)] <- "Remove"
     }
     # Remove any visits with a "Yes" singleton
-    data$remove[r[r$value == "Yes" & r$length == 1, "start"]] <- "Remove"
+    data$remove[r[r$value == value & r$length == 1, "start"]] <- "Remove"
   }
   # Some meds, like progesterone, need to be removed completely after the first
   # yes
   if (remove_all_after) {
     data$remove <- NA
-    if ("Yes" %in% r$value) {
-      first_yes <- which(r$value == "Yes")[1]
+    if (value %in% r$value) {
+      first_yes <- which(r$value == value)[1]
       data$remove[r$start[first_yes]:nrow(data)] <- "Remove"
     }
   }
@@ -112,6 +112,9 @@ dfs <- lapply(dfs, function(d) {
   d$progesterone_remove <- visits_exclude(d, "progesterone", remove_all_after = T)
   d$weight_loss_remove <- visits_exclude(d, "weight_loss", remove_all_after = T)
   d$atypical_remove <- visits_exclude(d, "cv_medications___17", remove_all_after = T)
+  d$bariatric_surg_remove <- visits_exclude(d,
+    "cv_surghx___3", value = "Checked", remove_all_after = T
+  )
   # Return new dataframe for combining later
   return(d)
 })
@@ -126,7 +129,11 @@ df <- df %>%
   )
 # For weight loss medication and progesterone, remove all visits after
 # they first start
-df <- df %>% filter(is.na(weight_loss_remove), is.na(progesterone_remove), is.na(atypical_remove))
+df <- df %>%
+  filter(
+    is.na(weight_loss_remove), is.na(progesterone_remove),
+    is.na(atypical_remove), is.na(bariatric_surg_remove)
+  )
 # Additional labels
 label(df$combined_race) <- "Race"
 label(df$ethnicity) <- "Ethnicity"
@@ -1720,6 +1727,10 @@ dfs <- lapply(dfs, function(d) {
   d$larc_remove <- visits_exclude(d, "larc")
   d$weight_loss_remove <- visits_exclude(d, "weight_loss", remove_all_after = T)
   d$atypical_remove <- visits_exclude(d, "cv_medications___17", remove_all_after = T)
+  d$bariatric_surg_remove <- visits_exclude(d,
+    "cv_surghx___3",
+    value = "Checked", remove_all_after = T
+  )
   # Return new dataframe for combining later
   return(d)
 })
@@ -1756,7 +1767,8 @@ larc_df <- df %>%
   # Remove visits after weight loss or atypical antipsychotic start, and those
   # visits where we're not really sure if they're on LARC or not.
   filter(
-    is.na(larc_remove), is.na(weight_loss_remove), is.na(atypical_remove)
+    is.na(larc_remove), is.na(weight_loss_remove), is.na(atypical_remove),
+    is.na(bariatric_surg_remove)
   ) %>%
   mutate(
     time_of_first_larc = first(cv_monthssincepcosdx[larc == "Yes"], na_rm = T),

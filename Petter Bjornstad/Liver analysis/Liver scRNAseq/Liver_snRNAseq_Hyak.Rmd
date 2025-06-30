@@ -1,5 +1,5 @@
 ---
-title: "Liver_snRNAseq"
+title: "Liver_snRNAseq_Hyak"
 output: html_document
 date: "2025-04-23"
 ---
@@ -36,6 +36,51 @@ source("Liver_functions.R")
 knitr::opts_knit$set(root.dir = dir.results)
 ```
 
+## a. Hyak Data Load
+```{r, Cyberduck setup}
+# knitr::opts_knit$set(root.dir = dir.results)
+# install.packages("reticulate")
+# Sys.setenv(RETICULATE_PYTHON = "/home/hailey/miniconda3/envs/py310_env/bin/python")
+library(reticulate)
+reticulate::py_config()
+# library(reticulate)
+# reticulate::use_condaenv("py310_env", required = TRUE)
+# reticulate::py_config()
+# Sys.setenv(LD_LIBRARY_PATH = "/usr/lib/x86_64-linux-gnu")
+# reticulate::use_python("/home/hailey/miniconda3/bin/python")
+# reticulate::use_condaenv("base", required = TRUE)
+
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+# install.packages("jsonlite")  # Install if not already installed
+library(jsonlite)  # Load the package
+
+keys <- fromJSON("/mmfs1/home/hhampson/keys.json") # replace with your Lambda username
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "Liver transcriptomics/Single nucleus RNA seq/NoRef_PetterLiver_ClinData_Labels_Char_041924.rds", temp_file)
+so_liver_sn <- readRDS(temp_file)
+# so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
+
+DefaultAssay(so_liver_sn) <- "RNA"
+dim(so_liver_sn)#36601 130124
+nrow(so_liver_sn) #36,601 genes
+ncol(so_liver_sn) # 130,124 nuceli
+invisible(gc())
+```
+
 # 2. Pre-Processing & Qualtiy Control
 ## a. Load Seurat Object snRNA
 ```{r, include = F, fig.height=7,fig.width=10}
@@ -58,10 +103,15 @@ invisible(gc())
 ```{r}
 #Local
 # meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
-meta_liver_raw <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA/data_clean/liver_biopsy_metadata_PN.csv")
+# meta_liver_raw <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA/data_clean/liver_biopsy_metadata_PN.csv")
 
-#Lambda
-# meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
+#Hyak
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
+meta_liver_raw <- read.csv(temp_file)
+
 unique(meta_liver_raw$Kit_Lot)
 unique(meta_liver_raw$StudyID)
 meta_liver_raw <- meta_liver_raw %>%
@@ -220,10 +270,13 @@ so_liver_sn$library_size <- library_size
 # so_liver_sn$tmm_offset <- tmm_offset
 
 # Pooled offset
-bp <- MulticoreParam(workers = 63) 
+# bp <- MulticoreParam(workers = 59)
+# bp <- SnowParam(workers = 59, 
+#                 packages = c("scran", "SingleCellExperiment", "stats", "Matrix"))
 sce <- SingleCellExperiment(assays = list(counts = counts_layer))
 # sce <- computeSumFactors(sce)
-sce <- computeSumFactors(sce, BPPARAM = bp)
+# sce <- computeSumFactors(sce, BPPARAM = bp)
+sce <- computeSumFactors(sce)
 # View size factors
 # sizeFactors(sce)
 # STEP 3: Calculate offset → log(size factors)

@@ -7,7 +7,7 @@ D[1, 1] <- 1 ### variance random intercept
 D[2, 2] <- 1 ### variance random slope
 D[1, 2] <- -0.1 ### covariance random intercept and slope
 D[2, 1] <- -0.1
-delta <- 0.6 ### standardized effect size
+delta <- 0.8 ### standardized effect size
 
 age1 <- c(1, 2, 3) ### Tanner stages of measurement cohort 1
 age2 <- c(2, 3, 4) ### Tanner stages of measurement cohort 2
@@ -34,7 +34,7 @@ V4 <- Z4 %*% D %*% t(Z4) + var.e * I4 ### covariance matrix of responses cohort 
 
 ### calculate and plot power as a function of the total number of subjects
 plot.new()
-nr.subjects <- c(88)
+nr.subjects <- c(36)
 power <- rep(0, length(nr.subjects))
 for(ii in 1:length(nr.subjects)) {
   XVX <- ((t(X1) %*% solve(V1) %*% X1 + t(X2) %*%solve(V2) %*% X2
