@@ -269,20 +269,20 @@ so_liver_sn$library_size <- library_size
 # tmm_offset <- log(dge$samples$lib.size) + log(dge$samples$norm.factors)
 # so_liver_sn$tmm_offset <- tmm_offset
 
-# Pooled offset
-# bp <- MulticoreParam(workers = 59)
-# bp <- SnowParam(workers = 59, 
-#                 packages = c("scran", "SingleCellExperiment", "stats", "Matrix"))
-sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+# # Pooled offset
+# # bp <- MulticoreParam(workers = 59)
+# # bp <- SnowParam(workers = 59, 
+# #                 packages = c("scran", "SingleCellExperiment", "stats", "Matrix"))
+# sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+# # sce <- computeSumFactors(sce)
+# # sce <- computeSumFactors(sce, BPPARAM = bp)
 # sce <- computeSumFactors(sce)
-# sce <- computeSumFactors(sce, BPPARAM = bp)
-sce <- computeSumFactors(sce)
-# View size factors
-# sizeFactors(sce)
-# STEP 3: Calculate offset → log(size factors)
-pooled_offset <- sizeFactors(sce)
-so_liver_sn$pooled_offset <- pooled_offset
-hist(so_liver_sn$pooled_offset)
+# # View size factors
+# # sizeFactors(sce)
+# # STEP 3: Calculate offset → log(size factors)
+# pooled_offset <- sizeFactors(sce)
+# so_liver_sn$pooled_offset <- pooled_offset
+# hist(so_liver_sn$pooled_offset)
 
 # #Calculate cell library size for offset
 # counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts")) # load counts and round
@@ -8595,6 +8595,7 @@ ggsave(fs::path(dir.results, "NEBULA_Targeted_dHep_Steatosis_unadjusted_reml.jpe
 
 
 #5. Pseudotime Analysis 
+##A. Hepatocytes
 ##a. Prepare for Analysis 
 ```{r}
 ## Make SO into SCE object for pseudotime analysis
@@ -8819,6 +8820,36 @@ DotPlot(so_Hep, features = adaptive_maladaptive_genes, group.by = "celltype") +
 ```
 
 ##b. Visualize 
+###i. PCA
+```{r}
+#Filter to Hep Cells
+so_Hep <- subset(so_liver_sn,celltype2=="Hep")
+DefaultAssay(so_Hep) <- "RNA" 
+# Step 1: Prepare your Seurat object
+so_Hep <- FindVariableFeatures(object = so_Hep)
+so_Hep <- RunPCA(so_Hep, features = VariableFeatures(object = so_Hep),assay="RNA")
+# so_Hep <- RunPCA(so_Hep, features = VariableFeatures(object = so_Hep))
+
+# Find clusters using PCA
+so_Hep <- FindNeighbors(so_Hep, dims = 1:10, reduction = "pca")
+so_Hep <- FindClusters(so_Hep, resolution = 0.5)
+
+#Visualize clusters
+ DimPlot(so_Hep, reduction = "pca", dims = c(1, 2), 
+              group.by = "celltype", label = TRUE, label.size = 6) +
+  labs(title = "PCA: PC1 vs PC2 - Clusters")
+ 
+ # Visualize clusters on PCA
+DimPlot(so_Hep, 
+        reduction = "pca", 
+        dims = c(1, 2), group.by = "celltype",label = TRUE,raster=F)
+
+  #       label.size = 6) +
+  # labs(title = "PCA: PC1 vs PC2 - Cell Types")
+
+```
+
+###ii. UMAP
 ```{r, echo = F}
 # so_liver_sn <- FindVariableFeatures(object = so_liver_sn)
 # so_liver_sn <- RunPCA(so_liver_sn, features = VariableFeatures(object = so_liver_sn),assay="RNA")
@@ -9334,20 +9365,20 @@ if (exists("sds")) {  # sds is your SlingshotDataSet
 
 # End with Hep-5
 sce_HEP <- as.SingleCellExperiment(so_Hep)
-reducedDim(sce_HEP, "UMAP") <- Embeddings(so_Hep, reduction = "umap")
+reducedDim(sce_HEP, "pca") <- Embeddings(so_Hep, reduction = "pca")
 
-sce_HEP <- slingshot(sce_HEP, reducedDim = 'UMAP', clusterLabels = colData(sce_HEP)$celltype, end.clus = 'Hep-5')
+sce_HEP <- slingshot(sce_HEP, reducedDim = 'pca', clusterLabels = colData(sce_HEP)$celltype, start.clus = 'Hep-3',end.clus = 'Hep-5')
 shuffle <- sample(ncol(sce_HEP))
 
-jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_end_hep5.jpeg"), width = 1000, height =800, quality = 100)
+# jpeg(fs::path(dir.results,"Hep_slingshot_UMAP_end_hep5.jpeg"), width = 1000, height =800, quality = 100)
 par(mar = c(5, 6, 1, 1))
 plot(reducedDims(sce_HEP)$UMAP[shuffle, ], asp = 1, pch = 16,
-     xlab = "UMAP-1", ylab = "UMAP-2",
+     xlab = "PCA-1", ylab = "PCA-2",
      col = hcl.colors(100, alpha = .5, palette = "PinkYl")[cut(sce_HEP$slingPseudotime_1, breaks = 100)][shuffle],
      cex.lab = 3, cex.axis = 2)
 lines(SlingshotDataSet(sce_HEP), type = "lineages")
 lines(SlingshotDataSet(sce_HEP))
-dev.off()
+# dev.off()
 
 SlingshotDataSet(sce_HEP)
 
@@ -9614,8 +9645,35 @@ plot_smooth <- function(sce, gene, title = gene) {
 }
 ```
 
+##B. All Celltypes
+###i. PCA
+```{r}
+#Filter to Hep Cells
+# so_Hep <- subset(so_liver_sn,celltype2=="Hep")
+# DefaultAssay(so_Hep) <- "RNA" 
+# Step 1: Prepare your Seurat object
+so_liver_sn <- FindVariableFeatures(object = so_liver_sn)
+so_liver_sn <- RunPCA(so_liver_sn, features = VariableFeatures(object = so_liver_sn),assay="RNA")
+# so_liver_sn <- RunPCA(so_liver_sn, features = VariableFeatures(object = so_liver_sn))
 
+# Find clusters using PCA
+so_liver_sn <- FindNeighbors(so_liver_sn, dims = 1:10, reduction = "pca")
+so_liver_sn <- FindClusters(so_liver_sn, resolution = 0.5)
 
+#Visualize clusters
+ DimPlot(so_liver_sn, reduction = "pca", dims = c(1, 2), 
+              group.by = "celltype", label = TRUE, label.size = 6) +
+  labs(title = "PCA: PC1 vs PC2 - Clusters")
+ 
+ # Visualize clusters on PCA
+DimPlot(so_liver_sn, 
+        reduction = "pca", 
+        dims = c(1, 2), group.by = "celltype",label = TRUE,raster=F)
+
+  #       label.size = 6) +
+  # labs(title = "PCA: PC1 vs PC2 - Cell Types")
+
+```
 
 
 #6. Proteomics Analysis
