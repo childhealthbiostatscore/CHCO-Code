@@ -1,0 +1,205 @@
+---
+title: "ITIH5 expression in scRNA"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    theme: default
+    page-layout: full
+    embed-resources: true
+---
+
+```{r, include = F}
+library(dplyr)
+library(tidyr)
+library(jsonlite)
+library(reticulate)
+library(Seurat)
+library(glmmTMB)
+```
+
+```{r, include = F}
+reticulate::use_python("/mmfs1/gscratch/scrubbed/yejichoi/mypy/bin/python", required = T)
+reticulate::repl_python()
+reticulate::py_config()
+```
+
+```{r, include = F}
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+## PB90
+```{r echo = F, include=F}
+# read PB90 Seurat file
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("scrna", "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
+so <- readRDS(temp_file)
+
+# expr_matrix <- as.matrix(GetAssayData(so, layer = "data"))
+# # Calculate the proportion of cells expressing each gene
+# num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
+# total_cells <- ncol(expr_matrix)  # Total number of cells
+# gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
+# length(gene_proportion) # 30715
+# # Keep genes expressed in at least 5% of cells
+# genes_to_keep <- names(gene_proportion[gene_proportion  >= 0.05])
+# 
+# remove(expr_matrix)
+# so <- subset(so, features = genes_to_keep)
+
+# renormalize after filtering
+# so <- NormalizeData(so)
+
+temp_file <- tempfile(fileext = ".csv")
+s3$download_file("harmonized.dataset", "harmonized_dataset.csv", temp_file)
+harm_dat <- read.csv(temp_file)
+
+dat <- harm_dat %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  mutate(egfr_hyper = case_when(eGFR_fas_cr >= 135 ~ "Yes", eGFR_fas_cr < 135 ~ "No"))
+
+mgfr_sub <- subset(dat, group == "Lean Control", select = gfr_bsa_plasma) %>% dplyr::ungroup() %>%
+  dplyr::summarise(mgfr_mean = mean(gfr_bsa_plasma, na.rm = T), mgfr_sd = sd(gfr_bsa_plasma, na.rm = T)) %>%
+  mutate(mgfr_cutoff = mgfr_mean + (2*mgfr_sd))
+
+dat <- dat %>%
+  mutate(mgfr_hyper = case_when(gfr_bsa_plasma >= mgfr_sub$mgfr_cutoff ~ "Yes",
+                                gfr_bsa_plasma < mgfr_sub$mgfr_cutoff ~ "No")) %>%
+  dplyr::select(-c(cryostor_id, kit_id, group, sex, age, hba1c,
+eGFR_CKD_epi))
+
+so_meta <- so@meta.data %>% left_join(dat)
+rownames(so_meta) <- rownames(so@meta.data)
+so <- AddMetaData(so, so_meta)
+
+# Pooled offset
+counts_layer <- round(GetAssayData(so, layer = "counts"))
+library_size <- Matrix::colSums(counts_layer)
+bp <- MulticoreParam(workers = 63)
+sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+# sce <- computeSumFactors(sce)
+sce <- computeSumFactors(sce, BPPARAM = bp)
+# # View size factors
+sizeFactors(sce)
+# Calculate offset → (size factors)
+pooled_offset <- (sizeFactors(sce))
+so$pooled_offset <- pooled_offset
+```
+
+```{r, include = F}
+so <- NormalizeData(so)
+so <- ScaleData(so)
+so <- RunPCA(so, features = VariableFeatures(object = so))
+so <- FindNeighbors(so, dims = 1:30)
+so <- FindClusters(so)
+so <- RunUMAP(so, dims = 1:30, reduction.key = "UMAP_")
+```
+
+```{r echo = F}
+dat_clean <- so@meta.data %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit))
+summary(arsenal::tableby(group ~ mgfr_hyper + gfr_bsa_plasma + egfr_hyper + eGFR_fas_cr, data = dat_clean, test = F))
+```
+
+# Overall
+
+```{r, echo = F}
+# DimPlot(so, reduction = "umap", group.by = "group", alpha = 0.2, raster = F)
+# DimPlot(so, reduction = "umap", group.by = "egfr_hyper", raster = F, alpha = 0.2)
+# DimPlot(so, reduction = "umap", group.by = "sglt2i_timepoint", raster = F, alpha = 0.2)
+DimPlot(so, reduction = "umap", group.by = "LR_Cluster_harmony", alpha = 0.2, raster = F, label = T)
+FeaturePlot(so, reduction = "umap", features = "ITIH5", cols = c("lightgray", "blue"), raster = F)
+```
+
+# VSMC/FIB/P
+
+```{r echo = F, include = F}
+so$celltype_fibvsmc <- ifelse(so$LR_Cluster_harmony %in% c("VSMC/MC/FIB"),
+                                     "FIBVSMC", as.character(so$LR_Cluster_harmony))
+so_fibvsmc <- subset(so, celltype_fibvsmc == "FIBVSMC")
+```
+
+## ITIH5 in FIBVSMC
+
+### eGFR defined hyperfiltration (>=135) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_fibvsmc, group == "Type_2_Diabetes"), group.by = "egfr_hyper",
+            ident.1 = "Yes", ident.2 = "No", features = "ITIH5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### eGFR defined hyperfiltration (>=135) in T2D only (random effects using nebula)
+
+```{r echo = F}
+g = "ITIH5"
+so_fibvsmc_t2d <- subset(so_fibvsmc, group = "Type_2_Diabetes")
+keep <- !is.na(so_fibvsmc_t2d$egfr_hyper)
+so_fibvsmc_t2d_egfr <- so_fibvsmc_t2d[, keep]
+counts_fibvsmc <- round(GetAssayData(so_fibvsmc_t2d_egfr, layer = "counts")) # load counts and round
+count_gene <- counts_fibvsmc[g, , drop = FALSE]
+meta_gene <- subset(so_fibvsmc_t2d_egfr, features = g)@meta.data
+pred_gene <- model.matrix(~egfr_hyper, data = meta_gene)
+data_g_gene <- nebula::group_cell(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+egfr_nebula <- nebula(count = data_g_gene$count,
+                      id = data_g_gene$id,
+                      pred = data_g_gene$pred,
+                      ncore = 1, output_re = TRUE, 
+                      covariance = TRUE, reml = 1, model = "NBLMM", 
+                      offset = meta_gene$pooled_offset)
+
+egfr_nebula$summary
+```
+
+### mGFR defined hyperfiltration (>=2 SD above mean mGFR of LC) in T2D only
+
+```{r echo = F}
+FindMarkers(subset(so_fibvsmc, group == "Type_2_Diabetes"), group.by = "mgfr_hyper", 
+            ident.1 = "Yes", ident.2 = "No", features = "ITIH5", 
+            logfc.threshold = 0, min.pct = 0)
+```
+
+### mGFR defined hyperfiltration (>=2 SD above mean mGFR of LC) in T2D only (random effects using nebula)
+
+```{r echo = F}
+g = "ITIH5"
+so_fibvsmc_t2d <- subset(so_fibvsmc, group = "Type_2_Diabetes")
+keep <- !is.na(so_fibvsmc_t2d$mgfr_hyper)
+so_fibvsmc_t2d_mgfr <- so_fibvsmc_t2d[, keep]
+counts_fibvsmc <- round(GetAssayData(so_fibvsmc_t2d_mgfr, layer = "counts")) # load counts and round
+count_gene <- counts_fibvsmc[g, , drop = FALSE]
+meta_gene <- subset(so_fibvsmc_t2d_mgfr, features = g)@meta.data
+pred_gene <- model.matrix(~mgfr_hyper, data = meta_gene)
+data_g_gene <- nebula::group_cell(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+
+mgfr_nebula <- nebula(count = data_g_gene$count,
+                      id = data_g_gene$id,
+                      pred = data_g_gene$pred,
+                      ncore = 1, output_re = TRUE, 
+                      covariance = TRUE, reml = 1, model = "NBLMM", 
+                      offset = meta_gene$pooled_offset)
+
+mgfr_nebula$summary
+```
