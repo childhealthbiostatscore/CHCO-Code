@@ -205,10 +205,9 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', T2D_
     write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_SGLT2_T2D_Only_unadjusted_pooled_offset.csv")))
 
     total_results <- rbind(total_results,full_results)
-  }
 
     file.name <- paste0(dir.results, 'NEBULA_', gene_list_name, 
-                        '_', celltype, '_cells_PET_adjusted_pooled_offset_T2D_SGLT2i.txt')
+                        '_', celltype, '_cells_PET_adjusted_pooled_offset_T2D_SGLT2i_dotplotdata.txt')
 
   
   
@@ -237,7 +236,7 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', T2D_
   # max <- 3.1
   min <- min(full_results$`logFC_epic_sglti2_1Yes`)
   
-  dot_plot_tca <- ggplot(full_results, aes(
+  dot_plot <- ggplot(full_results, aes(
     y = gene,
     x = `logFC_epic_sglti2_1Yes`,
     color = fdr,
@@ -253,8 +252,8 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', T2D_
     geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     theme_minimal() +  # Retains grid lines
     labs(
-      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      title = paste0("Differentially Expressed ", gene_list_name, " Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Pooled Offset",
       x = "Log Fold Change",
       y = "Gene",
       caption = paste0(
@@ -286,7 +285,7 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', T2D_
 
   # custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
     file.name <- paste0(dir.results, 'NEBULA_', gene_list_name, 
-                        '_', celltype, '_pooled_offset_T2D_SGLT2i.png')  
+                        '_', celltype, '_pooled_offset_T2D_SGLT2i_dotplot.png')  
 
   
   
@@ -302,7 +301,7 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', T2D_
   tryCatch({
     png(file.name, 
         width = 1500, height = 2000, res = 300)
-    print(heat_map_p)
+    print()
   }, finally = {
     dev.off()
   })
@@ -314,10 +313,49 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', T2D_
     cat("Failed to create PNG file:", file.name, "\n")
   }
   
+} 
+    
+    
+    
+    kidneyimaging_analysis('PT', genes = tca_genes, T2D_Only = TRUE,
+                           gene_list_name = 'TCA', dir.results = 'C:/Users/netio/Documents/UofW/Rockies/Increased_N/')
 
 
 
 
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    #REFERENCE DATA 
+    
 
 
 
