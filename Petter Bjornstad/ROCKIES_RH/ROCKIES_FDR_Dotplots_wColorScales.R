@@ -91,47 +91,84 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', T2D_
   genes_list <- genes
   
   total_results <- data.frame()
-    cl <- makeCluster(cl_number)
-    registerDoParallel(cl)
+
+  nebula_results_list <- list()
+  for(i in c(1:length(genes_list))){
+    tryCatch({
+      g <- genes_list[i]
+      count_gene <- counts_path[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype,features=g)@meta.data
+      
+      if(T2D_Only == TRUE){
+        tmp.formula <- as.formula(paste0('~epic_sglti2_1'))
+      }else{
+        tmp.formula <- as.formula(paste0('~group'))
+      }
+      
+      pred.formula <- as.formula(tmp.formula)
+      pred_gene <- model.matrix(pred.formula, data = meta_gene)
+      # library <- meta_gene$library_size
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+                       ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,
+                       offset=data_g_gene$library, cpc= cpc)
+      
+      nebula_results_list[[i]] <- result
+#      names(nebula_results_list[[i]]) <- g
+    })
+      # return both gene name and result
+      
+#    }, error = function(e) {
+#      list(gene = g, summary = NA, overdispersion = NA, convergence = NA, 
+#           algorithm = NA, covariance = NA, random_effect = NA)
+#    })
+#  }
+#    nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+#      tryCatch({
+#        count_gene <- counts_path[g, , drop = FALSE]
+#        meta_gene <- subset(so_celltype,features=g)@meta.data
+#        
+#        if(T2D_Only == TRUE){
+#          tmp.formula <- as.formula(paste0('~epic_sglti2_1'))
+#        }else{
+#          tmp.formula <- as.formula(paste0('~group'))
+#        }
+#        
+#        pred.formula <- as.formula(tmp.formula)
+#        pred_gene <- model.matrix(pred.formula, data = meta_gene)
+#        # library <- meta_gene$library_size
+#        library <- meta_gene$pooled_offset
+#        data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+#        
+#        if (is.null(data_g_gene)) {
+#          data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+#        }
+#        
+#        #With offset
+#        result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
+#                         ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,
+#                         offset=data_g_gene$library, cpc= cpc)
+#        
+#        list(gene = g, result = result)  # return both gene name and result
+#        
+#      }, error = function(e) {
+#        list(gene = g, summary = NA, overdispersion = NA, convergence = NA, 
+#             algorithm = NA, covariance = NA, random_effect = NA)
+#      })
+#    }
     
-    start_time <- Sys.time()
-    nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-      tryCatch({
-        count_gene <- counts_path[g, , drop = FALSE]
-        meta_gene <- subset(so_celltype,features=g)@meta.data
-        
-        if(T2D_Only == TRUE){
-          tmp.formula <- as.formula(paste0('~epic_sglti2_1'))
-        }else{
-          tmp.formula <- as.formula(paste0('~group'))
-        }
-        
-        pred.formula <- as.formula(tmp.formula)
-        pred_gene <- model.matrix(pred.formula, data = meta_gene)
-        # library <- meta_gene$library_size
-        library <- meta_gene$pooled_offset
-        data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-        
-        if (is.null(data_g_gene)) {
-          data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-        }
-        
-        #With offset
-        result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, 
-                         ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,
-                         offset=data_g_gene$library, cpc= cpc)
-        
-        list(gene = g, result = result)  # return both gene name and result
-        
-      }, error = function(e) {
-        list(gene = g, summary = NA, overdispersion = NA, convergence = NA, 
-             algorithm = NA, covariance = NA, random_effect = NA)
-      })
-    }
-    
-    stopCluster(cl)
-    end_time <- Sys.time()
-    print(end_time - start_time)
+#    stopCluster(cl)
+#    end_time <- Sys.time()
+#    print(end_time - start_time)
+    print(paste0('Done with ', g, ' Gene'))
+}
     
     # set the names of results based on gene names
     nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
