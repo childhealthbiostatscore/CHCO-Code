@@ -1,0 +1,224 @@
+---
+title: "ATTEMPT Cell Chat"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r libraries, message = F, warning=F}
+#| include: false
+library(future)
+library(future.apply)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(msigdbr)
+library(kableExtra)
+# library(knitr)
+library(REDCapR)
+# library(data.table)
+library(emmeans)
+library(NMF)
+library(pheatmap)
+library(UpSetR)
+library(enrichR)
+library(WriteXLS)
+library(SAVER)
+library(readxl)
+library(limma)
+library(edgeR)
+library(BiocGenerics)
+library(GSEABase)
+library(slingshot)
+library(SingleCellExperiment)
+library(MAST)
+library(muscat)
+library(scater)
+library(Seurat)
+library(jsonlite)
+library(dplyr)
+library(glmmTMB)
+library(reshape2)
+library(broom.mixed) 
+library(foreach)
+library(doParallel)
+library(nebula)
+library(Matrix)
+library(scran)
+library(DirichletReg)
+library(BiocParallel)
+library(scDC)
+library(CellChat)
+library(liana)
+library(magrittr)
+library(circlize)
+library(slingshot)
+library(uwot)
+library(mclust, quietly = TRUE)
+```
+
+```{r include = F}
+reticulate::use_python("/mmfs1/gscratch/scrubbed/yejichoi/mypy/bin/python", required = T)
+reticulate::repl_python()
+reticulate::py_config()
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+```{r echo = F, eval = T}
+# Read in clean seurat object saved from attempt_CROC_analysis.qmd
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("attempt", 'cleaned_data/attempt_clean_so.rds', temp_file)
+attempt_so <- readRDS(temp_file)
+``` 
+
+# PT
+```{r echo = F}
+attempt_so$celltype_pt <- ifelse(grepl("PT-", attempt_so$celltype),
+                                 "PT", as.character(attempt_so$celltype))
+attempt_so_pt <- subset(attempt_so, celltype_pt == "PT" & celltype != "PT_lowQuality")
+```
+
+```{r echo = F}
+counts_pt <- GetAssayData(attempt_so_pt, layer = "counts")
+sce_pt <- SingleCellExperiment(assays = List(counts = counts_pt))
+
+# filter genes down to potential cell-type markers
+# at least M (15) reads in at least N (15) cells
+geneFilter <- apply(assays(sce_pt)$counts,1,function(x){
+    sum(x >= 3) >= 10
+})
+sce_pt <- sce_pt[geneFilter, ]
+
+# normalization
+FQnorm <- function(counts){
+  rk <- apply(counts,2,rank,ties.method='min')
+  counts.sort <- apply(counts,2,sort)
+  refdist <- apply(counts.sort,1,median)
+  norm <- apply(rk,2,function(r){ refdist[r] })
+  rownames(norm) <- rownames(counts)
+  return(norm)
+}
+assays(sce_pt)$norm <- FQnorm(assays(sce_pt)$counts)
+
+# dimension reduction
+pca <- prcomp(t(log1p(assays(sce_pt)$norm)), scale. = FALSE)
+rd1 <- pca$x[,1:2]
+
+plot(rd1, col = rgb(0,0,0,.5), pch=16, asp = 1)
+
+rd2 <- uwot::umap(t(log1p(assays(sce_pt)$norm)))
+colnames(rd2) <- c('UMAP1', 'UMAP2')
+
+plot(rd2, col = rgb(0,0,0,.5), pch=16, asp = 1)
+
+reducedDims(sce_pt) <- SimpleList(PCA = rd1, UMAP = rd2)
+```
+
+```{r echo = F}
+# clustering cells
+cl1 <- Mclust(rd1)$classification
+colData(sce_pt)$GMM <- cl1
+
+library(RColorBrewer)
+plot(rd1, col = brewer.pal(9,"Set1")[cl1], pch=16, asp = 1)
+
+cl2 <- kmeans(rd1, centers = 4)$cluster
+colData(sce_pt)$kmeans <- cl2
+
+plot(rd1, col = brewer.pal(9,"Set1")[cl2], pch=16, asp = 1)
+
+sce_pt_gmm <- slingshot(sce_pt, clusterLabels = 'GMM', reducedDim = 'PCA')
+
+colData(sce_pt)$celltype <- attempt_so_pt$celltype
+colData(sce_pt)$treatment <- attempt_so_pt$treatment
+colData(sce_pt)$visit <- attempt_so_pt$visit
+
+sce_pt_celltype <- slingshot(sce_pt, clusterLabels = 'celltype', reducedDim = 'PCA')
+
+```
+
+```{r echo = F}
+summary(sce_pt_celltype$slingPseudotime_1)
+library(grDevices)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sce_pt_celltype$slingPseudotime_1, breaks=100)]
+
+plot(reducedDims(sce_pt_celltype)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sce_pt_celltype), lwd=2, col='black')
+
+plot(reducedDims(sce_pt_celltype)$PCA, col = brewer.pal(9,'Set1')[sce_pt_celltype$GMM], pch=16, asp = 1)
+lines(SlingshotDataSet(sce_pt_celltype), lwd=2, type = 'lineages', col = 'black')
+
+
+plot(reducedDims(sce_pt_celltype)$PCA, asp=0.5, col = 'grey75', pch = 16)
+points(reducedDims(sce_pt_celltype)$PCA, col = hcl.colors(100)[cut(slingPseudotime(sce_pt_celltype)[,1], 100)], pch=16)
+legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
+
+
+pca_df <- as.data.frame(reducedDims(sce_pt_celltype)$PCA)
+pca_df$celltype <- colData(sce_pt_celltype)$celltype
+pca_df$pseudotime <- slingPseudotime(sce_pt_celltype)[,1]  # choose a lineage if >1
+
+# Optional: get curve
+curves <- slingCurves(sce_pt_celltype)
+pca_df$celltype <- factor(pca_df$celltype, levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))
+slingshot::slingLineages(sce_pt_celltype)
+# Plot
+ggplot(pca_df, aes(x = PC1, y = PC2, color = celltype)) +
+  geom_point(alpha = 0.3, size = 1) +
+  geom_path(data = as.data.frame(curves[[1]]$s), aes(x = PC1, y = PC2), color = "black", size = 1.2) +
+  labs(title = "PT cell types along Slingshot trajectory") +
+  theme_bw() + 
+  theme(panel.grid = element_blank()) + 
+  labs(color = NULL)
+temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+ggsave(filename = temp_file, width = 7, height = 5)
+s3$upload_file(temp_file, "attempt", "slingshot/attempt_pca_pt_slingshot.jpeg")
+```
+
+```{r echo = F}
+pseudotime_df <- data.frame(
+  pseudotime = slingPseudotime(sce_pt_celltype)[,1],
+  treatment  = sce_pt_celltype$treatment,  
+  visit      = sce_pt_celltype$visit, 
+  celltype   = sce_pt_celltype$celltype,
+  visit_treatment = paste0(sce_pt_celltype$treatment, ".", sce_pt_celltype$visit)
+)
+pseudotime_df$visit_treatment <- factor(pseudotime_df$visit_treatment, levels = c("Placebo.PRE", "Placebo.POST",
+                                                                                  "Dapagliflozin.PRE", "Dapagliflozin.POST"))
+ggplot(pseudotime_df, aes(x = visit_treatment, y = pseudotime)) +
+  geom_violin(aes(fill = treatment), trim = FALSE) +
+  geom_boxplot(width = 0.1, outlier.shape = NA) +
+  theme_classic() +
+  labs(x = "Group (Treatment x Visit)", y = "Slingshot Pseudotime",
+       fill = NULL)
+temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+ggsave(filename = temp_file, width = 7, height = 5)
+s3$upload_file(temp_file, "attempt", "slingshot/attempt_slingshot_violin.jpeg")
+
+```

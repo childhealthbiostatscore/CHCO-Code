@@ -1,0 +1,1414 @@
+---
+title: "CROCODILE nebula"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r libraries, message = F, warning=F}
+#| include: false
+library(arsenal)
+library(parallel)
+library(doParallel)
+library(Biobase)
+library(BiocGenerics)
+library(BiocParallel)
+library(broom.mixed)
+library(colorspace)
+library(cowplot)
+library(data.table)
+library(DirichletReg)
+library(dplyr)
+library(edgeR)
+library(emmeans)
+library(enrichR)
+library(foreach)
+library(future)
+library(future.apply)
+library(GSEABase)
+library(ggdendro)
+library(ggpubr)
+library(glmmTMB)
+library(harmony)
+library(jsonlite)
+library(kableExtra)
+library(limma)
+library(MAST)
+library(Matrix)
+library(msigdbr)
+library(muscat)
+library(NMF)
+library(nebula)
+library(patchwork)
+library(pheatmap)
+library(readxl)
+library(REDCapR)
+library(reshape2)
+library(rstatix)
+library(SAVER)
+library(scDC)
+library(scater)
+library(scran)
+library(Seurat)
+library(SingleCellExperiment)
+library(slingshot)
+library(tidyverse)
+library(UpSetR)
+library(WriteXLS)
+```
+
+# Data Pull & Clean
+
+```{r include = F}
+reticulate::use_python("/mmfs1/gscratch/scrubbed/yejichoi/mypy/bin/python", required = T)
+reticulate::repl_python()
+reticulate::py_config()
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+```{r echo = F}
+plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suffix, p_thresh = 0.05) {
+  top_pos <- data %>%
+    dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
+    dplyr::arrange(!!sym(p_col)) %>%
+    slice_head(n=20)
+
+  top_neg <- data %>%
+    dplyr::filter(!!sym(fc) < 0 & !!sym(p_col) < p_thresh) %>%
+    dplyr::arrange(!!sym(p_col)) %>%
+    slice_head(n=20)
+
+  data <- data %>%
+    dplyr::mutate(top_color = case_when(Gene %in% top_pos$Gene ~ "#f28482",
+                                 Gene %in% top_neg$Gene ~ "#457b9d",
+                                 TRUE ~ "#ced4da"),
+           top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
+           top_lab  = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), Gene, ""))
+
+  p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
+    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
+    geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
+    geom_text_repel(aes(label = top_lab, color = top_color),
+                    size = 3, max.overlaps = Inf,
+                    force = 6, segment.alpha = 0.3, segment.size = 0.3) +
+    labs(title = paste(title_suffix),
+         x = paste(x_axis),
+         y = paste(y_axis)) +
+    scale_size_continuous(range = c(1, 1.3)) + 
+    scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
+    theme_minimal() +
+    theme(legend.title = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = 15),
+          title = element_text(size = 9)) +
+    guides(color = "none", size = "none")
+
+  temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+  ggsave(filename = temp_file, plot = p, width = 7, height = 5)
+  s3$upload_file(temp_file, "attempt", paste0('CROCODILE comparison analysis/attempt_croc_nebula_',file_suffix,'.jpeg'))
+  
+
+  return(p)
+}
+
+```
+
+## PB90 and CROCODILE files
+
+
+```{r echo = F}
+# Read in clean CROCODILE seurat object saved from attempt_CROC_analysis.qmd
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("scrna", 'data_clean/pb90_croc_subset.rds', temp_file)
+croc_so <- readRDS(temp_file)
+```
+
+```{r echo = F}
+# read clinical data file for CROC
+temp_file <- tempfile(fileext = ".csv")
+s3$download_file("harmonized.dataset", "harmonized_dataset.csv", temp_file)
+pb90_dat_raw <- read.csv(temp_file, na = "")
+croc_dat <- pb90_dat_raw %>%
+  filter(study == "CROCODILE") %>%
+  dplyr::summarise(dplyr::across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   dplyr::across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id))
+```
+
+# Analysis
+
+## Untargeted (CROC T1D vs. CROC HC)
+
+### PT
+
+```{r echo = F}
+croc_so$celltype_pt <- ifelse(grepl("PT-", croc_so$celltype_harmony),
+                                 "PT", as.character(croc_so$celltype_harmony))
+croc_so_pt <- subset(croc_so, celltype_pt == "PT" & celltype_harmony != "PT_lowQuality")
+```
+
+```{r echo = F}
+croc_so_pt <- FindVariableFeatures(croc_so_pt, selection.method = "vst", nfeatures = 2000)
+hvgs_pt <- VariableFeatures(croc_so_pt)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_pt <- subset(croc_so_pt, features = hvgs_pt)
+```
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_hvg_pt <- round(GetAssayData(croc_so_hvg_pt, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_pt)
+
+meta_hvg_pt <- croc_so_hvg_pt@meta.data
+pred = model.matrix(~group, data = meta_hvg_pt)
+data_g_hvg_pt = list(count=croc_counts_hvg_pt, id=meta_hvg_pt$subject, pred=pred)
+offset_hvg_pt = Matrix::colSums(data_g_hvg_pt$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_pt_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_hvg_pt[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_hvg_pt, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_pt_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_pt_results_list_reml_offset) <- sapply(croc_nebula_pt_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_pt_results_list_reml_offset <- lapply(croc_nebula_pt_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_pt_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_pt_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_pt_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_pt_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/nebula/pt_croc_untargeted_t1dvhc.rds')
+```
+
+### TAL
+
+```{r echo = F}
+croc_so$celltype_tal <- ifelse(grepl("TAL-", croc_so$celltype_harmony),
+                                 "TAL", as.character(croc_so$celltype_harmony))
+croc_so_tal <- subset(croc_so, celltype_tal == "TAL" & celltype_harmony != "TAL_highUMI")
+```
+
+```{r echo = F}
+croc_so_tal <- FindVariableFeatures(croc_so_tal, selection.method = "vst", nfeatures = 2000)
+hvgs_tal <- VariableFeatures(croc_so_tal)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_tal <- subset(croc_so_tal, features = hvgs_tal)
+```
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_hvg_tal <- round(GetAssayData(croc_so_hvg_tal, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_tal)
+
+meta_hvg_tal <- croc_so_hvg_tal@meta.data
+pred = model.matrix(~group, data = meta_hvg_tal)
+data_g_hvg_tal = list(count=croc_counts_hvg_tal, id=meta_hvg_tal$subject, pred=pred)
+offset_hvg_tal = Matrix::colSums(data_g_hvg_tal$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_tal_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_hvg_tal[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_hvg_tal, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_tal_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_tal_results_list_reml_offset) <- sapply(croc_nebula_tal_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_tal_results_list_reml_offset <- lapply(croc_nebula_tal_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_tal_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_tal_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_tal_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_tal_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/nebula/tal_croc_untargeted_t1dvhc.rds')
+```
+
+### Immune cells (Myeloid)
+
+```{r echo = F}
+# immune_myeloid cells: MAC, MON
+croc_so$celltype_immune_myeloid <- ifelse(croc_so$celltype_harmony %in% c("MON", "MAC", "T", "B", "NKT/NKC"),
+                                     "Immune_Myeloid", as.character(croc_so$celltype_harmony))
+croc_so_immune_myeloid <- subset(croc_so, celltype_immune_myeloid == "Immune_Myeloid")
+```
+
+```{r echo = F}
+croc_so_immune_myeloid <- FindVariableFeatures(croc_so_immune_myeloid, selection.method = "vst", nfeatures = 2000)
+hvgs_immune_myeloid <- VariableFeatures(croc_so_immune_myeloid)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_immune_myeloid <- subset(croc_so_immune_myeloid, features = hvgs_immune_myeloid)
+```
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_hvg_immune_myeloid <- round(GetAssayData(croc_so_hvg_immune_myeloid, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_immune_myeloid)
+
+meta_hvg_immune_myeloid <- croc_so_hvg_immune_myeloid@meta.data
+pred = model.matrix(~group, data = meta_hvg_immune_myeloid)
+data_g_hvg_immune_myeloid = list(count=croc_counts_hvg_immune_myeloid, id=meta_hvg_immune_myeloid$subject, pred=pred)
+offset_hvg_immune_myeloid = Matrix::colSums(data_g_hvg_immune_myeloid$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_immune_myeloid_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_hvg_immune_myeloid[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_hvg_immune_myeloid, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_immune_myeloid_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_immune_myeloid_results_list_reml_offset) <- sapply(croc_nebula_immune_myeloid_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_immune_myeloid_results_list_reml_offset <- lapply(croc_nebula_immune_myeloid_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_immune_myeloid_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_immune_myeloid_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_immune_myeloid_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_immune_myeloid_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune_Myeloid/nebula/immune_myeloid_croc_untargeted_t1dvhc.rds')
+```
+
+### Immune cells (Lymphoid)
+
+```{r echo = F}
+# immune_lymphoid cells: "T", "B", "NKT/NKC"
+croc_so$celltype_immune_lymphoid <- ifelse(croc_so$celltype_harmony %in% c("T", "B", "NKT/NKC"),
+                                     "Immune_Lymphoid", as.character(croc_so$celltype_harmony))
+croc_so_immune_lymphoid <- subset(croc_so, celltype_immune_lymphoid == "Immune_Lymphoid")
+```
+
+```{r echo = F}
+croc_so_immune_lymphoid <- FindVariableFeatures(croc_so_immune_lymphoid, selection.method = "vst", nfeatures = 2000)
+hvgs_immune_lymphoid <- VariableFeatures(croc_so_immune_lymphoid)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_immune_lymphoid <- subset(croc_so_immune_lymphoid, features = hvgs_immune_lymphoid)
+```
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_hvg_immune_lymphoid <- round(GetAssayData(croc_so_hvg_immune_lymphoid, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_immune_lymphoid)
+
+meta_hvg_immune_lymphoid <- croc_so_hvg_immune_lymphoid@meta.data
+pred = model.matrix(~group, data = meta_hvg_immune_lymphoid)
+data_g_hvg_immune_lymphoid = list(count=croc_counts_hvg_immune_lymphoid, id=meta_hvg_immune_lymphoid$subject, pred=pred)
+offset_hvg_immune_lymphoid = Matrix::colSums(data_g_hvg_immune_lymphoid$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_immune_lymphoid_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_hvg_immune_lymphoid[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_hvg_immune_lymphoid, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_immune_lymphoid_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_immune_lymphoid_results_list_reml_offset) <- sapply(croc_nebula_immune_lymphoid_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_immune_lymphoid_results_list_reml_offset <- lapply(croc_nebula_immune_lymphoid_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_immune_lymphoid_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_immune_lymphoid_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_immune_lymphoid_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_immune_lymphoid_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune_Myeloid/nebula/immune_lymphoid_croc_untargeted_t1dvhc.rds')
+```
+
+
+### PC
+
+```{r echo = F}
+# PC-1 & PC-2, tPC-IC 
+croc_so$celltype_pc <- ifelse(croc_so$celltype_harmony %in% c("PC-1", "PC-2", "tPC-IC"), 
+                                     "PC", as.character(croc_so$celltype_harmony)) 
+croc_so_pc <- subset(croc_so, celltype_pc == "PC") 
+```
+
+```{r echo = F}
+croc_so_pc <- FindVariableFeatures(croc_so_pc, selection.method = "vst", nfeatures = 2000)
+hvgs_pc <- VariableFeatures(croc_so_pc)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_pc <- subset(croc_so_pc, features = hvgs_pc)
+```
+
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_hvg_pc <- round(GetAssayData(croc_so_hvg_pc, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_pc)
+
+meta_hvg_pc <- croc_so_hvg_pc@meta.data
+pred = model.matrix(~group, data = meta_hvg_pc)
+data_g_hvg_pc = list(count=croc_counts_hvg_pc, id=meta_hvg_pc$subject, pred=pred)
+offset_hvg_pc = Matrix::colSums(data_g_hvg_pc$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_pc_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_hvg_pc[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_hvg_pc, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_pc_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_pc_results_list_reml_offset) <- sapply(croc_nebula_pc_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_pc_results_list_reml_offset <- lapply(croc_nebula_pc_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_pc_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_pc_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_pc_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_pc_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/nebula/pc_croc_untargeted_t1dvhc.rds')
+```
+
+### IC
+
+
+```{r echo = F}
+# IC-A, IC-B
+croc_so$celltype_ic <- ifelse(croc_so$celltype_harmony %in% c("IC-A", "IC-B"),
+                                     "IC", as.character(croc_so$celltype_harmony))
+croc_so_ic <- subset(croc_so, celltype_ic == "IC")
+```
+
+```{r echo = F}
+croc_so_ic <- FindVariableFeatures(croc_so_ic, selection.method = "vst", nfeatures = 2000)
+hvgs_ic <- VariableFeatures(croc_so_ic)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_ic <- subset(croc_so_ic, features = hvgs_ic)
+```
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_hvg_ic <- round(GetAssayData(croc_so_hvg_ic, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_ic)
+
+meta_hvg_ic <- croc_so_hvg_ic@meta.data
+pred = model.matrix(~group, data = meta_hvg_ic)
+data_g_hvg_ic = list(count=croc_counts_hvg_ic, id=meta_hvg_ic$subject, pred=pred)
+offset_hvg_ic = Matrix::colSums(data_g_hvg_ic$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_ic_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_hvg_ic[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_hvg_ic, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_ic_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_ic_results_list_reml_offset) <- sapply(croc_nebula_ic_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_ic_results_list_reml_offset <- lapply(croc_nebula_ic_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_ic_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_ic_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_ic_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_ic_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/nebula/ic_croc_untargeted_t1dvhc.rds')
+```
+
+### EC
+
+```{r echo = F}
+croc_so$celltype_ec <- ifelse(croc_so$celltype_harmony %in% c("EC-PTC", "EC-GC", "EC-AEA", "EC-LYM"),
+                                     "EC", as.character(croc_so$celltype_harmony))
+croc_so_ec <- subset(croc_so, celltype_ec == "EC")
+```
+
+```{r echo = F}
+croc_so_ec <- FindVariableFeatures(croc_so_ec, selection.method = "vst", nfeatures = 2000)
+hvgs_ec <- VariableFeatures(croc_so_ec)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_ec <- subset(croc_so_ec, features = hvgs_ec)
+```
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_hvg_ec <- round(GetAssayData(croc_so_hvg_ec, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_ec)
+
+meta_hvg_ec <- croc_so_hvg_ec@meta.data
+pred = model.matrix(~group, data = meta_hvg_ec)
+data_g_hvg_ec = list(count=croc_counts_hvg_ec, id=meta_hvg_ec$subject, pred=pred)
+offset_hvg_ec = Matrix::colSums(data_g_hvg_ec$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_ec_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_hvg_ec[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_hvg_ec, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_ec_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_ec_results_list_reml_offset) <- sapply(croc_nebula_ec_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_ec_results_list_reml_offset <- lapply(croc_nebula_ec_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_ec_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_ec_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_ec_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_ec_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/nebula/ec_croc_untargeted_t1dvhc.rds')
+```
+
+### FIB/VSMC/P
+
+```{r echo = F}
+croc_so$celltype_fibvsmc <- ifelse(croc_so$celltype_harmony %in% c("VSMC/MC/FIB"),
+                                     "FIBVSMC", as.character(croc_so$celltype_harmony))
+croc_so_fibvsmc <- subset(croc_so, celltype_fibvsmc == "FIBVSMC")
+```
+
+
+```{r echo = F}
+croc_so_fibvsmc <- FindVariableFeatures(croc_so_fibvsmc, selection.method = "vst", nfeatures = 2000)
+hvgs_fibvsmc <- VariableFeatures(croc_so_fibvsmc)
+
+#Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+croc_so_hvg_fibvsmc <- subset(croc_so_fibvsmc, features = hvgs_fibvsmc)
+```
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_hvg_fibvsmc <- round(GetAssayData(croc_so_hvg_fibvsmc, layer = "counts")) # load counts and round
+genes_list <- rownames(croc_counts_hvg_fibvsmc)
+
+meta_hvg_fibvsmc <- croc_so_hvg_fibvsmc@meta.data
+pred = model.matrix(~group, data = meta_hvg_fibvsmc)
+data_g_hvg_fibvsmc = list(count=croc_counts_hvg_fibvsmc, id=meta_hvg_fibvsmc$subject, pred=pred)
+offset_hvg_fibvsmc = Matrix::colSums(data_g_hvg_fibvsmc$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_fibvsmc_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_hvg_fibvsmc[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_hvg_fibvsmc, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_fibvsmc_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_fibvsmc_results_list_reml_offset) <- sapply(croc_nebula_fibvsmc_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_fibvsmc_results_list_reml_offset <- lapply(croc_nebula_fibvsmc_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_fibvsmc_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_fibvsmc_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_fibvsmc_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_fibvsmc_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/nebula/fibvsmc_croc_untargeted_t1dvhc.rds')
+```
+
+## Targeted for Oxphos and TCA (CROC T1D vs. CROC HC)
+
+```{r echo = F}
+tca_genes <- c(
+  "ACO1", "ACO2", "IDH1", "IDH2", "IDH3A", "IDH3B", "IDH3G", "OGDH", "OGDHL",
+  "SUCLA2", "SUCLG1", "SUCLG2", "SDHA", "FH", "MDH1", "MDH2",  "CS"
+)
+oxy_phos_genes <- c(
+  "NDUFS6",  "SDHB", "SDHC", "SDHD",
+  "UQCRC1", "UQCRC2", "COX4I1", "COX4I2", "ATP5PF"
+)
+
+genes_list <- c(tca_genes, oxy_phos_genes)
+```
+
+### PT
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_pt <- round(GetAssayData(croc_so_pt, layer = "counts")) # load counts and round
+
+meta_pt <- croc_so_pt@meta.data
+pred = model.matrix(~group, data = meta_pt)
+data_g_pt = list(count=croc_counts_pt, id=meta_pt$subject, pred=pred)
+offset_pt = Matrix::colSums(data_g_pt$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_pt_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_pt[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_pt, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_pt_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_pt_results_list_reml_offset) <- sapply(croc_nebula_pt_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_pt_results_list_reml_offset <- lapply(croc_nebula_pt_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_pt_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_pt_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_pt_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_pt_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PT/nebula/pt_croc_targeted_tca_oxphos_t1dvhc.rds')
+```
+
+### TAL
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_tal <- round(GetAssayData(croc_so_tal, layer = "counts")) # load counts and round
+
+meta_tal <- croc_so_tal@meta.data
+pred = model.matrix(~group, data = meta_tal)
+data_g_tal = list(count=croc_counts_tal, id=meta_tal$subject, pred=pred)
+offset_tal = Matrix::colSums(data_g_tal$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+croc_nebula_tal_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_tal[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_tal, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_tal_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_tal_results_list_reml_offset) <- sapply(croc_nebula_tal_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_tal_results_list_reml_offset <- lapply(croc_nebula_tal_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_tal_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_tal_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_tal_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_tal_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/TAL/nebula/tal_croc_targeted_tca_oxphos_t1dvhc.rds')
+```
+
+### Immune cells (Myeloid)
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_immune_myeloid <- round(GetAssayData(croc_so_immune_myeloid, layer = "counts")) # load counts and round
+
+meta_immune_myeloid <- croc_so_immune_myeloid@meta.data
+pred = model.matrix(~group, data = meta_immune_myeloid)
+data_g_immune_myeloid = list(count=croc_counts_immune_myeloid, id=meta_immune_myeloid$subject, pred=pred)
+offset_immune_myeloid = Matrix::colSums(data_g_immune_myeloid$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_immune_myeloid_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_immune_myeloid[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_immune_myeloid, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_immune_myeloid_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_immune_myeloid_results_list_reml_offset) <- sapply(croc_nebula_immune_myeloid_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_immune_myeloid_results_list_reml_offset <- lapply(croc_nebula_immune_myeloid_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_immune_myeloid_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_immune_myeloid_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_immune_myeloid_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_immune_myeloid_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune_Myeloid/nebula/immune_myeloid_croc_targeted_tca_oxphos_t1dvhc.rds')
+```
+
+### Immune cells (Lymphoid)
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_immune_lymphoid <- round(GetAssayData(croc_so_immune_lymphoid, layer = "counts")) # load counts and round
+
+meta_immune_lymphoid <- croc_so_immune_lymphoid@meta.data
+pred = model.matrix(~group, data = meta_immune_lymphoid)
+data_g_immune_lymphoid = list(count=croc_counts_immune_lymphoid, id=meta_immune_lymphoid$subject, pred=pred)
+offset_immune_lymphoid = Matrix::colSums(data_g_immune_lymphoid$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_immune_lymphoid_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_immune_lymphoid[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_immune_lymphoid, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_immune_lymphoid_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_immune_lymphoid_results_list_reml_offset) <- sapply(croc_nebula_immune_lymphoid_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_immune_lymphoid_results_list_reml_offset <- lapply(croc_nebula_immune_lymphoid_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_immune_lymphoid_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_immune_lymphoid_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_immune_lymphoid_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_immune_lymphoid_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/Immune_Myeloid/nebula/immune_lymphoid_croc_targeted_tca_oxphos_t1dvhc.rds')
+```
+
+
+### PC
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_pc <- round(GetAssayData(croc_so_pc, layer = "counts")) # load counts and round
+
+meta_pc <- croc_so_pc@meta.data
+pred = model.matrix(~group, data = meta_pc)
+data_g_pc = list(count=croc_counts_pc, id=meta_pc$subject, pred=pred)
+offset_pc = Matrix::colSums(data_g_pc$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_pc_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_pc[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_pc, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_pc_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_pc_results_list_reml_offset) <- sapply(croc_nebula_pc_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_pc_results_list_reml_offset <- lapply(croc_nebula_pc_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_pc_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_pc_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_pc_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_pc_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/PC/nebula/pc_croc_targeted_tca_oxphos_t1dvhc.rds')
+```
+
+### IC
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_ic <- round(GetAssayData(croc_so_ic, layer = "counts")) # load counts and round
+
+meta_ic <- croc_so_ic@meta.data
+pred = model.matrix(~group, data = meta_ic)
+data_g_ic = list(count=croc_counts_ic, id=meta_ic$subject, pred=pred)
+offset_ic = Matrix::colSums(data_g_ic$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_ic_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_ic[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_ic, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_ic_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_ic_results_list_reml_offset) <- sapply(croc_nebula_ic_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_ic_results_list_reml_offset <- lapply(croc_nebula_ic_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_ic_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_ic_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_ic_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_ic_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/IC/nebula/ic_croc_targeted_tca_oxphos_t1dvhc.rds')
+```
+
+### EC
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_ec <- round(GetAssayData(croc_so_ec, layer = "counts")) # load counts and round
+
+meta_ec <- croc_so_ec@meta.data
+pred = model.matrix(~group, data = meta_ec)
+data_g_ec = list(count=croc_counts_ec, id=meta_ec$subject, pred=pred)
+offset_ec = Matrix::colSums(data_g_ec$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_ec_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_ec[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_ec, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_ec_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_ec_results_list_reml_offset) <- sapply(croc_nebula_ec_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_ec_results_list_reml_offset <- lapply(croc_nebula_ec_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_ec_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_ec_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_ec_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_ec_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/EC/nebula/ec_croc_targeted_tca_oxphos_t1dvhc.rds')
+```
+
+### FIB/VSMC/P
+
+#### NEBULA REML with rounded counts & pooled offset
+
+```{r echo = F}
+croc_counts_fibvsmc <- round(GetAssayData(croc_so_fibvsmc, layer = "counts")) # load counts and round
+
+meta_fibvsmc <- croc_so_fibvsmc@meta.data
+pred = model.matrix(~group, data = meta_fibvsmc)
+data_g_fibvsmc = list(count=croc_counts_fibvsmc, id=meta_fibvsmc$subject, pred=pred)
+offset_fibvsmc = Matrix::colSums(data_g_fibvsmc$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+
+croc_nebula_fibvsmc_results_list_reml_offset <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                                   .errorhandling = "pass") %dopar% {
+                                                     warn <- NULL
+                                                     err <- NULL
+                                                     res <- NULL
+    tryCatch({
+      count_gene <- croc_counts_fibvsmc[g, , drop = FALSE]
+      meta_gene <- subset(croc_so_fibvsmc, features = g)@meta.data
+      pred_gene <- model.matrix(~group, data = meta_gene)
+      data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene)
+      
+      res <- withCallingHandlers({
+        nebula(count = data_g_gene$count,
+               id = data_g_gene$id,
+               pred = data_g_gene$pred,
+               ncore = 1, output_re = TRUE, 
+               covariance = TRUE, reml = 1, model = "NBLMM", 
+               offset = meta_gene$pooled_offset)
+      }, warning = function(w) {
+        warn <<- conditionMessage(w)
+        invokeRestart("muffleWarning")
+      })
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in croc_nebula_fibvsmc_results_list_reml_offset) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+# set the names of results based on gene names
+names(croc_nebula_fibvsmc_results_list_reml_offset) <- sapply(croc_nebula_fibvsmc_results_list_reml_offset, function(x) x$gene)  # set names
+croc_nebula_fibvsmc_results_list_reml_offset <- lapply(croc_nebula_fibvsmc_results_list_reml_offset, function(x) x$result)  # clean list back to just results
+croc_nebula_fibvsmc_results_list_reml_offset <- Filter(Negate(is.null), croc_nebula_fibvsmc_results_list_reml_offset)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+croc_nebula_nonconverged_percent <- (length(genes_list)-length(croc_nebula_fibvsmc_results_list_reml_offset))/length(genes_list)
+print(paste0(croc_nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(croc_nebula_fibvsmc_results_list_reml_offset, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'CROCODILE comparison analysis/FIBVSMCP/nebula/fibvsmc_croc_targeted_tca_oxphos_t1dvhc.rds')
+```

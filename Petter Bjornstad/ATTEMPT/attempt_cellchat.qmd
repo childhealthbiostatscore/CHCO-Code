@@ -61,7 +61,9 @@ library(DirichletReg)
 library(BiocParallel)
 library(scDC)
 library(CellChat)
-
+library(liana)
+library(magrittr)
+library(circlize)
 ```
 
 ```{r include = F}
@@ -93,7 +95,6 @@ attempt_so <- readRDS(temp_file)
 
 ```{r echo = F}
 # Cell-Cell Interaction Analysis using CellChat
-
 print("Seurat object overview:")
 print(attempt_so)
 print("Metadata columns:")
@@ -113,6 +114,9 @@ print(length(unique(attempt_so@meta.data$subject_id)))
 print("Cell types present:")
 print(table(attempt_so@meta.data$celltype))
 
+```
+
+```{r echo =F}
 # ============================================================================
 # STEP 1: Create combined condition variable and prepare data for CellChat analysis
 # ============================================================================
@@ -125,301 +129,209 @@ attempt_so@meta.data$condition <- paste(attempt_so@meta.data$visit,
 print("Combined conditions created:")
 print(table(attempt_so@meta.data$condition))
 
-# Function to create CellChat object for a specific condition
-create_cellchat_object <- function(seurat_obj, visit_val, treatment_val) {
-  # Subset data for specific visit and treatment combination
-  data_subset <- subset(seurat_obj, 
-                       subset = visit == visit_val & treatment == treatment_val)
+# Prepare required input data for CellChat analysis
+data.input <- attempt_so[["RNA"]]$data
+labels <- Idents(attempt_so)
+meta <- data.frame(labels = labels, row.names = names(labels))
+
+# Create a CellChat object
+cellchat <- createCellChat(object = data.input, meta = meta, group.by = "labels")
+cellchat <- setIdent(cellchat, ident.use = "labels")
+
+# Set the ligand-receptor interaction database
+CellChatDB <- CellChatDB.human
+CellChatDB.use <- CellChatDB
+cellchat@DB <- CellChatDB.use
+
+# Preprocessing the expression data for cell-cell communication analysis
+cellchat <- subsetData(cellchat) # This step is necessary even if using the whole database
+future::plan("multisession", workers = 4) # do parallel
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+#> The number of highly variable ligand-receptor pairs used for signaling inference is 692
+
+```
+
+```{r echo = F}
+# Part II: Inference of cell-cell communication network
+## Compute the communication probability and infer cellular communication network
+ptm = Sys.time()
+cellchat <- computeCommunProb(cellchat, type = "triMean")
+#> triMean is used for calculating the average gene expression per cell group. 
+#> [1] ">>> Run CellChat on sc/snRNA-seq data <<< [2024-02-14 00:32:35.767285]"
+#> [1] ">>> CellChat inference is done. Parameter values are stored in `object@options$parameter` <<< [2024-02-14 00:33:13.121225]"
+
+
+cellchat <- filterCommunication(cellchat, min.cells = 10)
+
+## Infer the cell-cell communication at a signaling pathway level
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(cellchat, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'attempt_cellchat.rds')
+
+```
+
+
+```{r echo = F}
+groupSize <- as.numeric(table(cellchat@idents))
+par(mfrow = c(1,2), xpd=TRUE)
+netVisual_circle(cellchat@net$count, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Number of interactions")
+netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
+
+mat <- cellchat@net$weight
+# for (i in 1:nrow(mat)) {
+#   mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+#   mat2[i, ] <- mat[i, ]
+#   netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+# }
+
+dir.create("cellchat_circles")  # create output directory
+
+for (i in 1:nrow(mat)) {
+  # Define filename
+  sender_name <- gsub("[/: ]", "_", rownames(mat)[i])  # sanitize filename
+  out_file <- file.path("cellchat_circles", paste0("circle_", sender_name, ".jpeg"))
   
-  print(paste("Creating CellChat object for", visit_val, treatment_val))
-  print(paste("Number of cells:", ncol(data_subset)))
-  print(paste("Number of subjects:", length(unique(data_subset@meta.data$subject_id))))
+  # Open graphics device
+  jpeg(filename = out_file, width = 1600, height = 1600, res = 200)
   
-  # Extract expression data and metadata
-  data.input <- GetAssayData(data_subset, assay = "RNA", slot = "data")
-  meta <- data_subset@meta.data
+  # Create a matrix with only one sender
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
   
-  # Create CellChat object using 'celltype' column
-  cellchat <- createCellChat(object = data.input, meta = meta, group.by = "celltype")
+  # Plot
+  netVisual_circle(mat2,
+                   vertex.weight = groupSize,
+                   weight.scale = TRUE,
+                   edge.weight.max = max(mat),
+                   title.name = rownames(mat)[i])
   
-  # Set ligand-receptor database (human or mouse)
-  # For human data:
-  CellChatDB <- CellChatDB.human
-  # For mouse data, use: CellChatDB <- CellChatDB.mouse
-  
-  # Show database info
-  showDatabaseCategory(CellChatDB)
-  
-  # Use all CellChatDB for analysis
-  CellChatDB.use <- CellChatDB
-  cellchat@DB <- CellChatDB.use
-  
-  return(cellchat)
+  # Close the graphics device
+  dev.off()
 }
 
-# ============================================================================
-# STEP 2: Create CellChat objects for each visit-treatment combination
-# ============================================================================
+# List all files
+files_to_upload <- list.files("cellchat_circles", full.names = TRUE)
 
-# Define your four experimental conditions
-visits <- c("PRE", "POST")
-treatments <- c("Placebo", "Dapagliflozin")
+for (f in files_to_upload) {
+  key <- paste0("cellchat/circle_plots/", basename(f))
+  s3$upload_file(Filename = f, Bucket = "attempt", Key = key)
+}
+```
 
-# Create list to store CellChat objects
-cellchat_list <- list()
+```{r echo = F}
+cellchat <- computeCommunProb(cellchat)
+# Step 2: Compute communication probabilities at the pathway level
+cellchat <- computeCommunProbPathway(cellchat)
 
-# Create CellChat objects for each combination
-for(visit in visits) {
-  for(treatment in treatments) {
-    condition_name <- paste(visit, treatment, sep = "_")
-    
-    # Check if this combination exists in your data
-    subset_check <- subset(attempt_so, subset = visit == visit & treatment == treatment)
-    if(ncol(subset_check) > 0) {
-      print(paste("Creating CellChat object for:", condition_name))
-      cellchat_list[[condition_name]] <- create_cellchat_object(attempt_so, visit, treatment)
-    } else {
-      print(paste("No cells found for:", condition_name))
+# Step 3: Aggregate the network at the signaling pathway level
+cellchat <- aggregateNet(cellchat)
+
+# Now you can run:
+cellchat@netP$pathways
+```
+
+```{r echo = F}
+# Chord diagram
+# Create an output folder
+out_dir <- "cellchat_pathway_plots"
+dir.create(out_dir, showWarnings = FALSE)
+
+# Vector of pathway names
+pathways <- cellchat@netP$pathways        # already populated
+
+# Loop over pathways and save each plot
+for (pw in pathways) {
+  
+  # Sanitize the pathway name for filenames
+  pw_clean  <- gsub("[^A-Za-z0-9_\\-]", "_", pw)
+  out_file  <- file.path(out_dir, paste0("aggregate_", pw_clean, ".jpeg"))
+  
+  # Open graphics device (adjust width/height/res to taste)
+  jpeg(filename = out_file, width = 1600, height = 1600, res = 200)
+  
+  # Draw the plot
+  tryCatch(
+    {
+      netVisual_aggregate(
+        object         = cellchat,
+        signaling      = pw,
+        layout         = "circle",    # or "chord"
+        weight.scale   = TRUE,
+        edge.weight.max = max(cellchat@net$weight),  # keeps colour scales comparable
+        title.name     = pw
+      )
+    },
+    error = function(e) {
+      message(sprintf("Skipped %s – %s", pw, e$message))
     }
-  }
-}
-
-print(paste("Created", length(cellchat_list), "CellChat objects"))
-print("Conditions available:")
-print(names(cellchat_list))
-
-# ============================================================================
-# STEP 3: Perform CellChat analysis for each condition
-# ============================================================================
-
-perform_cellchat_analysis <- function(cellchat_obj) {
-  # Preprocess data
-  cellchat_obj <- subsetData(cellchat_obj) # subset based on expressed genes
-  cellchat_obj <- identifyOverExpressedGenes(cellchat_obj)
-  cellchat_obj <- identifyOverExpressedInteractions(cellchat_obj)
-  
-  # Infer cell-cell communication network
-  cellchat_obj <- computeCommunProb(cellchat_obj, raw.use = TRUE)
-  
-  # Filter out communications with very few cells
-  cellchat_obj <- filterCommunication(cellchat_obj, min.cells = 10)
-  
-  # Infer signaling pathways
-  cellchat_obj <- computeCommunProbPathway(cellchat_obj)
-  
-  # Calculate aggregated network
-  cellchat_obj <- aggregateNet(cellchat_obj)
-  
-  return(cellchat_obj)
-}
-
-# Run analysis for each condition
-for(condition in names(cellchat_list)) {
-  print(paste("Analyzing", condition))
-  cellchat_list[[condition]] <- perform_cellchat_analysis(cellchat_list[[condition]])
-}
-
-# ============================================================================
-# STEP 4: Visualize individual condition results
-# ============================================================================
-
-# Function to create basic visualizations
-visualize_cellchat <- function(cellchat_obj, condition_name) {
-  # Network plot
-  groupSize <- as.numeric(table(cellchat_obj@idents))
-  par(mfrow = c(1,2), xpd=TRUE)
-  
-  # Circle plot of cell-cell communications
-  netVisual_circle(cellchat_obj@net$count, vertex.weight = groupSize, 
-                   weight.scale = T, label.edge= F, 
-                   title.name = paste("Number of interactions -", condition_name))
-  
-  # Circle plot of interaction weights
-  netVisual_circle(cellchat_obj@net$weight, vertex.weight = groupSize, 
-                   weight.scale = T, label.edge= F, 
-                   title.name = paste("Interaction weights -", condition_name))
-}
-
-# Create visualizations for each condition
-for(condition in names(cellchat_list)) {
-  visualize_cellchat(cellchat_list[[condition]], condition)
-}
-
-# ============================================================================
-# STEP 5: Compare conditions - focus on treatment and timepoint effects
-# ============================================================================
-
-# Treatment effect comparison: Dapagliflozin vs Placebo at each timepoint
-compare_treatments <- function(cellchat_list) {
-  
-  # PRE timepoint comparison
-  if("PRE_Placebo" %in% names(cellchat_list) & "PRE_Dapagliflozin" %in% names(cellchat_list)) {
-    print("Comparing treatments at PRE timepoint...")
-    pre_comparison <- mergeCellChat(list(PRE_Placebo = cellchat_list[["PRE_Placebo"]], 
-                                        PRE_Dapagliflozin = cellchat_list[["PRE_Dapagliflozin"]]), 
-                                   add.names = c("PRE_Placebo", "PRE_Dapagliflozin"))
-    
-    # Visualize differences at PRE
-    gg1 <- compareInteractions(pre_comparison, show.legend = T, group = c(1,2), 
-                              title = "PRE: Placebo vs Dapagliflozin")
-    print(gg1)
-  }
-  
-  # POST timepoint comparison  
-  if("POST_Placebo" %in% names(cellchat_list) & "POST_Dapagliflozin" %in% names(cellchat_list)) {
-    print("Comparing treatments at POST timepoint...")
-    post_comparison <- mergeCellChat(list(POST_Placebo = cellchat_list[["POST_Placebo"]], 
-                                         POST_Dapagliflozin = cellchat_list[["POST_Dapagliflozin"]]), 
-                                    add.names = c("POST_Placebo", "POST_Dapagliflozin"))
-    
-    # Visualize differences at POST
-    gg2 <- compareInteractions(post_comparison, show.legend = T, group = c(1,2), 
-                              title = "POST: Placebo vs Dapagliflozin")
-    print(gg2)
-  }
-}
-
-# Timepoint effect comparison: PRE vs POST for each treatment
-compare_timepoints <- function(cellchat_list) {
-  
-  # Placebo group: PRE vs POST
-  if("PRE_Placebo" %in% names(cellchat_list) & "POST_Placebo" %in% names(cellchat_list)) {
-    print("Comparing timepoints in Placebo group...")
-    placebo_comparison <- mergeCellChat(list(PRE_Placebo = cellchat_list[["PRE_Placebo"]], 
-                                            POST_Placebo = cellchat_list[["POST_Placebo"]]), 
-                                       add.names = c("PRE_Placebo", "POST_Placebo"))
-    
-    # Visualize changes over time in placebo
-    gg1 <- compareInteractions(placebo_comparison, show.legend = T, group = c(1,2), 
-                              title = "Placebo: PRE vs POST")
-    print(gg1)
-  }
-  
-  # Dapagliflozin group: PRE vs POST
-  if("PRE_Dapagliflozin" %in% names(cellchat_list) & "POST_Dapagliflozin" %in% names(cellchat_list)) {
-    print("Comparing timepoints in Dapagliflozin group...")
-    dapa_comparison <- mergeCellChat(list(PRE_Dapagliflozin = cellchat_list[["PRE_Dapagliflozin"]], 
-                                         POST_Dapagliflozin = cellchat_list[["POST_Dapagliflozin"]]), 
-                                    add.names = c("PRE_Dapagliflozin", "POST_Dapagliflozin"))
-    
-    # Visualize changes over time in dapagliflozin
-    gg2 <- compareInteractions(dapa_comparison, show.legend = T, group = c(1,2), 
-                              title = "Dapagliflozin: PRE vs POST")
-    print(gg2)
-  }
-}
-
-# Run comparisons
-compare_treatments(cellchat_list)
-compare_timepoints(cellchat_list)
-
-# Full four-way comparison if all conditions are available
-if(length(cellchat_list) == 4) {
-  print("Performing full four-way comparison...")
-  # Order: PRE_Placebo, POST_Placebo, PRE_Dapagliflozin, POST_Dapagliflozin
-  cellchat_merged <- mergeCellChat(cellchat_list, add.names = names(cellchat_list))
-  
-  # Compare total number of interactions across all conditions
-  gg1 <- compareInteractions(cellchat_merged, show.legend = T, group = c(1,2,3,4))
-  gg2 <- compareInteractions(cellchat_merged, show.legend = T, group = c(1,2,3,4), measure = "weight")
-  print(gg1 + gg2)
-  
-  # Network visualization showing differences
-  par(mfrow = c(1,2), xpd=TRUE)
-  netVisual_diffInteraction(cellchat_merged, weight.scale = T)
-  netVisual_diffInteraction(cellchat_merged, weight.scale = T, measure = "weight")
-  
-  # Heatmap showing differential interactions
-  gg1 <- netVisual_heatmap(cellchat_merged)
-  gg2 <- netVisual_heatmap(cellchat_merged, measure = "weight")
-  print(gg1 + gg2)
-}
-
-# ============================================================================
-# STEP 6: Pathway-specific analysis
-# ============================================================================
-
-# Identify significantly changed signaling pathways
-if(exists("cellchat_merged")) {
-  # Compare signaling pathways
-  gg1 <- rankNet(cellchat_merged, mode = "comparison", stacked = T, do.stat = TRUE)
-  gg2 <- rankNet(cellchat_merged, mode = "comparison", stacked = F, do.stat = TRUE)
-  gg1 + gg2
-  
-  # Identify upregulated and downregulated pathways
-  pathways.show <- c("VEGF", "TGFb", "PDGF", "WNT") # Adjust based on your interest
-  
-  for(pathway in pathways.show) {
-    if(pathway %in% cellchat_merged@netP$pathways) {
-      # Chord diagram for specific pathway
-      pathways.show.single <- pathway
-      weight.max <- getMaxWeight(cellchat_list, attribute = c("netP"), 
-                                slot.name = c("net"), 
-                                comparison = pathways.show.single)
-      par(mfrow = c(2,2), xpd=TRUE)
-      
-      for(i in 1:length(cellchat_list)) {
-        netVisual_aggregate(cellchat_list[[i]], signaling = pathways.show.single, 
-                          vertex.weight = groupSize, 
-                          weight.max = weight.max, 
-                          vertex.size.max = 15,
-                          title.name = paste(pathways.show.single, "pathway network in", 
-                                           names(cellchat_list)[i]))
-      }
-    }
-  }
-}
-
-# ============================================================================
-# STEP 7: Statistical analysis and output
-# ============================================================================
-
-# Extract significant interactions for further analysis
-extract_significant_interactions <- function(cellchat_obj, condition_name) {
-  # Get communication probability matrix
-  comm_prob <- cellchat_obj@net$prob
-  
-  # Get pathway information
-  pathways <- cellchat_obj@netP$pathways
-  
-  # Create summary dataframe
-  results <- data.frame(
-    condition = condition_name,
-    n_interactions = sum(cellchat_obj@net$count > 0),
-    total_strength = sum(cellchat_obj@net$weight),
-    n_pathways = length(pathways),
-    stringsAsFactors = FALSE
   )
   
-  return(results)
+  # Close device so the file is written
+  dev.off()
 }
 
-# Create summary table
-summary_results <- data.frame()
-for(condition in names(cellchat_list)) {
-  result <- extract_significant_interactions(cellchat_list[[condition]], condition)
-  summary_results <- rbind(summary_results, result)
-}
+message(sprintf("Done! Plots saved to %s/", out_dir))
+```
 
-print("Summary of cell-cell interactions by condition:")
-print(summary_results)
+```{r echo = F}
+# Heatmap
+temp_file <- tempfile(fileext = ".jpeg")
+jpeg(filename = temp_file, width = 1600, height = 1200, res = 200)  # adjust resolution as needed
+netVisual_heatmap(cellchat, color.heatmap = "Reds")
+dev.off()  # closes the device and writes the file
+s3$upload_file(temp_file, "attempt", "cellchat/cellchat_heatmap.jpeg")
+```
 
-# Save results
-write.csv(summary_results, "cellchat_summary_results.csv", row.names = FALSE)
+# LIANA
+```{r echo = F}
+attempt_liana <- liana_wrap(attempt_so) # run liana
+attempt_liana <- attempt_liana %>% liana_aggregate() # aggregate liana results
 
-# ============================================================================
-# Additional visualizations and analyses
-# ============================================================================
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(attempt_liana, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'attempt_liana.rds')
 
-# Bubble plot showing ligand-receptor pairs
-if(exists("cellchat_merged")) {
-  # Show top differential ligand-receptor pairs
-  netVisual_bubble(cellchat_merged, sources.use = 1:4, targets.use = 1:4, 
-                   comparison = c(1, 2), angle.x = 45)
-}
 
-print("Analysis complete! Check the generated plots and summary table.")
-print("Key files saved:")
-print("- cellchat_summary_results.csv: Summary statistics")
-print("- Various plots showing cell-cell interaction networks")
+attempt_liana_trunc <- attempt_liana %>%
+   # only keep interactions concordant between methods
+  filter(aggregate_rank <= 0.01) # note that these pvals are already corrected
+
+
+temp_file <- tempfile(fileext = ".jpeg")
+jpeg(filename = temp_file, width = 1800, height = 1800, res = 500)  # adjust resolution as needed
+heat_freq(attempt_liana_trunc)
+dev.off()  # closes the device and writes the file
+s3$upload_file(temp_file, "attempt", "cellchat/liana_heatmap.jpeg")
+
+
+p <- chord_freq(attempt_liana_trunc,
+                source_groups = c("aPT", "PT-S1/S2", "PT-S3", "MON", "MAC"),
+                target_groups = c("aPT", "PT-S1/S2", "PT-S3", "MON", "MAC"))
+p
+```
+
+# LIANA (standard celltype)
+```{r echo = F}
+Idents(attempt_so) <- attempt_so$celltype
+attempt_liana <- liana_wrap(attempt_so) # run liana
+attempt_liana <- attempt_liana %>% liana_aggregate() # aggregate liana results
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(attempt_liana, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'attempt_liana_celltype.rds')
+
+
+attempt_liana_trunc <- attempt_liana %>%
+  filter(aggregate_rank <= 0.01) # note that these pvals are already corrected
+
+
+temp_file <- tempfile(fileext = ".jpeg")
+jpeg(filename = temp_file, width = 2200, height = 1800, res = 200)  # adjust resolution as needed
+heat_freq(attempt_liana_trunc)
+dev.off()  # closes the device and writes the file
+s3$upload_file(temp_file, "attempt", "cellchat/liana_heatmap_2.jpeg")
 ```
