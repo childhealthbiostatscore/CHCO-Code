@@ -153,3 +153,26 @@ alt_plot
 pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/alt_pathways_02_pval.pdf",width=10,height=8)
 plot(alt_plot)
 dev.off()
+
+#Ratio
+ratio <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/ALT_AST_Ratio_pathways.xls", skip = 1)
+
+ratio <- ratio %>% arrange(desc("-log(p-value)")) 
+ratio_keep <- ratio[1:60,]
+
+ratio_plot <- ipa_plot(ratio_keep)
+ratio_plot 
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/Ratio_pathways.pdf",width=10,height=8)
+plot(ratio_plot)
+dev.off()
+
+ratio <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/ALT_AST_Ratio_pathways_02_pval.xls", skip = 1)
+
+ratio <- ratio %>% arrange(desc("-log(p-value)")) 
+ratio_keep <- ratio[1:60,]
+
+ratio_plot <- ipa_plot(ratio_keep)
+ratio_plot 
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/ratio_pathways_02_pval.pdf",width=10,height=8)
+plot(ratio_plot)
+dev.off()

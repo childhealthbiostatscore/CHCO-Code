@@ -377,6 +377,22 @@ table1::table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_sglti2_1+epic_glp
 dat$record_id
 
 
+
+lc_imaging <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/LC_rawimagingdata.txt')
+t2d_imaging <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/T2D_rawimagingdata.txt')
+
+imaging_combined <- rbind(lc_imaging, t2d_imaging) %>% filter(!is.na(lc_k2))
+
+dat2 <- dat %>% filter(mrn %in% imaging_combined$mrn)
+
+
+table1::table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_sglti2_1+epic_glp1ra_1| group2,data=dat2)
+
+
+
+
+
+
 ids <- c(dat$kit_id)
 so_kpmp_sc <- subset(so_kpmp_sc, kit_id %in% ids)
 length(unique(so_kpmp_sc$kit_id))#29
@@ -414,6 +430,73 @@ so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
   ungroup()
 
 
+meta.data <- so_kpmp_sc@meta.data %>% dplyr::select(record_id, mrn, group, kit_id,
+                                                    epic_sglti2_1,
+                                                    lc_k2, rc_k2, 
+                                                    lm_k2, rm_k2, 
+                                                    lc_f, rc_f, 
+                                                    lm_f, rm_f)
+
+meta.data.test <- meta.data %>% filter(!duplicated(mrn))
+write.table(meta.data.test %>% filter(group == 'Lean_Control') %>% dplyr::select(record_id, mrn, group, kit_id), 'C:/Users/netio/Documents/UofW/Rockies/LC_IDs.txt', row.names=F, quote=F, sep='\t')
+
+lc_ids <- data.table::fread("C:/Users/netio/Documents/UofW/Rockies/LC_IDs.txt")
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+
+test <- harmonized_data %>% filter(kit_id %in% lc_ids$kit_id)
+test2 <- harmonized_data %>% filter(mrn %in% test$mrn)
+
+test3 <- harmonized_data %>% filter(mrn %in% test2$mrn) %>% 
+  dplyr::select(record_id, kit_id, mrn, lc_k2, rc_k2, lm_k2, rm_k2) %>% group_by(mrn) %>% 
+  summarize(lc_k2 = mean(lc_k2, na.rm=T), rc_k2 = mean(rc_k2, na.rm=T), 
+            lm_k2 = mean(lm_k2, na.rm=T), rm_k2 = mean(rm_k2, na.rm=T))
+
+write.table(test3, 'C:/Users/netio/Documents/UofW/Rockies/LC_rawimagingdata.txt', 
+            row.names=F, quote=F, sep='\t')
+
+
+
+
+
+
+
+so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data[, !colnames(so_kpmp_sc@meta.data) %in% c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                                                                                   'avg_c_k2_f', 'avg_m_k2_f',
+                                                                                   'lc_k2', 'rc_k2', 'lm_k2', 
+                                                                                   'rm_k2')]
+
+lc_imaging <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/LC_rawimagingdata.txt')
+t2d_imaging <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/T2D_rawimagingdata.txt')
+
+imaging_combined <- rbind(lc_imaging, t2d_imaging)
+
+so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
+  tibble::rownames_to_column("cell_id") %>%
+  left_join(imaging_combined, by = "mrn") %>%
+  tibble::column_to_rownames("cell_id")
+
+
+
+ so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
+   rowwise() %>%
+   mutate(avg_c_k2 = (lc_k2+rc_k2)/2) %>%
+   mutate(avg_m_k2 = (lm_k2+rm_k2)/2) %>%
+   mutate(avg_c_f = (lc_f+rc_f)/2) %>%
+   mutate(avg_m_f = (lm_f+rm_f)/2) %>%
+   ungroup()
+so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
+   rowwise() %>%
+   mutate(avg_c_k2_f = (avg_c_k2/avg_c_f)) %>%
+   mutate(avg_m_k2_f = (avg_m_k2/avg_m_f)) %>%
+  ungroup()
+
+
+
+
+
+
 graphs <- list()
 
 pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_KidneyImaging.pdf', 
@@ -442,6 +525,282 @@ gridExtra::grid.arrange(graphs[[1]], graphs[[2]],
 dev.off()
 
 
+bmi_grp <- ggplot(subset(boxplot_adpkd_combined_dat, 
+                         pet_param == "bmi" & 
+                           group_w_class != "ADPKD"),
+       mapping = aes(x = group,
+                     y = value,
+                     fill = group))  +
+  scale_fill_manual(values = c("#c2dfe3", "#fff9ec", 
+                                "#fcb1a6","#fb6376")) +
+  labs(x = NULL,
+       y = NULL,
+       fill = NULL) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_rect(data=data.frame(pet_param="bmi"), 
+            aes(ymin = dat_quantile$mild_mod_bmi[2], 
+                ymax = dat_quantile$mild_mod_bmi[4], 
+                xmin = 1.75, 
+                xmax = 1.85),
+            fill = "#fcb1a6", alpha = 0.9, inherit.aes = F) +
+  geom_rect(data=data.frame(pet_param="bmi"), 
+            aes(ymin = dat_quantile$severe_bmi[2], 
+                ymax = dat_quantile$severe_bmi[4], 
+                xmin = 2.15, 
+                xmax = 2.25),
+            fill = "#fb6376", alpha = 0.9, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="bmi"), 
+               aes(y = dat_quantile$mild_mod_bmi[3],
+                   yend = dat_quantile$mild_mod_bmi[3],
+                   x = 1.75, xend = 1.85), linewidth = 0.4, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="bmi"), 
+               aes(y = dat_quantile$severe_bmi[3],
+                   yend = dat_quantile$severe_bmi[3],
+                   x = 2.15, xend = 2.25), linewidth = 0.4, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="bmi"), 
+               aes(y = dat_quantile$mild_mod_bmi[1],
+                   yend = dat_quantile$mild_mod_bmi[5],
+                   x = 1.8, xend = 1.8),
+                   linetype = "dashed", linewidth = 0.2, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="bmi"), 
+               aes(y = dat_quantile$severe_bmi[1],
+                   yend = dat_quantile$severe_bmi[5],
+                   x = 2.2, xend = 2.2),
+                   linetype = "dashed", linewidth = 0.2, inherit.aes = F) +
+  new_scale_fill() +
+  geom_point(aes(fill = group_w_class),
+              color = "black",
+              alpha = 0.7, 
+              shape = 21,
+             position = position_jitterdodge()) +
+  facet_grid(pet_param ~ .,
+             switch = "y",
+             labeller = labeller(pet_param = c("bmi" = "BMI"))) +
+  scale_fill_manual(values = c("#c2dfe3", "#fcb1a6", "#fb6376")) +
+  scale_color_manual(values = c("#c2dfe3", "#fff9ec",
+                              "#fcb1a6", "#fb6376")) +
+    labs(x = NULL,
+         y = NULL,
+         fill = NULL) + 
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(), 
+        legend.position = "none",
+        panel.background = element_rect(fill = "#f2e9e4",
+                                        color = "grey"),
+        strip.background = element_rect(fill = "#f2e9e4",
+                                        color = "grey"),
+        strip.text = element_text(size = 10)) +
+  geom_signif(annotations = "*", y_position = c(41.5), xmin = c(1), xmax = c(2)) +
+  ylim(c(19,43))
+
+boxplot1 <-
+  ggplot(subset(boxplot_adpkd_combined_dat, 
+                (pet_param == "avg_f"|pet_param == "avg_k1") & 
+                  group_w_class != "ADPKD"),
+       mapping = aes(x = group,
+                     y = value,
+                     fill = group))  +
+  scale_fill_manual(values = c("#c2dfe3", "#fff9ec", 
+                                "#fcb1a6","#fb6376")) +
+  labs(x = NULL,
+       y = NULL,
+       fill = NULL) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_rect(data=data.frame(pet_param="avg_f"), 
+            aes(ymin = dat_quantile$mild_mod_f[2], 
+                ymax = dat_quantile$mild_mod_f[4], 
+                xmin = 1.75, 
+                xmax = 1.85),
+            fill = "#fcb1a6", alpha = 0.9, inherit.aes = F) +
+  geom_rect(data=data.frame(pet_param="avg_f"), 
+            aes(ymin = dat_quantile$severe_f[2], 
+                ymax = dat_quantile$severe_f[4], 
+                xmin = 2.15, 
+                xmax = 2.25),
+            fill = "#fb6376", alpha = 0.9, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_f"), 
+               aes(y = dat_quantile$mild_mod_f[3],
+                   yend = dat_quantile$mild_mod_f[3],
+                   x = 1.75, xend = 1.85), linewidth = 0.4, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_f"), 
+               aes(y = dat_quantile$severe_f[3],
+                   yend = dat_quantile$severe_f[3],
+                   x = 2.15, xend = 2.25), linewidth = 0.4, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_f"), 
+               aes(y = dat_quantile$mild_mod_f[1],
+                   yend = dat_quantile$mild_mod_f[5],
+                   x = 1.8, xend = 1.8),
+                   linetype = "dashed", linewidth = 0.2, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_f"), 
+               aes(y = dat_quantile$severe_f[1],
+                   yend = dat_quantile$severe_f[5],
+                   x = 2.2, xend = 2.2),
+                   linetype = "dashed", linewidth = 0.2, inherit.aes = F) +
+  geom_rect(data=data.frame(pet_param="avg_k1"), 
+            aes(ymin = dat_quantile$mild_mod_k1[2], 
+                ymax = dat_quantile$mild_mod_k1[4], 
+                xmin = 1.75, 
+                xmax = 1.85),
+            fill = "#fcb1a6", alpha = 0.9, inherit.aes = F) +
+  geom_rect(data=data.frame(pet_param="avg_k1"), 
+            aes(ymin = dat_quantile$severe_k1[2], 
+                ymax = dat_quantile$severe_k1[4], 
+                xmin = 2.15, 
+                xmax = 2.25),
+            fill = "#fb6376", alpha = 0.9, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k1"), 
+               aes(y = dat_quantile$mild_mod_k1[3],
+                   yend = dat_quantile$mild_mod_k1[3],
+                   x = 1.75, xend = 1.85), linewidth = 0.4, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k1"), 
+               aes(y = dat_quantile$severe_k1[3],
+                   yend = dat_quantile$severe_k1[3],
+                   x = 2.15, xend = 2.25), linewidth = 0.4, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k1"), 
+               aes(y = dat_quantile$mild_mod_k1[1],
+                   yend = dat_quantile$mild_mod_k1[5],
+                   x = 1.8, xend = 1.8),
+                   linetype = "dashed", linewidth = 0.2, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k1"), 
+               aes(y = dat_quantile$severe_k1[1],
+                   yend = dat_quantile$severe_k1[5],
+                   x = 2.2, xend = 2.2),
+                   linetype = "dashed", linewidth = 0.2, inherit.aes = F) +    
+  new_scale_fill() +
+  geom_point(aes(fill = group_w_class),
+              color = "black",
+              alpha = 0.7, 
+              shape = 21,
+             position = position_jitterdodge()) +
+  facet_grid(pet_param ~ .,
+             switch = "y",
+             labeller = labeller(pet_param = c("avg_f" = "Avg F", "avg_k1" = "Avg K1"))) +
+  scale_fill_manual(values = c("#c2dfe3", "#fcb1a6", "#fb6376")) +
+  scale_color_manual(values = c("#c2dfe3", "#fff9ec",
+                              "#fcb1a6", "#fb6376")) +
+    labs(x = NULL,
+       y = NULL,
+       fill = NULL) + 
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(), 
+        legend.position = "none",
+        panel.background = element_rect(fill = "#f2e9e4",
+                                        color = "grey"),
+        strip.background = element_rect(fill = "#f2e9e4",
+                                        color = "grey"),
+        strip.text = element_text(size = 10)) +
+  geom_signif(annotations = "***", y_position = c(2.5), xmin = c(1), xmax = c(2))
+
+boxplot2 <-
+  ggplot(subset(boxplot_adpkd_combined_dat,
+                (pet_param == "avg_k2_w_cyst"|pet_param == "avg_k2_wo_cyst") & 
+                  group_w_class != "ADPKD"),
+       aes(x = group,
+           y = value,
+           fill = group)) + 
+  scale_fill_manual(values = c("#c2dfe3", "#fff9ec", 
+                                "#fcb1a6","#fb6376")) +
+    labs(x = NULL,
+         y = NULL,
+         fill = NULL) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_rect(data=data.frame(pet_param="avg_k2_w_cyst"), 
+            aes(ymin = dat_quantile$mild_mod_k2cyst[2], 
+                ymax = dat_quantile$mild_mod_k2cyst[4], 
+                xmin = 1.75, 
+                xmax = 1.85),
+            fill = "#fcb1a6", alpha = 0.9, inherit.aes = F) +
+  geom_rect(data=data.frame(pet_param="avg_k2_w_cyst"), 
+            aes(ymin = dat_quantile$severe_k2cyst[2], 
+                ymax = dat_quantile$severe_k2cyst[4], 
+                xmin = 2.15, 
+                xmax = 2.25),
+            fill = "#fb6376", alpha = 0.9, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k2_w_cyst"), 
+               aes(y = dat_quantile$mild_mod_k2cyst[3],
+                   yend = dat_quantile$mild_mod_k2cyst[3],
+                   x = 1.75, xend = 1.85), linewidth = 0.4, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k2_w_cyst"), 
+               aes(y = dat_quantile$severe_k2cyst[3],
+                   yend = dat_quantile$severe_k2cyst[3],
+                   x = 2.15, xend = 2.25), linewidth = 0.4, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k2_w_cyst"), 
+               aes(y = dat_quantile$mild_mod_k2cyst[1],
+                   yend = dat_quantile$mild_mod_k2cyst[5],
+                   x = 1.8, xend = 1.8),
+                   linetype = "dashed", linewidth = 0.2, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k2_w_cyst"), 
+               aes(y = dat_quantile$severe_k2cyst[1],
+                   yend = dat_quantile$severe_k2cyst[5],
+                   x = 2.2, xend = 2.2),
+                   linetype = "dashed", linewidth = 0.2, inherit.aes = F) +
+  geom_rect(data=data.frame(pet_param="avg_k2_wo_cyst"), 
+            aes(ymin = dat_quantile$mild_mod_k2_ncyst[2], 
+                ymax = dat_quantile$mild_mod_k2_ncyst[4], 
+                xmin = 1.75, 
+                xmax = 1.85),
+            fill = "#fcb1a6", alpha = 0.9, inherit.aes = F) +
+  geom_rect(data=data.frame(pet_param="avg_k2_wo_cyst"), 
+            aes(ymin = dat_quantile$severe_k2_ncyst[2], 
+                ymax = dat_quantile$severe_k2_ncyst[4], 
+                xmin = 2.15, 
+                xmax = 2.25),
+            fill = "#fb6376", alpha = 0.9, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k2_wo_cyst"), 
+               aes(y = dat_quantile$mild_mod_k2_ncyst[3],
+                   yend = dat_quantile$mild_mod_k2_ncyst[3],
+                   x = 1.75, xend = 1.85), linewidth = 0.4, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k2_wo_cyst"), 
+               aes(y = dat_quantile$severe_k2_ncyst[3],
+                   yend = dat_quantile$severe_k2_ncyst[3],
+                   x = 2.15, xend = 2.25), linewidth = 0.4, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k2_wo_cyst"), 
+               aes(y = dat_quantile$mild_mod_k2_ncyst[1],
+                   yend = dat_quantile$mild_mod_k2_ncyst[5],
+                   x = 1.8, xend = 1.8),
+                   linetype = "dashed", linewidth = 0.2, inherit.aes = F) +
+  geom_segment(data=data.frame(pet_param="avg_k2_wo_cyst"), 
+               aes(y = dat_quantile$severe_k2_ncyst[1],
+                   yend = dat_quantile$severe_k2_ncyst[5],
+                   x = 2.2, xend = 2.2),
+                   linetype = "dashed", linewidth = 0.2, inherit.aes = F) +   
+  new_scale_fill() +
+  geom_point(aes(fill = group_w_class),
+              color = "black",
+              alpha = 0.7, 
+              shape = 21,
+             position = position_jitterdodge()) +
+  facet_grid(pet_param ~ .,
+             switch = "y",
+             labeller = labeller(pet_param = c("avg_k2_w_cyst" = "Avg k2 w/ cyst", "avg_k2_wo_cyst" = "Avg k2 w/o cyst"))) +
+  scale_fill_manual(values = c("#c2dfe3", "#fcb1a6", "#fb6376")) +
+  scale_color_manual(values = c("#c2dfe3", "#fff9ec",
+                              "#fcb1a6", "#fb6376")) +
+    labs(x = NULL,
+       y = NULL,
+       fill = NULL) + 
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank(), 
+        legend.position = "none",
+        panel.background = element_rect(fill = "#f2e9e4",
+                                        color = "grey"),
+        strip.background = element_rect(fill = "#f2e9e4",
+                                        color = "grey"),
+        strip.text = element_text(size = 10)) +
+  geom_signif(annotations = "***", y_position = c(0.205), xmin = c(1), xmax = c(2)) +
+  ylim(c(0.12,0.215))
+
+layout <- c(
+  area(1, 3, 2, 6),
+  area(3, 1, 6, 4),
+  area(3, 5, 6, 9)
+)
+plot(layout)
+bmi_grp + boxplot1+boxplot2 +
+  plot_layout(design = layout, guides = "collect") & theme(legend.position = "top")
 
 
 

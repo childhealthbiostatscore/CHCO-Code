@@ -202,8 +202,8 @@ harmonized_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","
 
 dat <- harmonized_data %>%
   arrange(screen_date) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, dplyr::first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, dplyr::first(na.omit(.x)))),
                    .by = c(record_id, visit))
 length(unique(dat$mrn))#467
 length(unique(dat$record_id))#644
@@ -275,8 +275,8 @@ dat$record_id
 #Double check for any missing improve/renal heir coenrolled participants
 dat2 <- harmonized_data %>%
   arrange(screen_date) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, dplyr::first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, dplyr::first(na.omit(.x)))),
                    .by = c(record_id, visit))
 
 dat2 <- dat2 %>% 
@@ -333,11 +333,6 @@ rm(dat2)
 
 #Final dataset = 31
 table(dat$study,dat$group)
-#               Lean Control Type 2 Diabetes
-# CROCODILE                 13               0
-# RENAL-HEIR                 0              11
-# RENAL-HEIRitage            0               7
-
 table(dat$group,dat$epic_sglti2_1)
 # ###########################
 # 
@@ -401,8 +396,15 @@ table(dat$group,dat$epic_sglti2_1)
 
 
 ids <- c(dat$kit_id)
+ids[which(duplicated(ids))]
 biopsy <- unique(so_kpmp_sc$kit_id)
 ids[which(!ids %in% biopsy)] 
+biopsy[which(!biopsy %in% ids)] 
+
+#Filter out followup visit for RH/RH2 participant: RH-93-T/RH2-09-T with kit ID KL-0029524
+dat <- dat %>% 
+ dplyr::filter(record_id!="RH-93-T")
+
 
 # unique(so_kpmp_sc$kit_id[which(!so_kpmp_sc$kit_id %in% ids)])
 # dat2$record_id[which(!dat2$kit_id %in% so_kpmp_sc$kit_id)]
@@ -422,7 +424,7 @@ so_kpmp_sc <- subset(so_kpmp_sc, kit_id %in% ids)
 length(unique(so_kpmp_sc$kit_id))#29
 unique(so_kpmp_sc$kit_id)
 unique(so_kpmp_sc$record_id)
-
+dat$record_id
 #Select metadata from seurat object to facilitate merge of new metadata into seurat object
 meta_kidney_sc <-  so_kpmp_sc@meta.data
 rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
@@ -796,6 +798,26 @@ rm(counts_layer,meta,sce)
 #   mutate(avg_c_k2_f = (avg_c_k2/avg_c_f)) %>%
 #   mutate(avg_m_k2_f = (avg_m_k2/avg_m_f)) %>%
 #   ungroup()
+
+table(so_subset@meta.data$KPMP_celltype,so_subset@meta.data$kit_id)
+so_celltype <- subset(so_subset,KPMP_celltype=="PT-S3")
+table(so_celltype@meta.data$KPMP_celltype,so_celltype@meta.data$kit_id)
+
+# Define your variable set
+pet <- c("var1", "var2", "var3")  # Replace with actual column names
+
+# Subset metadata for those variables
+meta_subset <- so_celltype@meta.data[, c("kit_id", pet)]
+
+# Identify rows (cells) with any missing value in the pet variables
+rows_with_missing <- apply(meta_subset[, pet], 1, function(x) any(is.na(x)))
+
+# Get unique kit_ids from those rows
+missing_kit_ids <- unique(meta_subset$kit_id[rows_with_missing])
+
+# Count how many unique participants are missing any of the pet variables
+length(missing_kit_ids)
+
 ```
 
 ## d. Explore Distribution & Zero-Inflation
@@ -7994,6 +8016,24 @@ dev.off()
 #Filter to PT Cells
 so_celltype <- subset(so_subset,KPMP_celltype=="PT-S3")
 # so_celltype <- subset(so_celltype,group=="Type_2_Diabetes")
+
+k2_vars <- c("avg_c_k2","avg_m_k2","avg_c_f","avg_m_f","avg_c_k2_f","avg_m_k2_f")
+
+# Subset metadata for those variables
+meta_subset <- so_celltype@meta.data[, c("kit_id", k2_vars)]
+
+# Identify rows (cells) with any missing value in the pet variables
+rows_with_missing <- apply(meta_subset[, k2_vars], 1, function(x) any(is.na(x)))
+
+# Get unique kit_ids from those rows
+missing_kit_ids <- unique(meta_subset$kit_id[rows_with_missing])
+
+# Count how many unique participants are missing any of the pet variables
+length(missing_kit_ids)
+length(unique(so_celltype$kit_id)) #26 
+table(so_celltype$avg_c_k2,so_celltype$kit_id)
+
+
 k2_ids <- unique(so_celltype$kit_id[which(!is.na(so_celltype$avg_c_k2))])
 so_celltype <- subset(so_celltype, kit_id %in% k2_ids)
 DefaultAssay(so_celltype) <- "RNA" 

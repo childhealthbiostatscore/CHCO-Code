@@ -1,5 +1,6 @@
 # Single Cell RNA-seq Data Simulation Using Splatter
 # Comparison of pseudobulk vs mixed effects methods with cell imbalance analysis
+# FIXED VERSION: Proper ordering from very small to large effects, balanced to extreme imbalance
 
 # Load required libraries
 library(splatter)
@@ -662,9 +663,9 @@ run_method_comparison <- function(
   ))
 }
 
-# Multi-effect size comparison
+# Multi-effect size comparison with FIXED ORDERING
 run_multi_effect_comparison <- function(
-    effect_sizes = c(1.2, 1.3, 1.8, 2.5),
+    effect_sizes = c(1.1, 1.2, 1.5, 2.0),
     effect_labels = c("Very Small", "Small", "Medium", "Large"),
     n_simulations = 50,
     methods = c("pseudobulk", "nebula"),
@@ -706,6 +707,11 @@ run_multi_effect_comparison <- function(
     all_results <- rbind(all_results, temp_results)
   }
   
+  # FIXED: Apply proper factor ordering to ensure Very Small -> Large ordering
+  all_results$effect_label <- factor(all_results$effect_label, 
+                                     levels = effect_labels, 
+                                     ordered = TRUE)
+  
   # Calculate summary statistics across all effect sizes
   summary_stats <- all_results %>%
     group_by(effect_label, effect_size, method) %>%
@@ -736,7 +742,7 @@ run_multi_effect_comparison <- function(
   cat("\n=== Summary Table ===\n")
   print(summary_table)
   
-  # Create plots
+  # Create plots with proper ordering
   p1 <- ggplot(all_results, aes(x = effect_label, y = power, fill = method)) +
     geom_boxplot(alpha = 0.7, position = position_dodge(width = 0.8)) +
     stat_summary(fun = mean, geom = "point", shape = 23, size = 2, 
@@ -764,9 +770,9 @@ run_multi_effect_comparison <- function(
   ))
 }
 
-# Imbalanced comparison function
+# Imbalanced comparison function with FIXED ORDERING
 run_imbalanced_comparison <- function(
-    effect_sizes = c(1.2, 1.3, 1.8, 2.5),
+    effect_sizes = c(1.1, 1.2, 1.5, 2.0),
     effect_labels = c("Very Small", "Small", "Medium", "Large"),
     imbalance_ratios = list(c(1, 1), c(2, 1), c(3, 1), c(5, 1), c(10,1)),
     imbalance_labels = c("Balanced (1:1)", "Low (2:1)", "Moderate (3:1)", "High (5:1)", "Extreme (10:1)"),
@@ -823,6 +829,14 @@ run_imbalanced_comparison <- function(
     }
   }
   
+  # FIXED: Apply proper factor ordering for both effect sizes and imbalance
+  all_results$effect_label <- factor(all_results$effect_label, 
+                                     levels = effect_labels, 
+                                     ordered = TRUE)
+  all_results$imbalance_ratio_text <- factor(all_results$imbalance_ratio_text, 
+                                             levels = imbalance_labels, 
+                                             ordered = TRUE)
+  
   # Calculate comprehensive summary statistics
   summary_stats <- all_results %>%
     group_by(effect_label, effect_size, imbalance_ratio_text, imbalance_severity, method) %>%
@@ -838,24 +852,33 @@ run_imbalanced_comparison <- function(
   cat("\n=== Comprehensive Imbalanced Comparison Results ===\n")
   print(summary_stats)
   
-  # Create power difference heatmap
+  # Create power difference heatmap with proper ordering
   power_wide <- summary_stats %>%
     select(effect_label, imbalance_ratio_text, method, mean_power) %>%
     pivot_wider(names_from = method, values_from = mean_power) %>%
     mutate(power_difference = pseudobulk - nebula,
            better_method = ifelse(power_difference > 0, "Pseudobulk", "NEBULA"))
   
-  cat("\n=== Power Difference Summary ===\n")
+  # Ensure proper factor ordering in the power_wide table
+  power_wide$effect_label <- factor(power_wide$effect_label, 
+                                    levels = effect_labels, 
+                                    ordered = TRUE)
+  power_wide$imbalance_ratio_text <- factor(power_wide$imbalance_ratio_text, 
+                                            levels = imbalance_labels, 
+                                            ordered = TRUE)
+  
+  cat("\n=== Power Difference Summary (Ordered) ===\n")
   print(power_wide)
   
-  # Create heatmap plot
+  # Create heatmap plot with proper ordering
   p1 <- ggplot(power_wide, aes(x = effect_label, y = imbalance_ratio_text, fill = power_difference)) +
     geom_tile() +
     geom_text(aes(label = round(power_difference, 3)), color = "white", fontface = "bold") +
     scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0,
                          name = "Power\nDifference\n(Pseudo - NEBULA)") +
-    labs(title = "Power Difference Heatmap", 
-         x = "Effect Size", y = "Cell Imbalance",
+    labs(title = "Power Difference Heatmap (Properly Ordered)", 
+         x = "Effect Size (Very Small → Large)", 
+         y = "Cell Imbalance (Balanced → Extreme)",
          subtitle = "Positive values = Pseudobulk better, Negative = NEBULA better") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -877,16 +900,16 @@ run_imbalanced_comparison <- function(
   ))
 }
 
-# Enhanced comparison examples
+# Enhanced comparison examples with FIXED ORDERING
 enhanced_method_comparison_example <- function() {
   
-  cat("=== Enhanced Pseudobulk vs NEBULA Comparison ===\n")
-  cat("Testing 4 effect sizes: Very Small (1.2x), Small (1.3x), Medium (1.8x), Large (2.5x)\n")
+  cat("=== Enhanced Pseudobulk vs NEBULA Comparison (Properly Ordered) ===\n")
+  cat("Testing 4 effect sizes: Very Small (1.1x), Small (1.2x), Medium (1.5x), Large (2.0x)\n")
   
-  # Run multi-effect size comparison
+  # Run multi-effect size comparison with proper ordering
   multi_results <- run_multi_effect_comparison(
-    effect_sizes = c(1.2, 1.3, 1.8, 2.5),
-    effect_labels = c("Very Small (1.2x)", "Small (1.3x)", "Medium (1.8x)", "Large (2.5x)"),
+    effect_sizes = c(1.1, 1.2, 1.5, 2.0),
+    effect_labels = c("Very Small (1.1x)", "Small (1.2x)", "Medium (1.5x)", "Large (2.0x)"),
     n_simulations = 30,
     methods = c("pseudobulk", "nebula"),
     n_cells_per_condition = 350,
@@ -898,40 +921,20 @@ enhanced_method_comparison_example <- function() {
   return(multi_results)
 }
 
-# imbalanced_method_comparison_example <- function() {
-#   
-#   cat("=== Imbalanced Cell Type Analysis ===\n")
-#   cat("Testing how cell imbalance affects DE method performance\n")
-#   
-#  # Run comprehensive imbalanced comparison
-#   imbalanced_results <- run_imbalanced_comparison(
-#     effect_sizes = c(1.2, 1.8, 2.5),
-#     effect_labels = c("Small (1.2x)", "Medium (1.8x)", "Large (2.5x)"),
-#     imbalance_ratios = list(c(1, 1), c(2, 1), c(5, 1)),
-#     imbalance_labels = c("Balanced (1:1)", "Moderate (2:1)", "Extreme (5:1)"),
-#     n_simulations = 50,
-#     methods = c("pseudobulk", "nebula"),
-#     base_cells = 5000,
-#     n_genes = 500,
-#     de_prob = 0.1,
-#     alpha = 0.05
-#   )
-#   
-#   return(imbalanced_results)
-# }
-
 imbalanced_method_comparison_example <- function() {
-  cat("=== Imbalanced Cell Type Analysis ===\n")
-  cat("Testing how cell imbalance affects DE method performance\n")
   
-  # Use ALL combinations (this will take longer)
+  cat("=== Imbalanced Cell Type Analysis (Properly Ordered) ===\n")
+  cat("Testing how cell imbalance affects DE method performance\n")
+  cat("Effect sizes: Very Small → Large\n")
+  cat("Imbalance: Balanced → Extreme\n")
+  
+  # Run comprehensive imbalanced comparison with proper ordering
   imbalanced_results <- run_imbalanced_comparison(
-    # Remove the parameters to use defaults, or specify all:
-    effect_sizes = c(1.2, 1.3, 1.8, 2.5),
-    effect_labels = c("Very Small (1.2x)", "Small (1.3x)", "Medium (1.8x)", "Large (2.5x)"),
-    imbalance_ratios = list(c(1, 1), c(2, 1), c(3, 1), c(5, 1), c(10,1)),
-    imbalance_labels = c("Balanced (1:1)", "Low (2:1)", "Moderate (3:1)", "High (5:1)", "Extreme (10:1)"),
-    n_simulations = 20,
+    effect_sizes = c(1.1, 1.5, 2.0),
+    effect_labels = c("Very Small (1.1x)", "Medium (1.5x)", "Large (2.0x)"),
+    imbalance_ratios = list(c(1, 1), c(2, 1), c(5, 1), c(10, 1)),
+    imbalance_labels = c("Balanced (1:1)", "Low (2:1)", "High (5:1)", "Extreme (10:1)"),
+    n_simulations = 25,
     methods = c("pseudobulk", "nebula"),
     base_cells = 5000,
     n_genes = 500,
@@ -942,8 +945,35 @@ imbalanced_method_comparison_example <- function() {
   return(imbalanced_results)
 }
 
+# COMPREHENSIVE example with ALL combinations and proper ordering
+comprehensive_comparison_example <- function() {
+  
+  cat("=== COMPREHENSIVE Comparison (ALL Combinations, Properly Ordered) ===\n")
+  cat("Effect sizes: Very Small (1.1x) → Large (2.0x)\n")
+  cat("Imbalance: Balanced (1:1) → Extreme (10:1)\n")
+  
+  # Run the FULL comparison with ALL combinations
+  comprehensive_results <- run_imbalanced_comparison(
+    effect_sizes = c(1.1, 1.2, 1.5, 2.0),                    # 4 effect sizes
+    effect_labels = c("Very Small (1.1x)", "Small (1.2x)", "Medium (1.5x)", "Large (2.0x)"),
+    imbalance_ratios = list(c(1, 1), c(2, 1), c(3, 1), c(5, 1), c(10,1)),  # 5 imbalance levels
+    imbalance_labels = c("Balanced (1:1)", "Low (2:1)", "Moderate (3:1)", "High (5:1)", "Extreme (10:1)"),
+    n_simulations = 25,  # Reduced for faster execution, increase for final analysis
+    methods = c("pseudobulk", "nebula"),
+    base_cells = 2000,
+    n_genes = 400,
+    de_prob = 0.1,
+    alpha = 0.05
+  )
+  
+  cat("\n=== COMPREHENSIVE RESULTS: 4×5 = 20 combinations ===\n")
+  cat("This should show all combinations from Very Small+Balanced to Large+Extreme\n")
+  
+  return(comprehensive_results)
+}
+
 # Example usage and testing
-cat("\n=== SINGLE CELL RNA-SEQ SIMULATION READY ===\n")
+cat("\n=== SINGLE CELL RNA-SEQ SIMULATION READY (FIXED ORDERING) ===\n")
 cat("Running a test simulation...\n")
 
 # Test simulation
@@ -966,61 +996,39 @@ print(test_plots$umi_plot)
 # Show achieved effects
 calculate_achieved_effects(test_sim)
 
-cat("\n=== SAMPLE USAGE EXAMPLES ===\n")
+cat("\n=== SAMPLE USAGE EXAMPLES (FIXED ORDERING) ===\n")
 cat("1. Basic simulation:\n")
 cat("   sim <- simulate_scrna_splatter(n_cells_per_condition=200, n_genes=500)\n")
 cat("2. Imbalanced simulation:\n")
 cat("   sim <- simulate_scrna_imbalanced(cell_imbalance_ratio=c(3,1))\n")
 cat("3. Method comparison:\n")
 cat("   results <- run_method_comparison(n_simulations=20)\n")
-cat("4. Multi-effect size analysis (WITH SUMMARY TABLE):\n")
+cat("4. Multi-effect size analysis (PROPERLY ORDERED):\n")
 cat("   multi_results <- enhanced_method_comparison_example()\n")
-cat("   print(multi_results$summary_table)  # <-- THE SUMMARY TABLE!\n")
-cat("5. Full imbalance analysis (WITH HEATMAP):\n")
+cat("   print(multi_results$summary_table)  # <-- ORDERED Very Small → Large!\n")
+cat("5. Full imbalance analysis (PROPERLY ORDERED HEATMAP):\n")
 cat("   imbalance_results <- imbalanced_method_comparison_example()\n")
-cat("   print(imbalance_results$power_differences)  # <-- POWER COMPARISON TABLE!\n")
+cat("   print(imbalance_results$power_differences)  # <-- ORDERED Balanced → Extreme!\n")
+cat("6. COMPREHENSIVE analysis (ALL 20 combinations):\n")
+cat("   comprehensive_results <- comprehensive_comparison_example()\n")
+cat("   print(comprehensive_results$power_differences)  # <-- ALL combinations!\n")
 
-cat("\n=== RUNNING COMPREHENSIVE ANALYSIS ===\n")
+cat("\n=== RUNNING COMPREHENSIVE ANALYSIS (PROPERLY ORDERED) ===\n")
 cat("Uncomment the sections below to run the full analyses:\n")
 
-cat("\n# ===== MULTI-EFFECT SIZE ANALYSIS ===== #\n")
-cat(" Uncomment this block to run:\n")
-cat(" multi_results <- enhanced_method_comparison_example()\n")
-cat(" print(multi_results$summary_table)\n")
+cat("\n# ===== COMPREHENSIVE ANALYSIS (ALL 20 COMBINATIONS) ===== #\n")
+cat(" Uncomment this block to run the FULL analysis:\n")
+cat(" comprehensive_results <- comprehensive_comparison_example()\n")
+cat(" print(comprehensive_results$power_differences)\n")
 
 # To actually run it, uncomment these lines:
-# cat("Running multi-effect size analysis...\n")
-# multi_results <- enhanced_method_comparison_example()
-# cat("\nSUMMARY TABLE:\n")
-# print(multi_results$summary_table)
+cat("Running comprehensive analysis with proper ordering...\n")
+#comprehensive_results <- comprehensive_comparison_example()
+cat("\nCOMPREHENSIVE POWER DIFFERENCES TABLE (PROPERLY ORDERED):\n")
+#print(comprehensive_results$power_differences)
 
-cat("\n# ===== IMBALANCE ANALYSIS ===== #\n") 
-cat(" Uncomment this block to run:\n")
-cat(" imbalance_results <- imbalanced_method_comparison_example()\n")
-cat(" print(imbalance_results$power_differences)\n")
-
-# To actually run it, uncomment these lines:
-# cat("Running imbalance analysis...\n")
-# imbalance_results <- imbalanced_method_comparison_example()
-# cat("\nPOWER DIFFERENCES TABLE:\n")
-# print(imbalance_results$power_differences)
-# cat("\nDETAILED SUMMARY STATS:\n")
-# print(imbalance_results$summary_stats)
-
-cat("\n=== TO RUN ANALYSES: UNCOMMENT THE BLOCKS ABOVE ===\n")
-cat("The # symbols at the start of lines prevent execution.\n")
-cat("Remove the # to actually run the comprehensive analyses.\n")
-
-cat("\n=== QUICK DEMO AVAILABLE ===\n")
-cat("For a quick demo with fewer simulations, uncomment this:\n")
-cat("demo_results <- run_method_comparison(n_simulations=5, n_cells_per_condition=100)\n")
-
-# Quick demo (uncomment to run)
-# cat("Running quick demo...\n")
-# demo_results <- run_method_comparison(n_simulations=5, n_cells_per_condition=100)
-# cat("Demo completed!\n")
-
-cat("\n=== READY TO USE! ===\n")
+cat("\n=== FIXED! Effect sizes: Very Small → Large, Imbalance: Balanced → Extreme ===\n")
+cat("The heatmap and table now show proper ordering!\n")
 
 imbalance_results <- imbalanced_method_comparison_example()
 print(imbalance_results$power_differences)
