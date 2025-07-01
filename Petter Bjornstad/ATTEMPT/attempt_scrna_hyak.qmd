@@ -212,7 +212,8 @@ DimPlot(attempt_so, reduction = "umap.harmony", group.by = "KPMP_celltype", rast
 attempt_so$celltype_general <- case_when(
   grepl("PT-", attempt_so$celltype) ~ "PT",
   grepl("TAL-", attempt_so$celltype) ~ "TAL",
-  attempt_so$celltype %in% c("MON", "MAC", "T", "B", "NKT/NKC") ~ "Immune",
+  attempt_so$celltype %in% c("MON", "MAC") ~ "Immune_Myeloid",
+  attempt_so$celltype %in% c("T", "B", "NKT/NKC") ~ "Immune_Lymphoid",
   attempt_so$celltype %in% c("PC-1", "PC-2", "tPC-IC") ~ "PC",
   attempt_so$celltype %in% c("IC-A", "IC-B") ~ "IC",
   attempt_so$celltype %in% c("EC-PTC", "EC-GC", "EC-AEA", "EC-LYM") ~ "EC",
@@ -238,6 +239,24 @@ attempt_meta$celltype <- factor(attempt_meta$celltype,
                                           "VSMC/P", "FIB", 
                                           "MAC", "MON", "NKT/NKC", "T", "B"))
 
+attempt_meta$KPMP_celltype <- factor(attempt_meta$KPMP_celltype,
+                                level = c("PT-S1/S2", "PT-S3", "aPT",
+                                          "C-TAL-1", "C-TAL-2", "aTAL",
+                                          "aDTL", "DTL",
+                                          "CNT", "CNT-PC", "CCD-PC", "dCCD-PC", "M-PC",
+                                          "tPC-IC", "IC-A", "IC-B",
+                                          "ATL",
+                                          "POD", "PEC",
+                                          "DCT", "dDCT",
+                                          "MC",
+                                          "EC-PTC", "EC-GC", "EC-AEA", "EC-LYM", "EC-AVR", "EC/VSMC",
+                                          "VSMC/P", "FIB",
+                                          "MAC", "MON", "NK",
+                                          "CD4+ T", "CD8+ T", "cycT",
+                                          "B",
+                                          "pDC", "cDC",
+                                          "aIC", "SchwannCells", "non-specific"))
+
 
 attempt_meta$celltype_general <- factor(attempt_meta$celltype_general,
                                 levels = c("PT", 
@@ -246,7 +265,8 @@ attempt_meta$celltype_general <- factor(attempt_meta$celltype_general,
                                            "IC", 
                                            "EC", 
                                            "FIB/VSMC/P", 
-                                           "Immune", 
+                                           "Immune_Myeloid",
+                                           "Immune_Lymphoid",
                                            "Other - ATL, CNT, DCT, DTL, MC, PEC, POD, lowQ"))
 
 # Check counts
@@ -286,6 +306,44 @@ attempt_meta %>%
 temp_file <- tempfile(fileext = ".jpeg")
 ggsave(temp_file, width = 15)
 s3$upload_file(temp_file, "attempt", "Figures/attempt_cellcounts_proportions_plot.jpeg") 
+
+attempt_meta %>% 
+  filter(!grepl("_", KPMP_celltype)) %>%
+  ggplot(aes(KPMP_celltype, fill = visit_treatment)) + 
+  geom_bar(stat = "count") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Cell count",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  ggtitle("Cell type distribution") +
+  scale_fill_manual(values = c("#fbc4ab", "#f4978e",
+                               "#aaae8e", "#828e82"))
+temp_file <- tempfile(fileext = ".jpeg")
+ggsave(temp_file, width = 10)
+s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_cellcounts_plot.jpeg") 
+
+attempt_meta %>%
+  filter(!grepl("_", KPMP_celltype)) %>%
+  ggplot(aes(KPMP_celltype, fill = visit_treatment)) +
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  ggtitle("Proportion of cells") +
+  scale_fill_manual(values = c("#fbc4ab", "#f4978e",
+                               "#aaae8e", "#828e82"))
+temp_file <- tempfile(fileext = ".jpeg")
+ggsave(temp_file, width = 15)
+s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_cellcounts_proportions_plot.jpeg") 
+
+
+
 
 attempt_meta %>% 
   ggplot(aes(celltype_general, fill = visit_treatment)) + 
@@ -401,28 +459,6 @@ attempt_meta %>%
 temp_file <- tempfile(fileext = ".jpeg")
 ggsave(temp_file)
 s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_tal_proportions_plot.jpeg") 
-```
-
-
-```{r echo = F}
-# # test on proportions using Drichlet
-# pt_props <- attempt_meta %>%
-#   filter(celltype_general %in% c("PT")) %>%
-#   group_by(subject_id, treatment, visit, celltype) %>%
-#   summarise(n = n(), .groups = "drop") %>%
-#   group_by(subject_id) %>%
-#   mutate(prop = n / sum(n)) %>%
-#   dplyr::select(subject_id, treatment, celltype, visit, prop) %>%
-#   pivot_wider(names_from = celltype, values_from = prop, values_fill = 0)
-# 
-# pt_props <- pt_props %>%
-#   mutate(prop_sum = rowSums(across(c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))))
-# # Convert to DirichletReg format
-# pt_props$Y <- DR_data(pt_props_pre[,4:8])
-# pt_props_drichlet <- DirichReg(Y ~ treatment * visit, data = pt_props)
-# summary(pt_props_drichlet)
-
-# chi square test
 ```
 
 
@@ -677,6 +713,97 @@ temp_file <- tempfile(fileext = ".jpeg")
 ggsave(temp_file, height = 10)
 s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_visit_treatment_proportions_plot_kpmp.jpeg")
 ```
+
+```{r echo = F}
+# test on proportions using Dirichlet
+pt_props <- attempt_meta %>%
+  filter(celltype_general %in% c("PT")) %>%
+  group_by(subject_id, treatment, visit, celltype) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(subject_id) %>%
+  mutate(prop = n / sum(n)) %>%
+  dplyr::select(subject_id, treatment, celltype, visit, prop) %>%
+  pivot_wider(names_from = celltype, values_from = prop, values_fill = 0)
+
+pt_props <- pt_props %>%
+  mutate(prop_sum = rowSums(across(c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))))
+# Placebo
+pt_props_placebo <- pt_props[pt_props$treatment == "Placebo",]
+pt_props_placebo$Y <- DR_data(pt_props_placebo[,4:8])
+pt_props_placebo_drichlet <- DirichReg(Y ~ visit, data = pt_props_placebo)
+pt_props_placebo_drichlet_summary <- summary(pt_props_placebo_drichlet)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_props_placebo_drichlet_summary, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'PT/pt_dirichlet_placebo.rds')
+
+# Dapa
+pt_props_dapa <- pt_props[pt_props$treatment != "Placebo",]
+pt_props_dapa$Y <- DR_data(pt_props_dapa[,4:8])
+pt_props_dapa_drichlet <- DirichReg(Y ~ visit, data = pt_props_dapa)
+pt_props_dapa_drichlet_summary <- summary(pt_props_dapa_drichlet)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_props_dapa_drichlet_summary, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'PT/pt_dirichlet_dapa.rds')
+
+# POST (placebo vs. dapa)
+pt_props_post <- pt_props[pt_props$visit == "POST",]
+pt_props_post$Y <- DR_data(pt_props_post[,4:8])
+pt_props_post_drichlet <- DirichReg(Y ~ treatment, data = pt_props_post)
+pt_props_post_drichlet_summary <- summary(pt_props_post_drichlet)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_props_post_drichlet_summary, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'PT/pt_dirichlet_post.rds')
+
+```
+
+```{r echo = F}
+# test on proportions using Dirichlet (KPMP celltypes)
+pt_props <- attempt_meta %>%
+  filter(KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT")) %>%
+  group_by(subject_id, treatment, visit, KPMP_celltype) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(subject_id) %>%
+  mutate(prop = n / sum(n)) %>%
+  dplyr::select(subject_id, treatment, KPMP_celltype, visit, prop) %>%
+  pivot_wider(names_from = KPMP_celltype, values_from = prop, values_fill = 0)
+
+pt_props <- pt_props %>%
+  mutate(prop_sum = rowSums(across(c("PT-S1/S2", "PT-S3", "aPT"))))
+# Placebo
+pt_props_placebo <- pt_props[pt_props$treatment == "Placebo",]
+pt_props_placebo$Y <- DR_data(pt_props_placebo[,4:6])
+pt_props_placebo_drichlet <- DirichReg(Y ~ visit, data = pt_props_placebo)
+pt_props_placebo_drichlet_summary <- summary(pt_props_placebo_drichlet)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_props_placebo_drichlet_summary, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'PT/pt_dirichlet_placebo_kpmp.rds')
+
+# Dapa
+pt_props_dapa <- pt_props[pt_props$treatment != "Placebo",]
+pt_props_dapa$Y <- DR_data(pt_props_dapa[,4:6])
+pt_props_dapa_drichlet <- DirichReg(Y ~ visit, data = pt_props_dapa)
+pt_props_dapa_drichlet_summary <- summary(pt_props_dapa_drichlet)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_props_dapa_drichlet_summary, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'PT/pt_dirichlet_dapa_kpmp.rds')
+
+# POST (placebo vs. dapa)
+pt_props_post <- pt_props[pt_props$visit == "POST",]
+pt_props_post$Y <- DR_data(pt_props_post[,4:6])
+pt_props_post_drichlet <- DirichReg(Y ~ treatment, data = pt_props_post)
+pt_props_post_drichlet_summary <- summary(pt_props_post_drichlet)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_props_post_drichlet_summary, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'PT/pt_dirichlet_post_kpmp.rds')
+
+```
+
 ```{r echo = F}
 # scDC package (sc differential composition analysis)
 attempt_so_pt$celltype <- factor(attempt_so_pt$celltype, levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))
@@ -696,7 +823,9 @@ res_scDC_noClust <- scDC_noClustering(cellTypes, subject, calCI = TRUE,
 
 # merge treatment and visit information to res_scDC_noClust
 res_scDC_noClust$results <- left_join(res_scDC_noClust$results, cond)
+```
 
+```{r echo = F}
 barplotCI_custom <- function(res, condition){
   res$results$index_original <- seq_len(nrow(res$results))
   df_toPlot <- res$results %>% 
@@ -800,6 +929,366 @@ barplotCI_custom(res_scDC_noClust, res_scDC_noClust$results$treatment)
 
 densityCI_custom(res_scDC_noClust, res_scDC_noClust$results$treatment)
 
+```
+
+
+```{r echo = F}
+# lots of non-convergence, long time to compute, and need contrasts to do comparisons between other PT cells other than the ref group (PT-1)
+# # GLM in Placebo only
+# attempt_so_pt_placebo <- subset(attempt_so_pt, treatment == "Placebo")
+# attempt_so_pt_placebo$celltype <- factor(attempt_so_pt_placebo$celltype, levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))
+# exprsMat <- GetAssayData(attempt_so_pt_placebo, assay = "RNA", slot = "counts")
+# attempt_so_pt_placebo$treatment_visit <- paste0(attempt_so_pt_placebo$treatment, "_", attempt_so_pt_placebo$visit)
+# attempt_so_pt_placebo$subject_visit <- paste0(attempt_so_pt_placebo$subject_id, "_", attempt_so_pt_placebo$visit)
+# cellTypes <- attempt_so_pt_placebo@meta.data$celltype
+# subject <- attempt_so_pt_placebo@meta.data$subject_visit
+# 
+# cond <- data.frame(subject = subject,
+#                    treatment = attempt_so_pt_placebo@meta.data$treatment_visit,
+#                    visit = attempt_so_pt_placebo@meta.data$visit) %>%
+#   distinct(subject, .keep_all = T)
+# 
+# res_scDC_placebo <- scDC_noClustering(cellTypes, subject, calCI = TRUE, 
+#                                      calCI_method = c("BCa"), ncores = 20, nboot = 1000)
+# 
+# res_scDC_placebo$results$subject <- sub("_.*", "", res_scDC_placebo$results$subject)
+# res_scDC_placebo$info$subject <- sub("_.*", "", res_scDC_placebo$info$subject)
+# cond$subject <- sub("_.*", "", cond$subject)
+# 
+# 
+# res_GLM_placebo <- fitGLM(res_scDC_placebo, cond$visit, 
+#                   pairwise = T)
+# 
+# summary(res_GLM_placebo$pool_res_random)
+```
+
+```{r echo = F}
+# # GLM in Dapa only
+# attempt_so_pt_dapa <- subset(attempt_so_pt, treatment != "Placebo")
+# attempt_so_pt_dapa$celltype <- factor(attempt_so_pt_dapa$celltype, levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))
+# exprsMat <- GetAssayData(attempt_so_pt_dapa, assay = "RNA", slot = "counts")
+# attempt_so_pt_dapa$treatment_visit <- paste0(attempt_so_pt_dapa$treatment, "_", attempt_so_pt_dapa$visit)
+# attempt_so_pt_dapa$subject_visit <- paste0(attempt_so_pt_dapa$subject_id, "_", attempt_so_pt_dapa$visit)
+# cellTypes <- attempt_so_pt_dapa@meta.data$celltype
+# subject <- attempt_so_pt_dapa@meta.data$subject_visit
+# 
+# cond <- data.frame(subject = subject,
+#                    treatment = attempt_so_pt_dapa@meta.data$treatment_visit,
+#                    visit = attempt_so_pt_dapa@meta.data$visit) %>%
+#   distinct(subject, .keep_all = T)
+# 
+# res_scDC_dapa <- scDC_noClustering(cellTypes, subject, calCI = TRUE, 
+#                                      calCI_method = c("BCa"), ncores = 20, nboot = 1000)
+# 
+# res_scDC_dapa$results$subject <- sub("_.*", "", res_scDC_dapa$results$subject)
+# res_scDC_dapa$info$subject <- sub("_.*", "", res_scDC_dapa$info$subject)
+# cond$subject <- sub("_.*", "", cond$subject)
+# 
+# 
+# res_GLM_dapa <- fitGLM(res_scDC_dapa, cond$visit, 
+#                   pairwise = T)
+# 
+# summary(res_GLM_dapa$pool_res_random)
+# summary(res_GLM_dapa$pool_res_fixed)
+```
+
+
+```{r echo = F}
+# Method using glmmTMB
+# library(glmmTMB)
+# 
+# # Placebo only
+# attempt_so_pt_meta_placebo <- attempt_so_pt_placebo@meta.data
+# # Loop through PT subtypes
+# pt_subtypes <- paste0("PT-", 1:5)
+# 
+# pt_prop_placebo <- lapply(pt_subtypes, function(pt) {
+#   attempt_so_pt_meta_placebo$binary <- as.integer(attempt_so_pt_meta_placebo$celltype == pt)
+# 
+#   model <- glmmTMB(binary ~ visit + (1 | subject_id), 
+#                    family = binomial(), 
+#                    data = attempt_so_pt_meta_placebo)
+#   
+#   summary_out <- summary(model)
+#   est <- summary_out$coefficients$cond["visitPOST", ]
+#   data.frame(
+#     subtype = pt,
+#     logOR = est["Estimate"],
+#     SE = est["Std. Error"],
+#     p_value = est["Pr(>|z|)"]
+#   )
+# }) %>% bind_rows()
+# 
+# print(pt_prop_placebo)
+```
+
+
+```{r echo = F}
+# attempt_so_pt_meta_dapa <- attempt_so_pt_dapa@meta.data
+# # Loop through PT subtypes
+# pt_subtypes <- paste0("PT-", 1:5)
+# 
+# pt_prop_dapa <- lapply(pt_subtypes, function(pt) {
+#   attempt_so_pt_meta_dapa$binary <- as.integer(attempt_so_pt_meta_dapa$celltype == pt)
+# 
+#   model <- glmmTMB(binary ~ visit + (1 | subject_id), 
+#                    family = binomial(), 
+#                    data = attempt_so_pt_meta_dapa)
+#   
+#   summary_out <- summary(model)
+#   est <- summary_out$coefficients$cond["visitPOST", ]
+#   data.frame(
+#     subtype = pt,
+#     logOR = est["Estimate"],
+#     SE = est["Std. Error"],
+#     p_value = est["Pr(>|z|)"]
+#   )
+# }) %>% bind_rows()
+# 
+# print(pt_prop_dapa)
+
+```
+
+```{r echo = F}
+# using propeller
+library(speckle)
+
+# Placebo
+
+attempt_so_pt_placebo <- subset(attempt_so_pt, treatment == "Placebo")
+attempt_so_pt_placebo$celltype <- factor(attempt_so_pt_placebo$celltype, levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))
+attempt_so_pt_meta_placebo <- attempt_so_pt_placebo@meta.data
+
+transformed_props <- getTransformedProps(clusters = attempt_so_pt_meta_placebo$celltype,
+                    sample = paste0(attempt_so_pt_meta_placebo$subject_id, "_", attempt_so_pt_meta_placebo$visit))
+visit <- ifelse(grepl("_PRE$", colnames(transformed_props$Counts)), "PRE", "POST")
+design <- model.matrix(~ 0 + visit)
+colnames(design) <- gsub("visit", "", colnames(design)) 
+
+contrasts <- c(POST = 1, PRE = -1)
+
+propeller_res_placebo <- propeller.ttest(prop.list = transformed_props,
+                                 design = design,
+                                 contrasts = contrasts,
+                                 robust=TRUE,
+  trend=FALSE, sort=TRUE)
+propeller_res_placebo
+
+# Dapagliflozin
+attempt_so_pt_dapa <- subset(attempt_so_pt, treatment == "Dapagliflozin")
+attempt_so_pt_dapa$celltype <- factor(attempt_so_pt_dapa$celltype, levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))
+attempt_so_pt_meta_dapa <- attempt_so_pt_dapa@meta.data
+
+transformed_props <- getTransformedProps(clusters = attempt_so_pt_meta_dapa$celltype,
+                    sample = paste0(attempt_so_pt_meta_dapa$subject_id, "_", attempt_so_pt_meta_dapa$visit))
+visit <- ifelse(grepl("_PRE$", colnames(transformed_props$Counts)), "PRE", "POST")
+design <- model.matrix(~ 0 + visit)
+colnames(design) <- gsub("visit", "", colnames(design)) 
+
+contrasts <- c(POST = 1, PRE = -1)
+
+propeller_res_dapa <- propeller.ttest(prop.list = transformed_props,
+                                 design = design,
+                                 contrasts = contrasts,
+                                 robust=TRUE,
+  trend=FALSE, sort=TRUE)
+propeller_res_dapa
+
+propeller_res_placebo$treatment <- "Placebo"
+propeller_res_placebo$celltype <- rownames(propeller_res_placebo)
+propeller_res_dapa$treatment <- "Dapagliflozin"
+propeller_res_dapa$celltype <- rownames(propeller_res_dapa)
+
+combined <- rbind(propeller_res_placebo, propeller_res_dapa)
+
+combined
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(combined, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'PT/pt_propeller_combined.rds')
+```
+
+```{r echo = F}
+# using propeller (KPMP celltype)
+# Placebo
+
+attempt_so_pt_placebo <- subset(attempt_so_pt, treatment == "Placebo")
+attempt_so_pt_placebo$KPMP_celltype <- factor(attempt_so_pt_placebo$KPMP_celltype, levels = c("PT-S1/S2", "PT-S3", "aPT"))
+attempt_so_pt_meta_placebo <- attempt_so_pt_placebo@meta.data
+
+transformed_props <- getTransformedProps(clusters = attempt_so_pt_meta_placebo$KPMP_celltype,
+                    sample = paste0(attempt_so_pt_meta_placebo$subject_id, "_", attempt_so_pt_meta_placebo$visit))
+visit <- ifelse(grepl("_PRE$", colnames(transformed_props$Counts)), "PRE", "POST")
+design <- model.matrix(~ 0 + visit)
+colnames(design) <- gsub("visit", "", colnames(design)) 
+
+contrasts <- c(POST = 1, PRE = -1)
+
+propeller_res_placebo <- propeller.ttest(prop.list = transformed_props,
+                                 design = design,
+                                 contrasts = contrasts,
+                                 robust=TRUE,
+  trend=FALSE, sort=TRUE)
+propeller_res_placebo
+
+# Dapagliflozin
+attempt_so_pt_dapa <- subset(attempt_so_pt, treatment == "Dapagliflozin")
+attempt_so_pt_dapa$KPMP_celltype <- factor(attempt_so_pt_dapa$KPMP_celltype, levels = c("PT-S1/S2", "PT-S3", "aPT"))
+attempt_so_pt_meta_dapa <- attempt_so_pt_dapa@meta.data
+
+transformed_props <- getTransformedProps(clusters = attempt_so_pt_meta_dapa$KPMP_celltype,
+                    sample = paste0(attempt_so_pt_meta_dapa$subject_id, "_", attempt_so_pt_meta_dapa$visit))
+visit <- ifelse(grepl("_PRE$", colnames(transformed_props$Counts)), "PRE", "POST")
+design <- model.matrix(~ 0 + visit)
+colnames(design) <- gsub("visit", "", colnames(design)) 
+
+contrasts <- c(POST = 1, PRE = -1)
+
+propeller_res_dapa <- propeller.ttest(prop.list = transformed_props,
+                                 design = design,
+                                 contrasts = contrasts,
+                                 robust=TRUE,
+  trend=FALSE, sort=TRUE)
+propeller_res_dapa
+
+propeller_res_placebo$treatment <- "Placebo"
+propeller_res_placebo$KPMP_celltype <- rownames(propeller_res_placebo)
+propeller_res_dapa$treatment <- "Dapagliflozin"
+propeller_res_dapa$KPMP_celltype <- rownames(propeller_res_dapa)
+
+combined_kpmp <- rbind(propeller_res_placebo, propeller_res_dapa)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(combined_kpmp, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'PT/pt_propeller_combined_kpmp.rds')
+```
+
+```{r echo = F}
+# Mann whitney u testing
+# Define function to run Mann-Whitney + effect size pipeline
+run_mwu_effect_size <- function(meta_df, group_label, celltype = "celltype") {
+  
+  celltype_sym <- rlang::sym(celltype)   # create symbol from string
+  
+  # Count cells per sample and per PT subtype
+  prop_df <- meta_df %>%
+    group_by(subject_id, visit, sample_id = paste0(subject_id, "_", visit)) %>%
+    dplyr::count(!!celltype_sym) %>%
+    group_by(subject_id, visit, sample_id) %>%
+    mutate(proportion = n / sum(n)) %>%
+    ungroup()
+  
+  # Make wide format
+  prop_wide <- prop_df %>%
+    dplyr::select(sample_id, visit, !!celltype_sym, proportion) %>%
+    tidyr::pivot_wider(names_from = !!celltype_sym, values_from = proportion, values_fill = 0)
+  
+  # Get list of PT subtypes
+  celltypes <- setdiff(colnames(prop_wide), c("sample_id", "visit"))
+  
+  # Run Mann-Whitney + effect size per subtype
+  effect_results <- lapply(celltypes, function(ct) {
+    
+    test_res <- wilcox.test(prop_wide[[ct]] ~ prop_wide$visit)
+    
+    # Effect direction → median difference
+    medians <- prop_wide %>%
+      group_by(visit) %>%
+      summarise(median_prop = median(.data[[ct]], na.rm = TRUE)) %>%
+      arrange(visit)
+    
+    median_diff <- medians$median_prop[medians$visit == "POST"] - 
+                   medians$median_prop[medians$visit == "PRE"]
+    
+    # Rank-biserial correlation
+    n1 <- sum(prop_wide$visit == "PRE")
+    n2 <- sum(prop_wide$visit == "POST")
+    U <- test_res$statistic
+    rbc <- (2 * U) / (n1 * n2) - 1
+    
+    tibble(
+      celltype = ct,
+      p.value = test_res$p.value,
+      W = test_res$statistic,
+      median_PRE = medians$median_prop[medians$visit == "PRE"],
+      median_POST = medians$median_prop[medians$visit == "POST"],
+      median_diff = median_diff,
+      rank_biserial_corr = rbc,
+      group = group_label
+    )
+  })
+  
+  # Combine results
+  bind_rows(effect_results)
+}
+```
+
+```{r echo = F}
+# For dapagliflozin
+effect_results_dapa <- run_mwu_effect_size(attempt_so_pt_meta_dapa, "dapa")
+
+# For placebo (replace this with your placebo meta dataframe)
+effect_results_placebo <- run_mwu_effect_size(attempt_so_pt_meta_placebo, "placebo")
+
+# Combine both
+combined_effect_results <- bind_rows(effect_results_dapa, effect_results_placebo)
+
+# Save as RDS
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(combined_effect_results, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'PT/pt_mwu_combined.rds')
+```
+
+```{r echo = F}
+# For dapagliflozin
+effect_results_dapa_kpmp <- run_mwu_effect_size(attempt_so_pt_meta_dapa, "dapa", celltype = "KPMP_celltype")
+
+# For placebo (replace this with your placebo meta dataframe)
+effect_results_placebo_kpmp <- run_mwu_effect_size(attempt_so_pt_meta_placebo, "placebo", celltype = "KPMP_celltype")
+
+# Combine both
+combined_effect_results_kpmp <- bind_rows(effect_results_dapa_kpmp, effect_results_placebo_kpmp)
+
+# Save as RDS
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(combined_effect_results_kpmp, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'PT/pt_mwu_combined_kpmp.rds')
+```
+
+```{r echo = F}
+count_df_dapa <- attempt_so_pt_meta_dapa %>%
+  group_by(subject_id, visit, sample_id = paste0(subject_id, "_", visit)) %>%
+  dplyr::count(celltype) %>%
+  tidyr::pivot_wider(names_from = celltype, values_from = n, values_fill = 0) %>%
+  ungroup()
+count_df_dapa_py <- reticulate::r_to_py(count_df_dapa)
+
+count_df_placebo <- attempt_so_pt_meta_placebo %>%
+  group_by(subject_id, visit, sample_id = paste0(subject_id, "_", visit)) %>%
+  dplyr::count(celltype) %>%
+  tidyr::pivot_wider(names_from = celltype, values_from = n, values_fill = 0) %>%
+  ungroup()
+count_df_placebo_py <- reticulate::r_to_py(count_df_placebo)
+reticulate::repl_python()
+```
+
+```{python}
+import pandas as pd
+import numpy as np
+import sccoda
+from sccoda.util import cell_composition_data as dat
+from sccoda.util import data_visualization as viz
+
+# Load data
+count_df_placebo = r.count_df_placebo
+count_df_dapa = r.count_df_dapa
+
+# Convert data to anndata object
+print(count_df_placebo)
+data_all = dat.from_pandas(count_df_placebo, covariate_columns=["sample_id"])
+
+# Extract condition from mouse name and add it as an extra column to the covariates
+data_all.obs["visit"] = data_all.obs["subject_id"].str.replace(r"_[0-9]", "", regex=True)
+print(data_all)
 ```
 
 #### Mixed model (hurdle, no nested random effect)
@@ -2438,6 +2927,181 @@ s3$upload_file(temp_file, "attempt", 'Immune/2/immune_attempt_scrna_mm_emmeans_c
 
 #### Sum expression (pseudo-bulk within individual) 
 
+
+# Immune Cells (Myeloid)
+
+```{r echo = F}
+# immune_myeloid cells: MAC, MON
+attempt_so$celltype_immune_myeloid <- ifelse(attempt_so$celltype %in% c("MON", "MAC"),
+                                     "immune_myeloid", as.character(attempt_so$celltype))
+attempt_so_immune_myeloid <- subset(attempt_so, celltype_immune_myeloid == "immune_myeloid")
+```
+
+```{r echo = F}
+attempt_so_immune_myeloid <- FindVariableFeatures(attempt_so_immune_myeloid, selection.method = "vst", nfeatures = 2000)
+hvgs_immune_myeloid <- VariableFeatures(attempt_so_immune_myeloid)
+
+# Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+attempt_so_hvg_immune_myeloid <- subset(attempt_so_immune_myeloid, features = hvgs_immune_myeloid)
+```
+
+#### Mixed model (hurdle, nested random effect)
+##### nebula
+
+###### REML with rounded counts & pooled offset
+
+```{r echo = F, eval = F}
+counts_hvg_immune_myeloid <- round(GetAssayData(attempt_so_hvg_immune_myeloid, layer = "counts")) # load counts and round
+genes_list <- rownames(counts_hvg_immune_myeloid)
+
+# meta_hvg_immune_myeloid <- attempt_so_hvg_immune_myeloid@meta.data
+# pred = model.matrix(~treatment*visit, data = meta_hvg_immune_myeloid)
+# data_g_hvg_immune_myeloid = group_cell(count=counts_hvg_immune_myeloid, id=meta_hvg_immune_myeloid$subject, pred=pred)
+# offset_hvg_immune_myeloid = Matrix::colSums(data_g_hvg_immune_myeloid$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+nebula_immune_myeloid_results_list_reml_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                       .errorhandling = "pass") %dopar% {
+  warn <- NULL
+  err <- NULL
+  res <- NULL
+  
+  tryCatch({
+    count_gene <- counts_hvg_immune_myeloid[g, , drop = FALSE]
+    meta_gene <- subset(attempt_so_hvg_immune_myeloid, features = g)@meta.data
+    pred_gene <- model.matrix(~treatment * visit, data = meta_gene)
+    data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject, pred = pred_gene)
+
+    res <- withCallingHandlers({
+      nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+             ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+             offset = meta_gene$pooled_offset)
+    }, warning = function(w) {
+      warn <<- conditionMessage(w)
+      invokeRestart("muffleWarning")
+    })
+
+  }, error = function(e) {
+    err <<- conditionMessage(e)
+  })
+
+  list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in nebula_immune_myeloid_results_list_reml_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(nebula_immune_myeloid_results_list_reml_pooled) <- sapply(nebula_immune_myeloid_results_list_reml_pooled, function(x) x$gene)  # set names
+nebula_immune_myeloid_results_list_reml_pooled <- lapply(nebula_immune_myeloid_results_list_reml_pooled, function(x) x$result)  # clean list back to just results
+nebula_immune_myeloid_results_list_reml_pooled <- Filter(Negate(is.null), nebula_immune_myeloid_results_list_reml_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+nebula_nonconverged_percent <- (length(genes_list)-length(nebula_immune_myeloid_results_list_reml_pooled))/length(genes_list)
+print(paste0(nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(nebula_immune_myeloid_results_list_reml_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Immune_myeloid/nebula/immune_myeloid_attempt_hvg_nebula_res_reml_pooled.rds')
+```
+# Immune Cells (Lymphoid)
+
+```{r echo = F}
+# immune_lymphoid cells: MAC, MON
+attempt_so$celltype_immune_lymphoid <- ifelse(attempt_so$celltype %in% c("T", "B", "NKT/NKC"),
+                                     "immune_lymphoid", as.character(attempt_so$celltype))
+attempt_so_immune_lymphoid <- subset(attempt_so, celltype_immune_lymphoid == "immune_lymphoid")
+```
+
+```{r echo = F}
+attempt_so_immune_lymphoid <- FindVariableFeatures(attempt_so_immune_lymphoid, selection.method = "vst", nfeatures = 2000)
+hvgs_immune_lymphoid <- VariableFeatures(attempt_so_immune_lymphoid)
+
+# Perform remaining steps on top 2000 hvgs
+# Subset Seurat object to only HVGs
+attempt_so_hvg_immune_lymphoid <- subset(attempt_so_immune_lymphoid, features = hvgs_immune_lymphoid)
+```
+
+#### Mixed model (hurdle, nested random effect)
+##### nebula
+
+###### REML with rounded counts & pooled offset
+
+```{r echo = F, eval = F}
+counts_hvg_immune_lymphoid <- round(GetAssayData(attempt_so_hvg_immune_lymphoid, layer = "counts")) # load counts and round
+genes_list <- rownames(counts_hvg_immune_lymphoid)
+
+# meta_hvg_immune_lymphoid <- attempt_so_hvg_immune_lymphoid@meta.data
+# pred = model.matrix(~treatment*visit, data = meta_hvg_immune_lymphoid)
+# data_g_hvg_immune_lymphoid = group_cell(count=counts_hvg_immune_lymphoid, id=meta_hvg_immune_lymphoid$subject, pred=pred)
+# offset_hvg_immune_lymphoid = Matrix::colSums(data_g_hvg_immune_lymphoid$count) 
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+nebula_immune_lymphoid_results_list_reml_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                                       .errorhandling = "pass") %dopar% {
+  warn <- NULL
+  err <- NULL
+  res <- NULL
+  
+  tryCatch({
+    count_gene <- counts_hvg_immune_lymphoid[g, , drop = FALSE]
+    meta_gene <- subset(attempt_so_hvg_immune_lymphoid, features = g)@meta.data
+    pred_gene <- model.matrix(~treatment * visit, data = meta_gene)
+    data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject, pred = pred_gene)
+
+    res <- withCallingHandlers({
+      nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+             ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+             offset = meta_gene$pooled_offset)
+    }, warning = function(w) {
+      warn <<- conditionMessage(w)
+      invokeRestart("muffleWarning")
+    })
+
+  }, error = function(e) {
+    err <<- conditionMessage(e)
+  })
+
+  list(gene = g, result = res, warning = warn, error = err)
+}
+
+## After the loop:
+for (res in nebula_immune_lymphoid_results_list_reml_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(nebula_immune_lymphoid_results_list_reml_pooled) <- sapply(nebula_immune_lymphoid_results_list_reml_pooled, function(x) x$gene)  # set names
+nebula_immune_lymphoid_results_list_reml_pooled <- lapply(nebula_immune_lymphoid_results_list_reml_pooled, function(x) x$result)  # clean list back to just results
+nebula_immune_lymphoid_results_list_reml_pooled <- Filter(Negate(is.null), nebula_immune_lymphoid_results_list_reml_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+nebula_nonconverged_percent <- (length(genes_list)-length(nebula_immune_lymphoid_results_list_reml_pooled))/length(genes_list)
+print(paste0(nebula_nonconverged_percent*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(nebula_immune_lymphoid_results_list_reml_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Immune_lymphoid/nebula/immune_lymphoid_attempt_hvg_nebula_res_reml_pooled.rds')
+```
 # PC 
 
 ```{r echo = F} 

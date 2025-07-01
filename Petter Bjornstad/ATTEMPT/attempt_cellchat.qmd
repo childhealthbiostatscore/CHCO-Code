@@ -1,0 +1,337 @@
+---
+title: "ATTEMPT Cell Chat"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r libraries, message = F, warning=F}
+#| include: false
+library(future)
+library(future.apply)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(msigdbr)
+library(kableExtra)
+# library(knitr)
+library(REDCapR)
+# library(data.table)
+library(emmeans)
+library(NMF)
+library(pheatmap)
+library(UpSetR)
+library(enrichR)
+library(WriteXLS)
+library(SAVER)
+library(readxl)
+library(limma)
+library(edgeR)
+library(BiocGenerics)
+library(GSEABase)
+library(slingshot)
+library(SingleCellExperiment)
+library(MAST)
+library(muscat)
+library(scater)
+library(Seurat)
+library(jsonlite)
+library(dplyr)
+library(glmmTMB)
+library(reshape2)
+library(broom.mixed) 
+library(foreach)
+library(doParallel)
+library(nebula)
+library(Matrix)
+library(scran)
+library(DirichletReg)
+library(BiocParallel)
+library(scDC)
+library(CellChat)
+library(liana)
+library(magrittr)
+library(circlize)
+```
+
+```{r include = F}
+reticulate::use_python("/mmfs1/gscratch/scrubbed/yejichoi/mypy/bin/python", required = T)
+reticulate::repl_python()
+reticulate::py_config()
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+```{r echo = F, eval = T}
+# Read in clean seurat object saved from attempt_CROC_analysis.qmd
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("attempt", 'cleaned_data/attempt_clean_so.rds', temp_file)
+attempt_so <- readRDS(temp_file)
+``` 
+
+```{r echo = F}
+# Cell-Cell Interaction Analysis using CellChat
+print("Seurat object overview:")
+print(attempt_so)
+print("Metadata columns:")
+print(colnames(attempt_so@meta.data))
+
+# Check your study design
+print("Visit timepoints:")
+print(table(attempt_so@meta.data$visit))
+print("Treatment groups:")
+print(table(attempt_so@meta.data$treatment))
+print("Combined visit x treatment:")
+print(table(attempt_so@meta.data$visit, attempt_so@meta.data$treatment))
+print("Number of subjects:")
+print(length(unique(attempt_so@meta.data$subject_id)))
+
+# Check cell type annotations
+print("Cell types present:")
+print(table(attempt_so@meta.data$celltype))
+
+```
+
+```{r echo =F}
+# ============================================================================
+# STEP 1: Create combined condition variable and prepare data for CellChat analysis
+# ============================================================================
+
+# Create a combined condition variable (visit_treatment)
+attempt_so@meta.data$condition <- paste(attempt_so@meta.data$visit, 
+                                        attempt_so@meta.data$treatment, 
+                                        sep = "_")
+
+print("Combined conditions created:")
+print(table(attempt_so@meta.data$condition))
+
+# Prepare required input data for CellChat analysis
+data.input <- attempt_so[["RNA"]]$data
+labels <- Idents(attempt_so)
+meta <- data.frame(labels = labels, row.names = names(labels))
+
+# Create a CellChat object
+cellchat <- createCellChat(object = data.input, meta = meta, group.by = "labels")
+cellchat <- setIdent(cellchat, ident.use = "labels")
+
+# Set the ligand-receptor interaction database
+CellChatDB <- CellChatDB.human
+CellChatDB.use <- CellChatDB
+cellchat@DB <- CellChatDB.use
+
+# Preprocessing the expression data for cell-cell communication analysis
+cellchat <- subsetData(cellchat) # This step is necessary even if using the whole database
+future::plan("multisession", workers = 4) # do parallel
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+#> The number of highly variable ligand-receptor pairs used for signaling inference is 692
+
+```
+
+```{r echo = F}
+# Part II: Inference of cell-cell communication network
+## Compute the communication probability and infer cellular communication network
+ptm = Sys.time()
+cellchat <- computeCommunProb(cellchat, type = "triMean")
+#> triMean is used for calculating the average gene expression per cell group. 
+#> [1] ">>> Run CellChat on sc/snRNA-seq data <<< [2024-02-14 00:32:35.767285]"
+#> [1] ">>> CellChat inference is done. Parameter values are stored in `object@options$parameter` <<< [2024-02-14 00:33:13.121225]"
+
+
+cellchat <- filterCommunication(cellchat, min.cells = 10)
+
+## Infer the cell-cell communication at a signaling pathway level
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(cellchat, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'attempt_cellchat.rds')
+
+```
+
+
+```{r echo = F}
+groupSize <- as.numeric(table(cellchat@idents))
+par(mfrow = c(1,2), xpd=TRUE)
+netVisual_circle(cellchat@net$count, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Number of interactions")
+netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
+
+mat <- cellchat@net$weight
+# for (i in 1:nrow(mat)) {
+#   mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+#   mat2[i, ] <- mat[i, ]
+#   netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+# }
+
+dir.create("cellchat_circles")  # create output directory
+
+for (i in 1:nrow(mat)) {
+  # Define filename
+  sender_name <- gsub("[/: ]", "_", rownames(mat)[i])  # sanitize filename
+  out_file <- file.path("cellchat_circles", paste0("circle_", sender_name, ".jpeg"))
+  
+  # Open graphics device
+  jpeg(filename = out_file, width = 1600, height = 1600, res = 200)
+  
+  # Create a matrix with only one sender
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  
+  # Plot
+  netVisual_circle(mat2,
+                   vertex.weight = groupSize,
+                   weight.scale = TRUE,
+                   edge.weight.max = max(mat),
+                   title.name = rownames(mat)[i])
+  
+  # Close the graphics device
+  dev.off()
+}
+
+# List all files
+files_to_upload <- list.files("cellchat_circles", full.names = TRUE)
+
+for (f in files_to_upload) {
+  key <- paste0("cellchat/circle_plots/", basename(f))
+  s3$upload_file(Filename = f, Bucket = "attempt", Key = key)
+}
+```
+
+```{r echo = F}
+cellchat <- computeCommunProb(cellchat)
+# Step 2: Compute communication probabilities at the pathway level
+cellchat <- computeCommunProbPathway(cellchat)
+
+# Step 3: Aggregate the network at the signaling pathway level
+cellchat <- aggregateNet(cellchat)
+
+# Now you can run:
+cellchat@netP$pathways
+```
+
+```{r echo = F}
+# Chord diagram
+# Create an output folder
+out_dir <- "cellchat_pathway_plots"
+dir.create(out_dir, showWarnings = FALSE)
+
+# Vector of pathway names
+pathways <- cellchat@netP$pathways        # already populated
+
+# Loop over pathways and save each plot
+for (pw in pathways) {
+  
+  # Sanitize the pathway name for filenames
+  pw_clean  <- gsub("[^A-Za-z0-9_\\-]", "_", pw)
+  out_file  <- file.path(out_dir, paste0("aggregate_", pw_clean, ".jpeg"))
+  
+  # Open graphics device (adjust width/height/res to taste)
+  jpeg(filename = out_file, width = 1600, height = 1600, res = 200)
+  
+  # Draw the plot
+  tryCatch(
+    {
+      netVisual_aggregate(
+        object         = cellchat,
+        signaling      = pw,
+        layout         = "circle",    # or "chord"
+        weight.scale   = TRUE,
+        edge.weight.max = max(cellchat@net$weight),  # keeps colour scales comparable
+        title.name     = pw
+      )
+    },
+    error = function(e) {
+      message(sprintf("Skipped %s – %s", pw, e$message))
+    }
+  )
+  
+  # Close device so the file is written
+  dev.off()
+}
+
+message(sprintf("Done! Plots saved to %s/", out_dir))
+```
+
+```{r echo = F}
+# Heatmap
+temp_file <- tempfile(fileext = ".jpeg")
+jpeg(filename = temp_file, width = 1600, height = 1200, res = 200)  # adjust resolution as needed
+netVisual_heatmap(cellchat, color.heatmap = "Reds")
+dev.off()  # closes the device and writes the file
+s3$upload_file(temp_file, "attempt", "cellchat/cellchat_heatmap.jpeg")
+```
+
+# LIANA
+```{r echo = F}
+attempt_liana <- liana_wrap(attempt_so) # run liana
+attempt_liana <- attempt_liana %>% liana_aggregate() # aggregate liana results
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(attempt_liana, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'attempt_liana.rds')
+
+
+attempt_liana_trunc <- attempt_liana %>%
+   # only keep interactions concordant between methods
+  filter(aggregate_rank <= 0.01) # note that these pvals are already corrected
+
+
+temp_file <- tempfile(fileext = ".jpeg")
+jpeg(filename = temp_file, width = 1800, height = 1800, res = 500)  # adjust resolution as needed
+heat_freq(attempt_liana_trunc)
+dev.off()  # closes the device and writes the file
+s3$upload_file(temp_file, "attempt", "cellchat/liana_heatmap.jpeg")
+
+
+p <- chord_freq(attempt_liana_trunc,
+                source_groups = c("aPT", "PT-S1/S2", "PT-S3", "MON", "MAC"),
+                target_groups = c("aPT", "PT-S1/S2", "PT-S3", "MON", "MAC"))
+p
+```
+
+# LIANA (standard celltype)
+```{r echo = F}
+Idents(attempt_so) <- attempt_so$celltype
+attempt_liana <- liana_wrap(attempt_so) # run liana
+attempt_liana <- attempt_liana %>% liana_aggregate() # aggregate liana results
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(attempt_liana, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'attempt_liana_celltype.rds')
+
+
+attempt_liana_trunc <- attempt_liana %>%
+  filter(aggregate_rank <= 0.01) # note that these pvals are already corrected
+
+
+temp_file <- tempfile(fileext = ".jpeg")
+jpeg(filename = temp_file, width = 2200, height = 1800, res = 200)  # adjust resolution as needed
+heat_freq(attempt_liana_trunc)
+dev.off()  # closes the device and writes the file
+s3$upload_file(temp_file, "attempt", "cellchat/liana_heatmap_2.jpeg")
+```
