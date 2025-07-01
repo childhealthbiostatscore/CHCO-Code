@@ -8596,6 +8596,123 @@ ggsave(fs::path(dir.results, "NEBULA_Targeted_dHep_Steatosis_unadjusted_reml.jpe
 
 #5. Pseudotime Analysis 
 ##A. Hepatocytes
+```{r}
+#Filter to Hep Cells
+so_Hep <- subset(so_liver_sn,celltype2=="Hep")
+DefaultAssay(so_Hep) <- "RNA" 
+
+#Make seurat object into a single cell experiment object
+sce <- as.SingleCellExperiment(so_Hep)
+
+# We set this minimum cluster size to 10 cells and define a gene as being “robustly expressed” if it has a simulated count of at least 3 reads.
+#filter genes down to potential cell-type markers
+# at least M (15) reads in at least N (15) cells
+geneFilter <- apply(assays(sce)$counts,1,function(x){
+    sum(x >= 3) >= 10
+})
+sce <- sce[geneFilter, ]
+
+#Full quantile normalization, a well-established method which forces each cell to have the same distribution of expression values.
+FQnorm <- function(counts){
+    rk <- apply(counts,2,rank,ties.method='min')
+    counts.sort <- apply(counts,2,sort)
+    refdist <- apply(counts.sort,1,median)
+    norm <- apply(rk,2,function(r){ refdist[r] })
+    rownames(norm) <- rownames(counts)
+    return(norm)
+}
+assays(sce)$norm <- FQnorm(assays(sce)$counts)
+
+#Dimensionality reduction using PCA
+pca <- prcomp(t(log1p(assays(sce)$norm)), scale. = FALSE)
+rd1 <- pca$x[,1:2]
+
+#Plot pca
+plot(rd1, col = rgb(0,0,0,.5), pch=16, asp = 1)
+
+library(uwot)
+## Loading required package: Matrix
+## 
+## Attaching package: 'Matrix'
+## The following object is masked from 'package:S4Vectors':
+## 
+##     expand
+rd2 <- uwot::umap(t(log1p(assays(sce)$norm)))
+colnames(rd2) <- c('UMAP1', 'UMAP2')
+
+plot(rd2, col = rgb(0,0,0,.5), pch=16, asp = 1)
+
+reducedDims(sce) <- SimpleList(PCA = rd1, UMAP = rd2)
+
+#Clustering cells
+library(mclust, quietly = TRUE)
+## Package 'mclust' version 6.1.1
+## Type 'citation("mclust")' for citing this R package in publications.
+## 
+## Attaching package: 'mclust'
+## The following object is masked from 'package:mgcv':
+## 
+##     mvn
+cl1 <- Mclust(rd1)$classification
+colData(sce)$GMM <- cl1
+
+library(RColorBrewer)
+plot(rd1, col = brewer.pal(9,"Set1")[cl1], pch=16, asp = 1)
+
+
+cl2 <- kmeans(rd1, centers = 4)$cluster
+colData(sce)$kmeans <- cl2
+
+plot(rd1, col = brewer.pal(9,"Set1")[cl2], pch=16, asp = 1)
+
+#Perform Slingshot
+sce_gmm <- slingshot(sce, clusterLabels = 'GMM', reducedDim = 'PCA')
+
+colData(sce)$celltype <- so_Hep$celltype
+# colData(sce)$treatment <- attempt_so_pt$treatment
+# colData(sce)$visit <- attempt_so_pt$visit
+
+sce_celltype <- slingshot(sce, clusterLabels = 'celltype', reducedDim = 'PCA')
+
+summary(sce_celltype$slingPseudotime_1)
+library(grDevices)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sce_celltype$slingPseudotime_1, breaks=100)]
+
+plot(reducedDims(sce_celltype)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sce_celltype), lwd=2, col='black')
+
+plot(reducedDims(sce_celltype)$PCA, col = brewer.pal(9,'Set1')[sce_celltype$GMM], pch=16, asp = 1)
+lines(SlingshotDataSet(sce_celltype), lwd=2, type = 'lineages', col = 'black')
+
+plot(reducedDims(sce_celltype)$PCA, asp=0.5, col = 'grey75', pch = 16)
+points(reducedDims(sce_celltype)$PCA, col = hcl.colors(100)[cut(slingPseudotime(sce_celltype)[,1], 100)], pch=16)
+legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
+
+pca_df <- as.data.frame(reducedDims(sce_celltype)$PCA)
+pca_df$celltype <- colData(sce_celltype)$celltype
+pca_df$pseudotime <- slingPseudotime(sce_celltype)[,1]  # choose a lineage if >1
+
+# Optional: get curve
+curves <- slingCurves(sce_celltype)
+pca_df$celltype <- factor(pca_df$celltype, levels = c("Hep-1", "Hep-2", "Hep-3", "Hep-4", "Hep-5","dHep"))
+slingshot::slingLineages(sce_celltype)
+# Plot
+ggplot(pca_df, aes(x = PC1, y = PC2, color = celltype)) +
+  geom_point(alpha = 0.3, size = 1) +
+  geom_path(data = as.data.frame(curves[[1]]$s), aes(x = PC1, y = PC2), color = "black", size = 1.2) +
+  labs(title = "Hepatocyte cell types along Slingshot trajectory") +
+  theme_bw() + 
+  theme(panel.grid = element_blank()) + 
+  labs(color = NULL)
+
+temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+ggsave(filename = temp_file, width = 7, height = 5)
+s3$upload_file(temp_file, "attempt", "slingshot/attempt_pca_pt_slingshot.jpeg")
+
+
+```
+
 ##a. Prepare for Analysis 
 ```{r}
 ## Make SO into SCE object for pseudotime analysis
@@ -8825,6 +8942,8 @@ DotPlot(so_Hep, features = adaptive_maladaptive_genes, group.by = "celltype") +
 #Filter to Hep Cells
 so_Hep <- subset(so_liver_sn,celltype2=="Hep")
 DefaultAssay(so_Hep) <- "RNA" 
+
+
 # Step 1: Prepare your Seurat object
 so_Hep <- FindVariableFeatures(object = so_Hep)
 so_Hep <- RunPCA(so_Hep, features = VariableFeatures(object = so_Hep),assay="RNA")
@@ -13415,4 +13534,314 @@ ggplot(df, aes(x = MTOR, fill = steatosis_cat)) +
   labs(title = "MTOR Expression by Steatosis Category",
        x = "MTOR Expression",
        y = "Cell Count")
+```
+
+
+#9. Cell Chat
+```{r}
+print("Seurat object overview:")
+print(so_Hep)
+print("Metadata columns:")
+print(colnames(so_Hep@meta.data))
+
+# Check your study design
+# print("Visit timepoints:")
+# print(table(so_Hep@meta.data$visit))
+print("Treatment groups:")
+print(table(so_Hep@meta.data$steatosis_cat))
+# print("Combined visit x treatment:")
+# print(table(so_Hep@meta.data$visit, so_Hep@meta.data$treatment))
+print("Number of subjects:")
+print(length(unique(so_Hep@meta.data$Kit_Lot)))
+
+# Check cell type annotations
+print("Cell types present:")
+print(table(so_Hep@meta.data$celltype))
+
+# ============================================================================
+# STEP 1: Prepare data for CellChat analysis
+# ============================================================================
+
+# Prepare required input data for CellChat analysis
+data.input <- so_Hep[["RNA"]]$data
+labels <- Idents(so_Hep)
+meta <- data.frame(labels = labels, row.names = names(labels))
+
+# Create a CellChat object
+cellchat <- createCellChat(object = data.input, meta = meta, group.by = "labels")
+cellchat <- setIdent(cellchat, ident.use = "labels")
+
+# Set the ligand-receptor interaction database
+CellChatDB <- CellChatDB.human
+CellChatDB.use <- CellChatDB
+cellchat@DB <- CellChatDB.use
+
+# Use sequential processing instead
+future::plan("sequential")
+cellchat <- subsetData(cellchat) # This step is necessary even if using the whole database
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+
+# Part II: Inference of cell-cell communication network
+## Compute the communication probability and infer cellular communication network
+ptm = Sys.time()
+cellchat <- computeCommunProb(cellchat, type = "triMean")
+#> triMean is used for calculating the average gene expression per cell group. 
+#> [1] ">>> Run CellChat on sc/snRNA-seq data <<< [2024-02-14 00:32:35.767285]"
+#> [1] ">>> CellChat inference is done. Parameter values are stored in `object@options$parameter` <<< [2024-02-14 00:33:13.121225]"
+
+
+cellchat <- filterCommunication(cellchat, min.cells = 10)
+
+## Infer the cell-cell communication at a signaling pathway level
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(cellchat, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "scrna", 'hepatocyte_cellchat.rds')
+
+groupSize <- as.numeric(table(cellchat@idents))
+par(mfrow = c(1,2), xpd=TRUE)
+netVisual_circle(cellchat@net$count, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Number of interactions")
+netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
+
+mat <- cellchat@net$weight
+# for (i in 1:nrow(mat)) {
+#   mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+#   mat2[i, ] <- mat[i, ]
+#   netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+# }
+
+dir.create("cellchat_circles")  # create output directory
+
+for (i in 1:nrow(mat)) {
+  # Define filename
+  sender_name <- gsub("[/: ]", "_", rownames(mat)[i])  # sanitize filename
+  out_file <- file.path("cellchat_circles", paste0("circle_", sender_name, ".jpeg"))
+  
+  # Open graphics device
+  jpeg(filename = out_file, width = 1600, height = 1600, res = 200)
+  
+  # Create a matrix with only one sender
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  
+  # Plot
+  netVisual_circle(mat2,
+                   vertex.weight = groupSize,
+                   weight.scale = TRUE,
+                   edge.weight.max = max(mat),
+                   title.name = rownames(mat)[i])
+  
+  # Close the graphics device
+  dev.off()
+}
+
+# List all files
+files_to_upload <- list.files("cellchat_circles", full.names = TRUE)
+
+for (f in files_to_upload) {
+  key <- paste0("cellchat/circle_plots/", basename(f))
+  s3$upload_file(Filename = f, Bucket = "scrna", Key = key)
+}
+
+cellchat <- computeCommunProb(cellchat)
+# Step 2: Compute communication probabilities at the pathway level
+cellchat <- computeCommunProbPathway(cellchat)
+
+# Step 3: Aggregate the network at the signaling pathway level
+cellchat <- aggregateNet(cellchat)
+
+# Now you can run:
+cellchat@netP$pathways
+
+```
+```{r echo = F}
+# Chord diagram
+# Create an output folder
+out_dir <- "cellchat_pathway_plots"
+dir.create(out_dir, showWarnings = FALSE)
+
+# Vector of pathway names
+pathways <- cellchat@netP$pathways        # already populated
+
+# Loop over pathways and save each plot
+for (pw in pathways) {
+  
+  # Sanitize the pathway name for filenames
+  pw_clean  <- gsub("[^A-Za-z0-9_\\-]", "_", pw)
+  out_file  <- file.path(out_dir, paste0("aggregate_", pw_clean, ".jpeg"))
+  
+  # Open graphics device (adjust width/height/res to taste)
+  jpeg(filename = out_file, width = 1600, height = 1600, res = 200)
+  
+  # Draw the plot
+  tryCatch(
+    {
+      netVisual_aggregate(
+        object         = cellchat,
+        signaling      = pw,
+        layout         = "circle",    # or "chord"
+        weight.scale   = TRUE,
+        edge.weight.max = max(cellchat@net$weight),  # keeps colour scales comparable
+        title.name     = pw
+      )
+    },
+    error = function(e) {
+      message(sprintf("Skipped %s – %s", pw, e$message))
+    }
+  )
+  
+  # Close device so the file is written
+  dev.off()
+}
+
+message(sprintf("Done! Plots saved to %s/", out_dir))
+```
+
+#Longs Cell Chat Code
+```{r}
+
+# combined$group <- paste(combined$treatment, combined$pre_post, sep = "-") 
+# combined <- combined %>% JoinLayers()
+
+filter_by_celltype_size <- function(seurat_obj, celltype_col = "celltype", min_cells = 50) {
+  # Get celltype 
+  celltypes <- seurat_obj@meta.data[[celltype_col]]
+  
+  # Count
+  cell_counts <- table(celltypes)
+  keep_celltypes <- names(cell_counts[cell_counts >= min_cells])
+  
+  # Subset
+  keep_cells <- rownames(seurat_obj@meta.data)[celltypes %in% keep_celltypes]
+  seurat_obj_filtered <- subset(seurat_obj, cells = keep_cells)
+  
+  return(seurat_obj_filtered)
+}
+
+# hep  <- subset(hep, subset = group == "VSG-pre") 
+# vsg_post <- subset(combined, subset = group == "VSG-post") 
+# std_pre  <- subset(combined, subset = group == "Standard-pre") 
+# std_post <- subset(combined, subset = group == "Standard-post") 
+
+Hep  <- filter_by_celltype_size(so_Hep)
+# vsg_post <- filter_by_celltype_size(vsg_post)
+# std_pre  <- filter_by_celltype_size(std_pre)
+# std_post <- filter_by_celltype_size(std_post)
+
+library(future)
+
+run_cellchat_pipeline <- function(seurat_obj, group_name, group.by = "celltype", assay = "RNA", min_cells = 10) {
+  # future::plan("multisession", workers = n_cores)
+  
+  cellchat <- createCellChat(object = seurat_obj, group.by = group.by, assay = assay)
+  cellchat <- addMeta(cellchat, meta = seurat_obj@meta.data)
+  cellchat <- setIdent(cellchat, ident.use = group.by)
+  
+  CellChatDB <- CellChatDB.human
+  cellchat@DB <- CellChatDB
+  
+  cellchat <- subsetData(cellchat)
+  cellchat <- identifyOverExpressedGenes(cellchat)
+  cellchat <- identifyOverExpressedInteractions(cellchat)
+  cellchat <- computeCommunProb(cellchat, type = "triMean")
+  cellchat <- filterCommunication(cellchat, min.cells = min_cells)
+  cellchat <- computeCommunProbPathway(cellchat)
+  cellchat <- aggregateNet(cellchat)
+  
+  saveRDS(cellchat, file = paste0("cellchat_", group_name, ".rds"))
+  return(cellchat)
+}
+
+# Force sequential processing BEFORE running your function
+future::plan("sequential")
+cellchats <- list(
+  Hep  = run_cellchat_pipeline(Hep,  "Hep")
+)
+
+get_group_size <- function(cellchat_obj) {
+  return(as.numeric(table(cellchat_obj@idents)))
+}
+cellchat <- cellchats[['Hep']]
+groupSize <- get_group_size(cellchat)
+
+#aDTL aIC aPT ATL B C-TAL-1 C-TAL-2 CCD-PC CD4+ T CD8+ T 
+#cDC CNT CNT-PC dCCD-PC DCT dDCT dTAL DTL EC-AEA EC-AVR 
+#EC-GC EC-LYM EC-PTC EC/VSMC FIB IC-A IC-B M-PC MAC MON 
+#NK PEC PT-S1/S2 PT-S3 tPC-IC VSMC/P 
+#
+# pdf("fig/vsg_pre_immtoepi.pdf", width = 6.5, height = 4)
+netVisual_bubble(cellchat, sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                 targets.use = c("PT-S1/S2", "PT-S3", "aPT", "EC-PTC", "EC-AVR"),
+                 remove.isolate = FALSE,
+                 title.name = expression(Immune %->% Epithelial/Endothelial))
+# dev.off()
+#
+pdf("fig/vsg_pre_immtoimm.pdf", width = 5, height = 6.5)
+netVisual_bubble(cellchat, sources.use = c("MAC", "CD4+ T", "CD8+ T", "B"),
+                 targets.use = c("MAC", "CD4+ T", "CD8+ T", "NK", "MON", "B"),
+                 remove.isolate = FALSE,
+                 title.name = "Immune-Immune Crosstalk")
+dev.off()
+#
+pdf("fig/vsg_pre_fibtoendo.pdf", width = 3.5, height = 13.5)
+netVisual_bubble(cellchat, sources.use = c("FIB", "EC/VSMC"),
+                 targets.use = c("PT-S3", "PEC", "VSMC/P", "CNT"),
+                 remove.isolate = FALSE,
+                 title.name = "Fibroblast-Endothelial Signaling")
+dev.off()
+#
+pdf("fig/vsg_pre_tls.pdf", width = 7, height = 2.5)
+netVisual_bubble(cellchat, signaling = c("CXCL", "CCL",  "LT", "TNF"), 
+                 title.name = "TLS/Inflammation Resolution Signaling")
+dev.off()
+#
+pdf("fig/vsg_pre_fibremod.pdf", width = 4, height = 4)
+netVisual_bubble(cellchat, 
+                 sources.use = c("FIB", "EC/VSMC"), 
+                 signaling = c("TGFb", "PDGF", "VEGF", "BMP", "WNT"),
+                 title.name = "Fibroblast/Endothelial Remodeling Signals")
+dev.off()
+
+cellchat_pre <- cellchat
+cellchat_post <- cellchats[['VSG_post']]
+#aDTL aIC aPT ATL C-TAL-1 C-TAL-2 CCD-PC CD4+ T CD8+ T cDC CNT CNT-PC dCCD-PC 
+#DCT dDCT dTAL DTL EC-AEA EC-AVR EC-GC EC-PTC EC/VSMC IC-A IC-B MON NK PEC 
+#PT-S1/S2 PT-S3 SchwannCells tPC-IC VSMC/P 
+#
+pdf("fig/vsg_post_immtoepi.pdf", width = 6.5, height = 3)
+netVisual_bubble(cellchat_post, sources.use = c("MON", "CD4+ T", "CD8+ T", "NK", "cDC"),
+                 targets.use = c("PT-S1/S2", "PT-S3", "aPT", "EC-PTC", "EC-AVR"),
+                 remove.isolate = FALSE,
+                 title.name = expression(Immune %->% Epithelial/Endothelial))
+dev.off()
+#
+pdf("fig/vsg_post_immtoimm.pdf", width = 3.5, height = 4.5)
+netVisual_bubble(cellchat_post, sources.use = c( "CD4+ T", "CD8+ T"),
+                 targets.use = c("CD4+ T", "CD8+ T", "NK", "MON"),
+                 remove.isolate = FALSE,
+                 title.name = "Immune-Immune Crosstalk")
+dev.off()
+#
+pdf("fig/vsg_post_fibtoendo.pdf", width = 3.2, height = 11.5)
+netVisual_bubble(cellchat_post, sources.use = c("EC/VSMC"),
+                 targets.use = c("PT-S3", "PEC", "VSMC/P", "CNT"),
+                 remove.isolate = FALSE,
+                 title.name = "Fibroblast-Endothelial Signaling")
+dev.off()
+#
+pdf("fig/vsg_post_tls.pdf", width = 7, height = 2)
+netVisual_bubble(cellchat_post, signaling = c("CXCL", "CCL",  "LT", "TNF"), 
+                 title.name = "TLS/Inflammation Resolution Signaling")
+dev.off()
+#
+pdf("fig/vsg_post_fibremod.pdf", width = 4, height = 4)
+netVisual_bubble(cellchat_post, 
+                 sources.use = c("FIB", "EC/VSMC"), 
+                 signaling = c("TGFb", "PDGF", "VEGF", "BMP", "WNT"),
+                 title.name = "Fibroblast/Endothelial Remodeling Signals")
+dev.off()
+
 ```
