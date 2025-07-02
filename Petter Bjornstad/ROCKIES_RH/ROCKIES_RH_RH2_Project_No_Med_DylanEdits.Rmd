@@ -556,15 +556,48 @@ tests <- c('avg_c_k2', 'avg_c_f',
            'avg_m_k2', 'avg_m_f', 
            'avg_c_k2_f', 'avg_m_k2_f')
 
+
+dat_results_combined <- dat_results %>% 
+  filter(group2 %in% c('T2D-No SGLTi2', 'T2D-SGLTi2')) %>% 
+  mutate(group2 = 'T2D Combined')
+
+df_plot <- bind_rows(dat_results, dat_results_combined) %>% 
+  mutate(group2 = factor(group2, levels = c('Lean Control', 
+                                            'T2D-No SGLTi2', 
+                                            'T2D-SGLTi2',
+                                            'T2D Combined')))
+
+ggplot(dat_results %>% filter(!is.na(group2)), aes(x=group2, y=avg_c_k2, fill = group2))+
+  geom_boxplot(alpha = 0.6, width = 0.4, size = 1.5)+geom_violin(alpha=0.6, size = 1.5)+
+  geom_boxplot(data = dat_results_combined, aes(x=2.5, y=avg_c_k2), alpha=0.2, width = 0.6, size = 1.5)+
+  geom_violin(data = dat_results_combined, aes(x=2.5, y=avg_c_k2), alpha=0.2, width = 2, size = 1.5)+
+  scale_fill_manual(values = c('green', 'blue', 'red', 'purple'))+
+theme_minimal()
+
+
+
+pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_KidneyImaging.pdf', 
+    width =15, height = 15)
 for(i in c(1:length(tests))){
-  index <- which(names(so_kpmp_sc@meta.data) == tests[i])
-  tmp <- so_kpmp_sc@meta.data %>%
+  index <- which(names(dat_results) == tests[i])
+  tmp <- dat_results %>% filter(!is.na(group2)) %>% 
     dplyr::select(record_id, group, group2, index)
   names(tmp) <- c('record_id', 'group', 'group2', 'index_var')
   tmp <- tmp %>% filter(!is.na(index_var)) %>% mutate(check_col = paste0(record_id, group, group2, index_var)) %>% filter(!duplicated(check_col))
-  graphs[[i]] <- ggplot(tmp, aes(x=group2, y=index_var, fill = group2))+geom_violin(alpha = 0.6)+
-    geom_point(alpha=0.3, position = position_jitter(width = 0.2))+geom_boxplot(color = 'black', width = 0.3, alpha = 0.4)+
-    theme_classic()+
+tmp2 <- dat_results_combined %>% filter(!is.na(group2)) %>% 
+  dplyr::select(record_id, group, group2, which(names(dat_results_combined) == tests[i]))
+names(tmp2) <- c('record_id', 'group', 'group2', 'index_var')
+tmp2 <- tmp2 %>% filter(!is.na(index_var)) %>% mutate(check_col = paste0(record_id, group, group2, 
+                                                                         index_var)) %>% 
+  filter(!duplicated(check_col))
+
+  
+  graphs[[i]] <-ggplot(tmp %>% filter(!is.na(group2)), aes(x=group2, y=index_var, fill = group2))+
+  geom_boxplot(alpha = 0.6, width = 0.4, size = 1.5)+geom_violin(alpha=0.6, size = 1.5)+
+  geom_boxplot(data = tmp2, aes(x=2.5, y=index_var), alpha=0.2, width = 0.6, size = 1.5)+
+  geom_violin(data = tmp2, aes(x=2.5, y=index_var), alpha=0.2, width = 2, size = 1.5)+
+  scale_fill_manual(values = c('green', 'blue', 'red', 'purple'))+
+theme_minimal()+
     labs(x='Study Group', y=tests[i])
 }
 
@@ -575,6 +608,12 @@ gridExtra::grid.arrange(graphs[[1]], graphs[[2]],
 dev.off()
 
 
+
+
+
+
+
+#BMI
 bmi_grp <- ggplot(subset(boxplot_adpkd_combined_dat, 
                          pet_param == "bmi" & 
                            group_w_class != "ADPKD"),
