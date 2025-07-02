@@ -175,6 +175,9 @@ so_liver_sn <- subset(so_liver_sn, features = genes_to_keep)
 ncol(so_liver_sn) #130,124 nuclei
 nrow(so_liver_sn) # 11313 genes
 
+#Save a seurat object with mitochondrial genes in it for oroboros analysis
+so_oro <- so_liver_sn
+
 # Step 2: Remove mitochondrial genes (those starting with "MT")
 mito_genes <- grep("^MT-", rownames(so_liver_sn), value = TRUE)
 #keep_ids <- unique(rownames(so_liver_sn)[which(!rownames(so_liver_sn) %in% mito_genes)])
@@ -193,6 +196,9 @@ sum(grepl("^MT-", rownames(so_liver_sn@assays$RNA@counts))) #0
 ncol(so_liver_sn) #130124 cells
 nrow(so_liver_sn) #11300 genes
 
+#Check oro so
+ncol(so_oro) #130124 cells
+nrow(so_oro) #11313 genes
 
 #Step 3: Remove ribosomal Genes
 # Identify ribosomal genes
@@ -210,6 +216,13 @@ so_liver_sn <- subset(so_liver_sn, features = setdiff(rownames(so_liver_sn), rib
 length(which(rownames(so_liver_sn) %in% ribo_genes)) #0
 ncol(so_liver_sn) #130,124 cells
 nrow(so_liver_sn) #11224 genes
+
+#Also perform to oro so
+so_oro <- subset(so_oro, features = setdiff(rownames(so_oro), ribo_genes))
+# sum(grepl("^MT-", rownames(so_oro))) #0
+length(which(rownames(so_oro) %in% ribo_genes)) #0
+ncol(so_oro) #130,124 cells
+nrow(so_oro) #11237 genes
 
 
 # # Identify mitochondrial genes
@@ -257,11 +270,31 @@ so_liver_sn$celltype2 <- ifelse(grepl("Hep-",so_liver_sn$celltype) | grepl("dHep
 # rm(expression_data)
 DefaultAssay(so_liver_sn) <- "RNA" 
 
+#Oro
+# rm(gene_expression_matrix)
+so_oro <- NormalizeData(so_oro)
+so_oro <- ScaleData(so_oro, features = VariableFeatures(so_oro))
+
+#Create general hepatocyte cell type variable
+so_oro$celltype2 <- ifelse(grepl("Hep-",so_oro$celltype) | grepl("dHep",so_oro$celltype),"Hep","Non-Hep")
+# so_oro$celltype2 <- ifelse(grepl("Hep-",so_oro$celltype),"Hep","Non-Hep")
+
+# table(so_oro$celltype,so_oro$celltype2)
+
+# rm(expression_data)
+DefaultAssay(so_oro) <- "RNA" 
+
+
 # Calculate cell library size for offset in NEBULA --------------------------------------
 counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts"))
 library_size <- Matrix::colSums(counts_layer)
 so_liver_sn$library_size <- library_size
 # View(so_liver_sn@meta.data)
+#Oro
+counts_layer <- round(GetAssayData(so_oro, layer = "counts"))
+library_size <- Matrix::colSums(counts_layer)
+so_oro$library_size <- library_size
+# View(so_oro@meta.data)
 
 # # TMM offset
 # dge <- DGEList(counts = counts_layer)
@@ -269,10 +302,11 @@ so_liver_sn$library_size <- library_size
 # tmm_offset <- log(dge$samples$lib.size) + log(dge$samples$norm.factors)
 # so_liver_sn$tmm_offset <- tmm_offset
 
-# # Pooled offset
-# # bp <- MulticoreParam(workers = 59)
-# # bp <- SnowParam(workers = 59, 
-# #                 packages = c("scran", "SingleCellExperiment", "stats", "Matrix"))
+# Pooled offset
+# bp <- MulticoreParam(workers = 59)
+# bp <- SnowParam(workers = 59,
+#                 packages = c("scran", "SingleCellExperiment", "stats", "Matrix"))
+# future::plan("sequential")
 # sce <- SingleCellExperiment(assays = list(counts = counts_layer))
 # # sce <- computeSumFactors(sce)
 # # sce <- computeSumFactors(sce, BPPARAM = bp)
@@ -283,6 +317,18 @@ so_liver_sn$library_size <- library_size
 # pooled_offset <- sizeFactors(sce)
 # so_liver_sn$pooled_offset <- pooled_offset
 # hist(so_liver_sn$pooled_offset)
+#Oro
+future::plan("sequential")
+sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+# sce <- computeSumFactors(sce)
+# sce <- computeSumFactors(sce, BPPARAM = bp)
+sce <- computeSumFactors(sce)
+# View size factors
+# sizeFactors(sce)
+# STEP 3: Calculate offset → log(size factors)
+pooled_offset <- sizeFactors(sce)
+so_oro$pooled_offset <- pooled_offset
+hist(so_oro$pooled_offset)
 
 # #Calculate cell library size for offset
 # counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts")) # load counts and round
@@ -13702,7 +13748,8 @@ message(sprintf("Done! Plots saved to %s/", out_dir))
 
 #Longs Cell Chat Code
 ```{r}
-
+so_Hep <- subset(so_liver_sn,celltype2=="Hep")
+DefaultAssay(so_Hep) <- "RNA" 
 # combined$group <- paste(combined$treatment, combined$pre_post, sep = "-") 
 # combined <- combined %>% JoinLayers()
 
@@ -13757,6 +13804,7 @@ run_cellchat_pipeline <- function(seurat_obj, group_name, group.by = "celltype",
 
 # Force sequential processing BEFORE running your function
 future::plan("sequential")
+Hep$celltype <- factor(Hep$celltype)
 cellchats <- list(
   Hep  = run_cellchat_pipeline(Hep,  "Hep")
 )
@@ -13774,9 +13822,9 @@ groupSize <- get_group_size(cellchat)
 #
 # pdf("fig/vsg_pre_immtoepi.pdf", width = 6.5, height = 4)
 netVisual_bubble(cellchat, sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
-                 targets.use = c("PT-S1/S2", "PT-S3", "aPT", "EC-PTC", "EC-AVR"),
-                 remove.isolate = FALSE,
-                 title.name = expression(Immune %->% Epithelial/Endothelial))
+                 targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                 remove.isolate = FALSE)
+                 # title.name = expression(Immune %->% Epithelial/Endothelial))
 # dev.off()
 #
 pdf("fig/vsg_pre_immtoimm.pdf", width = 5, height = 6.5)
@@ -13844,4 +13892,22 @@ netVisual_bubble(cellchat_post,
                  title.name = "Fibroblast/Endothelial Remodeling Signals")
 dev.off()
 
+
+#CHord diagram
+pathways <- cellchat@netP$pathways  
+pathways
+#"PARs"     "CADM"     "VISFATIN" "CDH"     "PTPRM"
+pw <- pathways[5]
+netVisual_aggregate(
+        object         = cellchat,
+        signaling      = pw,
+        layout         = "circle",    # or "chord"
+        weight.scale   = TRUE,
+        edge.weight.max = max(cellchat@net$weight)  # keeps colour scales comparable
+        # title.name     = pw
+      )
+
+
 ```
+
+
