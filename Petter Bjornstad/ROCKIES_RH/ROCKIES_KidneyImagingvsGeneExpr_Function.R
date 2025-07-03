@@ -156,6 +156,13 @@ test_results <- so_subset@meta.data %>% dplyr::select(record_id, mrn, lc_k2, rc_
   filter(!duplicated(record_id))
 
 
+test <- so_subset@meta.data %>% dplyr::select(record_id, group, SGLT2) %>% filter(!duplicated(record_id))
+
+
+
+
+
+##Function
 kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', median = F, adjustment = NULL,
                                    dir.results, cl_number = 1, cpc = 0.005, 
                                    set_cutoff = F, logFC_thresh = 10, pvalue_thresh = 0.1){
@@ -185,7 +192,11 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
   DefaultAssay(so_celltype) <- "RNA" 
   
   nrow(so_celltype) #34 genes
-  ncol(so_celltype) #4926 PT cells
+  num_cells <- ncol(so_celltype) #4926 PT cells
+  test2 <- so_celltype@meta.data %>% dplyr::select(record_id, mrn, group, epic_sglti2_1, avg_c_f) %>% 
+    filter(!duplicated(mrn)) %>% filter(!is.na(avg_c_f))
+  t2d_sglti <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
+  t2d_nosglti <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
   
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
   
@@ -398,7 +409,10 @@ kidneyimaging_analysis <- function(celltype, genes, gene_list_name = 'TCA', medi
     labs(title = paste0(gene_list_name, " Genes vs. PET Variables (T2D)"),
          subtitle = subtitle,
          x = "Exposure",
-         y = "Gene") +
+         y = "Gene", 
+         caption = paste0('Paricipants: SGLT2i: ', t2d_sglti, 
+                          '; no SGLT2i: ', t2d_nosglti, 
+                          '; Num Cells: ', num_cells)) +
     scale_x_discrete(labels = setNames(custom_labels, custom_order))+
     theme(
       text = element_text(face="bold"),
