@@ -34,6 +34,10 @@ library(enrichR)
 library(ggrepel)
 library(forcats)
 library(stringr)
+library(ComplexUpset)
+library(ggupset)
+library(Hmisc)
+library(ggrounded)
 ```
 
 ```{r echo = F, include = F}
@@ -5596,6 +5600,7 @@ plot_volcano(pt_nebula_res_combined_reml_tmm, "logFC_treatmentDapagliflozin:visi
              "-log10(FDR adjusted p-value)",
              "nebula/pt_placebo_pvalue_nebula_reml_tmm")
 ```
+
 #### REML + pooled Offset
 ```{r echo = F}
 # nebula only keeps results for converged
@@ -14554,7 +14559,7 @@ combined_nebula_reml_pooled %>%
         legend.position = "none") +
   labs(x = NULL, 
        y = "Interaction logFC") +
-  scale_color_manual(values = c("#0077b6", "#dad7cd", "#e76f51"))
+  scale_color_manual(values = c("#457b9d", "#ced4da", "#f28482"))
 
 
 # find genes that are significant in more than one celltype
@@ -14588,7 +14593,7 @@ combined_nebula_reml_pooled %>%
         legend.position = "none") +
   labs(x = NULL, 
        y = "Interaction logFC") +
-  scale_color_manual(values = c("#0077b6", "#dad7cd", "#e76f51"))
+  scale_color_manual(values = c("#457b9d", "#ced4da", "#f28482"))
 
 # label genes in TCA cycle
 tca_genes <- c(
@@ -14620,7 +14625,7 @@ combined_nebula_reml_pooled %>%
         legend.position = "none") +
   labs(x = NULL, 
        y = "Interaction logFC") +
-  scale_color_manual(values = c("#0077b6", "#dad7cd", "#e76f51"))
+  scale_color_manual(values = c("#457b9d", "#ced4da", "#f28482"))
 
 # label genes in oxphos cycle
 oxphos_genes <- c(
@@ -14650,7 +14655,235 @@ combined_nebula_reml_pooled %>%
         legend.position = "none") +
   labs(x = NULL, 
        y = "Interaction logFC") +
-  scale_color_manual(values = c("#0077b6", "#dad7cd", "#e76f51"))
+  scale_color_manual(values = c("#457b9d", "#ced4da", "#f28482"))
+
+# ggsave(
+#   filename = "",
+#   width = 4,
+#   height = 4,
+#   dpi = 300
+# )
+
+```
+
+## Number of DEGs
+```{r echo = F}
+celltype_list <- c("pt", "tal", "pc", "immune", "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmc")
+names_nebula_res_combined_reml_pooled <- paste0(celltype_list, "_nebula_res_combined_reml_pooled")
+
+# Create a named list of data frames
+df_list <- mget(names_nebula_res_combined_reml_pooled)
+names(df_list) <- toupper(celltype_list)  # Set uppercase names for celltype labeling
+
+# Combine and add celltype column
+combined <- bind_rows(df_list, .id = "celltype")
+
+# Create the summary table
+deg_summary <- combined %>%
+  mutate(direction_fdr = case_when(
+           `logFC_treatmentDapagliflozin:visitPOST` > 0 & fdr_interaction < 0.05 ~ "+",
+           `logFC_treatmentDapagliflozin:visitPOST` < 0 & fdr_interaction < 0.05 ~ "-",
+           TRUE ~ "NS")) %>%
+  dplyr::select(direction_fdr, celltype) %>%
+  table() %>%
+  as.data.frame()
+deg_summary$celltype <- factor(deg_summary$celltype, levels = c("PT", "TAL", "PC", "IC", "EC", "FIBVSMC", "IMMUNE",
+                   "IMMUNE_MYELOID", "IMMUNE_LYMPHOID"))
+# Create the summary table
+deg_summary_wide <- combined %>%
+  mutate(direction_fdr = case_when(
+    `logFC_treatmentDapagliflozin:visitPOST` > 0 & fdr_interaction < 0.05 ~ "+",
+    `logFC_treatmentDapagliflozin:visitPOST` < 0 & fdr_interaction < 0.05 ~ "-",
+    TRUE ~ "NS")) %>%
+  count(direction_fdr, celltype) %>%
+  pivot_wider(names_from = celltype, values_from = n, values_fill = 0) %>%
+  as.data.frame()
+
+save(deg_summary_wide, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/model comparison/celltype_deg_comparison.RData")
+
+deg_summary %>%
+  ggplot(aes(x = celltype, y = Freq, fill = direction_fdr)) +
+  geom_col(position = "stack") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 70, hjust = 1)) +
+  scale_fill_manual(values = c("-" = "#457b9d",
+                               "+" = "#f28482",
+                               "NS" = "#ced4da")) +
+  labs(fill = "DEG Direction", 
+       x = NULL)
+
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Cell type comparison/celltype_deg_stacked_barplot.jpeg",
+       width = 5, height = 4)
+
+```
+
+## Transcript overlap analysis
+
+```{r echo = F}
+# upset plot
+# combined
+# upset_combined_dat <- combined %>%
+#   filter(fdr_interaction < 0.05) %>%
+#   mutate(direction_fdr = case_when(`logFC_treatmentDapagliflozin:visitPOST` > 0 & fdr_interaction < 0.05 ~ "+",
+#                                    `logFC_treatmentDapagliflozin:visitPOST` < 0 & fdr_interaction < 0.05 ~ "-")) %>%
+#   dplyr::select(celltype, Gene) %>%
+#   mutate(present = 1) %>%
+#   distinct() %>%
+#   pivot_wider(names_from = celltype, values_from = present, values_fill = 0) %>%
+#   as.data.frame()
+
+
+# UpSetR::upset(upset_combined_dat)
+
+
+upset_combined_df <- combined %>%
+  filter(celltype %nin% c("IMMUNE_MYELOID", "IMMUNE_LYMPHOID")) %>%
+  filter(fdr_interaction < 0.05) %>%
+  dplyr::select(celltype, Gene, `logFC_treatmentDapagliflozin:visitPOST`, fdr_interaction) %>%
+  group_by(Gene) %>%
+  dplyr::summarize(
+    celltype = list(unique(celltype))
+  ) %>%
+  arrange(lengths(celltype))
+set_sizes <- upset_combined_df %>%
+  unnest(celltype) %>%
+  dplyr::count(celltype, name = "size") %>%
+  arrange(desc(size))
+
+ordered <- set_sizes$celltype           # vector of cell types in the desired order
+combo_ordered <- data.frame(combo_strings = map_chr(unique(upset_combined_df$celltype), ~ str_c(sort(.x), collapse = "-")),
+                            combo_ranks = map(unique(upset_combined_df$celltype), ~ match(.x, ordered)) %>%
+                              map(~ .x[!is.na(.x)]) %>%
+                              map_chr(~ str_c(sprintf("%02d", .x), collapse = "-"))) %>%
+  mutate(combo_size = str_count(combo_ranks, "-") + 1,
+         combo_first = as.numeric(map_chr(combo_ranks, ~ {
+           nums <- as.integer(str_split(.x, "-", simplify = TRUE))
+           sprintf("%02d", min(nums, na.rm = TRUE))
+         }))) %>%  # count number of ranks
+  arrange(combo_first, combo_size)
+
+upset_plot <- upset_combined_df %>%
+  mutate(overlap_category = case_when(lengths(celltype) > 2 ~ "2+",
+                               T ~ "1-2")) %>%
+  ggplot(aes(x = celltype)) +
+  geom_bar_rounded(aes(fill = overlap_category)) +
+  scale_x_mergelist(sep = "-", position = "bottom",
+                    limits = combo_ordered$combo_strings) +
+  axis_combmatrix(sep = "-", levels = ordered,
+                  override_plotting_function = function(df){
+                    print(class(df))
+                    print(df)
+                    df %>%
+                      mutate(celltype_lengths = case_when(
+                        ! observed ~ "Not observed",
+                        T ~ as.character(lengths(labels_split)))) %>%
+    ggplot(aes(x= at, y= single_label)) +
+      geom_rect(aes(fill= index %% 2 == 0), ymin=df$index-0.5, ymax=df$index+0.5, xmin=0, xmax=1) +
+      geom_point(aes(color= celltype_lengths), size = 4) +
+      geom_line(data= function(dat) dat[dat$observed, ,drop=FALSE], aes(group = labels, color= celltype_lengths), linewidth= 0.5) +
+      ylab("") + xlab("") +
+      scale_x_continuous(limits = c(0, 1), expand = c(0, 0)) +
+      scale_fill_manual(values= c(`TRUE` = "white", `FALSE` = "white")) +
+      scale_color_manual(values= c("1" = "#bbc7dc",
+                                   "2" = "#bbc7dc",
+                                   "3" = "#6d90b9",
+                                   "4" = "#6d90b9",
+                                   "5" = "#6d90b9",
+                                   "6" = "#6d90b9",
+                                   "7" = "#6d90b9",
+                                   "Not observed" = "#F7F7F7")) +
+      guides(color="none", fill="none") +
+      theme(
+        panel.background = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.ticks.length = unit(0, "pt"),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        axis.line = element_blank(),
+        panel.border = element_blank(),
+        text = element_text(size = 20)
+      )
+  }) +
+  scale_fill_manual(values= c("1-2" = "#bbc7dc",
+                              "2+" = "#6d90b9")) +
+  geom_text(stat='count', aes(label=after_stat(count), 
+            color = overlap_category),
+            vjust=0.5, hjust = -0.2, angle = 90, size = 6) +
+  scale_color_manual(values= c("1-2" = "#bbc7dc",
+                               "2+" = "#6d90b9")) +
+  theme_bw() +
+  labs(x = NULL, y = "Count", fill = "# of overlaps") +
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 25),
+        legend.position = c(0.92,0.9),
+        legend.key.size = unit(60, "pt")) +
+  guides(color = "none")
+
+p_side <- ggplot(set_sizes, aes(x = -size, y = fct_rev(factor(celltype, levels = c(ordered))))) +
+  geom_col(width = 0.6, color = "#385674") +
+  labs(x = NULL, y = NULL) +
+  scale_x_continuous(labels = abs) + 
+  theme_minimal(base_size = 25) +
+  theme(
+    panel.grid = element_blank(),
+    axis.title.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.text.y = element_blank(), 
+    text = element_text(size = 25)) +
+  coord_cartesian(expand = FALSE)
+
+library(cowplot)
+
+ggdraw() +
+  draw_plot(
+    cowplot::plot_grid(
+      cowplot::plot_grid(
+        NULL,
+        p_side + theme(plot.margin = unit(c(1, -3, -15, 10), "pt")),
+        ncol = 1, rel_heights = c(5.5, 1)
+      ),
+      upset_plot,
+      nrow = 1,
+      rel_widths = c(0.3, 3)
+    ),
+    x = 0.05, y = 0.05, width = 0.95, height = 0.95  # shrink to add outer padding
+  )
+ggsave(filename = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Upset/celltype_deg_upset.jpeg",
+       width = 30, height = 15)
+
+```
+
+```{r echo = F}
+upset_combined_df %>%
+  arrange(desc(lengths(celltype)))
+
+combined_wide <- combined %>%
+  filter(fdr_interaction < 0.05) %>%
+  filter(celltype %nin% c("IMMUNE_MYELOID", "IMMUNE_LYMPHOID")) %>%
+  mutate(logFC_direction = case_when(`logFC_treatmentDapagliflozin:visitPOST` < 0 ~ "-",
+                                     `logFC_treatmentDapagliflozin:visitPOST` > 0 ~ "+")) %>%
+  dplyr::select(Gene, celltype, logFC_direction) %>%
+  pivot_wider(
+    names_from = celltype,
+    values_from = logFC_direction,
+    values_fn = list(direction = identity)) %>%
+  rowwise() %>%
+  dplyr::mutate(n_pos = sum(c_across(PT:FIBVSMC) == "+", na.rm = TRUE),
+                n_neg = sum(c_across(PT:FIBVSMC) == "-", na.rm = TRUE),
+                n_total = sum(!is.na(c_across(PT:FIBVSMC)))) %>%
+  ungroup() %>%
+  arrange(desc(n_total))
+
+save(combined_wide, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/model comparison/celltype_deg_concordance.RData")
+
+
+gene_list_4 <- combined_wide %>%
+  filter(n_total >= 4) %>%
+  pull(Gene)
+
+save(gene_list_4, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/model comparison/gene_list_greater_than_3.RData")
 
 ```
 
@@ -16956,830 +17189,4 @@ library(writexl)
 
 write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/model comparison/DiD_Top20_By_CellType_Mod_zi.xlsx")
 ```
-
-# Overlap
-# ```{r echo = F}
-# gsea_bg <- c("kegg_legacy", "reactome", "go")
-# prefixes <- c("pt", "tal", "pc", "ic", "ec", "fibvsmcp", "immune")
-# mod12 <- c("mod1", "mod2")
-# # Loop through gsea backgrounds and combine results
-# combined_results <- list()
-# 
-# for (bg in gsea_bg) {
-#   temp_list <- list()
-#   
-#   for (prefix in prefixes) {
-#     for (mod in mod12) {
-#       df_name <- paste0(bg, "_res_", prefix, "_", mod)
-#       
-#       if (exists(df_name)) {
-#         df <- get(df_name)
-#         
-#         # Add metadata columns for tracking
-#         df$prefix <- prefix
-#         df$mod <- mod
-#         
-#         temp_list[[df_name]] <- df
-#       }
-#     }
-#   }
-#   
-#   # Combine all data frames for the current gsea background
-#   combined_results[[bg]] <- bind_rows(temp_list)
-# }
-# 
-# kegg_legacy_all <- combined_results[["kegg_legacy"]]
-# reactome_all    <- combined_results[["reactome"]]
-# go_all          <- combined_results[["go"]]
-# ```
-# 
-# ## KEGG
-# 
-# ```{r echo = F}
-# # model 1 GSEA significant (p < 0.05) overlap
-# kegg_matrix_mod1 <- kegg_legacy_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod1") %>%
-#   dplyr::select(pathway, prefix) %>%
-#   distinct() %>%
-#   mutate(present = 1) %>%
-#   pivot_wider(names_from = prefix, values_from = present, values_fill = 0)
-# upset(kegg_matrix_mod1, 
-#       intersect = prefixes,
-#       name = "Significant Pathway Presence",
-#       base_annotations=list('Intersection size'=intersection_size(text_angles = c(90, 0))),
-#       width_ratio = 0.15)
-# 
-# common_pathways_kegg_mod1 <- kegg_legacy_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod1") %>%
-#   group_by(pathway) %>%
-#   summarize(n_prefixes = n_distinct(prefix), .groups = "drop") %>%
-#   filter(n_prefixes > 1) %>% 
-#   arrange(desc(n_prefixes))
-# common_pathways_kegg_mod1 <- common_pathways_kegg_mod1 %>%
-#   left_join(kegg_matrix_mod1) %>%
-#   rowwise() %>%
-#   mutate(shared_prefixes = paste0("(", toupper(prefixes)[c_across(all_of(prefixes)) == 1], ")", collapse = "")) %>%
-#   ungroup()
-# 
-# # model 2 GSEA significant (p < 0.05) overlap
-# kegg_matrix_mod2 <- kegg_legacy_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod2") %>%
-#   dplyr::select(pathway, prefix) %>%
-#   distinct() %>%
-#   mutate(present = 1) %>%
-#   pivot_wider(names_from = prefix, values_from = present, values_fill = 0)
-# upset(kegg_matrix_mod2, 
-#       intersect = prefixes,
-#       name = "Significant Pathway Presence",
-#       base_annotations=list('Intersection size'=intersection_size(text_angles = c(90, 0))),
-#       width_ratio = 0.15)
-# 
-# common_pathways_kegg_mod2 <- kegg_legacy_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod2") %>%
-#   group_by(pathway) %>%
-#   summarize(n_prefixes = n_distinct(prefix), .groups = "drop") %>%
-#   filter(n_prefixes > 1) %>% 
-#   arrange(desc(n_prefixes))
-# common_pathways_kegg_mod2 <- common_pathways_kegg_mod2 %>%
-#   left_join(kegg_matrix_mod2) %>%
-#   rowwise() %>%
-#   mutate(shared_prefixes = paste0("(", toupper(prefixes)[c_across(all_of(prefixes)) == 1], ")", collapse = "")) %>%
-#   ungroup()
-# ```
-# ## REACTOME
-# 
-# ```{r echo = F}
-# # model 1 GSEA significant (p < 0.05) overlap
-# reactome_matrix_mod1 <- reactome_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod1") %>%
-#   dplyr::select(pathway, prefix) %>%
-#   distinct() %>%
-#   mutate(present = 1) %>%
-#   pivot_wider(names_from = prefix, values_from = present, values_fill = 0)
-# upset(reactome_matrix_mod1, 
-#       intersect = prefixes,
-#       name = "Significant Pathway Presence",
-#       base_annotations=list('Intersection size'=intersection_size(text_angles = c(90, 0))),
-#       width_ratio = 0.15)
-# 
-# common_pathways_reactome_mod1 <- reactome_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod1") %>%
-#   group_by(pathway) %>%
-#   summarize(n_prefixes = n_distinct(prefix), .groups = "drop") %>%
-#   filter(n_prefixes > 1) %>% 
-#   arrange(desc(n_prefixes))
-# common_pathways_reactome_mod1 <- common_pathways_reactome_mod1 %>%
-#   left_join(reactome_matrix_mod1) %>%
-#   rowwise() %>%
-#   mutate(shared_prefixes = paste0("(", toupper(prefixes)[c_across(all_of(prefixes)) == 1], ")", collapse = "")) %>%
-#   ungroup()
-# 
-# # model 2 GSEA significant (p < 0.05) overlap
-# reactome_matrix_mod2 <- reactome_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod2") %>%
-#   dplyr::select(pathway, prefix) %>%
-#   distinct() %>%
-#   mutate(present = 1) %>%
-#   pivot_wider(names_from = prefix, values_from = present, values_fill = 0)
-# upset(reactome_matrix_mod2, 
-#       intersect = prefixes,
-#       name = "Significant Pathway Presence",
-#       base_annotations=list('Intersection size'=intersection_size(text_angles = c(90, 0))),
-#       width_ratio = 0.15)
-# 
-# common_pathways_reactome_mod2 <- reactome_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod2") %>%
-#   group_by(pathway) %>%
-#   summarize(n_prefixes = n_distinct(prefix), .groups = "drop") %>%
-#   filter(n_prefixes > 1) %>% 
-#   arrange(desc(n_prefixes))
-# common_pathways_reactome_mod2 <- common_pathways_reactome_mod2 %>%
-#   left_join(reactome_matrix_mod2) %>%
-#   rowwise() %>%
-#   mutate(shared_prefixes = paste0("(", toupper(prefixes)[c_across(all_of(prefixes)) == 1], ")", collapse = "")) %>%
-#   ungroup()
-# ```
-# 
-# ## GO
-# 
-# ```{r echo = F}
-# # model 1 GSEA significant (p < 0.05) overlap
-# go_matrix_mod1 <- go_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod1") %>%
-#   dplyr::select(pathway, prefix) %>%
-#   distinct() %>%
-#   mutate(present = 1) %>%
-#   pivot_wider(names_from = prefix, values_from = present, values_fill = 0)
-# upset(go_matrix_mod1, 
-#       intersect = prefixes,
-#       name = "Significant Pathway Presence",
-#       base_annotations=list('Intersection size'=intersection_size(text_angles = c(90, 0))),
-#       width_ratio = 0.15)
-# 
-# common_pathways_go_mod1 <- go_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod1") %>%
-#   group_by(pathway) %>%
-#   summarize(n_prefixes = n_distinct(prefix), .groups = "drop") %>%
-#   filter(n_prefixes > 1) %>% 
-#   arrange(desc(n_prefixes))
-# common_pathways_go_mod1 <- common_pathways_go_mod1 %>%
-#   left_join(go_matrix_mod1) %>%
-#   rowwise() %>%
-#   mutate(shared_prefixes = paste0("(", toupper(prefixes)[c_across(all_of(prefixes)) == 1], ")", collapse = "")) %>%
-#   ungroup()
-# 
-# # model 2 GSEA significant (p < 0.05) overlap
-# go_matrix_mod2 <- go_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod2") %>%
-#   dplyr::select(pathway, prefix) %>%
-#   distinct() %>%
-#   mutate(present = 1) %>%
-#   pivot_wider(names_from = prefix, values_from = present, values_fill = 0)
-# upset(go_matrix_mod2, 
-#       intersect = prefixes,
-#       name = "Significant Pathway Presence",
-#       base_annotations=list('Intersection size'=intersection_size(text_angles = c(90, 0))),
-#       width_ratio = 0.15)
-# 
-# common_pathways_go_mod2 <- go_all %>%
-#   filter(pval < 0.05) %>%
-#   filter(mod == "mod2") %>%
-#   group_by(pathway) %>%
-#   summarize(n_prefixes = n_distinct(prefix), .groups = "drop") %>%
-#   filter(n_prefixes > 1) %>% 
-#   arrange(desc(n_prefixes))
-# common_pathways_go_mod2 <- common_pathways_go_mod2 %>%
-#   left_join(go_matrix_mod2) %>%
-#   rowwise() %>%
-#   mutate(shared_prefixes = paste0("(", toupper(prefixes)[c_across(all_of(prefixes)) == 1], ")", collapse = "")) %>%
-#   ungroup()
-# ```
-# 
-# 
-# 
-# ## Rerun figures for GSEA (fgsea) with overlap information
-# ### Model 1
-# #### PT
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_pt_mod1_overlap <- kegg_legacy_res_pt_mod1 %>%
-#   left_join(common_pathways_kegg_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(kegg_legacy_res_pt_mod1_overlap, title = "Model 1 PT Top 30 KEGG", xnudge = 0.03)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/pt_top30_kegg_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_pt_mod1_overlap <- reactome_res_pt_mod1 %>%
-#   left_join(common_pathways_reactome_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(reactome_res_pt_mod1_overlap, title = "Model 1 PT Top 30 REACTOME", xmax = 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/pt_top30_reactome_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### GO
-# ```{r echo = F}
-# go_res_pt_mod1_overlap <- go_res_pt_mod1 %>%
-#   left_join(common_pathways_go_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(go_res_pt_mod1_overlap, title = "Model 1 PT Top 30 GO", xmax = 8)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/pt_top30_go_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# #### TAL
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_tal_mod1_overlap <- kegg_legacy_res_tal_mod1 %>%
-#   left_join(common_pathways_kegg_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(kegg_legacy_res_tal_mod1_overlap, title = "Model 1 TAL Top 30 KEGG", xlim= 4)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/tal_top30_kegg_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_tal_mod1_overlap <- reactome_res_tal_mod1 %>%
-#   left_join(common_pathways_reactome_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(reactome_res_tal_mod1_overlap, title = "Model 1 TAL Top 30 REACTOME", xmax = 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/tal_top30_reactome_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_tal_mod1_overlap <- go_res_tal_mod1 %>%
-#   left_join(common_pathways_go_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(go_res_tal_mod1_overlap, title = "Model 1 TAL Top 30 GO", xmax = 6)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/tal_top30_go_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# 
-# ### PC
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_pc_mod1_overlap <- kegg_legacy_res_pc_mod1 %>%
-#   left_join(common_pathways_kegg_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(kegg_legacy_res_pc_mod1_overlap, title = "Model 1 PC Top 30 KEGG", xlim= 3)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/pc_top30_kegg_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_pc_mod1_overlap <- reactome_res_pc_mod1 %>%
-#   left_join(common_pathways_reactome_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(reactome_res_pc_mod1_overlap, title = "Model 1 PC Top 30 REACTOME", xmax = 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/pc_top30_reactome_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_pc_mod1_overlap <- go_res_pc_mod1 %>%
-#   left_join(common_pathways_go_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(go_res_pc_mod1_overlap, title = "Model 1 PC Top 30 GO", xmax = 8)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/pc_top30_go_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ### Immune (very few cells)
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_immune_mod1_overlap <- kegg_legacy_res_immune_mod1 %>%
-#   left_join(common_pathways_kegg_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(kegg_legacy_res_immune_mod1_overlap, title = "Model 1 Immune Top 30 KEGG", xlim= 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/immune_top30_kegg_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_immune_mod1_overlap <- reactome_res_immune_mod1 %>%
-#   left_join(common_pathways_reactome_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(reactome_res_immune_mod1_overlap, title = "Model 1 Immune Top 30 REACTOME", xmax = 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/immune_top30_reactome_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_immune_mod1_overlap <- go_res_immune_mod1 %>%
-#   left_join(common_pathways_go_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(go_res_immune_mod1_overlap, title = "Model 1 Immune Top 30 GO", xmax = 7)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/immune_top30_go_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ### IC
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_ic_mod1_overlap <- kegg_legacy_res_ic_mod1 %>%
-#   left_join(common_pathways_kegg_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(kegg_legacy_res_ic_mod1_overlap, title = "Model 1 IC Top 30 KEGG", xlim= 4)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/ic_top30_kegg_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_ic_mod1_overlap <- reactome_res_ic_mod1 %>%
-#   left_join(common_pathways_reactome_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(reactome_res_ic_mod1_overlap, title = "Model 1 IC Top 30 REACTOME", xmax = 8)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/ic_top30_reactome_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_ic_mod1_overlap <- go_res_ic_mod1 %>%
-#   left_join(common_pathways_go_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(go_res_ic_mod1_overlap, title = "Model 1 IC Top 30 GO", xmax = 8)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/ic_top30_go_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ### EC
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_ec_mod1_overlap <- kegg_legacy_res_ec_mod1 %>%
-#   left_join(common_pathways_kegg_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(kegg_legacy_res_ec_mod1_overlap, title = "Model 1 EC Top 30 KEGG", xlim= 4)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/ec_top30_kegg_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_ec_mod1_overlap <- reactome_res_ec_mod1 %>%
-#   left_join(common_pathways_reactome_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(reactome_res_ec_mod1_overlap, title = "Model 1 EC Top 30 REACTOME", xmax = 4)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/ec_top30_reactome_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_ec_mod1_overlap <- go_res_ec_mod1 %>%
-#   left_join(common_pathways_go_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(go_res_ec_mod1_overlap, title = "Model 1 EC Top 30 GO", xmax = 7)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/ec_top30_go_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ### FIB/VSMC/P
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_fibvsmcp_mod1_overlap <- kegg_legacy_res_fibvsmcp_mod1 %>%
-#   left_join(common_pathways_kegg_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(kegg_legacy_res_fibvsmcp_mod1_overlap, title = "Model 1 FIB/VSMC/P Top 30 KEGG", xlim= 3)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/fibvsmcp_top30_kegg_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_fibvsmcp_mod1_overlap <- reactome_res_fibvsmcp_mod1 %>%
-#   left_join(common_pathways_reactome_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(reactome_res_fibvsmcp_mod1_overlap, title = "Model 1 FIB/VSMC/P Top 30 REACTOME", xmax = 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/fibvsmcp_top30_reactome_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_fibvsmcp_mod1_overlap <- go_res_fibvsmcp_mod1 %>%
-#   left_join(common_pathways_go_mod1) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(go_res_fibvsmcp_mod1_overlap, title = "Model 1 FIB/VSMC/P Top 30 GO", xmax = 6)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/gsea/fibvsmcp_top30_go_pathways_mod1.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ### model 2
-# #### PT
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_pt_mod2_overlap <- kegg_legacy_res_pt_mod2 %>%
-#   left_join(common_pathways_kegg_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(kegg_legacy_res_pt_mod2_overlap, title = "model 2 PT Top 30 KEGG", xlim= 3)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/pt_top30_kegg_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_pt_mod2_overlap <- reactome_res_pt_mod2 %>%
-#   left_join(common_pathways_reactome_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(reactome_res_pt_mod2_overlap, title = "model 2 PT Top 30 REACTOME", xmax = 6)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/pt_top30_reactome_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_pt_mod2_overlap <- go_res_pt_mod2 %>%
-#   left_join(common_pathways_go_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(go_res_pt_mod2_overlap, title = "model 2 PT Top 30 GO", xmax = 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/pt_top30_go_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ### TAL
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_tal_mod2_overlap <- kegg_legacy_res_tal_mod2 %>%
-#   left_join(common_pathways_kegg_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(kegg_legacy_res_tal_mod2_overlap, title = "model 2 TAL Top 30 KEGG", xlim= 3)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/tal_top30_kegg_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_tal_mod2_overlap <- reactome_res_tal_mod2 %>%
-#   left_join(common_pathways_reactome_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(reactome_res_tal_mod2_overlap, title = "model 2 TAL Top 30 REACTOME", xmax = 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/tal_top30_reactome_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_tal_mod2_overlap <- go_res_tal_mod2 %>%
-#   left_join(common_pathways_go_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(go_res_tal_mod2_overlap, title = "model 2 TAL Top 30 GO", xmax = 7)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/tal_top30_go_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ### PC
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_pc_mod2_overlap <- kegg_legacy_res_pc_mod2 %>%
-#   left_join(common_pathways_kegg_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(kegg_legacy_res_pc_mod2_overlap, title = "model 2 PC Top 30 KEGG", xlim= 3)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/pc_top30_kegg_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_pc_mod2_overlap <- reactome_res_pc_mod2 %>%
-#   left_join(common_pathways_reactome_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(reactome_res_pc_mod2_overlap, title = "model 2 PC Top 30 REACTOME", xmax = 4)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/pc_top30_reactome_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_pc_mod2_overlap <- go_res_pc_mod2 %>%
-#   left_join(common_pathways_go_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(go_res_pc_mod2_overlap, title = "model 2 PC Top 30 GO", xmax = 8)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/pc_top30_go_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ### Immune (very few cells)
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_immune_mod2_overlap <- kegg_legacy_res_immune_mod2 %>%
-#   left_join(common_pathways_kegg_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(kegg_legacy_res_immune_mod2_overlap, title = "model 2 Immune Top 30 KEGG", xlim= 4)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/immune_top30_kegg_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_immune_mod2_overlap <- reactome_res_immune_mod2 %>%
-#   left_join(common_pathways_reactome_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(reactome_res_immune_mod2_overlap, title = "model 2 Immune Top 30 REACTOME", xmax = 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/immune_top30_reactome_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_immune_mod2_overlap <- go_res_immune_mod2 %>%
-#   left_join(common_pathways_go_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(go_res_immune_mod2_overlap, title = "model 2 Immune Top 30 GO", xmax = 8)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/immune_top30_go_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ### IC
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_ic_mod2_overlap <- kegg_legacy_res_ic_mod2 %>%
-#   left_join(common_pathways_kegg_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(kegg_legacy_res_ic_mod2_overlap, title = "model 2 IC Top 30 KEGG", xlim= 4)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/ic_top30_kegg_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_ic_mod2_overlap <- reactome_res_ic_mod2 %>%
-#   left_join(common_pathways_reactome_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(reactome_res_ic_mod2_overlap, title = "model 2 IC Top 30 REACTOME", xmax = 8)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/ic_top30_reactome_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_ic_mod2_overlap <- go_res_ic_mod2 %>%
-#   left_join(common_pathways_go_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(go_res_ic_mod2_overlap, title = "model 2 IC Top 30 GO", xmax = 8)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/ic_top30_go_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# 
-# ### EC
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_ec_mod2_overlap <- kegg_legacy_res_ec_mod2 %>%
-#   left_join(common_pathways_kegg_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(kegg_legacy_res_ec_mod2_overlap, title = "model 2 EC Top 30 KEGG", xlim= 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/ec_top30_kegg_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_ec_mod2_overlap <- reactome_res_ec_mod2 %>%
-#   left_join(common_pathways_reactome_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(reactome_res_ec_mod2_overlap, title = "model 2 EC Top 30 REACTOME", xmax = 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/ec_top30_reactome_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_ec_mod2_overlap <- go_res_ec_mod2 %>%
-#   left_join(common_pathways_go_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(go_res_ec_mod2_overlap, title = "model 2 EC Top 30 GO", xmax = 7)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/ec_top30_go_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# 
-# ### FIB/VSMC/P
-# ##### KEGG Legacy
-# ```{r echo = F}
-# kegg_legacy_res_fibvsmcp_mod2_overlap <- kegg_legacy_res_fibvsmcp_mod2 %>%
-#   left_join(common_pathways_kegg_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# 
-# plot_fgsea(kegg_legacy_res_fibvsmcp_mod2_overlap, title = "model 2 FIB/VSMC/P Top 30 KEGG", xlim= 3)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/fibvsmcp_top30_kegg_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# 
-# ##### REACTOME
-# ```{r echo = F}
-# reactome_res_fibvsmcp_mod2_overlap <- reactome_res_fibvsmcp_mod2 %>%
-#   left_join(common_pathways_reactome_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(reactome_res_fibvsmcp_mod2_overlap, title = "model 2 FIB/VSMC/P Top 30 REACTOME", xmax = 5)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/fibvsmcp_top30_reactome_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
-# ##### GO
-# ```{r echo = F}
-# go_res_fibvsmcp_mod2_overlap <- go_res_fibvsmcp_mod2 %>%
-#   left_join(common_pathways_go_mod2) %>%
-#   mutate(face = case_when(is.na(n_prefixes) ~ "plain",
-#                           T ~ "bold"),
-#          pathway = case_when(!is.na(n_prefixes) ~ paste0(pathway, " ", shared_prefixes),
-#                              T~ pathway))
-# plot_fgsea(go_res_fibvsmcp_mod2_overlap, title = "model 2 FIB/VSMC/P Top 30 GO", xmax = 8)
-# 
-# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/gsea/fibvsmcp_top30_go_pathways_mod2.jpeg",
-#        width = 27.5, height = 14, scale = 1)
-# ```
 
