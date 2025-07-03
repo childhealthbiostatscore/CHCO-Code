@@ -160,8 +160,6 @@ temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
 s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
 so_kpmp_sc <- readRDS(temp_file)
 # so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
-
-
 ```
 
 
@@ -172,14 +170,22 @@ so_kpmp_sc <- readRDS(temp_file)
 #Set ids for organoid samples
 ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
 
-##d. Load Data ----
-so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
+# ##d. Load Data ----
+# so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
 so_kpmp_sc <- subset(so_kpmp_sc,record_id %in% ids)
 
 #Load harmonized data that has been filtered from 90 to the 83 participants that have baseline single cell data
 # harm_meta_data <- read.csv(fs::path(dir.dat,"Kidney scRNAseq Project","Data","harmonized_data_kidney_sc_all_metadata2.csv"))
 # harm_meta_data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",na="")
-harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
+# harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
+
+#Hyak load
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
+harm_meta_data <- read.csv(temp_file)
+# harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
 
 harm_meta_data <- harm_meta_data %>%   
   arrange(screen_date) %>%
@@ -385,6 +391,64 @@ so_kpmp_sc$celltype2 <- ifelse(so_kpmp_sc$KPMP_celltype=="aPT" |
                                ifelse(grepl("TAL",so_kpmp_sc$KPMP_celltype),"TAL",
                                       ifelse(grepl("EC-",so_kpmp_sc$KPMP_celltype),"EC",so_kpmp_sc$KPMP_celltype2)))
 
+#High level celltypes
+# Comprehensive cell type annotation for kidney single-cell data
+so_kpmp_sc$celltype_annotate <- case_when(
+  
+  # PROXIMAL TUBULE (PT) - All proximal tubule segments
+  so_kpmp_sc$KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3") ~ "PT",
+  
+  # THICK ASCENDING LIMB (TAL) - All TAL variants
+  grepl("TAL", so_kpmp_sc$KPMP_celltype) ~ "TAL",
+  
+  # THIN LIMBS - Descending and ascending thin limbs
+  so_kpmp_sc$KPMP_celltype %in% c("DTL", "aDTL", "ATL") ~ "Thin_Limbs",
+  
+  # DISTAL CONVOLUTED TUBULE (DCT)
+  grepl("DCT", so_kpmp_sc$KPMP_celltype) ~ "DCT",
+  
+  # CONNECTING TUBULE (CNT) - Including CNT and principal cells
+  so_kpmp_sc$KPMP_celltype %in% c("CNT", "CNT-PC") ~ "CNT",
+  
+  # COLLECTING DUCT PRINCIPAL CELLS (PC)
+  so_kpmp_sc$KPMP_celltype %in% c("CCD-PC", "dCCD-PC", "M-PC") ~ "PC",
+  
+  # INTERCALATED CELLS (IC) - All IC subtypes
+  grepl("IC", so_kpmp_sc$KPMP_celltype) | so_kpmp_sc$KPMP_celltype == "aIC" ~ "IC",
+  
+  # ENDOTHELIAL CELLS (EC) - All endothelial subtypes
+  grepl("EC-", so_kpmp_sc$KPMP_celltype) | so_kpmp_sc$KPMP_celltype == "EC/VSMC" ~ "EC",
+  
+  # PODOCYTES
+  so_kpmp_sc$KPMP_celltype == "POD" ~ "POD",
+  
+  # PARIETAL EPITHELIAL CELLS
+  so_kpmp_sc$KPMP_celltype == "PEC" ~ "PEC",
+  
+  # IMMUNE CELLS - All immune cell types
+  so_kpmp_sc$KPMP_celltype %in% c("MON", "cDC", "pDC", "MAC", "CD4+ T", "CD8+ T", 
+                                  "cycT", "B", "NK", "MC") ~ "Immune",
+  
+  # FIBROBLASTS
+  so_kpmp_sc$KPMP_celltype == "FIB" ~ "Fibroblast",
+  
+  # VASCULAR SMOOTH MUSCLE CELLS/PERICYTES
+  so_kpmp_sc$KPMP_celltype == "VSMC/P" ~ "VSMC_Pericyte",
+  
+  # SCHWANN CELLS
+  so_kpmp_sc$KPMP_celltype == "SchwannCells" ~ "Schwann",
+  
+  # NON-SPECIFIC/UNKNOWN
+  so_kpmp_sc$KPMP_celltype == "non-specific" ~ "Nonspecific",
+  
+  # DEFAULT - anything not captured above
+  TRUE ~ "Other"
+)
+
+final_counts <- table(so_kpmp_sc$celltype_annotate)
+print(final_counts)
+print(prop.table(final_counts) * 100)
+
 ```
 
 ### ii. Organoid Data
@@ -407,28 +471,46 @@ ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
 #41 iPS clone I
 # 41 iPS clone G
 
-# gc()
-# bucket <- "scrna" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-# s3$download_file(bucket, "data_raw/organoids_processed_matrix.rds", temp_file)
-# sc_org <- readRDS(temp_file)
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "data_raw/organoids_processed_matrix.rds", temp_file)
+sc_org <- readRDS(temp_file)
 
 
-sc_org <- readRDS(fs::path(dir.dat,"scRNA","data_raw","organoids_processed_matrix.rds"))
+# sc_org <- readRDS(fs::path(dir.dat,"scRNA","data_raw","organoids_processed_matrix.rds"))
 
 #Rename rwonames of sc_org with gene names
 # Make sure the gene names are aligned in the same order
+# gene_ids <- rownames(sc_org)
+# new_gene_names <- sc_org@misc$gene_annotations$name
+# 
+# gene_map <- data.frame(
+#   feature_id = gene_ids,
+#   gene_name = new_gene_names,
+#   row.names = gene_ids,  # Keep feature_id as rownames so we can cbind
+#   stringsAsFactors = FALSE
+# )
+
+source(fs::path(here::here(),"Petter Bjornstad","Liver analysis","Liver scRNAseq","Rename_Seurat_Function.R"))
+# Extract the components as you mentioned
 gene_ids <- rownames(sc_org)
 new_gene_names <- sc_org@misc$gene_annotations$name
 
-gene_map <- data.frame(
-  feature_id = gene_ids,
-  gene_name = new_gene_names,
-  row.names = gene_ids,  # Keep feature_id as rownames so we can cbind
-  stringsAsFactors = FALSE
-)
+# Rename the Seurat object
+sc_org_renamed <- rename_seurat_genes(sc_org, new_gene_names)
 
+# Verify the rename worked
+print(paste("Original rownames (first 10):", paste(head(gene_ids, 10), collapse = ", ")))
+print(paste("New rownames (first 10):", paste(head(rownames(sc_org_renamed), 10), collapse = ", ")))
 
+# Check that dimensions are preserved
+print(paste("Original dimensions:", paste(dim(sc_org), collapse = " x ")))
+print(paste("New dimensions:", paste(dim(sc_org_renamed), collapse = " x ")))
+
+#Save old seurat to sc_or_old
+sc_org_old <- sc_org
+sc_org <- sc_org_renamed
 
 meta <- sc_org@meta.data
 
@@ -458,12 +540,16 @@ rownames(sc_org)
 colnames(sc_org)
 
 
-
 # # #Load harmonized data that has been filtered from 90 to the 83 participants that have baseline single cell data
 # harm_meta_data <- read.csv(fs::path(dir.dat,"Kidney scRNAseq Project","Data","harmonized_data_kidney_sc_all_metadata2.csv"))
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
+harm_meta_data <- read.csv(temp_file)
 
 # harm_meta_data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",na="")
-harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
+# harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
 harm_meta_data <- harm_meta_data %>%   
   arrange(screen_date) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
@@ -672,10 +758,10 @@ hist(sc_org$library_size)
 # sc_org$tmm_offset <- tmm_offset
 
 # Pooled offset
-bp <- MulticoreParam(workers = 63) 
+# bp <- MulticoreParam(workers = 63) 
 sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-# sce <- computeSumFactors(sce)
-sce <- computeSumFactors(sce, BPPARAM = bp)
+sce <- computeSumFactors(sce)
+# sce <- computeSumFactors(sce, BPPARAM = bp)
 # View size factors
 # sizeFactors(sce)
 # STEP 3: Calculate offset → log(size factors)
@@ -720,7 +806,235 @@ sc_org <- NormalizeData(sc_org)
 sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
 ```
 
-## b. Explore Distribution & Zero-Inflation
+## b. Annotate Organoid Data
+```{r}
+# library(Seurat)
+# library(dplyr)
+# library(ggplot2)
+
+# Define marker genes for each kidney cell type
+marker_genes <- list(
+  "PT" = c("CUBN", "LRP2"),                    # Proximal Tubule
+  "DTL" = c("AQP1", "ID1"),                    # Descending Thin Limb
+  "ATL" = c("CLDN3", "CLCNKA"),               # Ascending Thin Limb
+  "TAL" = c("UMOD", "SLC12A1"),               # Thick Ascending Limb
+  "DCT" = c("SLC12A3"),                       # Distal Convoluted Tubule
+  "CNT" = c("SLC8A1"),                        # Connecting Tubule
+  "PC" = c("FXYD4"),                          # Principal Cells
+  "IC" = c("ATP6V0D2"),                       # Intercalated Cells
+  "EC" = c("EMCN"),                           # Endothelial Cells
+  "Immune" = c("PTPRC"),                      # Immune cells
+  "Interstitial" = c("ACTA2", "RGS5")        # Interstitial cells
+)
+
+# Function to annotate cell types based on marker genes
+annotate_celltypes <- function(seurat_obj, marker_list, min_score_diff = 0.1) {
+  
+  # Calculate module scores for each cell type
+  cat("Calculating module scores for each cell type...\n")
+  
+  for (celltype in names(marker_list)) {
+    # Check which markers are present in the dataset
+    available_markers <- intersect(marker_list[[celltype]], rownames(seurat_obj))
+    
+    if (length(available_markers) == 0) {
+      warning(paste("No markers found for", celltype, "in the dataset"))
+      next
+    }
+    
+    if (length(available_markers) < length(marker_list[[celltype]])) {
+      missing_markers <- setdiff(marker_list[[celltype]], available_markers)
+      cat(paste("Warning: Missing markers for", celltype, ":", paste(missing_markers, collapse = ", "), "\n"))
+    }
+    
+    # Add module score
+    seurat_obj <- AddModuleScore(
+      object = seurat_obj,
+      features = list(available_markers),
+      name = paste0(celltype, "_score"),
+      ctrl = 100
+    )
+  }
+  
+  # Get all score column names
+  score_cols <- paste0(names(marker_list), "_score1")
+  score_cols <- score_cols[score_cols %in% colnames(seurat_obj@meta.data)]
+  
+  if (length(score_cols) == 0) {
+    stop("No module scores were calculated successfully")
+  }
+  
+  # Create a matrix of scores
+  score_matrix <- seurat_obj@meta.data[, score_cols, drop = FALSE]
+  colnames(score_matrix) <- gsub("_score1", "", colnames(score_matrix))
+  
+  # Assign cell types based on highest score
+  cat("Assigning cell types based on highest scores...\n")
+  
+  # Find the cell type with maximum score for each cell
+  max_scores <- apply(score_matrix, 1, max)
+  second_max_scores <- apply(score_matrix, 1, function(x) sort(x, decreasing = TRUE)[2])
+  score_differences <- max_scores - second_max_scores
+  
+  # Assign cell types
+  assigned_celltypes <- colnames(score_matrix)[apply(score_matrix, 1, which.max)]
+  
+  # Set cells with low confidence to "Unknown"
+  low_confidence <- score_differences < min_score_diff
+  assigned_celltypes[low_confidence] <- "Unknown"
+  
+  # Add annotations to metadata
+  seurat_obj@meta.data$celltype_annotation <- assigned_celltypes
+  seurat_obj@meta.data$max_score <- max_scores
+  seurat_obj@meta.data$score_difference <- score_differences
+  
+  # Print summary
+  cat("\nCell type annotation summary:\n")
+  print(table(assigned_celltypes))
+  
+  cat(paste("\nCells with low confidence (score diff <", min_score_diff, "):", sum(low_confidence), "\n"))
+  
+  return(seurat_obj)
+}
+
+# Function to visualize cell type annotations
+plot_celltype_results <- function(seurat_obj, reduction = "umap") {
+  
+  # Plot 1: UMAP with cell type annotations
+  p1 <- DimPlot(seurat_obj, 
+                group.by = "celltype_annotation", 
+                reduction = reduction,
+                label = TRUE, 
+                label.size = 3) +
+    ggtitle("Cell Type Annotations") +
+    theme(legend.position = "bottom")
+  
+  # Plot 2: Score distribution
+  score_cols <- grep("_score1$", colnames(seurat_obj@meta.data), value = TRUE)
+  if (length(score_cols) > 0) {
+    score_data <- seurat_obj@meta.data[, c("celltype_annotation", score_cols)]
+    colnames(score_data) <- c("celltype_annotation", gsub("_score1", "", score_cols))
+    
+    # Melt the data for plotting
+    score_long <- reshape2::melt(score_data, id.vars = "celltype_annotation")
+    
+    p2 <- ggplot(score_long, aes(x = variable, y = value, fill = celltype_annotation)) +
+      geom_boxplot() +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+      labs(title = "Module Score Distribution by Cell Type",
+           x = "Cell Type Markers", 
+           y = "Module Score") +
+      facet_wrap(~celltype_annotation, scales = "free")
+  } else {
+    p2 <- NULL
+  }
+  
+  # Plot 3: Score difference distribution
+  p3 <- ggplot(seurat_obj@meta.data, aes(x = celltype_annotation, y = score_difference)) +
+    geom_boxplot() +
+    geom_hline(yintercept = 0.1, linetype = "dashed", color = "red") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(title = "Score Difference Distribution",
+         subtitle = "Red line shows confidence threshold",
+         x = "Assigned Cell Type", 
+         y = "Score Difference")
+  
+  return(list(annotation_plot = p1, score_plot = p2, confidence_plot = p3))
+}
+
+# Main execution
+cat("Starting cell type annotation...\n")
+
+# Annotate cell types (adjust min_score_diff as needed)
+sc_org <- annotate_celltypes(sc_org, marker_genes, min_score_diff = 0.1)
+
+# Generate plots
+plots <- plot_celltype_results(sc_org, reduction = "umap")
+
+# Display plots
+print(plots$annotation_plot)
+if (!is.null(plots$score_plot)) {
+  print(plots$score_plot)
+}
+print(plots$confidence_plot)
+
+# Optional: Save results
+# saveRDS(sc_org, "sc_org_annotated.rds")
+# ggsave("celltype_annotation_umap.pdf", plots$annotation_plot, width = 12, height = 8)
+
+# Check annotation quality
+cat("\nAnnotation Quality Check:\n")
+cat("Total cells:", ncol(sc_org), "\n")
+cat("Annotated cells:", sum(sc_org@meta.data$celltype_annotation != "Unknown"), "\n")
+cat("Unknown cells:", sum(sc_org@meta.data$celltype_annotation == "Unknown"), "\n")
+cat("Annotation rate:", round(100 * sum(sc_org@meta.data$celltype_annotation != "Unknown") / ncol(sc_org), 2), "%\n")
+
+# Optional: Manual refinement based on additional criteria
+# You can further refine annotations by examining specific markers
+# Example:
+# FeaturePlot(sc_org, features = c("CUBN", "UMOD", "SLC12A3", "EMCN"), ncol = 2)
+
+cat("Cell type annotation completed!\n")
+cat("Results stored in sc_org@meta.data$celltype_annotation\n")
+cat("Module scores and confidence metrics also available in metadata\n")
+
+# Check specific kidney markers
+FeaturePlot(sc_org, features = c("CUBN", "UMOD", "SLC12A3", "EMCN"), ncol = 2)
+
+#Try exteracting marker genes from seurat object in biopsies
+# Example usage:
+# Assuming you have a reference Seurat object called 'reference_seurat' 
+# with cell type annotations in a column (e.g., 'celltype', 'seurat_clusters', etc.)
+
+# Method 1: Extract from existing cell type annotations
+# Replace 'reference_seurat' with your annotated Seurat object name
+# Replace 'celltype_annotation' with your cell type column name
+
+
+
+marker_results <- extract_top_markers(
+  reference_seurat = so_kpmp_sc,
+  cell_type_column = "celltype_annotate",  # or "seurat_clusters", "cell_type", etc.
+  top_n = 20,
+  min_pct = 0.25,
+  logfc_threshold = 0.25
+)
+
+# Method 2: If you want to use cluster-based markers instead
+# marker_results <- extract_top_markers(
+#   reference_seurat = reference_seurat,
+#   cell_type_column = "seurat_clusters",
+#   top_n = 5
+# )
+
+# Extract the marker gene list for annotation
+extracted_marker_genes <- marker_results$marker_genes
+
+# View the results
+print("Extracted marker genes:")
+print(extracted_marker_genes)
+
+# View marker quality
+plots <- plot_marker_quality(marker_results)
+print(plots$count_plot)
+
+# Save the marker genes for future use
+# saveRDS(extracted_marker_genes, "extracted_marker_genes.rds")
+
+# Optional: Export to CSV for manual review
+# write.csv(marker_results$full_markers, "all_markers.csv", row.names = FALSE)
+
+# Now use these markers with the annotation function from previous code:
+sc_org <- annotate_celltypes(sc_org, extracted_marker_genes, min_score_diff = 0.1)
+sc_org$celltype_annotation
+cat("Marker extraction functions loaded!\n")
+cat("Use extract_top_markers() to get markers from your reference dataset\n")
+
+```
+
+## c. Explore Distribution & Zero-Inflation
 ### i. Biopsy Data
 ```{r}
 #Check if data have been normalized 
@@ -922,7 +1236,7 @@ rm(counts)
 
 ```
 
-## c. Select Highly Variable Genes (HVGs)
+## d. Select Highly Variable Genes (HVGs)
 ```{r}
 # so_kpmp_sc <- FindVariableFeatures(so_kpmp_sc, selection.method = "vst", nfeatures = 2000)
 # hvgs <- VariableFeatures(so_kpmp_sc)
@@ -1122,250 +1436,6 @@ rm(cellcount,plot1,prop_plot1)
 
 ```
 ###ii. Organoid
-####a. Annotations
-```{r}
-
-
-#Low resolution human KPMP marker genes annotation
-marker.genes <- list(
-  PT = c("CUBN", "LRP2"),
-  DTL = c("AQP1", "ID1"),
-  ATL = c("CLDN3", "CLCNKA"),
-  TAL = c("UMOD", "SLC12A1"),
-  DCT = c("SLC12A3"),
-  CNT = c("SLC8A1"),
-  PC = c("FXYD4"),
-  IC = c("ATP6V0D2"),
-  EC = c("EMCN"),
-  Immune = c("PTPRC"),
-  Interstitial = c("ACTA2", "RGS5")
-)
-
-# Add module scores
-for (celltype in names(marker.genes)) {
-  sc_org <- AddModuleScore(sc_org, features = list(marker.genes[[celltype]]),
-                               name = paste0(celltype, "_Score"))
-}
-
-# Extract scores from metadata
-score_cols <- grep("_Score1", colnames(sc_org@meta.data), value = TRUE)
-
-# Assign cell type with highest score
-sc_org$predicted_celltype <- apply(sc_org@meta.data[, score_cols], 1, function(x) {
-  names(marker.genes)[which.max(x)]
-})
-
-DimPlot(sc_org, group.by = "predicted_celltype", label = TRUE, repel = TRUE)
-
-# Map dominant predicted type per cluster
-cluster_annotations <- sc_org@meta.data %>%
-  group_by(seurat_clusters) %>%
-  count(predicted_celltype) %>%
-  top_n(n = 1, wt = n) %>%
-  ungroup()
-
-# Create a named vector for mapping
-cluster_to_celltype <- setNames(cluster_annotations$predicted_celltype, cluster_annotations$seurat_clusters)
-
-# Assign to object metadata
-sc_org$cluster_celltype <- cluster_to_celltype[as.character(sc_org$seurat_clusters)]
-
-DimPlot(seurat_obj, group.by = "cluster_celltype", label = TRUE, repel = TRUE)
-
-
-
-# PCA
-sc_org <- NormalizeData(sc_org)
-sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
-sc_org <- FindVariableFeatures(object = sc_org)
-sc_org <- RunPCA(sc_org, features = VariableFeatures(object = sc_org),assay="RNA")
-ElbowPlot(sc_org)
-
-# # Find neighbors and clusters (again using integrated data)
-sc_org <- FindNeighbors(sc_org, assay = "RNA", dims = 1:20)
-sc_org <- FindClusters(sc_org, resolution = 0.5)
-
-# Perform UMAP and tSNE
-# so_liver_sc <- RunUMAP(so_liver_sc, dims = 1:15)
-sc_org@reductions
-DimPlot(sc_org, reduction = "umap", raster = F)
-
-DimPlot(sc_org, reduction = "umap", group.by = "ScType-Kidney-human", raster = FALSE)
-png(fs::path(dir.results,"UMAP_Celltypes_Organoid.png"),width = 5000, height = 3000, res=300)
-# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
-plot(DimPlot(sc_org, reduction = "umap", group.by = "ScType-Kidney-human", raster = FALSE))
-dev.off()
-
-plot1 <- DimPlot(sc_org, reduction = "umap", group.by = "ScType-Kidney-human",raster = FALSE, label = TRUE, label.size = 4)+
-  ggtitle("UMAP Plot with Cell Type Labels")
-
-png(fs::path(dir.results,"UMAP_Celltypes_Biopsy.png"),width = 5000, height = 3000, res=300)
-# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
-plot(plot1)
-dev.off()
-
-sc_org$group <- factor(sc_org$group)
-plot2 <- DimPlot(sc_org, reduction = "umap",group.by = "group",label=F,raster=F) +
-  ggtitle(paste0("UMAP by Disease Category"))
-
-png(fs::path(dir.results,"UMAP_Celltypes_Organoid_by_DiseaseStatus.png"),width = 5000, height = 3000, res=300)
-# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
-plot(plot2)
-dev.off()
-
-DimPlot(sc_org, reduction = "umap.rpca", raster = F)
-DimPlot(sc_org, reduction = "umap.rpca", group.by = "KPMP_celltype", raster = FALSE)
-DimPlot(sc_org, reduction = "umap.rpca", group.by = "KPMP_celltype",raster = FALSE, label = TRUE, label.size = 4)+
-  ggtitle("rpca UMAP Plot with Cell Type Labels")
-
-sc_org$group <- factor(sc_org$group)
-DimPlot(sc_org, reduction = "umap",group.by = "group",label=F,raster=F) +
-  ggtitle(paste0("rpca UMAP by Disease Category"))
-
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- sc_org@meta.data 
-  # filter(`ScType-Kidney-human` == "Proximal tubule cells")
-
-label(cellcount$group) <- "Disease Status"
-# label(cellcount$steatosis_cat) <- "Steatosis Category"
-# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
-# cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
-cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
-# cellcount <- cellcount %>% 
-#   filter(group!="Obese Controls")
-
-prop_plot1 <- ggplot(data=cellcount,aes(group, fill = `ScType-Kidney-human`)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Disease Status") 
-  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot1 
-png(fs::path(dir.results,"Barchart_Cells_by_Group.png"),width = 3000, height = 2500, res=300)
-# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
-plot(prop_plot1 )
-dev.off()
-
-#Individual
-prop_plot1 <- ggplot(data=cellcount,aes(samples, fill = `ScType-Kidney-human`)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Kidney Organoids")
-  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot1 
-png(fs::path(dir.results,"Barchart_PT_Cells_by_Individual.png"),width = 4500, height = 3000, res=300)
-# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
-plot(prop_plot1)
-dev.off()
-
-prop_plot2 <- ggplot(data=cellcount,aes(record_id, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Individual") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot2 
-
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- sc_org@meta.data %>% 
-  filter(celltype2 == "TAL")
-
-label(cellcount$group) <- "Disease Status"
-# label(cellcount$steatosis_cat) <- "Steatosis Category"
-# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
-# cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
-# cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
-# cellcount <- cellcount %>%
-#   filter(group!="Obese Controls")
-
-prop_plot1 <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Disease Status") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot1 
-png(fs::path(dir.results,"Barchart_TAL_Cells_by_Group.png"),width = 2500, height = 2500, res=300)
-# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
-plot(prop_plot1)
-dev.off()
-
-#Individual
-prop_plot1 <- ggplot(data=cellcount,aes(record_id, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Kidney Biopsy") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot1 
-png(fs::path(dir.results,"Barchart_TAL_Cells_by_Individual.png"),width = 3500, height = 3000, res=300)
-# pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
-plot(prop_plot1)
-dev.off()
-
-#Barcharts of proportions
-# By PT subtypes
-cellcount <- sc_org@meta.data %>% 
-  filter(grepl("EC-",KPMP_celltype) | grepl("EC/VSMC",KPMP_celltype))
-
-label(cellcount$group) <- "Disease Status"
-# label(cellcount$steatosis_cat) <- "Steatosis Category"
-# cellcount$group <- ifelse(cellcount$group=="0+1", "Low Steatosis (0+1)","High Steatosis (2+3)")
-# cellcount$group <- factor(cellcount$group,levels=c("Lean_Control","Obese_Control","Type_1_Diabetes","Type_2_Diabetes"),labels=c("Lean Controls","Obese Controls","Type 1 Diabetes","Type 2 Diabetes"))
-# cellcount$KPMP_celltype2 <- factor(cellcount$KPMP_celltype2,levels=c("PT-S1/S2","PT-S3","aPT"),labels=c("PT-S1/S2","PT-S3","aPT"))
-cellcount <- cellcount %>%
-  filter(group!="Obese Controls")
-
-prop_plot1 <- ggplot(data=cellcount,aes(group, fill = KPMP_celltype)) + 
-  geom_bar(stat = "count", position = "fill") +
-  theme_classic() +
-  labs(x = NULL,
-       y = "Proportion of Cells",
-       fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Disease Status") +
-  scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51","darkred"))
-
-prop_plot1
-rm(cellcount,plot1,prop_plot1)
-
-```
-####b. Visualizations
 ```{r}
 # PCA
 sc_org <- NormalizeData(sc_org)
@@ -1383,11 +1453,13 @@ sc_org <- FindClusters(sc_org, resolution = 0.5)
 sc_org@reductions
 DimPlot(sc_org, reduction = "umap", raster = F)
 
-DimPlot(sc_org, reduction = "umap", group.by = "ScType-Kidney-human", raster = FALSE)
-png(fs::path(dir.results,"UMAP_Celltypes_Organoid.png"),width = 5000, height = 3000, res=300)
+DimPlot(sc_org, reduction = "umap", group.by = "celltype_annotation", raster = FALSE)
+DimPlot(sc_org, reduction = "pca", group.by = "celltype_annotation", raster = FALSE)
+
+# png(fs::path(dir.results,"UMAP_Celltypes_Organoid.png"),width = 5000, height = 3000, res=300)
 # pdf(plot1,fs::path(dir.results,"UMAP_Celltypes_Organoid_Samples.pdf"),width=10,height=10)
 plot(DimPlot(sc_org, reduction = "umap", group.by = "ScType-Kidney-human", raster = FALSE))
-dev.off()
+# dev.off()
 
 plot1 <- DimPlot(sc_org, reduction = "umap", group.by = "ScType-Kidney-human",raster = FALSE, label = TRUE, label.size = 4)+
   ggtitle("UMAP Plot with Cell Type Labels")
