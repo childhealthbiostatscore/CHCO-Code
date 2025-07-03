@@ -172,7 +172,8 @@ plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suf
 
 
 ```{r echo = F}
-plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix, x_axis, y_axis, file_suffix, p_thresh = 0.05,  treatment_results, treatment_p_col, 
+plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix, 
+                                      x_axis, y_axis, file_suffix, p_thresh = 0.05,  treatment_results, treatment_p_col, 
                          positive_text = "Positive with Dapagliflozin", 
                          negative_text = "Negative with Dapagliflozin",
                          formula = "\u0394 treatment", color_by = "treatment_direction",
@@ -333,6 +334,120 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix, x_a
 ```
 
 ```{r echo = F}
+plot_volcano_concordance <- function(clin_results, fc, p_col, title_suffix, 
+                                     x_axis, y_axis, file_suffix, p_thresh = 0.05,
+                                     positive_text = "Positive with Dapagliflozin", 
+                                     negative_text = "Negative with Dapagliflozin",
+                                     formula = "\u0394 treatment", 
+                                     legend_position = c(0.3,0.8)) {
+  
+  set.seed(1)
+  
+  # Get concordant genes (non-NC)
+  concordant_genes <- clin_results %>%
+    filter(concordance != "NC") %>%
+    pull(Gene)
+  
+  # Top 5 concordant genes on the left (negative FC)
+  top_5_left <- clin_results %>%
+    filter(Gene %in% concordant_genes, !!sym(fc) < 0) %>%
+    arrange(!!sym(p_col)) %>%
+    slice_head(n = 5) %>%
+    pull(Gene)
+  
+  # Top 5 concordant genes on the right (positive FC)
+  top_5_right <- clin_results %>%
+    filter(Gene %in% concordant_genes, !!sym(fc) > 0) %>%
+    arrange(!!sym(p_col)) %>%
+    slice_head(n = 5) %>%
+    pull(Gene)
+  
+  # Combine for plotting
+  top_label_genes <- c(top_5_left, top_5_right)
+  
+  message("Number of concordant genes: ", length(concordant_genes))
+  message("Number of labeled genes: ", length(top_label_genes))
+  
+  clin_results <- clin_results %>%
+    mutate(
+      # Use concordance column for coloring
+      color_var_plot = concordance,
+      # Label only the top concordant genes
+      top_lab = if_else(Gene %in% top_label_genes, Gene, "")
+    )
+  
+  # Set factor levels for concordance
+  clin_results$color_var_plot <- factor(clin_results$color_var_plot, 
+                                        levels = c("+", "-", "NC"))
+  
+  # Max and min for annotation arrows
+  max_fc <- max(clin_results[[fc]], na.rm = TRUE)
+  min_fc <- min(clin_results[[fc]], na.rm = TRUE)
+  
+  # Plot
+  p <- ggplot(clin_results, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
+    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
+    geom_point(alpha = 0.3, aes(fill = color_var_plot, 
+                                color = color_var_plot), size = 2) +
+    # Updated color scheme for concordance
+    scale_color_manual(values = c("+" = "#f28482", "-" = "#457b9d", "NC" = "#ced4da"),
+                       labels = c("+" = "Positive", "-" = "Negative", "NC" = "Non-Concordant")) +
+    scale_fill_manual(values = c("+" = "#f28482", "-" = "#457b9d", "NC" = "#ced4da"),
+                      labels = c("+" = "Positive", "-" = "Negative", "NC" = "Non-Concordant")) +
+    guides(color = guide_legend(title = "Concordance"), fill = "none") +
+    geom_text_repel(aes(label = top_lab, color = color_var_plot),
+                    size = 3, max.overlaps = Inf, force = 10,
+                    segment.alpha = 0.5, segment.size = 0.4,
+                    min.segment.length = 0, box.padding = 0.6, point.padding = 0.4,
+                    segment.color = "#ced4da") +
+    labs(title = paste(title_suffix),
+         x = paste(x_axis),
+         y = paste(y_axis)) +
+    theme_minimal() +
+    annotate("segment", 
+             x=max_fc/8, 
+             xend=(max_fc*7)/8, 
+             y=-1.5,
+             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
+    annotate("text", 
+             x=mean(c(max_fc/8, (max_fc*7)/8)), 
+             y=-2, 
+             label=positive_text,
+             size=3, color="#343a40") +
+    annotate("segment", 
+             x=min_fc/8, 
+             xend=(min_fc*7)/8, 
+             y=-1.5,
+             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
+    annotate("text", 
+             x=mean(c(min_fc/8, (min_fc*7)/8)), 
+             y=-2, 
+             label=negative_text,
+             size=3, color="#343a40") +
+    annotate("text", 
+             x=max_fc * 0.95,
+             y=-3.5, 
+             hjust = 1,
+             label=paste0("Formula: ~ ", formula, " + (1|subject)"),
+             size=3, color="#343a40") +
+    scale_y_continuous(expand=c(0,0)) +
+    coord_cartesian(ylim = c(0, 15), clip="off") +
+    theme(legend.title = element_text(size = 9),
+          panel.grid = element_blank(),
+          text = element_text(size = 9),
+          legend.position = legend_position,
+          legend.justification = c(1, 1),
+          plot.margin = margin(t = 10, r = 20, b = 28, l = 20),
+          axis.title.x = element_text(margin = margin(t = 32)))
+  
+  # Save
+  ggsave(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/", file_suffix, "_concordance.jpeg"), plot = p, width = 7, height = 5)
+  
+  return(p)
+}
+```
+
+```{r echo = F}
 filter_redundant_pathways <- function(gsea_result, overlap_pct = 0.3) {
   # Check required columns
   if (!all(c("pathway", "leadingEdge", "padj") %in% colnames(gsea_result))) {
@@ -384,6 +499,14 @@ filter_redundant_pathways <- function(gsea_result, overlap_pct = 0.3) {
   gsea_result[gsea_result$pathway %in% final_terms, ]
 }
 ```
+
+# Define clinical directions
+```{r echo = F}
+clinical_directions <- data.frame(variable = c("mgfr_jodal", "mgfr_jodal_bsa", "tir", "hba1c", "weight", "avg_c_r2", "avg_k_r2"),
+                                  direction = c("-", "-", "+", "-", "-", "-","-"))
+
+```
+
 # PT
 ```{r echo = F}
 nebula_pt_results_list_reml_pooled <- s3readRDS('PT/nebula/pt_attempt_hvg_nebula_res_reml_pooled.rds', bucket = "attempt", region = "")
@@ -485,6 +608,23 @@ write.csv(pt_mgfr_jodal_res_combined, "/Users/choiyej/Library/CloudStorage/OneDr
 ```
 
 ```{r echo = F}
+plot_volcano_concordance(pt_mgfr_jodal_res_combined, 
+                          "logFC_mgfr_jodal_delta", 
+                          "p_mgfr_jodal_delta",
+                          "logFC \u0394 mGFR (Raw)", 
+                          "-log10(p-value)",
+                          "nebula/pt_mgfr_jodal_trtcolors",
+                          treatment_results = pt_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (Raw) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal",]$direction, 
+                          cell_type = "PT")
+```
+
+
+```{r echo = F}
 plot_volcano_associations(pt_mgfr_jodal_res_combined, 
                           "logFC_mgfr_jodal_delta", 
                           "p_mgfr_jodal_delta",
@@ -512,29 +652,7 @@ plot_volcano_associations(pt_mgfr_jodal_res_combined,
                           positive_text = "Positively associated with \u0394 mGFR",
                           negative_text = "Negatively associated with \u0394 mGFR")
 ```
-```{r echo = F}
-# concordance
-pt_mgfr_jodal_clin_pos <- pt_mgfr_jodal_res_combined %>%
-  filter(logFC_mgfr_jodal_delta > 0 & p_mgfr_jodal_delta < 0.05) %>%
-  pull(Gene)
 
-pt_mgfr_jodal_clin_neg <- pt_mgfr_jodal_res_combined %>%
-  filter(logFC_mgfr_jodal_delta < 0 & p_mgfr_jodal_delta < 0.05) %>%
-  pull(Gene)
-
-pt_mgfr_jodal_trt_pos <- pt_nebula_res_combined_reml_pooled %>%
-  filter(`logFC_treatmentDapagliflozin:visitPOST` > 0 & `p_treatmentDapagliflozin:visitPOST` < 0.05) %>%
-  pull(Gene)
-
-pt_mgfr_jodal_trt_neg <- pt_nebula_res_combined_reml_pooled %>%
-  filter(`logFC_treatmentDapagliflozin:visitPOST` < 0 & `p_treatmentDapagliflozin:visitPOST` < 0.05) %>%
-  pull(Gene)
-
-sum(pt_mgfr_jodal_clin_pos %in% pt_mgfr_jodal_trt_pos)
-
-
-
-```
 
 ```{r echo =F, eval = F}
 plot_volcano(pt_mgfr_jodal_res_combined, "logFC_mgfr_jodal_delta", 
@@ -791,6 +909,22 @@ plot_volcano_associations(pt_mgfr_jodal_bsa_res_combined,
                           negative_text = "Negatively associated with \u0394 mGFR")
 ```
 
+```{r echo = F}
+plot_volcano_concordance(pt_mgfr_jodal_bsa_res_combined, 
+                          "logFC_mgfr_jodal_bsa_delta", 
+                          "p_mgfr_jodal_bsa_delta",
+                          "logFC \u0394 mGFR (BSA)", 
+                          "-log10(p-value)",
+                          "nebula/pt_mgfr_jodal_bsa_trtcolors",
+                          treatment_results = pt_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (BSA) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR (BSA)",
+                          negative_text = "Negatively associated with \u0394 mGFR (BSA)",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal_bsa",]$direction, 
+                          cell_type = "PT")
+```
+
 ```{r echo =F, eval = F}
 plot_volcano(pt_mgfr_jodal_bsa_res_combined, "logFC_mgfr_jodal_bsa_delta", 
              "p_mgfr_jodal_bsa_delta",
@@ -812,6 +946,7 @@ plot_volcano(pt_mgfr_jodal_bsa_res_combined, "logFC_mgfr_jodal_bsa_delta",
              positive_text = "Positively associated with \u0394 mGFR",
              negative_text = "Negatively associated with \u0394 mGFR")
 ```
+
 
 #### GSEA (fgsea)
 ```{r echo = F}
@@ -1030,6 +1165,36 @@ plot_volcano_associations(pt_tir_res_combined,
                           formula = "\u0394 TIR + treatment",
                           positive_text = "Positively associated with \u0394 TIR",
                           negative_text = "Negatively associated with \u0394 TIR")
+
+plot_volcano_associations(pt_tir_res_combined, 
+                          "logFC_tir_delta", 
+                          "p_tir_delta",
+                          "logFC \u0394 TIR", 
+                          "-log10(p-value)",
+                          "nebula/pt_tir_trtcolors",
+                          treatment_results = pt_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 TIR + treatment",
+                          positive_text = "Positively associated with \u0394 TIR",
+                          negative_text = "Negatively associated with \u0394 TIR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
+                          cell_type = "PT")
+```
+
+```{r echo = F}
+plot_volcano_concordance(pt_tir_res_combined, 
+                          "logFC_tir_delta", 
+                          "p_tir_delta",
+                          "logFC \u0394 TIR", 
+                          "-log10(p-value)",
+                          "nebula/pt_tir_trtcolors",
+                          treatment_results = pt_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 TIR + treatment",
+                          positive_text = "Positively associated with \u0394 TIR",
+                          negative_text = "Negatively associated with \u0394 TIR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
+                          cell_type = "PT")
 ```
 
 
@@ -1275,6 +1440,22 @@ plot_volcano_associations(pt_hba1c_res_combined,
 ```
 
 
+```{r echo = F}
+plot_volcano_concordance(pt_hba1c_res_combined, 
+                          "logFC_hba1c_delta", 
+                          "p_hba1c_delta",
+                          "logFC \u0394 HbA1c", 
+                          "-log10(p-value)",
+                          "nebula/pt_hba1c_trtcolors",
+                          treatment_results = pt_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 HbA1c + treatment",
+                          positive_text = "Positively associated with \u0394 HbA1c",
+                          negative_text = "Negatively associated with \u0394 HbA1c",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "hba1c",]$direction, 
+                          cell_type = "PT")
+```
+
 ```{r echo =F, eval = F}
 plot_volcano(pt_hba1c_res_combined, "logFC_hba1c_delta", 
              "p_hba1c_delta",
@@ -1516,6 +1697,25 @@ plot_volcano_associations(pt_weight_res_combined,
                           positive_text = "Positively associated with \u0394 Weight",
                           negative_text = "Negatively associated with \u0394 Weight")
 ```
+
+
+```{r echo = F}
+plot_volcano_concordance(pt_weight_res_combined, 
+                          "logFC_weight_delta", 
+                          "p_weight_delta",
+                          "logFC \u0394 Weight", 
+                          "-log10(p-value)",
+                          "nebula/pt_weight_trtcolors",
+                          treatment_results = pt_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 Weight + treatment",
+                          positive_text = "Positively associated with \u0394 Weight",
+                          negative_text = "Negatively associated with \u0394 Weight",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "weight",]$direction, 
+                          cell_type = "PT")
+```
+
+
 
 ```{r echo =F, eval = F}
 plot_volcano(pt_weight_res_combined, "logFC_weight_delta", 
@@ -1760,6 +1960,23 @@ plot_volcano_associations(pt_avg_c_r2_res_combined,
                           negative_text = "Negatively associated with \u0394 avg cortical R2*")
 ```
 
+```{r echo = F}
+plot_volcano_concordance(pt_avg_c_r2_res_combined, 
+                          "logFC_avg_c_r2_delta", 
+                          "p_avg_c_r2_delta",
+                          "logFC \u0394 avg cortical R2*", 
+                          "-log10(p-value)",
+                          "nebula/pt_avg_c_r2_trtcolors",
+                          treatment_results = pt_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg cortical R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg cortical R2*",
+                          negative_text = "Negatively associated with \u0394 avg cortical R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_c_r2",]$direction, 
+                          cell_type = "PT")
+```
+
+
 ```{r echo =F, eval = F}
 plot_volcano(subset(pt_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-10), "logFC_avg_c_r2_delta", 
              "p_avg_c_r2_delta",
@@ -1984,6 +2201,8 @@ pt_avg_k_r2_res_combined_disp <- map_dfr(
   }
 )
 
+pt_avg_k_r2_res_combined <- subset(pt_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10)
+
 write.csv(pt_avg_k_r2_res_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pt_avg_k_r2.csv", row.names = F)
 ```
 
@@ -2000,6 +2219,23 @@ plot_volcano_associations(subset(pt_avg_k_r2_res_combined, logFC_avg_k_r2_delta 
                           formula = "\u0394 avg kidney R2* + treatment",
                           positive_text = "Positively associated with \u0394 avg kidney R2*",
                           negative_text = "Negatively associated with \u0394 avg kidney R2*")
+```
+
+
+```{r echo = F}
+plot_volcano_concordance(pt_avg_k_r2_res_combined, 
+                          "logFC_avg_k_r2_delta", 
+                          "p_avg_k_r2_delta",
+                          "logFC \u0394 avg kidney R2*", 
+                          "-log10(p-value)",
+                          "nebula/pt_avg_k_r2_trtcolors",
+                          treatment_results = pt_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg kidney R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg kidney R2*",
+                          negative_text = "Negatively associated with \u0394 avg kidney R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_k_r2",]$direction, 
+                          cell_type = "PT")
 ```
 
 ```{r echo =F, eval = F}
@@ -2286,6 +2522,24 @@ plot_volcano_associations(tal_mgfr_jodal_res_combined,
                           legend_position = c(0.95, 0.8))
 ```
 
+
+```{r echo = F}
+plot_volcano_concordance(tal_mgfr_jodal_res_combined, 
+                          "logFC_mgfr_jodal_delta", 
+                          "p_mgfr_jodal_delta",
+                          "logFC \u0394 mGFR", 
+                          "-log10(p-value)",
+                          "nebula/tal_mgfr_jodal_trtcolors",
+                          treatment_results = tal_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal",]$direction, 
+                          cell_type = "TAL")
+```
+
+
 ```{r echo =F, eval = F}
 plot_volcano(tal_mgfr_jodal_res_combined, "logFC_mgfr_jodal_delta", 
              "p_mgfr_jodal_delta",
@@ -2451,6 +2705,25 @@ plot_volcano_associations(tal_mgfr_jodal_bsa_res_combined,
                           legend_position = c(0.95, 0.8))
 ```
 
+
+```{r echo = F}
+plot_volcano_concordance(tal_mgfr_jodal_bsa_res_combined, 
+                          "logFC_mgfr_jodal_bsa_delta", 
+                          "p_mgfr_jodal_bsa_delta",
+                          "logFC \u0394 mGFR (BSA)", 
+                          "-log10(p-value)",
+                          "nebula/tal_mgfr_jodal_bsa_trtcolors",
+                          treatment_results = tal_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (BSA) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          legend_position = c(0.95, 0.8),
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal_bsa",]$direction, 
+                          cell_type = "TAL")
+```
+
+
 ```{r echo =F, eval = F}
 plot_volcano(tal_mgfr_jodal_bsa_res_combined, "logFC_mgfr_jodal_bsa_delta", 
              "p_mgfr_jodal_bsa_delta",
@@ -2614,6 +2887,26 @@ plot_volcano_associations(tal_tir_res_combined,
                           negative_text = "Negatively associated with \u0394 TIR",
                           legend_position = c(0.95, 0.8))
 ```
+
+
+```{r echo = F}
+plot_volcano_concordance(tal_tir_res_combined, 
+                          "logFC_tir_delta", 
+                          "p_tir_delta",
+                          "logFC \u0394 TIR", 
+                          "-log10(p-value)",
+                          "nebula/tal_tir_trtcolors",
+                          treatment_results = tal_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 TIR + treatment",
+                          positive_text = "Positively associated with \u0394 TIR",
+                          negative_text = "Negatively associated with \u0394 TIR",
+                          legend_position = c(1.05, 1.05),
+                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
+                          cell_type = "TAL")
+```
+
+
 
 ```{r echo =F, eval = F}
 plot_volcano(tal_tir_res_combined, "logFC_tir_delta", 
@@ -2779,6 +3072,22 @@ plot_volcano_associations(tal_hba1c_res_combined,
                           legend_position = c(0.95, 0.8))
 ```
 
+```{r echo = F}
+plot_volcano_concordance(tal_hba1c_res_combined, 
+                          "logFC_hba1c_delta", 
+                          "p_hba1c_delta",
+                          "logFC \u0394 HbA1c", 
+                          "-log10(p-value)",
+                          "nebula/tal_hba1c_trtcolors",
+                          treatment_results = tal_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 HbA1c + treatment",
+                          positive_text = "Positively associated with \u0394 HbA1c",
+                          negative_text = "Negatively associated with \u0394 HbA1c",
+                          legend_position = c(0.95, 0.8))
+```
+
+
 ```{r echo =F, eval = F}
 plot_volcano(tal_hba1c_res_combined, "logFC_hba1c_delta", 
              "p_hba1c_delta",
@@ -2942,6 +3251,20 @@ plot_volcano_associations(tal_weight_res_combined,
                           negative_text = "Negatively associated with \u0394 Weight")
 ```
 
+```{r echo = F}
+plot_volcano_concordance(tal_weight_res_combined, 
+                          "logFC_weight_delta", 
+                          "p_weight_delta",
+                          "logFC \u0394 Weight", 
+                          "-log10(p-value)",
+                          "nebula/tal_weight_trtcolors",
+                          treatment_results = tal_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 Weight + treatment",
+                          positive_text = "Positively associated with \u0394 Weight",
+                          negative_text = "Negatively associated with \u0394 Weight")
+```
+
 ```{r echo =F, eval = F}
 plot_volcano(tal_weight_res_combined, "logFC_weight_delta", 
              "p_weight_delta",
@@ -3093,10 +3416,24 @@ write.csv(tal_avg_c_r2_res_combined, "/Users/choiyej/Library/CloudStorage/OneDri
 ```
 
 ```{r echo = F}
-plot_volcano_associations(subset(tal_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-20), 
+plot_volcano_associations(tal_avg_c_r2_res_combined, 
                           "logFC_avg_c_r2_delta", 
                           "p_avg_c_r2_delta",
                           "TAL avg cortical R2*", 
+                          "logFC \u0394 avg cortical R2*", 
+                          "-log10(p-value)",
+                          "nebula/tal_avg_c_r2_trtcolors",
+                          treatment_results = tal_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg cortical R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg cortical R2*",
+                          negative_text = "Negatively associated with \u0394 avg cortical R2*")
+```
+
+```{r echo = F}
+plot_volcano_concordance(tal_avg_c_r2_res_combined, 
+                          "logFC_avg_c_r2_delta", 
+                          "p_avg_c_r2_delta",
                           "logFC \u0394 avg cortical R2*", 
                           "-log10(p-value)",
                           "nebula/tal_avg_c_r2_trtcolors",
@@ -3258,7 +3595,7 @@ write.csv(tal_avg_k_r2_res_combined, "/Users/choiyej/Library/CloudStorage/OneDri
 ```
 
 ```{r echo = F}
-plot_volcano_associations(subset(tal_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), 
+plot_volcano_associations(tal_avg_k_r2_res_combined, 
                           "logFC_avg_k_r2_delta", 
                           "p_avg_k_r2_delta",
                           "TAL avg kidney R2*", 
@@ -3271,6 +3608,22 @@ plot_volcano_associations(subset(tal_avg_k_r2_res_combined, logFC_avg_k_r2_delta
                           positive_text = "Positively associated with \u0394 avg kidney R2*",
                           negative_text = "Negatively associated with \u0394 avg kidney R2*",
                           legend_position = c(0.95, 0.8))
+```
+
+```{r echo = F}
+plot_volcano_concordance(tal_avg_k_r2_res_combined, 
+                          "logFC_avg_k_r2_delta", 
+                          "p_avg_k_r2_delta",
+                          "logFC \u0394 avg kidney R2*", 
+                          "-log10(p-value)",
+                          "nebula/tal_avg_k_r2_trtcolors",
+                          treatment_results = tal_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg kidney R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg kidney R2*",
+                          negative_text = "Negatively associated with \u0394 avg kidney R2*",
+                          legend_position = c(0.95, 0.8),
+                         cell_type = "TAL")
 ```
 
 ```{r echo =F, eval = F}
