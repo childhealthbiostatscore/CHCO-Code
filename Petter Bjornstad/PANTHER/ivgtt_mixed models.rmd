@@ -1,4 +1,3 @@
-remotes::install_github("SomaLogic/SomaPlotr")---
 title: "TODAY study - proteomics, hypertension, OSA, echo, PWV"
 author: "Laura Pyle"
 date: "`r format(Sys.time(), '%d %B %Y')`"
@@ -35,14 +34,14 @@ library(stringr)
 
 ```{r load-data, echo = F, include = F}
 # Load dictionary function and file
-source("/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
-source("/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+source("/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+source("/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 ```
 
 ```{r prep-data, echo = F, include = F}
 # Load clinical data
-harm_dat <- read.csv("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
-exclude <- read.csv("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
+harm_dat <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
+exclude <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
 
 dat <- harm_dat %>% filter(study == "PANTHER" & procedure == "ivgtt" & visit %in% c("baseline", "screening")) %>%
   mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
@@ -50,15 +49,14 @@ dat <- harm_dat %>% filter(study == "PANTHER" & procedure == "ivgtt" & visit %in
   filter(record_id %nin% exclude) 
 
 # keep only the variables we need
-matching_cols_cpep <- names(dat)[startsWith(names(dat), "cpep")]
+matching_cols_cpep <- names(dat)[startsWith(names(dat), "cpep_")]
 matching_cols_ins <- names(dat)[startsWith(names(dat), "ins")]
-matching_cols_ins <- matching_cols_ins[2:47]
-matching_cols_glu <- names(dat)[startsWith(names(dat), "glu")]
-matching_cols_glu <- c(matching_cols_glu[1:30], matching_cols_glu[40:100], matching_cols_glu[107:112])
+matching_cols_ins <- c("insulin_minus_15", matching_cols_ins[2:47])
+matching_cols_glu <- names(dat)[startsWith(names(dat), "gluc_")]
 dat_keep <- dat %>% select(mrn, visit, record_id, matching_cols_cpep, matching_cols_ins, matching_cols_glu)
 # looks like multiple versions of c-peptide variables? not sure which to keep 
-write.csv(dat_keep, "/Users/laurapyle/Documents/temp/PANTHER IVGTT vars.csv", row.names = FALSE)
-
+# write.csv(dat_keep, "/Users/laurapyle/Documents/temp/PANTHER IVGTT vars.csv", row.names = FALSE)
+ 
 # need to compare by risk groups and Tanner stage so need to pull from harmonized data
 temp <- harm_dat %>% filter(study == "PANTHER" & visit %in% c("baseline", "screening")) %>%
    mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
@@ -142,7 +140,18 @@ preds_keep <- preds[,c("record_id", "visit", "tanner_stage_comp", "sex", "sex_gr
 
 final_dat <- left_join(dat_keep, preds_keep, by = c("record_id", "visit"))
 
+# make long datasets for mixed models
+ins_temp <- final_dat[,c("mrn", "group_risk", "tanner_stage_comp", matching_cols_ins)]
+insulin_long <- reshape(ins_temp, direction = "long", varying = matching_cols_ins, 
+                          v.names = "insulin",times = c(0,2,3,4,5,6,8,10,12,14,16,19,20,22,23,24,25,27,30,35,40,45,50,60,70,80,90,100,120,140,150,160,180,210,220,230,240,245,249,250,252,253,254,255,260,270),
+                          idvar = c("mrn","group_risk","tanner_stage_comp"))
+insulin_long <- insulin_long %>% arrange(mrn,time)
 
+glu_temp <- final_dat[,c("mrn", "group_risk", "tanner_stage_comp", matching_cols_glu)]
+glucose_long <- reshape(glu_temp, direction = "long", varying = matching_cols_glu, 
+                          v.names = "glucose",times = c(2,3,4,5,6,8,10,12,14,16,19,22,23,24,25,27,30,35,40,50,60,70,80,90,100,120,140,160,180,0),
+                          idvar = c("mrn","group_risk","tanner_stage_comp"))
+glucose_long <- glucose_long %>% arrange(mrn,time)
 ```
 
 
@@ -209,3 +218,18 @@ mixed_adj_omm <- function(data, outcome){
 # Questions
 
 1) Original IVGTT code read in two data files - the harmonized data and a lab data csv file. I checked MRN and visit dates and it seemed like all the data in the csv were contained in the harmonized data, so I didn't merge it in.
+
+## Insulin
+
+### Unadjusted model
+
+```{r echo=FALSE, include=TRUE}
+mod <- mixed(data = insulin_long, outcome = "mmtt_insulin")
+```
+
+```{r echo=FALSE}
+kable(mod[[1]])
+kable(mod[[2]])
+kable(mod[[3]])
+#mod[[4]]
+```
