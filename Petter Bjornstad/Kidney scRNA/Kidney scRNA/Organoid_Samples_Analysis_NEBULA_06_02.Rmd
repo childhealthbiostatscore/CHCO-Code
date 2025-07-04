@@ -121,6 +121,8 @@ dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics
 
 ##c. Load functions ----
 source("Kidney_functions_sc.R")
+source("Rename_Seurat_Function.R")
+source("Celltype_Annotation_Function.R")
 ```
 
 ## a. Hyak Data Load
@@ -492,7 +494,7 @@ sc_org <- readRDS(temp_file)
 #   stringsAsFactors = FALSE
 # )
 
-source(fs::path(here::here(),"Petter Bjornstad","Liver analysis","Liver scRNAseq","Rename_Seurat_Function.R"))
+# source(fs::path(here::here(),"Petter Bjornstad","Liver analysis","Liver scRNAseq","Rename_Seurat_Function.R"))
 # Extract the components as you mentioned
 gene_ids <- rownames(sc_org)
 new_gene_names <- sc_org@misc$gene_annotations$name
@@ -808,11 +810,8 @@ sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
 
 ## b. Annotate Organoid Data
 ```{r}
-# library(Seurat)
-# library(dplyr)
-# library(ggplot2)
-
-# Define marker genes for each kidney cell type
+#Define marker genes for each kidney cell type
+#1. Low res from Raji
 marker_genes <- list(
   "PT" = c("CUBN", "LRP2"),                    # Proximal Tubule
   "DTL" = c("AQP1", "ID1"),                    # Descending Thin Limb
@@ -827,173 +826,236 @@ marker_genes <- list(
   "Interstitial" = c("ACTA2", "RGS5")        # Interstitial cells
 )
 
-# Function to annotate cell types based on marker genes
-annotate_celltypes <- function(seurat_obj, marker_list, min_score_diff = 0.1) {
-  
-  # Calculate module scores for each cell type
-  cat("Calculating module scores for each cell type...\n")
-  
-  for (celltype in names(marker_list)) {
-    # Check which markers are present in the dataset
-    available_markers <- intersect(marker_list[[celltype]], rownames(seurat_obj))
-    
-    if (length(available_markers) == 0) {
-      warning(paste("No markers found for", celltype, "in the dataset"))
-      next
-    }
-    
-    if (length(available_markers) < length(marker_list[[celltype]])) {
-      missing_markers <- setdiff(marker_list[[celltype]], available_markers)
-      cat(paste("Warning: Missing markers for", celltype, ":", paste(missing_markers, collapse = ", "), "\n"))
-    }
-    
-    # Add module score
-    seurat_obj <- AddModuleScore(
-      object = seurat_obj,
-      features = list(available_markers),
-      name = paste0(celltype, "_score"),
-      ctrl = 100
-    )
-  }
-  
-  # Get all score column names
-  score_cols <- paste0(names(marker_list), "_score1")
-  score_cols <- score_cols[score_cols %in% colnames(seurat_obj@meta.data)]
-  
-  if (length(score_cols) == 0) {
-    stop("No module scores were calculated successfully")
-  }
-  
-  # Create a matrix of scores
-  score_matrix <- seurat_obj@meta.data[, score_cols, drop = FALSE]
-  colnames(score_matrix) <- gsub("_score1", "", colnames(score_matrix))
-  
-  # Assign cell types based on highest score
-  cat("Assigning cell types based on highest scores...\n")
-  
-  # Find the cell type with maximum score for each cell
-  max_scores <- apply(score_matrix, 1, max)
-  second_max_scores <- apply(score_matrix, 1, function(x) sort(x, decreasing = TRUE)[2])
-  score_differences <- max_scores - second_max_scores
-  
-  # Assign cell types
-  assigned_celltypes <- colnames(score_matrix)[apply(score_matrix, 1, which.max)]
-  
-  # Set cells with low confidence to "Unknown"
-  low_confidence <- score_differences < min_score_diff
-  assigned_celltypes[low_confidence] <- "Unknown"
-  
-  # Add annotations to metadata
-  seurat_obj@meta.data$celltype_annotation <- assigned_celltypes
-  seurat_obj@meta.data$max_score <- max_scores
-  seurat_obj@meta.data$score_difference <- score_differences
-  
-  # Print summary
-  cat("\nCell type annotation summary:\n")
-  print(table(assigned_celltypes))
-  
-  cat(paste("\nCells with low confidence (score diff <", min_score_diff, "):", sum(low_confidence), "\n"))
-  
-  return(seurat_obj)
-}
-
-# Function to visualize cell type annotations
-plot_celltype_results <- function(seurat_obj, reduction = "umap") {
-  
-  # Plot 1: UMAP with cell type annotations
-  p1 <- DimPlot(seurat_obj, 
-                group.by = "celltype_annotation", 
-                reduction = reduction,
-                label = TRUE, 
-                label.size = 3) +
-    ggtitle("Cell Type Annotations") +
-    theme(legend.position = "bottom")
-  
-  # Plot 2: Score distribution
-  score_cols <- grep("_score1$", colnames(seurat_obj@meta.data), value = TRUE)
-  if (length(score_cols) > 0) {
-    score_data <- seurat_obj@meta.data[, c("celltype_annotation", score_cols)]
-    colnames(score_data) <- c("celltype_annotation", gsub("_score1", "", score_cols))
-    
-    # Melt the data for plotting
-    score_long <- reshape2::melt(score_data, id.vars = "celltype_annotation")
-    
-    p2 <- ggplot(score_long, aes(x = variable, y = value, fill = celltype_annotation)) +
-      geom_boxplot() +
-      theme_minimal() +
-      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-      labs(title = "Module Score Distribution by Cell Type",
-           x = "Cell Type Markers", 
-           y = "Module Score") +
-      facet_wrap(~celltype_annotation, scales = "free")
-  } else {
-    p2 <- NULL
-  }
-  
-  # Plot 3: Score difference distribution
-  p3 <- ggplot(seurat_obj@meta.data, aes(x = celltype_annotation, y = score_difference)) +
-    geom_boxplot() +
-    geom_hline(yintercept = 0.1, linetype = "dashed", color = "red") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-    labs(title = "Score Difference Distribution",
-         subtitle = "Red line shows confidence threshold",
-         x = "Assigned Cell Type", 
-         y = "Score Difference")
-  
-  return(list(annotation_plot = p1, score_plot = p2, confidence_plot = p3))
-}
-
-# Main execution
-cat("Starting cell type annotation...\n")
-
 # Annotate cell types (adjust min_score_diff as needed)
-sc_org <- annotate_celltypes(sc_org, marker_genes, min_score_diff = 0.1)
+sc_org_annotated <- annotate_celltypes(sc_org, marker_genes, min_score_diff = 0.1)
+sc_org_annotated <- NormalizeData(sc_org_annotated)
+sc_org_annotated <- ScaleData(sc_org_annotated, features = VariableFeatures(sc_org_annotated))
+sc_org_annotated <- FindVariableFeatures(object = sc_org_annotated)
+sc_org_annotated <- RunPCA(sc_org_annotated, features = VariableFeatures(object = sc_org_annotated),assay="RNA")
+ElbowPlot(sc_org_annotated)
 
-# Generate plots
-plots <- plot_celltype_results(sc_org, reduction = "umap")
+# # Find neighbors and clusters (again using integrated data)
+sc_org_annotated <- FindNeighbors(sc_org_annotated, assay = "RNA", dims = 1:20)
+sc_org_annotated <- FindClusters(sc_org_annotated, resolution = 0.5)
 
-# Display plots
-print(plots$annotation_plot)
-if (!is.null(plots$score_plot)) {
-  print(plots$score_plot)
-}
-print(plots$confidence_plot)
+# Perform UMAP and tSNE
+#sc_org_annotated <- RunTSNE(sc_org_annotated, dims = 1:20)
+sc_org_annotated@reductions
+DimPlot(sc_org_annotated, reduction = "umap", raster = T)
 
-# Optional: Save results
-# saveRDS(sc_org, "sc_org_annotated.rds")
-# ggsave("celltype_annotation_umap.pdf", plots$annotation_plot, width = 12, height = 8)
-
-# Check annotation quality
-cat("\nAnnotation Quality Check:\n")
-cat("Total cells:", ncol(sc_org), "\n")
-cat("Annotated cells:", sum(sc_org@meta.data$celltype_annotation != "Unknown"), "\n")
-cat("Unknown cells:", sum(sc_org@meta.data$celltype_annotation == "Unknown"), "\n")
-cat("Annotation rate:", round(100 * sum(sc_org@meta.data$celltype_annotation != "Unknown") / ncol(sc_org), 2), "%\n")
-
-# Optional: Manual refinement based on additional criteria
-# You can further refine annotations by examining specific markers
-# Example:
-# FeaturePlot(sc_org, features = c("CUBN", "UMOD", "SLC12A3", "EMCN"), ncol = 2)
-
-cat("Cell type annotation completed!\n")
-cat("Results stored in sc_org@meta.data$celltype_annotation\n")
-cat("Module scores and confidence metrics also available in metadata\n")
-
-# Check specific kidney markers
-FeaturePlot(sc_org, features = c("CUBN", "UMOD", "SLC12A3", "EMCN"), ncol = 2)
-
-#Try exteracting marker genes from seurat object in biopsies
-# Example usage:
-# Assuming you have a reference Seurat object called 'reference_seurat' 
-# with cell type annotations in a column (e.g., 'celltype', 'seurat_clusters', etc.)
-
-# Method 1: Extract from existing cell type annotations
-# Replace 'reference_seurat' with your annotated Seurat object name
-# Replace 'celltype_annotation' with your cell type column name
+DimPlot(sc_org_annotated, reduction = "umap", group.by = "celltype_annotation", raster = T)+
+  ggtitle(label="Low-Resolution KPMP Celltypes")
+DimPlot(sc_org_annotated, reduction = "pca", group.by = "celltype_annotation", raster = T)+
+  ggtitle(label="Low-Resolution KPMP Celltypes")
+# DimPlot(sc_org_annotated, reduction = "harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="Low-Resolution KPMP Celltypes")
+# DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="Low-Resolution KPMP Celltypes")
+# DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="Low-Resolution KPMP Celltypes")
+# # Generate plots
+# plots <- plot_celltype_results(sc_org, reduction = "umap")
+# 
+# # Display plots
+# print(plots$annotation_plot)
+# if (!is.null(plots$score_plot)) {
+#   print(plots$score_plot)
+# }
+# print(plots$confidence_plot)
 
 
+###############################################################################################################
+#2. Low resolution from KPMP Atlas - https://www.nature.com/articles/s41586-023-05769-3
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "KPMP_Celltype_Markers_Low_Res.csv", temp_file)
+marker_df <- read.csv(temp_file)
+marker_df <- marker_df[-15,]
 
+# Step 1: Validate markers (optional but recommended)
+validation_results <- validate_markers(sc_org, marker_df)
+
+# Step 2: Annotate your Seurat object
+annotation_results <- annotate_from_dataframe(
+  seurat_obj = sc_org,
+  marker_df = marker_df,
+  celltype_col = "Celltype",
+  marker_col = "Pos_Marker_Genes",
+  min_score_diff = 0.1
+)
+
+# Step 3: Extract results
+sc_org_annotated <- annotation_results$seurat_object
+marker_genes_used <- annotation_results$marker_genes
+annotation_summary <- annotation_results$annotation_summary
+
+sc_org_annotated <- NormalizeData(sc_org_annotated)
+sc_org_annotated <- ScaleData(sc_org_annotated, features = VariableFeatures(sc_org_annotated))
+sc_org_annotated <- FindVariableFeatures(object = sc_org_annotated)
+sc_org_annotated <- RunPCA(sc_org_annotated, features = VariableFeatures(object = sc_org_annotated),assay="RNA")
+ElbowPlot(sc_org_annotated)
+
+# # Find neighbors and clusters (again using integrated data)
+sc_org_annotated <- FindNeighbors(sc_org_annotated, assay = "RNA", dims = 1:20)
+sc_org_annotated <- FindClusters(sc_org_annotated, resolution = 0.5)
+
+# Perform UMAP and tSNE
+# so_liver_sc <- RunTSNE(sc_org_annotated, dims = 1:20)
+sc_org_annotated@reductions
+DimPlot(sc_org_annotated, reduction = "umap", raster = F)
+
+DimPlot(sc_org_annotated, reduction = "umap", group.by = "celltype_annotation", raster = FALSE)+
+  ggtitle(label="Low Resolution KPMP Celltypes")
+DimPlot(sc_org_annotated, reduction = "pca", group.by = "celltype_annotation", raster = FALSE)+
+  ggtitle(label="Low Resolution KPMP Celltypes")
+DimPlot(sc_org_annotated, reduction = "harmony", group.by = "celltype_annotation", raster = FALSE)+
+  ggtitle(label="Low Resolution KPMP Celltypes")
+DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation", raster = FALSE)+
+  ggtitle(label="Low Resolution KPMP Celltypes")
+DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation", raster = FALSE)+
+  ggtitle(label="Low Resolution KPMP Celltypes")
+
+###############################################################################
+#3. High resolution from KPMP Atlas - https://www.nature.com/articles/s41586-023-05769-3
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "KPMP_Celltype_Markers_High_Res.csv", temp_file)
+marker_df <- read.csv(temp_file)
+# marker_df <- marker_df[-15,]
+
+# Step 1: Validate markers (optional but recommended)
+validation_results <- validate_markers(sc_org, marker_df)
+
+# Annotate using dual markers
+dual_results <- annotate_from_dataframe_dual(
+  seurat_obj = sc_org,
+  marker_df = marker_df,
+  celltype_col = "Celltype",
+  pos_marker_col = "Pos_Marker_Genes",
+  neg_marker_col = "Neg_Marker_Genes",
+  min_score_diff = 0.1,
+  neg_weight = 0.5  # Weight for negative markers (0.5 = half weight)
+)
+
+
+# Step 3: Extract results
+sc_org_annotated <- dual_results$seurat_object
+# marker_genes_used <- dual_results$marker_genes
+# annotation_summary <- dual_results$annotation_summary
+
+sc_org_annotated <- NormalizeData(sc_org_annotated)
+sc_org_annotated <- ScaleData(sc_org_annotated, features = VariableFeatures(sc_org_annotated))
+sc_org_annotated <- FindVariableFeatures(object = sc_org_annotated)
+sc_org_annotated <- RunPCA(sc_org_annotated, features = VariableFeatures(object = sc_org_annotated),assay="RNA")
+ElbowPlot(sc_org_annotated)
+
+# # Find neighbors and clusters (again using integrated data)
+sc_org_annotated <- FindNeighbors(sc_org_annotated, assay = "RNA", dims = 1:20)
+sc_org_annotated <- FindClusters(sc_org_annotated, resolution = 0.5)
+
+# Perform UMAP and tSNE
+# so_liver_sc <- RunTSNE(sc_org_annotated, dims = 1:20)
+sc_org_annotated@reductions
+DimPlot(sc_org_annotated, reduction = "umap", raster = T)
+
+DimPlot(sc_org_annotated, reduction = "umap", group.by = "celltype_annotation_dual", raster = T)+
+  ggtitle(label="High-Resolution KPMP Celltypes")
+DimPlot(sc_org_annotated, reduction = "pca", group.by = "celltype_annotation_dual", raster = T)+
+  ggtitle(label="High-Resolution KPMP Celltypes")
+DimPlot(sc_org_annotated, reduction = "harmony", group.by = "celltype_annotation_dual", raster = T)+
+  ggtitle(label="High-Resolution KPMP Celltypes")
+DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+  ggtitle(label="High-Resolution KPMP Celltypes")
+DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+  ggtitle(label="High-Resolution KPMP Celltypes")
+###############################################################################
+#4. Low Resolution D29 Kidney Organoid Markers: https://www.nature.com/articles/s41467-019-13382-0#MOESM1
+organoid_markers_simple <- list(
+  # MAJOR EPITHELIAL CELL TYPES
+  "Podocyte" = c("NPHS2", "NPHS1", "WT1", "PODXL"),
+  "PT" = c("LRP2", "CUBN", "SLC13A1", "SLC5A2"),  # Proximal Tubule (all segments)
+  "TAL" = c("SLC12A1", "UMOD", "CASR"),  # Thick Ascending Limb
+  "DT" = c("SLC12A3", "GATA3", "TRPM6"),  # Distal Tubule
+  "PC" = c("AQP2", "AQP3", "GATA3", "FXYD4"),  # Principal Cells
+  "IC" = c("SLC4A1", "SLC26A4", "ATP6V1C2"),  # Intercalated Cells
+  # PROGENITOR
+  "NPC" = c("SIX2", "CITED1", "MEOX1"),  # Nephron Progenitor Cells
+  # MESENCHYMAL/STROMAL
+  "Mesenchymal" = c("ACTA2", "COL3A1", "COL1A1", "RGS5", "PDGFRB"),
+  # VASCULAR
+  "Endothelial" = c("PECAM1", "COX4I2", "VWF", "CD34"),
+  # IMMUNE
+  "Immune" = c("PTPRC", "CD68", "CD3D", "NKG7"),
+  # ORGANOID-SPECIFIC
+  "Proliferating" = c("MKI67", "TOP2A", "PCNA"),
+  "Off_target" = c("MAP2", "TUBB3", "MITF", "TYR")  # Neuronal + Melanoma-like
+)
+# Annotate cell types (adjust min_score_diff as needed)
+sc_org_annotated <- annotate_celltypes(sc_org, organoid_markers_simple, min_score_diff = 0.1)
+
+sc_org_annotated <- NormalizeData(sc_org_annotated)
+sc_org_annotated <- ScaleData(sc_org_annotated, features = VariableFeatures(sc_org_annotated))
+sc_org_annotated <- FindVariableFeatures(object = sc_org_annotated)
+sc_org_annotated <- RunPCA(sc_org_annotated, features = VariableFeatures(object = sc_org_annotated),assay="RNA")
+ElbowPlot(sc_org_annotated)
+
+# # Find neighbors and clusters (again using integrated data)
+sc_org_annotated <- FindNeighbors(sc_org_annotated, assay = "RNA", dims = 1:20)
+sc_org_annotated <- FindClusters(sc_org_annotated, resolution = 0.5)
+
+# Perform UMAP and tSNE
+# sc_org_annotated <- RunTSNE(sc_org_annotated, dims = 1:20)
+sc_org_annotated@reductions
+DimPlot(sc_org_annotated, reduction = "umap", raster = F)
+
+DimPlot(sc_org_annotated, reduction = "umap", group.by = "celltype_annotation", raster = FALSE)+
+  ggtitle(label="Low Resolution Organoid Markers Celltypes")
+
+###############################################################################
+#5. High Resolution D29 Kidney Organoid Markers: https://www.nature.com/articles/s41467-019-13382-0#MOESM1
+organoid_markers <- list(
+  # EPITHELIAL CELL TYPES
+  "Podocyte" = c("NPHS2", "NPHS1", "PTPRQ", "WT1", "PODXL"),
+  "PT" = c("LRP2", "CUBN", "SLC13A1", "SLC5A2", "SLC22A6", "SLC22A8"),  # Proximal Tubule
+  "PST" = c("LRP2", "CUBN", "SLC13A1"),  # Proximal Straight Tubule
+  "tDL" = c("SLC4A11", "CLDN16"),  # thin Descending Limb
+  "TAL" = c("SLC12A1", "UMOD", "CASR", "CLDN16"),  # Thick Ascending Limb
+  "TAL_DCT" = c("SLC12A1", "SLC12A3", "GATA3"),  # TAL/DCT transition
+  "GATA3_DT" = c("GATA3", "SLC12A3", "TRPM6", "KLHL3"),  # GATA3+ Distal Tubule
+  "CD_PC" = c("AQP2", "AQP3", "GATA3", "FXYD4"),  # Collecting Duct Principal Cells
+  "CD_IC" = c("SLC4A1", "SLC26A4", "ATP6V1C2", "ATP6V0D2"),  # Collecting Duct Intercalated Cells
+  "CD_PC_IC" = c("AQP2", "SLC4A1", "GATA3"),  # Mixed PC/IC
+  # PROGENITOR CELLS
+  "NPC" = c("SIX2", "CITED1", "MEOX1", "UNCX"),  # Nephron Progenitor Cells
+  # MESENCHYMAL CELL TYPES  
+  "Mesangial_Fibroblasts" = c("ACTA2", "COL3A1", "COL1A1", "DCN", "LUM"),
+  "Pericyte_1" = c("RGS5", "PDGFRB", "NOTCH3", "ACTA2"),
+  "Pericyte_2" = c("RGS5", "PDGFRB", "NOTCH3"),
+  "vSMC" = c("ACTA2", "MYH11", "TAGLN", "CNN1"),  # vascular Smooth Muscle Cells
+  # VASCULAR
+  "Endothelial" = c("PECAM1", "COX4I2", "VWF", "CD34", "FLT1", "EMCN"),
+  # IMMUNE CELLS
+  "Macrophages" = c("CD68", "PTPRC", "CSF1R", "AIF1"),
+  "T_Cells" = c("CD3D", "CD3E", "PTPRC", "CD2"),
+  "NKT" = c("NKG7", "GNLY", "CD3D", "KLRD1"),
+  # ADDITIONAL ORGANOID-SPECIFIC TYPES
+  "Muscle_like_1" = c("ACTA2", "MYH11", "TAGLN"),
+  "Muscle_like_2" = c("ACTA2", "MYL9", "CNN1"),
+  "Proliferating" = c("MKI67", "TOP2A", "PCNA", "CDK1"),
+  "Neuronal_precursor" = c("SOX2", "NES", "PAX6"),
+  "Neuron_like" = c("MAP2", "TUBB3", "SYP", "NCAM1"),
+  "Melanoma_like" = c("MITF", "TYR", "TYRP1", "DCT"),
+  # BASED ON VIOLIN PLOT GENES
+  "MAL_positive" = c("MAL", "WFDC2"),  # Specific population from violin plots
+  "APOE_positive" = c("APOE", "CLU", "ABCA1"),  # Another specific population
+  "SPP1_positive" = c("SPP1", "CD44", "LGALS3")  # SPP1+ population
+)
+
+
+###############################################################################
+#6. From FindMarkers of KPMP celltypes in SingleCell - Do again without filtering down
 marker_results <- extract_top_markers(
   reference_seurat = so_kpmp_sc,
   cell_type_column = "celltype_annotate",  # or "seurat_clusters", "cell_type", etc.
@@ -1001,13 +1063,6 @@ marker_results <- extract_top_markers(
   min_pct = 0.25,
   logfc_threshold = 0.25
 )
-
-# Method 2: If you want to use cluster-based markers instead
-# marker_results <- extract_top_markers(
-#   reference_seurat = reference_seurat,
-#   cell_type_column = "seurat_clusters",
-#   top_n = 5
-# )
 
 # Extract the marker gene list for annotation
 extracted_marker_genes <- marker_results$marker_genes
@@ -1020,18 +1075,28 @@ print(extracted_marker_genes)
 plots <- plot_marker_quality(marker_results)
 print(plots$count_plot)
 
-# Save the marker genes for future use
-# saveRDS(extracted_marker_genes, "extracted_marker_genes.rds")
-
-# Optional: Export to CSV for manual review
-# write.csv(marker_results$full_markers, "all_markers.csv", row.names = FALSE)
-
 # Now use these markers with the annotation function from previous code:
 sc_org <- annotate_celltypes(sc_org, extracted_marker_genes, min_score_diff = 0.1)
 sc_org$celltype_annotation
-cat("Marker extraction functions loaded!\n")
-cat("Use extract_top_markers() to get markers from your reference dataset\n")
 
+# Create all visualizations
+all_viz <- create_all_visualizations(
+  seurat_obj = sc_org,
+  marker_genes = marker_genes,  # from previous extraction or manual list
+  celltype_column = "celltype_annotation",
+  reduction = "umap",
+  sample_column = "orig.ident",  # if you have sample information
+  save_plots = TRUE,
+  output_prefix = "kidney_celltypes"
+)
+
+# Access individual plot types:
+all_viz$basic_plots$main_umap
+all_viz$marker_plots$heatmap
+all_viz$summary_stats
+
+
+#make a union gene marker set
 ```
 
 ## c. Explore Distribution & Zero-Inflation
