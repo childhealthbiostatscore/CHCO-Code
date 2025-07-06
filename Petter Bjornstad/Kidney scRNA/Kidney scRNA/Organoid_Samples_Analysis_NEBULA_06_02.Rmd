@@ -751,7 +751,7 @@ counts_layer <- round(GetAssayData(sc_org, layer = "counts"))
 library_size <- Matrix::colSums(counts_layer)
 sc_org$library_size <- library_size
 # View(sc_org@meta.data)
-hist(sc_org$library_size)
+# hist(sc_org$library_size)
 
 # # TMM offset
 # dge <- DGEList(counts = counts_layer)
@@ -759,17 +759,17 @@ hist(sc_org$library_size)
 # tmm_offset <- log(dge$samples$lib.size) + log(dge$samples$norm.factors)
 # sc_org$tmm_offset <- tmm_offset
 
-# Pooled offset
-# bp <- MulticoreParam(workers = 63) 
-sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-sce <- computeSumFactors(sce)
-# sce <- computeSumFactors(sce, BPPARAM = bp)
-# View size factors
-# sizeFactors(sce)
-# STEP 3: Calculate offset → log(size factors)
-pooled_offset <- sizeFactors(sce)
-sc_org$pooled_offset <- pooled_offset
-hist(sc_org$pooled_offset)
+# # Pooled offset
+# # bp <- MulticoreParam(workers = 63) 
+# sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+# sce <- computeSumFactors(sce)
+# # sce <- computeSumFactors(sce, BPPARAM = bp)
+# # View size factors
+# # sizeFactors(sce)
+# # STEP 3: Calculate offset → log(size factors)
+# pooled_offset <- sizeFactors(sce)
+# sc_org$pooled_offset <- pooled_offset
+# hist(sc_org$pooled_offset)
 
 # saveRDS(sc_org,fs::path(dir.dat,"scRNA","data_clean","organoid_scRNA_cleaned.RDS"))
 # sc_org <- readRDS(fs::path(dir.dat,"scRNA","data_clean","organoid_scRNA_cleaned.RDS"))
@@ -809,6 +809,14 @@ sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
 ```
 
 ## b. Annotate Organoid Data
+###i. Separate 15 and 30 glucose conc.
+```{r}
+so_15 <- subset(sc_org,treatment=="15")
+so_30 <- subset(sc_org,treatment=="30")
+
+```
+
+###ii. 15 Gluc Conc.
 ```{r}
 #Define marker genes for each kidney cell type
 #1. Low res from Raji
@@ -827,34 +835,34 @@ marker_genes <- list(
 )
 
 # Annotate cell types (adjust min_score_diff as needed)
-sc_org_annotated <- annotate_celltypes(sc_org, marker_genes, min_score_diff = 0.1)
-sc_org_annotated <- NormalizeData(sc_org_annotated)
-sc_org_annotated <- ScaleData(sc_org_annotated, features = VariableFeatures(sc_org_annotated))
-sc_org_annotated <- FindVariableFeatures(object = sc_org_annotated)
-sc_org_annotated <- RunPCA(sc_org_annotated, features = VariableFeatures(object = sc_org_annotated),assay="RNA")
-ElbowPlot(sc_org_annotated)
+so_15_annotated <- annotate_celltypes(so_15, marker_genes, min_score_diff = 0.1)
+so_15_annotated <- NormalizeData(so_15_annotated)
+so_15_annotated <- ScaleData(so_15_annotated, features = VariableFeatures(so_15_annotated))
+so_15_annotated <- FindVariableFeatures(object = so_15_annotated)
+so_15_annotated <- RunPCA(so_15_annotated, features = VariableFeatures(object = so_15_annotated),assay="RNA")
+ElbowPlot(so_15_annotated)
 
 # # Find neighbors and clusters (again using integrated data)
-sc_org_annotated <- FindNeighbors(sc_org_annotated, assay = "RNA", dims = 1:20)
-sc_org_annotated <- FindClusters(sc_org_annotated, resolution = 0.5)
+so_15_annotated <- FindNeighbors(so_15_annotated, assay = "RNA", dims = 1:20)
+so_15_annotated <- FindClusters(so_15_annotated, resolution = 0.5)
 
 # Perform UMAP and tSNE
-#sc_org_annotated <- RunTSNE(sc_org_annotated, dims = 1:20)
-sc_org_annotated@reductions
-DimPlot(sc_org_annotated, reduction = "umap", raster = T)
+#so_15_annotated <- RunTSNE(so_15_annotated, dims = 1:20)
+so_15_annotated@reductions
+DimPlot(so_15_annotated, reduction = "umap", raster = T)
 
-DimPlot(sc_org_annotated, reduction = "umap", group.by = "celltype_annotation", raster = T)+
-  ggtitle(label="Low-Resolution KPMP Celltypes")
-DimPlot(sc_org_annotated, reduction = "pca", group.by = "celltype_annotation", raster = T)+
-  ggtitle(label="Low-Resolution KPMP Celltypes")
-# DimPlot(sc_org_annotated, reduction = "harmony", group.by = "celltype_annotation_dual", raster = T)+
+DimPlot(so_15_annotated, reduction = "umap", group.by = "celltype_annotation", label = T,raster = T)+
+  ggtitle(label="Low-Resolution KPMP Celltypes (15 Glucose Conc.)")
+DimPlot(so_15_annotated, reduction = "pca", group.by = "celltype_annotation", label = T,raster = T)+
+  ggtitle(label="Low-Resolution KPMP Celltypes (15 Glucose Conc.)")
+# DimPlot(so_15_annotated, reduction = "harmony", group.by = "celltype_annotation_dual", raster = T)+
 #   ggtitle(label="Low-Resolution KPMP Celltypes")
-# DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+# DimPlot(so_15_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
 #   ggtitle(label="Low-Resolution KPMP Celltypes")
-# DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+# DimPlot(so_15_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
 #   ggtitle(label="Low-Resolution KPMP Celltypes")
 # # Generate plots
-# plots <- plot_celltype_results(sc_org, reduction = "umap")
+# plots <- plot_celltype_results(so_15, reduction = "umap")
 # 
 # # Display plots
 # print(plots$annotation_plot)
@@ -874,11 +882,11 @@ marker_df <- read.csv(temp_file)
 marker_df <- marker_df[-15,]
 
 # Step 1: Validate markers (optional but recommended)
-validation_results <- validate_markers(sc_org, marker_df)
+validation_results <- validate_markers(so_15, marker_df)
 
 # Step 2: Annotate your Seurat object
 annotation_results <- annotate_from_dataframe(
-  seurat_obj = sc_org,
+  seurat_obj = so_15,
   marker_df = marker_df,
   celltype_col = "Celltype",
   marker_col = "Pos_Marker_Genes",
@@ -886,35 +894,35 @@ annotation_results <- annotate_from_dataframe(
 )
 
 # Step 3: Extract results
-sc_org_annotated <- annotation_results$seurat_object
+so_15_annotated <- annotation_results$seurat_object
 marker_genes_used <- annotation_results$marker_genes
 annotation_summary <- annotation_results$annotation_summary
 
-sc_org_annotated <- NormalizeData(sc_org_annotated)
-sc_org_annotated <- ScaleData(sc_org_annotated, features = VariableFeatures(sc_org_annotated))
-sc_org_annotated <- FindVariableFeatures(object = sc_org_annotated)
-sc_org_annotated <- RunPCA(sc_org_annotated, features = VariableFeatures(object = sc_org_annotated),assay="RNA")
-ElbowPlot(sc_org_annotated)
+so_15_annotated <- NormalizeData(so_15_annotated)
+so_15_annotated <- ScaleData(so_15_annotated, features = VariableFeatures(so_15_annotated))
+so_15_annotated <- FindVariableFeatures(object = so_15_annotated)
+so_15_annotated <- RunPCA(so_15_annotated, features = VariableFeatures(object = so_15_annotated),assay="RNA")
+ElbowPlot(so_15_annotated)
 
 # # Find neighbors and clusters (again using integrated data)
-sc_org_annotated <- FindNeighbors(sc_org_annotated, assay = "RNA", dims = 1:20)
-sc_org_annotated <- FindClusters(sc_org_annotated, resolution = 0.5)
+so_15_annotated <- FindNeighbors(so_15_annotated, assay = "RNA", dims = 1:20)
+so_15_annotated <- FindClusters(so_15_annotated, resolution = 0.5)
 
 # Perform UMAP and tSNE
-# so_liver_sc <- RunTSNE(sc_org_annotated, dims = 1:20)
-sc_org_annotated@reductions
-DimPlot(sc_org_annotated, reduction = "umap", raster = F)
+# so_liver_sc <- RunTSNE(so_15_annotated, dims = 1:20)
+so_15_annotated@reductions
+DimPlot(so_15_annotated, reduction = "umap", raster = F)
 
-DimPlot(sc_org_annotated, reduction = "umap", group.by = "celltype_annotation", raster = FALSE)+
-  ggtitle(label="Low Resolution KPMP Celltypes")
-DimPlot(sc_org_annotated, reduction = "pca", group.by = "celltype_annotation", raster = FALSE)+
-  ggtitle(label="Low Resolution KPMP Celltypes")
-DimPlot(sc_org_annotated, reduction = "harmony", group.by = "celltype_annotation", raster = FALSE)+
-  ggtitle(label="Low Resolution KPMP Celltypes")
-DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation", raster = FALSE)+
-  ggtitle(label="Low Resolution KPMP Celltypes")
-DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation", raster = FALSE)+
-  ggtitle(label="Low Resolution KPMP Celltypes")
+DimPlot(so_15_annotated, reduction = "umap", group.by = "celltype_annotation", label=T,raster=T)+
+  ggtitle(label="Low Resolution KPMP Celltypes (15 Glucose Conc.)")
+DimPlot(so_15_annotated, reduction = "pca", group.by = "celltype_annotation", label=T,raster=T)+
+  ggtitle(label="Low Resolution KPMP Celltypes (15 Glucose Conc.)")
+# DimPlot(so_15_annotated, reduction = "harmony", group.by = "celltype_annotation", raster = FALSE)+
+#   ggtitle(label="Low Resolution KPMP Celltypes")
+# DimPlot(so_15_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation", raster = FALSE)+
+#   ggtitle(label="Low Resolution KPMP Celltypes")
+# DimPlot(so_15_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation", raster = FALSE)+
+#   ggtitle(label="Low Resolution KPMP Celltypes")
 
 ###############################################################################
 #3. High resolution from KPMP Atlas - https://www.nature.com/articles/s41586-023-05769-3
@@ -926,11 +934,11 @@ marker_df <- read.csv(temp_file)
 # marker_df <- marker_df[-15,]
 
 # Step 1: Validate markers (optional but recommended)
-validation_results <- validate_markers(sc_org, marker_df)
+validation_results <- validate_markers(so_15, marker_df)
 
 # Annotate using dual markers
 dual_results <- annotate_from_dataframe_dual(
-  seurat_obj = sc_org,
+  seurat_obj = so_15,
   marker_df = marker_df,
   celltype_col = "Celltype",
   pos_marker_col = "Pos_Marker_Genes",
@@ -941,35 +949,35 @@ dual_results <- annotate_from_dataframe_dual(
 
 
 # Step 3: Extract results
-sc_org_annotated <- dual_results$seurat_object
+so_15_annotated <- dual_results$seurat_object
 # marker_genes_used <- dual_results$marker_genes
 # annotation_summary <- dual_results$annotation_summary
 
-sc_org_annotated <- NormalizeData(sc_org_annotated)
-sc_org_annotated <- ScaleData(sc_org_annotated, features = VariableFeatures(sc_org_annotated))
-sc_org_annotated <- FindVariableFeatures(object = sc_org_annotated)
-sc_org_annotated <- RunPCA(sc_org_annotated, features = VariableFeatures(object = sc_org_annotated),assay="RNA")
-ElbowPlot(sc_org_annotated)
+so_15_annotated <- NormalizeData(so_15_annotated)
+so_15_annotated <- ScaleData(so_15_annotated, features = VariableFeatures(so_15_annotated))
+so_15_annotated <- FindVariableFeatures(object = so_15_annotated)
+so_15_annotated <- RunPCA(so_15_annotated, features = VariableFeatures(object = so_15_annotated),assay="RNA")
+ElbowPlot(so_15_annotated)
 
 # # Find neighbors and clusters (again using integrated data)
-sc_org_annotated <- FindNeighbors(sc_org_annotated, assay = "RNA", dims = 1:20)
-sc_org_annotated <- FindClusters(sc_org_annotated, resolution = 0.5)
+so_15_annotated <- FindNeighbors(so_15_annotated, assay = "RNA", dims = 1:20)
+so_15_annotated <- FindClusters(so_15_annotated, resolution = 0.5)
 
 # Perform UMAP and tSNE
-# so_liver_sc <- RunTSNE(sc_org_annotated, dims = 1:20)
-sc_org_annotated@reductions
-DimPlot(sc_org_annotated, reduction = "umap", raster = T)
+# so_liver_sc <- RunTSNE(so_15_annotated, dims = 1:20)
+so_15_annotated@reductions
+DimPlot(so_15_annotated, reduction = "umap", raster = T)
 
-DimPlot(sc_org_annotated, reduction = "umap", group.by = "celltype_annotation_dual", raster = T)+
-  ggtitle(label="High-Resolution KPMP Celltypes")
-DimPlot(sc_org_annotated, reduction = "pca", group.by = "celltype_annotation_dual", raster = T)+
-  ggtitle(label="High-Resolution KPMP Celltypes")
-DimPlot(sc_org_annotated, reduction = "harmony", group.by = "celltype_annotation_dual", raster = T)+
-  ggtitle(label="High-Resolution KPMP Celltypes")
-DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
-  ggtitle(label="High-Resolution KPMP Celltypes")
-DimPlot(sc_org_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
-  ggtitle(label="High-Resolution KPMP Celltypes")
+DimPlot(so_15_annotated, reduction = "umap", group.by = "celltype_annotation_dual", label=T,raster = T)+
+  ggtitle(label="High-Resolution KPMP Celltypes (15 Glucose Conc.)")
+DimPlot(so_15_annotated, reduction = "pca", group.by = "celltype_annotation_dual", label=T,raster = T)+
+  ggtitle(label="High-Resolution KPMP Celltypes (15 Glucose Conc.)")
+# DimPlot(so_15_annotated, reduction = "harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="High-Resolution KPMP Celltypes")
+# DimPlot(so_15_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="High-Resolution KPMP Celltypes")
+# DimPlot(so_15_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="High-Resolution KPMP Celltypes")
 ###############################################################################
 #4. Low Resolution D29 Kidney Organoid Markers: https://www.nature.com/articles/s41467-019-13382-0#MOESM1
 organoid_markers_simple <- list(
@@ -993,25 +1001,27 @@ organoid_markers_simple <- list(
   "Off_target" = c("MAP2", "TUBB3", "MITF", "TYR")  # Neuronal + Melanoma-like
 )
 # Annotate cell types (adjust min_score_diff as needed)
-sc_org_annotated <- annotate_celltypes(sc_org, organoid_markers_simple, min_score_diff = 0.1)
+so_15_annotated <- annotate_celltypes(so_15, organoid_markers_simple, min_score_diff = 0.1)
 
-sc_org_annotated <- NormalizeData(sc_org_annotated)
-sc_org_annotated <- ScaleData(sc_org_annotated, features = VariableFeatures(sc_org_annotated))
-sc_org_annotated <- FindVariableFeatures(object = sc_org_annotated)
-sc_org_annotated <- RunPCA(sc_org_annotated, features = VariableFeatures(object = sc_org_annotated),assay="RNA")
-ElbowPlot(sc_org_annotated)
+so_15_annotated <- NormalizeData(so_15_annotated)
+so_15_annotated <- ScaleData(so_15_annotated, features = VariableFeatures(so_15_annotated))
+so_15_annotated <- FindVariableFeatures(object = so_15_annotated)
+so_15_annotated <- RunPCA(so_15_annotated, features = VariableFeatures(object = so_15_annotated),assay="RNA")
+ElbowPlot(so_15_annotated)
 
 # # Find neighbors and clusters (again using integrated data)
-sc_org_annotated <- FindNeighbors(sc_org_annotated, assay = "RNA", dims = 1:20)
-sc_org_annotated <- FindClusters(sc_org_annotated, resolution = 0.5)
+so_15_annotated <- FindNeighbors(so_15_annotated, assay = "RNA", dims = 1:20)
+so_15_annotated <- FindClusters(so_15_annotated, resolution = 0.5)
 
 # Perform UMAP and tSNE
-# sc_org_annotated <- RunTSNE(sc_org_annotated, dims = 1:20)
-sc_org_annotated@reductions
-DimPlot(sc_org_annotated, reduction = "umap", raster = F)
+# so_15_annotated <- RunTSNE(so_15_annotated, dims = 1:20)
+so_15_annotated@reductions
+DimPlot(so_15_annotated, reduction = "umap", raster = F)
 
-DimPlot(sc_org_annotated, reduction = "umap", group.by = "celltype_annotation", raster = FALSE)+
-  ggtitle(label="Low Resolution Organoid Markers Celltypes")
+DimPlot(so_15_annotated, reduction = "umap", group.by = "celltype_annotation", label=T,raster = T)+
+  ggtitle(label="Low Resolution Organoid Markers Celltypes (15 Glucose Conc.)")
+DimPlot(so_15_annotated, reduction = "pca", group.by = "celltype_annotation", label=T,raster = T)+
+  ggtitle(label="Low Resolution Organoid Markers Celltypes (15 Glucose Conc.)")
 
 ###############################################################################
 #5. High Resolution D29 Kidney Organoid Markers: https://www.nature.com/articles/s41467-019-13382-0#MOESM1
@@ -1076,12 +1086,12 @@ plots <- plot_marker_quality(marker_results)
 print(plots$count_plot)
 
 # Now use these markers with the annotation function from previous code:
-sc_org <- annotate_celltypes(sc_org, extracted_marker_genes, min_score_diff = 0.1)
-sc_org$celltype_annotation
+so_15 <- annotate_celltypes(so_15, extracted_marker_genes, min_score_diff = 0.1)
+so_15$celltype_annotation
 
 # Create all visualizations
 all_viz <- create_all_visualizations(
-  seurat_obj = sc_org,
+  seurat_obj = so_15,
   marker_genes = marker_genes,  # from previous extraction or manual list
   celltype_column = "celltype_annotation",
   reduction = "umap",
@@ -1099,6 +1109,298 @@ all_viz$summary_stats
 #make a union gene marker set
 ```
 
+###iii. 30 Gluc Conc.
+```{r}
+#Define marker genes for each kidney cell type
+#1. Low res from Raji
+marker_genes <- list(
+  "PT" = c("CUBN", "LRP2"),                    # Proximal Tubule
+  "DTL" = c("AQP1", "ID1"),                    # Descending Thin Limb
+  "ATL" = c("CLDN3", "CLCNKA"),               # Ascending Thin Limb
+  "TAL" = c("UMOD", "SLC12A1"),               # Thick Ascending Limb
+  "DCT" = c("SLC12A3"),                       # Distal Convoluted Tubule
+  "CNT" = c("SLC8A1"),                        # Connecting Tubule
+  "PC" = c("FXYD4"),                          # Principal Cells
+  "IC" = c("ATP6V0D2"),                       # Intercalated Cells
+  "EC" = c("EMCN"),                           # Endothelial Cells
+  "Immune" = c("PTPRC"),                      # Immune cells
+  "Interstitial" = c("ACTA2", "RGS5")        # Interstitial cells
+)
+
+# Annotate cell types (adjust min_score_diff as needed)
+so_30_annotated <- annotate_celltypes(so_30, marker_genes, min_score_diff = 0.1)
+so_30_annotated <- NormalizeData(so_30_annotated)
+so_30_annotated <- ScaleData(so_30_annotated, features = VariableFeatures(so_30_annotated))
+so_30_annotated <- FindVariableFeatures(object = so_30_annotated)
+so_30_annotated <- RunPCA(so_30_annotated, features = VariableFeatures(object = so_30_annotated),assay="RNA")
+ElbowPlot(so_30_annotated)
+
+# # Find neighbors and clusters (again using integrated data)
+so_30_annotated <- FindNeighbors(so_30_annotated, assay = "RNA", dims = 1:20)
+so_30_annotated <- FindClusters(so_30_annotated, resolution = 0.5)
+
+# Perform UMAP and tSNE
+#so_30_annotated <- RunTSNE(so_30_annotated, dims = 1:20)
+so_30_annotated@reductions
+DimPlot(so_30_annotated, reduction = "umap", raster = T)
+
+DimPlot(so_30_annotated, reduction = "umap", group.by = "celltype_annotation", label = T,raster = T)+
+  ggtitle(label="Low-Resolution KPMP Celltypes (30 Glucose Conc.)")
+DimPlot(so_30_annotated, reduction = "pca", group.by = "celltype_annotation", label = T,raster = T)+
+  ggtitle(label="Low-Resolution KPMP Celltypes (30 Glucose Conc.)")
+# DimPlot(so_30_annotated, reduction = "harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="Low-Resolution KPMP Celltypes")
+# DimPlot(so_30_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="Low-Resolution KPMP Celltypes")
+# DimPlot(so_30_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="Low-Resolution KPMP Celltypes")
+# # Generate plots
+# plots <- plot_celltype_results(so_30, reduction = "umap")
+# 
+# # Display plots
+# print(plots$annotation_plot)
+# if (!is.null(plots$score_plot)) {
+#   print(plots$score_plot)
+# }
+# print(plots$confidence_plot)
+
+
+###############################################################################################################
+#2. Low resolution from KPMP Atlas - https://www.nature.com/articles/s41586-023-05769-3
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "KPMP_Celltype_Markers_Low_Res.csv", temp_file)
+marker_df <- read.csv(temp_file)
+marker_df <- marker_df[-15,]
+
+# Step 1: Validate markers (optional but recommended)
+validation_results <- validate_markers(so_30, marker_df)
+
+# Step 2: Annotate your Seurat object
+annotation_results <- annotate_from_dataframe(
+  seurat_obj = so_30,
+  marker_df = marker_df,
+  celltype_col = "Celltype",
+  marker_col = "Pos_Marker_Genes",
+  min_score_diff = 0.1
+)
+
+# Step 3: Extract results
+so_30_annotated <- annotation_results$seurat_object
+marker_genes_used <- annotation_results$marker_genes
+annotation_summary <- annotation_results$annotation_summary
+
+so_30_annotated <- NormalizeData(so_30_annotated)
+so_30_annotated <- ScaleData(so_30_annotated, features = VariableFeatures(so_30_annotated))
+so_30_annotated <- FindVariableFeatures(object = so_30_annotated)
+so_30_annotated <- RunPCA(so_30_annotated, features = VariableFeatures(object = so_30_annotated),assay="RNA")
+ElbowPlot(so_30_annotated)
+
+# # Find neighbors and clusters (again using integrated data)
+so_30_annotated <- FindNeighbors(so_30_annotated, assay = "RNA", dims = 1:20)
+so_30_annotated <- FindClusters(so_30_annotated, resolution = 0.5)
+
+# Perform UMAP and tSNE
+# so_liver_sc <- RunTSNE(so_30_annotated, dims = 1:20)
+so_30_annotated@reductions
+DimPlot(so_30_annotated, reduction = "umap", raster = F)
+
+DimPlot(so_30_annotated, reduction = "umap", group.by = "celltype_annotation", label=T,raster=T)+
+  ggtitle(label="Low Resolution KPMP Celltypes (30 Glucose Conc.)")
+DimPlot(so_30_annotated, reduction = "pca", group.by = "celltype_annotation", label=T,raster=T)+
+  ggtitle(label="Low Resolution KPMP Celltypes (30 Glucose Conc.)")
+# DimPlot(so_30_annotated, reduction = "harmony", group.by = "celltype_annotation", raster = FALSE)+
+#   ggtitle(label="Low Resolution KPMP Celltypes")
+# DimPlot(so_30_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation", raster = FALSE)+
+#   ggtitle(label="Low Resolution KPMP Celltypes")
+# DimPlot(so_30_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation", raster = FALSE)+
+#   ggtitle(label="Low Resolution KPMP Celltypes")
+
+###############################################################################
+#3. High resolution from KPMP Atlas - https://www.nature.com/articles/s41586-023-05769-3
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "KPMP_Celltype_Markers_High_Res.csv", temp_file)
+marker_df <- read.csv(temp_file)
+# marker_df <- marker_df[-15,]
+
+# Step 1: Validate markers (optional but recommended)
+validation_results <- validate_markers(so_30, marker_df)
+
+# Annotate using dual markers
+dual_results <- annotate_from_dataframe_dual(
+  seurat_obj = so_30,
+  marker_df = marker_df,
+  celltype_col = "Celltype",
+  pos_marker_col = "Pos_Marker_Genes",
+  neg_marker_col = "Neg_Marker_Genes",
+  min_score_diff = 0.1,
+  neg_weight = 0.5  # Weight for negative markers (0.5 = half weight)
+)
+
+
+# Step 3: Extract results
+so_30_annotated <- dual_results$seurat_object
+# marker_genes_used <- dual_results$marker_genes
+# annotation_summary <- dual_results$annotation_summary
+
+so_30_annotated <- NormalizeData(so_30_annotated)
+so_30_annotated <- ScaleData(so_30_annotated, features = VariableFeatures(so_30_annotated))
+so_30_annotated <- FindVariableFeatures(object = so_30_annotated)
+so_30_annotated <- RunPCA(so_30_annotated, features = VariableFeatures(object = so_30_annotated),assay="RNA")
+ElbowPlot(so_30_annotated)
+
+# # Find neighbors and clusters (again using integrated data)
+so_30_annotated <- FindNeighbors(so_30_annotated, assay = "RNA", dims = 1:20)
+so_30_annotated <- FindClusters(so_30_annotated, resolution = 0.5)
+
+# Perform UMAP and tSNE
+# so_liver_sc <- RunTSNE(so_30_annotated, dims = 1:20)
+so_30_annotated@reductions
+DimPlot(so_30_annotated, reduction = "umap", raster = T)
+
+DimPlot(so_30_annotated, reduction = "umap", group.by = "celltype_annotation_dual", label=T,raster = T)+
+  ggtitle(label="High-Resolution KPMP Celltypes (30 Glucose Conc.)")
+DimPlot(so_30_annotated, reduction = "pca", group.by = "celltype_annotation_dual", label=T,raster = T)+
+  ggtitle(label="High-Resolution KPMP Celltypes (30 Glucose Conc.)")
+# DimPlot(so_30_annotated, reduction = "harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="High-Resolution KPMP Celltypes")
+# DimPlot(so_30_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="High-Resolution KPMP Celltypes")
+# DimPlot(so_30_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
+#   ggtitle(label="High-Resolution KPMP Celltypes")
+###############################################################################
+#4. Low Resolution D29 Kidney Organoid Markers: https://www.nature.com/articles/s41467-019-13382-0#MOESM1
+organoid_markers_simple <- list(
+  # MAJOR EPITHELIAL CELL TYPES
+  "Podocyte" = c("NPHS2", "NPHS1", "WT1", "PODXL"),
+  "PT" = c("LRP2", "CUBN", "SLC13A1", "SLC5A2"),  # Proximal Tubule (all segments)
+  "TAL" = c("SLC12A1", "UMOD", "CASR"),  # Thick Ascending Limb
+  "DT" = c("SLC12A3", "GATA3", "TRPM6"),  # Distal Tubule
+  "PC" = c("AQP2", "AQP3", "GATA3", "FXYD4"),  # Principal Cells
+  "IC" = c("SLC4A1", "SLC26A4", "ATP6V1C2"),  # Intercalated Cells
+  # PROGENITOR
+  "NPC" = c("SIX2", "CITED1", "MEOX1"),  # Nephron Progenitor Cells
+  # MESENCHYMAL/STROMAL
+  "Mesenchymal" = c("ACTA2", "COL3A1", "COL1A1", "RGS5", "PDGFRB"),
+  # VASCULAR
+  "Endothelial" = c("PECAM1", "COX4I2", "VWF", "CD34"),
+  # IMMUNE
+  "Immune" = c("PTPRC", "CD68", "CD3D", "NKG7"),
+  # ORGANOID-SPECIFIC
+  "Proliferating" = c("MKI67", "TOP2A", "PCNA"),
+  "Off_target" = c("MAP2", "TUBB3", "MITF", "TYR")  # Neuronal + Melanoma-like
+)
+# Annotate cell types (adjust min_score_diff as needed)
+so_30_annotated <- annotate_celltypes(so_30, organoid_markers_simple, min_score_diff = 0.1)
+
+so_30_annotated <- NormalizeData(so_30_annotated)
+so_30_annotated <- ScaleData(so_30_annotated, features = VariableFeatures(so_30_annotated))
+so_30_annotated <- FindVariableFeatures(object = so_30_annotated)
+so_30_annotated <- RunPCA(so_30_annotated, features = VariableFeatures(object = so_30_annotated),assay="RNA")
+ElbowPlot(so_30_annotated)
+
+# # Find neighbors and clusters (again using integrated data)
+so_30_annotated <- FindNeighbors(so_30_annotated, assay = "RNA", dims = 1:20)
+so_30_annotated <- FindClusters(so_30_annotated, resolution = 0.5)
+
+# Perform UMAP and tSNE
+# so_30_annotated <- RunTSNE(so_30_annotated, dims = 1:20)
+so_30_annotated@reductions
+DimPlot(so_30_annotated, reduction = "umap", raster = F)
+
+DimPlot(so_30_annotated, reduction = "umap", group.by = "celltype_annotation", label=T,raster = T)+
+  ggtitle(label="Low Resolution Organoid Markers Celltypes (15 Glucose Conc.)")
+DimPlot(so_30_annotated, reduction = "pca", group.by = "celltype_annotation", label=T,raster = T)+
+  ggtitle(label="Low Resolution Organoid Markers Celltypes (15 Glucose Conc.)")
+
+###############################################################################
+#5. High Resolution D29 Kidney Organoid Markers: https://www.nature.com/articles/s41467-019-13382-0#MOESM1
+organoid_markers <- list(
+  # EPITHELIAL CELL TYPES
+  "Podocyte" = c("NPHS2", "NPHS1", "PTPRQ", "WT1", "PODXL"),
+  "PT" = c("LRP2", "CUBN", "SLC13A1", "SLC5A2", "SLC22A6", "SLC22A8"),  # Proximal Tubule
+  "PST" = c("LRP2", "CUBN", "SLC13A1"),  # Proximal Straight Tubule
+  "tDL" = c("SLC4A11", "CLDN16"),  # thin Descending Limb
+  "TAL" = c("SLC12A1", "UMOD", "CASR", "CLDN16"),  # Thick Ascending Limb
+  "TAL_DCT" = c("SLC12A1", "SLC12A3", "GATA3"),  # TAL/DCT transition
+  "GATA3_DT" = c("GATA3", "SLC12A3", "TRPM6", "KLHL3"),  # GATA3+ Distal Tubule
+  "CD_PC" = c("AQP2", "AQP3", "GATA3", "FXYD4"),  # Collecting Duct Principal Cells
+  "CD_IC" = c("SLC4A1", "SLC26A4", "ATP6V1C2", "ATP6V0D2"),  # Collecting Duct Intercalated Cells
+  "CD_PC_IC" = c("AQP2", "SLC4A1", "GATA3"),  # Mixed PC/IC
+  # PROGENITOR CELLS
+  "NPC" = c("SIX2", "CITED1", "MEOX1", "UNCX"),  # Nephron Progenitor Cells
+  # MESENCHYMAL CELL TYPES  
+  "Mesangial_Fibroblasts" = c("ACTA2", "COL3A1", "COL1A1", "DCN", "LUM"),
+  "Pericyte_1" = c("RGS5", "PDGFRB", "NOTCH3", "ACTA2"),
+  "Pericyte_2" = c("RGS5", "PDGFRB", "NOTCH3"),
+  "vSMC" = c("ACTA2", "MYH11", "TAGLN", "CNN1"),  # vascular Smooth Muscle Cells
+  # VASCULAR
+  "Endothelial" = c("PECAM1", "COX4I2", "VWF", "CD34", "FLT1", "EMCN"),
+  # IMMUNE CELLS
+  "Macrophages" = c("CD68", "PTPRC", "CSF1R", "AIF1"),
+  "T_Cells" = c("CD3D", "CD3E", "PTPRC", "CD2"),
+  "NKT" = c("NKG7", "GNLY", "CD3D", "KLRD1"),
+  # ADDITIONAL ORGANOID-SPECIFIC TYPES
+  "Muscle_like_1" = c("ACTA2", "MYH11", "TAGLN"),
+  "Muscle_like_2" = c("ACTA2", "MYL9", "CNN1"),
+  "Proliferating" = c("MKI67", "TOP2A", "PCNA", "CDK1"),
+  "Neuronal_precursor" = c("SOX2", "NES", "PAX6"),
+  "Neuron_like" = c("MAP2", "TUBB3", "SYP", "NCAM1"),
+  "Melanoma_like" = c("MITF", "TYR", "TYRP1", "DCT"),
+  # BASED ON VIOLIN PLOT GENES
+  "MAL_positive" = c("MAL", "WFDC2"),  # Specific population from violin plots
+  "APOE_positive" = c("APOE", "CLU", "ABCA1"),  # Another specific population
+  "SPP1_positive" = c("SPP1", "CD44", "LGALS3")  # SPP1+ population
+)
+
+
+###############################################################################
+#6. From FindMarkers of KPMP celltypes in SingleCell - Do again without filtering down
+marker_results <- extract_top_markers(
+  reference_seurat = so_kpmp_sc,
+  cell_type_column = "celltype_annotate",  # or "seurat_clusters", "cell_type", etc.
+  top_n = 20,
+  min_pct = 0.25,
+  logfc_threshold = 0.25
+)
+
+# Extract the marker gene list for annotation
+extracted_marker_genes <- marker_results$marker_genes
+
+# View the results
+print("Extracted marker genes:")
+print(extracted_marker_genes)
+
+# View marker quality
+plots <- plot_marker_quality(marker_results)
+print(plots$count_plot)
+
+# Now use these markers with the annotation function from previous code:
+so_30 <- annotate_celltypes(so_30, extracted_marker_genes, min_score_diff = 0.1)
+so_30$celltype_annotation
+
+# Create all visualizations
+all_viz <- create_all_visualizations(
+  seurat_obj = so_30,
+  marker_genes = marker_genes,  # from previous extraction or manual list
+  celltype_column = "celltype_annotation",
+  reduction = "umap",
+  sample_column = "orig.ident",  # if you have sample information
+  save_plots = TRUE,
+  output_prefix = "kidney_celltypes"
+)
+
+# Access individual plot types:
+all_viz$basic_plots$main_umap
+all_viz$marker_plots$heatmap
+all_viz$summary_stats
+
+
+#make a union gene marker set
+```
 ## c. Explore Distribution & Zero-Inflation
 ### i. Biopsy Data
 ```{r}
