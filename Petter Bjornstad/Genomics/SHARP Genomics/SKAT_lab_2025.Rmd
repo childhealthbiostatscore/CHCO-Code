@@ -1,0 +1,269 @@
+---
+title: "SKAT Tutorial"
+author: "Yi Yang, PhD"
+date: '2022-06-08'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1 Install SKAT
+
+The following commands check if SKAT has been installed and will install SKAT if not installed.
+```{r}
+pkgs = c("SKAT")
+pkgs.na = pkgs[!pkgs %in% installed.packages()[, "Package"]]
+if (length(pkgs.na) > 0) {
+  install.packages(pkgs.na, dependencies = TRUE)
+}
+```
+
+## 2 Load SKAT and an example dataset
+
+The following commands load the SKAT library and attach an example dataset to the workspace so that you can access objects in the dataset by simply using their names.
+```{r, message=FALSE, warning=FALSE}
+library(SKAT)
+data(SKAT.example)
+names(SKAT.example)
+attach(SKAT.example)
+```
+
+## 3 Null models
+
+The function SKAT_Null_Model is necessary to obtain parameters and residuals under the null model. For continuous outcomes, we specify the null model, i.e., y.c ~ X, and set "out_type" to "C" for continuous outcomes. For dichotomous outcomes, we specify the null model, i.e., y.b ~ X, and set "out_type" to "D" for dichotomous outcomes. For example, we can specify the null model for continuous outcomes using
+```{r}
+obj<-SKAT_Null_Model(y.c ~ X, out_type="C")
+```
+
+## 4 SKAT, Burden and SKAT-O tests
+
+We now test for association between a set of SNPs/genes and continuous or dichotomous outcomes using the kernel machine. Typically, the SKAT test is more powerful when effects are in different directions, whereas the Burden test is more powerful when effects are in the same direction. For the SKAT test, we use
+```{r}
+SKAT(Z, obj, r.corr=0)$p.value
+```
+For the Burden test, we use
+```{r}
+SKAT(Z, obj, r.corr=1)$p.value
+```
+
+SKAT-O is the optimal unified test over r.corr in [0,1]; r.corr is the correlation among the beta’s of individual variants in the gene. SKAT-O will be conducted with adaptively selecting r.corr from a grid of values in [0,1].
+```{r}
+SKAT(Z, obj, method="optimal")$p.value
+```
+
+## 5 Weighting
+
+By default, SKAT's weighting scheme is w[i]=dbeta(f[i],1,25) where f[i] is MAF at SNP i, and dbeta is the beta density function. We can also consider other weights, for example, w[i]=dbeta(f[i],0.5,0.5) (corresponds to the Madsen and Browning weighting scheme: 1/sqrt(f[i]*(1-f[i])). In the following commands, we change the default weighting from dbeta(f[i], 1, 25) to dbeta(f[i], 0.5, 0.5) by setting weights.beta=c(0.5, 0.5).
+
+```{r}
+SKAT(Z, obj, r.corr=0, weights.beta=c(0.5,0.5))$p.value
+SKAT(Z, obj, r.corr=1, weights.beta=c(0.5,0.5))$p.value
+SKAT(Z, obj, method="optimal.adj", weights.beta=c(0.5,0.5))$p.value
+```
+
+## 6 SKAT for the combined effect of rare and common variants
+
+We can also use SKAT_CommonRare to analyze a dataset that contains both rare and common variants. By default, the weighting is dbeta(f[i],1,25) for rare variants and is dbeta(f[i],0.5,0.5) for common variants. The SKAT test is also the default method, though you can choose to use the Burden test for rare and/or common variants by setting "r.corr.rare" and/or "r.corr.common" to 1 under the assumption that effects are in the same direction.
+```{r}
+SKAT_CommonRare(Z, obj)$p.value
+SKAT_CommonRare(Z, obj, r.corr.rare=1, r.corr.common=1)$p.value
+```
+
+You can set "test.type" to "Common.Only" to test only with common variants
+```{r}
+SKAT_CommonRare(Z, obj, test.type="Common.Only")$p.value
+```
+and to "Rare.Only" to test only with rare variants.
+```{r}
+SKAT_CommonRare(Z, obj, test.type="Rare.Only")$p.value
+```
+You can also specify "CommonRare_Cutoff" for the MAF cutoff for common vs rare variants. By default, the MAF cutoff is 1/sqrt(2*SampleSize).
+```{r}
+SKAT_CommonRare(Z, obj, CommonRare_Cutoff=0.01)$p.value
+```
+
+## 7 Compute power and sample size for future sequence association studies
+SKAT.haplotypes is a haplotype dataset generated using the software package COSI with mimicking linkage disequilibrium (LD) structure of European ancestry. Haplotype is a numeric matrix of 10,000 haplotypes over a 200k bp region. Each row represents a different haplotype, and each column represents a different SNP marker. It is simulated using the calibration coalescent model with mimicking LD structure of European ancestry.
+```{r}
+data(SKAT.haplotypes)
+names(SKAT.haplotypes)
+attach(SKAT.haplotypes)
+```
+
+SNPInfo is a dataframe object of SNP information.
+```{r}
+SNPInfo[1:10,]
+```
+### 7.1 Power calculations
+Compute an average power of SKAT and SKAT-O for testing association between a genomic region and continuous outcomes with a given disease model. "SubRegion.Length" is the length of subregions, each of which will be randomly selected, and then the average power will be calculated by taking the average over the estimated powers of all subregions. "Causal.Percent" is the percentage of causal SNPs among rare SNPs. "N.Sim" is the number of subregions/replicates to be generated to compute the average power. "MaxBeta" is the maximum effect size for a variant with MAF of 0.0001. "Negative.Percent" is the percentage of coefficients of causal variants that are negative. In the output, "Power" is a matrix with each row as a different sample size and each column as a different significance level. Each element of the matrix "Power" is the estimated power. "R.sq" is the proportion of phenotype/outcome variance explained by genetic variants.
+
+```{r}
+set.seed(500)
+out.c<-Power_Continuous(Haplotype, SNPInfo$CHROM_POS, SubRegion.Length=5000, Causal.Percent= 20, N.Sim=10, MaxBeta=2, Negative.Percent=20)
+out.c
+```
+
+You can change SubRegion.Length, Causal.percent, MaxBeta, Negative.Percent, et al. For example, you can change SubRegion.Length to 500 bp by
+```{r}
+out.c<-Power_Continuous(Haplotype, SNPInfo$CHROM_POS, SubRegion.Length=500, Causal.Percent= 20, N.Sim=10, MaxBeta=2, Negative.Percent=20)
+out.c
+```
+change the Causal.Percent to 10% by
+```{r}
+out.c<-Power_Continuous(Haplotype,SNPInfo$CHROM_POS, SubRegion.Length=5000, Causal.Percent= 10, N.Sim=10, MaxBeta=2, Negative.Percent=20)
+out.c
+```
+and change BetaType to "Fixed", i.e., effect sizes of all causal variants are the same (=MaxBeta), by
+```{r}
+out.c<-Power_Continuous(Haplotype,SNPInfo$CHROM_POS, SubRegion.Length=5000, Causal.Percent= 20, N.Sim=10, MaxBeta=2, Negative.Percent=20, BetaType = "Fixed")
+out.c
+```
+
+We can also calculate power for dichotomous outcomes by
+```{r}
+out.b<-Power_Logistic(Haplotype, SNPInfo$CHROM_POS, SubRegion.Length=5000, Causal.Percent= 20, N.Sim=10, MaxOR=7, Negative.Percent=20)
+out.b
+```
+
+### 7.2 Sample size calculations
+We can calculate the sample size required to achieve the given power at different significance levels (alpha).
+```{r}
+Get_RequiredSampleSize(out.c, Power=0.8)
+```
+
+### 8 STAAR 
+The STAAR (variant-Set Test for Association using Annotation infoRmation) procedure extends the SKAT/Burden framework by incorporating multiple functional annotations into rare variant set tests. It improves power by using a Cauchy combination of weighted tests (e.g., SKAT, Burden, ACAT-V) and provides omnibus p-values.
+```{r}
+# install.packages(c('Rcpp', 'RcppArmadillo', 'GMMAT', 'Matrix'))
+# lapply(c('Rcpp', 'RcppArmadillo', 'GMMAT', 'Matrix'), library, character.only = TRUE)
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install("GENESIS")
+# library('GENESIS')
+# install.packages('devtools')
+# install.packages('httpuv')
+# 
+# library(devtools)
+# library(httpuv)
+# devtools::install_github("xihaoli/STAAR")
+library('STAAR')
+library(matrixStats) 
+```
+
+We generated 10 functional annotations.
+```{r}
+set.seed(600)
+numVar <- dim(Z)[2]
+Z1 <- rnorm(numVar)
+Z2 <- rnorm(numVar)
+Z3 <- rnorm(numVar)
+Z4 <- rnorm(numVar)
+Z5 <- rnorm(numVar)
+Z6 <- rnorm(numVar)
+Z7 <- rnorm(numVar)
+Z8 <- rnorm(numVar)
+Z9 <- rnorm(numVar)
+Z10 <- rnorm(numVar)
+annotation <- cbind(Z1,Z2,Z3,Z4,Z5,Z6,Z7,Z8,Z9,Z10)
+```
+
+We calculated the Phred score of the 10 annotations. Note that the input of annotations for STAAR function was at Phred scale (annotation_phred). In practice, the Phred score is calculated based on all variants across the genome (http://favor.genohub.org).
+```{r}
+rank <- colRanks(annotation,preserveShape = TRUE,ties.method = "max")
+PHRED <- -10*log10(1-rank/dim(rank)[1])
+```
+
+We simulate a quantitative phenotype by incorporating functional annotations, minor allele frequency (MAF), and covariates. This process mimics a biologically informed genetic architecture where more "functional" variants are more likely to be causal and where effect sizes are influenced by allele frequencies.
+
+```{r}
+# Select Variant Region
+snplist=1:numVar
+b0 <- rje::logit(0.04)
+b <- rep(log(5),10)
+
+# Model Causal Probability Using Annotations
+causalprob <- apply(annotation[snplist,],1,function(z){
+  ind <- sample(1:10,5)
+  rje::expit(b0 + b[ind] %*% z[ind])
+})
+# Sample Causal Variants
+isCausal <- rbinom(numVar,1,causalprob)
+
+# Define Covariate and Genetic Effects
+alpha0 <- 0
+alpha1 <- c(0.05,0.05)
+c0 <- 0.4
+maf=colMeans(Z)/2
+beta <- -c0 * log10(maf[snplist][which(isCausal==1)])
+N=dim(Z)[1]
+eps <- rnorm(N)
+
+# Simulate Phenotype 
+Y<- alpha0 + X%*%alpha1 + as.matrix(Z)[,snplist][,which(isCausal==1)] %*% beta + eps
+
+```
+
+We applied STAAR to analyze the simulated data set. We first fit the null model using GLM.
+```{r}
+pheno <- data.frame(Y=Y,X=X)
+obj_nullmodel <- fit_null_glm(Y~X,data=pheno,family="gaussian")
+```
+
+We then applied STAAR to test for the association.
+```{r}
+pvalues <- STAAR(genotype=Z,obj_nullmodel=obj_nullmodel,annotation_phred=PHRED,rare_maf_cutoff=0.05)
+```
+
+Output of STAAR are as follows: The number of variants in the region is
+```{r}
+pvalues$num_variant
+```
+
+The STAAR-O P-value is
+```{r}
+pvalues$results_STAAR_O
+```
+
+
+The P-values of conventional tests SKAT, burden and ACAT-V are
+```{r}
+# SKAT
+pvalues$results_STAAR_S_1_25[1]
+
+
+# Burden
+pvalues$results_STAAR_B_1_1[1]
+
+
+# ACAT-V
+pvalues$results_STAAR_A_1_25[1]
+
+```
+
+Note that this region is detected by STAAR-O at significance level 1E-08, but missed by all conventional tests. These conventional approaches consider a weight wj
+defined as a function of MAF for variant j, that is, wj=Beta(MAF_{j};a1,a2). where Beta(;a1,a2) is the Beta density function with parameters a1 and a2. Common choices of the parameters are a1=1 and a2=25, which upweight rarer variants, or a1=1 and a2=1, which correspond to equal weights for all variants. 
+
+The Output also includes the P-values of the three conventional tests weighted by each annotation. Note that STAAR-O combines P-values across different types of multiple annotation-weighted variant set tests. 
+
+```{r}
+names(pvalues)
+# STAAR-SKAT(1,25)
+pvalues$results_STAAR_S_1_25
+
+# STAAR-SKAT(1,1)
+pvalues$results_STAAR_S_1_1
+
+# STAAR-Burden(1,25)
+pvalues$results_STAAR_B_1_25
+
+# STAAR-Burden(1,1)
+pvalues$results_STAAR_B_1_1
+
+# STAAR-ACAT-V(1,25)
+pvalues$results_STAAR_A_1_25
+
+# STAAR-ACAT-V(1,1)
+pvalues$results_STAAR_A_1_1
+```
