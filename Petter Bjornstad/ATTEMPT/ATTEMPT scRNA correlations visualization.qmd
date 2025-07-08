@@ -37,80 +37,7 @@ library(reshape2)
 library(simplifyEnrichment)
 ```
 
-* lipid profiles
-
-* elimiate overlapping pathways
-
-* look for concordance
-
-* use the concordance to do... something
-
 * mediation framework
-
-```{r echo = F}
-# Function: Adjacency matrix to list -------------------------
-matrix_to_list <- function(pws){
-  pws.l <- list()
-  for (pw in colnames(pws)) {
-    pws.l[[pw]] <- rownames(pws)[as.logical(pws[, pw])]
-  }
-  return(pws.l)
-}
-## Function: prepare_gmt --------------------------------------
-prepare_gmt <- function(gmt_file, genes_in_data, savefile = FALSE){
-  # for debug
-  #file <- gmt_files[1]
-  #genes_in_data <- df$gene_symbol
-  
-  # Read in gmt file
-  gmt <- gmtPathways(gmt_file)
-  hidden <- unique(unlist(gmt))
-  
-  # Convert gmt file to a matrix with the genes as rows and for each go annotation (columns) the values are 0 or 1
-  mat <- matrix(NA, dimnames = list(hidden, names(gmt)),
-                nrow = length(hidden), ncol = length(gmt))
-  for (i in 1:dim(mat)[2]){
-    mat[,i] <- as.numeric(hidden %in% gmt[[i]])
-  }
-  
-  #Subset to the genes that are present in our data to avoid bias
-  hidden1 <- intersect(genes_in_data, hidden)
-  mat <- mat[hidden1, colnames(mat)[which(colSums(mat[hidden1,])>5)]] # filter for gene sets with more than 5 genes annotated
-  # And get the list again
-  final_list <- matrix_to_list(mat) # for this we use the function we previously defined
-  
-  if(savefile){
-    saveRDS(final_list, file = paste0(gsub('.gmt', '', gmt_file), '_subset_', format(Sys.time(), '%d%m'), '.RData'))
-  }
-  
-  print('Wohoo! .gmt conversion successfull!:)')
-  return(final_list)
-}
-
-# List of acronyms to uppercase
-acronyms <- c("rna", "dna", "mtor", "foxo", "ppar", "nmd", "fgfr", "robo", 
-              "bhl", "cov", "jak", "stat", "wnt", "hiv", "bcl", "mapk",
-              "pt", "tal", "pc", "ic", "ec", "fibvsmcp")
-special_mixed <- c("rrna", "mrna", "trna", "gtpase", "atpase", "robos", "slits", "fibvsmcp")
-special_replacements <- c("rRNA", "mRNA", "tRNA", "GTPase", "ATPase", "ROBOs", "SLITs", "FIB/VSMC/P")
-
-replace_mixed_case <- function(text, from, to) {
-  for (i in seq_along(from)) {
-    pattern <- paste0("\\b", from[i], "\\b")
-    text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), to[i])
-  }
-  return(text)
-}
-
-capitalize_acronyms <- function(text, terms) {
-  for (term in terms) {
-    pattern <- paste0("\\b", term, "\\b")
-    replacement <- toupper(term)
-    text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), replacement)
-  }
-  return(text)
-}
-```
 
 
 ```{r include = F}
@@ -124,381 +51,11 @@ Sys.setenv(
   "AWS_REGION" = "",
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
-```
 
-```{r echo = F}
-plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suffix, p_thresh = 0.05) {
-  set.seed(1)
-  top_pos <- data %>%
-    dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
-    dplyr::arrange(!!sym(p_col)) %>%
-    slice_head(n=20)
-
-  top_neg <- data %>%
-    dplyr::filter(!!sym(fc) < 0 & !!sym(p_col) < p_thresh) %>%
-    dplyr::arrange(!!sym(p_col)) %>%
-    slice_head(n=20)
-
-  data <- data %>%
-    dplyr::mutate(top_color = case_when(Gene %in% top_pos$Gene ~ "#f28482",
-                                 Gene %in% top_neg$Gene ~ "#457b9d",
-                                 TRUE ~ "#ced4da"),
-           top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
-           top_lab  = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), Gene, ""))
-
-  p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
-    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
-    geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
-    geom_text_repel(aes(label = top_lab, color = top_color),
-                    size = 3, max.overlaps = Inf,
-                    force = 6, segment.alpha = 0.3, segment.size = 0.3) +
-    labs(title = paste(title_suffix),
-         x = paste(x_axis),
-         y = paste(y_axis)) +
-    scale_size_continuous(range = c(1, 1.3)) + 
-    scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
-    theme_minimal() +
-    theme(legend.title = element_blank(),
-          panel.grid = element_blank(),
-          text = element_text(size = 15),
-          title = element_text(size = 9)) +
-    guides(color = "none", size = "none")
-
-  ggsave(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/", file_suffix, ".jpeg"), plot = p, width = 7, height = 5)
-  return(p)
-}
-
+source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
 ```
 
 
-```{r echo = F}
-plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix, 
-                                      x_axis, y_axis, file_suffix, p_thresh = 0.05,  treatment_results, treatment_p_col, 
-                         positive_text = "Positive with Dapagliflozin", 
-                         negative_text = "Negative with Dapagliflozin",
-                         formula = "\u0394 treatment", color_by = "treatment_direction",
-                         legend_position = c(0.3,0.8)) {
-  
-  set.seed(1)
-  
-  # Add treatment effect directions
-  treatment_results <- treatment_results %>%
-    mutate(treatment_direction = case_when(`p_treatmentDapagliflozin:visitPOST` < 0.05 &
-                                             `logFC_treatmentDapagliflozin:visitPOST` > 0 ~ "Up w/ Dapagliflozin",
-                                           `p_treatmentDapagliflozin:visitPOST` < 0.05 &
-                                             `logFC_treatmentDapagliflozin:visitPOST` < 0 ~ "Down w/ Dapagliflozin",
-                                           TRUE ~ "NS"))
-  
-  # Genes significant in both models
-  sig_clin_genes <- clin_results %>%
-    filter(!!sym(p_col) < p_thresh) %>%
-    pull(Gene)
-  
-  sig_treat_genes <- treatment_results %>%
-    filter(!!sym(treatment_p_col) < p_thresh) %>%
-    pull(Gene)
-  
-  sig_both_genes <- intersect(sig_clin_genes, sig_treat_genes)
-  
-  # Top 5 left pos / neg and right pos / neg
-  top_5_left_pos <- clin_results %>%
-    filter(Gene %in% sig_both_genes, !!sym(fc) < 0) %>%
-    left_join(treatment_results %>% 
-                dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`), by = "Gene") %>%
-    filter(`logFC_treatmentDapagliflozin:visitPOST` > 0) %>%
-    arrange(!!sym(p_col)) %>%
-    slice_head(n = 5) %>%
-    pull(Gene)
-  
-  top_5_left_neg <- clin_results %>%
-    filter(Gene %in% sig_both_genes, !!sym(fc) < 0) %>%
-    left_join(treatment_results %>% 
-                dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`), by = "Gene") %>%
-    filter(`logFC_treatmentDapagliflozin:visitPOST` < 0) %>%
-    arrange(!!sym(p_col)) %>%
-    slice_head(n = 5) %>%
-    pull(Gene)
-  
-  top_5_right_pos <- clin_results %>%
-    filter(Gene %in% sig_both_genes, !!sym(fc) > 0) %>%
-    left_join(treatment_results %>% 
-                dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`), by = "Gene") %>%
-    filter(`logFC_treatmentDapagliflozin:visitPOST` > 0) %>%
-    arrange(!!sym(p_col)) %>%
-    slice_head(n = 5) %>%
-    pull(Gene)
-  
-  top_5_right_neg <- clin_results %>%
-    filter(Gene %in% sig_both_genes, !!sym(fc) > 0) %>%
-    left_join(treatment_results %>% 
-                dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`), by = "Gene") %>%
-    filter(`logFC_treatmentDapagliflozin:visitPOST` < 0) %>%
-    arrange(!!sym(p_col)) %>%
-    slice_head(n = 5) %>%
-    pull(Gene)
-  
-  # Combine for plotting
-  top_label_genes <- c(top_5_left_pos, top_5_left_neg, top_5_right_pos, top_5_right_neg)
-  
-  message("Number of genes significant in both: ", length(sig_both_genes))
-  message("Number of labeled genes: ", length(top_label_genes))
-  
-  clin_results <- clin_results %>%
-    mutate(shape_var_plot = case_when(
-      Gene %in% sig_both_genes & !!sym(fc) < 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Up w/ Dapagliflozin" ~ "Left_Pos",
-      Gene %in% sig_both_genes & !!sym(fc) < 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Down w/ Dapagliflozin" ~ "Left_Neg",
-      Gene %in% sig_both_genes & !!sym(fc) > 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Up w/ Dapagliflozin" ~ "Right_Pos",
-      Gene %in% sig_both_genes & !!sym(fc) > 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Down w/ Dapagliflozin" ~ "Right_Neg",
-      TRUE ~ "NS"
-    ),
-    color_var_plot = case_when(
-      Gene %in% sig_both_genes ~ treatment_results$treatment_direction[match(Gene, treatment_results$Gene)],
-      TRUE ~ "NS"
-    ),
-    top_lab = if_else(Gene %in% top_label_genes, Gene, "")
-    )
-  
-  clin_results$shape_var_plot <- factor(clin_results$shape_var_plot, 
-                                        levels = c("Left_Pos", "Left_Neg", "Right_Pos", "Right_Neg", "NS"))
-  
-  clin_results$color_var_plot <- factor(clin_results$color_var_plot, 
-                                        levels = c("Up w/ Dapagliflozin", "Down w/ Dapagliflozin", "NS"))
-  
-  # Max and min for annotation arrows
-  max_fc <- max(clin_results[[fc]], na.rm = TRUE)
-  min_fc <- min(clin_results[[fc]], na.rm = TRUE)
-  
-  # Plot
-  p <- ggplot(clin_results, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
-    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
-    geom_point(alpha = 0.3, aes(fill = color_var_plot, 
-                                color = color_var_plot,
-                                shape = shape_var_plot), size = 2) +
-    scale_shape_manual(values = c("Left_Pos" = 23, "Left_Neg" = 23, "Right_Pos" = 22, "Right_Neg" = 22, "NS" = 21),
-                       labels = c("Left_Pos" = "Left Pos", "Left_Neg" = "Left Neg", 
-                                  "Right_Pos" = "Right Pos", "Right_Neg" = "Right Neg", "NS" = "NS")) +
-    scale_color_manual(values = c("Up w/ Dapagliflozin" = "#f28482", "Down w/ Dapagliflozin" = "#457b9d", "NS" = "#ced4da")) +
-    scale_fill_manual(values = c("Up w/ Dapagliflozin" = "#f28482", "Down w/ Dapagliflozin" = "#457b9d", "NS" = "#ced4da")) +
-    guides(color = guide_legend(title = NULL), fill = "none") +
-    geom_text_repel(aes(label = top_lab, color = color_var_plot),
-                    size = 3, max.overlaps = Inf, force = 10,
-                    segment.alpha = 0.5, segment.size = 0.4,
-                    min.segment.length = 0, box.padding = 0.6, point.padding = 0.4,
-                    segment.color = "#ced4da") +
-    labs(title = paste(title_suffix),
-         x = paste(x_axis),
-         y = paste(y_axis)) +
-    theme_minimal() +
-    annotate("segment", 
-             x=max_fc/8, 
-             xend=(max_fc*7)/8, 
-             y=-1.5,
-             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
-    annotate("text", 
-             x=mean(c(max_fc/8, (max_fc*7)/8)), 
-             y=-2, 
-             label=positive_text,
-             size=3, color="#343a40") +
-    annotate("segment", 
-             x=min_fc/8, 
-             xend=(min_fc*7)/8, 
-             y=-1.5,
-             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
-    annotate("text", 
-             x=mean(c(min_fc/8, (min_fc*7)/8)), 
-             y=-2, 
-             label=negative_text,
-             size=3, color="#343a40") +
-    annotate("text", 
-             x=max_fc * 0.95,
-             y=-3.5, 
-             hjust = 1,
-             label=paste0("Formula: ~ ", formula, " + (1|subject)"),
-             size=3, color="#343a40") +
-    scale_y_continuous(expand=c(0,0)) +
-    coord_cartesian(ylim = c(0, 15), clip="off") +
-    theme(legend.title = element_blank(),
-          panel.grid = element_blank(),
-          text = element_text(size = 9),
-          legend.position = legend_position,
-          legend.justification = c(1, 1),
-          plot.margin = margin(t = 10, r = 20, b = 28, l = 20),
-          axis.title.x = element_text(margin = margin(t = 32))) + 
-    guides(shape = "none")
-  
-  # Save
-  ggsave(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/", file_suffix, ".jpeg"), plot = p, width = 7, height = 5)
-  
-  return(p)
-}
-```
-
-```{r echo = F}
-plot_volcano_concordance <- function(clin_results, fc, p_col, title_suffix, 
-                                     x_axis, y_axis, file_suffix, p_thresh = 0.05,
-                                     positive_text = "Positive with Dapagliflozin", 
-                                     negative_text = "Negative with Dapagliflozin",
-                                     formula = "\u0394 treatment", 
-                                     legend_position = c(0.3,0.8)) {
-  
-  set.seed(1)
-  
-  # Get concordant genes (non-NC)
-  concordant_genes <- clin_results %>%
-    filter(concordance != "NC") %>%
-    pull(Gene)
-  
-  # Top 5 concordant genes on the left (negative FC)
-  top_5_left <- clin_results %>%
-    filter(Gene %in% concordant_genes, !!sym(fc) < 0) %>%
-    arrange(!!sym(p_col)) %>%
-    slice_head(n = 5) %>%
-    pull(Gene)
-  
-  # Top 5 concordant genes on the right (positive FC)
-  top_5_right <- clin_results %>%
-    filter(Gene %in% concordant_genes, !!sym(fc) > 0) %>%
-    arrange(!!sym(p_col)) %>%
-    slice_head(n = 5) %>%
-    pull(Gene)
-  
-  # Combine for plotting
-  top_label_genes <- c(top_5_left, top_5_right)
-  
-  message("Number of concordant genes: ", length(concordant_genes))
-  message("Number of labeled genes: ", length(top_label_genes))
-  
-  clin_results <- clin_results %>%
-    mutate(
-      # Use concordance column for coloring
-      color_var_plot = concordance,
-      # Label only the top concordant genes
-      top_lab = if_else(Gene %in% top_label_genes, Gene, "")
-    )
-  
-  # Set factor levels for concordance
-  clin_results$color_var_plot <- factor(clin_results$color_var_plot, 
-                                        levels = c("+", "-", "NC"))
-  
-  # Max and min for annotation arrows
-  max_fc <- max(clin_results[[fc]], na.rm = TRUE)
-  min_fc <- min(clin_results[[fc]], na.rm = TRUE)
-  
-  # Plot
-  p <- ggplot(clin_results, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
-    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
-    geom_point(alpha = 0.3, aes(fill = color_var_plot, 
-                                color = color_var_plot), size = 2) +
-    # Updated color scheme for concordance
-    scale_color_manual(values = c("+" = "#f28482", "-" = "#457b9d", "NC" = "#ced4da"),
-                       labels = c("+" = "Positive", "-" = "Negative", "NC" = "Non-Concordant")) +
-    scale_fill_manual(values = c("+" = "#f28482", "-" = "#457b9d", "NC" = "#ced4da"),
-                      labels = c("+" = "Positive", "-" = "Negative", "NC" = "Non-Concordant")) +
-    guides(color = guide_legend(title = "Concordance"), fill = "none") +
-    geom_text_repel(aes(label = top_lab, color = color_var_plot),
-                    size = 3, max.overlaps = Inf, force = 10,
-                    segment.alpha = 0.5, segment.size = 0.4,
-                    min.segment.length = 0, box.padding = 0.6, point.padding = 0.4,
-                    segment.color = "#ced4da") +
-    labs(title = paste(title_suffix),
-         x = paste(x_axis),
-         y = paste(y_axis)) +
-    theme_minimal() +
-    annotate("segment", 
-             x=max_fc/8, 
-             xend=(max_fc*7)/8, 
-             y=-1.5,
-             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
-    annotate("text", 
-             x=mean(c(max_fc/8, (max_fc*7)/8)), 
-             y=-2, 
-             label=positive_text,
-             size=3, color="#343a40") +
-    annotate("segment", 
-             x=min_fc/8, 
-             xend=(min_fc*7)/8, 
-             y=-1.5,
-             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
-    annotate("text", 
-             x=mean(c(min_fc/8, (min_fc*7)/8)), 
-             y=-2, 
-             label=negative_text,
-             size=3, color="#343a40") +
-    annotate("text", 
-             x=max_fc * 0.95,
-             y=-3.5, 
-             hjust = 1,
-             label=paste0("Formula: ~ ", formula, " + (1|subject)"),
-             size=3, color="#343a40") +
-    scale_y_continuous(expand=c(0,0)) +
-    coord_cartesian(ylim = c(0, 15), clip="off") +
-    theme(legend.title = element_text(size = 9),
-          panel.grid = element_blank(),
-          text = element_text(size = 9),
-          legend.position = legend_position,
-          legend.justification = c(1, 1),
-          plot.margin = margin(t = 10, r = 20, b = 28, l = 20),
-          axis.title.x = element_text(margin = margin(t = 32)))
-  
-  # Save
-  ggsave(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/", file_suffix, "_concordance.jpeg"), plot = p, width = 7, height = 5)
-  
-  return(p)
-}
-```
-
-```{r echo = F}
-filter_redundant_pathways <- function(gsea_result, overlap_pct = 0.3) {
-  # Check required columns
-  if (!all(c("pathway", "leadingEdge", "padj") %in% colnames(gsea_result))) {
-    stop("Input data frame must have 'pathway', 'leadingEdge', and 'padj' columns.")
-  }
-  
-  # Extract leading edge and name them
-  leading_edges <- gsea_result$leadingEdge
-  names(leading_edges) <- gsea_result$pathway
-  
-  # Compute Jaccard overlap matrix
-  overlap_matrix <- sapply(leading_edges, function(x) 
-    sapply(leading_edges, function(y) 
-      length(intersect(x, y)) / length(union(x, y))
-    )
-  )
-  
-  # Identify pairs with high overlap
-  overlap_pairs <- which(overlap_matrix > overlap_pct & lower.tri(overlap_matrix), arr.ind = TRUE)
-  
-  # If no overlaps found, return original
-  if (nrow(overlap_pairs) == 0) {
-    message("No redundant pathways found with overlap above threshold.")
-    return(gsea_result)
-  }
-  
-  # Create overlap graph
-  library(igraph)
-  edges <- data.frame(
-    from = rownames(overlap_matrix)[overlap_pairs[,1]],
-    to   = colnames(overlap_matrix)[overlap_pairs[,2]]
-  )
-  g <- graph_from_data_frame(edges, directed = FALSE)
-  components <- components(g)
-  
-  # Cluster terms and select representative from each
-  redundant_clusters <- split(names(components$membership), components$membership)
-  representative_terms <- sapply(redundant_clusters, function(cluster_terms) {
-    sub <- gsea_result[gsea_result$pathway %in% cluster_terms, ]
-    sub[which.min(sub$padj), "pathway"]
-  })
-  
-  # Keep only representative + non-overlapping terms
-  all_overlapping <- unique(unlist(redundant_clusters))
-  non_overlapping <- setdiff(gsea_result$pathway, all_overlapping)
-  final_terms <- c(non_overlapping, representative_terms)
-  
-  # Return filtered GSEA result
-  gsea_result[gsea_result$pathway %in% final_terms, ]
-}
-```
 
 # Define clinical directions
 ```{r echo = F}
@@ -806,7 +363,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pt_mgfr_jodal_filtered <- filter_redundant_pathways(kegg_legacy_res_pt_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pt_mgfr_jodal_filtered, title = "PT Top 30 Raw mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -816,7 +373,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pt_mgfr_jodal_filtered <- filter_redundant_pathways(reactome_res_pt_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pt_mgfr_jodal_filtered, title = "PT Top 30  Raw mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -825,7 +382,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pt_mgfr_jodal_filtered <- filter_redundant_pathways(go_res_pt_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pt_mgfr_jodal, title = "PT Top 30  Raw mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -1078,7 +635,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pt_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(kegg_legacy_res_pt_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pt_mgfr_jodal_bsa_filtered, title = "PT Top 30 BSA mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -1088,7 +645,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pt_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(reactome_res_pt_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pt_mgfr_jodal_bsa_filtered, title = "PT Top 30 BSA mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -1097,7 +654,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pt_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(go_res_pt_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pt_mgfr_jodal_bsa_filtered, title = "PT Top 30 BSA mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -1165,20 +722,6 @@ plot_volcano_associations(pt_tir_res_combined,
                           formula = "\u0394 TIR + treatment",
                           positive_text = "Positively associated with \u0394 TIR",
                           negative_text = "Negatively associated with \u0394 TIR")
-
-plot_volcano_associations(pt_tir_res_combined, 
-                          "logFC_tir_delta", 
-                          "p_tir_delta",
-                          "logFC \u0394 TIR", 
-                          "-log10(p-value)",
-                          "nebula/pt_tir_trtcolors",
-                          treatment_results = pt_nebula_res_combined_reml_pooled,
-                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
-                          formula = "\u0394 TIR + treatment",
-                          positive_text = "Positively associated with \u0394 TIR",
-                          negative_text = "Negatively associated with \u0394 TIR",
-                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
-                          cell_type = "PT")
 ```
 
 ```{r echo = F}
@@ -1350,7 +893,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pt_tir_filtered <- filter_redundant_pathways(kegg_legacy_res_pt_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pt_tir_filtered, title = "PT Top 30 TIR Associations KEGG", xmin = 1, xmax = 3)
@@ -1360,7 +903,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pt_tir_filtered <- filter_redundant_pathways(reactome_res_pt_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pt_tir_filtered, title = "PT Top 30  TIR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -1369,7 +912,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pt_tir_filtered <- filter_redundant_pathways(go_res_pt_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pt_tir_filtered, title = "PT Top 30  TIR Associations GO", xmin = 1.4, xmax = 5)
@@ -1608,7 +1151,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pt_hba1c_filtered <- filter_redundant_pathways(kegg_legacy_res_pt_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pt_hba1c_filtered, title = "PT Top 30 HbA1c Associations KEGG", xmin = 1, xmax = 3)
@@ -1618,7 +1161,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pt_hba1c_filtered <- filter_redundant_pathways(reactome_res_pt_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pt_hba1c_filtered, title = "PT Top 30  HbA1c Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -1627,7 +1170,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pt_hba1c_filtered <- filter_redundant_pathways(go_res_pt_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pt_hba1c, title = "PT Top 30  HbA1c Associations GO", xmin = 1.4, xmax = 5)
@@ -1869,7 +1412,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pt_weight_filtered <- filter_redundant_pathways(kegg_legacy_res_pt_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pt_weight_filtered, title = "PT Top 30 Weight Associations KEGG", xmin = 1, xmax = 3)
@@ -1879,7 +1422,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pt_weight_filtered <- filter_redundant_pathways(reactome_res_pt_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pt_weight_filtered, title = "PT Top 30  Weight Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -1888,7 +1431,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pt_weight_filtered <- filter_redundant_pathways(go_res_pt_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pt_weight_filtered, title = "PT Top 30  Weight Associations GO", xmin = 1.4, xmax = 5)
@@ -2129,7 +1672,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pt_avg_c_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_pt_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pt_avg_c_r2_filtered, title = "PT Top 30 Avg Cortical R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -2139,7 +1682,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pt_avg_c_r2_filtered <- filter_redundant_pathways(reactome_res_pt_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pt_avg_c_r2, title = "PT Top 30  Avg Cortical R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -2148,7 +1691,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pt_avg_c_r2_filtered <- filter_redundant_pathways(go_res_pt_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pt_avg_c_r2_filtered, title = "PT Top 30  Avg Cortical R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -2390,7 +1933,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pt_avg_k_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_pt_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pt_avg_k_r2_filtered, title = "PT Top 30 Avg Kidney R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -2400,7 +1943,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pt_avg_k_r2_filtered <- filter_redundant_pathways(reactome_res_pt_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pt_avg_k_r2_filtered, title = "PT Top 30  Avg Kidney R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -2409,7 +1952,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pt_avg_k_r2_filtered <- filter_redundant_pathways(go_res_pt_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pt_avg_k_r2_filtered, title = "PT Top 30  Avg Kidney R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -2614,7 +2157,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_tal_mgfr_jodal_filtered <- filter_redundant_pathways(kegg_legacy_res_tal_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_tal_mgfr_jodal, title = "TAL Top 30 Raw mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -2624,7 +2167,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_tal_mgfr_jodal_filtered <- filter_redundant_pathways(reactome_res_tal_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_tal_mgfr_jodal_filtered, title = "TAL Top 30  Raw mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -2633,7 +2176,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_tal_mgfr_jodal_filtered <- filter_redundant_pathways(go_res_tal_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_tal_mgfr_jodal, title = "TAL Top 30  Raw mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -2718,7 +2261,6 @@ plot_volcano_concordance(tal_mgfr_jodal_bsa_res_combined,
                           formula = "\u0394 mGFR (BSA) + treatment",
                           positive_text = "Positively associated with \u0394 mGFR",
                           negative_text = "Negatively associated with \u0394 mGFR",
-                          legend_position = c(0.95, 0.8),
                           clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal_bsa",]$direction, 
                           cell_type = "TAL")
 ```
@@ -2798,7 +2340,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_tal_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(kegg_legacy_res_tal_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_tal_mgfr_jodal_bsa_filtered, title = "TAL Top 30 BSA mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -2808,7 +2350,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_tal_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(reactome_res_tal_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_tal_mgfr_jodal_bsa_filtered, title = "TAL Top 30 BSA mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -2817,7 +2359,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_tal_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(go_res_tal_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_tal_mgfr_jodal_bsa_filtered, title = "TAL Top 30 BSA mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -2901,7 +2443,7 @@ plot_volcano_concordance(tal_tir_res_combined,
                           formula = "\u0394 TIR + treatment",
                           positive_text = "Positively associated with \u0394 TIR",
                           negative_text = "Negatively associated with \u0394 TIR",
-                          legend_position = c(1.05, 1.05),
+                          legend_position = "top",
                           clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
                           cell_type = "TAL")
 ```
@@ -2982,7 +2524,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_tal_tir_filtered <- filter_redundant_pathways(kegg_legacy_res_tal_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_tal_tir_filtered, title = "TAL Top 30 TIR Associations KEGG", xmin = 1, xmax = 3)
@@ -2992,7 +2534,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_tal_tir_filtered <- filter_redundant_pathways(reactome_res_tal_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_tal_tir_filtered, title = "TAL Top 30  TIR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -3001,7 +2543,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_tal_tir_filtered <- filter_redundant_pathways(go_res_tal_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_tal_tir_filtered, title = "TAL Top 30  TIR Associations GO", xmin = 1.4, xmax = 5)
@@ -3084,7 +2626,9 @@ plot_volcano_concordance(tal_hba1c_res_combined,
                           formula = "\u0394 HbA1c + treatment",
                           positive_text = "Positively associated with \u0394 HbA1c",
                           negative_text = "Negatively associated with \u0394 HbA1c",
-                          legend_position = c(0.95, 0.8))
+                          legend_position = "top",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "hba1c",]$direction, 
+                          cell_type = "TAL")
 ```
 
 
@@ -3162,7 +2706,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_tal_hba1c_filtered <- filter_redundant_pathways(kegg_legacy_res_tal_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_tal_hba1c_filtered, title = "TAL Top 30 HbA1c Associations KEGG", xmin = 1, xmax = 3)
@@ -3172,7 +2716,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_tal_hba1c_filtered <- filter_redundant_pathways(reactome_res_tal_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_tal_hba1c_filtered, title = "TAL Top 30  HbA1c Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -3181,7 +2725,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_tal_hba1c_filtered <- filter_redundant_pathways(go_res_tal_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_tal_hba1c_filtered, title = "TAL Top 30  HbA1c Associations GO", xmin = 1.4, xmax = 5)
@@ -3262,7 +2806,9 @@ plot_volcano_concordance(tal_weight_res_combined,
                           treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
                           formula = "\u0394 Weight + treatment",
                           positive_text = "Positively associated with \u0394 Weight",
-                          negative_text = "Negatively associated with \u0394 Weight")
+                          negative_text = "Negatively associated with \u0394 Weight",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "weight",]$direction, 
+                          cell_type = "TAL")
 ```
 
 ```{r echo =F, eval = F}
@@ -3339,7 +2885,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_tal_weight_filtered <- filter_redundant_pathways(kegg_legacy_res_tal_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_tal_weight_filtered, title = "TAL Top 30 Weight Associations KEGG", xmin = 1, xmax = 3)
@@ -3349,7 +2895,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_tal_weight_filtered <- filter_redundant_pathways(reactome_res_tal_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_tal_weight, title = "TAL Top 30  Weight Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -3358,7 +2904,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_tal_weight_filtered <- filter_redundant_pathways(go_res_tal_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_tal_weight_filtered, title = "TAL Top 30  Weight Associations GO", xmin = 1.4, xmax = 5)
@@ -3441,7 +2987,9 @@ plot_volcano_concordance(tal_avg_c_r2_res_combined,
                           treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
                           formula = "\u0394 avg cortical R2* + treatment",
                           positive_text = "Positively associated with \u0394 avg cortical R2*",
-                          negative_text = "Negatively associated with \u0394 avg cortical R2*")
+                          negative_text = "Negatively associated with \u0394 avg cortical R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_c_r2",]$direction, 
+                          cell_type = "TAL")
 ```
 
 ```{r echo =F, eval = F}
@@ -3518,7 +3066,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_tal_avg_c_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_tal_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_tal_avg_c_r2_filtered, title = "TAL Top 30 Avg Cortical R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -3528,7 +3076,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_tal_avg_c_r2_filtered <- filter_redundant_pathways(reactome_res_tal_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_tal_avg_c_r2_filtered, title = "TAL Top 30  Avg Cortical R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -3537,7 +3085,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_tal_avg_c_r2_filtered <- filter_redundant_pathways(go_res_tal_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_tal_avg_c_r2_filtered, title = "TAL Top 30  Avg Cortical R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -3622,8 +3170,8 @@ plot_volcano_concordance(tal_avg_k_r2_res_combined,
                           formula = "\u0394 avg kidney R2* + treatment",
                           positive_text = "Positively associated with \u0394 avg kidney R2*",
                           negative_text = "Negatively associated with \u0394 avg kidney R2*",
-                          legend_position = c(0.95, 0.8),
-                         cell_type = "TAL")
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_k_r2",]$direction, 
+                          cell_type = "TAL")
 ```
 
 ```{r echo =F, eval = F}
@@ -3700,7 +3248,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_tal_avg_k_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_tal_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_tal_avg_k_r2_filtered, title = "TAL Top 30 Avg Kidney R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -3710,7 +3258,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_tal_avg_k_r2_filtered <- filter_redundant_pathways(reactome_res_tal_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_tal_avg_k_r2_filtered, title = "TAL Top 30  Avg Kidney R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -3719,7 +3267,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_tal_avg_k_r2_filtered <- filter_redundant_pathways(go_res_tal_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_tal_avg_k_r2_filtered, title = "TAL Top 30  Avg Kidney R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -3830,6 +3378,22 @@ plot_volcano_associations(immune_mgfr_jodal_res_combined,
                           negative_text = "Negatively associated with \u0394 mGFR")
 ```
 
+```{r echo = F}
+plot_volcano_concordance(immune_mgfr_jodal_res_combined, 
+                          "logFC_mgfr_jodal_delta", 
+                          "p_mgfr_jodal_delta",
+                          "logFC \u0394 mGFR (Raw)", 
+                          "-log10(p-value)",
+                          "nebula/immune_mgfr_jodal_trtcolors",
+                          treatment_results = immune_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (Raw) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal",]$direction, 
+                          cell_type = "Immune")
+```
+
 ```{r echo =F, eval = F}
 plot_volcano(immune_mgfr_jodal_res_combined, "logFC_mgfr_jodal_delta", 
              "p_mgfr_jodal_delta",
@@ -3904,7 +3468,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_mgfr_jodal_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_mgfr_jodal_filtered, title = "Immune Top 30 Raw mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -3914,7 +3478,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_mgfr_jodal_filtered <- filter_redundant_pathways(reactome_res_immune_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_mgfr_jodal_filtered, title = "Immune Top 30  Raw mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -3923,7 +3487,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_mgfr_jodal_filtered <- filter_redundant_pathways(go_res_immune_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_mgfr_jodal, title = "Immune Top 30  Raw mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -3982,7 +3546,7 @@ write.csv(immune_mgfr_jodal_bsa_res_combined, "/Users/choiyej/Library/CloudStora
 plot_volcano_associations(immune_mgfr_jodal_bsa_res_combined, 
                           "logFC_mgfr_jodal_bsa_delta", 
                           "p_mgfr_jodal_bsa_delta",
-                          "Immune BSA mGFR", 
+                          "Immune BSA mGFR (BSA)", 
                           "logFC \u0394 mGFR (BSA)", 
                           "-log10(p-value)",
                           "nebula/immune_mgfr_jodal_bsa_trtcolors",
@@ -3991,6 +3555,22 @@ plot_volcano_associations(immune_mgfr_jodal_bsa_res_combined,
                           formula = "\u0394 mGFR (BSA) + treatment",
                           positive_text = "Positively associated with \u0394 mGFR",
                           negative_text = "Negatively associated with \u0394 mGFR")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_mgfr_jodal_bsa_res_combined, 
+                          "logFC_mgfr_jodal_bsa_delta", 
+                          "p_mgfr_jodal_bsa_delta",
+                          "logFC \u0394 mGFR (BSA)", 
+                          "-log10(p-value)",
+                          "nebula/immune_mgfr_jodal_bsa_trtcolors",
+                          treatment_results = immune_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (BSA) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal_bsa",]$direction, 
+                          cell_type = "Immune")
 ```
 
 ```{r echo =F, eval = F}
@@ -4067,7 +3647,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_mgfr_jodal_bsa_filtered, title = "Immune Top 30 BSA mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -4077,7 +3657,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(reactome_res_immune_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_mgfr_jodal_bsa_filtered, title = "Immune Top 30 BSA mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -4086,7 +3666,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(go_res_immune_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_mgfr_jodal_bsa_filtered, title = "Immune Top 30 BSA mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -4154,6 +3734,22 @@ plot_volcano_associations(immune_tir_res_combined,
                           formula = "\u0394 TIR + treatment",
                           positive_text = "Positively associated with \u0394 TIR",
                           negative_text = "Negatively associated with \u0394 TIR")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_tir_res_combined, 
+                          "logFC_tir_delta", 
+                          "p_tir_delta",
+                          "logFC \u0394 TIR", 
+                          "-log10(p-value)",
+                          "nebula/immune_tir_trtcolors",
+                          treatment_results = immune_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 TIR + treatment",
+                          positive_text = "Positively associated with \u0394 TIR",
+                          negative_text = "Negatively associated with \u0394 TIR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
+                          cell_type = "Immune")
 ```
 
 ```{r echo =F, eval = F}
@@ -4230,7 +3826,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_tir_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_tir_filtered, title = "Immune Top 30 TIR Associations KEGG", xmin = 1, xmax = 3)
@@ -4240,7 +3836,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_tir_filtered <- filter_redundant_pathways(reactome_res_immune_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_tir_filtered, title = "Immune Top 30  TIR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -4249,7 +3845,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_tir_filtered <- filter_redundant_pathways(go_res_immune_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_tir_filtered, title = "Immune Top 30  TIR Associations GO", xmin = 1.4, xmax = 5)
@@ -4317,6 +3913,23 @@ plot_volcano_associations(immune_hba1c_res_combined,
                           formula = "\u0394 HbA1c + treatment",
                           positive_text = "Positively associated with \u0394 HbA1c",
                           negative_text = "Negatively associated with \u0394 HbA1c")
+```
+
+
+```{r echo = F}
+plot_volcano_concordance(immune_hba1c_res_combined, 
+                          "logFC_hba1c_delta", 
+                          "p_hba1c_delta",
+                          "logFC \u0394 HbA1c", 
+                          "-log10(p-value)",
+                          "nebula/immune_hba1c_trtcolors",
+                          treatment_results = immune_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 HbA1c + treatment",
+                          positive_text = "Positively associated with \u0394 HbA1c",
+                          negative_text = "Negatively associated with \u0394 HbA1c",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "hba1c",]$direction, 
+                          cell_type = "Immune")
 ```
 
 ```{r echo =F, eval = F}
@@ -4393,7 +4006,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_hba1c_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_hba1c_filtered, title = "Immune Top 30 HbA1c Associations KEGG", xmin = 1, xmax = 3)
@@ -4403,7 +4016,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_hba1c_filtered <- filter_redundant_pathways(reactome_res_immune_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_hba1c, title = "Immune Top 30  HbA1c Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -4412,7 +4025,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_hba1c_filtered <- filter_redundant_pathways(go_res_immune_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_hba1c, title = "Immune Top 30  HbA1c Associations GO", xmin = 1.4, xmax = 5)
@@ -4479,6 +4092,22 @@ plot_volcano_associations(immune_weight_res_combined,
                           formula = "\u0394 Weight + treatment",
                           positive_text = "Positively associated with \u0394 Weight",
                           negative_text = "Negatively associated with \u0394 Weight")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_weight_res_combined, 
+                          "logFC_weight_delta", 
+                          "p_weight_delta",
+                          "logFC \u0394 Weight", 
+                          "-log10(p-value)",
+                          "nebula/immune_weight_trtcolors",
+                          treatment_results = immune_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 Weight + treatment",
+                          positive_text = "Positively associated with \u0394 Weight",
+                          negative_text = "Negatively associated with \u0394 Weight",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "weight",]$direction, 
+                          cell_type = "Immune")
 ```
 
 ```{r echo =F, eval = F}
@@ -4555,7 +4184,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_weight_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_weight_filtered, title = "Immune Top 30 Weight Associations KEGG", xmin = 1, xmax = 3)
@@ -4565,7 +4194,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_weight_filtered <- filter_redundant_pathways(reactome_res_immune_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_weight_filtered, title = "Immune Top 30  Weight Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -4574,7 +4203,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_weight_filtered <- filter_redundant_pathways(go_res_immune_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_weight_filtered, title = "Immune Top 30  Weight Associations GO", xmin = 1.4, xmax = 5)
@@ -4644,6 +4273,22 @@ plot_volcano_associations(immune_avg_c_r2_res_combined,
                           formula = "\u0394 avg cortical R2* + treatment",
                           positive_text = "Positively associated with \u0394 avg cortical R2*",
                           negative_text = "Negatively associated with \u0394 avg cortical R2*")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_avg_c_r2_res_combined, 
+                          "logFC_avg_c_r2_delta", 
+                          "p_avg_c_r2_delta",
+                          "logFC \u0394 avg cortical R2*", 
+                          "-log10(p-value)",
+                          "nebula/immune_avg_c_r2_trtcolors",
+                          treatment_results = immune_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg cortical R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg cortical R2*",
+                          negative_text = "Negatively associated with \u0394 avg cortical R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_c_r2",]$direction, 
+                          cell_type = "Immune")
 ```
 
 ```{r echo =F, eval = F}
@@ -4720,7 +4365,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_avg_c_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_avg_c_r2_filtered, title = "Immune Top 30 Avg Cortical R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -4730,7 +4375,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_avg_c_r2_filtered <- filter_redundant_pathways(reactome_res_immune_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_avg_c_r2_filtered, title = "Immune Top 30  Avg Cortical R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -4739,7 +4384,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_avg_c_r2_filtered <- filter_redundant_pathways(go_res_immune_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_avg_c_r2_filtered, title = "Immune Top 30  Avg Cortical R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -4792,13 +4437,14 @@ immune_avg_k_r2_res_combined_disp <- map_dfr(
   }
 )
 
+immune_avg_k_r2_res_combined <- subset(immune_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10)
 write.csv(immune_avg_k_r2_res_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/immune_avg_k_r2.csv", row.names = F)
 
 ```
 
 
 ```{r echo = F}
-plot_volcano_associations(subset(immune_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), 
+plot_volcano_associations(immune_avg_k_r2_res_combined, 
                           "logFC_avg_k_r2_delta", 
                           "p_avg_k_r2_delta",
                           "Immune avg kidney R2*", 
@@ -4810,6 +4456,22 @@ plot_volcano_associations(subset(immune_avg_k_r2_res_combined, logFC_avg_k_r2_de
                           formula = "\u0394 avg kidney R2* + treatment",
                           positive_text = "Positively associated with \u0394 avg kidney R2*",
                           negative_text = "Negatively associated with \u0394 avg kidney R2*")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_avg_k_r2_res_combined, 
+                          "logFC_avg_k_r2_delta", 
+                          "p_avg_k_r2_delta",
+                          "logFC \u0394 avg kidney R2*", 
+                          "-log10(p-value)",
+                          "nebula/immune_avg_k_r2_trtcolors",
+                          treatment_results = immune_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg kidney R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg kidney R2*",
+                          negative_text = "Negatively associated with \u0394 avg kidney R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_k_r2",]$direction, 
+                          cell_type = "Immune")
 ```
 
 ```{r echo =F, eval = F}
@@ -4886,7 +4548,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_avg_k_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_avg_k_r2_filtered, title = "Immune Top 30 Avg Kidney R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -4896,7 +4558,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_avg_k_r2_filtered <- filter_redundant_pathways(reactome_res_immune_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_avg_k_r2_filtered, title = "Immune Top 30  Avg Kidney R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -4905,7 +4567,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_avg_k_r2_filtered <- filter_redundant_pathways(go_res_immune_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_avg_k_r2_filtered, title = "Immune Top 30  Avg Kidney R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -5018,6 +4680,22 @@ plot_volcano_associations(immune_myeloid_mgfr_jodal_res_combined,
                           negative_text = "Negatively associated with \u0394 mGFR")
 ```
 
+```{r echo = F}
+plot_volcano_concordance(immune_myeloid_mgfr_jodal_res_combined, 
+                          "logFC_mgfr_jodal_delta", 
+                          "p_mgfr_jodal_delta",
+                          "logFC \u0394 mGFR (Raw)", 
+                          "-log10(p-value)",
+                          "nebula/immune_myeloid_mgfr_jodal_trtcolors",
+                          treatment_results = immune_myeloid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (Raw) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal",]$direction, 
+                          cell_type = "Immune (Myeloid)")
+```
+
 ```{r echo =F, eval = F}
 plot_volcano(immune_myeloid_mgfr_jodal_res_combined, "logFC_mgfr_jodal_delta", 
              "p_mgfr_jodal_delta",
@@ -5092,7 +4770,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_myeloid_mgfr_jodal_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_myeloid_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_myeloid_mgfr_jodal_filtered, title = "Immune_myeloid Top 30 Raw mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -5102,7 +4780,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_myeloid_mgfr_jodal_filtered <- filter_redundant_pathways(reactome_res_immune_myeloid_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_myeloid_mgfr_jodal_filtered, title = "Immune_myeloid Top 30  Raw mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -5111,7 +4789,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_myeloid_mgfr_jodal_filtered <- filter_redundant_pathways(go_res_immune_myeloid_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_myeloid_mgfr_jodal_filtered, title = "Immune_myeloid Top 30  Raw mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -5178,6 +4856,22 @@ plot_volcano_associations(immune_myeloid_mgfr_jodal_bsa_res_combined,
                           formula = "\u0394 mGFR (BSA) + treatment",
                           positive_text = "Positively associated with \u0394 mGFR",
                           negative_text = "Negatively associated with \u0394 mGFR")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_myeloid_mgfr_jodal_bsa_res_combined, 
+                          "logFC_mgfr_jodal_bsa_delta", 
+                          "p_mgfr_jodal_bsa_delta",
+                          "logFC \u0394 mGFR (BSA)", 
+                          "-log10(p-value)",
+                          "nebula/immune_myeloid_mgfr_jodal_bsa_trtcolors",
+                          treatment_results = immune_myeloid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (BSA) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal_bsa",]$direction, 
+                          cell_type = "Immune (Myeloid)")
 ```
 
 ```{r echo =F, eval = F}
@@ -5254,7 +4948,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_myeloid_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_myeloid_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_myeloid_mgfr_jodal_bsa_filtered, title = "Immune_myeloid Top 30 BSA mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -5264,7 +4958,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_myeloid_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(reactome_res_immune_myeloid_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_myeloid_mgfr_jodal_bsa_filtered, title = "Immune_myeloid Top 30 BSA mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -5273,7 +4967,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_myeloid_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(go_res_immune_myeloid_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_myeloid_mgfr_jodal_bsa_filtered, title = "Immune_myeloid Top 30 BSA mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -5341,6 +5035,23 @@ plot_volcano_associations(immune_myeloid_tir_res_combined,
                           positive_text = "Positively associated with \u0394 TIR",
                           negative_text = "Negatively associated with \u0394 TIR")
 ```
+
+```{r echo = F}
+plot_volcano_concordance(immune_myeloid_tir_res_combined, 
+                          "logFC_tir_delta", 
+                          "p_tir_delta", 
+                          "logFC \u0394 TIR", 
+                          "-log10(p-value)",
+                          "nebula/immune_myeloid_tir_trtcolors",
+                          treatment_results = immune_myeloid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 TIR + treatment",
+                          positive_text = "Positively associated with \u0394 TIR",
+                          negative_text = "Negatively associated with \u0394 TIR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
+                          cell_type = "Immune (Myeloid)")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(immune_myeloid_tir_res_combined, "logFC_tir_delta", 
@@ -5416,7 +5127,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_myeloid_tir_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_myeloid_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_myeloid_tir_filtered, title = "Immune_myeloid Top 30 TIR Associations KEGG", xmin = 1, xmax = 3)
@@ -5426,7 +5137,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_myeloid_tir_filtered <- filter_redundant_pathways(reactome_res_immune_myeloid_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_myeloid_tir_filtered, title = "Immune_myeloid Top 30  TIR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -5435,7 +5146,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_myeloid_tir_filtered <- filter_redundant_pathways(go_res_immune_myeloid_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_myeloid_tir_filtered, title = "Immune_myeloid Top 30  TIR Associations GO", xmin = 1.4, xmax = 5)
@@ -5503,6 +5214,22 @@ plot_volcano_associations(immune_myeloid_hba1c_res_combined,
                           formula = "\u0394 HbA1c + treatment",
                           positive_text = "Positively associated with \u0394 HbA1c",
                           negative_text = "Negatively associated with \u0394 HbA1c")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_myeloid_hba1c_res_combined, 
+                          "logFC_hba1c_delta", 
+                          "p_hba1c_delta",
+                          "logFC \u0394 HbA1c", 
+                          "-log10(p-value)",
+                          "nebula/immune_myeloid_hba1c_trtcolors",
+                          treatment_results = immune_myeloid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 HbA1c + treatment",
+                          positive_text = "Positively associated with \u0394 HbA1c",
+                          negative_text = "Negatively associated with \u0394 HbA1c",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "hba1c",]$direction, 
+                          cell_type = "Immune (Myeloid)")
 ```
 
 ```{r echo =F, eval = F}
@@ -5579,7 +5306,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_myeloid_hba1c_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_myeloid_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_myeloid_hba1c_filtered, title = "Immune_myeloid Top 30 HbA1c Associations KEGG", xmin = 1, xmax = 3)
@@ -5589,7 +5316,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_myeloid_hba1c_filtered <- filter_redundant_pathways(reactome_res_immune_myeloid_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_myeloid_hba1c_filtered, title = "Immune_myeloid Top 30  HbA1c Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -5598,7 +5325,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_myeloid_hba1c_filtered <- filter_redundant_pathways(go_res_immune_myeloid_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_myeloid_hba1c_filtered, title = "Immune_myeloid Top 30  HbA1c Associations GO", xmin = 1.4, xmax = 5)
@@ -5666,6 +5393,22 @@ plot_volcano_associations(immune_myeloid_weight_res_combined,
                           formula = "\u0394 Weight + treatment",
                           positive_text = "Positively associated with \u0394 Weight",
                           negative_text = "Negatively associated with \u0394 Weight")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_myeloid_weight_res_combined, 
+                          "logFC_weight_delta", 
+                          "p_weight_delta",
+                          "logFC \u0394 Weight", 
+                          "-log10(p-value)",
+                          "nebula/immune_myeloid_weight_trtcolors",
+                          treatment_results = immune_myeloid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 Weight + treatment",
+                          positive_text = "Positively associated with \u0394 Weight",
+                          negative_text = "Negatively associated with \u0394 Weight",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "weight",]$direction, 
+                          cell_type = "Immune (Myeloid)")
 ```
 
 ```{r echo =F, eval = F}
@@ -5742,7 +5485,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_myeloid_weight_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_myeloid_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_myeloid_weight_filtered, title = "Immune_myeloid Top 30 Weight Associations KEGG", xmin = 1, xmax = 3)
@@ -5752,7 +5495,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_myeloid_weight_filtered <- filter_redundant_pathways(reactome_res_immune_myeloid_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_myeloid_weight_filtered, title = "Immune_myeloid Top 30  Weight Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -5761,7 +5504,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_myeloid_weight_filtered <- filter_redundant_pathways(go_res_immune_myeloid_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_myeloid_weight_filtered, title = "Immune_myeloid Top 30  Weight Associations GO", xmin = 1.4, xmax = 5)
@@ -5831,6 +5574,22 @@ plot_volcano_associations(immune_myeloid_avg_c_r2_res_combined,
                           formula = "\u0394 avg cortical R2* + treatment",
                           positive_text = "Positively associated with \u0394 avg cortical R2*",
                           negative_text = "Negatively associated with \u0394 avg cortical R2*")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_myeloid_avg_c_r2_res_combined, 
+                          "logFC_avg_c_r2_delta", 
+                          "p_avg_c_r2_delta",
+                          "logFC \u0394 avg cortical R2*", 
+                          "-log10(p-value)",
+                          "nebula/immune_myeloid_avg_c_r2_trtcolors",
+                          treatment_results = immune_myeloid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg cortical R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg cortical R2*",
+                          negative_text = "Negatively associated with \u0394 avg cortical R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_c_r2",]$direction, 
+                          cell_type = "Immune (Myeloid)")
 ```
 
 ```{r echo =F, eval = F}
@@ -5907,7 +5666,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_myeloid_avg_c_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_myeloid_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_myeloid_avg_c_r2_filtered, title = "Immune_myeloid Top 30 Avg Cortical R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -5917,7 +5676,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_myeloid_avg_c_r2_filtered <- filter_redundant_pathways(reactome_res_immune_myeloid_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_myeloid_avg_c_r2_filtered, title = "Immune_myeloid Top 30  Avg Cortical R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -5926,7 +5685,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_myeloid_avg_c_r2_filtered <- filter_redundant_pathways(go_res_immune_myeloid_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_myeloid_avg_c_r2_filtered, title = "Immune_myeloid Top 30  Avg Cortical R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -5979,13 +5738,15 @@ immune_myeloid_avg_k_r2_res_combined_disp <- map_dfr(
   }
 )
 
+
+immune_myeloid_avg_k_r2_res_combined <- subset(immune_myeloid_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10)
 write.csv(immune_myeloid_avg_k_r2_res_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/immune_myeloid_avg_k_r2.csv", row.names = F)
 
 ```
 
 
 ```{r echo = F}
-plot_volcano_associations(subset(immune_myeloid_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), 
+plot_volcano_associations(immune_myeloid_avg_k_r2_res_combined, 
                           "logFC_avg_k_r2_delta", 
                           "p_avg_k_r2_delta",
                           "Immune - Myeloid avg kidney R2*", 
@@ -5998,6 +5759,23 @@ plot_volcano_associations(subset(immune_myeloid_avg_k_r2_res_combined, logFC_avg
                           positive_text = "Positively associated with \u0394 avg kidney R2*",
                           negative_text = "Negatively associated with \u0394 avg kidney R2*")
 ```
+
+```{r echo = F}
+plot_volcano_concordance(immune_myeloid_avg_k_r2_res_combined, 
+                          "logFC_avg_k_r2_delta", 
+                          "p_avg_k_r2_delta",
+                          "logFC \u0394 avg kidney R2*", 
+                          "-log10(p-value)",
+                          "nebula/immune_myeloid_avg_k_r2_trtcolors",
+                          treatment_results = immune_myeloid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg kidney R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg kidney R2*",
+                          negative_text = "Negatively associated with \u0394 avg kidney R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_k_r2",]$direction, 
+                          cell_type = "Immune (Myeloid)")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(subset(immune_myeloid_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), "logFC_avg_k_r2_delta", 
@@ -6073,7 +5851,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_myeloid_avg_k_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_myeloid_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_myeloid_avg_k_r2_filtered, title = "Immune_myeloid Top 30 Avg Kidney R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -6083,7 +5861,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_myeloid_avg_k_r2_filtered <- filter_redundant_pathways(reactome_res_immune_myeloid_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_myeloid_avg_k_r2_filtered, title = "Immune_myeloid Top 30  Avg Kidney R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -6092,7 +5870,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_myeloid_avg_k_r2_filtered <- filter_redundant_pathways(go_res_immune_myeloid_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_myeloid_avg_k_r2_filtered, title = "Immune_myeloid Top 30  Avg Kidney R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -6204,6 +5982,22 @@ plot_volcano_associations(immune_lymphoid_mgfr_jodal_res_combined,
                           negative_text = "Negatively associated with \u0394 mGFR")
 ```
 
+```{r echo = F}
+plot_volcano_concordance(immune_lymphoid_mgfr_jodal_res_combined, 
+                          "logFC_mgfr_jodal_delta", 
+                          "p_mgfr_jodal_delta",
+                          "logFC \u0394 mGFR (Raw)", 
+                          "-log10(p-value)",
+                          "nebula/immune_lymphoid_mgfr_jodal_trtcolors",
+                          treatment_results = immune_lymphoid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (Raw) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal",]$direction, 
+                          cell_type = "Immune (Lymphoid)")
+```
+
 ```{r echo =F, eval = F}
 plot_volcano(immune_lymphoid_mgfr_jodal_res_combined, "logFC_mgfr_jodal_delta", 
              "p_mgfr_jodal_delta",
@@ -6278,7 +6072,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_lymphoid_mgfr_jodal_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_lymphoid_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_lymphoid_mgfr_jodal_filtered, title = "Immune_lymphoid Top 30 Raw mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -6288,7 +6082,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_lymphoid_mgfr_jodal_filtered <- filter_redundant_pathways(reactome_res_immune_lymphoid_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_lymphoid_mgfr_jodal_filtered, title = "Immune_lymphoid Top 30  Raw mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -6297,7 +6091,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_lymphoid_mgfr_jodal_filtered <- filter_redundant_pathways(go_res_immune_lymphoid_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_lymphoid_mgfr_jodal_filtered, title = "Immune_lymphoid Top 30  Raw mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -6365,6 +6159,22 @@ plot_volcano_associations(immune_lymphoid_mgfr_jodal_bsa_res_combined,
                           formula = "\u0394 mGFR (BSA) + treatment",
                           positive_text = "Positively associated with \u0394 mGFR",
                           negative_text = "Negatively associated with \u0394 mGFR")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_lymphoid_mgfr_jodal_bsa_res_combined, 
+                          "logFC_mgfr_jodal_bsa_delta", 
+                          "p_mgfr_jodal_bsa_delta",
+                          "logFC \u0394 mGFR (BSA)", 
+                          "-log10(p-value)",
+                          "nebula/immune_lymphoid_mgfr_jodal_bsa_trtcolors",
+                          treatment_results = immune_lymphoid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (BSA) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal_bsa",]$direction, 
+                          cell_type = "Immune (Lymphoid)")
 ```
 
 ```{r echo =F, eval = F}
@@ -6441,7 +6251,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_lymphoid_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_lymphoid_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_lymphoid_mgfr_jodal_bsa_filtered, title = "Immune_lymphoid Top 30 BSA mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -6451,7 +6261,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_lymphoid_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(reactome_res_immune_lymphoid_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_lymphoid_mgfr_jodal_bsa_filtered, title = "Immune_lymphoid Top 30 BSA mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -6460,7 +6270,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_lymphoid_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(go_res_immune_lymphoid_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_lymphoid_mgfr_jodal_bsa_filtered, title = "Immune_lymphoid Top 30 BSA mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -6528,6 +6338,22 @@ plot_volcano_associations(immune_lymphoid_tir_res_combined,
                           formula = "\u0394 TIR + treatment",
                           positive_text = "Positively associated with \u0394 TIR",
                           negative_text = "Negatively associated with \u0394 TIR")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_lymphoid_tir_res_combined, 
+                          "logFC_tir_delta", 
+                          "p_tir_delta",
+                          "logFC \u0394 TIR", 
+                          "-log10(p-value)",
+                          "nebula/immune_lymphoid_tir_trtcolors",
+                          treatment_results = immune_lymphoid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 TIR + treatment",
+                          positive_text = "Positively associated with \u0394 TIR",
+                          negative_text = "Negatively associated with \u0394 TIR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
+                          cell_type = "Immune (Lymphoid)")
 ```
 
 ```{r echo =F, eval = F}
@@ -6604,7 +6430,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_lymphoid_tir_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_lymphoid_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_lymphoid_tir_filtered, title = "Immune_lymphoid Top 30 TIR Associations KEGG", xmin = 1, xmax = 3)
@@ -6614,7 +6440,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_lymphoid_tir_filtered <- filter_redundant_pathways(reactome_res_immune_lymphoid_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_lymphoid_tir_filtered, title = "Immune_lymphoid Top 30  TIR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -6623,7 +6449,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_lymphoid_tir_filtered <- filter_redundant_pathways(go_res_immune_lymphoid_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_lymphoid_tir_filtered, title = "Immune_lymphoid Top 30  TIR Associations GO", xmin = 1.4, xmax = 5)
@@ -6691,6 +6517,22 @@ plot_volcano_associations(immune_lymphoid_hba1c_res_combined,
                           formula = "\u0394 HbA1c + treatment",
                           positive_text = "Positively associated with \u0394 HbA1c",
                           negative_text = "Negatively associated with \u0394 HbA1c")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_lymphoid_hba1c_res_combined, 
+                          "logFC_hba1c_delta", 
+                          "p_hba1c_delta",
+                          "logFC \u0394 HbA1c", 
+                          "-log10(p-value)",
+                          "nebula/immune_lymphoid_hba1c_trtcolors",
+                          treatment_results = immune_lymphoid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 HbA1c + treatment",
+                          positive_text = "Positively associated with \u0394 HbA1c",
+                          negative_text = "Negatively associated with \u0394 HbA1c",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "hba1c",]$direction, 
+                          cell_type = "Immune (Lymphoid)")
 ```
 
 ```{r echo =F, eval = F}
@@ -6767,7 +6609,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_lymphoid_hba1c_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_lymphoid_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_lymphoid_hba1c_filtered, title = "Immune_lymphoid Top 30 HbA1c Associations KEGG", xmin = 1, xmax = 3)
@@ -6777,7 +6619,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_lymphoid_hba1c_filtered <- filter_redundant_pathways(reactome_res_immune_lymphoid_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_lymphoid_hba1c_filtered, title = "Immune_lymphoid Top 30  HbA1c Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -6786,7 +6628,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_lymphoid_hba1c_filtered <- filter_redundant_pathways(go_res_immune_lymphoid_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_lymphoid_hba1c_filtered, title = "Immune_lymphoid Top 30  HbA1c Associations GO", xmin = 1.4, xmax = 5)
@@ -6854,6 +6696,22 @@ plot_volcano_associations(immune_lymphoid_weight_res_combined,
                           formula = "\u0394 Weight + treatment",
                           positive_text = "Positively associated with \u0394 Weight",
                           negative_text = "Negatively associated with \u0394 Weight")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_lymphoid_weight_res_combined, 
+                          "logFC_weight_delta", 
+                          "p_weight_delta",
+                          "logFC \u0394 Weight", 
+                          "-log10(p-value)",
+                          "nebula/immune_lymphoid_weight_trtcolors",
+                          treatment_results = immune_lymphoid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 Weight + treatment",
+                          positive_text = "Positively associated with \u0394 Weight",
+                          negative_text = "Negatively associated with \u0394 Weight",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "weight",]$direction, 
+                          cell_type = "Immune (Lymphoid)")
 ```
 
 ```{r echo =F, eval = F}
@@ -6930,7 +6788,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_lymphoid_weight_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_lymphoid_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_lymphoid_weight_filtered, title = "Immune_lymphoid Top 30 Weight Associations KEGG", xmin = 1, xmax = 3)
@@ -6940,7 +6798,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_lymphoid_weight_filtered <- filter_redundant_pathways(reactome_res_immune_lymphoid_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_lymphoid_weight_filtered, title = "Immune_lymphoid Top 30  Weight Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -6949,7 +6807,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_lymphoid_weight_filtered <- filter_redundant_pathways(go_res_immune_lymphoid_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_lymphoid_weight_filtered, title = "Immune_lymphoid Top 30  Weight Associations GO", xmin = 1.4, xmax = 5)
@@ -7019,6 +6877,22 @@ plot_volcano_associations(immune_lymphoid_avg_c_r2_res_combined,
                           formula = "\u0394 avg cortical R2* + treatment",
                           positive_text = "Positively associated with \u0394 avg cortical R2*",
                           negative_text = "Negatively associated with \u0394 avg cortical R2*")
+```
+
+```{r echo = F}
+plot_volcano_concordance(immune_lymphoid_avg_c_r2_res_combined, 
+                          "logFC_avg_c_r2_delta", 
+                          "p_avg_c_r2_delta", 
+                          "logFC \u0394 avg cortical R2*", 
+                          "-log10(p-value)",
+                          "nebula/immune_lymphoid_avg_c_r2_trtcolors",
+                          treatment_results = immune_lymphoid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg cortical R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg cortical R2*",
+                          negative_text = "Negatively associated with \u0394 avg cortical R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_c_r2",]$direction, 
+                          cell_type = "Immune (Lymphoid)")
 ```
 
 ```{r echo =F, eval = F}
@@ -7095,7 +6969,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_lymphoid_avg_c_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_lymphoid_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_lymphoid_avg_c_r2_filtered, title = "Immune_lymphoid Top 30 Avg Cortical R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -7105,7 +6979,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_lymphoid_avg_c_r2_filtered <- filter_redundant_pathways(reactome_res_immune_lymphoid_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_lymphoid_avg_c_r2_filtered, title = "Immune_lymphoid Top 30  Avg Cortical R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -7114,7 +6988,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_lymphoid_avg_c_r2_filtered <- filter_redundant_pathways(go_res_immune_lymphoid_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_lymphoid_avg_c_r2_filtered, title = "Immune_lymphoid Top 30  Avg Cortical R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -7166,13 +7040,14 @@ immune_lymphoid_avg_k_r2_res_combined_disp <- map_dfr(
     return(df)
   }
 )
+immune_lymphoid_avg_k_r2_res_combined <- subset(immune_lymphoid_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10)
 write.csv(immune_lymphoid_avg_k_r2_res_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/immune_lymphoid_avg_k_r2.csv", row.names = F)
 
 ```
 
 
 ```{r echo = F}
-plot_volcano_associations(subset(immune_lymphoid_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), 
+plot_volcano_associations(immune_lymphoid_avg_k_r2_res_combined, 
                           "logFC_avg_k_r2_delta", 
                           "p_avg_k_r2_delta",
                           "Immune - Lymphoid avg kidney R2*", 
@@ -7185,6 +7060,23 @@ plot_volcano_associations(subset(immune_lymphoid_avg_k_r2_res_combined, logFC_av
                           positive_text = "Positively associated with \u0394 avg kidney R2*",
                           negative_text = "Negatively associated with \u0394 avg kidney R2*")
 ```
+
+```{r echo = F}
+plot_volcano_concordance(immune_lymphoid_avg_k_r2_res_combined, 
+                          "logFC_avg_k_r2_delta", 
+                          "p_avg_k_r2_delta",
+                          "logFC \u0394 avg kidney R2*", 
+                          "-log10(p-value)",
+                          "nebula/immune_lymphoid_avg_k_r2_trtcolors",
+                          treatment_results = immune_lymphoid_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg kidney R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg kidney R2*",
+                          negative_text = "Negatively associated with \u0394 avg kidney R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_k_r2",]$direction, 
+                          cell_type = "Immune (Lymphoid)")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(subset(immune_lymphoid_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), "logFC_avg_k_r2_delta", 
@@ -7260,7 +7152,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_immune_lymphoid_avg_k_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_immune_lymphoid_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_immune_lymphoid_avg_k_r2_filtered, title = "Immune_lymphoid Top 30 Avg Kidney R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -7270,7 +7162,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_immune_lymphoid_avg_k_r2_filtered <- filter_redundant_pathways(reactome_res_immune_lymphoid_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_immune_lymphoid_avg_k_r2_filtered, title = "Immune_lymphoid Top 30  Avg Kidney R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -7279,7 +7171,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_immune_lymphoid_avg_k_r2_filtered <- filter_redundant_pathways(go_res_immune_lymphoid_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_immune_lymphoid_avg_k_r2_filtered, title = "Immune_lymphoid Top 30  Avg Kidney R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -7390,6 +7282,22 @@ plot_volcano_associations(pc_mgfr_jodal_res_combined,
                           negative_text = "Negatively associated with \u0394 mGFR")
 ```
 
+```{r echo = F}
+plot_volcano_concordance(pc_mgfr_jodal_res_combined, 
+                          "logFC_mgfr_jodal_delta", 
+                          "p_mgfr_jodal_delta",
+                          "logFC \u0394 mGFR (Raw)", 
+                          "-log10(p-value)",
+                          "nebula/pc_mgfr_jodal_trtcolors",
+                          treatment_results = pc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (Raw) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal",]$direction, 
+                          cell_type = "PC")
+```
+
 ```{r echo =F, eval = F}
 plot_volcano(pc_mgfr_jodal_res_combined, "logFC_mgfr_jodal_delta", 
              "p_mgfr_jodal_delta",
@@ -7464,7 +7372,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pc_mgfr_jodal_filtered <- filter_redundant_pathways(kegg_legacy_res_pc_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pc_mgfr_jodal_filtered, title = "PC Top 30 Raw mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -7474,7 +7382,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pc_mgfr_jodal_filtered <- filter_redundant_pathways(reactome_res_pc_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pc_mgfr_jodal_filtered, title = "PC Top 30  Raw mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -7483,7 +7391,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pc_mgfr_jodal_filtered <- filter_redundant_pathways(go_res_pc_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pc_mgfr_jodal_filtered, title = "PC Top 30  Raw mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -7550,6 +7458,22 @@ plot_volcano_associations(pc_mgfr_jodal_bsa_res_combined,
                           formula = "\u0394 mGFR (BSA) + treatment",
                           positive_text = "Positively associated with \u0394 mGFR",
                           negative_text = "Negatively associated with \u0394 mGFR")
+```
+
+```{r echo = F}
+plot_volcano_concordance(pc_mgfr_jodal_bsa_res_combined, 
+                          "logFC_mgfr_jodal_bsa_delta", 
+                          "p_mgfr_jodal_bsa_delta",
+                          "logFC \u0394 mGFR (BSA)", 
+                          "-log10(p-value)",
+                          "nebula/pc_mgfr_jodal_bsa_trtcolors",
+                          treatment_results = pc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (BSA) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal_bsa",]$direction, 
+                          cell_type = "PC")
 ```
 
 ```{r echo =F, eval = F}
@@ -7626,7 +7550,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pc_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(kegg_legacy_res_pc_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pc_mgfr_jodal_bsa_filtered, title = "PC Top 30 BSA mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -7636,7 +7560,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pc_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(reactome_res_pc_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pc_mgfr_jodal_bsa_filtered, title = "PC Top 30 BSA mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -7645,7 +7569,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pc_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(go_res_pc_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pc_mgfr_jodal_bsa_filtered, title = "PC Top 30 BSA mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -7714,6 +7638,22 @@ plot_volcano_associations(subset(pc_tir_res_combined, logFC_tir_delta >-10),
                           positive_text = "Positively associated with \u0394 TIR",
                           negative_text = "Negatively associated with \u0394 TIR",
                           legend_position = c(0.95, 0.8))
+```
+
+```{r echo = F}
+plot_volcano_concordance(subset(pc_tir_res_combined, logFC_tir_delta >-10), 
+                          "logFC_tir_delta", 
+                          "p_tir_delta",
+                          "logFC \u0394 TIR", 
+                          "-log10(p-value)",
+                          "nebula/pc_tir_trtcolors",
+                          treatment_results = pc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 TIR + treatment",
+                          positive_text = "Positively associated with \u0394 TIR",
+                          negative_text = "Negatively associated with \u0394 TIR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
+                          cell_type = "PC")
 ```
 
 
@@ -7785,7 +7725,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pc_tir_filtered <- filter_redundant_pathways(kegg_legacy_res_pc_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pc_tir_filtered, title = "PC Top 30 TIR Associations KEGG", xmin = 1, xmax = 3)
@@ -7795,7 +7735,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pc_tir_filtered <- filter_redundant_pathways(reactome_res_pc_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pc_tir_filtered, title = "PC Top 30  TIR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -7804,7 +7744,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pc_tir_filtered <- filter_redundant_pathways(go_res_pc_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pc_tir_filtered, title = "PC Top 30  TIR Associations GO", xmin = 1.4, xmax = 5)
@@ -7855,12 +7795,13 @@ pc_hba1c_res_combined_disp <- map_dfr(
   }
 )
 
+pc_hba1c_res_combined <- subset(pc_hba1c_res_combined, logFC_hba1c_delta >-10)
 write.csv(pc_hba1c_res_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pc_hba1c.csv", row.names = F)
 
 ```
 
 ```{r echo = F}
-plot_volcano_associations(subset(pc_hba1c_res_combined, logFC_hba1c_delta >-10), 
+plot_volcano_associations(pc_hba1c_res_combined, 
                           "logFC_hba1c_delta", 
                           "p_hba1c_delta",
                           "PC HbA1c", 
@@ -7875,6 +7816,21 @@ plot_volcano_associations(subset(pc_hba1c_res_combined, logFC_hba1c_delta >-10),
                           legend_position = c(0.95, 0.8))
 ```
 
+```{r echo = F}
+plot_volcano_concordance(pc_hba1c_res_combined, 
+                          "logFC_hba1c_delta", 
+                          "p_hba1c_delta",
+                          "logFC \u0394 HbA1c", 
+                          "-log10(p-value)",
+                          "nebula/pc_hba1c_trtcolors",
+                          treatment_results = pc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 HbA1c + treatment",
+                          positive_text = "Positively associated with \u0394 HbA1c",
+                          negative_text = "Negatively associated with \u0394 HbA1c",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "hba1c",]$direction, 
+                          cell_type = "PC")
+```
 
 ```{r echo =F, eval = F}
 plot_volcano(pc_hba1c_res_combined, "logFC_hba1c_delta", 
@@ -7944,7 +7900,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pc_hba1c_filtered <- filter_redundant_pathways(kegg_legacy_res_pc_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pc_hba1c_filtered, title = "PC Top 30 HbA1c Associations KEGG", xmin = 1, xmax = 3)
@@ -7954,7 +7910,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pc_hba1c_filtered <- filter_redundant_pathways(reactome_res_pc_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pc_hba1c_filtered, title = "PC Top 30  HbA1c Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -7963,7 +7919,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pc_hba1c_filtered <- filter_redundant_pathways(go_res_pc_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pc_hba1c_filtered, title = "PC Top 30  HbA1c Associations GO", xmin = 1.4, xmax = 5)
@@ -8032,6 +7988,22 @@ plot_volcano_associations(pc_weight_res_combined,
                           positive_text = "Positively associated with \u0394 Weight",
                           negative_text = "Negatively associated with \u0394 Weight",
                           legend_position = c(0.95, 0.9))
+```
+
+```{r echo = F}
+plot_volcano_concordance(pc_weight_res_combined, 
+                          "logFC_weight_delta", 
+                          "p_weight_delta",
+                          "logFC \u0394 Weight", 
+                          "-log10(p-value)",
+                          "nebula/pc_weight_trtcolors",
+                          treatment_results = pc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 Weight + treatment",
+                          positive_text = "Positively associated with \u0394 Weight",
+                          negative_text = "Negatively associated with \u0394 Weight",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "weight",]$direction, 
+                          cell_type = "PC")
 ```
 
 ```{r echo =F, eval = F}
@@ -8108,7 +8080,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pc_weight_filtered <- filter_redundant_pathways(kegg_legacy_res_pc_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pc_weight_filtered, title = "PC Top 30 Weight Associations KEGG", xmin = 1, xmax = 3)
@@ -8118,7 +8090,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pc_weight_filtered <- filter_redundant_pathways(reactome_res_pc_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pc_weight_filtered, title = "PC Top 30  Weight Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -8127,7 +8099,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pc_weight_filtered <- filter_redundant_pathways(go_res_pc_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pc_weight_filtered, title = "PC Top 30  Weight Associations GO", xmin = 1.4, xmax = 5)
@@ -8199,6 +8171,23 @@ plot_volcano_associations(pc_avg_c_r2_res_combined,
                           positive_text = "Positively associated with \u0394 avg cortical R2*",
                           negative_text = "Negatively associated with \u0394 avg cortical R2*")
 ```
+
+```{r echo = F}
+plot_volcano_concordance(pc_avg_c_r2_res_combined, 
+                          "logFC_avg_c_r2_delta", 
+                          "p_avg_c_r2_delta",
+                          "logFC \u0394 avg cortical R2*", 
+                          "-log10(p-value)",
+                          "nebula/pc_avg_c_r2_trtcolors",
+                          treatment_results = pc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg cortical R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg cortical R2*",
+                          negative_text = "Negatively associated with \u0394 avg cortical R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_c_r2",]$direction, 
+                          cell_type = "PC")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(subset(pc_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-10), "logFC_avg_c_r2_delta", 
@@ -8274,7 +8263,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pc_avg_c_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_pc_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pc_avg_c_r2_filtered, title = "PC Top 30 Avg Cortical R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -8284,7 +8273,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pc_avg_c_r2_filtered <- filter_redundant_pathways(reactome_res_pc_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pc_avg_c_r2_filtered, title = "PC Top 30  Avg Cortical R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -8293,7 +8282,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pc_avg_c_r2_filtered <- filter_redundant_pathways(go_res_pc_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pc_avg_c_r2_filtered, title = "PC Top 30  Avg Cortical R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -8346,12 +8335,13 @@ pc_avg_k_r2_res_combined_disp <- map_dfr(
   }
 )
 
+pc_avg_k_r2_res_combined <- subset(pc_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10)
 write.csv(pc_avg_k_r2_res_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/pc_avg_k_r2.csv", row.names = F)
 
 ```
 
 ```{r echo = F}
-plot_volcano_associations(subset(pc_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), 
+plot_volcano_associations(pc_avg_k_r2_res_combined, 
                           "logFC_avg_k_r2_delta", 
                           "p_avg_k_r2_delta",
                           "PC avg kidney R2*", 
@@ -8365,6 +8355,23 @@ plot_volcano_associations(subset(pc_avg_k_r2_res_combined, logFC_avg_k_r2_delta 
                           negative_text = "Negatively associated with \u0394 avg kidney R2*",
                           legend_position = c(0.95,0.8))
 ```
+
+```{r echo = F}
+plot_volcano_concordance(pc_avg_k_r2_res_combined, 
+                          "logFC_avg_k_r2_delta", 
+                          "p_avg_k_r2_delta",
+                          "logFC \u0394 avg kidney R2*", 
+                          "-log10(p-value)",
+                          "nebula/pc_avg_k_r2_trtcolors",
+                          treatment_results = pc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg kidney R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg kidney R2*",
+                          negative_text = "Negatively associated with \u0394 avg kidney R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_k_r2",]$direction, 
+                          cell_type = "PC")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(subset(pc_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), "logFC_avg_k_r2_delta", 
@@ -8440,7 +8447,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_pc_avg_k_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_pc_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_pc_avg_k_r2_filtered, title = "PC Top 30 Avg Kidney R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -8450,7 +8457,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_pc_avg_k_r2_filtered <- filter_redundant_pathways(reactome_res_pc_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_pc_avg_k_r2_filtered, title = "PC Top 30  Avg Kidney R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -8459,7 +8466,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_pc_avg_k_r2_filtered <- filter_redundant_pathways(go_res_pc_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_pc_avg_k_r2_filtered, title = "PC Top 30  Avg Kidney R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -8573,6 +8580,23 @@ plot_volcano_associations(ic_mgfr_jodal_res_combined,
                           legend_position = c(0.95, 0.8))
 ```
 
+```{r echo = F}
+plot_volcano_concordance(ic_mgfr_jodal_res_combined, 
+                          "logFC_mgfr_jodal_delta", 
+                          "p_mgfr_jodal_delta",
+                          "logFC \u0394 mGFR (Raw)", 
+                          "-log10(p-value)",
+                          "nebula/ic_mgfr_jodal_trtcolors",
+                          treatment_results = ic_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (Raw) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal",]$direction, 
+                          cell_type = "IC")
+```
+
+
 ```{r echo =F, eval = F}
 plot_volcano(ic_mgfr_jodal_res_combined, "logFC_mgfr_jodal_delta", 
              "p_mgfr_jodal_delta",
@@ -8647,7 +8671,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ic_mgfr_jodal_filtered <- filter_redundant_pathways(kegg_legacy_res_ic_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ic_mgfr_jodal_filtered, title = "IC Top 30 Raw mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -8657,7 +8681,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ic_mgfr_jodal_filtered <- filter_redundant_pathways(reactome_res_ic_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ic_mgfr_jodal_filtered, title = "IC Top 30  Raw mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -8666,7 +8690,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ic_mgfr_jodal_filtered <- filter_redundant_pathways(go_res_ic_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ic_mgfr_jodal_filtered, title = "IC Top 30  Raw mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -8736,6 +8760,23 @@ plot_volcano_associations(ic_mgfr_jodal_bsa_res_combined,
                           negative_text = "Negatively associated with \u0394 mGFR",
                           legend_position = c(0.95, 0.8))
 ```
+
+```{r echo = F}
+plot_volcano_concordance(ic_mgfr_jodal_bsa_res_combined, 
+                          "logFC_mgfr_jodal_bsa_delta", 
+                          "p_mgfr_jodal_bsa_delta",
+                          "logFC \u0394 mGFR (BSA)", 
+                          "-log10(p-value)",
+                          "nebula/ic_mgfr_jodal_bsa_trtcolors",
+                          treatment_results = ic_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (BSA) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal_bsa",]$direction, 
+                          cell_type = "IC")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(ic_mgfr_jodal_bsa_res_combined, "logFC_mgfr_jodal_bsa_delta", 
@@ -8811,7 +8852,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ic_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(kegg_legacy_res_ic_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ic_mgfr_jodal_bsa_filtered, title = "IC Top 30 BSA mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -8821,7 +8862,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ic_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(reactome_res_ic_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ic_mgfr_jodal_bsa_filtered, title = "IC Top 30 BSA mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -8830,7 +8871,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ic_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(go_res_ic_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ic_mgfr_jodal_bsa_filtered, title = "IC Top 30 BSA mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -8899,6 +8940,23 @@ plot_volcano_associations(ic_tir_res_combined,
                           positive_text = "Positively associated with \u0394 TIR",
                           negative_text = "Negatively associated with \u0394 TIR")
 ```
+
+```{r echo = F}
+plot_volcano_concordance(ic_tir_res_combined, 
+                          "logFC_tir_delta", 
+                          "p_tir_delta",
+                          "logFC \u0394 TIR", 
+                          "-log10(p-value)",
+                          "nebula/ic_tir_trtcolors",
+                          treatment_results = ic_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 TIR + treatment",
+                          positive_text = "Positively associated with \u0394 TIR",
+                          negative_text = "Negatively associated with \u0394 TIR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
+                          cell_type = "IC")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(ic_tir_res_combined, "logFC_tir_delta", 
@@ -8974,7 +9032,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ic_tir_filtered <- filter_redundant_pathways(kegg_legacy_res_ic_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ic_tir_filtered, title = "IC Top 30 TIR Associations KEGG", xmin = 1, xmax = 3)
@@ -8984,7 +9042,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ic_tir_filtered <- filter_redundant_pathways(reactome_res_ic_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ic_tir_filtered, title = "IC Top 30  TIR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -8993,7 +9051,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ic_tir_filtered <- filter_redundant_pathways(go_res_ic_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ic_tir_filtered, title = "IC Top 30  TIR Associations GO", xmin = 1.4, xmax = 5)
@@ -9062,6 +9120,23 @@ plot_volcano_associations(ic_hba1c_res_combined,
                           positive_text = "Positively associated with \u0394 HbA1c",
                           negative_text = "Negatively associated with \u0394 HbA1c")
 ```
+
+```{r echo = F}
+plot_volcano_concordance(ic_hba1c_res_combined, 
+                          "logFC_hba1c_delta", 
+                          "p_hba1c_delta",
+                          "logFC \u0394 HbA1c", 
+                          "-log10(p-value)",
+                          "nebula/ic_hba1c_trtcolors",
+                          treatment_results = ic_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 HbA1c + treatment",
+                          positive_text = "Positively associated with \u0394 HbA1c",
+                          negative_text = "Negatively associated with \u0394 HbA1c",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "hba1c",]$direction, 
+                          cell_type = "IC")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(ic_hba1c_res_combined, "logFC_hba1c_delta", 
@@ -9137,7 +9212,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ic_hba1c_filtered <- filter_redundant_pathways(kegg_legacy_res_ic_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ic_hba1c_filtered, title = "IC Top 30 HbA1c Associations KEGG", xmin = 1, xmax = 3)
@@ -9147,7 +9222,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ic_hba1c_filtered <- filter_redundant_pathways(reactome_res_ic_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ic_hba1c_filtered, title = "IC Top 30  HbA1c Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -9156,7 +9231,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ic_hba1c_filtered <- filter_redundant_pathways(go_res_ic_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ic_hba1c_filtered, title = "IC Top 30  HbA1c Associations GO", xmin = 1.4, xmax = 5)
@@ -9226,6 +9301,23 @@ plot_volcano_associations(ic_weight_res_combined,
                           negative_text = "Negatively associated with \u0394 Weight",
                           legend_position = c(0.95, 0.9))
 ```
+
+```{r echo = F}
+plot_volcano_concordance(ic_weight_res_combined, 
+                          "logFC_weight_delta", 
+                          "p_weight_delta",
+                          "logFC \u0394 Weight", 
+                          "-log10(p-value)",
+                          "nebula/ic_weight_trtcolors",
+                          treatment_results = ic_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 Weight + treatment",
+                          positive_text = "Positively associated with \u0394 Weight",
+                          negative_text = "Negatively associated with \u0394 Weight",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "weight",]$direction, 
+                          cell_type = "IC")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(ic_weight_res_combined, "logFC_weight_delta", 
@@ -9301,7 +9393,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ic_weight_filtered <- filter_redundant_pathways(kegg_legacy_res_ic_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ic_weight_filtered, title = "IC Top 30 Weight Associations KEGG", xmin = 1, xmax = 3)
@@ -9311,7 +9403,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ic_weight_filtered <- filter_redundant_pathways(reactome_res_ic_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ic_weight_filtered, title = "IC Top 30  Weight Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -9320,7 +9412,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ic_weight_filtered <- filter_redundant_pathways(go_res_ic_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ic_weight_filtered, title = "IC Top 30  Weight Associations GO", xmin = 1.4, xmax = 5)
@@ -9394,19 +9486,21 @@ plot_volcano_associations(ic_avg_c_r2_res_combined,
 ```
 
 ```{r echo = F}
-plot_volcano_associations(subset(pt_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), 
-                          "logFC_avg_k_r2_delta", 
-                          "p_avg_k_r2_delta",
-                          "PT avg kidney R2*", 
-                          "logFC \u0394 avg kidney R2*", 
+plot_volcano_concordance(ic_avg_c_r2_res_combined, 
+                          "logFC_avg_c_r2_delta", 
+                          "p_avg_c_r2_delta", 
+                          "logFC \u0394 avg cortical R2*", 
                           "-log10(p-value)",
-                          "nebula/pt_avg_k_r2_trtcolors",
-                          treatment_results = pt_nebula_res_combined_reml_pooled,
+                          "nebula/ic_avg_c_r2_trtcolors",
+                          treatment_results = ic_nebula_res_combined_reml_pooled,
                           treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
-                          formula = "\u0394 avg kidney R2* + treatment",
-                          positive_text = "Positively associated with \u0394 avg kidney R2*",
-                          negative_text = "Negatively associated with \u0394 avg kidney R2*")
+                          formula = "\u0394 avg cortical R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg cortical R2*",
+                          negative_text = "Negatively associated with \u0394 avg cortical R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_c_r2",]$direction, 
+                          cell_type = "IC")
 ```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(subset(ic_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-10), "logFC_avg_c_r2_delta", 
@@ -9482,7 +9576,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ic_avg_c_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_ic_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ic_avg_c_r2_filtered, title = "IC Top 30 Avg Cortical R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -9492,7 +9586,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ic_avg_c_r2_filtered <- filter_redundant_pathways(reactome_res_ic_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ic_avg_c_r2_filtered, title = "IC Top 30  Avg Cortical R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -9501,7 +9595,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ic_avg_c_r2_filtered <- filter_redundant_pathways(go_res_ic_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ic_avg_c_r2_filtered, title = "IC Top 30  Avg Cortical R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -9553,13 +9647,13 @@ ic_avg_k_r2_res_combined_disp <- map_dfr(
     return(df)
   }
 )
-
+ic_avg_k_r2_res_combined <- subset(ic_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10)
 write.csv(ic_avg_k_r2_res_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ic_avg_k_r2.csv", row.names = F)
 
 ```
 
 ```{r echo = F}
-plot_volcano_associations(subset(ic_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), 
+plot_volcano_associations(ic_avg_k_r2_res_combined, 
                           "logFC_avg_k_r2_delta", 
                           "p_avg_k_r2_delta",
                           "IC avg kidney R2*", 
@@ -9573,6 +9667,23 @@ plot_volcano_associations(subset(ic_avg_k_r2_res_combined, logFC_avg_k_r2_delta 
                           negative_text = "Negatively associated with \u0394 avg kidney R2*",
                           legend_position = c(0.95,0.8))
 ```
+
+```{r echo = F}
+plot_volcano_concordance(ic_avg_k_r2_res_combined, 
+                          "logFC_avg_k_r2_delta", 
+                          "p_avg_k_r2_delta",
+                          "logFC \u0394 avg kidney R2*", 
+                          "-log10(p-value)",
+                          "nebula/ic_avg_k_r2_trtcolors",
+                          treatment_results = ic_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg kidney R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg kidney R2*",
+                          negative_text = "Negatively associated with \u0394 avg kidney R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_k_r2",]$direction, 
+                          cell_type = "IC")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(subset(ic_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), "logFC_avg_k_r2_delta", 
@@ -9648,7 +9759,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ic_avg_k_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_ic_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ic_avg_k_r2_filtered, title = "IC Top 30 Avg Kidney R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -9658,7 +9769,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ic_avg_k_r2_filtered <- filter_redundant_pathways(reactome_res_ic_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ic_avg_k_r2_filtered, title = "IC Top 30  Avg Kidney R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -9667,7 +9778,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ic_avg_k_r2_filtered <- filter_redundant_pathways(go_res_ic_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ic_avg_k_r2_filtered, title = "IC Top 30  Avg Kidney R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -9780,6 +9891,23 @@ plot_volcano_associations(ec_mgfr_jodal_res_combined,
                           legend_position = c(0.95, 0.8))
 ```
 
+```{r echo = F}
+plot_volcano_concordance(ec_mgfr_jodal_res_combined, 
+                          "logFC_mgfr_jodal_delta", 
+                          "p_mgfr_jodal_delta",
+                          "logFC \u0394 mGFR (Raw)", 
+                          "-log10(p-value)",
+                          "nebula/ec_mgfr_jodal_trtcolors",
+                          treatment_results = ec_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (Raw) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal",]$direction, 
+                          cell_type = "EC")
+```
+
+
 ```{r echo =F, eval = F}
 plot_volcano(ec_mgfr_jodal_res_combined, "logFC_mgfr_jodal_delta", 
              "p_mgfr_jodal_delta",
@@ -9854,7 +9982,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ec_mgfr_jodal_filtered <- filter_redundant_pathways(kegg_legacy_res_ec_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ec_mgfr_jodal_filtered, title = "EC Top 30 Raw mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -9864,7 +9992,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ec_mgfr_jodal_filtered <- filter_redundant_pathways(reactome_res_ec_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ec_mgfr_jodal_filtered, title = "EC Top 30  Raw mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -9873,7 +10001,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ec_mgfr_jodal_filtered <- filter_redundant_pathways(go_res_ec_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ec_mgfr_jodal_filtered, title = "EC Top 30  Raw mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -9942,6 +10070,23 @@ plot_volcano_associations(ec_mgfr_jodal_bsa_res_combined,
                           positive_text = "Positively associated with \u0394 mGFR",
                           negative_text = "Negatively associated with \u0394 mGFR")
 ```
+
+```{r echo = F}
+plot_volcano_concordance(ec_mgfr_jodal_bsa_res_combined, 
+                          "logFC_mgfr_jodal_bsa_delta", 
+                          "p_mgfr_jodal_bsa_delta",
+                          "logFC \u0394 mGFR (BSA)", 
+                          "-log10(p-value)",
+                          "nebula/ec_mgfr_jodal_bsa_trtcolors",
+                          treatment_results = ec_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (BSA) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal_bsa",]$direction, 
+                          cell_type = "EC")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(ec_mgfr_jodal_bsa_res_combined, "logFC_mgfr_jodal_bsa_delta", 
@@ -10017,7 +10162,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ec_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(kegg_legacy_res_ec_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ec_mgfr_jodal_bsa_filtered, title = "EC Top 30 BSA mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -10027,7 +10172,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ec_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(reactome_res_ec_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ec_mgfr_jodal_bsa_filtered, title = "EC Top 30 BSA mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -10036,7 +10181,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ec_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(go_res_ec_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ec_mgfr_jodal_bsa_filtered, title = "EC Top 30 BSA mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -10104,6 +10249,22 @@ plot_volcano_associations(ec_tir_res_combined,
                           formula = "\u0394 TIR + treatment",
                           positive_text = "Positively associated with \u0394 TIR",
                           negative_text = "Negatively associated with \u0394 TIR")
+```
+
+```{r echo = F}
+plot_volcano_concordance(ec_tir_res_combined, 
+                          "logFC_tir_delta", 
+                          "p_tir_delta",
+                          "logFC \u0394 TIR", 
+                          "-log10(p-value)",
+                          "nebula/ec_tir_trtcolors",
+                          treatment_results = ec_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 TIR + treatment",
+                          positive_text = "Positively associated with \u0394 TIR",
+                          negative_text = "Negatively associated with \u0394 TIR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
+                          cell_type = "EC")
 ```
 
 ```{r echo =F, eval = F}
@@ -10180,7 +10341,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ec_tir_filtered <- filter_redundant_pathways(kegg_legacy_res_ec_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ec_tir_filtered, title = "EC Top 30 TIR Associations KEGG", xmin = 1, xmax = 3)
@@ -10190,7 +10351,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ec_tir_filtered <- filter_redundant_pathways(reactome_res_ec_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ec_tir_filtered, title = "EC Top 30  TIR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -10199,7 +10360,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ec_tir_filtered <- filter_redundant_pathways(go_res_ec_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ec_tir_filtered, title = "EC Top 30  TIR Associations GO", xmin = 1.4, xmax = 5)
@@ -10267,6 +10428,22 @@ plot_volcano_associations(ec_hba1c_res_combined,
                           formula = "\u0394 HbA1c + treatment",
                           positive_text = "Positively associated with \u0394 HbA1c",
                           negative_text = "Negatively associated with \u0394 HbA1c")
+```
+
+```{r echo = F}
+plot_volcano_concordance(ec_hba1c_res_combined, 
+                          "logFC_hba1c_delta", 
+                          "p_hba1c_delta",
+                          "logFC \u0394 HbA1c", 
+                          "-log10(p-value)",
+                          "nebula/ec_hba1c_trtcolors",
+                          treatment_results = ec_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 HbA1c + treatment",
+                          positive_text = "Positively associated with \u0394 HbA1c",
+                          negative_text = "Negatively associated with \u0394 HbA1c",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "hba1c",]$direction, 
+                          cell_type = "EC")
 ```
 
 ```{r echo =F, eval = F}
@@ -10343,7 +10520,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ec_hba1c_filtered <- filter_redundant_pathways(kegg_legacy_res_ec_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ec_hba1c_filtered, title = "EC Top 30 HbA1c Associations KEGG", xmin = 1, xmax = 3)
@@ -10353,7 +10530,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ec_hba1c_filtered <- filter_redundant_pathways(reactome_res_ec_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ec_hba1c_filtered, title = "EC Top 30  HbA1c Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -10362,7 +10539,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ec_hba1c_filtered <- filter_redundant_pathways(go_res_ec_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ec_hba1c_filtered, title = "EC Top 30  HbA1c Associations GO", xmin = 1.4, xmax = 5)
@@ -10433,6 +10610,23 @@ plot_volcano_associations(ec_weight_res_combined,
                           negative_text = "Negatively associated with \u0394 Weight")
 ```
 
+```{r echo = F}
+plot_volcano_concordance(ec_weight_res_combined, 
+                          "logFC_weight_delta", 
+                          "p_weight_delta",
+                          "logFC \u0394 Weight", 
+                          "-log10(p-value)",
+                          "nebula/ec_weight_trtcolors",
+                          treatment_results = ec_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 Weight + treatment",
+                          positive_text = "Positively associated with \u0394 Weight",
+                          negative_text = "Negatively associated with \u0394 Weight",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "weight",]$direction, 
+                          cell_type = "EC")
+```
+
+
 ```{r echo =F, eval = F}
 plot_volcano(ec_weight_res_combined, "logFC_weight_delta", 
              "p_weight_delta",
@@ -10501,7 +10695,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ec_weight_filtered <- filter_redundant_pathways(kegg_legacy_res_ec_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ec_weight_filtered, title = "EC Top 30 Weight Associations KEGG", xmin = 1, xmax = 3)
@@ -10511,7 +10705,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ec_weight_filtered <- filter_redundant_pathways(reactome_res_ec_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ec_weight_filtered, title = "EC Top 30  Weight Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -10520,7 +10714,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ec_weight_filtered <- filter_redundant_pathways(go_res_ec_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ec_weight_filtered, title = "EC Top 30  Weight Associations GO", xmin = 1.4, xmax = 5)
@@ -10592,6 +10786,23 @@ plot_volcano_associations(ec_avg_c_r2_res_combined,
                           positive_text = "Positively associated with \u0394 avg cortical R2*",
                           negative_text = "Negatively associated with \u0394 avg cortical R2*")
 ```
+
+```{r echo = F}
+plot_volcano_concordance(ec_avg_c_r2_res_combined, 
+                          "logFC_avg_c_r2_delta", 
+                          "p_avg_c_r2_delta", 
+                          "logFC \u0394 avg cortical R2*", 
+                          "-log10(p-value)",
+                          "nebula/ec_avg_c_r2_trtcolors",
+                          treatment_results = ec_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg cortical R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg cortical R2*",
+                          negative_text = "Negatively associated with \u0394 avg cortical R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_c_r2",]$direction, 
+                          cell_type = "EC")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(subset(ec_avg_c_r2_res_combined, logFC_avg_c_r2_delta >-10), "logFC_avg_c_r2_delta", 
@@ -10667,7 +10878,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ec_avg_c_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_ec_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ec_avg_c_r2_filtered, title = "EC Top 30 Avg Cortical R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -10677,7 +10888,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ec_avg_c_r2_filtered <- filter_redundant_pathways(reactome_res_ec_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ec_avg_c_r2_filtered, title = "EC Top 30  Avg Cortical R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -10686,7 +10897,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ec_avg_c_r2_filtered <- filter_redundant_pathways(go_res_ec_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ec_avg_c_r2_filtered, title = "EC Top 30  Avg Cortical R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -10738,13 +10949,13 @@ ec_avg_k_r2_res_combined_disp <- map_dfr(
     return(df)
   }
 )
-
+ec_avg_k_r2_res_combined <- subset(ec_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10)
 write.csv(ec_avg_k_r2_res_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/ec_avg_k_r2.csv", row.names = F)
 
 ```
 
 ```{r echo = F}
-plot_volcano_associations(subset(ec_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), 
+plot_volcano_associations(ec_avg_k_r2_res_combined, 
                           "logFC_avg_k_r2_delta", 
                           "p_avg_k_r2_delta",
                           "EC avg kidney R2*", 
@@ -10757,6 +10968,23 @@ plot_volcano_associations(subset(ec_avg_k_r2_res_combined, logFC_avg_k_r2_delta 
                           positive_text = "Positively associated with \u0394 avg kidney R2*",
                           negative_text = "Negatively associated with \u0394 avg kidney R2*")
 ```
+
+```{r echo = F}
+plot_volcano_concordance(ec_avg_k_r2_res_combined, 
+                          "logFC_avg_k_r2_delta", 
+                          "p_avg_k_r2_delta",
+                          "logFC \u0394 avg kidney R2*", 
+                          "-log10(p-value)",
+                          "nebula/ec_avg_k_r2_trtcolors",
+                          treatment_results = ec_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg kidney R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg kidney R2*",
+                          negative_text = "Negatively associated with \u0394 avg kidney R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_k_r2",]$direction, 
+                          cell_type = "EC")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(subset(ec_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), "logFC_avg_k_r2_delta", 
@@ -10832,7 +11060,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_ec_avg_k_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_ec_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_ec_avg_k_r2_filtered, title = "EC Top 30 Avg Kidney R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -10842,7 +11070,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_ec_avg_k_r2_filtered <- filter_redundant_pathways(reactome_res_ec_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_ec_avg_k_r2_filtered, title = "EC Top 30  Avg Kidney R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -10851,7 +11079,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_ec_avg_k_r2_filtered <- filter_redundant_pathways(go_res_ec_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_ec_avg_k_r2_filtered, title = "EC Top 30  Avg Kidney R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -10964,6 +11192,23 @@ plot_volcano_associations(fibvsmc_mgfr_jodal_res_combined,
                           legend_position = c(0.95, 0.8))
 ```
 
+```{r echo = F}
+plot_volcano_concordance(fibvsmc_mgfr_jodal_res_combined, 
+                          "logFC_mgfr_jodal_delta", 
+                          "p_mgfr_jodal_delta",
+                          "logFC \u0394 mGFR (Raw)", 
+                          "-log10(p-value)",
+                          "nebula/fibvsmc_mgfr_jodal_trtcolors",
+                          treatment_results = fibvsmc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (Raw) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal",]$direction, 
+                          cell_type = "FIB, VSMC/P")
+```
+
+
 ```{r echo =F, eval = F}
 plot_volcano(fibvsmc_mgfr_jodal_res_combined, "logFC_mgfr_jodal_delta", 
              "p_mgfr_jodal_delta",
@@ -11038,7 +11283,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_fibvsmc_mgfr_jodal_filtered <- filter_redundant_pathways(kegg_legacy_res_fibvsmc_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_fibvsmc_mgfr_jodal_filtered, title = "FIB, VSMC/P Top 30 Raw mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -11048,7 +11293,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_fibvsmc_mgfr_jodal_filtered <- filter_redundant_pathways(reactome_res_fibvsmc_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_fibvsmc_mgfr_jodal_filtered, title = "FIB, VSMC/P Top 30  Raw mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -11057,7 +11302,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_fibvsmc_mgfr_jodal_filtered <- filter_redundant_pathways(go_res_fibvsmc_mgfr_jodal, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_fibvsmc_mgfr_jodal_filtered, title = "FIB, VSMC/P Top 30  Raw mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -11126,6 +11371,23 @@ plot_volcano_associations(fibvsmc_mgfr_jodal_bsa_res_combined,
                           negative_text = "Negatively associated with \u0394 mGFR",
                           legend_position = c(0.95, 0.8))
 ```
+
+```{r echo = F}
+plot_volcano_concordance(fibvsmc_mgfr_jodal_bsa_res_combined, 
+                          "logFC_mgfr_jodal_bsa_delta", 
+                          "p_mgfr_jodal_bsa_delta",
+                          "logFC \u0394 mGFR (BSA)", 
+                          "-log10(p-value)",
+                          "nebula/fibvsmc_mgfr_jodal_bsa_trtcolors",
+                          treatment_results = fibvsmc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 mGFR (BSA) + treatment",
+                          positive_text = "Positively associated with \u0394 mGFR",
+                          negative_text = "Negatively associated with \u0394 mGFR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "mgfr_jodal_bsa",]$direction, 
+                          cell_type = "FIB, VSMC/P")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(fibvsmc_mgfr_jodal_bsa_res_combined, "logFC_mgfr_jodal_bsa_delta", 
@@ -11201,7 +11463,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_fibvsmc_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(kegg_legacy_res_fibvsmc_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_fibvsmc_mgfr_jodal_bsa_filtered, title = "FIB, VSMC/P Top 30 BSA mGFR Associations KEGG", xmin = 1, xmax = 3)
@@ -11211,7 +11473,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_fibvsmc_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(reactome_res_fibvsmc_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_fibvsmc_mgfr_jodal_bsa_filtered, title = "FIB, VSMC/P Top 30 BSA mGFR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -11220,7 +11482,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_fibvsmc_mgfr_jodal_bsa_filtered <- filter_redundant_pathways(go_res_fibvsmc_mgfr_jodal_bsa, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_fibvsmc_mgfr_jodal_bsa_filtered, title = "FIB, VSMC/P Top 30 BSA mGFR Associations GO", xmin = 1.4, xmax = 5)
@@ -11290,6 +11552,23 @@ plot_volcano_associations(fibvsmc_tir_res_combined,
                           negative_text = "Negatively associated with \u0394 TIR",
                           legend_position = c(0.95, 0.8))
 ```
+
+```{r echo = F}
+plot_volcano_concordance(fibvsmc_tir_res_combined, 
+                          "logFC_tir_delta", 
+                          "p_tir_delta",
+                          "logFC \u0394 TIR", 
+                          "-log10(p-value)",
+                          "nebula/fibvsmc_tir_trtcolors",
+                          treatment_results = fibvsmc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 TIR + treatment",
+                          positive_text = "Positively associated with \u0394 TIR",
+                          negative_text = "Negatively associated with \u0394 TIR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
+                          cell_type = "FIB, VSMC/P")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(fibvsmc_tir_res_combined, "logFC_tir_delta", 
@@ -11365,7 +11644,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_fibvsmc_tir_filtered <- filter_redundant_pathways(kegg_legacy_res_fibvsmc_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_fibvsmc_tir_filtered, title = "FIB, VSMC/P Top 30 TIR Associations KEGG", xmin = 1, xmax = 3)
@@ -11375,7 +11654,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_fibvsmc_tir_filtered <- filter_redundant_pathways(reactome_res_fibvsmc_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_fibvsmc_tir_filtered, title = "FIB, VSMC/P Top 30  TIR Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -11384,7 +11663,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_fibvsmc_tir_filtered <- filter_redundant_pathways(go_res_fibvsmc_tir, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_fibvsmc_tir_filtered, title = "FIB, VSMC/P Top 30  TIR Associations GO", xmin = 1.4, xmax = 5)
@@ -11454,6 +11733,23 @@ plot_volcano_associations(fibvsmc_hba1c_res_combined,
                           negative_text = "Negatively associated with \u0394 HbA1c",
                           legend_position = c(0.95, 0.8))
 ```
+
+```{r echo = F}
+plot_volcano_concordance(fibvsmc_hba1c_res_combined, 
+                          "logFC_hba1c_delta", 
+                          "p_hba1c_delta",
+                          "logFC \u0394 HbA1c", 
+                          "-log10(p-value)",
+                          "nebula/fibvsmc_hba1c_trtcolors",
+                          treatment_results = fibvsmc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 HbA1c + treatment",
+                          positive_text = "Positively associated with \u0394 HbA1c",
+                          negative_text = "Negatively associated with \u0394 HbA1c",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "hba1c",]$direction, 
+                          cell_type = "FIB, VSMC/P")
+```
+
 
 ```{r echo =F, eval = F}
 plot_volcano(fibvsmc_hba1c_res_combined, "logFC_hba1c_delta", 
@@ -11529,7 +11825,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_fibvsmc_hba1c_filtered <- filter_redundant_pathways(kegg_legacy_res_fibvsmc_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_fibvsmc_hba1c_filtered, title = "FIB, VSMC/P Top 30 HbA1c Associations KEGG", xmin = 1, xmax = 3)
@@ -11539,7 +11835,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_fibvsmc_hba1c_filtered <- filter_redundant_pathways(reactome_res_fibvsmc_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_fibvsmc_hba1c_filtered, title = "FIB, VSMC/P Top 30  HbA1c Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -11548,7 +11844,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_fibvsmc_hba1c_filtered <- filter_redundant_pathways(go_res_fibvsmc_hba1c, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_fibvsmc_hba1c_filtered, title = "FIB, VSMC/P Top 30  HbA1c Associations GO", xmin = 1.4, xmax = 5)
@@ -11617,6 +11913,22 @@ plot_volcano_associations(fibvsmc_weight_res_combined,
                           positive_text = "Positively associated with \u0394 Weight",
                           negative_text = "Negatively associated with \u0394 Weight",
                           legend_position = c(0.95, 0.8))
+```
+
+```{r echo = F}
+plot_volcano_concordance(fibvsmc_weight_res_combined, 
+                          "logFC_weight_delta", 
+                          "p_weight_delta",
+                          "logFC \u0394 Weight", 
+                          "-log10(p-value)",
+                          "nebula/fibvsmc_weight_trtcolors",
+                          treatment_results = fibvsmc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 Weight + treatment",
+                          positive_text = "Positively associated with \u0394 Weight",
+                          negative_text = "Negatively associated with \u0394 Weight",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "weight",]$direction, 
+                          cell_type = "FIB, VSMC/P")
 ```
 
 ```{r echo =F, eval = F}
@@ -11693,7 +12005,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_fibvsmc_weight_filtered <- filter_redundant_pathways(kegg_legacy_res_fibvsmc_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_fibvsmc_weight_filtered, title = "FIB, VSMC/P Top 30 Weight Associations KEGG", xmin = 1, xmax = 3)
@@ -11703,7 +12015,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_fibvsmc_weight_filtered <- filter_redundant_pathways(reactome_res_fibvsmc_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_fibvsmc_weight_filtered, title = "FIB, VSMC/P Top 30  Weight Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -11712,7 +12024,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_fibvsmc_weight_filtered <- filter_redundant_pathways(go_res_fibvsmc_weight, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_fibvsmc_weight_filtered, title = "FIB, VSMC/P Top 30  Weight Associations GO", xmin = 1.4, xmax = 5)
@@ -11783,6 +12095,22 @@ plot_volcano_associations(fibvsmc_avg_c_r2_res_combined,
                           formula = "\u0394 avg cortical R2* + treatment",
                           positive_text = "Positively associated with \u0394 avg cortical R2*",
                           negative_text = "Negatively associated with \u0394 avg cortical R2*")
+```
+
+```{r echo = F}
+plot_volcano_concordance(fibvsmc_avg_c_r2_res_combined, 
+                          "logFC_avg_c_r2_delta", 
+                          "p_avg_c_r2_delta",
+                          "logFC \u0394 avg cortical R2*", 
+                          "-log10(p-value)",
+                          "nebula/fibvsmc_avg_c_r2_trtcolors",
+                          treatment_results = fibvsmc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg cortical R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg cortical R2*",
+                          negative_text = "Negatively associated with \u0394 avg cortical R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_c_r2",]$direction, 
+                          cell_type = "FIB, VSMC/P")
 ```
 
 ```{r echo =F, eval = F}
@@ -11859,7 +12187,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_fibvsmc_avg_c_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_fibvsmc_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_fibvsmc_avg_c_r2_filtered, title = "FIB, VSMC/P Top 30 Avg Cortical R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -11869,7 +12197,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_fibvsmc_avg_c_r2_filtered <- filter_redundant_pathways(reactome_res_fibvsmc_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_fibvsmc_avg_c_r2_filtered, title = "FIB, VSMC/P Top 30  Avg Cortical R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -11878,7 +12206,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_fibvsmc_avg_c_r2_filtered <- filter_redundant_pathways(go_res_fibvsmc_avg_c_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_fibvsmc_avg_c_r2_filtered, title = "FIB, VSMC/P Top 30  Avg Cortical R2* Associations GO", xmin = 1.4, xmax = 5)
@@ -11930,13 +12258,13 @@ fibvsmc_avg_k_r2_res_combined_disp <- map_dfr(
     return(df)
   }
 )
-
+fibvsmc_avg_k_r2_res_combined <- subset(fibvsmc_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10)
 write.csv(fibvsmc_avg_k_r2_res_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/fibvsmc_avg_k_r2.csv", row.names = F)
 
 ```
 
 ```{r echo = F}
-plot_volcano_associations(subset(fibvsmc_avg_k_r2_res_combined, logFC_avg_k_r2_delta >-10), 
+plot_volcano_associations(fibvsmc_avg_k_r2_res_combined, 
                           "logFC_avg_k_r2_delta", 
                           "p_avg_k_r2_delta",
                           "FIB, VSMC/P avg kidney R2*", 
@@ -11948,6 +12276,22 @@ plot_volcano_associations(subset(fibvsmc_avg_k_r2_res_combined, logFC_avg_k_r2_d
                           formula = "\u0394 avg kidney R2* + treatment",
                           positive_text = "Positively associated with \u0394 avg kidney R2*",
                           negative_text = "Negatively associated with \u0394 avg kidney R2*")
+```
+
+```{r echo = F}
+plot_volcano_concordance(fibvsmc_avg_k_r2_res_combined, 
+                          "logFC_avg_k_r2_delta", 
+                          "p_avg_k_r2_delta",
+                          "logFC \u0394 avg kidney R2*", 
+                          "-log10(p-value)",
+                          "nebula/fibvsmc_avg_k_r2_trtcolors",
+                          treatment_results = fibvsmc_nebula_res_combined_reml_pooled,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg kidney R2* + treatment",
+                          positive_text = "Positively associated with \u0394 avg kidney R2*",
+                          negative_text = "Negatively associated with \u0394 avg kidney R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_k_r2",]$direction, 
+                          cell_type = "FIB, VSMC/P")
 ```
 
 ```{r echo =F, eval = F}
@@ -12024,7 +12368,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```
 
 ##### KEGG Legacy
-```{r echo = F}
+```{r echo = F, eval = F}
 kegg_legacy_res_fibvsmc_avg_k_r2_filtered <- filter_redundant_pathways(kegg_legacy_res_fibvsmc_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(kegg_legacy_res_fibvsmc_avg_k_r2_filtered, title = "FIB, VSMC/P Top 30 Avg Kidney R2* Associations KEGG", xmin = 1, xmax = 3)
@@ -12034,7 +12378,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 ##### REACTOME
-```{r echo = F}
+```{r echo = F, eval = F}
 reactome_res_fibvsmc_avg_k_r2_filtered <- filter_redundant_pathways(reactome_res_fibvsmc_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(reactome_res_fibvsmc_avg_k_r2_filtered, title = "FIB, VSMC/P Top 30  Avg Kidney R2* Associations REACTOME", xmin = 1.1, xmax = 3.5)
@@ -12043,7 +12387,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
-```{r echo = F}
+```{r echo = F, eval = F}
 go_res_fibvsmc_avg_k_r2_filtered <- filter_redundant_pathways(go_res_fibvsmc_avg_k_r2, overlap_pct = 0.3)
 
 plot_fgsea_transpose(go_res_fibvsmc_avg_k_r2_filtered, title = "FIB, VSMC/P Top 30  Avg Kidney R2* Associations GO", xmin = 1.4, xmax = 5)
