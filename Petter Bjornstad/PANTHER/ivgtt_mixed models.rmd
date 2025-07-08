@@ -1,5 +1,5 @@
-remotes::install_github("SomaLogic/SomaPlotr")---
-title: "TODAY study - proteomics, hypertension, OSA, echo, PWV"
+---
+title: "PANTHER - IVGTT mixed models"
 author: "Laura Pyle"
 date: "`r format(Sys.time(), '%d %B %Y')`"
 output:
@@ -7,7 +7,7 @@ output:
     number_sections: yes
     theme: readable
     toc: yes
-    toc_depth: 3
+    toc_depth: 4
     toc_float: yes
 ---
 
@@ -31,18 +31,22 @@ library(limma)
 library(glue)
 library(purrr)
 library(stringr)
+library(nlme)
+library(emmeans)
+
+options(scipen=999)
 ```
 
 ```{r load-data, echo = F, include = F}
 # Load dictionary function and file
-source("/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
-source("/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+source("/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+source("/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 ```
 
 ```{r prep-data, echo = F, include = F}
 # Load clinical data
-harm_dat <- read.csv("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
-exclude <- read.csv("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
+harm_dat <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
+exclude <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
 
 dat <- harm_dat %>% filter(study == "PANTHER" & procedure == "ivgtt" & visit %in% c("baseline", "screening")) %>%
   mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
@@ -172,10 +176,10 @@ cpep_long <- cpep_long %>% arrange(mrn,time)
 mixed <- function(data, outcome, grouping_var){
   data <- as.data.frame(data)
   data$time <- as.factor(data$time)
-  form = as.formula(paste0(outcome,"~ study_visit_mttt*time"))
-  mod <- lme(as.formula(form),random=~1|subject_id,data = data,na.action = na.omit, correlation = corCompSymm(form = ~1|subject_id))
+  form = as.formula(paste0(outcome,"~ ", grouping_var, "*time"))
+  mod <- lme(as.formula(form),random=~1|mrn,data = data,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
   anova <- anova.lme(mod, type="marginal")
-  m <- emmeans(mod,c("study_visit_mttt","time"))
+  m <- emmeans(mod,c(grouping_var,"time"))
   prs <-  pairs(m,adjust="tukey",by="time")
   return(list(anova,m,prs))
 }
@@ -186,3 +190,68 @@ mixed <- function(data, outcome, grouping_var){
 
 1) Original IVGTT code read in two data files - the harmonized data and a lab data csv file. I checked MRN and visit dates and it seemed like all the data in the csv were contained in the harmonized data, so I didn't merge it in.
 2) PANTHER protocol says that first time point for IVGTT is 2 minutes. There are data in the insulin_minus_15 and gluc_minus_15 variables, but I did not include them in analysis because there were no corresponding data for C-peptide.
+
+# Results
+
+## Insulin
+
+### By risk group
+
+```{r echo=FALSE}
+mod <- mixed(data = insulin_long, outcome = "insulin", grouping_var = "group_risk")
+```
+
+#### ANOVA table
+
+```{r echo=FALSE}
+kable(mod[[1]])
+```
+
+#### Estimated marginal means
+
+```{r echo=FALSE}
+kable(mod[[2]])
+```
+
+#### Pairwise comparisons
+
+```{r echo=FALSE}
+kable(mod[[3]])
+```
+
+### By Tanner stage
+
+```{r echo=FALSE}
+mod <- mixed(data = insulin_long, outcome = "insulin", grouping_var = "tanner_stage_comp")
+```
+
+#### ANOVA table
+
+```{r echo=FALSE}
+kable(mod[[1]])
+```
+
+#### Estimated marginal means
+
+```{r echo=FALSE}
+kable(mod[[2]])
+```
+
+#### Pairwise comparisons
+
+```{r echo=FALSE}
+kable(mod[[3]])
+```
+
+## Glucose
+
+### By risk group
+
+### By Tanner stage
+
+## C-peptide
+
+### By risk group
+
+### By Tanner stage
+
