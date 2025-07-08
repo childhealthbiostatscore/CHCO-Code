@@ -1,22 +1,206 @@
 
 # ATTEMPT analysis related functions
 
+# ---- Analysis Functions ----
 
-# ---- Volcano Plot Functions ----
+# ===========================================================================
+# Function: process_nebula_results
+# ===========================================================================
+
+process_nebula_results <- function(nebula_list, 
+                                   pval_col = "p_treatmentDapagliflozin:visitPOST", 
+                                   convergence_cut = -10) {
+  # Extract convergence codes
+  convergence_df <- purrr::map_dfr(names(nebula_list), function(gene_name) {
+    convergence_code <- nebula_list[[gene_name]]$convergence
+    data.frame(Gene = gene_name, Convergence_Code = convergence_code)
+  })
+  
+  # Filter to converged models
+  converged_genes <- convergence_df %>%
+    filter(Convergence_Code >= convergence_cut) %>%
+    pull(Gene)
+  
+  # Combine model summary results
+  summary_df <- purrr::map_dfr(converged_genes, function(gene_name) {
+    nebula_list[[gene_name]]$summary %>%
+      mutate(Gene = gene_name)
+  })
+  
+  # Add FDR adjustment
+  if (pval_col %in% names(summary_df)) {
+    summary_df <- summary_df %>%
+      mutate(fdr = p.adjust(.data[[pval_col]], method = "fdr"))
+  } else {
+    warning(paste("Column", pval_col, "not found in summary data. FDR not computed."))
+    summary_df$fdr <- NA
+  }
+  
+  # Extract overdispersion estimates
+  overdisp_df <- purrr::map_dfr(names(nebula_list), function(gene_name) {
+    od <- nebula_list[[gene_name]]$overdispersion
+    od$Gene <- gene_name
+    od
+  })
+  
+  return(list(
+    convergence     = convergence_df,
+    results         = summary_df,
+    overdispersion  = overdisp_df
+  ))
+}
+
+
+# ===========================================================================
+# Function: run_nebula_attempt
+# ===========================================================================
+
+run_nebula_attempt <- function(so,
+                               trait            = "",
+                               extra_covars     = "treatment",
+                               subject_var      = "subject_id",
+                               offset_var       = "pooled_offset",
+                               assay_layer      = "counts",
+                               n_cores          = max(parallel::detectCores() - 1, 1),
+                               aws_s3           = NULL,
+                               s3_bucket        = NULL,
+                               s3_key           = NULL) {
+  
+  stopifnot(trait %in% colnames(so@meta.data))
+  
+  # ── 1. Keep only cells with non-missing trait ──────────────────────────────
+  md            <- so@meta.data
+  keep_cells    <- rownames(md)[!is.na(md[[trait]])]
+  so_subset     <- so[, keep_cells]
+  
+  # ── 2. Pull counts and gene list ──────────────────────────────────────────
+  counts_mat    <- round(GetAssayData(so_subset, layer = assay_layer))
+  genes_list    <- rownames(counts_mat)
+  
+  # ── 3. Spin up parallel backend ───────────────────────────────────────────
+  cl            <- parallel::makeCluster(n_cores)
+  doParallel::registerDoParallel(cl)
+  
+  on.exit({          # make *sure* we clean up
+    parallel::stopCluster(cl)
+  }, add = TRUE)
+  
+  start_time <- Sys.time()
+  
+  # ── 4. Per-gene nebula fits ───────────────────────────────────────────────
+  nebula_res <- foreach::foreach(
+    g = genes_list,
+    .packages      = c("nebula", "Matrix"),
+    .errorhandling = "pass"
+  ) %dopar% {
+    
+    warn <- err <- NULL
+    res  <- NULL
+    
+    tryCatch({
+      count_gene <- counts_mat[g, , drop = FALSE]
+      meta_gene  <- subset(so_subset, features = g)@meta.data
+      
+      pred_formula <- reformulate(c(trait, extra_covars), response = NULL) # ~ trait  extras
+      pred_gene    <- model.matrix(pred_formula, data = meta_gene)
+      
+      data_g       <- list(count = count_gene,
+                           id    = meta_gene[[subject_var]],
+                           pred  = pred_gene)
+      
+      res <- withCallingHandlers(
+        nebula::nebula(count      = data_g$count,
+                       id         = data_g$id,
+                       pred       = data_g$pred,
+                       model      = "NBLMM",
+                       output_re  = TRUE,
+                       covariance = TRUE,
+                       reml       = TRUE,
+                       offset     = if (!is.null(offset_var)) meta_gene[[offset_var]] else NULL,
+                       ncore      = 1),
+        warning = function(w) { warn <<- conditionMessage(w); invokeRestart("muffleWarning") }
+      )
+      
+    }, error = function(e) {
+      err <<- conditionMessage(e)
+    })
+    
+    list(gene = g, result = res, warning = warn, error = err)
+  }
+  
+  # ── 5. Collate warnings / errors ──────────────────────────────────────────
+  for (x in nebula_res) {
+    if (!is.null(x$warning)) message(sprintf("⚠️  Warning for %s: %s", x$gene, x$warning))
+    if (!is.null(x$error))   message(sprintf("⛔ Error   for %s: %s", x$gene, x$error))
+  }
+  
+  # ── 6. Keep successful fits only & name the list ──────────────────────────
+  fits <- lapply(nebula_res, `[[`, "result")
+  names(fits) <- vapply(nebula_res, `[[`, "", "gene")
+  fits        <- Filter(Negate(is.null), fits)
+  
+  # ── 7. Report & (optionally) persist to S3 ────────────────────────────────
+  drop_pct <- 100 * (1 - length(fits) / length(genes_list))
+  message(sprintf("%0.2f%% of genes were dropped (low expression / errors).", drop_pct))
+  
+  if (!is.null(aws_s3) && !is.null(s3_bucket) && !is.null(s3_key)) {
+    tmp <- tempfile(fileext = ".rds")
+    saveRDS(fits, tmp)
+    aws_s3$upload_file(tmp, Bucket = s3_bucket, Key = s3_key)
+    unlink(tmp)
+    message(sprintf("⬆️  Results uploaded to s3://%s/%s", s3_bucket, s3_key))
+  }
+  
+  end_time <- Sys.time()
+  message(sprintf("Finished in %.1f minutes.", as.numeric(difftime(end_time, start_time, units = "mins"))))
+  
+  invisible(fits)
+}
+
+# ---- Plot Functions ----
+# ===========================================================================
+# Function: make_plot_df
+# ===========================================================================
+
+make_plot_df <- function(res_df, celltype_label, pos_genes, neg_genes) {
+  res_df %>%
+    dplyr::select(Gene, 
+                  logFC = `logFC_treatmentDapagliflozin:visitPOST`, 
+                  pval = `p_treatmentDapagliflozin:visitPOST`, 
+                  fdr = fdr) %>%
+    mutate(celltype = celltype_label,
+           direction = case_when(
+             logFC > 0 ~ "+",
+             logFC < 0 ~ "-"
+           )) %>%
+    filter(Gene %in% c(pos_genes, neg_genes))
+}
 
 # ===========================================================================
 # Function: plot_volcano
 # ===========================================================================
-plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suffix, p_thresh = 0.05) {
+plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suffix, p_thresh = 0.05,
+                         positive_text = "Positive with Dapagliflozin", 
+                         negative_text = "Negative with Dapagliflozin",
+                         formula = "group", legend_position = c(0.8, 0.9),
+                         cell_type = "") {
   set.seed(1)
   top_pos <- data %>%
     dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
-    dplyr::arrange(!!sym(p_col)) %>%
+    dplyr::arrange(!!sym(p_col))
+  
+  n_pos <- nrow(top_pos)
+    
+  top_pos <- top_pos %>%
     slice_head(n=20)
   
   top_neg <- data %>%
     dplyr::filter(!!sym(fc) < 0 & !!sym(p_col) < p_thresh) %>%
-    dplyr::arrange(!!sym(p_col)) %>%
+    dplyr::arrange(!!sym(p_col))
+  
+  n_neg <- nrow(top_neg)
+    
+  top_neg <- top_neg %>%
     slice_head(n=20)
   
   data <- data %>%
@@ -26,15 +210,29 @@ plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suf
                   top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
                   top_lab  = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), Gene, ""))
   
+  # Max and min for annotation arrows
+  max_fc <- max(data[[fc]], na.rm = TRUE)
+  min_fc <- min(data[[fc]], na.rm = TRUE)
+  
+  # Get y-axis max for dynamic scaling
+  y_max <- max(-log10(data[[p_col]]), na.rm = TRUE) * 1.1
+  
+  
   p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
     geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
     geom_text_repel(aes(label = top_lab, color = top_color),
                     size = 3, max.overlaps = Inf,
                     force = 6, segment.alpha = 0.3, segment.size = 0.3) +
-    labs(title = paste(title_suffix),
+    labs(title = paste(title),
          x = paste(x_axis),
-         y = paste(y_axis)) +
+         y = paste(y_axis),
+         caption = if (!is.null(cell_type)) {
+           paste0("Formula: ~ ", formula, " + (1|subject)", 
+                  "\n\n Cell type: ", 
+                  cell_type, if(cell_type != "") " | " else "", 
+                  "Positive n = ", n_pos, " | Negative n = ", n_neg)
+         } else NULL) +
     scale_size_continuous(range = c(1, 1.3)) + 
     scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
     theme_minimal() +
@@ -42,7 +240,41 @@ plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suf
           panel.grid = element_blank(),
           text = element_text(size = 15),
           title = element_text(size = 9)) +
-    guides(color = "none", size = "none")
+    guides(color = "none", size = "none")  +
+    annotate("segment", 
+             x=max_fc/8, 
+             xend=(max_fc*7)/8, 
+             y=-y_max * 0.09,
+             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
+    annotate("text", 
+             x=mean(c(max_fc/8, (max_fc*7)/8)), 
+             y=-y_max * 0.14, 
+             label=positive_text,
+             size=3, color="#343a40") +
+    annotate("segment", 
+             x=min_fc/8, 
+             xend=(min_fc*7)/8, 
+             y=-y_max * 0.09,
+             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
+    annotate("text", 
+             x=mean(c(min_fc/8, (min_fc*7)/8)), 
+             y=-y_max * 0.14, 
+             label=negative_text,
+             size=3, color="#343a40") +
+    scale_y_continuous(expand=c(0,0)) +
+    coord_cartesian(ylim = c(0, y_max), clip="off") +
+    theme(legend.title = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = 9, family = "Arial"),
+          legend.position = legend_position,
+          legend.justification = if(is.character(legend_position) && legend_position == "bottom") c(0.5, 0) else c(1, 1),
+          legend.direction = "horizontal",
+          legend.spacing.x = unit(0.3, 'cm'),
+          plot.margin = margin(t = 10, r = 20, b = 25, l = 20),
+          axis.title.x = element_text(margin = margin(t = 32)),
+          plot.caption = element_text(size = 8.5, hjust = 0.5, margin = margin(t = 8), family = "Arial"),
+          legend.margin = margin(t = 5, b = 5))
+    
   
   ggsave(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/", file_suffix, ".jpeg"), plot = p, width = 7, height = 5)
   return(p)
@@ -147,6 +379,9 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix,
   max_fc <- max(clin_results[[fc]], na.rm = TRUE)
   min_fc <- min(clin_results[[fc]], na.rm = TRUE)
   
+  # Get y-axis max for dynamic scaling
+  y_max <- max(-log10(clin_results[[p_col]]), na.rm = TRUE) * 1.1
+  
   # Plot
   p <- ggplot(clin_results, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
@@ -171,38 +406,36 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix,
     annotate("segment", 
              x=max_fc/8, 
              xend=(max_fc*7)/8, 
-             y=-1.5,
+             y=-y_max * 0.09,
              col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
     annotate("text", 
              x=mean(c(max_fc/8, (max_fc*7)/8)), 
-             y=-2, 
+             y=-y_max * 0.14, 
              label=positive_text,
              size=3, color="#343a40") +
     annotate("segment", 
              x=min_fc/8, 
              xend=(min_fc*7)/8, 
-             y=-1.5,
+             y=-y_max * 0.09,
              col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
     annotate("text", 
              x=mean(c(min_fc/8, (min_fc*7)/8)), 
-             y=-2, 
+             y=-y_max * 0.14, 
              label=negative_text,
              size=3, color="#343a40") +
-    annotate("text", 
-             x=max_fc * 0.95,
-             y=-3.5, 
-             hjust = 1,
-             label=paste0("Formula: ~ ", formula, " + (1|subject)"),
-             size=3, color="#343a40") +
     scale_y_continuous(expand=c(0,0)) +
-    coord_cartesian(ylim = c(0, 15), clip="off") +
+    coord_cartesian(ylim = c(0, y_max), clip="off") +
     theme(legend.title = element_blank(),
           panel.grid = element_blank(),
-          text = element_text(size = 9),
+          text = element_text(size = 9, family = "Arial"),
           legend.position = legend_position,
-          legend.justification = c(1, 1),
-          plot.margin = margin(t = 10, r = 20, b = 28, l = 20),
-          axis.title.x = element_text(margin = margin(t = 32))) + 
+          legend.justification = if(is.character(legend_position) && legend_position == "bottom") c(0.5, 0) else c(1, 1),
+          legend.direction = "horizontal",
+          legend.spacing.x = unit(0.3, 'cm'),
+          plot.margin = margin(t = 10, r = 20, b = 25, l = 20),
+          axis.title.x = element_text(margin = margin(t = 28)),
+          plot.caption = element_text(size = 8.5, hjust = 0.5, margin = margin(t = 8), family = "Arial"),
+          legend.margin = margin(t = 5, b = 5)) + 
     guides(shape = "none")
   
   # Save
@@ -219,6 +452,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                                      x_axis, y_axis, file_suffix, p_thresh = 0.05,  treatment_results, treatment_p_col, 
                                      positive_text = "Positive with Dapagliflozin", 
                                      negative_text = "Negative with Dapagliflozin",
+                                     arrow_label = "",
                                      formula = "\u0394 treatment", color_by = "treatment_direction",
                                      legend_position = "top",
                                      clinical_direction = NULL,
@@ -336,6 +570,17 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                                 nrow = 1), 
            fill = "none",
            shape = "none") +
+    annotate("segment",
+             x = 0, xend = 0,
+             y = if(!is.null(clinical_direction) && clinical_direction == "+") y_max * 0.4 else y_max * 0.9, 
+             yend = if(!is.null(clinical_direction) && clinical_direction == "+") y_max * 0.9 else y_max * 0.4,
+             size = 10, linejoin = "mitre",
+             color = if(!is.null(clinical_direction) && clinical_direction == "+") "#f7c1bf" else "#a9c9dd", 
+             arrow = arrow(type = "closed")) +
+    annotate("text", x = 0, y = ((y_max*0.9 + y_max*0.4)/2),
+             label = arrow_label,
+             fontface = "bold",
+             color = if(!is.null(clinical_direction) && clinical_direction == "+") "#f28482" else "#457b9d") +
     geom_text_repel(aes(label = top_lab, color = color_var_plot),
                     size = 3, max.overlaps = Inf, force = 10,
                     segment.alpha = 0.5, segment.size = 0.4,
@@ -392,6 +637,256 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
   
   return(p)
 }
+
+
+
+
+
+create_gene_expression_plots <- function(main_results,
+                                         subtype_results_list,
+                                         cell_type_labels = NULL,
+                                         cell_type_order = NULL,
+                                         cell_type_prefix = "PT",
+                                         n_top_genes = 20,
+                                         output_dir = ".",
+                                         save_plots = TRUE,
+                                         output_prefix = cell_type_prefix,
+                                         logfc_col = "logFC_treatmentDapagliflozin:visitPOST",
+                                         fdr_col = "fdr_interaction",
+                                         volcano_pval_col = "fdr_interaction") {
+  
+  # Load required libraries
+  require(tidyverse)
+  require(ggtext)
+  require(patchwork)
+  
+  # Determine cell type labels
+  if (is.null(cell_type_labels)) {
+    # Use automatic labeling with prefix
+    cell_type_labels <- paste0(cell_type_prefix, "-", names(subtype_results_list))
+  } else {
+    # Validate that the number of labels matches the number of subtypes
+    if (length(cell_type_labels) != length(subtype_results_list)) {
+      stop("Length of cell_type_labels must match length of subtype_results_list")
+    }
+  }
+  
+  # Create a mapping between list names and labels
+  label_mapping <- setNames(cell_type_labels, names(subtype_results_list))
+  
+  # Determine cell type order
+  if (is.null(cell_type_order)) {
+    # Use reverse order of labels (for bottom to top display)
+    cell_type_order <- rev(cell_type_labels)
+  } else {
+    # Validate that all labels are included in the order
+    if (!all(cell_type_labels %in% cell_type_order) || !all(cell_type_order %in% cell_type_labels)) {
+      stop("cell_type_order must contain exactly the same labels as cell_type_labels")
+    }
+  }
+  
+  # Determine output prefix
+  if (is.null(output_prefix)) {
+    output_prefix <- ifelse(is.null(cell_type_labels), cell_type_prefix, "celltypes")
+  }
+  
+  # Select top positive genes
+  top_pos_genes <- main_results %>%
+    arrange(!!sym(fdr_col)) %>%
+    filter(!!sym(logfc_col) > 0) %>%
+    head(n_top_genes) %>%
+    pull(Gene)
+  
+  # Select top negative genes
+  top_neg_genes <- main_results %>%
+    arrange(!!sym(fdr_col)) %>%
+    filter(!!sym(logfc_col) < 0) %>%
+    head(n_top_genes) %>%
+    pull(Gene)
+  
+  # Create combined plot data
+  combined_plot_dat <- purrr::imap_dfr(subtype_results_list, function(res_df, subtype_key) {
+    label <- label_mapping[subtype_key]
+    make_plot_df(res_df, label, top_pos_genes, top_neg_genes)
+  })
+  
+  # Set factor levels for ordering
+  combined_plot_dat$celltype <- factor(combined_plot_dat$celltype, levels = cell_type_order)
+  combined_plot_dat$Gene <- factor(combined_plot_dat$Gene, levels = c(top_neg_genes, top_pos_genes))
+  
+  # Create color vector for x-axis labels
+  gene_levels <- levels(combined_plot_dat$Gene)
+  x_colors <- setNames(
+    c(rep("#457b9d", n_top_genes), rep("#f28482", n_top_genes)),
+    gene_levels
+  )
+  
+  # Create dot plot
+  dot_plot <- create_dot_plot(combined_plot_dat, x_colors, n_top_genes)
+  
+  # Create consistency score data
+  consistency_scores <- calculate_consistency_scores(combined_plot_dat, top_neg_genes, top_pos_genes, cell_type_labels)
+  
+  # Create bar plot
+  bar_plot <- create_bar_plot(consistency_scores)
+  
+  # Create volcano plot if requested
+  volcano_plot <- NULL
+  if (!is.null(volcano_pval_col)) {
+    volcano_plot <- plot_volcano(
+      main_results, 
+      logfc_col, 
+      volcano_pval_col,
+      title = NULL,
+      paste0("logFC ", gsub("logFC_", "", logfc_col)), 
+      "-log10(FDR adjusted p-value)",
+      paste0("nebula/", tolower(output_prefix), "_placebo_pvalue_nebula_reml_pooled"),
+      cell_type = output_prefix
+    )
+  }
+  
+  # Combine plots
+  if (!is.null(volcano_plot)) {
+    layout <- c(
+      area(1, 1, 1, 4),
+      area(2, 1, 5, 4),
+      area(1, 5, 5, 7)
+    )
+    combined_plot <- bar_plot + dot_plot + volcano_plot + plot_layout(design = layout)
+    
+    if (save_plots) {
+      output_path <- file.path(output_dir, paste0(output_prefix, "_subtypes_nebula_scores_volcano.jpeg"))
+      ggsave(output_path, width = 12, height = 7, plot = combined_plot)
+    }
+  }
+  
+  if (save_plots) {
+    layout <- c(
+      area(1, 1, 1, 1),
+      area(2, 1, 5, 1)
+    )
+    combined_plot <- bar_plot + dot_plot + plot_layout(design = layout)
+    
+    if (save_plots) {
+      output_path <- file.path(output_dir, paste0(output_prefix, "_subtypes_nebula_scores.jpeg"))
+      ggsave(output_path, width = 7, height = 5, plot = combined_plot)
+    }
+  }
+  
+  # Save individual plots if requested
+  if (save_plots) {
+    ggsave(file.path(output_dir, paste0(output_prefix, "_subtypes_nebula.jpeg")), 
+           width = 7, height = 5, plot = dot_plot)
+  }
+  
+  # Return all components
+  return(list(
+    dot_plot = dot_plot,
+    bar_plot = bar_plot,
+    volcano_plot = volcano_plot,
+    combined_plot = combined_plot,
+    top_pos_genes = top_pos_genes,
+    top_neg_genes = top_neg_genes,
+    consistency_scores = consistency_scores,
+    combined_plot_data = combined_plot_dat
+  ))
+}
+
+#' Create dot plot for gene expression
+create_dot_plot <- function(plot_data, x_colors, n_genes_per_direction) {
+  plot_data %>%
+    ggplot(aes(x = Gene, y = celltype, size = abs(logFC), color = direction)) +
+    annotate("rect", 
+             xmin = -Inf, 
+             xmax = 0.5 + length(unique(plot_data$Gene)) / 2, 
+             ymin = -Inf, 
+             ymax = Inf, 
+             fill = "#dceef5", 
+             alpha = 0.5) +  
+    annotate("rect", 
+             xmin = 0.5 + length(unique(plot_data$Gene)) / 2, 
+             xmax = Inf, 
+             ymin = -Inf, 
+             ymax = Inf, 
+             fill = "#f9dada", 
+             alpha = 0.5) +
+    geom_point() +
+    scale_color_manual(values = c("+" = "#f28482", "-" = "#457b9d")) +
+    scale_x_discrete(
+      guide = guide_axis(angle = 70), 
+      labels = function(x) {
+        mapply(function(label, col) {
+          glue::glue("<span style='color:{col}'>{label}</span>")
+        }, x, x_colors[x], SIMPLIFY = TRUE)
+      }
+    ) +
+    theme_bw() +
+    theme(
+      panel.grid = element_blank(),
+      axis.text.x = element_markdown(angle = 70, hjust = 1),
+      panel.border = element_blank(),
+      text = element_text(size = 10),
+      legend.key = element_rect(fill = NA),
+      legend.direction = "horizontal",
+      legend.box = "horizontal",
+      legend.position = c(0.5, .95),
+      legend.background = element_rect(fill = NA, color = NA),
+      legend.title = element_text(size = 8),
+      plot.margin = margin(t = 0, r = 5, b = 0, l = 5)
+    ) +
+    labs(x = NULL, y = NULL, color = "Direction")
+}
+
+#' Calculate consistency scores for genes
+calculate_consistency_scores <- function(plot_data, neg_genes, pos_genes, cell_type_labels) {
+  plot_data %>%
+    dplyr::select(Gene, celltype, direction) %>%
+    pivot_wider(names_from = celltype, values_from = direction) %>%
+    mutate(
+      score = case_when(
+        Gene %in% neg_genes ~ rowMeans(across(all_of(cell_type_labels), ~ .x == "-"), na.rm = TRUE),
+        Gene %in% pos_genes ~ rowMeans(across(all_of(cell_type_labels), ~ .x == "+"), na.rm = TRUE)
+      ),
+      direction = case_when(
+        Gene %in% neg_genes ~ "-",
+        Gene %in% pos_genes ~ "+"
+      )
+    )
+}
+
+#' Create bar plot for consistency scores
+create_bar_plot <- function(scores_data) {
+  scores_data %>%
+    ggplot(aes(x = Gene, y = score, fill = direction)) +
+    geom_col_rounded(width = 0.8) +
+    geom_text(
+      aes(label = Gene),
+      vjust = 0.5, 
+      hjust = 1.3,
+      size = 2,
+      angle = 90,
+      color = "white"
+    ) +
+    scale_fill_manual(values = c("+" = "#f28482", "-" = "#457b9d")) +
+    theme_bw() + 
+    theme(
+      panel.grid = element_blank(),
+      axis.ticks = element_blank(),
+      axis.text.x = element_blank(),
+      panel.border = element_blank(),
+      text = element_text(size = 10),
+      axis.text.y = element_text(size = 6),
+      axis.title.y = element_text(size = 8),
+      legend.position = "none",
+      legend.background = element_rect(fill = NA, color = NA),
+      plot.margin = margin(t = 5, r = 5, b = 0, l = 5)
+    ) +
+    labs(x = NULL, y = "Consistency score")
+}
+
+
+
+
 
 
 # ---- Pathway Plot Functions ----
@@ -614,15 +1109,17 @@ plot_fgsea_transpose <- function(fgsea_res,
 # ---- Summary Functions ----
 
 # ===========================================================================
-# Function: run_cell_type_analysis
+# Function: t1dhc_run_cell_type_analysis
 # ===========================================================================
 
 # Function to run complete analysis for a given cell type
-run_cell_type_analysis <- function(cell_type, 
+t1dhc_run_cell_type_analysis <- function(cell_type, 
                                    input_path, 
                                    input_suffix,
                                    output_base_path,
+                                   output_prefix,
                                    bg_path,
+                                   plot_title = "Volcano Plot",
                                    bucket = "attempt",
                                    region = "") {
   
@@ -636,46 +1133,48 @@ run_cell_type_analysis <- function(cell_type,
   input_file <- file.path(input_path, cell_type, "nebula", 
                           paste0(cell_type_lower, input_suffix))
   
-  croc_res <- s3readRDS(input_file, bucket = bucket, region = region)
+  res <- s3readRDS(input_file, bucket = bucket, region = region)
   
   # Check convergence
-  croc_res_convergence <- map_dfr(
-    names(croc_res),
+  res_convergence <- map_dfr(
+    names(res),
     function(gene_name) {
-      converged <- croc_res[[gene_name]]$convergence
+      converged <- res[[gene_name]]$convergence
       df <- data.frame(Gene = gene_name,
                        Convergence_Code = converged)
       return(df)
     }
   )
   
-  croc_res_converged <- croc_res_convergence %>%
+  res_converged <- res_convergence %>%
     filter(Convergence_Code >= -10)
   
   # Combine results
-  croc_res_combined <- map_dfr(
-    names(croc_res),
+  res_combined <- map_dfr(
+    names(res),
     function(gene_name) {
-      df <- croc_res[[gene_name]]$summary
+      df <- res[[gene_name]]$summary
       df <- df %>% 
-        filter(gene_name %in% croc_res_converged$Gene) %>%
+        filter(gene_name %in% res_converged$Gene) %>%
         mutate(Gene = gene_name)
       return(df)
     }
   )
   
   # Calculate FDR
-  croc_res_combined <- croc_res_combined %>%
+  res_combined <- res_combined %>%
     ungroup() %>%
     mutate(fdr_interaction = p.adjust(p_groupType_1_Diabetes, method = "fdr"))
   
+  res_combined <- subset(res_combined, abs(logFC_groupType_1_Diabetes) < 10)
   # Save results
+  
   output_csv <- file.path(output_base_path, "Results", "NEBULA", 
-                          paste0("CROC_", cell_type_lower, "_nebula_res.csv"))
-  write.csv(croc_res_combined, output_csv, row.names = FALSE)
+                          paste0(output_prefix, cell_type_lower, "_nebula_res.csv"))
+  write.csv(res_combined, output_csv, row.names = FALSE)
   
   # Add direction columns for visualization
-  croc_res_combined <- croc_res_combined %>%
+  res_combined <- res_combined %>%
     mutate(group_direction = case_when(
       p_groupType_1_Diabetes < 0.05 & logFC_groupType_1_Diabetes > 0 ~ "Positive",
       p_groupType_1_Diabetes < 0.05 & logFC_groupType_1_Diabetes < 0 ~ "Negative",
@@ -688,38 +1187,42 @@ run_cell_type_analysis <- function(cell_type,
     ))
   
   # Create volcano plots
-  plot_volcano(croc_res_combined, 
+  plot_volcano(res_combined, 
                "logFC_groupType_1_Diabetes", 
                "p_groupType_1_Diabetes",
-               paste(cell_type, "Volcano Plot"), 
+               NULL,
                "logFC group", 
                "-log10(p-value)",
-               file.path("nebula", paste0("croc_", cell_type_lower, "_deg")),
+               file.path(output_base_path, "Results", "Figures", "Volcano", "nebula",
+                         paste0(output_prefix, cell_type_lower, "_deg")),
                formula = "group",
                positive_text = "Upregulated in T1D compared to LC",
-               negative_text = "Downregulated in T1D compared to LC")
+               negative_text = "Downregulated in T1D compared to LC",
+               cell_type = cell_type)
   
-  plot_volcano(croc_res_combined, 
+  plot_volcano(res_combined, 
                "logFC_groupType_1_Diabetes", 
                "fdr_interaction",
-               paste(cell_type, "Volcano Plot (FDR)"), 
+               NULL,
                "logFC group", 
                "-log10(FDR adjusted p-value)",
-               file.path("nebula", paste0("croc_", cell_type_lower, "_deg_fdr")),
+               file.path(output_base_path, "Results", "Figures", "Volcano", "nebula",
+                         paste0(output_prefix, cell_type_lower, "_deg_fdr")),
                formula = "group",
                positive_text = "Upregulated in T1D compared to LC",
-               negative_text = "Downregulated in T1D compared to LC")
+               negative_text = "Downregulated in T1D compared to LC",
+               cell_type = cell_type)
   
   # GSEA Analysis
   # Load pathway files
   gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-  kegg_legacy <- prepare_gmt(gmt_files[1], unique(croc_res_combined$Gene), savefile = FALSE)
-  reactome <- prepare_gmt(gmt_files[3], unique(croc_res_combined$Gene), savefile = FALSE)
-  go <- prepare_gmt(gmt_files[4], unique(croc_res_combined$Gene), savefile = FALSE)
+  kegg_legacy <- prepare_gmt(gmt_files[1], unique(res_combined$Gene), savefile = FALSE)
+  reactome <- prepare_gmt(gmt_files[3], unique(res_combined$Gene), savefile = FALSE)
+  go <- prepare_gmt(gmt_files[4], unique(res_combined$Gene), savefile = FALSE)
   
   # Rank genes by logFC
-  rankings <- croc_res_combined$logFC_groupType_1_Diabetes
-  names(rankings) <- croc_res_combined$Gene
+  rankings <- res_combined$logFC_groupType_1_Diabetes
+  names(rankings) <- res_combined$Gene
   rankings <- sort(rankings, decreasing = TRUE)
   
   # Run GSEA
@@ -764,7 +1267,7 @@ run_cell_type_analysis <- function(cell_type,
                        xmin = 1, xmax = 3)
   
   ggsave(file.path(output_base_path, "Results", "Figures", "Pathways", "nebula",
-                   paste0("croc_", cell_type_lower, "_res_top30_kegg_pathways.jpeg")),
+                   paste0(output_prefix, cell_type_lower, "_res_top30_kegg_pathways.jpeg")),
          width = 27.5, height = 14, scale = 1)
   
   # REACTOME
@@ -773,7 +1276,7 @@ run_cell_type_analysis <- function(cell_type,
                        xmin = 1.45, xmax = 2.6)
   
   ggsave(file.path(output_base_path, "Results", "Figures", "Pathways", "nebula",
-                   paste0("croc_", cell_type_lower, "_res_top30_reactome_pathways.jpeg")),
+                   paste0(output_prefix, cell_type_lower, "_res_top30_reactome_pathways.jpeg")),
          width = 27.5, height = 14, scale = 1)
   
   # GO
@@ -782,12 +1285,12 @@ run_cell_type_analysis <- function(cell_type,
                        xmin = 1.4, xmax = 5)
   
   ggsave(file.path(output_base_path, "Results", "Figures", "Pathways", "nebula",
-                   paste0("croc_", cell_type_lower, "_res_top30_go_pathways.jpeg")),
+                   paste0(output_prefix, cell_type_lower, "_res_top30_go_pathways.jpeg")),
          width = 27.5, height = 14, scale = 1)
   
   # Return results
   return(list(
-    nebula_results = croc_res_combined,
+    nebula_results = res_combined,
     fgsea_summary = fgsea_summary,
     kegg_results = kegg_legacy_res,
     reactome_results = reactome_res,
