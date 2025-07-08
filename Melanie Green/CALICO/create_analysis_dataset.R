@@ -3,7 +3,7 @@ library(tidyverse)
 library(Hmisc)
 home_dir <- switch(Sys.info()["sysname"],
   "Darwin" = "/Users/tim/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
-  "Linux" = "/home/timvigers/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO",
+  "Linux" = "/home/tim/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO",
   "Windows" = "C:/Users/Tim/OneDrive - The University of Colorado Denver/Vigers/BDC/Janet Snell-Bergeon/CALICO"
 )
 setwd(home_dir)
