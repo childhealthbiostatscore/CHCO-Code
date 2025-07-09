@@ -39,14 +39,14 @@ options(scipen=999)
 
 ```{r load-data, echo = F, include = F}
 # Load dictionary function and file
-source("/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
-source("/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+source("/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+source("/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 ```
 
 ```{r prep-data, echo = F, include = F}
 # Load clinical data
-harm_dat <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
-exclude <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
+harm_dat <- read.csv("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
+exclude <- read.csv("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
 
 dat <- harm_dat %>% filter(study == "PANTHER" & procedure == "ivgtt" & visit %in% c("baseline", "screening")) %>%
   mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
@@ -184,6 +184,21 @@ mixed <- function(data, outcome, grouping_var){
   return(list(anova,m,prs))
 }
 
+plot_mixed_group_risk <- function(mixed_output, data, ylab) {
+  emmeans_result <- mixed_output[[2]]
+  emmeans_result <- as.data.frame(emmeans_result)
+  emmeans_result$group <- ifelse(emmeans_result$group_risk == "High", "High", "Low")
+  # Create line plot
+  p <-  ggplot(emmeans_result, aes(x = time, y = emmean, color = group, group = group, 
+                                  line = group)) +
+    geom_line() +
+    geom_point() +
+    labs(x = "Time", y = ylab, color = "group") +
+    theme_bw() + 
+    #geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL), linetype = 1, alpha = 0.1) +
+    theme(legend.title=element_blank())
+}
+
 ```
 
 # Questions/comments
@@ -199,6 +214,7 @@ mixed <- function(data, outcome, grouping_var){
 
 ```{r echo=FALSE}
 mod <- mixed(data = insulin_long, outcome = "insulin", grouping_var = "group_risk")
+plot_mixed(mixed_output = mod, data = insulin_long, ylab = "Insulin")
 ```
 
 #### ANOVA table
