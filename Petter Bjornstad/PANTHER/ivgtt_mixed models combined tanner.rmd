@@ -1,0 +1,347 @@
+---
+title: "PANTHER - IVGTT mixed models"
+author: "Laura Pyle"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+---
+
+```{r libraries, echo=F, include = F}
+library(SomaDataIO)
+library(tidyverse)
+library(growthcleanr)
+library(arsenal)
+library(dplyr)
+library(naniar)
+library(ggplot2)
+library(ggrepel)
+library(ggpubr)
+library(pedbp)
+library(psych)
+library(EnhancedVolcano)
+library(gt)
+library(SomaPlotr)
+library(readxl)
+library(limma)
+library(glue)
+library(purrr)
+library(stringr)
+library(nlme)
+library(emmeans)
+
+options(scipen=999)
+```
+
+```{r load-data, echo = F, include = F}
+# Load dictionary function and file
+source("/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
+source("/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+```
+
+```{r prep-data, echo = F, include = F}
+# Load clinical data
+harm_dat <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
+exclude <- read.csv("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
+
+dat <- harm_dat %>% filter(study == "PANTHER" & procedure == "ivgtt" & visit %in% c("baseline", "screening")) %>%
+  mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
+         mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
+  filter(record_id %nin% exclude) 
+
+# PANTHER protocol does not include 0 timepoint - will not include any data prior to this timepoint
+
+# keep only the variables we need
+matching_cols_cpep <- names(dat)[startsWith(names(dat), "cpep_")]
+matching_cols_cpep <- matching_cols_cpep[1:29]
+matching_cols_ins <- names(dat)[startsWith(names(dat), "insulin")]
+matching_cols_ins <- matching_cols_ins[1:33]
+matching_cols_ins <- matching_cols_ins[-1]
+matching_cols_ins <- matching_cols_ins[-12]
+matching_cols_ins <- matching_cols_ins[-20]
+matching_cols_ins <- matching_cols_ins[-28]
+matching_cols_glu <- names(dat)[startsWith(names(dat), "gluc_")]
+matching_cols_glu <- matching_cols_glu[1:29]
+dat_keep <- dat %>% select(mrn, visit, record_id, matching_cols_cpep, matching_cols_ins, matching_cols_glu)
+
+# need to compare by risk groups and Tanner stage so need to pull from harmonized data
+temp <- harm_dat %>% filter(study == "PANTHER" & visit %in% c("baseline", "screening")) %>%
+   mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
+          mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
+   filter(record_id %nin% exclude) 
+preds <- temp %>% 
+   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                    .by = c(mrn, visit)) %>%
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
+                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                              race == "Black or African American" &
+                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                              ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                              T ~ "Not Hispanic (or Latino Other"),
+         tanner_stage_comp = coalesce(tan_fgd, tan_fph, tan_tveq, tan_mgd, tan_mph, breast_tanner),
+         tanner_stage_comp_panther = case_when(tanner_stage_comp > 3 ~ 4, T~ tanner_stage_comp),
+         tanner_stage_cat = case_when(tanner_stage_comp <3 ~ "I_II",
+                                      tanner_stage_comp >=3 ~ "III_V"),
+         tanner_stage_cat_2 = case_when(tanner_stage_comp == 1 ~ "I",
+                                        tanner_stage_comp <4 ~ "II_III",
+                                        tanner_stage_comp >=4 ~ "IV_V"),
+         tanner_stage_cat_3 = case_when(tanner_stage_comp < 2 ~ "I_II",
+                                        tanner_stage_comp == 3 ~ "III",
+                                        tanner_stage_comp >= 4 ~ "IV_V"),
+         tanner_stage_comp_panther_cat =
+                  case_when(tanner_stage_comp_panther == 4 ~ "4 & 5",
+                            T ~ as.character(tanner_stage_comp_panther)),
+         age_mo = (age * 12),
+         sex = case_when(sex == "Male" ~ "male",
+                         sex == "Female" ~ "female"),
+         male_ind = case_when(sex == "male" ~ 1, sex == "female" ~ 0),
+         combined_tkv = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual),
+         combined_ht_tkv = coalesce(ht_adj_tkv, ht_adj_tkv_manual),
+         log_tot_test = log(tot_test),
+         log_free_test = log(free_test),
+         log_lh = log(lh),
+         log_estrad = log(estrad),
+         log_acr_u = log(acr_u),
+         avg_c_adc_tkv = avg_c_adc/combined_tkv,
+         avg_c_r2_tkv = avg_c_r2/combined_tkv,
+         avg_pcascl_tkv = avg_pcascl/combined_tkv,
+         avg_c_t1_tkv = avg_c_t1/combined_tkv,
+         mm_airg = case_when(mm_airg > 0 ~ mm_airg),
+         mm_bcell = case_when(mm_bcell > 0 ~ mm_bcell),
+         mm_di = case_when(mm_di > 0 & mm_di < 10000 ~ mm_di),
+         mm_ir = case_when(mm_ir > 0 ~ mm_ir),
+         mm_si = case_when(mm_si > 0 & mm_si < 500 ~ mm_si),
+         birthweight = gsub(" kg", "", birthweight),
+         birthweight = as.numeric(birthweight),
+         glp1_agonist_timepoint = case_when(is.na(glp1_agonist_timepoint) ~ "No", T ~ glp1_agonist_timepoint),
+         uacr_cat = case_when(acr_u <= 10 ~ "UACR [0, 10]",
+                              acr_u <= 20 ~ "UACR (10, 20]",
+                              acr_u <= 30 ~ "UACR (20, 30]",
+                              acr_u > 30 ~ "UACR > 30")) %>%
+  arrange(record_id) %>%
+  # filter(!is.na(dexa_body_fat)) %>% # filter based on DEXA (to filter those who may just be screen fails)
+  filter(!is.na(male_ind)) %>%
+  filter(record_id %nin% c("PAN_205_O", "PAN_209_O", "PAN_210_O")) # awaiting study visit
+preds$tanner_stage_comp <- as.factor(preds$tanner_stage_comp)
+bp_percentile = p_bp(q_sbp = preds$sbp, q_dbp = preds$dbp, age = preds$age_mo, male = preds$male_ind)
+preds$sbp_p <- bp_percentile$sbp_p
+preds$dbp_p <- bp_percentile$dbp_p
+bmi_percentile = ext_bmiz(data = subset(preds,
+                                        select = c("record_id", "sex", "age_mo", "weight", "height", "bmi")),
+                          age = "age_mo",
+                          wt = "weight",
+                          ht = "height",
+                          bmi = "bmi",
+                          adjust.integer.age = F) %>%
+  dplyr:: select(record_id, bmip, bmiz) %>%
+  filter(!is.na(bmip))
+preds <- left_join(preds, bmi_percentile, by = "record_id") %>%
+  dplyr::mutate(group_risk = case_when(bmip >= 95 | hba1c >=6 | group == "Type 2 Diabetes" ~ "High",
+                                       T ~ "Low"),
+                sex_group_risk = case_when(sex == "male" & group_risk == "High" ~ "M, High",
+                                           sex == "male" & group_risk == "Low" ~ "M, Low",
+                                           sex == "female" & group_risk == "High" ~ "F, High",
+                                           sex == "female" & group_risk == "Low" ~ "F, Low"))
+preds_keep <- preds[,c("record_id", "visit", "tanner_stage_comp", "sex", "sex_group_risk", "group_risk")]
+
+final_dat <- left_join(dat_keep, preds_keep, by = c("record_id", "visit"))
+final_dat$tanner_combined <- as.factor(ifelse(final_dat$tanner_stage_comp %in% c(4,5), "4/5", final_dat$tanner_stage_comp))
+
+# reshape
+ins_temp <- final_dat[,c("mrn", "group_risk", "tanner_combined", matching_cols_ins)]
+insulin_long <- reshape(ins_temp, direction = "long", varying = matching_cols_ins, 
+                          v.names = "insulin",times = c(2,3,4,5,6,8,10,12,14,16,19,22,23,24,25,27,30,35,40,50,60,70,80,90,100,120,140,160,180),
+                          idvar = c("mrn","group_risk","tanner_combined"))
+insulin_long <- insulin_long %>% arrange(mrn,time)
+
+glu_temp <- final_dat[,c("mrn", "group_risk", "tanner_combined", matching_cols_glu)]
+glucose_long <- reshape(glu_temp, direction = "long", varying = matching_cols_glu, 
+                          v.names = "glucose",times = c(2,3,4,5,6,8,10,12,14,16,19,22,23,24,25,27,30,35,40,50,60,70,80,90,100,120,140,160,180),
+                          idvar = c("mrn","group_risk","tanner_combined"))
+glucose_long <- glucose_long %>% arrange(mrn,time)
+
+cpep_temp <- final_dat[,c("mrn", "group_risk", "tanner_combined", matching_cols_cpep)]
+cpep_long <- reshape(cpep_temp, direction = "long", varying = matching_cols_cpep, 
+                          v.names = "Cpeptide",times = c(2,3,4,5,6,8,10,12,14,16,19,22,23,24,25,27,30,35,40,50,60,70,80,90,100,120,140,160,180),
+                          idvar = c("mrn","group_risk","tanner_combined"))
+cpep_long <- cpep_long %>% arrange(mrn,time)
+```
+
+
+```{r echo=FALSE, include=FALSE}
+mixed <- function(data, outcome, grouping_var){
+  data <- as.data.frame(data)
+  data$time <- as.factor(data$time)
+  form = as.formula(paste0(outcome,"~ ", grouping_var, "*time"))
+  mod <- lme(as.formula(form),random=~1|mrn,data = data,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
+  anova <- anova.lme(mod, type="marginal")
+  m <- emmeans(mod,c(grouping_var,"time"))
+  prs <-  pairs(m,adjust="tukey",by="time")
+  return(list(anova,m,prs))
+}
+
+```
+
+# Questions/comments
+
+1) Original IVGTT code read in two data files - the harmonized data and a lab data csv file. I checked MRN and visit dates and it seemed like all the data in the csv were contained in the harmonized data, so I didn't merge it in.
+2) PANTHER protocol says that first time point for IVGTT is 2 minutes. There are data in the insulin_minus_15 and gluc_minus_15 variables, but I did not include them in analysis because there were no corresponding data for C-peptide.
+3) There was only 1 participant in Tanner stage 5 at baseline, so Tanner 4 and 5 were combined for analysis.
+4) Tukey's HSD procedure was used to account for multiple testing during the comparison of groups at each time point.
+
+# Results
+
+## Insulin
+
+### By risk group
+
+```{r echo=FALSE}
+mod <- mixed(data = insulin_long, outcome = "insulin", grouping_var = "group_risk")
+```
+
+#### ANOVA table
+
+```{r echo=FALSE}
+kable(mod[[1]])
+```
+
+#### Estimated marginal means
+
+```{r echo=FALSE}
+kable(mod[[2]])
+```
+
+#### Pairwise comparisons
+
+```{r echo=FALSE}
+kable(mod[[3]])
+```
+
+### By Tanner stage
+
+```{r echo=FALSE}
+mod <- mixed(data = insulin_long, outcome = "insulin", grouping_var = "tanner_combined")
+```
+
+#### ANOVA table
+
+```{r echo=FALSE}
+kable(mod[[1]])
+```
+
+#### Estimated marginal means
+
+```{r echo=FALSE}
+kable(mod[[2]])
+```
+
+#### Pairwise comparisons
+
+```{r echo=FALSE}
+kable(mod[[3]])
+```
+
+## Glucose
+
+### By risk group
+
+```{r echo=FALSE}
+mod <- mixed(data = glucose_long, outcome = "glucose", grouping_var = "group_risk")
+```
+
+#### ANOVA table
+
+```{r echo=FALSE}
+kable(mod[[1]])
+```
+
+#### Estimated marginal means
+
+```{r echo=FALSE}
+kable(mod[[2]])
+```
+
+#### Pairwise comparisons
+
+```{r echo=FALSE}
+kable(mod[[3]])
+```
+
+### By Tanner stage
+
+```{r echo=FALSE}
+mod <- mixed(data = glucose_long, outcome = "glucose", grouping_var = "tanner_combined")
+```
+
+#### ANOVA table
+
+```{r echo=FALSE}
+kable(mod[[1]])
+```
+
+#### Estimated marginal means
+
+```{r echo=FALSE}
+kable(mod[[2]])
+```
+
+#### Pairwise comparisons
+
+```{r echo=FALSE}
+kable(mod[[3]])
+```
+
+## C-peptide
+
+### By risk group
+
+```{r echo=FALSE}
+mod <- mixed(data = cpep_long, outcome = "Cpeptide", grouping_var = "group_risk")
+```
+
+#### ANOVA table
+
+```{r echo=FALSE}
+kable(mod[[1]])
+```
+
+#### Estimated marginal means
+
+```{r echo=FALSE}
+kable(mod[[2]])
+```
+
+#### Pairwise comparisons
+
+```{r echo=FALSE}
+kable(mod[[3]])
+```
+
+### By Tanner stage
+
+```{r echo=FALSE}
+mod <- mixed(data = cpep_long, outcome = "Cpeptide", grouping_var = "tanner_combined")
+```
+
+#### ANOVA table
+
+```{r echo=FALSE}
+kable(mod[[1]])
+```
+
+#### Estimated marginal means
+
+```{r echo=FALSE}
+kable(mod[[2]])
+```
+
+#### Pairwise comparisons
+
+```{r echo=FALSE}
+kable(mod[[3]])
+```
