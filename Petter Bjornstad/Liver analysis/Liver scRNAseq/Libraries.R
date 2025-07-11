@@ -129,4 +129,10 @@ library(BiocParallel)
 # library(SingleCellExperiment)
 # library(ggplot2)
 # library(dplyr)
+# Install BiocManager if you haven't already
+# if (!require("BiocManager", quietly = TRUE))
+#   install.packages("BiocManager")
+# Install the Bioconductor dependencies
+# BiocManager::install(c("Biobase", "BiocNeighbors", "BiocGenerics", "ComplexHeatmap"))
+# devtools::install_github("sqjin/CellChat")
 library(CellChat)

@@ -36,6 +36,8 @@ source("Liver_functions.R")
 knitr::opts_knit$set(root.dir = dir.results)
 ```
 
+
+# 2. Pre-Processing & Qualtiy Control
 ## a. Hyak Data Load
 ```{r, Cyberduck setup}
 # knitr::opts_knit$set(root.dir = dir.results)
@@ -72,7 +74,6 @@ bucket <- "scrna" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
 s3$download_file(bucket, "Liver transcriptomics/Single nucleus RNA seq/NoRef_PetterLiver_ClinData_Labels_Char_041924.rds", temp_file)
 so_liver_sn <- readRDS(temp_file)
-# so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
 
 DefaultAssay(so_liver_sn) <- "RNA"
 dim(so_liver_sn)#36601 130124
@@ -81,17 +82,13 @@ ncol(so_liver_sn) # 130,124 nuceli
 invisible(gc())
 ```
 
-# 2. Pre-Processing & Qualtiy Control
-## a. Load Seurat Object snRNA
+## b. Local Load Seurat Object snRNA
 ```{r, include = F, fig.height=7,fig.width=10}
 # Liver snRNA data processing
 invisible(gc())
 #Local
-# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
-# so_liver_sn <- readRDS(fs::path(dir.dat,"scRNA","data_raw","NoRef_PetterLiver_ClinData_Labels_Char_041924.RDS"))
-so_liver_sn <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA/data_raw/NoRef_PetterLiver_ClinData_Labels_Char_041924.RDS")
-# #Lambda
-# so_liver_sn <- readRDS(fs::path(dir.dat,"scRNA","data_raw","NoRef_PetterLiver_ClinData_Labels_Char_041924.RDS"))
+so_liver_sn <- readRDS(fs::path(dir.dat,"scRNA","data_raw","NoRef_PetterLiver_ClinData_Labels_Char_041924.RDS"))
+
 DefaultAssay(so_liver_sn) <- "RNA"
 dim(so_liver_sn)#36601 130124
 nrow(so_liver_sn) #36,601 genes
@@ -102,38 +99,20 @@ invisible(gc())
 ## b. Load MetaData, Clean and Merge
 ```{r}
 #Local
-# meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
-# meta_liver_raw <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA/data_clean/liver_biopsy_metadata_PN.csv")
+meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
 
 #Hyak
-gc()
-bucket <- "scrna" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
-meta_liver_raw <- read.csv(temp_file)
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+# s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
+# meta_liver_raw <- read.csv(temp_file)
 
 unique(meta_liver_raw$Kit_Lot)
 unique(meta_liver_raw$StudyID)
 meta_liver_raw <- meta_liver_raw %>%
   filter(StudyID!="IT2D-18") %>%
   filter(StudyID!="IT2D-16")
-
-# meta_liver_raw <- meta_liver_raw %>%
-#   mutate(both=ifelse(diagnosis_of_diabetes=="Yes" & glp1agonist=="Yes" & sglt2=="Yes","Yes","No")) %>% 
-#   mutate(sglt2_exclusive=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="Yes" & glp1agonist=="No","Yes","No")) %>% 
-#   mutate(glp1_exclusive=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="No" & glp1agonist=="Yes","Yes","No")) %>% 
-#   mutate(either=ifelse(glp1agonist=="Yes" | sglt2=="Yes","Yes","No")) %>%
-#   mutate(neither=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="No" & glp1agonist=="No","Yes","No")) %>%
-#   mutate(hc=ifelse(diagnosis_of_diabetes=="No","Yes","No"))
-# meta_liver_raw <- meta_liver_raw %>%
-#   mutate(group2=case_when(both == "Yes" ~ "glp1_and_sglt2",
-#                           sglt2_exclusive == "Yes" ~ "sglt2_exclusive",
-#                           glp1_exclusive == "Yes" ~ "glp1_exclusive",
-#                           either == "Yes" ~ "glp1_or_sglt2",
-#                           neither == "Yes" ~ "no_med",
-#                           hc == "Yes" ~ "obese_control"))
-# meta_liver_raw <- meta_liver_raw %>%
-#   mutate(group3=ifelse(either=="Yes","either","neither"))
 
 #Create Liver Status Variables
 meta_liver_raw <- meta_liver_raw %>%
@@ -180,15 +159,7 @@ so_oro <- so_liver_sn
 
 # Step 2: Remove mitochondrial genes (those starting with "MT")
 mito_genes <- grep("^MT-", rownames(so_liver_sn), value = TRUE)
-#keep_ids <- unique(rownames(so_liver_sn)[which(!rownames(so_liver_sn) %in% mito_genes)])
-# so_liver_sn <- subset(so_liver_sn, features = setdiff(rownames(so_liver_sn), mito_genes))
-# so_liver_sn <- subset(so_liver_sn,kit_id!="KL-0029535")
-#so_liver_sn$Gene <- rownames(so_liver_sn)
-#so_liver_sn <- subset(so_liver_sn, Gene %in% keep_ids)
 so_liver_sn <- subset(so_liver_sn, features = setdiff(rownames(so_liver_sn@assays$RNA@counts), mito_genes))
-#so_liver_sn <- subset(so_liver_sn, features = setdiff(rownames(so_liver_sn@assays$RNA@counts), mito_genes))
-# so_liver_sn <- subset(so_liver_sn, !rownames(so_liver_sn) %in% mito_genes)
-# grep("^MT-", rownames(so_liver_sn@assays$RNA@counts), value = TRUE)
 dim(so_liver_sn@assays$RNA@counts) #9276 186125
 dim(so_liver_sn@assays$RNA@data) #9276 186125
 dim(so_liver_sn@assays$RNA)#9276 186125
@@ -224,40 +195,6 @@ length(which(rownames(so_oro) %in% ribo_genes)) #0
 ncol(so_oro) #130,124 cells
 nrow(so_oro) #11237 genes
 
-
-# # Identify mitochondrial genes
-# mt_genes <- grepl("^MT", rownames(so_liver_sn@assays$RNA@counts))
-# 
-# # Calculate the percentage of mitochondrial genes per cell
-# mt_percentage <- Matrix::colSums(so_liver_sn@assays$RNA@counts[mt_genes, ]) / Matrix::colSums(so_liver_sn@assays$RNA@counts)
-# 
-# # Filter out cells where the proportion of mitochondrial genes is > 15%
-# cells_to_keep <- mt_percentage <= 0.15
-# 
-# # Subset the object to retain only cells with <= 15% mitochondrial genes
-# so_liver_sn <- so_liver_sn[, cells_to_keep]
-
-
-
-# # Check dimensions after filtering
-# dim(so_liver_sn@assays$RNA@counts) #9276 81882
-# dim(so_liver_sn@assays$RNA)#9276 81882
-# dim(so_liver_sn)#9276 81882
-# 
-# # Optionally, you can also check how many MT genes remain in the filtered dataset
-# sum(grepl("^MT-", rownames(so_liver_sn@assays$RNA@counts)))
-# ncol(so_liver_sn)  # Number of cells remaining
-# 
-# # Step 3: Renormalize the Seurat object after filtering
-# so_liver_sn <- NormalizeData(so_liver_sn)
-# 
-# #Check normalized slot
-# dim(so_liver_sn@assays$RNA@data) #5714 186125
-# sum(grepl("^MT", rownames(so_liver_sn@assays$RNA@data))) #70
-# ncol(so_liver_sn) #186125 cells
-# nrow(so_liver_sn) #5714 genes
-# 
-# rm(gene_expression_matrix)
 so_liver_sn <- NormalizeData(so_liver_sn)
 so_liver_sn <- ScaleData(so_liver_sn, features = VariableFeatures(so_liver_sn))
 
@@ -303,29 +240,21 @@ so_oro$library_size <- library_size
 # so_liver_sn$tmm_offset <- tmm_offset
 
 # Pooled offset
-# bp <- MulticoreParam(workers = 59)
+bp <- MulticoreParam(workers = 59)
 # bp <- SnowParam(workers = 59,
 #                 packages = c("scran", "SingleCellExperiment", "stats", "Matrix"))
 # future::plan("sequential")
-# sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-# # sce <- computeSumFactors(sce)
-# # sce <- computeSumFactors(sce, BPPARAM = bp)
-# sce <- computeSumFactors(sce)
-# # View size factors
-# # sizeFactors(sce)
-# # STEP 3: Calculate offset → log(size factors)
-# pooled_offset <- sizeFactors(sce)
-# so_liver_sn$pooled_offset <- pooled_offset
-# hist(so_liver_sn$pooled_offset)
-#Oro
-future::plan("sequential")
+counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts"))
 sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-# sce <- computeSumFactors(sce)
-# sce <- computeSumFactors(sce, BPPARAM = bp)
-sce <- computeSumFactors(sce)
-# View size factors
-# sizeFactors(sce)
-# STEP 3: Calculate offset → log(size factors)
+sce <- computeSumFactors(sce, BPPARAM = bp)
+pooled_offset <- sizeFactors(sce)
+so_liver_sn$pooled_offset <- pooled_offset
+hist(so_liver_sn$pooled_offset)
+
+#Oro
+counts_layer <- round(GetAssayData(so_oro, layer = "counts"))
+sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce, BPPARAM = bp)
 pooled_offset <- sizeFactors(sce)
 so_oro$pooled_offset <- pooled_offset
 hist(so_oro$pooled_offset)
@@ -13703,6 +13632,7 @@ cellchat <- aggregateNet(cellchat)
 cellchat@netP$pathways
 
 ```
+
 ```{r echo = F}
 # Chord diagram
 # Create an output folder
@@ -13910,4 +13840,142 @@ netVisual_aggregate(
 
 ```
 
+#Cell Chat by Group
+```{r}
+# Assuming you have a steatosis grouping variable in your metadata
+so_Hep <- subset(so_liver_sn,celltype2=="Hep")
+DefaultAssay(so_Hep) <- "RNA" 
+colnames(so_Hep@meta.data)
+
+# Split by steatosis level (adjust the column name as needed)
+Hep_high <- subset(so_Hep, subset = steatosis_cat == "High Steatosis (2+3)")  # or whatever your high steatosis identifier is
+Hep_low  <- subset(so_Hep, subset = steatosis_cat == "Low Steatosis (0+1)")   # or whatever your low steatosis identifier is
+
+# Filter by cell type size for each group
+Hep_high <- filter_by_celltype_size(Hep_high, min_cells = 30)  # Lower threshold since you're splitting data
+Hep_low  <- filter_by_celltype_size(Hep_low, min_cells = 30)
+
+# Fix factor levels
+Hep_high$celltype <- droplevels(factor(Hep_high$celltype))
+Hep_low$celltype  <- droplevels(factor(Hep_low$celltype))
+
+# Run CellChat on both groups
+cellchats <- list(
+  Hep_high = run_cellchat_pipeline(Hep_high, "Hep_high"),
+  Hep_low  = run_cellchat_pipeline(Hep_low,  "Hep_low")
+)
+
+# Merge CellChat objects for comparison
+cellchat_merged <- mergeCellChat(cellchats, add.names = names(cellchats))
+
+# Compare the total number of interactions
+compareInteractions(cellchat_merged, show.legend = F, group = c(1,2))
+
+# Compare the total interaction strength
+compareInteractions(cellchat_merged, show.legend = F, group = c(1,2), measure = "weight")
+
+# Compare the number of interactions by cell type
+netVisual_diffInteraction(cellchat_merged, weight.scale = T)
+
+# Compare the interaction strength by cell type
+netVisual_diffInteraction(cellchat_merged, weight.scale = T, measure = "weight")
+
+# Get group sizes for each condition
+groupSize_high <- get_group_size(cellchats[['Hep_high']])
+groupSize_low  <- get_group_size(cellchats[['Hep_low']])
+
+
+# Get all pathways from both conditions
+pathways_high <- cellchats[['Hep_high']]@netP$pathways
+pathways_low  <- cellchats[['Hep_low']]@netP$pathways
+
+# Get union of all pathways and sort them (alphabetical order)
+all_pathways <- sort(union(pathways_high, pathways_low))
+
+# Alternative: Order by total strength across both conditions
+# pathway_strength <- rankNet(cellchat_merged, mode = "comparison")
+# all_pathways <- pathway_strength$pathway[order(pathway_strength$total)]
+
+# High steatosis interactions with ordered pathways
+a <- netVisual_bubble(cellchats[['Hep_high']], 
+                 sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                 targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                 # signaling = all_pathways,  # This orders the pathways
+                 remove.isolate = FALSE,
+                 title.name = "High Steatosis - Cell Communication")
+
+# Low steatosis interactions with same pathway order
+b <- netVisual_bubble(cellchats[['Hep_low']], 
+                 sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                 targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                 signaling = all_pathways,  # Same order as above
+                 remove.isolate = FALSE,
+                 title.name = "Low Steatosis - Cell Communication")
+
+# ggarrange(a, b, heights = c(1, 1.5), ncol = 2)
+# Use the merged object for direct comparison
+cellchat_merged <- mergeCellChat(cellchats, add.names = names(cellchats))
+
+# This will show both conditions with consistent ordering
+c <- netVisual_bubble(cellchat_merged, 
+                 sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                 targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                 comparison = c(1, 2),  # Compare group 1 vs group 2
+                 remove.isolate = FALSE)
+
+# Create comparison plots
+pdf(fs::path(dir.results,"steatosis_comparison_bubble.pdf"), width = 8, height = 8)
+plot(a)
+plot(b)
+plot(c)
+dev.off()
+
+# Find pathways that differ between conditions
+pathways_high <- cellchats[['Hep_high']]@netP$pathways
+pathways_low  <- cellchats[['Hep_low']]@netP$pathways
+
+# Pathways specific to high steatosis
+high_specific <- setdiff(pathways_high, pathways_low)
+print("High steatosis specific pathways:")
+print(high_specific)
+
+# Pathways specific to low steatosis
+low_specific <- setdiff(pathways_low, pathways_high)
+print("Low steatosis specific pathways:")
+print(low_specific)
+
+# Common pathways
+common_pathways <- intersect(pathways_high, pathways_low)
+print("Common pathways:")
+print(common_pathways)
+
+# Get pathways from both groups
+pathways_high <- cellchats[['Hep_high']]@netP$pathways  
+pathways_low <- cellchats[['Hep_low']]@netP$pathways
+common_pathways <- intersect(pathways_high, pathways_low)
+
+# Loop through pathways and create comparisons
+for(pw in common_pathways) {
+  
+  # High steatosis
+  netVisual_aggregate(
+    object = cellchats[['Hep_high']],
+    signaling = pw,
+    layout = "chord",
+    weight.scale = TRUE,
+    edge.weight.max = max(cellchats[['Hep_high']]@net$weight),
+    title.name = paste(pw, "- High Steatosis")
+  )
+  
+  # Low steatosis  
+  netVisual_aggregate(
+    object = cellchats[['Hep_low']],
+    signaling = pw,
+    layout = "chord",
+    weight.scale = TRUE,
+    edge.weight.max = max(cellchats[['Hep_low']]@net$weight),
+    title.name = paste(pw, "- Low Steatosis")
+  )
+}
+```
 
