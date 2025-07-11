@@ -3,6 +3,96 @@
 
 # ---- Analysis Functions ----
 
+
+#----------------------------------------------------------#
+# run_doubletfinder_custom
+#----------------------------------------------------------#
+# run_doubletfinder_custom runs Doublet_Finder() and returns a dataframe with the cell IDs and a column with either 'Singlet' or 'Doublet'
+run_doubletfinder_custom <- function(seu_sample_subset, multiplet_rate = NULL){
+  # for debug
+  #seu_sample_subset <- samp_split[[1]]
+  # Print sample number
+  print(paste0("Sample ", unique(seu_sample_subset[['SampleID']]), '...........')) 
+  
+  if(is.null(multiplet_rate)){
+    print('multiplet_rate not provided....... estimating multiplet rate from cells in dataset')
+    
+    # 10X multiplet rates table
+    #https://rpubs.com/kenneditodd/doublet_finder_example
+    multiplet_rates_10x <- data.frame('Multiplet_rate'= c(0.004, 0.008, 0.0160, 0.023, 0.031, 0.039, 0.046, 0.054, 0.061, 0.069, 0.076),
+                                      'Loaded_cells' = c(800, 1600, 3200, 4800, 6400, 8000, 9600, 11200, 12800, 14400, 16000),
+                                      'Recovered_cells' = c(500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000))
+    
+    print(multiplet_rates_10x)
+    
+    multiplet_rate <- multiplet_rates_10x %>% dplyr::filter(Recovered_cells < nrow(seu_sample_subset@meta.data)) %>% 
+      dplyr::slice(which.max(Recovered_cells)) %>% # select the min threshold depending on your number of samples
+      dplyr::select(Multiplet_rate) %>% as.numeric(as.character()) # get the expected multiplet rate for that number of recovered cells
+    
+    print(paste('Setting multiplet rate to', multiplet_rate))
+  }
+  
+  # Pre-process seurat object with standard seurat workflow --- 
+  sample <- NormalizeData(seu_sample_subset)
+  sample <- FindVariableFeatures(sample)
+  sample <- ScaleData(sample)
+  sample <- RunPCA(sample, nfeatures.print = 10)
+  
+  # Find significant PCs
+  stdv <- sample[["pca"]]@stdev
+  percent_stdv <- (stdv/sum(stdv)) * 100
+  cumulative <- cumsum(percent_stdv)
+  co1 <- which(cumulative > 90 & percent_stdv < 5)[1] 
+  co2 <- sort(which((percent_stdv[1:length(percent_stdv) - 1] - 
+                       percent_stdv[2:length(percent_stdv)]) > 0.1), 
+              decreasing = T)[1] + 1
+  min_pc <- min(co1, co2)
+  
+  # Finish pre-processing with min_pc
+  sample <- RunUMAP(sample, dims = 1:min_pc)
+  sample <- FindNeighbors(object = sample, dims = 1:min_pc)              
+  sample <- FindClusters(object = sample, resolution = 0.1)
+  
+  # pK identification (no ground-truth) 
+  #introduces artificial doublets in varying props, merges with real data set and 
+  # preprocesses the data + calculates the prop of artficial neighrest neighbours, 
+  # provides a list of the proportion of artificial nearest neighbours for varying
+  # combinations of the pN and pK
+  sweep_list <- paramSweep(sample, PCs = 1:min_pc, sct = FALSE)   
+  sweep_stats <- summarizeSweep(sweep_list)
+  bcmvn <- find.pK(sweep_stats) # computes a metric to find the optimal pK value (max mean variance normalised by modality coefficient)
+  # Optimal pK is the max of the bimodality coefficient (BCmvn) distribution
+  optimal.pk <- bcmvn %>% 
+    dplyr::filter(BCmetric == max(BCmetric)) %>%
+    dplyr::select(pK)
+  optimal.pk <- as.numeric(as.character(optimal.pk[[1]]))
+  
+  ## Homotypic doublet proportion estimate
+  annotations <- sample@meta.data$seurat_clusters # use the clusters as the user-defined cell types
+  homotypic.prop <- modelHomotypic(annotations) # get proportions of homotypic doublets
+  
+  nExp.poi <- round(multiplet_rate * nrow(sample@meta.data)) # multiply by number of cells to get the number of expected multiplets
+  nExp.poi.adj <- round(nExp.poi * (1 - homotypic.prop)) # expected number of doublets
+  
+  # run DoubletFinder
+  sample <- doubletFinder(seu = sample, 
+                          PCs = 1:min_pc, 
+                          pK = optimal.pk, # the neighborhood size used to compute the number of artificial nearest neighbours
+                          nExp = nExp.poi.adj) # number of expected real doublets
+  # change name of metadata column with Singlet/Doublet information
+  colnames(sample@meta.data)[grepl('DF.classifications.*', colnames(sample@meta.data))] <- "doublet_finder"
+  
+  # Subset and save
+  # head(sample@meta.data['doublet_finder'])
+  # singlets <- subset(sample, doublet_finder == "Singlet") # extract only singlets
+  # singlets$ident
+  double_finder_res <- sample@meta.data['doublet_finder'] # get the metadata column with singlet, doublet info
+  double_finder_res <- rownames_to_column(double_finder_res, "row_names") # add the cell IDs as new column to be able to merge correctly
+  return(double_finder_res)
+}
+
+
+
 # ===========================================================================
 # Function: process_nebula_results
 # ===========================================================================
@@ -159,6 +249,127 @@ run_nebula_attempt <- function(so,
 
 # ---- Plot Functions ----
 # ===========================================================================
+# Function: make_comp_plot
+# ===========================================================================
+
+make_comp_plot <- function(attempt_df,
+                           croc_df,
+                           attempt_p_cut = 0.05,
+                           croc_p_cut   = 0.05,
+                           save_path    = NULL,
+                           width        = 10,
+                           height       = 5,
+                           caption = NULL) {
+  
+  ## 1. Harmonize & flag significance ------------------------------------------
+  df_attempt <- attempt_df %>%
+    dplyr::rename(p_fdr = fdr_interaction,
+                  FC    = logFC_treatmentDapagliflozinvisitPOST) %>%
+    mutate(direction = case_when(p_fdr < attempt_p_cut & FC < 0 ~ "-",
+                                 p_fdr < attempt_p_cut & FC > 0 ~ "+"),
+           source = "ATTEMPT") %>%
+    dplyr::select(Gene, direction, p_fdr, source, FC)
+  
+  df_croc <- croc_df %>%
+    dplyr::rename(p_fdr = p_groupType_1_Diabetes,
+                  FC    = logFC_groupType_1_Diabetes) %>%
+    mutate(direction = case_when(p_fdr < croc_p_cut & FC < 0 ~ "-",
+                                 p_fdr < croc_p_cut & FC > 0 ~ "+"),
+           source = "CROCODILE") %>%
+    dplyr::select(Gene, direction, p_fdr, source, FC)
+  
+  pt_comp_df <- bind_rows(df_attempt, df_croc) %>%
+    filter(!is.na(direction))
+  
+  ## 2. Wide table → effect category ------------------------------------------
+  pt_comp_df_wide <- pt_comp_df %>%
+    dplyr::select(Gene, source, direction) %>%
+    pivot_wider(names_from  = source,
+                values_from = direction) %>%
+    mutate(effect = case_when(
+      ATTEMPT == "+" & CROCODILE == "+" ~ "Augmented",
+      ATTEMPT == "-" & CROCODILE == "-" ~ "Suppressed",
+      ATTEMPT == "+" & CROCODILE == "-" ~ "Reversed towards +\n(T1D depleted)",
+      ATTEMPT == "-" & CROCODILE == "+" ~ "Reversed towards -\n(T1D elevated)"
+    )) %>%
+    mutate(effect = factor(effect,
+                           levels = c("Augmented", "Suppressed",
+                                      "Reversed towards +\n(T1D depleted)",
+                                      "Reversed towards -\n(T1D elevated)")))
+  
+  ## 3. Bar plot ---------------------------------------------------------------
+  effect_cols <- c("Augmented"                           = "#bb3e03",
+                   "Suppressed"                          = "#0a9396",
+                   "Reversed towards +\n(T1D depleted)" = "#3a5a40",
+                   "Reversed towards -\n(T1D elevated)" = "#a3b18a")
+  
+  pt_comp_bar <- pt_comp_df_wide %>%
+    filter(!is.na(effect)) %>%
+    ggplot(aes(x = effect, fill = effect)) +
+    geom_bar_rounded() +
+    geom_text(stat  = "count",
+              aes(label = after_stat(count)),
+              vjust = 1.5, hjust = 0.5, color = "white") +
+    theme_bw() +
+    theme(panel.grid  = element_blank(),
+          panel.border = element_blank(),
+          text         = element_text(size = 15),
+          legend.position = "none",
+          axis.text.x  = element_text(angle = 50, hjust = 1),
+          axis.ticks   = element_blank(),
+          plot.caption = element_text(hjust = 0.5, size = 12)) +
+    labs(y = "Count", x = NULL,
+         caption = caption) +
+    scale_fill_manual(values = effect_cols)
+  
+  ## 4. Label colouring for reversed genes ------------------------------------
+  reversed_cols <- effect_cols[c(
+    "Reversed towards +\n(T1D depleted)",
+    "Reversed towards -\n(T1D elevated)"
+  )]
+  
+  pt_gene_color_df <- pt_comp_df_wide %>%
+    filter(str_detect(effect, "Reversed")) %>%
+    mutate(Gene_label = ifelse(
+      str_detect(effect, "depleted"),
+      paste0("<span style='color:", reversed_cols[1], "'>", Gene, "</span>"),
+      paste0("<span style='color:", reversed_cols[2], "'>", Gene, "</span>")
+    )) %>%
+    dplyr::select(Gene, Gene_label)
+  
+  ## 5. Dot plot ---------------------------------------------------------------
+  pt_comp_dot <- pt_comp_df %>%
+    left_join(pt_gene_color_df, by = "Gene") %>%
+    filter(Gene %in% pt_gene_color_df$Gene) %>%
+    mutate(group = ifelse(source == "ATTEMPT",
+                          "Dapa vs. Placebo", "T1D vs. HC"),
+           Gene_label = coalesce(Gene_label, Gene)) %>%
+    ggplot(aes(x = Gene_label, y = group,
+               color = direction, size = abs(FC))) +
+    geom_point() +
+    theme_bw() +
+    scale_color_manual(values = c("+" = "#f28482", "-" = "#457b9d")) +
+    theme(panel.border = element_blank(),
+          panel.grid   = element_blank(),
+          legend.position = "top",
+          legend.box      = "vertical",
+          axis.text.x  = element_markdown(angle = 50, hjust = 1),
+          axis.ticks   = element_blank(),
+          text = element_text(size = 15)) +
+    scale_y_discrete(position = "right") +
+    labs(x = NULL, y = NULL, color = "Direction")
+  
+  ## 6. Combine & optionally save ---------------------------------------------
+  combined <- pt_comp_bar + pt_comp_dot
+  
+  if (!is.null(save_path)) {
+    ggsave(save_path, combined, width = width, height = height)
+  }
+  
+  return(invisible(combined))
+}
+
+# ===========================================================================
 # Function: make_plot_df
 # ===========================================================================
 
@@ -183,7 +394,8 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
                          positive_text = "Positive with Dapagliflozin", 
                          negative_text = "Negative with Dapagliflozin",
                          formula = "group", legend_position = c(0.8, 0.9),
-                         cell_type = "") {
+                         cell_type = "",
+                         output_base_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/") {
   set.seed(1)
   top_pos <- data %>%
     dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
@@ -276,7 +488,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
           legend.margin = margin(t = 5, b = 5))
     
   
-  ggsave(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/", file_suffix, ".jpeg"), plot = p, width = 7, height = 5)
+  ggsave(paste0(output_base_path, file_suffix, ".jpeg"), plot = p, width = 7, height = 5)
   return(p)
 }
 
@@ -456,8 +668,8 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                                      formula = "\u0394 treatment", color_by = "treatment_direction",
                                      legend_position = "top",
                                      clinical_direction = NULL,
-                                     caption_text = "Point position reflects association with clinical variable; point color indicates treatment effect direction.\nPoints are colored if concordant with clinical variable direction after treatment. \nUp to top 50 from each direction are labeled.",
-                                     cell_type = "") {
+                                     caption_text = paste0("Point position reflects association with clinical variable; point color indicates treatment effect direction.\nPoints are colored if concordant with clinical variable direction after treatment. \nUp to top ", top_n, " from each direction are labeled."),
+                                     cell_type = "", top_n = 50) {
   
   set.seed(1)
   
@@ -506,13 +718,13 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
   top_50_left <- clin_results %>%
     filter(Gene %in% concordant_genes, !!sym(fc) < 0) %>%
     arrange(!!sym(p_col)) %>%
-    slice_head(n = 50) %>%
+    slice_head(n = top_n) %>%
     pull(Gene)
   
   top_50_right <- clin_results %>%
     filter(Gene %in% concordant_genes, !!sym(fc) > 0) %>%
     arrange(!!sym(p_col)) %>%
-    slice_head(n = 50) %>%
+    slice_head(n = top_n) %>%
     pull(Gene)
   
   # Combine for plotting
@@ -524,12 +736,10 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
   
   clin_results <- clin_results %>%
     mutate(
-      # Color only concordant genes
       color_var_plot = case_when(
         Gene %in% concordant_genes ~ treatment_results$treatment_direction[match(Gene, treatment_results$Gene)],
         TRUE ~ "NS/NC"
       ),
-      # Shape based on significance and direction
       shape_var_plot = case_when(
         Gene %in% sig_both_genes & !!sym(fc) < 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Up w/ Dapagliflozin" ~ "Left_Pos",
         Gene %in% sig_both_genes & !!sym(fc) < 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Down w/ Dapagliflozin" ~ "Left_Neg",
@@ -537,8 +747,16 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
         Gene %in% sig_both_genes & !!sym(fc) > 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Down w/ Dapagliflozin" ~ "Right_Neg",
         TRUE ~ "NS/NC"
       ),
-      # Label only top concordant genes
-      top_lab = if_else(Gene %in% top_label_genes, Gene, "")
+      top_lab = if_else(Gene %in% top_label_genes, Gene, ""),
+      # Updated arrow logic based on clinical direction - only for concordant genes
+      arrow_symbol = case_when(
+        # Only show arrows for concordant genes
+        Gene %in% concordant_genes & !is.null(clinical_direction) & clinical_direction == "+" & !!sym(fc) < 0 ~ "\u2193",
+        Gene %in% concordant_genes & !is.null(clinical_direction) & clinical_direction == "+" & !!sym(fc) > 0 ~ "\u2191",
+        Gene %in% concordant_genes & !is.null(clinical_direction) & clinical_direction == "-" & !!sym(fc) < 0 ~ "\u2191",
+        Gene %in% concordant_genes & !is.null(clinical_direction) & clinical_direction == "-" & !!sym(fc) > 0 ~ "\u2193",
+        TRUE ~ ""
+      )
     )
   
   clin_results$shape_var_plot <- factor(clin_results$shape_var_plot, 
@@ -560,6 +778,9 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
     geom_point(alpha = 0.3, aes(fill = color_var_plot, 
                                 color = color_var_plot,
                                 shape = shape_var_plot), size = 2) +
+    geom_text(aes(label = arrow_symbol, color = color_var_plot,
+                  vjust = ifelse(arrow_symbol == "\u2193", 1, -0.5)),
+              size = 6, family = "Arial") +
     scale_shape_manual(values = c("Left_Pos" = 22, "Left_Neg" = 22, "Right_Pos" = 22, "Right_Neg" = 22, "NS/NC" = 22),
                        labels = c("Left_Pos" = "Left Pos", "Left_Neg" = "Left Neg", 
                                   "Right_Pos" = "Right Pos", "Right_Neg" = "Right Neg", "NS/NC" = "NS/NC")) +
@@ -638,8 +859,9 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
   return(p)
 }
 
-
-
+# ===========================================================================
+# Function: create_gene_expression_plots
+# ===========================================================================
 
 
 create_gene_expression_plots <- function(main_results,
@@ -724,8 +946,19 @@ create_gene_expression_plots <- function(main_results,
   # Create dot plot
   dot_plot <- create_dot_plot(combined_plot_dat, x_colors, n_top_genes)
   
-  # Create consistency score data
-  consistency_scores <- calculate_consistency_scores(combined_plot_dat, top_neg_genes, top_pos_genes, cell_type_labels)
+  # Get main logFC values for the selected genes
+  main_logfc_values <- main_results %>%
+    filter(Gene %in% c(top_neg_genes, top_pos_genes)) %>%
+    dplyr::select(Gene, main_logFC = !!sym(logfc_col))
+  
+  # Create consistency score data with weighted scores
+  consistency_scores <- calculate_weighted_consistency_scores(
+    combined_plot_dat, 
+    main_logfc_values,
+    top_neg_genes, 
+    top_pos_genes, 
+    cell_type_labels
+  )
   
   # Create bar plot
   bar_plot <- create_bar_plot(consistency_scores)
@@ -837,37 +1070,93 @@ create_dot_plot <- function(plot_data, x_colors, n_genes_per_direction) {
     labs(x = NULL, y = NULL, color = "Direction")
 }
 
-#' Calculate consistency scores for genes
-calculate_consistency_scores <- function(plot_data, neg_genes, pos_genes, cell_type_labels) {
-  plot_data %>%
-    dplyr::select(Gene, celltype, direction) %>%
-    pivot_wider(names_from = celltype, values_from = direction) %>%
+#' Calculate weighted consistency scores for genes based on logFC differences
+calculate_weighted_consistency_scores <- function(plot_data, main_logfc_values, neg_genes, pos_genes, cell_type_labels) {
+  # Join with main logFC values
+  plot_data_with_main <- plot_data %>%
+    left_join(main_logfc_values, by = "Gene")
+  
+  # Calculate weighted scores
+  weighted_scores <- plot_data_with_main %>%
+    group_by(Gene) %>%
+    dplyr::summarize(
+      # Calculate weighted score based on logFC ratio
+      # For genes with same direction as main: positive contribution
+      # For genes with opposite direction: stronger negative penalty
+      # Normalize by number of cell types
+      score = {
+        main_fc <- dplyr::first(main_logFC)
+        if (abs(main_fc) < 0.001) {
+          # Handle near-zero main logFC
+          0
+        } else {
+          # Calculate raw weights
+          raw_weights <- logFC / main_fc
+          
+          # Apply penalty factor for opposite direction
+          # Same direction: use raw weight
+          # Opposite direction: apply penalty multiplier (e.g., 2x)
+          penalty_factor <- 2  # Adjust this to control penalty strength
+          
+          weights <- ifelse(
+            sign(logFC) == sign(main_fc),
+            raw_weights,  # Same direction: positive contribution
+            raw_weights * penalty_factor  # Opposite direction: amplified negative contribution
+          )
+          
+          # Cap absolute weights at 2 to avoid extreme values
+          weights <- pmax(pmin(weights, 2), -2)
+          
+          # Calculate mean
+          mean_weight <- mean(weights, na.rm = TRUE)
+          
+          # Additional penalty: if any subtype is opposite direction, apply reduction factor
+          has_opposite <- any(sign(logFC) != sign(main_fc), na.rm = TRUE)
+          if (has_opposite) {
+            # Count proportion of opposite direction subtypes
+            prop_opposite <- sum(sign(logFC) != sign(main_fc), na.rm = TRUE) / length(logFC)
+            # Apply additional reduction based on proportion of opposite effects
+            mean_weight <- mean_weight * (1 - 0.5 * prop_opposite)
+          }
+          
+          mean_weight
+        }
+      },
+      direction = dplyr::first(direction),
+      main_logFC = dplyr::first(main_logFC),
+      .groups = "drop"
+    ) %>%
+    # Ensure genes are in the correct order
     mutate(
-      score = case_when(
-        Gene %in% neg_genes ~ rowMeans(across(all_of(cell_type_labels), ~ .x == "-"), na.rm = TRUE),
-        Gene %in% pos_genes ~ rowMeans(across(all_of(cell_type_labels), ~ .x == "+"), na.rm = TRUE)
-      ),
-      direction = case_when(
-        Gene %in% neg_genes ~ "-",
-        Gene %in% pos_genes ~ "+"
-      )
-    )
+      Gene = factor(Gene, levels = c(neg_genes, pos_genes))
+    ) %>%
+    arrange(Gene)
+  
+  return(weighted_scores)
 }
 
 #' Create bar plot for consistency scores
 create_bar_plot <- function(scores_data) {
   scores_data %>%
     ggplot(aes(x = Gene, y = score, fill = direction)) +
+    geom_hline(yintercept = 1, linetype = "dashed", size = 0.4, color = "#a7c957") +
+    geom_hline(yintercept = 0.5, linetype = "dashed", size = 0.4, color = "#f4a261") +
     geom_col_rounded(width = 0.8) +
     geom_text(
       aes(label = Gene),
       vjust = 0.5, 
-      hjust = 1.3,
+      hjust = ifelse(scores_data$score >= 0, 1.3, -0.3),
       size = 2,
       angle = 90,
       color = "white"
     ) +
     scale_fill_manual(values = c("+" = "#f28482", "-" = "#457b9d")) +
+    scale_y_continuous(
+      breaks = c(-2, -1, 0, 1, 2),
+      labels = c("-2", "-1", "0", "1", "2"),
+      limits = c(min(-0.1, min(scores_data$score, na.rm = TRUE) * 1.1), 
+                 max(0.1, max(scores_data$score, na.rm = TRUE) * 1.1))
+    ) +
     theme_bw() + 
     theme(
       panel.grid = element_blank(),
@@ -881,13 +1170,8 @@ create_bar_plot <- function(scores_data) {
       legend.background = element_rect(fill = NA, color = NA),
       plot.margin = margin(t = 5, r = 5, b = 0, l = 5)
     ) +
-    labs(x = NULL, y = "Consistency score")
+    labs(x = NULL, y = "Weighted \nconsistency score")
 }
-
-
-
-
-
 
 # ---- Pathway Plot Functions ----
 
@@ -1113,6 +1397,71 @@ plot_fgsea_transpose <- function(fgsea_res,
 # ===========================================================================
 
 # Function to run complete analysis for a given cell type
+trt_run_cell_type_analysis <- function(cell_type, 
+                                         input_path, 
+                                         input_suffix,
+                                         output_base_path,
+                                         output_prefix,
+                                         bg_path,
+                                         bucket = "attempt",
+                                         region = "") {
+  
+  # Print status
+  cat("Starting analysis for cell type:", cell_type, "\n")
+  
+  # Create cell type specific paths
+  cell_type_lower <- tolower(cell_type)
+  
+  # Read in nebula results
+  input_file <- file.path(input_path, cell_type, "nebula", 
+                          paste0(cell_type_lower, input_suffix))
+  
+  res <- s3readRDS(input_file, bucket = bucket, region = region)
+  
+  # Check convergence
+  res_convergence <- map_dfr(
+    names(res),
+    function(gene_name) {
+      converged <- res[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  res_converged <- res_convergence %>%
+    filter(Convergence_Code >= -10)
+  
+  # Combine results
+  res_combined <- map_dfr(
+    names(res),
+    function(gene_name) {
+      df <- res[[gene_name]]$summary
+      df <- df %>% 
+        filter(gene_name %in% res_converged$Gene) %>%
+        mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  
+  # Calculate FDR
+  res_combined <- res_combined %>%
+    ungroup() %>%
+    mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+  
+  res_combined <- subset(res_combined, abs(`logFC_treatmentDapagliflozin:visitPOST`) < 10)
+  # Save results
+  
+  output_csv <- file.path(output_base_path, "Results", "NEBULA", 
+                          paste0(output_prefix, cell_type_lower, "_nebula_res.csv"))
+  write.csv(res_combined, output_csv, row.names = FALSE)
+  
+}
+# ===========================================================================
+# Function: t1dhc_run_cell_type_analysis
+# ===========================================================================
+
+# Function to run complete analysis for a given cell type
 t1dhc_run_cell_type_analysis <- function(cell_type, 
                                    input_path, 
                                    input_suffix,
@@ -1193,12 +1542,13 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
                NULL,
                "logFC group", 
                "-log10(p-value)",
-               file.path(output_base_path, "Results", "Figures", "Volcano", "nebula",
-                         paste0(output_prefix, cell_type_lower, "_deg")),
+               "_deg",
                formula = "group",
                positive_text = "Upregulated in T1D compared to LC",
                negative_text = "Downregulated in T1D compared to LC",
-               cell_type = cell_type)
+               cell_type = cell_type,
+               output_base_path = file.path(output_base_path, "Results", "Figures", "Volcano", "nebula",
+                                            paste0(output_prefix, cell_type_lower)))
   
   plot_volcano(res_combined, 
                "logFC_groupType_1_Diabetes", 
@@ -1206,12 +1556,13 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
                NULL,
                "logFC group", 
                "-log10(FDR adjusted p-value)",
-               file.path(output_base_path, "Results", "Figures", "Volcano", "nebula",
-                         paste0(output_prefix, cell_type_lower, "_deg_fdr")),
+               "_deg_fdr",
                formula = "group",
                positive_text = "Upregulated in T1D compared to LC",
                negative_text = "Downregulated in T1D compared to LC",
-               cell_type = cell_type)
+               cell_type = cell_type,
+               output_base_path = file.path(output_base_path, "Results", "Figures", "Volcano", "nebula",
+                                            paste0(output_prefix, cell_type_lower)))
   
   # GSEA Analysis
   # Load pathway files
