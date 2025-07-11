@@ -26,8 +26,8 @@ dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics
 # # dir.ipa <- c("/Users/hhampson/Documents/IPA/Results")
 
 #Laura's Mac Studio File Path
-dir.dat <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
-dir.results <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Project/NEBULA Results")
+# dir.dat <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+# dir.results <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Project/NEBULA Results")
 
 #Load functions
 source("Liver_functions.R")
@@ -96,7 +96,7 @@ ncol(so_liver_sn) # 130,124 nuceli
 invisible(gc())
 ```
 
-## b. Load MetaData, Clean and Merge
+## c. Load MetaData, Clean and Merge
 ```{r}
 #Local
 meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
@@ -199,7 +199,7 @@ so_liver_sn <- NormalizeData(so_liver_sn)
 so_liver_sn <- ScaleData(so_liver_sn, features = VariableFeatures(so_liver_sn))
 
 #Create general hepatocyte cell type variable
-so_liver_sn$celltype2 <- ifelse(grepl("Hep-",so_liver_sn$celltype) | grepl("dHep",so_liver_sn$celltype),"Hep","Non-Hep")
+so_liver_sn$celltype2 <- ifelse(grepl("Hep-",so_liver_sn$celltype) | grepl("dHep",so_liver_sn$celltype) | grepl("Hep/Immune",so_liver_sn$celltype),"Hep","Non-Hep")
 # so_liver_sn$celltype2 <- ifelse(grepl("Hep-",so_liver_sn$celltype),"Hep","Non-Hep")
 
 # table(so_liver_sn$celltype,so_liver_sn$celltype2)
@@ -213,7 +213,7 @@ so_oro <- NormalizeData(so_oro)
 so_oro <- ScaleData(so_oro, features = VariableFeatures(so_oro))
 
 #Create general hepatocyte cell type variable
-so_oro$celltype2 <- ifelse(grepl("Hep-",so_oro$celltype) | grepl("dHep",so_oro$celltype),"Hep","Non-Hep")
+so_oro$celltype2 <- ifelse(grepl("Hep-",so_oro$celltype) | grepl("dHep",so_oro$celltype) | grepl("Hep/Immune",so_oro$celltype),"Hep","Non-Hep")
 # so_oro$celltype2 <- ifelse(grepl("Hep-",so_oro$celltype),"Hep","Non-Hep")
 
 # table(so_oro$celltype,so_oro$celltype2)
@@ -268,7 +268,7 @@ hist(so_oro$pooled_offset)
 # rm(meta,counts_layer)
 # # hist(so_liver_sn$library_size)
 ```
-## c. Visualize
+## d. Visualize
 ###i. All Cells
 ```{r}
 so_liver_sn <- FindVariableFeatures(object = so_liver_sn)
@@ -281,10 +281,20 @@ so_liver_sn <- FindClusters(so_liver_sn, resolution = 0.5)
 
 # Perform UMAP 
 #Print plot
-png(fs::path(dir.results, "UMAP_by_celltype.png"),
-    width = 4500, height = 3000, res = 300)
+png(fs::path(dir.results, "UMAP_by_celltype_ratio1.png"),
+width = 4500, height = 4500, res = 300)
 p <- DimPlot(so_liver_sn, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  coord_fixed(ratio = 1)+
   ggtitle("UMAP Plot by Cell Type")
+print(p)
+dev.off()
+
+#Print PCA plot
+png(fs::path(dir.results, "PCA_by_celltype_ratio1.png"),
+width = 3000, height = 3000, res = 300)
+p <- DimPlot(so_liver_sn, reduction = "pca", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  coord_fixed(ratio = 1)+
+  ggtitle("PCA Plot by Cell Type")
 print(p)
 dev.off()
 
@@ -350,13 +360,22 @@ so_celltype <- FindClusters(so_celltype, resolution = 0.5)
 
 # Perform UMAP 
 #Print plot
-png(fs::path(dir.results, "UMAP_by_celltype.png"),
-    width = 4500, height = 3000, res = 300)
+png(fs::path(dir.results, "UMAP_Hepatocytes.png"),
+    width = 4500, height = 4500, res = 300)
 p <- DimPlot(so_celltype, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
-  ggtitle("UMAP Plot by Cell Type")
+  coord_fixed(ratio=1)+
+  ggtitle("UMAP Plot of Hepatocytes")
 print(p)
 dev.off()
 
+#PCA Plot
+png(fs::path(dir.results, "PCA_Hepatocytes.png"),
+    width = 3000, height = 3000, res = 300)
+p <- DimPlot(so_celltype, reduction = "pca", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  coord_fixed(ratio=1)+
+  ggtitle("PCA Plot of Hepatocytes")
+print(p)
+dev.off()
 
 #Print plot
 png(fs::path(dir.results, "UMAP_by_Steatosis.png"),
@@ -422,7 +441,7 @@ dev.off()
 ```
 
 
-## d. Explore Distribution & Zero-Inflation
+## e. Explore Distribution & Zero-Inflation
 ###i. All Celltypes
 ```{r}
 #Check if data have been normalized 
@@ -718,7 +737,7 @@ if (percent_overdispersed > 10) {
 rm(counts)
 ```
 
-## e. Evaluate Covariates before Adjustment
+## f. Evaluate Covariates before Adjustment
 ```{r}
 #Categorical Covariates
 #Get metadata for everyone
@@ -943,7 +962,7 @@ write.csv(test_summary, "steatosis_comparison_tests.csv", row.names = FALSE)
 
 ```
 
-##f. Descriptive Stats Tables
+##g. Descriptive Stats Tables
 ###i. All Celltypes
 ```{r}
 dat <- so_liver_sn@meta.data %>%
@@ -8583,70 +8602,67 @@ sce <- as.SingleCellExperiment(so_Hep)
 #filter genes down to potential cell-type markers
 # at least M (15) reads in at least N (15) cells
 geneFilter <- apply(assays(sce)$counts,1,function(x){
-    sum(x >= 3) >= 10
+  sum(x >= 3) >= 10
 })
 sce <- sce[geneFilter, ]
 
 #Full quantile normalization, a well-established method which forces each cell to have the same distribution of expression values.
 FQnorm <- function(counts){
-    rk <- apply(counts,2,rank,ties.method='min')
-    counts.sort <- apply(counts,2,sort)
-    refdist <- apply(counts.sort,1,median)
-    norm <- apply(rk,2,function(r){ refdist[r] })
-    rownames(norm) <- rownames(counts)
-    return(norm)
+  rk <- apply(counts,2,rank,ties.method='min')
+  counts.sort <- apply(counts,2,sort)
+  refdist <- apply(counts.sort,1,median)
+  norm <- apply(rk,2,function(r){ refdist[r] })
+  rownames(norm) <- rownames(counts)
+  return(norm)
 }
 assays(sce)$norm <- FQnorm(assays(sce)$counts)
 
 #Dimensionality reduction using PCA
-pca <- prcomp(t(log1p(assays(sce)$norm)), scale. = FALSE)
-rd1 <- pca$x[,1:2]
+# pca <- prcomp(t(log1p(assays(sce)$norm)), scale. = FALSE)
+####
+library(irlba)
+pca <- irlba(t(log1p(assays(sce)$norm)), nv = 50, center = TRUE, scale = FALSE)
+rd1 <- pca$u[, 1:2]  # Note: $u instead of $x
+rownames(rd1) <- colnames(sce)
+colnames(rd1) <- c("PC1", "PC2")
+####
+# rd1 <- pca$x[,1:2]
 
 #Plot pca
+pdf(fs::path(dir.results,"PCA_Slingshot.pdf"),width=10,height=10)
 plot(rd1, col = rgb(0,0,0,.5), pch=16, asp = 1)
+dev.off()
 
 library(uwot)
-## Loading required package: Matrix
-## 
-## Attaching package: 'Matrix'
-## The following object is masked from 'package:S4Vectors':
-## 
-##     expand
 rd2 <- uwot::umap(t(log1p(assays(sce)$norm)))
 colnames(rd2) <- c('UMAP1', 'UMAP2')
 
+pdf(fs::path(dir.results,"UMAP_Slingshot.pdf"),width=10,height=10)
 plot(rd2, col = rgb(0,0,0,.5), pch=16, asp = 1)
+dev.off()
 
 reducedDims(sce) <- SimpleList(PCA = rd1, UMAP = rd2)
 
 #Clustering cells
 library(mclust, quietly = TRUE)
-## Package 'mclust' version 6.1.1
-## Type 'citation("mclust")' for citing this R package in publications.
-## 
-## Attaching package: 'mclust'
-## The following object is masked from 'package:mgcv':
-## 
-##     mvn
 cl1 <- Mclust(rd1)$classification
 colData(sce)$GMM <- cl1
 
 library(RColorBrewer)
+pdf(fs::path(dir.results,"PCA_Cluster_Plot.pdf"),width=10,height=10)
 plot(rd1, col = brewer.pal(9,"Set1")[cl1], pch=16, asp = 1)
-
+dev.off()
 
 cl2 <- kmeans(rd1, centers = 4)$cluster
 colData(sce)$kmeans <- cl2
-
+pdf(fs::path(dir.results,"PCA_Cluster_Plot2.pdf"),width=10,height=10)
 plot(rd1, col = brewer.pal(9,"Set1")[cl2], pch=16, asp = 1)
+dev.off()
 
 #Perform Slingshot
 sce_gmm <- slingshot(sce, clusterLabels = 'GMM', reducedDim = 'PCA')
 
 colData(sce)$celltype <- so_Hep$celltype
-# colData(sce)$treatment <- attempt_so_pt$treatment
-# colData(sce)$visit <- attempt_so_pt$visit
-
 sce_celltype <- slingshot(sce, clusterLabels = 'celltype', reducedDim = 'PCA')
 
 summary(sce_celltype$slingPseudotime_1)
@@ -8654,15 +8670,21 @@ library(grDevices)
 colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
 plotcol <- colors[cut(sce_celltype$slingPseudotime_1, breaks=100)]
 
+pdf(fs::path(dir.results,"PCA_Cluster_Lineage.pdf"),width=10,height=10)
 plot(reducedDims(sce_celltype)$PCA, col = plotcol, pch=16, asp = 1)
 lines(SlingshotDataSet(sce_celltype), lwd=2, col='black')
+dev.off()
 
+pdf(fs::path(dir.results,"PCA_Cluster_Lineage2.pdf"),width=10,height=10)
 plot(reducedDims(sce_celltype)$PCA, col = brewer.pal(9,'Set1')[sce_celltype$GMM], pch=16, asp = 1)
 lines(SlingshotDataSet(sce_celltype), lwd=2, type = 'lineages', col = 'black')
+dev.off()
 
-plot(reducedDims(sce_celltype)$PCA, asp=0.5, col = 'grey75', pch = 16)
+pdf(fs::path(dir.results,"PCA_Cluster_Lineage3.pdf"),width=10,height=10)
+plot(reducedDims(sce_celltype)$PCA, asp=1, col = 'grey75', pch = 16)
 points(reducedDims(sce_celltype)$PCA, col = hcl.colors(100)[cut(slingPseudotime(sce_celltype)[,1], 100)], pch=16)
 legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
+dev.off()
 
 pca_df <- as.data.frame(reducedDims(sce_celltype)$PCA)
 pca_df$celltype <- colData(sce_celltype)$celltype
@@ -8670,7 +8692,7 @@ pca_df$pseudotime <- slingPseudotime(sce_celltype)[,1]  # choose a lineage if >1
 
 # Optional: get curve
 curves <- slingCurves(sce_celltype)
-pca_df$celltype <- factor(pca_df$celltype, levels = c("Hep-1", "Hep-2", "Hep-3", "Hep-4", "Hep-5","dHep"))
+pca_df$celltype <- factor(pca_df$celltype, levels = c("Hep-1", "Hep-2", "Hep-3", "Hep-4", "Hep-5","dHep","Hep/Immune"))
 slingshot::slingLineages(sce_celltype)
 # Plot
 ggplot(pca_df, aes(x = PC1, y = PC2, color = celltype)) +
@@ -8681,11 +8703,73 @@ ggplot(pca_df, aes(x = PC1, y = PC2, color = celltype)) +
   theme(panel.grid = element_blank()) + 
   labs(color = NULL)
 
-temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
-ggsave(filename = temp_file, width = 7, height = 5)
-s3$upload_file(temp_file, "attempt", "slingshot/attempt_pca_pt_slingshot.jpeg")
+# temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+# ggsave(filename = temp_file, width = 7, height = 5)
+# s3$upload_file(temp_file, "attempt", "slingshot/attempt_pca_pt_slingshot.jpeg")
 
 
+#Use umap
+#Perform Slingshot
+sce_gmm <- slingshot(sce, clusterLabels = 'GMM', reducedDim = 'UMAP')
+
+colData(sce)$celltype <- so_Hep$celltype
+sce_celltype <- slingshot(sce, clusterLabels = 'celltype', reducedDim = 'UMAP')
+
+summary(sce_celltype$slingPseudotime_1)
+library(grDevices)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sce_celltype$slingPseudotime_1, breaks=100)]
+
+pdf(fs::path(dir.results,"UMAP_Cluster_Lineage.pdf"),width=10,height=10)
+plot(reducedDims(sce_celltype)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sce_celltype), lwd=2, col='black')
+dev.off()
+
+pdf(fs::path(dir.results,"UMAP_Cluster_Lineage2.pdf"),width=10,height=10)
+plot(reducedDims(sce_celltype)$UMAP, col = brewer.pal(9,'Set1')[sce_celltype$GMM], pch=16, asp = 1)
+lines(SlingshotDataSet(sce_celltype), lwd=2, type = 'lineages', col = 'black')
+dev.off()
+
+pdf(fs::path(dir.results,"UMAP_Cluster_Lineage3.pdf"),width=10,height=10)
+plot(reducedDims(sce_celltype)$UMAP, asp=1, col = 'grey75', pch = 16)
+points(reducedDims(sce_celltype)$UMAP, col = hcl.colors(100)[cut(slingPseudotime(sce_celltype)[,1], 100)], pch=16)
+legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
+dev.off()
+
+
+# Your existing code setup
+colData(sce)$celltype <- so_Hep$celltype
+sce_celltype <- slingshot(sce, clusterLabels = 'celltype', reducedDim = 'UMAP')
+
+# Get UMAP coordinates
+umap_coords <- reducedDims(sce_celltype)$UMAP
+celltypes <- colData(sce_celltype)$celltype
+
+# =============================================================================
+# METHOD 1: Add celltype labels at centroids (RECOMMENDED)
+# =============================================================================
+
+# Calculate centroids for each celltype
+centroids <- aggregate(umap_coords, by = list(celltype = celltypes), FUN = mean)
+rownames(centroids) <- centroids$celltype
+centroids <- centroids[, -1]  # Remove the celltype column
+
+# Your existing plot with celltype labels added
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sce_celltype$slingPseudotime_1, breaks=100)]
+
+pdf(fs::path(dir.results,"UMAP_Cluster_Lineage_with_labels.pdf"), width=10, height=10)
+plot(umap_coords, col = plotcol, pch=16, asp = 1,
+     xlab = "UMAP1", ylab = "UMAP2", 
+     main = "UMAP - Slingshot Trajectory with Cell Type Labels")
+lines(SlingshotDataSet(sce_celltype), lwd=2, col='black')
+
+# Add celltype labels at centroids
+text(centroids, labels = rownames(centroids), 
+     col = "black", font = 2, cex = 1.2,
+     bg = "white", adj = c(0.5, 0.5))
+
+dev.off()
 ```
 
 ##a. Prepare for Analysis 
@@ -8929,17 +9013,17 @@ so_Hep <- FindNeighbors(so_Hep, dims = 1:10, reduction = "pca")
 so_Hep <- FindClusters(so_Hep, resolution = 0.5)
 
 #Visualize clusters
- DimPlot(so_Hep, reduction = "pca", dims = c(1, 2), 
-              group.by = "celltype", label = TRUE, label.size = 6) +
+DimPlot(so_Hep, reduction = "pca", dims = c(1, 2), 
+        group.by = "celltype", label = TRUE, label.size = 6) +
   labs(title = "PCA: PC1 vs PC2 - Clusters")
- 
- # Visualize clusters on PCA
+
+# Visualize clusters on PCA
 DimPlot(so_Hep, 
         reduction = "pca", 
         dims = c(1, 2), group.by = "celltype",label = TRUE,raster=F)
 
-  #       label.size = 6) +
-  # labs(title = "PCA: PC1 vs PC2 - Cell Types")
+#       label.size = 6) +
+# labs(title = "PCA: PC1 vs PC2 - Cell Types")
 
 ```
 
@@ -9755,17 +9839,17 @@ so_liver_sn <- FindNeighbors(so_liver_sn, dims = 1:10, reduction = "pca")
 so_liver_sn <- FindClusters(so_liver_sn, resolution = 0.5)
 
 #Visualize clusters
- DimPlot(so_liver_sn, reduction = "pca", dims = c(1, 2), 
-              group.by = "celltype", label = TRUE, label.size = 6) +
+DimPlot(so_liver_sn, reduction = "pca", dims = c(1, 2), 
+        group.by = "celltype", label = TRUE, label.size = 6) +
   labs(title = "PCA: PC1 vs PC2 - Clusters")
- 
- # Visualize clusters on PCA
+
+# Visualize clusters on PCA
 DimPlot(so_liver_sn, 
         reduction = "pca", 
         dims = c(1, 2), group.by = "celltype",label = TRUE,raster=F)
 
-  #       label.size = 6) +
-  # labs(title = "PCA: PC1 vs PC2 - Cell Types")
+#       label.size = 6) +
+# labs(title = "PCA: PC1 vs PC2 - Cell Types")
 
 ```
 
@@ -10132,21 +10216,21 @@ volcano_plot <- ggplot(results_alt, aes(x = LogHR, y = PValue10, color = color))
   # geom_text(data = top_labels, aes(label = Gene),
   #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black") +
   geom_text_repel(data = top_labels, 
-                aes(label = Gene),
-                size = 3,
-                color = "black",
-                # Control line segments
-                segment.color = "gray50",
-                segment.size = 0.5,
-                segment.alpha = 0.8,
-                # Control label positioning
-                box.padding = 0.5,
-                point.padding = 0.3,
-                force = 1,
-                max.overlaps = Inf,  # Show all labels (unlike check_overlap = TRUE)
-                # Optional: limit computation time
-                max.time = 1,
-                max.iter = 10000)+
+                  aes(label = Gene),
+                  size = 3,
+                  color = "black",
+                  # Control line segments
+                  segment.color = "gray50",
+                  segment.size = 0.5,
+                  segment.alpha = 0.8,
+                  # Control label positioning
+                  box.padding = 0.5,
+                  point.padding = 0.3,
+                  force = 1,
+                  max.overlaps = Inf,  # Show all labels (unlike check_overlap = TRUE)
+                  # Optional: limit computation time
+                  max.time = 1,
+                  max.iter = 10000)+
   # # Add labels for significant points
   # geom_text(data = significant_df, aes(label = Gene),
   #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")+
@@ -10172,7 +10256,7 @@ results_ratio <- results_ratio %>%
 
 # Set color based on significance and direction
 results_ratio$color <- ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR > 0, "lightcoral",
-                            ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR < 0, "lightblue", "gray"))
+                              ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR < 0, "lightblue", "gray"))
 # Identify significant points (fdr < 0.05)
 significant_df <- results_ratio[results_ratio$fdr < 0.05, ]
 
@@ -10211,27 +10295,27 @@ volcano_plot <- ggplot(results_ratio, aes(x = LogHR, y = PValue10, color = color
     axis.text.x = element_text(angle = 0, hjust = 1)
   ) +
   xlim(min, max) +
-    # # Add labels for significant points
+  # # Add labels for significant points
   # geom_text(data = significant_df, aes(label = Gene),
   #           vjust = 1, hjust = 1, size = 3, check_overlap = FALSE, color = "black")+
   # geom_text(data = top_labels, aes(label = Gene),
   #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black") +
   geom_text_repel(data = significant_df, 
-                aes(label = Gene),
-                size = 3,
-                color = "black",
-                # Control line segments
-                segment.color = "gray50",
-                segment.size = 0.5,
-                segment.alpha = 0.8,
-                # Control label positioning
-                box.padding = 0.5,
-                point.padding = 0.3,
-                force = 1,
-                max.overlaps = Inf,
-                # Optional: limit how far labels can be from points
-                max.time = 1,
-                max.iter = 10000) +
+                  aes(label = Gene),
+                  size = 3,
+                  color = "black",
+                  # Control line segments
+                  segment.color = "gray50",
+                  segment.size = 0.5,
+                  segment.alpha = 0.8,
+                  # Control label positioning
+                  box.padding = 0.5,
+                  point.padding = 0.3,
+                  force = 1,
+                  max.overlaps = Inf,
+                  # Optional: limit how far labels can be from points
+                  max.time = 1,
+                  max.iter = 10000) +
   facet_wrap(~Outcome)
 
 volcano_plot
@@ -10285,22 +10369,22 @@ volcano_plot <- ggplot(results_ast, aes(x = LogHR, y = PValue10, color = color))
     axis.text.x = element_text(angle = 0, hjust = 1)
   )+
   xlim(min,max)+
-    geom_text_repel(data = significant_df, 
-                aes(label = Gene),
-                size = 3,
-                color = "black",
-                # Control line segments
-                segment.color = "gray50",
-                segment.size = 0.5,
-                segment.alpha = 0.8,
-                # Control label positioning
-                box.padding = 0.5,
-                point.padding = 0.3,
-                force = 1,
-                max.overlaps = Inf,
-                # Optional: limit how far labels can be from points
-                max.time = 1,
-                max.iter = 10000) +
+  geom_text_repel(data = significant_df, 
+                  aes(label = Gene),
+                  size = 3,
+                  color = "black",
+                  # Control line segments
+                  segment.color = "gray50",
+                  segment.size = 0.5,
+                  segment.alpha = 0.8,
+                  # Control label positioning
+                  box.padding = 0.5,
+                  point.padding = 0.3,
+                  force = 1,
+                  max.overlaps = Inf,
+                  # Optional: limit how far labels can be from points
+                  max.time = 1,
+                  max.iter = 10000) +
   # # Add labels for significant points
   # geom_text(data = significant_df, aes(label = Gene),
   #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")+
@@ -13754,7 +13838,7 @@ groupSize <- get_group_size(cellchat)
 netVisual_bubble(cellchat, sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
                  targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
                  remove.isolate = FALSE)
-                 # title.name = expression(Immune %->% Epithelial/Endothelial))
+# title.name = expression(Immune %->% Epithelial/Endothelial))
 # dev.off()
 #
 pdf("fig/vsg_pre_immtoimm.pdf", width = 5, height = 6.5)
@@ -13829,13 +13913,13 @@ pathways
 #"PARs"     "CADM"     "VISFATIN" "CDH"     "PTPRM"
 pw <- pathways[5]
 netVisual_aggregate(
-        object         = cellchat,
-        signaling      = pw,
-        layout         = "circle",    # or "chord"
-        weight.scale   = TRUE,
-        edge.weight.max = max(cellchat@net$weight)  # keeps colour scales comparable
-        # title.name     = pw
-      )
+  object         = cellchat,
+  signaling      = pw,
+  layout         = "circle",    # or "chord"
+  weight.scale   = TRUE,
+  edge.weight.max = max(cellchat@net$weight)  # keeps colour scales comparable
+  # title.name     = pw
+)
 
 
 ```
@@ -13898,19 +13982,19 @@ all_pathways <- sort(union(pathways_high, pathways_low))
 
 # High steatosis interactions with ordered pathways
 a <- netVisual_bubble(cellchats[['Hep_high']], 
-                 sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
-                 targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
-                 # signaling = all_pathways,  # This orders the pathways
-                 remove.isolate = FALSE,
-                 title.name = "High Steatosis - Cell Communication")
+                      sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      # signaling = all_pathways,  # This orders the pathways
+                      remove.isolate = FALSE,
+                      title.name = "High Steatosis - Cell Communication")
 
 # Low steatosis interactions with same pathway order
 b <- netVisual_bubble(cellchats[['Hep_low']], 
-                 sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
-                 targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
-                 signaling = all_pathways,  # Same order as above
-                 remove.isolate = FALSE,
-                 title.name = "Low Steatosis - Cell Communication")
+                      sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      signaling = all_pathways,  # Same order as above
+                      remove.isolate = FALSE,
+                      title.name = "Low Steatosis - Cell Communication")
 
 # ggarrange(a, b, heights = c(1, 1.5), ncol = 2)
 # Use the merged object for direct comparison
@@ -13918,10 +14002,10 @@ cellchat_merged <- mergeCellChat(cellchats, add.names = names(cellchats))
 
 # This will show both conditions with consistent ordering
 c <- netVisual_bubble(cellchat_merged, 
-                 sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
-                 targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
-                 comparison = c(1, 2),  # Compare group 1 vs group 2
-                 remove.isolate = FALSE)
+                      sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      comparison = c(1, 2),  # Compare group 1 vs group 2
+                      remove.isolate = FALSE)
 
 # Create comparison plots
 pdf(fs::path(dir.results,"steatosis_comparison_bubble.pdf"), width = 8, height = 8)
