@@ -1452,7 +1452,7 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset.csv"))
+write.csv(full_results,fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset_with_HepImmune.csv"))
 # full_results <- read.csv(fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
 #   dplyr::rename(`logFC_steatosis_catHigh Steatosis (2+3)`=logFC_steatosis_catHigh.Steatosis..2.3.)
 
@@ -1624,6 +1624,7 @@ print(combined_plot)
 ggsave(fs::path(dir.results,"Hepatocytes_top30_pathways_unadjusted.jpeg"),
        width = 15, height = 20, scale = 1)
 ```
+
 #### Adjusted
 ```{r}
 #Make sure exposure/independent/x variable or group variable is a factor variable
@@ -9922,21 +9923,152 @@ for (i in 1:length(predictors)) {
   base_log_scale[,paste0(predictors[i])] <- base_log_scale[,paste0(predictors[i])]/sd(unlist(base_log[,paste0(predictors[i])]))
 }
 
-saveRDS(base_log,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/TODAY_proteomics.rds")
+saveRDS(base_log,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/today_subeomics.rds")
 
 ```
 ###i. New
 ```{r}
 #Load in AST and ALT in today 
-# today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL.csv"))
+today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL.csv"))
 # length(unique(today$releaseid)) - 699 ids
-today <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/CBL.csv")
+# today <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/CBL.csv")
 today <- today %>%
   filter(mvisit!="R")
 #dplyr::select(c("releaseid","ALT","AST"))
 #Load in Proteomics in Today
-# prot <- readRDS(fs::path(dir.dat,"Liver project","Data","TODAY_proteomics.rds"))
-prot <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver project/Data/TODAY_proteomics.rds")
+# prot <- readRDS(fs::path(dir.dat,"Liver project","Data","today_subeomics.rds"))
+
+# today <- today %>% 
+#   filter(!is.na(visit))
+# dat_baseline <- today %>% 
+#   filter(visit=="Month 1")
+# dat_followup <- today %>% 
+#   filter(visit=="Month 6") 
+# dat <- today %>% 
+#   filter(visit=="Month 1" | visit=="Month 6")
+
+today_sub <- today %>% 
+  filter(releaseid %in% prot_id)
+# Basic spaghetti plot
+ggplot(today_sub, aes(x = mvisit, y = ALT, group = releaseid)) +
+  geom_line(alpha = 0.5, color = "gray40") +
+  geom_point(alpha = 0.5, size = 1.5, color = "gray40") +
+  labs(title = "ALT Values Over Time by Individual",
+       x = "mvisit",
+       y = "ALT") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Calculate mean ALT for each mvisit
+mean_data <- today_sub %>%
+  group_by(mvisit) %>%
+  summarise(mean_ALT = mean(ALT, na.rm = TRUE))
+
+# Create plot with individual lines and mean trend
+ggplot(today_sub, aes(x = mvisit, y = ALT)) +
+  geom_line(aes(group = releaseid), alpha = 0.3, color = "gray60") +
+  geom_point(aes(group = releaseid), alpha = 0.3, size = 1, color = "gray60") +
+  geom_line(data = mean_data, aes(x = mvisit, y = mean_ALT, group = 1), 
+            color = "red", size = 2) +
+  geom_point(data = mean_data, aes(x = mvisit, y = mean_ALT), 
+             color = "red", size = 3) +
+  labs(title = "ALT Values Over Time by Individual",
+       subtitle = "Red line shows mean trend",
+       x = "mvisit",
+       y = "ALT") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(today_sub, aes(x = mvisit, y = ALT, group = releaseid, color = factor(releaseid))) +
+  geom_line(alpha = 0.7, size = 1) +
+  geom_point(alpha = 0.7, size = 2) +
+  labs(title = "ALT Values Over Time by Individual",
+       x = "mvisit",
+       y = "ALT",
+       color = "Individual ID") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = guide_legend(ncol = 2))+  # Adjust legend columns
+  theme(legend.position = "none")
+
+# Basic spaghetti plot
+ggplot(today_sub, aes(x = mvisit, y = AST, group = releaseid)) +
+  geom_line(alpha = 0.5, color = "gray40") +
+  geom_point(alpha = 0.5, size = 1.5, color = "gray40") +
+  labs(title = "AST Values Over Time by Individual",
+       x = "mvisit",
+       y = "AST") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Calculate mean AST for each mvisit
+mean_data <- today_sub %>%
+  group_by(mvisit) %>%
+  summarise(mean_AST = mean(AST, na.rm = TRUE))
+
+# Create plot with individual lines and mean trend
+ggplot(today_sub, aes(x = mvisit, y = AST)) +
+  geom_line(aes(group = releaseid), alpha = 0.3, color = "gray60") +
+  geom_point(aes(group = releaseid), alpha = 0.3, size = 1, color = "gray60") +
+  geom_line(data = mean_data, aes(x = mvisit, y = mean_AST, group = 1), 
+            color = "red", size = 2) +
+  geom_point(data = mean_data, aes(x = mvisit, y = mean_AST), 
+             color = "red", size = 3) +
+  labs(title = "AST Values Over Time by Individual",
+       subtitle = "Red line shows mean trend",
+       x = "mvisit",
+       y = "AST") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(today_sub, aes(x = mvisit, y = AST, group = releaseid, color = factor(releaseid))) +
+  geom_line(alpha = 0.7, size = 1) +
+  geom_point(alpha = 0.7, size = 2) +
+  labs(title = "AST Values Over Time by Individual",
+       x = "mvisit",
+       y = "AST",
+       color = "Individual ID") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = guide_legend(ncol = 2))+  # Adjust legend columns
+  theme(legend.position = "none")
+
+missing_counts <- today_sub %>%
+  group_by(releaseid) %>%
+  summarise(
+    total_timepoints = n(),
+    missing_ALT = sum(is.na(ALT)),
+    missing_AST = sum(is.na(AST)),
+    complete_ALT = sum(!is.na(ALT)),
+    complete_AST = sum(!is.na(AST))
+  )
+
+print(missing_counts)
+
+# Calculate percentages for ALT
+ALT_stats <- missing_counts %>%
+  summarise(
+    total_participants = n(),
+    participants_missing_at_least_one_ALT = sum(missing_ALT >= 1),
+    participants_missing_more_than_5_ALT = sum(missing_ALT > 5),
+    percent_missing_at_least_one_ALT = round(100 * participants_missing_at_least_one_ALT / total_participants, 2),
+    percent_missing_more_than_5_ALT = round(100 * participants_missing_more_than_5_ALT / total_participants, 2)
+  )
+
+# Calculate percentages for AST
+AST_stats <- missing_counts %>%
+  summarise(
+    total_participants = n(),
+    participants_missing_at_least_one_AST = sum(missing_AST >= 1),
+    participants_missing_more_than_5_AST = sum(missing_AST > 5),
+    percent_missing_at_least_one_AST = round(100 * participants_missing_at_least_one_AST / total_participants, 2),
+    percent_missing_more_than_5_AST = round(100 * participants_missing_more_than_5_AST / total_participants, 2)
+  )
+
+
+
+prot <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/today_eomics.rds")
+# prot <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver project/Data/today_subeomics.rds")
 
 # which(colnames(prot)=="AGEBASE") #7406
 # which(colnames(prot)=="releaseid") #7326
@@ -9968,7 +10100,8 @@ proteins <- colnames(prot)[which(grepl("seq.",colnames(prot)))]
 
 #Key Protein Gene
 # key <- readRDS(fs::path(dir.dat,"Liver project","Data","gene_prot.RDS"))
-key <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver project/Data/gene_prot.RDS")
+# key <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver project/Data/gene_prot.RDS")
+key <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/gene_prot.RDS")
 
 so_celltype <- subset(so_liver_sn,celltype2=="Hep")
 DefaultAssay(so_celltype) <- "RNA" 
@@ -9983,6 +10116,8 @@ rm(so_celltype)
 
 hvg_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% hvgs)]
 prot <- prot[c("releaseid","AGEBASE","sex",hvg_proteins)]
+
+prot_id <- unique(prot$releaseid)
 
 #Calculate sensoring and time to event
 baseline <- today %>% 
@@ -10119,7 +10254,7 @@ results_alt <- results_alt %>%
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_alt <- results_alt %>%
   mutate(sig=ifelse(fdr<0.05,"*",""))
-# write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_ALT_hvg.csv"))
+# write.csv(results_alt,fs::path(dir.results,"today_subeomics_ALT_hvg.csv"))
 
 #AST
 results_ast <- results_ast %>%
@@ -10127,7 +10262,7 @@ results_ast <- results_ast %>%
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_ast <- results_ast %>%
   mutate(sig=ifelse(fdr<0.05,"*",""))
-# write.csv(results_ast,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
+# write.csv(results_ast,fs::path(dir.results,"today_subeomics_AST_hvg.csv"))
 
 #Ratio
 results_ratio <- results_ratio %>%
@@ -10135,7 +10270,7 @@ results_ratio <- results_ratio %>%
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_ratio <- results_ratio %>%
   mutate(sig=ifelse(fdr<0.05,"*",""))
-# write.csv(results_ratio,fs::path(dir.results,"TODAY_proteomics_ALT_AST_ratio_hvg.csv"))
+# write.csv(results_ratio,fs::path(dir.results,"today_subeomics_ALT_AST_ratio_hvg.csv"))
 
 results_total <- rbind(results_ast,results_alt)
 results_total <- rbind(results_total,results_ratio)
@@ -10147,14 +10282,14 @@ results_total <- tidylog::left_join(results_total,key,by="Protein")
 results_ast <- tidylog::left_join(results_ast,key,by="Protein")
 results_alt <- tidylog::left_join(results_alt,key,by="Protein")
 results_ratio <- tidylog::left_join(results_ratio,key,by="Protein")
-write.csv(results_ast,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
-write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_ALT_hvg.csv"))
-write.csv(results_ratio,fs::path(dir.results,"TODAY_proteomics_ALT_AST_ratio_hvg.csv"))
+write.csv(results_ast,fs::path(dir.results,"today_subeomics_AST_hvg.csv"))
+write.csv(results_alt,fs::path(dir.results,"today_subeomics_ALT_hvg.csv"))
+write.csv(results_ratio,fs::path(dir.results,"today_subeomics_ALT_AST_ratio_hvg.csv"))
 
 sig_results <- results_total %>% 
   filter(sig=="*")
 
-# write.csv(results_total,fs::path(dir.results,"TODAY_proteomics_alt_ast_hvg_adj_age.csv"))
+# write.csv(results_total,fs::path(dir.results,"today_subeomics_alt_ast_hvg_adj_age.csv"))
 
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 results_alt$PValue10 <- -log10(pmax(results_alt$Pvalue, 1e-10))  # Avoid log(0)
@@ -10409,7 +10544,7 @@ today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL
 #   filter(mvisit=="M00")
 #dplyr::select(c("releaseid","ALT","AST"))
 #Load in Proteomics in Today
-prot <- readRDS(fs::path(dir.dat,"Liver project","TODAY_proteomics.rds"))
+prot <- readRDS(fs::path(dir.dat,"Liver project","today_subeomics.rds"))
 prot <- prot[c(7326,7404,7397,which(grepl("seq.",colnames(prot))))] #length(unique(prot$releaseid)) - 376 unique ids
 proteins <- colnames(prot)[which(grepl("seq.",colnames(prot)))]
 
@@ -10611,12 +10746,15 @@ plot(volcano_plot_ast)
 ```{r}
 #Proteomics teen labs 
 load(fs::path(dir.dat,"Teen Labs","Data_Cleaned","analysis_dataset.RData"))
-dat_baseline <- df %>% 
-  filter(visit=="Month 1")
-dat_followup <- df %>% 
-  filter(visit=="Month 6") 
-dat <- df %>% 
-  filter(visit=="Month 1" | visit=="Month 6")
+#Remove na values for visit
+df <- df %>% 
+  filter(!is.na(visit))
+# dat_baseline <- df %>% 
+#   filter(visit=="Month 1")
+# dat_followup <- df %>% 
+#   filter(visit=="Month 6") 
+# dat <- df %>% 
+#   filter(visit=="Month 1" | visit=="Month 6")
 
 #Protein key
 key <- analyte_info %>% 
@@ -10640,141 +10778,267 @@ prot_followup <- prot_followup %>%
   dplyr::select(-visit)
 
 prot <- tidylog::left_join(prot_baseline,prot_followup,by="ID")
-# Find columns with "baseline" and "followup"
-baseline_cols <- grep("_baseline$", colnames(prot), value = TRUE)
-followup_cols <- grep("_followup$", colnames(prot), value = TRUE)
+prot_id <- unique(prot$ID)
 
-# Sort to ensure matching order
-baseline_cols <- sort(baseline_cols)
-followup_cols <- sort(followup_cols)
+df_sub <- df %>% 
+  filter(ID %in% prot_id)
 
-# Create new columns for differences
-for (i in seq_along(baseline_cols)) {
-  protein_name <- sub("_baseline$", "", baseline_cols[i])  # Get protein name (e.g., "protein1")
-  diff_col <- paste0(protein_name, "_diff")               # Create a difference column name
-  prot[[diff_col]] <- prot[[followup_cols[i]]] - prot[[baseline_cols[i]]]
-}
+# # Basic spaghetti plot
+# ggplot(df_sub, aes(x = visit, y = ALT, group = ID)) +
+#   geom_line(alpha = 0.5, color = "gray40") +
+#   geom_point(alpha = 0.5, size = 1.5, color = "gray40") +
+#   labs(title = "ALT Values Over Time by Individual",
+#        x = "Visit",
+#        y = "ALT") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# # Calculate mean ALT for each visit
+# mean_data <- df_sub %>%
+#   group_by(visit) %>%
+#   summarise(mean_ALT = mean(ALT, na.rm = TRUE))
+# 
+# # Create plot with individual lines and mean trend
+# ggplot(df_sub, aes(x = visit, y = ALT)) +
+#   geom_line(aes(group = ID), alpha = 0.3, color = "gray60") +
+#   geom_point(aes(group = ID), alpha = 0.3, size = 1, color = "gray60") +
+#   geom_line(data = mean_data, aes(x = visit, y = mean_ALT, group = 1), 
+#             color = "red", size = 2) +
+#   geom_point(data = mean_data, aes(x = visit, y = mean_ALT), 
+#              color = "red", size = 3) +
+#   labs(title = "ALT Values Over Time by Individual",
+#        subtitle = "Red line shows mean trend",
+#        x = "Visit",
+#        y = "ALT") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# ggplot(df_sub, aes(x = visit, y = ALT, group = ID, color = factor(ID))) +
+#   geom_line(alpha = 0.7, size = 1) +
+#   geom_point(alpha = 0.7, size = 2) +
+#   labs(title = "ALT Values Over Time by Individual",
+#        x = "Visit",
+#        y = "ALT",
+#        color = "Individual ID") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+#   guides(color = guide_legend(ncol = 2))+  # Adjust legend columns
+#   theme(legend.position = "none")
+# 
+# # Basic spaghetti plot
+# ggplot(df_sub, aes(x = visit, y = AST, group = ID)) +
+#   geom_line(alpha = 0.5, color = "gray40") +
+#   geom_point(alpha = 0.5, size = 1.5, color = "gray40") +
+#   labs(title = "AST Values Over Time by Individual",
+#        x = "Visit",
+#        y = "AST") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# # Calculate mean AST for each visit
+# mean_data <- df_sub %>%
+#   group_by(visit) %>%
+#   summarise(mean_AST = mean(AST, na.rm = TRUE))
+# 
+# # Create plot with individual lines and mean trend
+# ggplot(df_sub, aes(x = visit, y = AST)) +
+#   geom_line(aes(group = ID), alpha = 0.3, color = "gray60") +
+#   geom_point(aes(group = ID), alpha = 0.3, size = 1, color = "gray60") +
+#   geom_line(data = mean_data, aes(x = visit, y = mean_AST, group = 1), 
+#             color = "red", size = 2) +
+#   geom_point(data = mean_data, aes(x = visit, y = mean_AST), 
+#              color = "red", size = 3) +
+#   labs(title = "AST Values Over Time by Individual",
+#        subtitle = "Red line shows mean trend",
+#        x = "Visit",
+#        y = "AST") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# ggplot(df_sub, aes(x = visit, y = AST, group = ID, color = factor(ID))) +
+#   geom_line(alpha = 0.7, size = 1) +
+#   geom_point(alpha = 0.7, size = 2) +
+#   labs(title = "AST Values Over Time by Individual",
+#        x = "Visit",
+#        y = "AST",
+#        color = "Individual ID") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+#   guides(color = guide_legend(ncol = 2))+  # Adjust legend columns
+#   theme(legend.position = "none")
+# 
+# missing_counts <- df_sub %>%
+#   group_by(ID) %>%
+#   summarise(
+#     total_timepoints = n(),
+#     missing_ALT = sum(is.na(ALT)),
+#     missing_AST = sum(is.na(AST)),
+#     complete_ALT = sum(!is.na(ALT)),
+#     complete_AST = sum(!is.na(AST))
+#   )
+# 
+# print(missing_counts)
+# 
+# # Calculate percentages for ALT
+# ALT_stats <- missing_counts %>%
+#   summarise(
+#     total_participants = n(),
+#     participants_missing_at_least_one_ALT = sum(missing_ALT >= 1),
+#     participants_missing_more_than_5_ALT = sum(missing_ALT > 5),
+#     percent_missing_at_least_one_ALT = round(100 * participants_missing_at_least_one_ALT / total_participants, 2),
+#     percent_missing_more_than_5_ALT = round(100 * participants_missing_more_than_5_ALT / total_participants, 2)
+#   )
+# 
+# # Calculate percentages for AST
+# AST_stats <- missing_counts %>%
+#   summarise(
+#     total_participants = n(),
+#     participants_missing_at_least_one_AST = sum(missing_AST >= 1),
+#     participants_missing_more_than_5_AST = sum(missing_AST > 5),
+#     percent_missing_at_least_one_AST = round(100 * participants_missing_at_least_one_AST / total_participants, 2),
+#     percent_missing_more_than_5_AST = round(100 * participants_missing_more_than_5_AST / total_participants, 2)
+#   )
 
-#Covariates at baseline
-dat_cov <- dat %>% 
-  filter(visit=="Month 1") %>% 
-  dplyr::select(all_of(c("ID","SEX","HBA1C","age"))) 
-
-rm(df,analyte_info)
-
+# # Find columns with "baseline" and "followup"
+# baseline_cols <- grep("_baseline$", colnames(prot), value = TRUE)
+# followup_cols <- grep("_followup$", colnames(prot), value = TRUE)
+# 
+# # Sort to ensure matching order
+# baseline_cols <- sort(baseline_cols)
+# followup_cols <- sort(followup_cols)
+# 
+# # Create new columns for differences
+# for (i in seq_along(baseline_cols)) {
+#   protein_name <- sub("_baseline$", "", baseline_cols[i])  # Get protein name (e.g., "protein1")
+#   diff_col <- paste0(protein_name, "_diff")               # Create a difference column name
+#   prot[[diff_col]] <- prot[[followup_cols[i]]] - prot[[baseline_cols[i]]]
+# }
+# 
+# #Covariates at baseline
+# dat_cov <- dat %>% 
+#   filter(visit=="Month 1") %>% 
+#   dplyr::select(all_of(c("ID","SEX","HBA1C","age"))) 
+# 
+# rm(df,analyte_info)
+# 
 #ALT/AST
+# liv <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/Teen-LABS_AST_ALT.csv")
 liv <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/Teen-LABS_AST_ALT.csv")
-liv <- liv %>% 
-  dplyr::rename(visit=Visit) %>% 
-  filter(visit==1 | visit==6) %>% 
-  mutate(visit=case_when(visit==1~"Month 1",
-                         visit==6~"Month 6")) %>% 
-  mutate(across(everything(),~ifelse(.==-5,NA,.))) %>% 
-  mutate(across(everything(),~ifelse(.==-7,1,.)))
-liv_baseline <- liv %>% 
-  filter(visit=="Month 1") %>% 
-  dplyr::select(-visit) %>% 
-  dplyr::rename(ALT_baseline=ALT,
-                AST_baseline=AST)
-liv_followup <- liv %>% 
-  filter(visit=="Month 6") %>% 
-  dplyr::select(-visit) %>% 
-  dplyr::rename(ALT_followup=ALT,
-                AST_followup=AST)
-liv <- tidylog::left_join(liv_baseline,liv_followup,by="ID")
-liv <- liv %>% 
-  mutate(ALT_diff = ALT_followup-ALT_baseline,
-         AST_diff = AST_followup-AST_baseline) 
+liv <- liv %>%
+  dplyr::rename(visit=Visit) %>%
+  # filter(visit==1 | visit==6) %>%
+  # mutate(visit=case_when(visit==1~"Month 1",
+  #                        visit==6~"Month 6")) %>%
+  mutate(across(everything(),~ifelse(.==-5,NA,.))) %>%
+  mutate(across(everything(),~ifelse(.==-7,1,.))) %>% 
+  filter(!is.na(ALT) & !is.na(AST))
+ #201 have alt and/or ast
 
-
-dat_cov$ID <- as.character(dat_cov$ID)
+# liv_baseline <- liv %>% 
+#   filter(visit=="Month 1") %>% 
+#   dplyr::select(-visit) %>% 
+#   dplyr::rename(ALT_baseline=ALT,
+#                 AST_baseline=AST)
+# liv_followup <- liv %>% 
+#   filter(visit=="Month 6") %>% 
+#   dplyr::select(-visit) %>% 
+#   dplyr::rename(ALT_followup=ALT,
+#                 AST_followup=AST)
+# liv <- tidylog::left_join(liv_baseline,liv_followup,by="ID")
+# liv <- liv %>% 
+#   mutate(ALT_diff = ALT_followup-ALT_baseline,
+#          AST_diff = AST_followup-AST_baseline) 
+# 
+# 
+# dat_cov$ID <- as.character(dat_cov$ID)
 prot$ID<- as.character(prot$ID)
-
-#Baseline proteins & baseline covariates and baseline and followup alt/ast
-dat_all <- tidylog::right_join(dat_cov,liv,by=c("ID"))
-dat_all <- tidylog::left_join(dat_all,prot,by=c("ID"))
-
-#Run linear mixed effect model & difference model 
-protein_diff <- paste0(protein,"_diff")
-results <- data.frame()
-covs <- c("age","SEX","HBA1C")
-for (x in protein_diff) {
-  for (y in c("AST_diff","ALT_diff")) {
-    M0_crude <- as.formula(paste0(y,"~",x))
-    M0_adj <- as.formula(paste0(y,"~",x,"+",paste(covs, collapse = "+")))
-    M1_crude <- lm(M0_crude,data=dat_all)
-    M1_adj <- lm(M0_adj,data=dat_all)
-    coef_crude <- summary(M1_crude)$coef[2,1]
-    coef_adj <- summary(M1_adj)$coef[2,1]
-    p_crude <- summary(M1_crude)$coef[2,4]
-    p_adj <- summary(M1_adj)$coef[2,4]
-    diff_results <- data.frame(Protein=x,Enzyme=y,Coef=coef_adj,PValue=p_adj)
-    results <- rbind(results,diff_results)
-  }
-}
-r_alt <- results %>% 
-  filter(Enzyme=="ALT_diff") %>% 
-  mutate(fdr=p.adjust(PValue,method="fdr"))
-r_ast <- results %>% 
-  filter(Enzyme=="AST_diff") %>% 
-  mutate(fdr=p.adjust(PValue,method="fdr"))
-results <- rbind(r_alt,r_ast)
-results <- results %>% 
-  mutate(sig=ifelse(fdr<0.05,"*",""))
-write.csv(results,fs::path(dir.results,"Diff_Results_Liver_Teenlabs_Imputed.csv"))
-
-#Baseline protein with change in ALT/AST pre and post surgery
-liv <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/Teen-LABS_AST_ALT.csv")
-liv <- liv %>% 
-  dplyr::rename(visit=Visit) %>% 
-  filter(visit==1 | visit==6) %>% 
-  mutate(visit=case_when(visit==1~"Month 1",
-                         visit==6~"Month 6")) %>% 
-  mutate(across(everything(),~ifelse(.==-5,NA,.))) %>% 
-  mutate(across(everything(),~ifelse(.==-7,NA,.)))
-prot_baseline_dat$ID <- as.character(prot_baseline_dat$ID)
-dat_baseline <- tidylog::left_join(liv,prot_baseline_dat,by=c("ID"))
-dat_baseline <- tidylog::left_join(dat_cov,dat_baseline,by="ID")
-dat_baseline <- dat_baseline %>% 
-  mutate(time=case_when(visit=="Month 1"~1,
-                        visit=="Month 6"~6))
-
-#Linear Mixed Effects Model
-protein_baseline <- paste0(protein,"_baseline")
-covs <- c("age","SEX","HBA1C")
-
-results <- data.frame()
-for (x in c("AST","ALT")) {
-  for (y in protein_baseline) {
-    M0_crude <- as.formula(paste0(y,"~",x,"+time+(1|ID)"))
-    M0_adj <- as.formula(paste0(y,"~",x,"*time+",paste(covs, collapse = "+"),"+(1|ID)"))
-    M1_crude <- lmer(M0_crude,data=dat_baseline)
-    M1_adj <- lmer(M0_adj,data=dat_baseline)
-    Main <- summary(M1_adj)$coef[2,1]
-    Main_p <- summary(M1_adj)$coef[2,5]
-    Time <- summary(M1_adj)$coef[3,1]
-    Time_p <- summary(M1_adj)$coef[3,5]
-    Int <- summary(M1_adj)$coef[7,1]
-    Int_p <- summary(M1_adj)$coef[7,5]
-    results_int <- data.frame(Protein=x,Enzyme=y,Main,Main_p,Time,Time_p,Int,Int_p)
-    results <- rbind(results,results_int)
-  }
-}
-r_alt <- results %>% 
-  filter(Enzyme=="ALT") %>% 
-  mutate(Main_fdr=p.adjust(Main_p,method="fdr")) %>% 
-  mutate(Int_fdr=p.adjust(Int_p,method="fdr"))
-r_ast <- results %>% 
-  filter(Enzyme=="AST") %>% 
-  mutate(Main_fdr=p.adjust(Main_p,method="fdr")) %>% 
-  mutate(Int_fdr=p.adjust(Int_p,method="fdr"))
-results <- rbind(r_alt,r_ast)
-results <- results %>% 
-  mutate(Main_sig=ifelse(Main_fdr<0.05,"*","")) %>% 
-  mutate(Int_sig=ifelse(Int_fdr<0.05,"*",""))
-results$AptName <- str_remove(results$Protein,"_baseline")
-results <- tidylog::left_join(results,key,by="AptName")
-write.csv(results,fs::path(dir.results,"LMEM_TeenLabs_Liver_Results_Imputed.csv"))
+# 
+# #Baseline proteins & baseline covariates and baseline and followup alt/ast
+# dat_all <- tidylog::right_join(dat_cov,liv,by=c("ID"))
+# dat_all <- tidylog::left_join(dat_all,prot,by=c("ID"))
+dat_all <- tidylog::left_join(liv,prot,by=c("ID"))
+# 
+# #Run linear mixed effect model & difference model 
+# protein_diff <- paste0(protein,"_diff")
+# results <- data.frame()
+# covs <- c("age","SEX","HBA1C")
+# for (x in protein_diff) {
+#   for (y in c("AST_diff","ALT_diff")) {
+#     M0_crude <- as.formula(paste0(y,"~",x))
+#     M0_adj <- as.formula(paste0(y,"~",x,"+",paste(covs, collapse = "+")))
+#     M1_crude <- lm(M0_crude,data=dat_all)
+#     M1_adj <- lm(M0_adj,data=dat_all)
+#     coef_crude <- summary(M1_crude)$coef[2,1]
+#     coef_adj <- summary(M1_adj)$coef[2,1]
+#     p_crude <- summary(M1_crude)$coef[2,4]
+#     p_adj <- summary(M1_adj)$coef[2,4]
+#     diff_results <- data.frame(Protein=x,Enzyme=y,Coef=coef_adj,PValue=p_adj)
+#     results <- rbind(results,diff_results)
+#   }
+# }
+# r_alt <- results %>% 
+#   filter(Enzyme=="ALT_diff") %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr"))
+# r_ast <- results %>% 
+#   filter(Enzyme=="AST_diff") %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr"))
+# results <- rbind(r_alt,r_ast)
+# results <- results %>% 
+#   mutate(sig=ifelse(fdr<0.05,"*",""))
+# write.csv(results,fs::path(dir.results,"Diff_Results_Liver_Teenlabs_Imputed.csv"))
+# 
+# #Baseline protein with change in ALT/AST pre and post surgery
+# liv <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/Teen-LABS_AST_ALT.csv")
+# liv <- liv %>% 
+#   dplyr::rename(visit=Visit) %>% 
+#   filter(visit==1 | visit==6) %>% 
+#   mutate(visit=case_when(visit==1~"Month 1",
+#                          visit==6~"Month 6")) %>% 
+#   mutate(across(everything(),~ifelse(.==-5,NA,.))) %>% 
+#   mutate(across(everything(),~ifelse(.==-7,NA,.)))
+# prot_baseline_dat$ID <- as.character(prot_baseline_dat$ID)
+# dat_baseline <- tidylog::left_join(liv,prot_baseline_dat,by=c("ID"))
+# dat_baseline <- tidylog::left_join(dat_cov,dat_baseline,by="ID")
+# dat_baseline <- dat_baseline %>% 
+#   mutate(time=case_when(visit=="Month 1"~1,
+#                         visit=="Month 6"~6))
+# 
+# #Linear Mixed Effects Model
+# protein_baseline <- paste0(protein,"_baseline")
+# covs <- c("age","SEX","HBA1C")
+# 
+# results <- data.frame()
+# for (x in c("AST","ALT")) {
+#   for (y in protein_baseline) {
+#     M0_crude <- as.formula(paste0(y,"~",x,"+time+(1|ID)"))
+#     M0_adj <- as.formula(paste0(y,"~",x,"*time+",paste(covs, collapse = "+"),"+(1|ID)"))
+#     M1_crude <- lmer(M0_crude,data=dat_baseline)
+#     M1_adj <- lmer(M0_adj,data=dat_baseline)
+#     Main <- summary(M1_adj)$coef[2,1]
+#     Main_p <- summary(M1_adj)$coef[2,5]
+#     Time <- summary(M1_adj)$coef[3,1]
+#     Time_p <- summary(M1_adj)$coef[3,5]
+#     Int <- summary(M1_adj)$coef[7,1]
+#     Int_p <- summary(M1_adj)$coef[7,5]
+#     results_int <- data.frame(Protein=x,Enzyme=y,Main,Main_p,Time,Time_p,Int,Int_p)
+#     results <- rbind(results,results_int)
+#   }
+# }
+# r_alt <- results %>% 
+#   filter(Enzyme=="ALT") %>% 
+#   mutate(Main_fdr=p.adjust(Main_p,method="fdr")) %>% 
+#   mutate(Int_fdr=p.adjust(Int_p,method="fdr"))
+# r_ast <- results %>% 
+#   filter(Enzyme=="AST") %>% 
+#   mutate(Main_fdr=p.adjust(Main_p,method="fdr")) %>% 
+#   mutate(Int_fdr=p.adjust(Int_p,method="fdr"))
+# results <- rbind(r_alt,r_ast)
+# results <- results %>% 
+#   mutate(Main_sig=ifelse(Main_fdr<0.05,"*","")) %>% 
+#   mutate(Int_sig=ifelse(Int_fdr<0.05,"*",""))
+# results$AptName <- str_remove(results$Protein,"_baseline")
+# results <- tidylog::left_join(results,key,by="AptName")
+# write.csv(results,fs::path(dir.results,"LMEM_TeenLabs_Liver_Results_Imputed.csv"))
 ```
 ###ii. Old
 ```{r}
@@ -12324,19 +12588,19 @@ saveRDS(summary_data,fs::path(dir.results,"Summary_Hepatocytes_Dataframe.rds"))
 write.csv(summary_data,fs::path(dir.results,"Summary_Hepatocytes_Dataframe.csv"))
 
 #Alter alt and ast names
-data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/TODAY_proteomics_ALT_hvg.csv")
+data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/today_subeomics_ALT_hvg.csv")
 data <- data %>% 
   dplyr::rename(LogFC=LogHR) %>% 
   dplyr::rename(Gene=EntrezGeneSymbol) %>% 
   mutate(dataset="ALT")
-write.csv(data,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_ALT_hvg.csv")
+write.csv(data,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_today_subeomics_ALT_hvg.csv")
 
-data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/TODAY_proteomics_AST_hvg.csv")
+data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/today_subeomics_AST_hvg.csv")
 data <- data %>% 
   dplyr::rename(LogFC=LogHR) %>% 
   dplyr::rename(Gene=EntrezGeneSymbol) %>% 
   mutate(dataset="AST")
-write.csv(data,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_AST_hvg.csv")
+write.csv(data,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_today_subeomics_AST_hvg.csv")
 ```
 
 ####II. Analyze
@@ -12580,8 +12844,8 @@ analyze_gene_patterns <- function(file_paths, dataset_names) {
 # Replace these with your actual file paths and names
 file_paths <- c(
   "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Summary_Hepatocytes_Dataframe.csv",
-  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_ALT_hvg.csv",
-  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_AST_hvg.csv"
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_today_subeomics_ALT_hvg.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_today_subeomics_AST_hvg.csv"
 )
 
 dataset_names <- c(
