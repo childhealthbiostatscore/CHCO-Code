@@ -1,0 +1,1544 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+# find modes
+
+```{r}
+library(tidyverse)
+
+# Your mode function
+Modes <- function(x, na.rm = FALSE) {
+  if(na.rm){
+    x = x[!is.na(x)]
+  }
+  
+  ux <- unique(x)
+  return(ux[which.max(tabulate(match(x, ux)))])
+}
+
+# Function to get mode for a specific range
+get_mode_for_range <- function(data, min_val, max_val) {
+  filtered <- data %>% 
+    filter(slingPseudotime_1 >= min_val & slingPseudotime_1 <= max_val)
+  
+  if(nrow(filtered) == 0) {
+    return(NA)
+  } else {
+    modes <- Modes(filtered$slingPseudotime_1)
+    # If multiple modes, take the first one (or you could take mean)
+    return(modes[1])
+  }
+}
+
+subject_modes_by_range <- sce_pt_celltype_df %>%
+  group_by(subject_id, visit, treatment, hba1c, weight, mgfr_jodal, mgfr_jodal_bsa, cgm_tir) %>%
+  group_split() %>%
+  map_df(function(group_data) {
+    # Get the grouping variables (they're constant within group)
+    group_vars <- group_data %>%
+      select(subject_id, visit, treatment, hba1c, weight, mgfr_jodal, mgfr_jodal_bsa, cgm_tir) %>%
+      slice(1)
+    
+    # Calculate modes for each range
+    range1_data <- group_data %>% filter(slingPseudotime_1 >= 0 & slingPseudotime_1 <= 15)
+    range2_data <- group_data %>% filter(slingPseudotime_1 >= 20 & slingPseudotime_1 <= 35)
+    range3_data <- group_data %>% filter(slingPseudotime_1 >= 35 & slingPseudotime_1 <= 50)
+    
+    # Get modes
+    mode1 <- if(nrow(range1_data) > 0) Modes(range1_data$slingPseudotime_1)[1] else NA
+    mode2 <- if(nrow(range2_data) > 0) Modes(range2_data$slingPseudotime_1)[1] else NA
+    mode3 <- if(nrow(range3_data) > 0) Modes(range3_data$slingPseudotime_1)[1] else NA
+    
+    # Combine results
+    group_vars %>%
+      mutate(
+        mode_range1 = mode1,
+        n_cells_range1 = nrow(range1_data),
+        mode_range2 = mode2,
+        n_cells_range2 = nrow(range2_data),
+        mode_range3 = mode3,
+        n_cells_range3 = nrow(range3_data),
+        total_cells = nrow(group_data),
+        p_cells_range1 = n_cells_range1/total_cells,
+        p_cells_range2 = n_cells_range2/total_cells,
+        p_cells_range3 = n_cells_range3/total_cells
+      )
+  })
+
+```
+
+
+```{r}
+subject_modes_by_range %>%
+  ggplot(aes(x = mode_range1, y = hba1c, color = visit)) +
+  geom_point()
+
+subject_modes_by_range %>%
+  ggplot(aes(x = mode_range2, y = hba1c, color = visit)) +
+  geom_point()
+subject_modes_by_range %>%
+  ggplot(aes(x = mode_range3, y = hba1c, color = visit)) +
+  geom_point()
+```
+# cluster to three (overall)
+```{r echo = F}
+# Load required libraries
+# Load required libraries
+library(mclust)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggpubr)
+
+# Perform clustering on slingPseudotime_1
+# Assuming your data is in sce_pt_celltype_df
+
+cutoff1 <- 15  # Between cluster 1 and 2
+cutoff2 <- 32  # Between cluster 2 and 3
+
+# Initial hard clustering
+sce_pt_celltype_df$cluster <- cut(sce_pt_celltype_df$slingPseudotime_1,
+                                         breaks = c(-Inf, cutoff1, cutoff2, Inf),
+                                         labels = c("1", "2", "3"))
+
+# 4. Visualize the clustering results
+# Plot histogram with fitted curves
+p1 <- ggplot(sce_pt_celltype_df, aes(x = slingPseudotime_1)) +
+  geom_histogram(aes(y = ..density..), bins = 50, alpha = 0.6, fill = "gray") +
+  stat_density(aes(color = cluster), geom = "line", size = 1.2) +
+  theme_minimal() +
+  labs(title = "Clustering of slingPseudotime_1",
+       x = "slingPseudotime_1",
+       y = "Density") +
+  theme(legend.position = "top")
+
+print(p1)
+
+# 5. Examine cluster characteristics
+cluster_summary <- sce_pt_celltype_df %>%
+  group_by(cluster) %>%
+  summarise(
+    n = n(),
+    mean_pseudotime = mean(slingPseudotime_1, na.rm = TRUE),
+    sd_pseudotime = sd(slingPseudotime_1, na.rm = TRUE),
+    min_pseudotime = min(slingPseudotime_1, na.rm = TRUE),
+    max_pseudotime = max(slingPseudotime_1, na.rm = TRUE)
+  )
+
+print("Cluster Summary for Pseudotime:")
+print(cluster_summary)
+
+# 6. Analyze clinical variables by cluster
+# Create summary statistics for each clinical variable by cluster
+clinical_vars <- c("hba1c", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "cgm_tir")
+
+# Function to create summary stats
+summarize_by_cluster <- function(df, var_name) {
+  df %>%
+    group_by(cluster) %>%
+    summarise(
+      n = sum(!is.na(.data[[var_name]])),
+      mean = mean(.data[[var_name]], na.rm = TRUE),
+      sd = sd(.data[[var_name]], na.rm = TRUE),
+      median = median(.data[[var_name]], na.rm = TRUE),
+      q25 = quantile(.data[[var_name]], 0.25, na.rm = TRUE),
+      q75 = quantile(.data[[var_name]], 0.75, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(variable = var_name)
+}
+
+# Apply to all clinical variables
+clinical_summaries <- lapply(clinical_vars, function(var) {
+  summarize_by_cluster(sce_pt_celltype_df, var)
+})
+
+clinical_summary_df <- bind_rows(clinical_summaries)
+
+print("\nClinical Variables by Cluster:")
+print(clinical_summary_df)
+
+# 7. Create box plots for each clinical variable
+plot_list <- list()
+
+for (var in clinical_vars) {
+  p <- ggplot(sce_pt_celltype_df, aes(x = cluster, y = .data[[var]], fill = cluster)) +
+    geom_boxplot(alpha = 0.7) +
+    geom_jitter(width = 0.2, alpha = 0.3, size = 0.5) +
+    theme_minimal() +
+    labs(title = paste("Distribution of", var, "by Cluster"),
+         x = "Cluster",
+         y = var) +
+    theme(legend.position = "none")
+  
+  plot_list[[var]] <- p
+}
+
+# Arrange all plots
+p_clinical <- ggarrange(plotlist = plot_list, 
+                       ncol = 2, nrow = 3)
+print(p_clinical)
+
+# 8. Statistical testing - Kruskal-Wallis test for differences between clusters
+print("\n\nKruskal-Wallis Tests for Clinical Variables:")
+kw_results <- data.frame(
+  variable = character(),
+  chi_squared = numeric(),
+  df = numeric(),
+  p_value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+for (var in clinical_vars) {
+  if (sum(!is.na(sce_pt_celltype_df[[var]])) > 0) {
+    kw_test <- kruskal.test(as.formula(paste(var, "~ cluster")), 
+                           data = sce_pt_celltype_df)
+    kw_results <- rbind(kw_results, 
+                       data.frame(
+                         variable = var,
+                         chi_squared = kw_test$statistic,
+                         df = kw_test$parameter,
+                         p_value = kw_test$p.value
+                       ))
+  }
+}
+
+kw_results$p_adjusted <- p.adjust(kw_results$p_value, method = "bonferroni")
+print(kw_results)
+
+# 9. Pairwise comparisons if significant differences found
+significant_vars <- kw_results$variable[kw_results$p_adjusted < 0.05]
+
+if (length(significant_vars) > 0) {
+  print("\n\nPairwise Wilcoxon Tests for Significant Variables:")
+  
+  for (var in significant_vars) {
+    print(paste("\n--- Pairwise comparisons for", var, "---"))
+    pw_test <- pairwise.wilcox.test(sce_pt_celltype_df[[var]], 
+                                   sce_pt_celltype_df$cluster,
+                                   p.adjust.method = "bonferroni")
+    print(pw_test)
+  }
+}
+
+# 10. Create a comprehensive visualization
+# Heatmap of standardized clinical variables by cluster
+clinical_matrix <- sce_pt_celltype_df %>%
+  group_by(cluster) %>%
+  summarise(across(all_of(clinical_vars), 
+                  ~mean(.x, na.rm = TRUE),
+                  .names = "{.col}"))
+
+# Standardize for visualization
+clinical_matrix_std <- clinical_matrix %>%
+  mutate(across(all_of(clinical_vars), scale))
+
+# Reshape for plotting
+clinical_matrix_long <- clinical_matrix_std %>%
+  pivot_longer(cols = all_of(clinical_vars),
+               names_to = "variable",
+               values_to = "z_score")
+
+p_heatmap <- ggplot(clinical_matrix_long, 
+                   aes(x = cluster, y = variable, fill = z_score)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", 
+                      midpoint = 0, 
+                      name = "Z-score") +
+  theme_minimal() +
+  labs(title = "Standardized Clinical Variables by Cluster",
+       x = "Cluster",
+       y = "Clinical Variable") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p_heatmap)
+
+# 11. Save cluster assignments for future use
+# write.csv(sce_pt_celltype_df[, c("cluster", clinical_vars)], 
+#           "gmm_cluster_results.csv", row.names = FALSE)
+
+```
+```{r echo = F}
+# 1. Separate clustering by treatment group
+treated_df <- sce_pt_celltype_df[sce_pt_celltype_df$treatment == "Dapagliflozin", ]
+untreated_df <- sce_pt_celltype_df[sce_pt_celltype_df$treatment == "Placebo", ]
+
+# 2. Compare pseudotime distributions
+ggplot(sce_pt_celltype_df, aes(x = slingPseudotime_1, fill = treatment)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~visit) +
+  theme_minimal()
+
+# 3. Examine if clusters shift between visits
+table(sce_pt_celltype_df$cluster, sce_pt_celltype_df$visit, sce_pt_celltype_df$treatment)
+```
+
+```{r}
+# Stratified Analysis of Pseudotime Clusters by Treatment and Visit
+
+library(dplyr)
+library(ggplot2)
+library(mclust)
+library(ggpubr)
+
+# 1. Perform clustering separately for each treatment group
+perform_stratified_clustering <- function(df, treatment_group, visit_type = NULL) {
+  # Filter data
+  if (!is.null(visit_type)) {
+    data_subset <- df %>% 
+      filter(treatment == treatment_group, visit == visit_type)
+    group_name <- paste(treatment_group, visit_type, sep = "_")
+  } else {
+    data_subset <- df %>% 
+      filter(treatment == treatment_group)
+    group_name <- treatment_group
+  }
+  
+  # Perform clustering
+  if (nrow(data_subset) > 10) {
+    # Use manual cutoffs based on the density plots
+    if (treatment_group == "Dapagliflozin") {
+      # Clear trimodal for dapagliflozin
+      cutoffs <- c(20, 32)
+    } else {
+      # Adjusted for placebo distribution
+      cutoffs <- c(25, 38)
+    }
+    
+    data_subset$cluster_stratified <- cut(data_subset$slingPseudotime_1,
+                                          breaks = c(-Inf, cutoffs[1], cutoffs[2], Inf),
+                                          labels = c("1", "2", "3"))
+    
+    return(list(data = data_subset, group = group_name, cutoffs = cutoffs))
+  }
+  return(NULL)
+}
+
+# 2. Apply stratified clustering
+# By treatment only
+dapa_clusters <- perform_stratified_clustering(sce_pt_celltype_df, "Dapagliflozin")
+placebo_clusters <- perform_stratified_clustering(sce_pt_celltype_df, "Placebo")
+
+# By treatment and visit
+dapa_pre <- perform_stratified_clustering(sce_pt_celltype_df, "Dapagliflozin", "PRE")
+dapa_post <- perform_stratified_clustering(sce_pt_celltype_df, "Dapagliflozin", "POST")
+placebo_pre <- perform_stratified_clustering(sce_pt_celltype_df, "Placebo", "PRE")
+placebo_post <- perform_stratified_clustering(sce_pt_celltype_df, "Placebo", "POST")
+
+# 3. Analyze cluster shifts between visits
+analyze_cluster_shifts <- function(df) {
+  # For patients with both visits
+  paired_data <- df %>%
+    filter(!is.na(subject_id)) %>%  # Assuming you have patient IDs
+    select(subject_id, visit, treatment, slingPseudotime_1, cluster) %>%
+    pivot_wider(names_from = visit, 
+                values_from = c(slingPseudotime_1, cluster),
+                names_prefix = "") %>%
+    filter(!is.na(slingPseudotime_1_PRE) & !is.na(slingPseudotime_1_POST))
+  
+  # Calculate pseudotime change
+  paired_data$pseudotime_change <- paired_data$slingPseudotime_1_POST - paired_data$slingPseudotime_1_PRE
+  
+  # Categorize shifts
+  paired_data$trajectory_shift <- case_when(
+    paired_data$pseudotime_change < -5 ~ "Improvement",
+    paired_data$pseudotime_change > 5 ~ "Progression", 
+    TRUE ~ "Stable"
+  )
+  
+  return(paired_data)
+}
+
+# 4. Visualize cluster distributions by treatment and visit
+plot_cluster_distributions <- function(df) {
+  p1 <- ggplot(df, aes(x = cluster, fill = treatment)) +
+    geom_bar(position = "dodge") +
+    facet_wrap(~visit) +
+    theme_minimal() +
+    labs(title = "Cluster Distribution by Treatment and Visit",
+         x = "Cluster", y = "Count") +
+    scale_fill_manual(values = c("Dapagliflozin" = "#00BFC4", "Placebo" = "#F8766D"))
+  
+  return(p1)
+}
+
+# 5. Analyze clinical outcomes by stratified clusters
+analyze_clinical_by_strata <- function(df, clinical_vars) {
+  results <- df %>%
+    group_by(treatment, visit, cluster) %>%
+    summarise(across(all_of(clinical_vars),
+                    list(mean = ~mean(.x, na.rm = TRUE),
+                         sd = ~sd(.x, na.rm = TRUE),
+                         n = ~sum(!is.na(.x))),
+                    .names = "{.col}_{.fn}"),
+              .groups = "drop")
+  
+  return(results)
+}
+
+# 6. Statistical testing for treatment effects within clusters
+test_treatment_effects <- function(df, clinical_vars) {
+  results_list <- list()
+  
+  for (var in clinical_vars) {
+    for (clust in unique(df$cluster)) {
+      # Filter data for specific cluster
+      cluster_data <- df %>% filter(cluster == clust)
+      
+      # Test pre-post changes by treatment
+      if (nrow(cluster_data) > 10) {
+        # Calculate change scores if paired data available
+        change_data <- cluster_data %>%
+          select(subject_id, treatment, visit, all_of(var)) %>%
+          pivot_wider(names_from = visit, values_from = all_of(var)) %>%
+          mutate(change = POST - PRE) %>%
+          filter(!is.na(change))
+        
+        if (nrow(change_data) > 5) {
+          # Wilcoxon test for treatment effect on change scores
+          test_result <- wilcox.test(change ~ treatment, data = change_data)
+          
+          results_list[[paste(var, clust, sep = "_")]] <- data.frame(
+            variable = var,
+            cluster = clust,
+            p_value = test_result$p.value,
+            dapa_mean_change = mean(change_data$change[change_data$treatment == "Dapagliflozin"], na.rm = TRUE),
+            placebo_mean_change = mean(change_data$change[change_data$treatment == "Placebo"], na.rm = TRUE)
+          )
+        }
+      }
+    }
+  }
+  
+  results_df <- bind_rows(results_list)
+  results_df$p_adjusted <- p.adjust(results_df$p_value, method = "BH")
+  
+  return(results_df)
+}
+
+# 7. Visualization of pseudotime trajectories
+plot_pseudotime_trajectories <- function(df) {
+  # Individual trajectories
+  paired_data <- df %>%
+    filter(!is.na(subject_id)) %>%
+    select(subject_id, visit, treatment, slingPseudotime_1)
+  
+  p <- ggplot(paired_data, aes(x = visit, y = slingPseudotime_1)) +
+    geom_line(aes(group = subject_id), alpha = 0.3) +
+    geom_boxplot(aes(fill = treatment), alpha = 0.7, width = 0.5) +
+    facet_wrap(~treatment) +
+    theme_minimal() +
+    labs(title = "Individual Pseudotime Trajectories",
+         x = "Visit", y = "Pseudotime") +
+    scale_fill_manual(values = c("Dapagliflozin" = "#00BFC4", "Placebo" = "#F8766D"))
+  
+  return(p)
+}
+
+# 8. Cluster transition analysis
+analyze_cluster_transitions <- function(df) {
+  transitions <- df %>%
+    filter(!is.na(subject_id)) %>%
+    select(subject_id, visit, treatment, cluster) %>%
+    pivot_wider(names_from = visit, values_from = cluster, names_prefix = "cluster_") %>%
+    filter(!is.na(cluster_PRE) & !is.na(cluster_POST)) %>%
+    mutate(transition = paste(cluster_PRE, "->", cluster_POST))
+  
+  transition_summary <- transitions %>%
+    group_by(treatment, transition) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    group_by(treatment) %>%
+    mutate(percent = n / sum(n) * 100)
+  
+  return(transition_summary)
+}
+
+# Execute analyses
+clinical_vars <- c("hba1c", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "cgm_tir")
+
+# Run the analyses
+cluster_dist_plot <- plot_cluster_distributions(sce_pt_celltype_df)
+clinical_strata <- analyze_clinical_by_strata(sce_pt_celltype_df, clinical_vars)
+treatment_effects <- test_treatment_effects(sce_pt_celltype_df, clinical_vars)
+trajectory_plot <- plot_pseudotime_trajectories(sce_pt_celltype_df)
+transitions <- analyze_cluster_transitions(sce_pt_celltype_df)
+
+# Print results
+print("Clinical outcomes by treatment, visit, and cluster:")
+print(clinical_strata)
+
+# print("\nTreatment effects within clusters:")
+# print(treatment_effects %>% filter(p_adjusted < 0.05))
+
+print("\nCluster transitions:")
+print(transitions)
+
+# Save plots
+print(cluster_dist_plot)
+print(trajectory_plot)
+```
+
+```{r echo = F}
+# Improved Clustering for Better Mode Separation
+
+library(mclust)
+library(ggplot2)
+library(dplyr)
+library(mixtools)  # Alternative package
+
+# Method 1: Adjust parameters in mclust
+# Try different covariance structures
+gmm_model_EII <- Mclust(sce_pt_celltype_df$slingPseudotime_1, G = 3, modelNames = "E")  # Equal spherical
+gmm_model_VII <- Mclust(sce_pt_celltype_df$slingPseudotime_1, G = 3, modelNames = "V")  # Varying spherical
+
+# Compare BIC values
+print("BIC values for different models:")
+print(paste("EII:", gmm_model_EII$BIC))
+print(paste("VII:", gmm_model_VII$BIC))
+
+# Method 2: Use mixtools package for more control
+set.seed(123)  # For reproducibility
+gmm_mixtools <- normalmixEM(sce_pt_celltype_df$slingPseudotime_1, k = 3)
+
+# Method 3: Manual initialization based on visible modes
+# Estimate initial centers from the histogram
+hist_data <- hist(sce_pt_celltype_df$slingPseudotime_1, breaks = 50, plot = FALSE)
+density_est <- density(sce_pt_celltype_df$slingPseudotime_1)
+
+# You can manually specify initial centers based on the plot
+initial_centers <- c(8, 25, 38)  # Adjust these based on your histogram
+gmm_manual <- Mclust(sce_pt_celltype_df$slingPseudotime_1, 
+                     G = 3,
+                     initialization = list(subset = sample(1:nrow(sce_pt_celltype_df)),
+                                         classification = cut(sce_pt_celltype_df$slingPseudotime_1,
+                                                            breaks = c(-Inf, 15, 32, Inf),
+                                                            labels = 1:3)))
+
+# Method 4: Use cutoff-based clustering with refinement
+# Define cutoffs between modes (adjust based on your data)
+cutoff1 <- 15  # Between cluster 1 and 2
+cutoff2 <- 32  # Between cluster 2 and 3
+
+# Initial hard clustering
+sce_pt_celltype_df$cluster_manual <- cut(sce_pt_celltype_df$slingPseudotime_1,
+                                         breaks = c(-Inf, cutoff1, cutoff2, Inf),
+                                         labels = c("1", "2", "3"))
+
+# Method 5: Density-based separation
+# Find local minima between modes
+find_local_minima <- function(x, bw = "nrd0") {
+  d <- density(x, bw = bw)
+  minima <- which(diff(sign(diff(d$y))) > 0) + 1
+  return(d$x[minima])
+}
+
+local_minima <- find_local_minima(sce_pt_celltype_df$slingPseudotime_1)
+print(paste("Local minima found at:", paste(round(local_minima, 2), collapse = ", ")))
+
+# Visualization comparison
+# Create a comparison plot
+models_list <- list(
+  "Original" = gmm_model,
+  "Manual_Cutoffs" = NULL,  # We'll handle this separately
+  "Manual_Init" = gmm_manual,
+  "MixTools" = gmm_mixtools
+)
+
+# Function to plot results
+plot_gmm_comparison <- function(data, models, cutoffs = NULL) {
+  plots <- list()
+  
+  # Original model
+  data$cluster_original <- factor(models$Original$classification)
+  p1 <- ggplot(data, aes(x = slingPseudotime_1)) +
+    geom_histogram(aes(y = ..density..), bins = 50, alpha = 0.6, fill = "gray") +
+    stat_density(aes(color = cluster_original), geom = "line", size = 1.2) +
+    theme_minimal() +
+    labs(title = "Original GMM",
+         x = "slingPseudotime_1",
+         y = "Density") +
+    theme(legend.position = "none")
+  
+  # Manual cutoffs
+  if (!is.null(cutoffs)) {
+    p2 <- ggplot(data, aes(x = slingPseudotime_1)) +
+      geom_histogram(aes(y = ..density..), bins = 50, alpha = 0.6, fill = "gray") +
+      geom_vline(xintercept = cutoffs, color = "red", linetype = "dashed") +
+      stat_density(aes(color = cluster_manual), geom = "line", size = 1.2) +
+      theme_minimal() +
+      labs(title = "Manual Cutoffs",
+           x = "slingPseudotime_1",
+           y = "Density") +
+      theme(legend.position = "none")
+  }
+  
+  # Manual initialization
+  data$cluster_manual_init <- factor(models$Manual_Init$classification)
+  p3 <- ggplot(data, aes(x = slingPseudotime_1)) +
+    geom_histogram(aes(y = ..density..), bins = 50, alpha = 0.6, fill = "gray") +
+    stat_density(aes(color = cluster_manual_init), geom = "line", size = 1.2) +
+    theme_minimal() +
+    labs(title = "with Manual Initialization",
+         x = "slingPseudotime_1",
+         y = "Density") +
+    theme(legend.position = "none")
+  
+  # MixTools result
+  data$cluster_mixtools <- factor(apply(models$MixTools$posterior, 1, which.max))
+  p4 <- ggplot(data, aes(x = slingPseudotime_1)) +
+    geom_histogram(aes(y = ..density..), bins = 50, alpha = 0.6, fill = "gray") +
+    stat_density(aes(color = cluster_mixtools), geom = "line", size = 1.2) +
+    theme_minimal() +
+    labs(title = "MixTools GMM",
+         x = "slingPseudotime_1",
+         y = "Density") +
+    theme(legend.position = "none")
+  
+  return(list(p1, p2, p3, p4))
+}
+
+# Create comparison plots
+plot_list <- plot_gmm_comparison(sce_pt_celltype_df, models_list, 
+                                cutoffs = c(cutoff1, cutoff2))
+
+# Arrange plots
+library(gridExtra)
+grid.arrange(grobs = plot_list, ncol = 2)
+
+# Method 6: Refined clustering using local density information
+# This approach uses kernel density estimation to find better boundaries
+kde <- density(sce_pt_celltype_df$slingPseudotime_1, n = 512)
+
+# Function to assign clusters based on local minima
+assign_clusters_by_minima <- function(x, minima) {
+  clusters <- rep(1, length(x))
+  for (i in 1:length(minima)) {
+    clusters[x > minima[i]] <- i + 1
+  }
+  return(factor(clusters))
+}
+
+# If we found good minima, use them
+if (length(local_minima) >= 2) {
+  sce_pt_celltype_df$cluster_refined <- assign_clusters_by_minima(
+    sce_pt_celltype_df$slingPseudotime_1, 
+    local_minima[1:2]
+  )
+} else {
+  # Fall back to manual selection based on the plot
+  sce_pt_celltype_df$cluster_refined <- sce_pt_celltype_df$cluster_manual
+}
+
+# Final recommendation plot
+p_final <- ggplot(sce_pt_celltype_df, aes(x = slingPseudotime_1)) +
+  geom_histogram(aes(y = ..density..), bins = 50, alpha = 0.6, fill = "gray") +
+  stat_density(aes(color = cluster_refined), geom = "line", size = 1.2) +
+  geom_vline(xintercept = local_minima, color = "black", linetype = "dotted", alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Refined Clustering Based on Local Minima",
+       x = "slingPseudotime_1",
+       y = "Density",
+       color = "Cluster") +
+  theme(legend.position = "top")
+
+print(p_final)
+
+# Compare cluster sizes
+cluster_comparison <- data.frame(
+  Method = c("Original GMM", "Manual Cutoffs", "Manual Init GMM", "MixTools", "Refined"),
+  Cluster1 = c(sum(gmm_model$classification == 1),
+               sum(sce_pt_celltype_df$cluster_manual == "1"),
+               sum(gmm_manual$classification == 1),
+               sum(apply(gmm_mixtools$posterior, 1, which.max) == 1),
+               sum(sce_pt_celltype_df$cluster_refined == "1")),
+  Cluster2 = c(sum(gmm_model$classification == 2),
+               sum(sce_pt_celltype_df$cluster_manual == "2"),
+               sum(gmm_manual$classification == 2),
+               sum(apply(gmm_mixtools$posterior, 1, which.max) == 2),
+               sum(sce_pt_celltype_df$cluster_refined == "2")),
+  Cluster3 = c(sum(gmm_model$classification == 3),
+               sum(sce_pt_celltype_df$cluster_manual == "3"),
+               sum(gmm_manual$classification == 3),
+               sum(apply(gmm_mixtools$posterior, 1, which.max) == 3),
+               sum(sce_pt_celltype_df$cluster_refined == "3"))
+)
+
+print("\nCluster Size Comparison:")
+print(cluster_comparison)
+
+# Choose your preferred clustering method and assign it
+# For example, using the refined method:
+sce_pt_celltype_df$cluster <- sce_pt_celltype_df$cluster_refined
+
+# Now continue with the clinical analysis using the better-separated clusters
+print("\nProceed with clinical analysis using the refined clusters...")
+
+```
+```{r echo = F}
+# Clustering Analysis Separated by Treatment Group
+# Analyze Dapagliflozin and Placebo groups independently
+
+library(mclust)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggpubr)
+
+# Function to perform analysis for a specific treatment group
+analyze_treatment_group <- function(data, treatment_name, clinical_vars) {
+  
+  # Filter data for specific treatment
+  treatment_data <- data %>% 
+    filter(treatment == treatment_name)
+  
+  cat("\n========================================\n")
+  cat(paste("Analysis for", treatment_name, "Group\n"))
+  cat(paste("Total observations:", nrow(treatment_data), "\n"))
+  cat("========================================\n\n")
+  
+  # 1. Fit with 3 components
+  initial_centers <- c(8, 25, 38)  # Adjust these based on your histogram
+  gmm_model <- Mclust(treatment_data$slingPseudotime_1, 
+                      G = 3,
+                      initialization = list(subset = sample(1:nrow(treatment_data)),
+                                            classification = cut(treatment_data$slingPseudotime_1,
+                                                                 breaks = c(-Inf, 15, 32, Inf),
+                                                                 labels = 1:3)))
+
+  
+  # 2. Add cluster assignments
+  # treatment_data$cluster <- factor(gmm_model$classification)
+  # Initial hard clustering
+  treatment_data$cluster <- cut(treatment_data$slingPseudotime_1,
+                                           breaks = c(-Inf, cutoff1, cutoff2, Inf),
+                                           labels = c("1", "2", "3"))
+  # 3. Print model summary
+  cat("Model Summary:\n")
+  print(summary(gmm_model))
+  
+  # 4. Create density plot with curves
+  p_density <- ggplot(treatment_data, aes(x = slingPseudotime_1)) +
+    geom_histogram(aes(y = ..density..), bins = 50, alpha = 0.6, fill = "gray") +
+    stat_density(aes(color = cluster), geom = "line", size = 1.2) +
+    theme_minimal() +
+    labs(title = paste("Clustering of slingPseudotime_1 -", treatment_name),
+         x = "slingPseudotime_1",
+         y = "Density") +
+    theme(legend.position = "top")
+  
+  # 5. Cluster summary statistics
+  cluster_summary <- treatment_data %>%
+    group_by(cluster) %>%
+    summarise(
+      n = n(),
+      mean_pseudotime = mean(slingPseudotime_1, na.rm = TRUE),
+      sd_pseudotime = sd(slingPseudotime_1, na.rm = TRUE),
+      min_pseudotime = min(slingPseudotime_1, na.rm = TRUE),
+      max_pseudotime = max(slingPseudotime_1, na.rm = TRUE)
+    )
+  
+  cat("\nCluster Summary for Pseudotime:\n")
+  print(cluster_summary)
+  
+  # 6. Clinical variables analysis by cluster
+  summarize_by_cluster <- function(df, var_name) {
+    df %>%
+      group_by(cluster) %>%
+      summarise(
+        n = sum(!is.na(.data[[var_name]])),
+        mean = mean(.data[[var_name]], na.rm = TRUE),
+        sd = sd(.data[[var_name]], na.rm = TRUE),
+        median = median(.data[[var_name]], na.rm = TRUE),
+        q25 = quantile(.data[[var_name]], 0.25, na.rm = TRUE),
+        q75 = quantile(.data[[var_name]], 0.75, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      mutate(variable = var_name)
+  }
+  
+  clinical_summaries <- lapply(clinical_vars, function(var) {
+    summarize_by_cluster(treatment_data, var)
+  })
+  
+  clinical_summary_df <- bind_rows(clinical_summaries)
+  
+  cat("\nClinical Variables by Cluster:\n")
+  print(clinical_summary_df)
+  
+  # 7. Create box plots for clinical variables
+  plot_list <- list()
+  
+  for (var in clinical_vars) {
+    p <- ggplot(treatment_data, aes(x = cluster, y = .data[[var]], fill = cluster)) +
+      geom_boxplot(alpha = 0.7) +
+      geom_jitter(width = 0.2, alpha = 0.3, size = 0.5) +
+      theme_minimal() +
+      labs(title = paste(var, "-", treatment_name, "Group"),
+           x = "Cluster",
+           y = var) +
+      theme(legend.position = "none")
+    
+    plot_list[[var]] <- p
+  }
+  
+  p_clinical <- ggarrange(plotlist = plot_list, 
+                         ncol = 2, nrow = 3)
+  
+  # 8. Statistical testing
+  cat("\n\nKruskal-Wallis Tests for Clinical Variables:\n")
+  kw_results <- data.frame(
+    variable = character(),
+    chi_squared = numeric(),
+    df = numeric(),
+    p_value = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (var in clinical_vars) {
+    if (sum(!is.na(treatment_data[[var]])) > 0) {
+      kw_test <- kruskal.test(as.formula(paste(var, "~ cluster")), 
+                             data = treatment_data)
+      kw_results <- rbind(kw_results, 
+                         data.frame(
+                           variable = var,
+                           chi_squared = kw_test$statistic,
+                           df = kw_test$parameter,
+                           p_value = kw_test$p.value
+                         ))
+    }
+  }
+  
+  kw_results$p_adjusted <- p.adjust(kw_results$p_value, method = "bonferroni")
+  print(kw_results)
+  
+  # 9. Pairwise comparisons
+  significant_vars <- kw_results$variable[kw_results$p_adjusted < 0.05]
+  
+  if (length(significant_vars) > 0) {
+    cat("\n\nPairwise Wilcoxon Tests for Significant Variables:\n")
+    
+    for (var in significant_vars) {
+      cat(paste("\n--- Pairwise comparisons for", var, "---\n"))
+      pw_test <- pairwise.wilcox.test(treatment_data[[var]], 
+                                     treatment_data$cluster,
+                                     p.adjust.method = "bonferroni")
+      print(pw_test)
+    }
+  }
+  
+  # 10. Heatmap of standardized clinical variables
+  clinical_matrix <- treatment_data %>%
+    group_by(cluster) %>%
+    summarise(across(all_of(clinical_vars), 
+                    ~mean(.x, na.rm = TRUE),
+                    .names = "{.col}"))
+  
+  clinical_matrix_std <- clinical_matrix %>%
+    mutate(across(all_of(clinical_vars), scale))
+  
+  clinical_matrix_long <- clinical_matrix_std %>%
+    pivot_longer(cols = all_of(clinical_vars),
+                 names_to = "variable",
+                 values_to = "z_score")
+  
+  p_heatmap <- ggplot(clinical_matrix_long, 
+                     aes(x = cluster, y = variable, fill = z_score)) +
+    geom_tile() +
+    scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", 
+                        midpoint = 0, 
+                        name = "Z-score") +
+    theme_minimal() +
+    labs(title = paste("Standardized Clinical Variables by Cluster -", treatment_name),
+         x = "Cluster",
+         y = "Clinical Variable") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Return results and plots
+  return(list(
+    data = treatment_data,
+    model = gmm_model,
+    plots = list(
+      density = p_density,
+      clinical = p_clinical,
+      heatmap = p_heatmap
+    ),
+    summaries = list(
+      cluster = cluster_summary,
+      clinical = clinical_summary_df,
+      statistics = kw_results
+    )
+  ))
+}
+
+# Main analysis execution
+clinical_vars <- c("hba1c", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "cgm_tir")
+
+# Analyze Dapagliflozin group
+dapa_results <- analyze_treatment_group(sce_pt_celltype_df, "Dapagliflozin", clinical_vars)
+
+# Analyze Placebo group  
+placebo_results <- analyze_treatment_group(sce_pt_celltype_df, "Placebo", clinical_vars)
+
+# Display plots for Dapagliflozin
+cat("\n\n=== DAPAGLIFLOZIN PLOTS ===\n")
+print(dapa_results$plots$density)
+print(dapa_results$plots$clinical)
+print(dapa_results$plots$heatmap)
+
+# Display plots for Placebo
+cat("\n\n=== PLACEBO PLOTS ===\n")
+print(placebo_results$plots$density)
+print(placebo_results$plots$clinical)
+print(placebo_results$plots$heatmap)
+
+# Compare cluster means between treatments
+cat("\n\n=== COMPARISON OF CLUSTER MEANS BETWEEN TREATMENTS ===\n")
+
+compare_clusters <- function(dapa_data, placebo_data, clinical_vars) {
+  comparison_results <- list()
+  
+  for (clust in 1:3) {
+    cat(paste("\n--- Cluster", clust, "---\n"))
+    
+    dapa_cluster <- dapa_data %>% filter(cluster == clust)
+    placebo_cluster <- placebo_data %>% filter(cluster == clust)
+    
+    for (var in clinical_vars) {
+      if (nrow(dapa_cluster) > 5 && nrow(placebo_cluster) > 5) {
+        test_result <- wilcox.test(dapa_cluster[[var]], placebo_cluster[[var]], 
+                                  na.rm = TRUE)
+        
+        comparison_results[[paste(clust, var, sep = "_")]] <- data.frame(
+          cluster = clust,
+          variable = var,
+          dapa_mean = mean(dapa_cluster[[var]], na.rm = TRUE),
+          placebo_mean = mean(placebo_cluster[[var]], na.rm = TRUE),
+          p_value = test_result$p.value
+        )
+      }
+    }
+  }
+  
+  comparison_df <- bind_rows(comparison_results)
+  comparison_df$p_adjusted <- p.adjust(comparison_df$p_value, method = "bonferroni")
+  
+  return(comparison_df)
+}
+
+cluster_comparison <- compare_clusters(dapa_results$data, placebo_results$data, clinical_vars)
+print(cluster_comparison)
+
+# Save combined data with treatment-specific clusters
+sce_pt_celltype_df_with_clusters <- rbind(
+  dapa_results$data %>% mutate(cluster_treatment = paste0("Dapa_", cluster)),
+  placebo_results$data %>% mutate(cluster_treatment = paste0("Placebo_", cluster))
+)
+
+cat("\n\nAnalysis complete. Data saved with treatment-specific cluster assignments.\n")
+```
+
+```{r}
+# Clustering Analysis Separated by Visit (PRE and POST)
+# Analyze PRE and POST visits independently
+
+library(mclust)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggpubr)
+
+# Function to perform analysis for a specific visit
+analyze_visit_group <- function(data, visit_name, clinical_vars) {
+  
+  # Filter data for specific visit
+  visit_data <- data %>% 
+    filter(visit == visit_name)
+  
+  cat("\n========================================\n")
+  cat(paste("Analysis for", visit_name, "Visit\n"))
+  cat(paste("Total observations:", nrow(visit_data), "\n"))
+  cat("========================================\n\n")
+  
+  # 1. Fit with 3 components
+    gmm_model <- Mclust(visit_data$slingPseudotime_1, 
+                      G = 3,
+                      initialization = list(subset = sample(1:nrow(visit_data)),
+                                            classification = cut(visit_data$slingPseudotime_1,
+                                                                 breaks = c(-Inf, 15, 32, Inf),
+                                                                 labels = 1:3)))
+  
+  # 2. Add cluster assignments
+    
+  visit_data$cluster <- cut(visit_data$slingPseudotime_1,
+                                         breaks = c(-Inf, cutoff1, cutoff2, Inf),
+                                         labels = c("1", "2", "3"))
+  
+  # 3. Print model summary
+  cat("Model Summary:\n")
+  print(summary(gmm_model))
+  
+  # 4. Create density plot with curves - stratified by treatment
+  p_density <- ggplot(visit_data, aes(x = slingPseudotime_1)) +
+    geom_histogram(aes(y = ..density..), bins = 50, alpha = 0.6, fill = "gray") +
+    stat_density(aes(color = cluster), geom = "line", size = 1.2) +
+    facet_wrap(~treatment) +
+    theme_minimal() +
+    labs(title = paste("Clustering of slingPseudotime_1 -", visit_name, "Visit"),
+         x = "slingPseudotime_1",
+         y = "Density") +
+    theme(legend.position = "top")
+  
+  # 5. Cluster summary statistics by treatment
+  cluster_summary <- visit_data %>%
+    group_by(treatment, cluster) %>%
+    summarise(
+      n = n(),
+      mean_pseudotime = mean(slingPseudotime_1, na.rm = TRUE),
+      sd_pseudotime = sd(slingPseudotime_1, na.rm = TRUE),
+      min_pseudotime = min(slingPseudotime_1, na.rm = TRUE),
+      max_pseudotime = max(slingPseudotime_1, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  cat("\nCluster Summary for Pseudotime by Treatment:\n")
+  print(cluster_summary)
+  
+  # 6. Clinical variables analysis by cluster and treatment
+  summarize_by_cluster_treatment <- function(df, var_name) {
+    df %>%
+      group_by(treatment, cluster) %>%
+      summarise(
+        n = sum(!is.na(.data[[var_name]])),
+        mean = mean(.data[[var_name]], na.rm = TRUE),
+        sd = sd(.data[[var_name]], na.rm = TRUE),
+        median = median(.data[[var_name]], na.rm = TRUE),
+        q25 = quantile(.data[[var_name]], 0.25, na.rm = TRUE),
+        q75 = quantile(.data[[var_name]], 0.75, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      mutate(variable = var_name)
+  }
+  
+  clinical_summaries <- lapply(clinical_vars, function(var) {
+    summarize_by_cluster_treatment(visit_data, var)
+  })
+  
+  clinical_summary_df <- bind_rows(clinical_summaries)
+  
+  cat("\nClinical Variables by Cluster and Treatment:\n")
+  print(clinical_summary_df)
+  
+  # 7. Create box plots for clinical variables by treatment
+  plot_list <- list()
+  
+  for (var in clinical_vars) {
+    p <- ggplot(visit_data, aes(x = cluster, y = .data[[var]], fill = treatment)) +
+      geom_boxplot(alpha = 0.7) +
+      theme_minimal() +
+      labs(title = paste(var, "-", visit_name, "Visit"),
+           x = "Cluster",
+           y = var) +
+      scale_fill_manual(values = c("Dapagliflozin" = "#00BFC4", "Placebo" = "#F8766D"))
+    
+    plot_list[[var]] <- p
+  }
+  
+  p_clinical <- ggarrange(plotlist = plot_list, 
+                         ncol = 2, nrow = 3,
+                         common.legend = TRUE,
+                         legend = "bottom")
+  
+  # 8. Create separate heatmaps for each treatment
+  create_treatment_heatmap <- function(data, treatment_name, clinical_vars, visit_name) {
+    treatment_data <- data %>% filter(treatment == treatment_name)
+    
+    clinical_matrix <- treatment_data %>%
+      group_by(cluster) %>%
+      summarise(across(all_of(clinical_vars), 
+                      ~mean(.x, na.rm = TRUE),
+                      .names = "{.col}"))
+    
+    clinical_matrix_std <- clinical_matrix %>%
+      mutate(across(all_of(clinical_vars), scale))
+    
+    clinical_matrix_long <- clinical_matrix_std %>%
+      pivot_longer(cols = all_of(clinical_vars),
+                   names_to = "variable",
+                   values_to = "z_score")
+    
+    p <- ggplot(clinical_matrix_long, 
+               aes(x = cluster, y = variable, fill = z_score)) +
+      geom_tile() +
+      scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", 
+                          midpoint = 0, 
+                          name = "Z-score") +
+      theme_minimal() +
+      labs(title = paste(treatment_name, "-", visit_name, "Visit"),
+           x = "Cluster",
+           y = "Clinical Variable") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    
+    return(p)
+  }
+  
+  p_heatmap_dapa <- create_treatment_heatmap(visit_data, "Dapagliflozin", clinical_vars, visit_name)
+  p_heatmap_placebo <- create_treatment_heatmap(visit_data, "Placebo", clinical_vars, visit_name)
+  
+  p_heatmaps <- ggarrange(p_heatmap_dapa, p_heatmap_placebo, 
+                         ncol = 2)
+  
+  # 9. Statistical testing - comparing treatments within each cluster
+  cat("\n\nWilcoxon Tests - Treatment Effects within Clusters:\n")
+  treatment_comparison <- data.frame(
+    cluster = character(),
+    variable = character(),
+    dapa_mean = numeric(),
+    placebo_mean = numeric(),
+    p_value = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (clust in unique(visit_data$cluster)) {
+    for (var in clinical_vars) {
+      dapa_data <- visit_data %>% 
+        filter(cluster == clust, treatment == "Dapagliflozin") %>%
+        pull(!!var)
+      
+      placebo_data <- visit_data %>% 
+        filter(cluster == clust, treatment == "Placebo") %>%
+        pull(!!var)
+      
+      if (length(na.omit(dapa_data)) > 5 && length(na.omit(placebo_data)) > 5) {
+        test_result <- wilcox.test(dapa_data, placebo_data, na.rm = TRUE)
+        
+        treatment_comparison <- rbind(treatment_comparison,
+                                    data.frame(
+                                      cluster = clust,
+                                      variable = var,
+                                      dapa_mean = mean(dapa_data, na.rm = TRUE),
+                                      placebo_mean = mean(placebo_data, na.rm = TRUE),
+                                      p_value = test_result$p.value
+                                    ))
+      }
+    }
+  }
+  
+  treatment_comparison$p_adjusted <- p.adjust(treatment_comparison$p_value, method = "bonferroni")
+  print(treatment_comparison)
+  
+  # 10. Cluster distribution by treatment
+  cluster_dist <- visit_data %>%
+    group_by(treatment, cluster) %>%
+    summarise(n = n(), .groups = "drop") %>%
+    group_by(treatment) %>%
+    mutate(percent = n / sum(n) * 100)
+  
+  p_cluster_dist <- ggplot(cluster_dist, aes(x = cluster, y = percent, fill = treatment)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    theme_minimal() +
+    labs(title = paste("Cluster Distribution by Treatment -", visit_name, "Visit"),
+         x = "Cluster",
+         y = "Percentage") +
+    scale_fill_manual(values = c("Dapagliflozin" = "#00BFC4", "Placebo" = "#F8766D"))
+  
+  # Return results and plots
+  return(list(
+    data = visit_data,
+    model = gmm_model,
+    plots = list(
+      density = p_density,
+      clinical = p_clinical,
+      heatmaps = p_heatmaps,
+      cluster_dist = p_cluster_dist
+    ),
+    summaries = list(
+      cluster = cluster_summary,
+      clinical = clinical_summary_df,
+      statistics = treatment_comparison
+    )
+  ))
+}
+
+# Main analysis execution
+clinical_vars <- c("hba1c", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "cgm_tir")
+
+# Analyze PRE visit
+pre_results <- analyze_visit_group(sce_pt_celltype_df, "PRE", clinical_vars)
+
+# Analyze POST visit  
+post_results <- analyze_visit_group(sce_pt_celltype_df, "POST", clinical_vars)
+
+# Display plots for PRE visit
+cat("\n\n=== PRE VISIT PLOTS ===\n")
+print(pre_results$plots$density)
+print(pre_results$plots$clinical)
+print(pre_results$plots$heatmaps)
+print(pre_results$plots$cluster_dist)
+
+# Display plots for POST visit
+cat("\n\n=== POST VISIT PLOTS ===\n")
+print(post_results$plots$density)
+print(post_results$plots$clinical)
+print(post_results$plots$heatmaps)
+print(post_results$plots$cluster_dist)
+
+# Compare cluster characteristics between PRE and POST
+cat("\n\n=== COMPARISON OF CLUSTERS BETWEEN PRE AND POST ===\n")
+
+compare_visits <- function(pre_data, post_data, clinical_vars) {
+  comparison_results <- list()
+  
+  for (treat in c("Dapagliflozin", "Placebo")) {
+    cat(paste("\n--- Treatment:", treat, "---\n"))
+    
+    for (clust in 1:3) {
+      pre_cluster <- pre_data %>% filter(cluster == clust, treatment == treat)
+      post_cluster <- post_data %>% filter(cluster == clust, treatment == treat)
+      
+      for (var in clinical_vars) {
+        if (nrow(pre_cluster) > 5 && nrow(post_cluster) > 5) {
+          test_result <- wilcox.test(pre_cluster[[var]], post_cluster[[var]], 
+                                    na.rm = TRUE, paired = FALSE)
+          
+          comparison_results[[paste(treat, clust, var, sep = "_")]] <- data.frame(
+            treatment = treat,
+            cluster = clust,
+            variable = var,
+            pre_mean = mean(pre_cluster[[var]], na.rm = TRUE),
+            post_mean = mean(post_cluster[[var]], na.rm = TRUE),
+            change = mean(post_cluster[[var]], na.rm = TRUE) - mean(pre_cluster[[var]], na.rm = TRUE),
+            p_value = test_result$p.value
+          )
+        }
+      }
+    }
+  }
+  
+  comparison_df <- bind_rows(comparison_results)
+  comparison_df$p_adjusted <- p.adjust(comparison_df$p_value, method = "bonferroni")
+  
+  return(comparison_df)
+}
+
+visit_comparison <- compare_visits(pre_results$data, post_results$data, clinical_vars)
+print(visit_comparison %>% filter(p_adjusted < 0.05))
+
+# Save combined data with visit-specific clusters
+sce_pt_celltype_df_with_visit_clusters <- rbind(
+  pre_results$data %>% mutate(cluster_visit = paste0("PRE_", cluster)),
+  post_results$data %>% mutate(cluster_visit = paste0("POST_", cluster))
+)
+
+cat("\n\nAnalysis complete. Data saved with visit-specific cluster assignments.\n")
+```
+
+```{r}
+# Cell Type Composition Analysis by Cluster
+# Examine which PT cell subtypes are in each cluster
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggpubr)
+library(RColorBrewer)
+
+# Function to analyze cell type composition
+analyze_celltype_composition <- function(data, stratify_by = NULL) {
+  
+  # Create base analysis
+  if (!is.null(stratify_by)) {
+    comp_data <- data %>%
+      group_by(cluster, celltype, !!sym(stratify_by)) %>%
+      summarise(n = n(), .groups = "drop") %>%
+      group_by(cluster, !!sym(stratify_by)) %>%
+      mutate(
+        total_in_cluster = sum(n),
+        percent = n / total_in_cluster * 100
+      )
+  } else {
+    comp_data <- data %>%
+      group_by(cluster, celltype) %>%
+      summarise(n = n(), .groups = "drop") %>%
+      group_by(cluster) %>%
+      mutate(
+        total_in_cluster = sum(n),
+        percent = n / total_in_cluster * 100
+      )
+  }
+  
+  return(comp_data)
+}
+sce_pt_celltype_df$celltype <- factor(sce_pt_celltype_df$celltype, levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))
+# 1. Overall cell type composition by cluster
+overall_comp <- analyze_celltype_composition(sce_pt_celltype_df)
+
+# Create stacked bar plot
+p_stacked <- ggplot(overall_comp, aes(x = cluster, y = percent, fill = celltype)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Cell Type Composition by Cluster",
+       x = "Cluster",
+       y = "Percentage",
+       fill = "Cell Type") +
+  scale_fill_manual(values = custom_colors) +
+  theme(legend.position = "right")
+
+print(p_stacked)
+
+# 2. Cell type composition by cluster and treatment
+treatment_comp <- analyze_celltype_composition(sce_pt_celltype_df, "treatment")
+
+p_treatment <- ggplot(treatment_comp, aes(x = cluster, y = percent, fill = celltype)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~treatment) +
+  theme_minimal() +
+  labs(title = "Cell Type Composition by Cluster and Treatment",
+       x = "Cluster",
+       y = "Percentage",
+       fill = "Cell Type") +
+  scale_fill_manual(values = custom_colors) +
+  theme(legend.position = "right")
+
+print(p_treatment)
+
+# 3. Cell type composition by cluster and visit
+visit_comp <- analyze_celltype_composition(sce_pt_celltype_df, "visit")
+
+p_visit <- ggplot(visit_comp, aes(x = cluster, y = percent, fill = celltype)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~visit) +
+  theme_minimal() +
+  labs(title = "Cell Type Composition by Cluster and Visit",
+       x = "Cluster",
+       y = "Percentage",
+       fill = "Cell Type") +
+  scale_fill_manual(values = custom_colors) +
+  theme(legend.position = "right")
+
+print(p_visit)
+
+# 4. Detailed breakdown table
+cat("\n=== CELL TYPE DISTRIBUTION BY CLUSTER ===\n")
+celltype_table <- overall_comp %>%
+  select(cluster, celltype, n, percent) %>%
+  arrange(cluster, desc(percent))
+print(celltype_table)
+
+# 5. Chi-square test for independence
+cat("\n=== CHI-SQUARE TEST: Cell Type vs Cluster ===\n")
+contingency_table <- table(sce_pt_celltype_df$celltype, sce_pt_celltype_df$cluster)
+chi_test <- chisq.test(contingency_table)
+print(chi_test)
+print("\nContingency Table:")
+print(contingency_table)
+
+# 6. Examine pseudotime distribution by cell type
+p_pseudotime_celltype <- ggplot(sce_pt_celltype_df, aes(x = slingPseudotime_1, fill = celltype)) +
+  geom_density(alpha = 0.6) +
+  theme_minimal() +
+  labs(title = "Pseudotime Distribution by Cell Type",
+       x = "Pseudotime",
+       y = "Density",
+       fill = "Cell Type") +
+  scale_fill_manual(values = custom_colors)
+
+print(p_pseudotime_celltype)
+
+# 7. Box plot of pseudotime by cell type
+p_box_celltype <- ggplot(sce_pt_celltype_df, aes(x = celltype, y = slingPseudotime_1, fill = celltype)) +
+  geom_boxplot(alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Pseudotime Distribution by Cell Type",
+       x = "Cell Type",
+       y = "Pseudotime") +
+  scale_fill_manual(values = custom_colors) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+
+print(p_box_celltype)
+
+# 8. Heatmap of cell type proportions
+# Create matrix for heatmap
+celltype_matrix <- overall_comp %>%
+  select(cluster, celltype, percent) %>%
+  pivot_wider(names_from = cluster, values_from = percent, values_fill = 0)
+
+# Convert to long format for ggplot
+celltype_matrix_long <- celltype_matrix %>%
+  pivot_longer(cols = -celltype, names_to = "cluster", values_to = "percent")
+
+p_heatmap <- ggplot(celltype_matrix_long, aes(x = cluster, y = celltype, fill = percent)) +
+  geom_tile() +
+  geom_text(aes(label = round(percent, 1)), color = "black", size = 3) +
+  scale_fill_gradient(low = "white", high = "darkred", name = "Percentage") +
+  theme_minimal() +
+  labs(title = "Cell Type Distribution Heatmap",
+       x = "Cluster",
+       y = "Cell Type") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p_heatmap)
+
+# 9. Treatment effect on cell type distribution
+treatment_effect <- sce_pt_celltype_df %>%
+  group_by(treatment, visit, celltype, cluster) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(treatment, visit, cluster) %>%
+  mutate(percent = n / sum(n) * 100)
+
+p_treatment_visit <- ggplot(treatment_effect, aes(x = cluster, y = percent, fill = celltype)) +
+  geom_bar(stat = "identity") +
+  facet_grid(visit ~ treatment) +
+  theme_minimal() +
+  labs(title = "Cell Type Composition by Cluster, Treatment, and Visit",
+       x = "Cluster",
+       y = "Percentage",
+       fill = "Cell Type") +
+  scale_fill_manual(values = custom_colors) +
+  theme(legend.position = "right")
+
+print(p_treatment_visit)
+
+# 10. Statistical analysis of cell type enrichment
+cat("\n=== CELL TYPE ENRICHMENT ANALYSIS ===\n")
+
+# Calculate expected vs observed
+total_cells <- nrow(sce_pt_celltype_df)
+expected_props <- table(sce_pt_celltype_df$celltype) / total_cells
+
+for (clust in unique(sce_pt_celltype_df$cluster)) {
+  cat(paste("\nCluster", clust, ":\n"))
+  cluster_data <- sce_pt_celltype_df %>% filter(cluster == clust)
+  observed_counts <- table(cluster_data$celltype)
+  cluster_size <- nrow(cluster_data)
+  
+  # Calculate enrichment
+  for (ct in names(observed_counts)) {
+    expected <- expected_props[ct] * cluster_size
+    observed <- observed_counts[ct]
+    enrichment <- observed / expected
+    
+    # Binomial test
+    binom_test <- binom.test(observed, cluster_size, expected_props[ct])
+    
+    cat(sprintf("  %s: Observed=%d, Expected=%.1f, Enrichment=%.2fx, p=%.4f %s\n",
+                ct, observed, expected, enrichment, binom_test$p.value,
+                ifelse(binom_test$p.value < 0.05, "*", "")))
+  }
+}
+
+# 11. Summary statistics
+cat("\n=== SUMMARY STATISTICS ===\n")
+summary_stats <- sce_pt_celltype_df %>%
+  group_by(celltype) %>%
+  summarise(
+    n_total = n(),
+    mean_pseudotime = mean(slingPseudotime_1, na.rm = TRUE),
+    sd_pseudotime = sd(slingPseudotime_1, na.rm = TRUE),
+    cluster1_pct = sum(cluster == 1) / n() * 100,
+    cluster2_pct = sum(cluster == 2) / n() * 100,
+    cluster3_pct = sum(cluster == 3) / n() * 100
+  ) %>%
+  arrange(mean_pseudotime)
+
+print(summary_stats)
+
+# 12. Save the results
+results_list <- list(
+  overall_composition = overall_comp,
+  treatment_composition = treatment_comp,
+  visit_composition = visit_comp,
+  celltype_summary = summary_stats,
+  chi_square_test = chi_test
+)
+
+cat("\n\nAnalysis complete. Cell type composition has been analyzed across clusters.\n")
+```
+
+# pseudobulk
+
+```{r echo = F}
+# Association Analysis between Pseudotime and Clinical Variables
+# No clustering - just direct correlations and relationships
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggpubr)
+library(corrplot)
+
+# 1. Create pseudobulk data by aggregating cells per subject/visit
+pseudobulk_data <- sce_pt_celltype_df %>%
+  group_by(subject_id, visit, treatment) %>%
+  summarise(
+    # Pseudotime metrics
+    n_cells = n(),
+    mean_pseudotime = mean(slingPseudotime_1, na.rm = TRUE),
+    median_pseudotime = median(slingPseudotime_1, na.rm = TRUE),
+    sd_pseudotime = sd(slingPseudotime_1, na.rm = TRUE),
+    mode_pseudotime = Modes(slingPseudotime_1),
+    
+    # Clinical variables (should be constant within subject/visit)
+    hba1c = dplyr::first(hba1c),
+    weight = dplyr::first(weight),
+    mgfr_jodal = dplyr::first(mgfr_jodal),
+    mgfr_jodal_bsa = dplyr::first(mgfr_jodal_bsa),
+    cgm_tir = dplyr::first(cgm_tir),
+    
+    .groups = "drop"
+  )
+
+pseudobulk_data %>%
+  ggplot(aes(x = median_pseudotime, y = hba1c, color = treatment, shape = visit)) +
+  geom_point(size = 5)
+
+pseudobulk_data %>%
+  ggplot(aes(x = median_pseudotime, y = weight, color = treatment, shape = visit)) +
+  geom_point(size = 5)
+
+pseudobulk_data %>%
+  ggplot(aes(x = median_pseudotime, y = mgfr_jodal, color = treatment, shape = visit)) +
+  geom_point(size = 5)
+
+pseudobulk_data %>%
+  ggplot(aes(x = median_pseudotime, y = mgfr_jodal_bsa, color = treatment, shape = visit)) +
+  geom_point(size = 5)
+
+pseudobulk_data %>%
+  ggplot(aes(x = median_pseudotime, y = cgm_tir, color = treatment, shape = visit)) +
+  geom_point(size = 5)
+
+summary(lmer(median_pseudotime ~ hba1c *treatment + visit + (1|subject_id), data = pseudobulk_data))
+summary(lmer(median_pseudotime  ~ weight *treatment + visit + (1|subject_id), data = pseudobulk_data))
+summary(lmer(median_pseudotime  ~ mgfr_jodal *treatment + visit + (1|subject_id), data = pseudobulk_data))
+summary(lmer(median_pseudotime  ~ cgm_tir *treatment + visit + (1|subject_id), data = pseudobulk_data))
+```
+
+# lmer w/ scaled pseudotime (0-1)
+```{r echo = F}
+sce_pt_celltype_df$scaled_pseudotime <- sce_pt_celltype_df$slingPseudotime_1/max(sce_pt_celltype_df$slingPseudotime_1)
+
+model <- (lmer(scaled_pseudotime ~ hba1c + treatment + visit + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(scaled_pseudotime ~ weight + treatment + visit + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(scaled_pseudotime ~ mgfr_jodal + treatment + visit + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(scaled_pseudotime ~ mgfr_jodal_bsa + treatment + visit + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(scaled_pseudotime ~ cgm_tir + treatment + visit + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+```
