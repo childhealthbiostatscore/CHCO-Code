@@ -257,14 +257,16 @@ make_comp_plot <- function(attempt_df,
                            attempt_p_cut = 0.05,
                            croc_p_cut   = 0.05,
                            save_path    = NULL,
+                           csv_path     = NULL,  
                            width        = 10,
                            height       = 5,
-                           caption = NULL) {
+                           caption      = NULL,
+                           FC = "logFC_treatmentDapagliflozin:visitPOST") {
   
   ## 1. Harmonize & flag significance ------------------------------------------
   df_attempt <- attempt_df %>%
-    dplyr::rename(p_fdr = fdr_interaction,
-                  FC    = logFC_treatmentDapagliflozinvisitPOST) %>%
+    dplyr::rename(p_fdr = fdr,
+                  FC    = FC) %>%
     mutate(direction = case_when(p_fdr < attempt_p_cut & FC < 0 ~ "-",
                                  p_fdr < attempt_p_cut & FC > 0 ~ "+"),
            source = "ATTEMPT") %>%
@@ -287,24 +289,45 @@ make_comp_plot <- function(attempt_df,
     pivot_wider(names_from  = source,
                 values_from = direction) %>%
     mutate(effect = case_when(
-      ATTEMPT == "+" & CROCODILE == "+" ~ "Augmented",
-      ATTEMPT == "-" & CROCODILE == "-" ~ "Suppressed",
+      (ATTEMPT == "+" & CROCODILE == "+") | 
+        (ATTEMPT == "-" & CROCODILE == "-") ~ "Inconsistent",
       ATTEMPT == "+" & CROCODILE == "-" ~ "Reversed towards +\n(T1D depleted)",
       ATTEMPT == "-" & CROCODILE == "+" ~ "Reversed towards -\n(T1D elevated)"
     )) %>%
     mutate(effect = factor(effect,
-                           levels = c("Augmented", "Suppressed",
+                           levels = c("Inconsistent",
                                       "Reversed towards +\n(T1D depleted)",
                                       "Reversed towards -\n(T1D elevated)")))
   
+  ## Count inconsistent genes for caption
+  n_inconsistent <- sum(pt_comp_df_wide$effect == "Inconsistent", na.rm = TRUE)
+  
+  ## Save inconsistent genes to CSV if requested
+  if (!is.null(csv_path)) {
+    inconsistent_genes <- pt_comp_df_wide %>%
+      filter(effect == "Inconsistent") %>%
+      mutate(consistency_type = case_when(
+        ATTEMPT == "+" & CROCODILE == "+" ~ "Both_upregulated",
+        ATTEMPT == "-" & CROCODILE == "-" ~ "Both_downregulated"
+      )) %>%
+      arrange(Gene)
+    
+    write.csv(inconsistent_genes, csv_path, row.names = FALSE)
+  }
+  
   ## 3. Bar plot ---------------------------------------------------------------
-  effect_cols <- c("Augmented"                           = "#bb3e03",
-                   "Suppressed"                          = "#0a9396",
-                   "Reversed towards +\n(T1D depleted)" = "#3a5a40",
+  effect_cols <- c("Reversed towards +\n(T1D depleted)" = "#3a5a40",
                    "Reversed towards -\n(T1D elevated)" = "#a3b18a")
   
+  # Update caption to include inconsistent count
+  if (is.null(caption)) {
+    caption <- paste0("Number of inconsistent genes: ", n_inconsistent)
+  } else {
+    caption <- paste0(caption, "\nNumber of inconsistent genes: ", n_inconsistent)
+  }
+  
   pt_comp_bar <- pt_comp_df_wide %>%
-    filter(!is.na(effect)) %>%
+    filter(!is.na(effect) & effect != "Inconsistent") %>%  # Filter out inconsistent genes
     ggplot(aes(x = effect, fill = effect)) +
     geom_bar_rounded() +
     geom_text(stat  = "count",
@@ -343,7 +366,7 @@ make_comp_plot <- function(attempt_df,
     filter(Gene %in% pt_gene_color_df$Gene) %>%
     mutate(group = ifelse(source == "ATTEMPT",
                           "Dapa vs. Placebo", "T1D vs. HC"),
-           Gene_label = coalesce(Gene_label, Gene)) %>%
+           Gene_label = dplyr::coalesce(Gene_label, Gene)) %>%
     ggplot(aes(x = Gene_label, y = group,
                color = direction, size = abs(FC))) +
     geom_point() +
@@ -368,7 +391,6 @@ make_comp_plot <- function(attempt_df,
   
   return(invisible(combined))
 }
-
 # ===========================================================================
 # Function: make_plot_df
 # ===========================================================================
@@ -874,8 +896,8 @@ create_gene_expression_plots <- function(main_results,
                                          save_plots = TRUE,
                                          output_prefix = cell_type_prefix,
                                          logfc_col = "logFC_treatmentDapagliflozin:visitPOST",
-                                         fdr_col = "fdr_interaction",
-                                         volcano_pval_col = "fdr_interaction") {
+                                         fdr_col = "fdr",
+                                         volcano_pval_col = "fdr") {
   
   # Load required libraries
   require(tidyverse)
@@ -1122,12 +1144,12 @@ calculate_weighted_consistency_scores <- function(plot_data, main_logfc_values, 
           mean_weight
         }
       },
-      direction = dplyr::first(direction),
       main_logFC = dplyr::first(main_logFC),
       .groups = "drop"
     ) %>%
     # Ensure genes are in the correct order
     mutate(
+      direction = case_when(main_logFC < 0 ~ "-", main_logFC > 0 ~ "+"),
       Gene = factor(Gene, levels = c(neg_genes, pos_genes))
     ) %>%
     arrange(Gene)
@@ -1447,11 +1469,11 @@ trt_run_cell_type_analysis <- function(cell_type,
   # Calculate FDR
   res_combined <- res_combined %>%
     ungroup() %>%
-    mutate(fdr_interaction = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+    mutate(fdr = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
   
   res_combined <- subset(res_combined, abs(`logFC_treatmentDapagliflozin:visitPOST`) < 10)
-  # Save results
   
+  # Save results
   output_csv <- file.path(output_base_path, "Results", "NEBULA", 
                           paste0(output_prefix, cell_type_lower, "_nebula_res.csv"))
   write.csv(res_combined, output_csv, row.names = FALSE)
@@ -1513,7 +1535,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
   # Calculate FDR
   res_combined <- res_combined %>%
     ungroup() %>%
-    mutate(fdr_interaction = p.adjust(p_groupType_1_Diabetes, method = "fdr"))
+    mutate(fdr = p.adjust(p_groupType_1_Diabetes, method = "fdr"))
   
   res_combined <- subset(res_combined, abs(logFC_groupType_1_Diabetes) < 10)
   # Save results
@@ -1530,8 +1552,8 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
       TRUE ~ "NS"
     ),
     group_direction_fdr = case_when(
-      fdr_interaction < 0.05 & logFC_groupType_1_Diabetes > 0 ~ "Positive",
-      fdr_interaction < 0.05 & logFC_groupType_1_Diabetes < 0 ~ "Negative",
+      fdr < 0.05 & logFC_groupType_1_Diabetes > 0 ~ "Positive",
+      fdr < 0.05 & logFC_groupType_1_Diabetes < 0 ~ "Negative",
       TRUE ~ "NS"
     ))
   
@@ -1552,7 +1574,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
   
   plot_volcano(res_combined, 
                "logFC_groupType_1_Diabetes", 
-               "fdr_interaction",
+               "fdr",
                NULL,
                "logFC group", 
                "-log10(FDR adjusted p-value)",
