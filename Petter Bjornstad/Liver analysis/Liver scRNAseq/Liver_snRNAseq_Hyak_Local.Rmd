@@ -25,7 +25,7 @@ dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Cor
 dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Project/NEBULA Results")
 # # dir.ipa <- c("/Users/hhampson/Documents/IPA/Results")
 
-# #Laura's Mac Studio File Path
+#Laura's Mac Studio File Path
 # dir.dat <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
 # dir.results <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Project/NEBULA Results")
 
@@ -36,6 +36,8 @@ source("Liver_functions.R")
 knitr::opts_knit$set(root.dir = dir.results)
 ```
 
+
+# 2. Pre-Processing & Qualtiy Control
 ## a. Hyak Data Load
 ```{r, Cyberduck setup}
 # knitr::opts_knit$set(root.dir = dir.results)
@@ -72,7 +74,6 @@ bucket <- "scrna" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
 s3$download_file(bucket, "Liver transcriptomics/Single nucleus RNA seq/NoRef_PetterLiver_ClinData_Labels_Char_041924.rds", temp_file)
 so_liver_sn <- readRDS(temp_file)
-# so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
 
 DefaultAssay(so_liver_sn) <- "RNA"
 dim(so_liver_sn)#36601 130124
@@ -81,17 +82,13 @@ ncol(so_liver_sn) # 130,124 nuceli
 invisible(gc())
 ```
 
-# 2. Pre-Processing & Qualtiy Control
-## a. Load Seurat Object snRNA
+## b. Local Load Seurat Object snRNA
 ```{r, include = F, fig.height=7,fig.width=10}
 # Liver snRNA data processing
 invisible(gc())
 #Local
-# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
-# so_liver_sn <- readRDS(fs::path(dir.dat,"scRNA","data_raw","NoRef_PetterLiver_ClinData_Labels_Char_041924.RDS"))
-so_liver_sn <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA/data_raw/NoRef_PetterLiver_ClinData_Labels_Char_041924.RDS")
-# #Lambda
-# so_liver_sn <- readRDS(fs::path(dir.dat,"scRNA","data_raw","NoRef_PetterLiver_ClinData_Labels_Char_041924.RDS"))
+so_liver_sn <- readRDS(fs::path(dir.dat,"scRNA","data_raw","NoRef_PetterLiver_ClinData_Labels_Char_041924.RDS"))
+
 DefaultAssay(so_liver_sn) <- "RNA"
 dim(so_liver_sn)#36601 130124
 nrow(so_liver_sn) #36,601 genes
@@ -99,41 +96,23 @@ ncol(so_liver_sn) # 130,124 nuceli
 invisible(gc())
 ```
 
-## b. Load MetaData, Clean and Merge
+## c. Load MetaData, Clean and Merge
 ```{r}
 #Local
-# meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
-# meta_liver_raw <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA/data_clean/liver_biopsy_metadata_PN.csv")
+meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
 
 #Hyak
-gc()
-bucket <- "scrna" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
-meta_liver_raw <- read.csv(temp_file)
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+# s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
+# meta_liver_raw <- read.csv(temp_file)
 
 unique(meta_liver_raw$Kit_Lot)
 unique(meta_liver_raw$StudyID)
 meta_liver_raw <- meta_liver_raw %>%
   filter(StudyID!="IT2D-18") %>%
   filter(StudyID!="IT2D-16")
-
-# meta_liver_raw <- meta_liver_raw %>%
-#   mutate(both=ifelse(diagnosis_of_diabetes=="Yes" & glp1agonist=="Yes" & sglt2=="Yes","Yes","No")) %>% 
-#   mutate(sglt2_exclusive=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="Yes" & glp1agonist=="No","Yes","No")) %>% 
-#   mutate(glp1_exclusive=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="No" & glp1agonist=="Yes","Yes","No")) %>% 
-#   mutate(either=ifelse(glp1agonist=="Yes" | sglt2=="Yes","Yes","No")) %>%
-#   mutate(neither=ifelse(diagnosis_of_diabetes=="Yes" & sglt2=="No" & glp1agonist=="No","Yes","No")) %>%
-#   mutate(hc=ifelse(diagnosis_of_diabetes=="No","Yes","No"))
-# meta_liver_raw <- meta_liver_raw %>%
-#   mutate(group2=case_when(both == "Yes" ~ "glp1_and_sglt2",
-#                           sglt2_exclusive == "Yes" ~ "sglt2_exclusive",
-#                           glp1_exclusive == "Yes" ~ "glp1_exclusive",
-#                           either == "Yes" ~ "glp1_or_sglt2",
-#                           neither == "Yes" ~ "no_med",
-#                           hc == "Yes" ~ "obese_control"))
-# meta_liver_raw <- meta_liver_raw %>%
-#   mutate(group3=ifelse(either=="Yes","either","neither"))
 
 #Create Liver Status Variables
 meta_liver_raw <- meta_liver_raw %>%
@@ -180,15 +159,7 @@ so_oro <- so_liver_sn
 
 # Step 2: Remove mitochondrial genes (those starting with "MT")
 mito_genes <- grep("^MT-", rownames(so_liver_sn), value = TRUE)
-#keep_ids <- unique(rownames(so_liver_sn)[which(!rownames(so_liver_sn) %in% mito_genes)])
-# so_liver_sn <- subset(so_liver_sn, features = setdiff(rownames(so_liver_sn), mito_genes))
-# so_liver_sn <- subset(so_liver_sn,kit_id!="KL-0029535")
-#so_liver_sn$Gene <- rownames(so_liver_sn)
-#so_liver_sn <- subset(so_liver_sn, Gene %in% keep_ids)
 so_liver_sn <- subset(so_liver_sn, features = setdiff(rownames(so_liver_sn@assays$RNA@counts), mito_genes))
-#so_liver_sn <- subset(so_liver_sn, features = setdiff(rownames(so_liver_sn@assays$RNA@counts), mito_genes))
-# so_liver_sn <- subset(so_liver_sn, !rownames(so_liver_sn) %in% mito_genes)
-# grep("^MT-", rownames(so_liver_sn@assays$RNA@counts), value = TRUE)
 dim(so_liver_sn@assays$RNA@counts) #9276 186125
 dim(so_liver_sn@assays$RNA@data) #9276 186125
 dim(so_liver_sn@assays$RNA)#9276 186125
@@ -224,45 +195,11 @@ length(which(rownames(so_oro) %in% ribo_genes)) #0
 ncol(so_oro) #130,124 cells
 nrow(so_oro) #11237 genes
 
-
-# # Identify mitochondrial genes
-# mt_genes <- grepl("^MT", rownames(so_liver_sn@assays$RNA@counts))
-# 
-# # Calculate the percentage of mitochondrial genes per cell
-# mt_percentage <- Matrix::colSums(so_liver_sn@assays$RNA@counts[mt_genes, ]) / Matrix::colSums(so_liver_sn@assays$RNA@counts)
-# 
-# # Filter out cells where the proportion of mitochondrial genes is > 15%
-# cells_to_keep <- mt_percentage <= 0.15
-# 
-# # Subset the object to retain only cells with <= 15% mitochondrial genes
-# so_liver_sn <- so_liver_sn[, cells_to_keep]
-
-
-
-# # Check dimensions after filtering
-# dim(so_liver_sn@assays$RNA@counts) #9276 81882
-# dim(so_liver_sn@assays$RNA)#9276 81882
-# dim(so_liver_sn)#9276 81882
-# 
-# # Optionally, you can also check how many MT genes remain in the filtered dataset
-# sum(grepl("^MT-", rownames(so_liver_sn@assays$RNA@counts)))
-# ncol(so_liver_sn)  # Number of cells remaining
-# 
-# # Step 3: Renormalize the Seurat object after filtering
-# so_liver_sn <- NormalizeData(so_liver_sn)
-# 
-# #Check normalized slot
-# dim(so_liver_sn@assays$RNA@data) #5714 186125
-# sum(grepl("^MT", rownames(so_liver_sn@assays$RNA@data))) #70
-# ncol(so_liver_sn) #186125 cells
-# nrow(so_liver_sn) #5714 genes
-# 
-# rm(gene_expression_matrix)
 so_liver_sn <- NormalizeData(so_liver_sn)
 so_liver_sn <- ScaleData(so_liver_sn, features = VariableFeatures(so_liver_sn))
 
 #Create general hepatocyte cell type variable
-so_liver_sn$celltype2 <- ifelse(grepl("Hep-",so_liver_sn$celltype) | grepl("dHep",so_liver_sn$celltype),"Hep","Non-Hep")
+so_liver_sn$celltype2 <- ifelse(grepl("Hep-",so_liver_sn$celltype) | grepl("dHep",so_liver_sn$celltype) | grepl("Hep/Immune",so_liver_sn$celltype),"Hep","Non-Hep")
 # so_liver_sn$celltype2 <- ifelse(grepl("Hep-",so_liver_sn$celltype),"Hep","Non-Hep")
 
 # table(so_liver_sn$celltype,so_liver_sn$celltype2)
@@ -276,7 +213,7 @@ so_oro <- NormalizeData(so_oro)
 so_oro <- ScaleData(so_oro, features = VariableFeatures(so_oro))
 
 #Create general hepatocyte cell type variable
-so_oro$celltype2 <- ifelse(grepl("Hep-",so_oro$celltype) | grepl("dHep",so_oro$celltype),"Hep","Non-Hep")
+so_oro$celltype2 <- ifelse(grepl("Hep-",so_oro$celltype) | grepl("dHep",so_oro$celltype) | grepl("Hep/Immune",so_oro$celltype),"Hep","Non-Hep")
 # so_oro$celltype2 <- ifelse(grepl("Hep-",so_oro$celltype),"Hep","Non-Hep")
 
 # table(so_oro$celltype,so_oro$celltype2)
@@ -303,29 +240,21 @@ so_oro$library_size <- library_size
 # so_liver_sn$tmm_offset <- tmm_offset
 
 # Pooled offset
-# bp <- MulticoreParam(workers = 59)
+bp <- MulticoreParam(workers = 59)
 # bp <- SnowParam(workers = 59,
 #                 packages = c("scran", "SingleCellExperiment", "stats", "Matrix"))
 # future::plan("sequential")
-# sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-# # sce <- computeSumFactors(sce)
-# # sce <- computeSumFactors(sce, BPPARAM = bp)
-# sce <- computeSumFactors(sce)
-# # View size factors
-# # sizeFactors(sce)
-# # STEP 3: Calculate offset → log(size factors)
-# pooled_offset <- sizeFactors(sce)
-# so_liver_sn$pooled_offset <- pooled_offset
-# hist(so_liver_sn$pooled_offset)
-#Oro
-future::plan("sequential")
+counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts"))
 sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-# sce <- computeSumFactors(sce)
-# sce <- computeSumFactors(sce, BPPARAM = bp)
-sce <- computeSumFactors(sce)
-# View size factors
-# sizeFactors(sce)
-# STEP 3: Calculate offset → log(size factors)
+sce <- computeSumFactors(sce, BPPARAM = bp)
+pooled_offset <- sizeFactors(sce)
+so_liver_sn$pooled_offset <- pooled_offset
+hist(so_liver_sn$pooled_offset)
+
+#Oro
+counts_layer <- round(GetAssayData(so_oro, layer = "counts"))
+sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce, BPPARAM = bp)
 pooled_offset <- sizeFactors(sce)
 so_oro$pooled_offset <- pooled_offset
 hist(so_oro$pooled_offset)
@@ -339,7 +268,7 @@ hist(so_oro$pooled_offset)
 # rm(meta,counts_layer)
 # # hist(so_liver_sn$library_size)
 ```
-## c. Visualize
+## d. Visualize
 ###i. All Cells
 ```{r}
 so_liver_sn <- FindVariableFeatures(object = so_liver_sn)
@@ -352,10 +281,20 @@ so_liver_sn <- FindClusters(so_liver_sn, resolution = 0.5)
 
 # Perform UMAP 
 #Print plot
-png(fs::path(dir.results, "UMAP_by_celltype.png"),
-    width = 4500, height = 3000, res = 300)
+png(fs::path(dir.results, "UMAP_by_celltype_ratio1.png"),
+width = 4500, height = 4500, res = 300)
 p <- DimPlot(so_liver_sn, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  coord_fixed(ratio = 1)+
   ggtitle("UMAP Plot by Cell Type")
+print(p)
+dev.off()
+
+#Print PCA plot
+png(fs::path(dir.results, "PCA_by_celltype_ratio1.png"),
+width = 3000, height = 3000, res = 300)
+p <- DimPlot(so_liver_sn, reduction = "pca", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  coord_fixed(ratio = 1)+
+  ggtitle("PCA Plot by Cell Type")
 print(p)
 dev.off()
 
@@ -421,13 +360,22 @@ so_celltype <- FindClusters(so_celltype, resolution = 0.5)
 
 # Perform UMAP 
 #Print plot
-png(fs::path(dir.results, "UMAP_by_celltype.png"),
-    width = 4500, height = 3000, res = 300)
+png(fs::path(dir.results, "UMAP_Hepatocytes.png"),
+    width = 4500, height = 4500, res = 300)
 p <- DimPlot(so_celltype, reduction = "umap", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
-  ggtitle("UMAP Plot by Cell Type")
+  coord_fixed(ratio=1)+
+  ggtitle("UMAP Plot of Hepatocytes")
 print(p)
 dev.off()
 
+#PCA Plot
+png(fs::path(dir.results, "PCA_Hepatocytes.png"),
+    width = 3000, height = 3000, res = 300)
+p <- DimPlot(so_celltype, reduction = "pca", group.by = "celltype",raster = FALSE, label = TRUE, label.size = 4)+
+  coord_fixed(ratio=1)+
+  ggtitle("PCA Plot of Hepatocytes")
+print(p)
+dev.off()
 
 #Print plot
 png(fs::path(dir.results, "UMAP_by_Steatosis.png"),
@@ -493,7 +441,7 @@ dev.off()
 ```
 
 
-## d. Explore Distribution & Zero-Inflation
+## e. Explore Distribution & Zero-Inflation
 ###i. All Celltypes
 ```{r}
 #Check if data have been normalized 
@@ -789,7 +737,7 @@ if (percent_overdispersed > 10) {
 rm(counts)
 ```
 
-## e. Evaluate Covariates before Adjustment
+## f. Evaluate Covariates before Adjustment
 ```{r}
 #Categorical Covariates
 #Get metadata for everyone
@@ -1014,7 +962,7 @@ write.csv(test_summary, "steatosis_comparison_tests.csv", row.names = FALSE)
 
 ```
 
-##f. Descriptive Stats Tables
+##g. Descriptive Stats Tables
 ###i. All Celltypes
 ```{r}
 dat <- so_liver_sn@meta.data %>%
@@ -1504,7 +1452,7 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset.csv"))
+write.csv(full_results,fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset_with_HepImmune.csv"))
 # full_results <- read.csv(fs::path(dir.results,"NEBULA_Hepatocytes_Steatosis_unadjusted_2000_pooled_offset.csv")) %>%
 #   dplyr::rename(`logFC_steatosis_catHigh Steatosis (2+3)`=logFC_steatosis_catHigh.Steatosis..2.3.)
 
@@ -1676,6 +1624,7 @@ print(combined_plot)
 ggsave(fs::path(dir.results,"Hepatocytes_top30_pathways_unadjusted.jpeg"),
        width = 15, height = 20, scale = 1)
 ```
+
 #### Adjusted
 ```{r}
 #Make sure exposure/independent/x variable or group variable is a factor variable
@@ -8654,70 +8603,67 @@ sce <- as.SingleCellExperiment(so_Hep)
 #filter genes down to potential cell-type markers
 # at least M (15) reads in at least N (15) cells
 geneFilter <- apply(assays(sce)$counts,1,function(x){
-    sum(x >= 3) >= 10
+  sum(x >= 3) >= 10
 })
 sce <- sce[geneFilter, ]
 
 #Full quantile normalization, a well-established method which forces each cell to have the same distribution of expression values.
 FQnorm <- function(counts){
-    rk <- apply(counts,2,rank,ties.method='min')
-    counts.sort <- apply(counts,2,sort)
-    refdist <- apply(counts.sort,1,median)
-    norm <- apply(rk,2,function(r){ refdist[r] })
-    rownames(norm) <- rownames(counts)
-    return(norm)
+  rk <- apply(counts,2,rank,ties.method='min')
+  counts.sort <- apply(counts,2,sort)
+  refdist <- apply(counts.sort,1,median)
+  norm <- apply(rk,2,function(r){ refdist[r] })
+  rownames(norm) <- rownames(counts)
+  return(norm)
 }
 assays(sce)$norm <- FQnorm(assays(sce)$counts)
 
 #Dimensionality reduction using PCA
-pca <- prcomp(t(log1p(assays(sce)$norm)), scale. = FALSE)
-rd1 <- pca$x[,1:2]
+# pca <- prcomp(t(log1p(assays(sce)$norm)), scale. = FALSE)
+####
+library(irlba)
+pca <- irlba(t(log1p(assays(sce)$norm)), nv = 50, center = TRUE, scale = FALSE)
+rd1 <- pca$u[, 1:2]  # Note: $u instead of $x
+rownames(rd1) <- colnames(sce)
+colnames(rd1) <- c("PC1", "PC2")
+####
+# rd1 <- pca$x[,1:2]
 
 #Plot pca
+pdf(fs::path(dir.results,"PCA_Slingshot.pdf"),width=10,height=10)
 plot(rd1, col = rgb(0,0,0,.5), pch=16, asp = 1)
+dev.off()
 
 library(uwot)
-## Loading required package: Matrix
-## 
-## Attaching package: 'Matrix'
-## The following object is masked from 'package:S4Vectors':
-## 
-##     expand
 rd2 <- uwot::umap(t(log1p(assays(sce)$norm)))
 colnames(rd2) <- c('UMAP1', 'UMAP2')
 
+pdf(fs::path(dir.results,"UMAP_Slingshot.pdf"),width=10,height=10)
 plot(rd2, col = rgb(0,0,0,.5), pch=16, asp = 1)
+dev.off()
 
 reducedDims(sce) <- SimpleList(PCA = rd1, UMAP = rd2)
 
 #Clustering cells
 library(mclust, quietly = TRUE)
-## Package 'mclust' version 6.1.1
-## Type 'citation("mclust")' for citing this R package in publications.
-## 
-## Attaching package: 'mclust'
-## The following object is masked from 'package:mgcv':
-## 
-##     mvn
 cl1 <- Mclust(rd1)$classification
 colData(sce)$GMM <- cl1
 
 library(RColorBrewer)
+pdf(fs::path(dir.results,"PCA_Cluster_Plot.pdf"),width=10,height=10)
 plot(rd1, col = brewer.pal(9,"Set1")[cl1], pch=16, asp = 1)
-
+dev.off()
 
 cl2 <- kmeans(rd1, centers = 4)$cluster
 colData(sce)$kmeans <- cl2
-
+pdf(fs::path(dir.results,"PCA_Cluster_Plot2.pdf"),width=10,height=10)
 plot(rd1, col = brewer.pal(9,"Set1")[cl2], pch=16, asp = 1)
+dev.off()
 
 #Perform Slingshot
 sce_gmm <- slingshot(sce, clusterLabels = 'GMM', reducedDim = 'PCA')
 
 colData(sce)$celltype <- so_Hep$celltype
-# colData(sce)$treatment <- attempt_so_pt$treatment
-# colData(sce)$visit <- attempt_so_pt$visit
-
 sce_celltype <- slingshot(sce, clusterLabels = 'celltype', reducedDim = 'PCA')
 
 summary(sce_celltype$slingPseudotime_1)
@@ -8725,15 +8671,21 @@ library(grDevices)
 colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
 plotcol <- colors[cut(sce_celltype$slingPseudotime_1, breaks=100)]
 
+pdf(fs::path(dir.results,"PCA_Cluster_Lineage.pdf"),width=10,height=10)
 plot(reducedDims(sce_celltype)$PCA, col = plotcol, pch=16, asp = 1)
 lines(SlingshotDataSet(sce_celltype), lwd=2, col='black')
+dev.off()
 
+pdf(fs::path(dir.results,"PCA_Cluster_Lineage2.pdf"),width=10,height=10)
 plot(reducedDims(sce_celltype)$PCA, col = brewer.pal(9,'Set1')[sce_celltype$GMM], pch=16, asp = 1)
 lines(SlingshotDataSet(sce_celltype), lwd=2, type = 'lineages', col = 'black')
+dev.off()
 
-plot(reducedDims(sce_celltype)$PCA, asp=0.5, col = 'grey75', pch = 16)
+pdf(fs::path(dir.results,"PCA_Cluster_Lineage3.pdf"),width=10,height=10)
+plot(reducedDims(sce_celltype)$PCA, asp=1, col = 'grey75', pch = 16)
 points(reducedDims(sce_celltype)$PCA, col = hcl.colors(100)[cut(slingPseudotime(sce_celltype)[,1], 100)], pch=16)
 legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
+dev.off()
 
 pca_df <- as.data.frame(reducedDims(sce_celltype)$PCA)
 pca_df$celltype <- colData(sce_celltype)$celltype
@@ -8741,7 +8693,7 @@ pca_df$pseudotime <- slingPseudotime(sce_celltype)[,1]  # choose a lineage if >1
 
 # Optional: get curve
 curves <- slingCurves(sce_celltype)
-pca_df$celltype <- factor(pca_df$celltype, levels = c("Hep-1", "Hep-2", "Hep-3", "Hep-4", "Hep-5","dHep"))
+pca_df$celltype <- factor(pca_df$celltype, levels = c("Hep-1", "Hep-2", "Hep-3", "Hep-4", "Hep-5","dHep","Hep/Immune"))
 slingshot::slingLineages(sce_celltype)
 # Plot
 ggplot(pca_df, aes(x = PC1, y = PC2, color = celltype)) +
@@ -8752,11 +8704,73 @@ ggplot(pca_df, aes(x = PC1, y = PC2, color = celltype)) +
   theme(panel.grid = element_blank()) + 
   labs(color = NULL)
 
-temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
-ggsave(filename = temp_file, width = 7, height = 5)
-s3$upload_file(temp_file, "attempt", "slingshot/attempt_pca_pt_slingshot.jpeg")
+# temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+# ggsave(filename = temp_file, width = 7, height = 5)
+# s3$upload_file(temp_file, "attempt", "slingshot/attempt_pca_pt_slingshot.jpeg")
 
 
+#Use umap
+#Perform Slingshot
+sce_gmm <- slingshot(sce, clusterLabels = 'GMM', reducedDim = 'UMAP')
+
+colData(sce)$celltype <- so_Hep$celltype
+sce_celltype <- slingshot(sce, clusterLabels = 'celltype', reducedDim = 'UMAP')
+
+summary(sce_celltype$slingPseudotime_1)
+library(grDevices)
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sce_celltype$slingPseudotime_1, breaks=100)]
+
+pdf(fs::path(dir.results,"UMAP_Cluster_Lineage.pdf"),width=10,height=10)
+plot(reducedDims(sce_celltype)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sce_celltype), lwd=2, col='black')
+dev.off()
+
+pdf(fs::path(dir.results,"UMAP_Cluster_Lineage2.pdf"),width=10,height=10)
+plot(reducedDims(sce_celltype)$UMAP, col = brewer.pal(9,'Set1')[sce_celltype$GMM], pch=16, asp = 1)
+lines(SlingshotDataSet(sce_celltype), lwd=2, type = 'lineages', col = 'black')
+dev.off()
+
+pdf(fs::path(dir.results,"UMAP_Cluster_Lineage3.pdf"),width=10,height=10)
+plot(reducedDims(sce_celltype)$UMAP, asp=1, col = 'grey75', pch = 16)
+points(reducedDims(sce_celltype)$UMAP, col = hcl.colors(100)[cut(slingPseudotime(sce_celltype)[,1], 100)], pch=16)
+legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
+dev.off()
+
+
+# Your existing code setup
+colData(sce)$celltype <- so_Hep$celltype
+sce_celltype <- slingshot(sce, clusterLabels = 'celltype', reducedDim = 'UMAP')
+
+# Get UMAP coordinates
+umap_coords <- reducedDims(sce_celltype)$UMAP
+celltypes <- colData(sce_celltype)$celltype
+
+# =============================================================================
+# METHOD 1: Add celltype labels at centroids (RECOMMENDED)
+# =============================================================================
+
+# Calculate centroids for each celltype
+centroids <- aggregate(umap_coords, by = list(celltype = celltypes), FUN = mean)
+rownames(centroids) <- centroids$celltype
+centroids <- centroids[, -1]  # Remove the celltype column
+
+# Your existing plot with celltype labels added
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sce_celltype$slingPseudotime_1, breaks=100)]
+
+pdf(fs::path(dir.results,"UMAP_Cluster_Lineage_with_labels.pdf"), width=10, height=10)
+plot(umap_coords, col = plotcol, pch=16, asp = 1,
+     xlab = "UMAP1", ylab = "UMAP2", 
+     main = "UMAP - Slingshot Trajectory with Cell Type Labels")
+lines(SlingshotDataSet(sce_celltype), lwd=2, col='black')
+
+# Add celltype labels at centroids
+text(centroids, labels = rownames(centroids), 
+     col = "black", font = 2, cex = 1.2,
+     bg = "white", adj = c(0.5, 0.5))
+
+dev.off()
 ```
 
 ##a. Prepare for Analysis 
@@ -9000,17 +9014,17 @@ so_Hep <- FindNeighbors(so_Hep, dims = 1:10, reduction = "pca")
 so_Hep <- FindClusters(so_Hep, resolution = 0.5)
 
 #Visualize clusters
- DimPlot(so_Hep, reduction = "pca", dims = c(1, 2), 
-              group.by = "celltype", label = TRUE, label.size = 6) +
+DimPlot(so_Hep, reduction = "pca", dims = c(1, 2), 
+        group.by = "celltype", label = TRUE, label.size = 6) +
   labs(title = "PCA: PC1 vs PC2 - Clusters")
- 
- # Visualize clusters on PCA
+
+# Visualize clusters on PCA
 DimPlot(so_Hep, 
         reduction = "pca", 
         dims = c(1, 2), group.by = "celltype",label = TRUE,raster=F)
 
-  #       label.size = 6) +
-  # labs(title = "PCA: PC1 vs PC2 - Cell Types")
+#       label.size = 6) +
+# labs(title = "PCA: PC1 vs PC2 - Cell Types")
 
 ```
 
@@ -9826,17 +9840,17 @@ so_liver_sn <- FindNeighbors(so_liver_sn, dims = 1:10, reduction = "pca")
 so_liver_sn <- FindClusters(so_liver_sn, resolution = 0.5)
 
 #Visualize clusters
- DimPlot(so_liver_sn, reduction = "pca", dims = c(1, 2), 
-              group.by = "celltype", label = TRUE, label.size = 6) +
+DimPlot(so_liver_sn, reduction = "pca", dims = c(1, 2), 
+        group.by = "celltype", label = TRUE, label.size = 6) +
   labs(title = "PCA: PC1 vs PC2 - Clusters")
- 
- # Visualize clusters on PCA
+
+# Visualize clusters on PCA
 DimPlot(so_liver_sn, 
         reduction = "pca", 
         dims = c(1, 2), group.by = "celltype",label = TRUE,raster=F)
 
-  #       label.size = 6) +
-  # labs(title = "PCA: PC1 vs PC2 - Cell Types")
+#       label.size = 6) +
+# labs(title = "PCA: PC1 vs PC2 - Cell Types")
 
 ```
 
@@ -9909,21 +9923,152 @@ for (i in 1:length(predictors)) {
   base_log_scale[,paste0(predictors[i])] <- base_log_scale[,paste0(predictors[i])]/sd(unlist(base_log[,paste0(predictors[i])]))
 }
 
-saveRDS(base_log,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/TODAY_proteomics.rds")
+saveRDS(base_log,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/today_subeomics.rds")
 
 ```
 ###i. New
 ```{r}
 #Load in AST and ALT in today 
-# today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL.csv"))
+today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL.csv"))
 # length(unique(today$releaseid)) - 699 ids
-today <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/CBL.csv")
+# today <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/CBL.csv")
 today <- today %>%
   filter(mvisit!="R")
 #dplyr::select(c("releaseid","ALT","AST"))
 #Load in Proteomics in Today
-# prot <- readRDS(fs::path(dir.dat,"Liver project","Data","TODAY_proteomics.rds"))
-prot <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver project/Data/TODAY_proteomics.rds")
+# prot <- readRDS(fs::path(dir.dat,"Liver project","Data","today_subeomics.rds"))
+
+# today <- today %>% 
+#   filter(!is.na(visit))
+# dat_baseline <- today %>% 
+#   filter(visit=="Month 1")
+# dat_followup <- today %>% 
+#   filter(visit=="Month 6") 
+# dat <- today %>% 
+#   filter(visit=="Month 1" | visit=="Month 6")
+
+today_sub <- today %>% 
+  filter(releaseid %in% prot_id)
+# Basic spaghetti plot
+ggplot(today_sub, aes(x = mvisit, y = ALT, group = releaseid)) +
+  geom_line(alpha = 0.5, color = "gray40") +
+  geom_point(alpha = 0.5, size = 1.5, color = "gray40") +
+  labs(title = "ALT Values Over Time by Individual",
+       x = "mvisit",
+       y = "ALT") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Calculate mean ALT for each mvisit
+mean_data <- today_sub %>%
+  group_by(mvisit) %>%
+  summarise(mean_ALT = mean(ALT, na.rm = TRUE))
+
+# Create plot with individual lines and mean trend
+ggplot(today_sub, aes(x = mvisit, y = ALT)) +
+  geom_line(aes(group = releaseid), alpha = 0.3, color = "gray60") +
+  geom_point(aes(group = releaseid), alpha = 0.3, size = 1, color = "gray60") +
+  geom_line(data = mean_data, aes(x = mvisit, y = mean_ALT, group = 1), 
+            color = "red", size = 2) +
+  geom_point(data = mean_data, aes(x = mvisit, y = mean_ALT), 
+             color = "red", size = 3) +
+  labs(title = "ALT Values Over Time by Individual",
+       subtitle = "Red line shows mean trend",
+       x = "mvisit",
+       y = "ALT") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(today_sub, aes(x = mvisit, y = ALT, group = releaseid, color = factor(releaseid))) +
+  geom_line(alpha = 0.7, size = 1) +
+  geom_point(alpha = 0.7, size = 2) +
+  labs(title = "ALT Values Over Time by Individual",
+       x = "mvisit",
+       y = "ALT",
+       color = "Individual ID") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = guide_legend(ncol = 2))+  # Adjust legend columns
+  theme(legend.position = "none")
+
+# Basic spaghetti plot
+ggplot(today_sub, aes(x = mvisit, y = AST, group = releaseid)) +
+  geom_line(alpha = 0.5, color = "gray40") +
+  geom_point(alpha = 0.5, size = 1.5, color = "gray40") +
+  labs(title = "AST Values Over Time by Individual",
+       x = "mvisit",
+       y = "AST") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Calculate mean AST for each mvisit
+mean_data <- today_sub %>%
+  group_by(mvisit) %>%
+  summarise(mean_AST = mean(AST, na.rm = TRUE))
+
+# Create plot with individual lines and mean trend
+ggplot(today_sub, aes(x = mvisit, y = AST)) +
+  geom_line(aes(group = releaseid), alpha = 0.3, color = "gray60") +
+  geom_point(aes(group = releaseid), alpha = 0.3, size = 1, color = "gray60") +
+  geom_line(data = mean_data, aes(x = mvisit, y = mean_AST, group = 1), 
+            color = "red", size = 2) +
+  geom_point(data = mean_data, aes(x = mvisit, y = mean_AST), 
+             color = "red", size = 3) +
+  labs(title = "AST Values Over Time by Individual",
+       subtitle = "Red line shows mean trend",
+       x = "mvisit",
+       y = "AST") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(today_sub, aes(x = mvisit, y = AST, group = releaseid, color = factor(releaseid))) +
+  geom_line(alpha = 0.7, size = 1) +
+  geom_point(alpha = 0.7, size = 2) +
+  labs(title = "AST Values Over Time by Individual",
+       x = "mvisit",
+       y = "AST",
+       color = "Individual ID") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(color = guide_legend(ncol = 2))+  # Adjust legend columns
+  theme(legend.position = "none")
+
+missing_counts <- today_sub %>%
+  group_by(releaseid) %>%
+  summarise(
+    total_timepoints = n(),
+    missing_ALT = sum(is.na(ALT)),
+    missing_AST = sum(is.na(AST)),
+    complete_ALT = sum(!is.na(ALT)),
+    complete_AST = sum(!is.na(AST))
+  )
+
+print(missing_counts)
+
+# Calculate percentages for ALT
+ALT_stats <- missing_counts %>%
+  summarise(
+    total_participants = n(),
+    participants_missing_at_least_one_ALT = sum(missing_ALT >= 1),
+    participants_missing_more_than_5_ALT = sum(missing_ALT > 5),
+    percent_missing_at_least_one_ALT = round(100 * participants_missing_at_least_one_ALT / total_participants, 2),
+    percent_missing_more_than_5_ALT = round(100 * participants_missing_more_than_5_ALT / total_participants, 2)
+  )
+
+# Calculate percentages for AST
+AST_stats <- missing_counts %>%
+  summarise(
+    total_participants = n(),
+    participants_missing_at_least_one_AST = sum(missing_AST >= 1),
+    participants_missing_more_than_5_AST = sum(missing_AST > 5),
+    percent_missing_at_least_one_AST = round(100 * participants_missing_at_least_one_AST / total_participants, 2),
+    percent_missing_more_than_5_AST = round(100 * participants_missing_more_than_5_AST / total_participants, 2)
+  )
+
+
+
+prot <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/today_eomics.rds")
+# prot <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver project/Data/today_subeomics.rds")
 
 # which(colnames(prot)=="AGEBASE") #7406
 # which(colnames(prot)=="releaseid") #7326
@@ -9955,7 +10100,8 @@ proteins <- colnames(prot)[which(grepl("seq.",colnames(prot)))]
 
 #Key Protein Gene
 # key <- readRDS(fs::path(dir.dat,"Liver project","Data","gene_prot.RDS"))
-key <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver project/Data/gene_prot.RDS")
+# key <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver project/Data/gene_prot.RDS")
+key <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/gene_prot.RDS")
 
 so_celltype <- subset(so_liver_sn,celltype2=="Hep")
 DefaultAssay(so_celltype) <- "RNA" 
@@ -9970,6 +10116,8 @@ rm(so_celltype)
 
 hvg_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% hvgs)]
 prot <- prot[c("releaseid","AGEBASE","sex",hvg_proteins)]
+
+prot_id <- unique(prot$releaseid)
 
 #Calculate sensoring and time to event
 baseline <- today %>% 
@@ -10106,7 +10254,7 @@ results_alt <- results_alt %>%
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_alt <- results_alt %>%
   mutate(sig=ifelse(fdr<0.05,"*",""))
-# write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_ALT_hvg.csv"))
+# write.csv(results_alt,fs::path(dir.results,"today_subeomics_ALT_hvg.csv"))
 
 #AST
 results_ast <- results_ast %>%
@@ -10114,7 +10262,7 @@ results_ast <- results_ast %>%
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_ast <- results_ast %>%
   mutate(sig=ifelse(fdr<0.05,"*",""))
-# write.csv(results_ast,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
+# write.csv(results_ast,fs::path(dir.results,"today_subeomics_AST_hvg.csv"))
 
 #Ratio
 results_ratio <- results_ratio %>%
@@ -10122,7 +10270,7 @@ results_ratio <- results_ratio %>%
   mutate(fdr = p.adjust(Pvalue,method="fdr"))
 results_ratio <- results_ratio %>%
   mutate(sig=ifelse(fdr<0.05,"*",""))
-# write.csv(results_ratio,fs::path(dir.results,"TODAY_proteomics_ALT_AST_ratio_hvg.csv"))
+# write.csv(results_ratio,fs::path(dir.results,"today_subeomics_ALT_AST_ratio_hvg.csv"))
 
 results_total <- rbind(results_ast,results_alt)
 results_total <- rbind(results_total,results_ratio)
@@ -10134,14 +10282,14 @@ results_total <- tidylog::left_join(results_total,key,by="Protein")
 results_ast <- tidylog::left_join(results_ast,key,by="Protein")
 results_alt <- tidylog::left_join(results_alt,key,by="Protein")
 results_ratio <- tidylog::left_join(results_ratio,key,by="Protein")
-write.csv(results_ast,fs::path(dir.results,"TODAY_proteomics_AST_hvg.csv"))
-write.csv(results_alt,fs::path(dir.results,"TODAY_proteomics_ALT_hvg.csv"))
-write.csv(results_ratio,fs::path(dir.results,"TODAY_proteomics_ALT_AST_ratio_hvg.csv"))
+write.csv(results_ast,fs::path(dir.results,"today_subeomics_AST_hvg.csv"))
+write.csv(results_alt,fs::path(dir.results,"today_subeomics_ALT_hvg.csv"))
+write.csv(results_ratio,fs::path(dir.results,"today_subeomics_ALT_AST_ratio_hvg.csv"))
 
 sig_results <- results_total %>% 
   filter(sig=="*")
 
-# write.csv(results_total,fs::path(dir.results,"TODAY_proteomics_alt_ast_hvg_adj_age.csv"))
+# write.csv(results_total,fs::path(dir.results,"today_subeomics_alt_ast_hvg_adj_age.csv"))
 
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 results_alt$PValue10 <- -log10(pmax(results_alt$Pvalue, 1e-10))  # Avoid log(0)
@@ -10203,21 +10351,21 @@ volcano_plot <- ggplot(results_alt, aes(x = LogHR, y = PValue10, color = color))
   # geom_text(data = top_labels, aes(label = Gene),
   #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black") +
   geom_text_repel(data = top_labels, 
-                aes(label = Gene),
-                size = 3,
-                color = "black",
-                # Control line segments
-                segment.color = "gray50",
-                segment.size = 0.5,
-                segment.alpha = 0.8,
-                # Control label positioning
-                box.padding = 0.5,
-                point.padding = 0.3,
-                force = 1,
-                max.overlaps = Inf,  # Show all labels (unlike check_overlap = TRUE)
-                # Optional: limit computation time
-                max.time = 1,
-                max.iter = 10000)+
+                  aes(label = Gene),
+                  size = 3,
+                  color = "black",
+                  # Control line segments
+                  segment.color = "gray50",
+                  segment.size = 0.5,
+                  segment.alpha = 0.8,
+                  # Control label positioning
+                  box.padding = 0.5,
+                  point.padding = 0.3,
+                  force = 1,
+                  max.overlaps = Inf,  # Show all labels (unlike check_overlap = TRUE)
+                  # Optional: limit computation time
+                  max.time = 1,
+                  max.iter = 10000)+
   # # Add labels for significant points
   # geom_text(data = significant_df, aes(label = Gene),
   #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")+
@@ -10243,7 +10391,7 @@ results_ratio <- results_ratio %>%
 
 # Set color based on significance and direction
 results_ratio$color <- ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR > 0, "lightcoral",
-                            ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR < 0, "lightblue", "gray"))
+                              ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR < 0, "lightblue", "gray"))
 # Identify significant points (fdr < 0.05)
 significant_df <- results_ratio[results_ratio$fdr < 0.05, ]
 
@@ -10282,27 +10430,27 @@ volcano_plot <- ggplot(results_ratio, aes(x = LogHR, y = PValue10, color = color
     axis.text.x = element_text(angle = 0, hjust = 1)
   ) +
   xlim(min, max) +
-    # # Add labels for significant points
+  # # Add labels for significant points
   # geom_text(data = significant_df, aes(label = Gene),
   #           vjust = 1, hjust = 1, size = 3, check_overlap = FALSE, color = "black")+
   # geom_text(data = top_labels, aes(label = Gene),
   #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black") +
   geom_text_repel(data = significant_df, 
-                aes(label = Gene),
-                size = 3,
-                color = "black",
-                # Control line segments
-                segment.color = "gray50",
-                segment.size = 0.5,
-                segment.alpha = 0.8,
-                # Control label positioning
-                box.padding = 0.5,
-                point.padding = 0.3,
-                force = 1,
-                max.overlaps = Inf,
-                # Optional: limit how far labels can be from points
-                max.time = 1,
-                max.iter = 10000) +
+                  aes(label = Gene),
+                  size = 3,
+                  color = "black",
+                  # Control line segments
+                  segment.color = "gray50",
+                  segment.size = 0.5,
+                  segment.alpha = 0.8,
+                  # Control label positioning
+                  box.padding = 0.5,
+                  point.padding = 0.3,
+                  force = 1,
+                  max.overlaps = Inf,
+                  # Optional: limit how far labels can be from points
+                  max.time = 1,
+                  max.iter = 10000) +
   facet_wrap(~Outcome)
 
 volcano_plot
@@ -10356,22 +10504,22 @@ volcano_plot <- ggplot(results_ast, aes(x = LogHR, y = PValue10, color = color))
     axis.text.x = element_text(angle = 0, hjust = 1)
   )+
   xlim(min,max)+
-    geom_text_repel(data = significant_df, 
-                aes(label = Gene),
-                size = 3,
-                color = "black",
-                # Control line segments
-                segment.color = "gray50",
-                segment.size = 0.5,
-                segment.alpha = 0.8,
-                # Control label positioning
-                box.padding = 0.5,
-                point.padding = 0.3,
-                force = 1,
-                max.overlaps = Inf,
-                # Optional: limit how far labels can be from points
-                max.time = 1,
-                max.iter = 10000) +
+  geom_text_repel(data = significant_df, 
+                  aes(label = Gene),
+                  size = 3,
+                  color = "black",
+                  # Control line segments
+                  segment.color = "gray50",
+                  segment.size = 0.5,
+                  segment.alpha = 0.8,
+                  # Control label positioning
+                  box.padding = 0.5,
+                  point.padding = 0.3,
+                  force = 1,
+                  max.overlaps = Inf,
+                  # Optional: limit how far labels can be from points
+                  max.time = 1,
+                  max.iter = 10000) +
   # # Add labels for significant points
   # geom_text(data = significant_df, aes(label = Gene),
   #           vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")+
@@ -10396,7 +10544,7 @@ today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL
 #   filter(mvisit=="M00")
 #dplyr::select(c("releaseid","ALT","AST"))
 #Load in Proteomics in Today
-prot <- readRDS(fs::path(dir.dat,"Liver project","TODAY_proteomics.rds"))
+prot <- readRDS(fs::path(dir.dat,"Liver project","today_subeomics.rds"))
 prot <- prot[c(7326,7404,7397,which(grepl("seq.",colnames(prot))))] #length(unique(prot$releaseid)) - 376 unique ids
 proteins <- colnames(prot)[which(grepl("seq.",colnames(prot)))]
 
@@ -10598,12 +10746,15 @@ plot(volcano_plot_ast)
 ```{r}
 #Proteomics teen labs 
 load(fs::path(dir.dat,"Teen Labs","Data_Cleaned","analysis_dataset.RData"))
-dat_baseline <- df %>% 
-  filter(visit=="Month 1")
-dat_followup <- df %>% 
-  filter(visit=="Month 6") 
-dat <- df %>% 
-  filter(visit=="Month 1" | visit=="Month 6")
+#Remove na values for visit
+df <- df %>% 
+  filter(!is.na(visit))
+# dat_baseline <- df %>% 
+#   filter(visit=="Month 1")
+# dat_followup <- df %>% 
+#   filter(visit=="Month 6") 
+# dat <- df %>% 
+#   filter(visit=="Month 1" | visit=="Month 6")
 
 #Protein key
 key <- analyte_info %>% 
@@ -10627,141 +10778,267 @@ prot_followup <- prot_followup %>%
   dplyr::select(-visit)
 
 prot <- tidylog::left_join(prot_baseline,prot_followup,by="ID")
-# Find columns with "baseline" and "followup"
-baseline_cols <- grep("_baseline$", colnames(prot), value = TRUE)
-followup_cols <- grep("_followup$", colnames(prot), value = TRUE)
+prot_id <- unique(prot$ID)
 
-# Sort to ensure matching order
-baseline_cols <- sort(baseline_cols)
-followup_cols <- sort(followup_cols)
+df_sub <- df %>% 
+  filter(ID %in% prot_id)
 
-# Create new columns for differences
-for (i in seq_along(baseline_cols)) {
-  protein_name <- sub("_baseline$", "", baseline_cols[i])  # Get protein name (e.g., "protein1")
-  diff_col <- paste0(protein_name, "_diff")               # Create a difference column name
-  prot[[diff_col]] <- prot[[followup_cols[i]]] - prot[[baseline_cols[i]]]
-}
+# # Basic spaghetti plot
+# ggplot(df_sub, aes(x = visit, y = ALT, group = ID)) +
+#   geom_line(alpha = 0.5, color = "gray40") +
+#   geom_point(alpha = 0.5, size = 1.5, color = "gray40") +
+#   labs(title = "ALT Values Over Time by Individual",
+#        x = "Visit",
+#        y = "ALT") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# # Calculate mean ALT for each visit
+# mean_data <- df_sub %>%
+#   group_by(visit) %>%
+#   summarise(mean_ALT = mean(ALT, na.rm = TRUE))
+# 
+# # Create plot with individual lines and mean trend
+# ggplot(df_sub, aes(x = visit, y = ALT)) +
+#   geom_line(aes(group = ID), alpha = 0.3, color = "gray60") +
+#   geom_point(aes(group = ID), alpha = 0.3, size = 1, color = "gray60") +
+#   geom_line(data = mean_data, aes(x = visit, y = mean_ALT, group = 1), 
+#             color = "red", size = 2) +
+#   geom_point(data = mean_data, aes(x = visit, y = mean_ALT), 
+#              color = "red", size = 3) +
+#   labs(title = "ALT Values Over Time by Individual",
+#        subtitle = "Red line shows mean trend",
+#        x = "Visit",
+#        y = "ALT") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# ggplot(df_sub, aes(x = visit, y = ALT, group = ID, color = factor(ID))) +
+#   geom_line(alpha = 0.7, size = 1) +
+#   geom_point(alpha = 0.7, size = 2) +
+#   labs(title = "ALT Values Over Time by Individual",
+#        x = "Visit",
+#        y = "ALT",
+#        color = "Individual ID") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+#   guides(color = guide_legend(ncol = 2))+  # Adjust legend columns
+#   theme(legend.position = "none")
+# 
+# # Basic spaghetti plot
+# ggplot(df_sub, aes(x = visit, y = AST, group = ID)) +
+#   geom_line(alpha = 0.5, color = "gray40") +
+#   geom_point(alpha = 0.5, size = 1.5, color = "gray40") +
+#   labs(title = "AST Values Over Time by Individual",
+#        x = "Visit",
+#        y = "AST") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# # Calculate mean AST for each visit
+# mean_data <- df_sub %>%
+#   group_by(visit) %>%
+#   summarise(mean_AST = mean(AST, na.rm = TRUE))
+# 
+# # Create plot with individual lines and mean trend
+# ggplot(df_sub, aes(x = visit, y = AST)) +
+#   geom_line(aes(group = ID), alpha = 0.3, color = "gray60") +
+#   geom_point(aes(group = ID), alpha = 0.3, size = 1, color = "gray60") +
+#   geom_line(data = mean_data, aes(x = visit, y = mean_AST, group = 1), 
+#             color = "red", size = 2) +
+#   geom_point(data = mean_data, aes(x = visit, y = mean_AST), 
+#              color = "red", size = 3) +
+#   labs(title = "AST Values Over Time by Individual",
+#        subtitle = "Red line shows mean trend",
+#        x = "Visit",
+#        y = "AST") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# 
+# ggplot(df_sub, aes(x = visit, y = AST, group = ID, color = factor(ID))) +
+#   geom_line(alpha = 0.7, size = 1) +
+#   geom_point(alpha = 0.7, size = 2) +
+#   labs(title = "AST Values Over Time by Individual",
+#        x = "Visit",
+#        y = "AST",
+#        color = "Individual ID") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+#   guides(color = guide_legend(ncol = 2))+  # Adjust legend columns
+#   theme(legend.position = "none")
+# 
+# missing_counts <- df_sub %>%
+#   group_by(ID) %>%
+#   summarise(
+#     total_timepoints = n(),
+#     missing_ALT = sum(is.na(ALT)),
+#     missing_AST = sum(is.na(AST)),
+#     complete_ALT = sum(!is.na(ALT)),
+#     complete_AST = sum(!is.na(AST))
+#   )
+# 
+# print(missing_counts)
+# 
+# # Calculate percentages for ALT
+# ALT_stats <- missing_counts %>%
+#   summarise(
+#     total_participants = n(),
+#     participants_missing_at_least_one_ALT = sum(missing_ALT >= 1),
+#     participants_missing_more_than_5_ALT = sum(missing_ALT > 5),
+#     percent_missing_at_least_one_ALT = round(100 * participants_missing_at_least_one_ALT / total_participants, 2),
+#     percent_missing_more_than_5_ALT = round(100 * participants_missing_more_than_5_ALT / total_participants, 2)
+#   )
+# 
+# # Calculate percentages for AST
+# AST_stats <- missing_counts %>%
+#   summarise(
+#     total_participants = n(),
+#     participants_missing_at_least_one_AST = sum(missing_AST >= 1),
+#     participants_missing_more_than_5_AST = sum(missing_AST > 5),
+#     percent_missing_at_least_one_AST = round(100 * participants_missing_at_least_one_AST / total_participants, 2),
+#     percent_missing_more_than_5_AST = round(100 * participants_missing_more_than_5_AST / total_participants, 2)
+#   )
 
-#Covariates at baseline
-dat_cov <- dat %>% 
-  filter(visit=="Month 1") %>% 
-  dplyr::select(all_of(c("ID","SEX","HBA1C","age"))) 
-
-rm(df,analyte_info)
-
+# # Find columns with "baseline" and "followup"
+# baseline_cols <- grep("_baseline$", colnames(prot), value = TRUE)
+# followup_cols <- grep("_followup$", colnames(prot), value = TRUE)
+# 
+# # Sort to ensure matching order
+# baseline_cols <- sort(baseline_cols)
+# followup_cols <- sort(followup_cols)
+# 
+# # Create new columns for differences
+# for (i in seq_along(baseline_cols)) {
+#   protein_name <- sub("_baseline$", "", baseline_cols[i])  # Get protein name (e.g., "protein1")
+#   diff_col <- paste0(protein_name, "_diff")               # Create a difference column name
+#   prot[[diff_col]] <- prot[[followup_cols[i]]] - prot[[baseline_cols[i]]]
+# }
+# 
+# #Covariates at baseline
+# dat_cov <- dat %>% 
+#   filter(visit=="Month 1") %>% 
+#   dplyr::select(all_of(c("ID","SEX","HBA1C","age"))) 
+# 
+# rm(df,analyte_info)
+# 
 #ALT/AST
+# liv <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/Teen-LABS_AST_ALT.csv")
 liv <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/Teen-LABS_AST_ALT.csv")
-liv <- liv %>% 
-  dplyr::rename(visit=Visit) %>% 
-  filter(visit==1 | visit==6) %>% 
-  mutate(visit=case_when(visit==1~"Month 1",
-                         visit==6~"Month 6")) %>% 
-  mutate(across(everything(),~ifelse(.==-5,NA,.))) %>% 
-  mutate(across(everything(),~ifelse(.==-7,1,.)))
-liv_baseline <- liv %>% 
-  filter(visit=="Month 1") %>% 
-  dplyr::select(-visit) %>% 
-  dplyr::rename(ALT_baseline=ALT,
-                AST_baseline=AST)
-liv_followup <- liv %>% 
-  filter(visit=="Month 6") %>% 
-  dplyr::select(-visit) %>% 
-  dplyr::rename(ALT_followup=ALT,
-                AST_followup=AST)
-liv <- tidylog::left_join(liv_baseline,liv_followup,by="ID")
-liv <- liv %>% 
-  mutate(ALT_diff = ALT_followup-ALT_baseline,
-         AST_diff = AST_followup-AST_baseline) 
+liv <- liv %>%
+  dplyr::rename(visit=Visit) %>%
+  # filter(visit==1 | visit==6) %>%
+  # mutate(visit=case_when(visit==1~"Month 1",
+  #                        visit==6~"Month 6")) %>%
+  mutate(across(everything(),~ifelse(.==-5,NA,.))) %>%
+  mutate(across(everything(),~ifelse(.==-7,1,.))) %>% 
+  filter(!is.na(ALT) & !is.na(AST))
+ #201 have alt and/or ast
 
-
-dat_cov$ID <- as.character(dat_cov$ID)
+# liv_baseline <- liv %>% 
+#   filter(visit=="Month 1") %>% 
+#   dplyr::select(-visit) %>% 
+#   dplyr::rename(ALT_baseline=ALT,
+#                 AST_baseline=AST)
+# liv_followup <- liv %>% 
+#   filter(visit=="Month 6") %>% 
+#   dplyr::select(-visit) %>% 
+#   dplyr::rename(ALT_followup=ALT,
+#                 AST_followup=AST)
+# liv <- tidylog::left_join(liv_baseline,liv_followup,by="ID")
+# liv <- liv %>% 
+#   mutate(ALT_diff = ALT_followup-ALT_baseline,
+#          AST_diff = AST_followup-AST_baseline) 
+# 
+# 
+# dat_cov$ID <- as.character(dat_cov$ID)
 prot$ID<- as.character(prot$ID)
-
-#Baseline proteins & baseline covariates and baseline and followup alt/ast
-dat_all <- tidylog::right_join(dat_cov,liv,by=c("ID"))
-dat_all <- tidylog::left_join(dat_all,prot,by=c("ID"))
-
-#Run linear mixed effect model & difference model 
-protein_diff <- paste0(protein,"_diff")
-results <- data.frame()
-covs <- c("age","SEX","HBA1C")
-for (x in protein_diff) {
-  for (y in c("AST_diff","ALT_diff")) {
-    M0_crude <- as.formula(paste0(y,"~",x))
-    M0_adj <- as.formula(paste0(y,"~",x,"+",paste(covs, collapse = "+")))
-    M1_crude <- lm(M0_crude,data=dat_all)
-    M1_adj <- lm(M0_adj,data=dat_all)
-    coef_crude <- summary(M1_crude)$coef[2,1]
-    coef_adj <- summary(M1_adj)$coef[2,1]
-    p_crude <- summary(M1_crude)$coef[2,4]
-    p_adj <- summary(M1_adj)$coef[2,4]
-    diff_results <- data.frame(Protein=x,Enzyme=y,Coef=coef_adj,PValue=p_adj)
-    results <- rbind(results,diff_results)
-  }
-}
-r_alt <- results %>% 
-  filter(Enzyme=="ALT_diff") %>% 
-  mutate(fdr=p.adjust(PValue,method="fdr"))
-r_ast <- results %>% 
-  filter(Enzyme=="AST_diff") %>% 
-  mutate(fdr=p.adjust(PValue,method="fdr"))
-results <- rbind(r_alt,r_ast)
-results <- results %>% 
-  mutate(sig=ifelse(fdr<0.05,"*",""))
-write.csv(results,fs::path(dir.results,"Diff_Results_Liver_Teenlabs_Imputed.csv"))
-
-#Baseline protein with change in ALT/AST pre and post surgery
-liv <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/Teen-LABS_AST_ALT.csv")
-liv <- liv %>% 
-  dplyr::rename(visit=Visit) %>% 
-  filter(visit==1 | visit==6) %>% 
-  mutate(visit=case_when(visit==1~"Month 1",
-                         visit==6~"Month 6")) %>% 
-  mutate(across(everything(),~ifelse(.==-5,NA,.))) %>% 
-  mutate(across(everything(),~ifelse(.==-7,NA,.)))
-prot_baseline_dat$ID <- as.character(prot_baseline_dat$ID)
-dat_baseline <- tidylog::left_join(liv,prot_baseline_dat,by=c("ID"))
-dat_baseline <- tidylog::left_join(dat_cov,dat_baseline,by="ID")
-dat_baseline <- dat_baseline %>% 
-  mutate(time=case_when(visit=="Month 1"~1,
-                        visit=="Month 6"~6))
-
-#Linear Mixed Effects Model
-protein_baseline <- paste0(protein,"_baseline")
-covs <- c("age","SEX","HBA1C")
-
-results <- data.frame()
-for (x in c("AST","ALT")) {
-  for (y in protein_baseline) {
-    M0_crude <- as.formula(paste0(y,"~",x,"+time+(1|ID)"))
-    M0_adj <- as.formula(paste0(y,"~",x,"*time+",paste(covs, collapse = "+"),"+(1|ID)"))
-    M1_crude <- lmer(M0_crude,data=dat_baseline)
-    M1_adj <- lmer(M0_adj,data=dat_baseline)
-    Main <- summary(M1_adj)$coef[2,1]
-    Main_p <- summary(M1_adj)$coef[2,5]
-    Time <- summary(M1_adj)$coef[3,1]
-    Time_p <- summary(M1_adj)$coef[3,5]
-    Int <- summary(M1_adj)$coef[7,1]
-    Int_p <- summary(M1_adj)$coef[7,5]
-    results_int <- data.frame(Protein=x,Enzyme=y,Main,Main_p,Time,Time_p,Int,Int_p)
-    results <- rbind(results,results_int)
-  }
-}
-r_alt <- results %>% 
-  filter(Enzyme=="ALT") %>% 
-  mutate(Main_fdr=p.adjust(Main_p,method="fdr")) %>% 
-  mutate(Int_fdr=p.adjust(Int_p,method="fdr"))
-r_ast <- results %>% 
-  filter(Enzyme=="AST") %>% 
-  mutate(Main_fdr=p.adjust(Main_p,method="fdr")) %>% 
-  mutate(Int_fdr=p.adjust(Int_p,method="fdr"))
-results <- rbind(r_alt,r_ast)
-results <- results %>% 
-  mutate(Main_sig=ifelse(Main_fdr<0.05,"*","")) %>% 
-  mutate(Int_sig=ifelse(Int_fdr<0.05,"*",""))
-results$AptName <- str_remove(results$Protein,"_baseline")
-results <- tidylog::left_join(results,key,by="AptName")
-write.csv(results,fs::path(dir.results,"LMEM_TeenLabs_Liver_Results_Imputed.csv"))
+# 
+# #Baseline proteins & baseline covariates and baseline and followup alt/ast
+# dat_all <- tidylog::right_join(dat_cov,liv,by=c("ID"))
+# dat_all <- tidylog::left_join(dat_all,prot,by=c("ID"))
+dat_all <- tidylog::left_join(liv,prot,by=c("ID"))
+# 
+# #Run linear mixed effect model & difference model 
+# protein_diff <- paste0(protein,"_diff")
+# results <- data.frame()
+# covs <- c("age","SEX","HBA1C")
+# for (x in protein_diff) {
+#   for (y in c("AST_diff","ALT_diff")) {
+#     M0_crude <- as.formula(paste0(y,"~",x))
+#     M0_adj <- as.formula(paste0(y,"~",x,"+",paste(covs, collapse = "+")))
+#     M1_crude <- lm(M0_crude,data=dat_all)
+#     M1_adj <- lm(M0_adj,data=dat_all)
+#     coef_crude <- summary(M1_crude)$coef[2,1]
+#     coef_adj <- summary(M1_adj)$coef[2,1]
+#     p_crude <- summary(M1_crude)$coef[2,4]
+#     p_adj <- summary(M1_adj)$coef[2,4]
+#     diff_results <- data.frame(Protein=x,Enzyme=y,Coef=coef_adj,PValue=p_adj)
+#     results <- rbind(results,diff_results)
+#   }
+# }
+# r_alt <- results %>% 
+#   filter(Enzyme=="ALT_diff") %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr"))
+# r_ast <- results %>% 
+#   filter(Enzyme=="AST_diff") %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr"))
+# results <- rbind(r_alt,r_ast)
+# results <- results %>% 
+#   mutate(sig=ifelse(fdr<0.05,"*",""))
+# write.csv(results,fs::path(dir.results,"Diff_Results_Liver_Teenlabs_Imputed.csv"))
+# 
+# #Baseline protein with change in ALT/AST pre and post surgery
+# liv <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/Teen-LABS_AST_ALT.csv")
+# liv <- liv %>% 
+#   dplyr::rename(visit=Visit) %>% 
+#   filter(visit==1 | visit==6) %>% 
+#   mutate(visit=case_when(visit==1~"Month 1",
+#                          visit==6~"Month 6")) %>% 
+#   mutate(across(everything(),~ifelse(.==-5,NA,.))) %>% 
+#   mutate(across(everything(),~ifelse(.==-7,NA,.)))
+# prot_baseline_dat$ID <- as.character(prot_baseline_dat$ID)
+# dat_baseline <- tidylog::left_join(liv,prot_baseline_dat,by=c("ID"))
+# dat_baseline <- tidylog::left_join(dat_cov,dat_baseline,by="ID")
+# dat_baseline <- dat_baseline %>% 
+#   mutate(time=case_when(visit=="Month 1"~1,
+#                         visit=="Month 6"~6))
+# 
+# #Linear Mixed Effects Model
+# protein_baseline <- paste0(protein,"_baseline")
+# covs <- c("age","SEX","HBA1C")
+# 
+# results <- data.frame()
+# for (x in c("AST","ALT")) {
+#   for (y in protein_baseline) {
+#     M0_crude <- as.formula(paste0(y,"~",x,"+time+(1|ID)"))
+#     M0_adj <- as.formula(paste0(y,"~",x,"*time+",paste(covs, collapse = "+"),"+(1|ID)"))
+#     M1_crude <- lmer(M0_crude,data=dat_baseline)
+#     M1_adj <- lmer(M0_adj,data=dat_baseline)
+#     Main <- summary(M1_adj)$coef[2,1]
+#     Main_p <- summary(M1_adj)$coef[2,5]
+#     Time <- summary(M1_adj)$coef[3,1]
+#     Time_p <- summary(M1_adj)$coef[3,5]
+#     Int <- summary(M1_adj)$coef[7,1]
+#     Int_p <- summary(M1_adj)$coef[7,5]
+#     results_int <- data.frame(Protein=x,Enzyme=y,Main,Main_p,Time,Time_p,Int,Int_p)
+#     results <- rbind(results,results_int)
+#   }
+# }
+# r_alt <- results %>% 
+#   filter(Enzyme=="ALT") %>% 
+#   mutate(Main_fdr=p.adjust(Main_p,method="fdr")) %>% 
+#   mutate(Int_fdr=p.adjust(Int_p,method="fdr"))
+# r_ast <- results %>% 
+#   filter(Enzyme=="AST") %>% 
+#   mutate(Main_fdr=p.adjust(Main_p,method="fdr")) %>% 
+#   mutate(Int_fdr=p.adjust(Int_p,method="fdr"))
+# results <- rbind(r_alt,r_ast)
+# results <- results %>% 
+#   mutate(Main_sig=ifelse(Main_fdr<0.05,"*","")) %>% 
+#   mutate(Int_sig=ifelse(Int_fdr<0.05,"*",""))
+# results$AptName <- str_remove(results$Protein,"_baseline")
+# results <- tidylog::left_join(results,key,by="AptName")
+# write.csv(results,fs::path(dir.results,"LMEM_TeenLabs_Liver_Results_Imputed.csv"))
 ```
 ###ii. Old
 ```{r}
@@ -12311,19 +12588,19 @@ saveRDS(summary_data,fs::path(dir.results,"Summary_Hepatocytes_Dataframe.rds"))
 write.csv(summary_data,fs::path(dir.results,"Summary_Hepatocytes_Dataframe.csv"))
 
 #Alter alt and ast names
-data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/TODAY_proteomics_ALT_hvg.csv")
+data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/today_subeomics_ALT_hvg.csv")
 data <- data %>% 
   dplyr::rename(LogFC=LogHR) %>% 
   dplyr::rename(Gene=EntrezGeneSymbol) %>% 
   mutate(dataset="ALT")
-write.csv(data,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_ALT_hvg.csv")
+write.csv(data,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_today_subeomics_ALT_hvg.csv")
 
-data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/TODAY_proteomics_AST_hvg.csv")
+data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/today_subeomics_AST_hvg.csv")
 data <- data %>% 
   dplyr::rename(LogFC=LogHR) %>% 
   dplyr::rename(Gene=EntrezGeneSymbol) %>% 
   mutate(dataset="AST")
-write.csv(data,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_AST_hvg.csv")
+write.csv(data,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_today_subeomics_AST_hvg.csv")
 ```
 
 ####II. Analyze
@@ -12567,8 +12844,8 @@ analyze_gene_patterns <- function(file_paths, dataset_names) {
 # Replace these with your actual file paths and names
 file_paths <- c(
   "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Summary_Hepatocytes_Dataframe.csv",
-  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_ALT_hvg.csv",
-  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_TODAY_proteomics_AST_hvg.csv"
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_today_subeomics_ALT_hvg.csv",
+  "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/NEBULA Results/Formatted_today_subeomics_AST_hvg.csv"
 )
 
 dataset_names <- c(
@@ -13703,6 +13980,7 @@ cellchat <- aggregateNet(cellchat)
 cellchat@netP$pathways
 
 ```
+
 ```{r echo = F}
 # Chord diagram
 # Create an output folder
@@ -13824,7 +14102,7 @@ groupSize <- get_group_size(cellchat)
 netVisual_bubble(cellchat, sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
                  targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
                  remove.isolate = FALSE)
-                 # title.name = expression(Immune %->% Epithelial/Endothelial))
+# title.name = expression(Immune %->% Epithelial/Endothelial))
 # dev.off()
 #
 pdf("fig/vsg_pre_immtoimm.pdf", width = 5, height = 6.5)
@@ -13899,15 +14177,153 @@ pathways
 #"PARs"     "CADM"     "VISFATIN" "CDH"     "PTPRM"
 pw <- pathways[5]
 netVisual_aggregate(
-        object         = cellchat,
-        signaling      = pw,
-        layout         = "circle",    # or "chord"
-        weight.scale   = TRUE,
-        edge.weight.max = max(cellchat@net$weight)  # keeps colour scales comparable
-        # title.name     = pw
-      )
+  object         = cellchat,
+  signaling      = pw,
+  layout         = "circle",    # or "chord"
+  weight.scale   = TRUE,
+  edge.weight.max = max(cellchat@net$weight)  # keeps colour scales comparable
+  # title.name     = pw
+)
 
 
 ```
 
+#Cell Chat by Group
+```{r}
+# Assuming you have a steatosis grouping variable in your metadata
+so_Hep <- subset(so_liver_sn,celltype2=="Hep")
+DefaultAssay(so_Hep) <- "RNA" 
+colnames(so_Hep@meta.data)
+
+# Split by steatosis level (adjust the column name as needed)
+Hep_high <- subset(so_Hep, subset = steatosis_cat == "High Steatosis (2+3)")  # or whatever your high steatosis identifier is
+Hep_low  <- subset(so_Hep, subset = steatosis_cat == "Low Steatosis (0+1)")   # or whatever your low steatosis identifier is
+
+# Filter by cell type size for each group
+Hep_high <- filter_by_celltype_size(Hep_high, min_cells = 30)  # Lower threshold since you're splitting data
+Hep_low  <- filter_by_celltype_size(Hep_low, min_cells = 30)
+
+# Fix factor levels
+Hep_high$celltype <- droplevels(factor(Hep_high$celltype))
+Hep_low$celltype  <- droplevels(factor(Hep_low$celltype))
+
+# Run CellChat on both groups
+cellchats <- list(
+  Hep_high = run_cellchat_pipeline(Hep_high, "Hep_high"),
+  Hep_low  = run_cellchat_pipeline(Hep_low,  "Hep_low")
+)
+
+# Merge CellChat objects for comparison
+cellchat_merged <- mergeCellChat(cellchats, add.names = names(cellchats))
+
+# Compare the total number of interactions
+compareInteractions(cellchat_merged, show.legend = F, group = c(1,2))
+
+# Compare the total interaction strength
+compareInteractions(cellchat_merged, show.legend = F, group = c(1,2), measure = "weight")
+
+# Compare the number of interactions by cell type
+netVisual_diffInteraction(cellchat_merged, weight.scale = T)
+
+# Compare the interaction strength by cell type
+netVisual_diffInteraction(cellchat_merged, weight.scale = T, measure = "weight")
+
+# Get group sizes for each condition
+groupSize_high <- get_group_size(cellchats[['Hep_high']])
+groupSize_low  <- get_group_size(cellchats[['Hep_low']])
+
+
+# Get all pathways from both conditions
+pathways_high <- cellchats[['Hep_high']]@netP$pathways
+pathways_low  <- cellchats[['Hep_low']]@netP$pathways
+
+# Get union of all pathways and sort them (alphabetical order)
+all_pathways <- sort(union(pathways_high, pathways_low))
+
+# Alternative: Order by total strength across both conditions
+# pathway_strength <- rankNet(cellchat_merged, mode = "comparison")
+# all_pathways <- pathway_strength$pathway[order(pathway_strength$total)]
+
+# High steatosis interactions with ordered pathways
+a <- netVisual_bubble(cellchats[['Hep_high']], 
+                      sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      # signaling = all_pathways,  # This orders the pathways
+                      remove.isolate = FALSE,
+                      title.name = "High Steatosis - Cell Communication")
+
+# Low steatosis interactions with same pathway order
+b <- netVisual_bubble(cellchats[['Hep_low']], 
+                      sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      signaling = all_pathways,  # Same order as above
+                      remove.isolate = FALSE,
+                      title.name = "Low Steatosis - Cell Communication")
+
+# ggarrange(a, b, heights = c(1, 1.5), ncol = 2)
+# Use the merged object for direct comparison
+cellchat_merged <- mergeCellChat(cellchats, add.names = names(cellchats))
+
+# This will show both conditions with consistent ordering
+c <- netVisual_bubble(cellchat_merged, 
+                      sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                      comparison = c(1, 2),  # Compare group 1 vs group 2
+                      remove.isolate = FALSE)
+
+# Create comparison plots
+pdf(fs::path(dir.results,"steatosis_comparison_bubble.pdf"), width = 8, height = 8)
+plot(a)
+plot(b)
+plot(c)
+dev.off()
+
+# Find pathways that differ between conditions
+pathways_high <- cellchats[['Hep_high']]@netP$pathways
+pathways_low  <- cellchats[['Hep_low']]@netP$pathways
+
+# Pathways specific to high steatosis
+high_specific <- setdiff(pathways_high, pathways_low)
+print("High steatosis specific pathways:")
+print(high_specific)
+
+# Pathways specific to low steatosis
+low_specific <- setdiff(pathways_low, pathways_high)
+print("Low steatosis specific pathways:")
+print(low_specific)
+
+# Common pathways
+common_pathways <- intersect(pathways_high, pathways_low)
+print("Common pathways:")
+print(common_pathways)
+
+# Get pathways from both groups
+pathways_high <- cellchats[['Hep_high']]@netP$pathways  
+pathways_low <- cellchats[['Hep_low']]@netP$pathways
+common_pathways <- intersect(pathways_high, pathways_low)
+
+# Loop through pathways and create comparisons
+for(pw in common_pathways) {
+  
+  # High steatosis
+  netVisual_aggregate(
+    object = cellchats[['Hep_high']],
+    signaling = pw,
+    layout = "chord",
+    weight.scale = TRUE,
+    edge.weight.max = max(cellchats[['Hep_high']]@net$weight),
+    title.name = paste(pw, "- High Steatosis")
+  )
+  
+  # Low steatosis  
+  netVisual_aggregate(
+    object = cellchats[['Hep_low']],
+    signaling = pw,
+    layout = "chord",
+    weight.scale = TRUE,
+    edge.weight.max = max(cellchats[['Hep_low']]@net$weight),
+    title.name = paste(pw, "- Low Steatosis")
+  )
+}
+```
 

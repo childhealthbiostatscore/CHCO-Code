@@ -1692,3 +1692,113 @@ create_umap_pca_visualizations <- function(seurat_obj,
     marker_plots = marker_plots
   ))
 }
+
+get_top_markers <- function(markers_df, top_n = 10) {
+  
+  top_markers <- markers_df %>%
+    group_by(cluster) %>%
+    top_n(n = top_n, wt = avg_log2FC) %>%
+    arrange(cluster, desc(avg_log2FC))
+  
+  return(top_markers)
+}
+
+
+create_marker_dotplot <- function(seurat_obj, markers_df, top_n = 5, 
+                                  title = "Top Marker Genes by Cluster") {
+  
+  # Get top markers
+  top_markers <- get_top_markers(markers_df, top_n = top_n)
+  
+  # Get unique marker genes
+  marker_genes <- unique(top_markers$gene)
+  
+  # Create dot plot
+  p <- DotPlot(seurat_obj, 
+               features = marker_genes,
+               group.by = "seurat_clusters") +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      axis.text.y = element_text(size = 10),
+      plot.title = element_text(hjust = 0.5, size = 12, face = "bold")
+    ) +
+    labs(
+      title = title,
+      x = "Marker Genes",
+      y = "Clusters"
+    ) +
+    scale_color_gradient(low = "lightgrey", high = "red", name = "Avg Expression") +
+    guides(size = guide_legend(title = "Pct Expressed"))
+  
+  return(p)
+}
+create_marker_heatmap <- function(seurat_obj, markers_df, top_n = 5) {
+  
+  # Get top markers
+  top_markers <- get_top_markers(markers_df, top_n = top_n)
+  
+  # Get unique marker genes
+  marker_genes <- unique(top_markers$gene)
+  
+  # Create heatmap
+  p <- DoHeatmap(seurat_obj, 
+                 features = marker_genes,
+                 group.by = "seurat_clusters",
+                 size = 3,
+                 angle = 45) +
+    theme(axis.text.y = element_text(size = 8)) +
+    ggtitle("Top Marker Genes Heatmap")
+  
+  return(p)
+}
+
+fix_scaling_and_create_heatmap <- function(seurat_obj, markers_df, top_n = 5) {
+  
+  cat("Fixing scaling issues and creating heatmap...\n")
+  
+  # Get top markers
+  top_markers <- get_top_markers(markers_df, top_n = top_n)
+  marker_genes <- unique(top_markers$gene)
+  
+  # Check which genes are available
+  available_genes <- intersect(marker_genes, rownames(seurat_obj))
+  missing_genes <- setdiff(marker_genes, rownames(seurat_obj))
+  
+  cat("Available marker genes:", length(available_genes), "\n")
+  if (length(missing_genes) > 0) {
+    cat("Missing genes:", paste(missing_genes, collapse = ", "), "\n")
+  }
+  
+  # Scale all genes in the dataset to avoid this issue
+  cat("Scaling all genes to ensure marker genes are included...\n")
+  seurat_obj <- ScaleData(seurat_obj, features = rownames(seurat_obj), verbose = FALSE)
+  
+  # Now create heatmap
+  p <- DoHeatmap(seurat_obj, 
+                 features = available_genes,
+                 group.by = "seurat_clusters",
+                 size = 3,
+                 angle = 45) +
+    theme(axis.text.y = element_text(size = 8)) +
+    ggtitle(paste("Top", top_n, "Marker Genes Heatmap (Fixed)"))
+  
+  return(list(seurat_object = seurat_obj, heatmap = p))
+}
+
+create_marker_summary_table <- function(markers_df, top_n = 5) {
+  
+  summary_table <- markers_df %>%
+    group_by(cluster) %>%
+    top_n(n = top_n, wt = avg_log2FC) %>%
+    arrange(cluster, desc(avg_log2FC)) %>%
+    select(cluster, gene, avg_log2FC, pct.1, pct.2, p_val_adj) %>%
+    mutate(
+      avg_log2FC = round(avg_log2FC, 3),
+      pct.1 = round(pct.1, 3),
+      pct.2 = round(pct.2, 3),
+      p_val_adj = format(p_val_adj, scientific = TRUE, digits = 3)
+    )
+  
+  return(summary_table)
+}

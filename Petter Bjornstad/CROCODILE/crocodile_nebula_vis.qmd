@@ -53,6 +53,8 @@ source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
 
 # Untargeted
 ```{r echo = F}
+# Top 2000 HVGs on CROCODILE (regardless of ATTEMPT significance)
+
 # Define paths (same for all cell types)
 input_path <- "CROCODILE comparison analysis"
 input_suffix <- "_croc_untargeted_t1dvhc.rds"
@@ -75,21 +77,30 @@ for (cell in celltypes) {
                          output_base_path = output_base_path,
                          plot_title = plot_title,
                          bg_path = bg_path)
+  
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_untargeted_res_croc")
+  file_path <- paste0(output_base_path, "/Results/NEBULA/", output_prefix, lower_cell, "_nebula_res.csv")
+  
+  df <- read.csv(file_path)
+  names(df) <- gsub("\\.", "", names(df))
+  
+  assign(var_name, df)
 }
 
 ```
 
 # Targeted (TCA/Oxphos)
 
-```{r echo = F}
+```{r echo = F, eval = F}
+# Pre-defined TCA and oxphos transcripts (regardless of ATTEMPT significance)
+
 # Define paths (same for all cell types)
 input_path <- "CROCODILE comparison analysis"
 input_suffix <- "_croc_targeted_tca_oxphos_t1dvhc.rds"
 output_base_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE"
 output_prefix <- "croc_targeted_tca_oxphos_t1dvhc_"
 bg_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/GSEA"
-bucket <- "attempt"
-region <- ""
 
 plot_title <-  "TCA/Oxphos targeted T1D vs. LC"
 
@@ -110,14 +121,14 @@ for (cell in celltypes) {
 # Targeted (Significant from ATTEMPT)
 
 ```{r echo = F}
+# Limited to transcripts that were significant in ATTEMPT
+
 # Define paths (same for all cell types)
 input_path <- "CROCODILE comparison analysis"
 input_suffix <- "_croc_targeted_t1dvhc.rds"
 output_base_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE"
 output_prefix <- "croc_targeted_t1dvhc_"
 bg_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/GSEA"
-bucket <- "attempt"
-region <- ""
 
 plot_title <-  "Targeted T1D vs. LC (Significant findings from ATTEMPT)"
 
@@ -132,7 +143,144 @@ for (cell in celltypes) {
                          output_base_path = output_base_path,
                          plot_title = plot_title,
                          bg_path = bg_path)
+    
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_targeted_res_croc")
+  file_path <- paste0(output_base_path, "/Results/NEBULA/", output_prefix, lower_cell, "_nebula_res.csv")
+  
+  df <- read.csv(file_path)
+  names(df) <- gsub("\\.", "", names(df))
+  
+  assign(var_name, df)
 }
 
 ```
+
+## Direction comparison to ATTEMPT
+
+```{r echo = F}
+# process and read all results from ATTEMPT
+input_path <- ""
+input_suffix <- "_attempt_hvg_nebula_res_reml_pooled.rds"
+output_base_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT"
+output_prefix <- "attempt_croc_targeted_"
+bg_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/GSEA"
+
+celltypes <- c("PT", "TAL", "PC", "Immune_Myeloid", "Immune_Lymphoid", 
+               "Immune", "IC", "EC", "FIBVSMCP")
+
+for (cell in celltypes)  {
+  trt_run_cell_type_analysis(cell, 
+                         input_path = input_path,
+                         input_suffix = input_suffix,
+                         output_prefix = output_prefix,
+                         output_base_path = output_base_path,
+                         bg_path = bg_path)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_targeted_res_attempt")
+  file_path <- paste0(output_base_path, "/Results/NEBULA/", output_prefix, lower_cell, "_nebula_res.csv")
+  
+  df <- read.csv(file_path)
+  names(df) <- gsub("\\.", "", names(df))
+  
+  assign(var_name, df)
+}
+```
+
+### PT
+
+```{r echo = F}
+make_comp_plot(attempt_df = pt_targeted_res_attempt,
+               croc_df = pt_targeted_res_croc,
+               attempt_p_cut = 0.05, 
+               croc_p_cut = 0.05, 
+               FC = "logFC_treatmentDapagliflozinvisitPOST",
+               save_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/pt_croc_attempt_dot.jpeg")
+```
+
+```{r echo = F}
+celltypes <-  c("pt", "tal", "pc", "immune", "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmcp")
+
+for (ct in celltypes) {
+  attempt_df <- get(paste0(ct, "_targeted_res_attempt"))
+  croc_df    <- get(paste0(ct, "_targeted_res_croc"))
+  
+  save_path <- file.path(
+    "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison",
+    paste0(ct, "_croc_attempt_dot.jpeg")
+  )
+  
+  csv_path <- file.path(
+    "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/CROCODILE comparison analysis/inconsistencies",
+    paste0(ct, "_croc_attempt_inconsistencies.csv")
+  )  
+  make_comp_plot(FC = "logFC_treatmentDapagliflozinvisitPOST",
+    attempt_df    = attempt_df,
+    croc_df       = croc_df,
+    attempt_p_cut = 0.05,
+    croc_p_cut    = 0.05,
+    save_path     = save_path,
+    caption = paste0("Cell type: ",toupper(ct)),
+    csv_path = csv_path
+  )
+}
+```
+
+```{r echo = F}
+celltypes <-  c("pt", "tal", "pc", "immune", "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmcp")
+
+for (ct in celltypes) {
+  attempt_df <- get(paste0(ct, "_targeted_res_attempt"))
+  croc_df    <- get(paste0(ct, "_targeted_res_croc"))
+  
+  save_path <- file.path(
+    "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison",
+    paste0(ct, "_croc_attempt_dot_0.1.jpeg")
+  )
+  csv_path <- file.path(
+    "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/CROCODILE comparison analysis/inconsistencies",
+    paste0(ct, "_croc_attempt_inconsistencies_0.1.csv")
+  )  
+  
+  make_comp_plot(FC = "logFC_treatmentDapagliflozinvisitPOST",
+    attempt_df    = attempt_df,
+    croc_df       = croc_df,
+    attempt_p_cut = 0.05,
+    croc_p_cut    = 0.1,
+    save_path     = save_path,
+    caption = paste0("Cell type: ",toupper(ct)),
+    csv_path = csv_path
+  )
+}
+```
+
+```{r echo = F}
+celltypes <-  c("pt", "tal", "pc", "immune", "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmcp")
+
+for (ct in celltypes) {
+  attempt_df <- get(paste0(ct, "_targeted_res_attempt"))
+  croc_df    <- get(paste0(ct, "_targeted_res_croc"))
+  
+  save_path <- file.path(
+    "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison",
+    paste0(ct, "_croc_attempt_dot_0.2.jpeg")
+  )
+  
+    csv_path <- file.path(
+    "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/CROCODILE comparison analysis/inconsistencies",
+    paste0(ct, "_croc_attempt_inconsistencies_0.2.csv"),
+    csv_path = csv_path
+  )  
+  
+  make_comp_plot(FC = "logFC_treatmentDapagliflozinvisitPOST",
+    attempt_df    = attempt_df,
+    croc_df       = croc_df,
+    attempt_p_cut = 0.05,
+    croc_p_cut    = 0.2,
+    save_path     = save_path,
+    caption = paste0("Cell type: ",toupper(ct))
+  )
+}
+```
+
 
