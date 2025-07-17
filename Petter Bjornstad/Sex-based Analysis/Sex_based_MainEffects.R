@@ -55,6 +55,8 @@ so <- subset(so, group == 'Lean_Control')
 #All Analysis
 so_subset <- so
 
+cellcounts <- ncol(so_subset)
+partcounts <- length(unique(so_subset@meta.data$kit_id))
 
 celltype2 <- 'All'
 full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -103,7 +105,7 @@ if(length(unique(tmp_df$diffexp)) > 1){
     geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
     theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                          title = paste0('Lean Controls Sex Differences'), 
-                         subtitle = paste0(celltype2, ' Cells'))
+                         subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
 }else{
   tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
     geom_point()+
@@ -114,7 +116,7 @@ if(length(unique(tmp_df$diffexp)) > 1){
     geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
     theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
                          title = paste0('Lean Controls Sex Differences'), 
-                         subtitle = paste(celltype2, ' Cells'))
+                         subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
   
 }
 pdf(paste0(results.dir, 'NEBULA_LC_SexDifferences_Volcano_AllCells.pdf'))
@@ -127,6 +129,9 @@ dev.off()
 
 #PT Cells
   so_subset <- subset(so,celltype2 == 'PT')
+  
+  cellcounts <- ncol(so_subset)
+  partcounts <- length(unique(so_subset@meta.data$kit_id))
   
   celltype2 <- 'PT'
   full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -175,7 +180,7 @@ dev.off()
       geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
       theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                            title = paste0('Lean Controls Sex Differences'), 
-                           subtitle = paste0(celltype2, ' Cells'))
+                           subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
   }else{
     tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
       geom_point()+
@@ -186,7 +191,7 @@ dev.off()
       geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
       theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
                            title = paste0('Lean Controls Sex Differences'), 
-                           subtitle = paste(celltype2, ' Cells'))
+                           subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
     
   }
   pdf(paste0(results.dir, 'NEBULA_LC_SexDifferences_Volcano_', celltype2, 'Cells.pdf'))
@@ -202,6 +207,9 @@ dev.off()
 
 #TAL Cells
   so_subset <- subset(so, TAL_celltype =='TAL')
+  
+  cellcounts <- ncol(so_subset)
+  partcounts <- length(unique(so_subset@meta.data$kit_id))
   
   celltype2 <- 'TAL'
   full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -250,7 +258,7 @@ dev.off()
       geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
       theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                            title = paste0('Lean Controls Sex Differences'), 
-                           subtitle = paste0(celltype2, ' Cells'))
+                           subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
   }else{
     tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
       geom_point()+
@@ -261,7 +269,7 @@ dev.off()
       geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
       theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
                            title = paste0('Lean Controls Sex Differences'), 
-                           subtitle = paste(celltype2, ' Cells'))
+                           subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
     
   }
   pdf(paste0(results.dir, 'NEBULA_LC_SexDifferences_Volcano_', celltype2, 'Cells.pdf'))
@@ -277,6 +285,9 @@ dev.off()
 
 #DCT Cells
   so_subset <- subset(so, celltype2 == 'DCT')
+  
+  cellcounts <- ncol(so_subset)
+  partcounts <- length(unique(so_subset@meta.data$kit_id))
   
   celltype2 <- 'DCT'
   full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -325,7 +336,7 @@ dev.off()
       geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
       theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                            title = paste0('Lean Controls Sex Differences'), 
-                           subtitle = paste0(celltype2, ' Cells'))
+                           subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
   }else{
     tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
       geom_point()+
@@ -336,7 +347,7 @@ dev.off()
       geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
       theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
                            title = paste0('Lean Controls Sex Differences'), 
-                           subtitle = paste(celltype2, ' Cells'))
+                           subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
     
   }
   pdf(paste0(results.dir, 'NEBULA_LC_SexDifferences_Volcano_', celltype2, 'Cells.pdf'))
@@ -352,6 +363,9 @@ dev.off()
   
   for(celltype in celltypes){
   so_subset <- subset(so, KPMP_celltype == celltype)
+  
+  cellcounts <- ncol(so_subset)
+  partcounts <- length(unique(so_subset@meta.data$kit_id))
   
   celltype2 <- str_replace_all(celltype,"/","_")
   celltype2 <- str_replace_all(celltype2,"-","_")
@@ -402,7 +416,7 @@ dev.off()
       geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
       theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                            title = paste0('Lean Controls Sex Differences'), 
-                           subtitle = paste0(celltype2, ' Cells'))
+                           subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
   }else{
     tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
       geom_point()+
@@ -413,7 +427,7 @@ dev.off()
       geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
       theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
                            title = paste0('Lean Controls Sex Differences'), 
-                           subtitle = paste(celltype2, ' Cells'))
+                           subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
     
   }
   pdf(paste0(results.dir, 'NEBULA_LC_SexDifferences_Volcano_', celltype2, 'Cells.pdf'))
@@ -437,7 +451,17 @@ dev.off()
 
 
 #T2D Analyses
+remove(list=ls())
 
+
+load('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Line265.RData')
+
+
+
+results.dir <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/MainEffects_Sex/'
+  
+  
+  
 so <- subset(so, group == 'Type_2_Diabetes')
 
 
@@ -445,6 +469,8 @@ so <- subset(so, group == 'Type_2_Diabetes')
 #All Analysis
 so_subset <- so
 
+cellcounts <- ncol(so_subset)
+partcounts <- length(unique(so_subset@meta.data$kit_id))
 
 celltype2 <- 'All'
 full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -493,7 +519,7 @@ if(length(unique(tmp_df$diffexp)) > 1){
     geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
     theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                          title = paste0('Type 2 Diabetes Sex Differences'), 
-                         subtitle = paste0(celltype2, ' Cells'))
+                         subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
 }else{
   tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
     geom_point()+
@@ -504,7 +530,7 @@ if(length(unique(tmp_df$diffexp)) > 1){
     geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
     theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
                          title = paste0('Type 2 Diabetes Sex Differences'), 
-                         subtitle = paste(celltype2, ' Cells'))
+                         subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
   
 }
 pdf(paste0(results.dir, 'NEBULA_T2D_SexDifferences_Volcano_AllCells.pdf'))
@@ -517,6 +543,9 @@ dev.off()
 
 #PT Cells
 so_subset <- subset(so,celltype2 == 'PT')
+
+cellcounts <- ncol(so_subset)
+partcounts <- length(unique(so_subset@meta.data$kit_id))
 
 celltype2 <- 'PT'
 full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -565,7 +594,7 @@ if(length(unique(tmp_df$diffexp)) > 1){
     geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
     theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                          title = paste0('Type 2 Diabetes Sex Differences'), 
-                         subtitle = paste0(celltype2, ' Cells'))
+                         subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
 }else{
   tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
     geom_point()+
@@ -576,7 +605,7 @@ if(length(unique(tmp_df$diffexp)) > 1){
     geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
     theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
                          title = paste0('Type 2 Diabetes Sex Differences'), 
-                         subtitle = paste(celltype2, ' Cells'))
+                         subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
   
 }
 pdf(paste0(results.dir, 'NEBULA_T2D_SexDifferences_Volcano_', celltype2, 'Cells.pdf'))
@@ -592,6 +621,9 @@ dev.off()
 
 #TAL Cells
 so_subset <- subset(so, TAL_celltype =='TAL')
+
+cellcounts <- ncol(so_subset)
+partcounts <- length(unique(so_subset@meta.data$kit_id))
 
 celltype2 <- 'TAL'
 full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -640,7 +672,7 @@ if(length(unique(tmp_df$diffexp)) > 1){
     geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
     theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                          title = paste0('Type 2 Diabetes Sex Differences'), 
-                         subtitle = paste0(celltype2, ' Cells'))
+                         subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
 }else{
   tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
     geom_point()+
@@ -651,7 +683,7 @@ if(length(unique(tmp_df$diffexp)) > 1){
     geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
     theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
                          title = paste0('Type 2 Diabetes Sex Differences'), 
-                         subtitle = paste(celltype2, ' Cells'))
+                         subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
   
 }
 pdf(paste0(results.dir, 'NEBULA_T2D_SexDifferences_Volcano_', celltype2, 'Cells.pdf'))
@@ -667,6 +699,9 @@ dev.off()
 
 #DCT Cells
 so_subset <- subset(so, celltype2 == 'DCT')
+
+cellcounts <- ncol(so_subset)
+partcounts <- length(unique(so_subset@meta.data$kit_id))
 
 celltype2 <- 'DCT'
 full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -715,7 +750,7 @@ if(length(unique(tmp_df$diffexp)) > 1){
     geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
     theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                          title = paste0('Type 2 Diabetes Sex Differences'), 
-                         subtitle = paste0(celltype2, ' Cells'))
+                         subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
 }else{
   tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
     geom_point()+
@@ -726,7 +761,7 @@ if(length(unique(tmp_df$diffexp)) > 1){
     geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
     theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
                          title = paste0('Type 2 Diabetes Sex Differences'), 
-                         subtitle = paste(celltype2, ' Cells'))
+                         subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
   
 }
 pdf(paste0(results.dir, 'NEBULA_T2D_SexDifferences_Volcano_', celltype2, 'Cells.pdf'))
@@ -742,6 +777,9 @@ celltypes <- unique(so@meta.data$KPMP_celltype)
 
 for(celltype in celltypes){
   so_subset <- subset(so, KPMP_celltype == celltype)
+  
+  cellcounts <- ncol(so_subset)
+  partcounts <- length(unique(so_subset@meta.data$kit_id))
   
   celltype2 <- str_replace_all(celltype,"/","_")
   celltype2 <- str_replace_all(celltype2,"-","_")
@@ -792,7 +830,7 @@ for(celltype in celltypes){
       geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
       theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
                            title = paste0('Type 2 Diabetes Sex Differences'), 
-                           subtitle = paste0(celltype2, ' Cells'))
+                           subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
   }else{
     tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
       geom_point()+
@@ -803,7 +841,7 @@ for(celltype in celltypes){
       geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
       theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
                            title = paste0('Type 2 Diabetes Sex Differences'), 
-                           subtitle = paste(celltype2, ' Cells'))
+                           subtitle = paste0(cellcounts, ' ', celltype2, ' Cells; ', partcounts, ' Participants'))
     
   }
   pdf(paste0(results.dir, 'NEBULA_T2D_SexDifferences_Volcano_', celltype2, 'Cells.pdf'))
