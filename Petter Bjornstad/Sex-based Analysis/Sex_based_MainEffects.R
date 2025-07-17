@@ -126,7 +126,7 @@ dev.off()
 
 
 #PT Cells
-  so_celltype <- subset(so_subset,celltype2 == 'PT')
+  so_subset <- subset(so,celltype2 == 'PT')
   
   celltype2 <- 'PT'
   full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -201,7 +201,7 @@ dev.off()
   
 
 #TAL Cells
-  so_celltype <- subset(so_subset, TAL_celltype =='TAL')
+  so_subset <- subset(so, TAL_celltype =='TAL')
   
   celltype2 <- 'TAL'
   full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -276,7 +276,7 @@ dev.off()
   
 
 #DCT Cells
-  so_celltype <- subset(so_subset, celltype2 == 'DCT')
+  so_subset <- subset(so, celltype2 == 'DCT')
   
   celltype2 <- 'DCT'
   full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -351,7 +351,7 @@ dev.off()
   celltypes <- unique(so@meta.data$KPMP_celltype)
   
   for(celltype in celltypes){
-  so_celltype <- subset(so_subset, KPMP_celltype == celltype)
+  so_subset <- subset(so, KPMP_celltype == celltype)
   
   celltype2 <- str_replace_all(celltype,"/","_")
   celltype2 <- str_replace_all(celltype2,"-","_")
@@ -516,7 +516,7 @@ dev.off()
 
 
 #PT Cells
-so_celltype <- subset(so_subset,celltype2 == 'PT')
+so_subset <- subset(so,celltype2 == 'PT')
 
 celltype2 <- 'PT'
 full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -591,7 +591,7 @@ dev.off()
 
 
 #TAL Cells
-so_celltype <- subset(so_subset, TAL_celltype =='TAL')
+so_subset <- subset(so, TAL_celltype =='TAL')
 
 celltype2 <- 'TAL'
 full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -666,7 +666,7 @@ dev.off()
 
 
 #DCT Cells
-so_celltype <- subset(so_subset, celltype2 == 'DCT')
+so_subset <- subset(so, celltype2 == 'DCT')
 
 celltype2 <- 'DCT'
 full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
@@ -741,7 +741,7 @@ dev.off()
 celltypes <- unique(so@meta.data$KPMP_celltype)
 
 for(celltype in celltypes){
-  so_celltype <- subset(so_subset, KPMP_celltype == celltype)
+  so_subset <- subset(so, KPMP_celltype == celltype)
   
   celltype2 <- str_replace_all(celltype,"/","_")
   celltype2 <- str_replace_all(celltype2,"-","_")
