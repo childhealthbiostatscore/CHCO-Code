@@ -1,0 +1,1056 @@
+---
+title: "CKM in TODAY integrated Analysis LP/JAPC.qmd"
+author: "Laura Pyle / Jairo A Pinzon"
+format: html
+editor: visual
+echo: FALSE
+warning: FALSE
+toc: TRUE
+---
+
+```{r setup}
+# =============================================================================
+# LIBRARIES
+# =============================================================================
+library(dplyr)
+library(arsenal)
+library(tidyr)
+library(ggplot2)
+library(ggpubr)
+library(ggalluvial)
+library(FSA)
+library(fuzzyjoin)
+library(purrr)
+library(stringr)
+
+# Working directory setup
+getwd()
+usethis::use_git()
+```
+
+------------------------------------------------------------------------
+
+## Reading files and variables
+
+```{r data-loading}
+# =============================================================================
+# DATA LOADING AND BASIC VARIABLES
+# =============================================================================
+
+# Core datasets
+comorb <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/COMORB.csv")
+load("/Users/jpcortes/Documents/Temp_files_TODAY/clinical_data_long.Rdata")
+## Fix that path because the OneDrive is not allowing proper access to it.
+#load("/Users/jpcortes/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+load("/Users/jpcortes/Documents/Temp_files_TODAY/baserisk.Rdata")
+ame <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/AME.csv")
+baseline <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/BASELINE.csv")
+
+# Echo data
+today_echo <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ECHO_today.csv")
+today_echo$TIMEPOINT <- "1"
+today2_echo <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ECHO_today2.csv")
+today2_echo$TIMEPOINT <- "2"
+
+# Lab data
+cbl_1 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/CBL_TODAY1.csv")
+cbl_1$TIMEPOINT <- "1"
+cbl_2 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/CBL_TODAY2.csv")
+cbl_2$TIMEPOINT <- "2"
+
+addcbl_1 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ADDCBL_TODAY1.csv")
+addcbl_1$TIMEPOINT <- "1"
+addcbl_2 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ADDCBL_TODAY2.csv")
+addcbl_2$TIMEPOINT <- "2"
+
+# Specialized datasets
+speckle <- read.csv('/Users/jpcortes/Documents/Temp_files_TODAY/SPECKLE.csv')
+pwv <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PWV.csv")
+
+# Quality of life questionnaires
+# CHANGE LOCAL DIRECTORY I was unable to access files directly from OneDrive, modify the path if needed 
+pedsQL_A <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PEDSQLGA.csv")
+pedsQL_Y <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PEDSQLGY.csv")
+pedsQL_T <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PEDSQLGT.csv")
+
+# Alternative paths (backup)
+#comorb <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad#/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/COMORB.csv")
+#ame <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad#/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/AME.csv')
+#today_echo <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/echo.csv")
+#today2_echo <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/echo.csv")
+#speckle <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/SPECKLE.csv')
+#pwv <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward//Clinical data/TODAY2/pwv.csv")
+```
+
+## Data preparation and processing
+
+```{r data preparation}
+# =============================================================================
+# DATA PREPARATION AND PROCESSING
+# =============================================================================
+
+# Follow-up time calculation
+comorb$fup_time <- ifelse(comorb$HTN == 0, comorb$DAYSTOHTN, 
+                          ifelse(comorb$LDLDLP == 0, comorb$DAYSTOLDL,
+                                 ifelse(comorb$NEURO == 0, comorb$DAYSTONEURO, 
+                                        ifelse(comorb$DNE == 0, comorb$DAYSTODNE, 
+                                               ifelse(comorb$FILAM == 0, comorb$DAYSTOFILAM, 
+                                                     ifelse(comorb$RETINO == 0, comorb$DAYSTORETINO, 
+                                                            ifelse(comorb$TGDLP == 0, comorb$DAYSTOTG, 
+                                                                   ifelse(comorb$NEPHRO == 0, comorb$DAYSTONEPHRO, 
+                                                                          ifelse(comorb$HYP ==0, comorb$DAYSTOHYP, NA)))))))))
+
+# Fix missing follow-up time for one participant
+comorb$fup_time <- ifelse(comorb$RELEASEID == "65-44824", 4425, comorb$fup_time)
+
+# Function to extract biomarker values
+extract_biomarker_values <- function(df, var) {
+  df %>%
+    arrange(releaseid, days) %>%
+    group_by(releaseid) %>%
+    summarise(
+      # Baseline: specifically M00 visit if available, otherwise first value
+      baseline = {
+        if("mvisit" %in% names(df)) {
+          m00_row <- which(mvisit == "M00" & !is.na(.data[[var]]))
+          if(length(m00_row) > 0) .data[[var]][m00_row[1]] else first(.data[[var]])
+        } else {
+          first(.data[[var]])
+        }
+      },
+      highest = max(.data[[var]], na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    # Clean up infinite values
+    mutate(across(where(is.numeric), ~ifelse(is.infinite(.), NA_real_, .))) %>%
+    rename_with(~ paste0(var, "_", .), -releaseid)
+}
+
+# AME data processing - create individual event datasets
+arrhythmia <- ame %>% filter(AMENAME == 1) %>% select(releaseid, DAYSTOAME)
+colnames(arrhythmia) <- c("RELEASEID", "DAYSTOARRHYTHMIA")
+arrhythmia$ARRHYTHMIA <- 1
+arrhythmia <- arrhythmia %>% arrange(RELEASEID, DAYSTOARRHYTHMIA) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+cad <- ame %>% filter(AMENAME == 2) %>% select(releaseid, DAYSTOAME)
+colnames(cad) <- c("RELEASEID", "DAYSTOCAD")
+cad$CAD <- 1
+cad <- cad %>% arrange(RELEASEID, DAYSTOCAD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+chf <- ame %>% filter(AMENAME == 3) %>% select(releaseid, DAYSTOAME)
+colnames(chf) <- c("RELEASEID", "DAYSTOCHF")
+chf$CHF <- 1
+chf <- chf %>% arrange(RELEASEID, DAYSTOCHF) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+LVSD <- ame %>% filter(AMENAME == 4) %>% select(releaseid, DAYSTOAME)
+colnames(LVSD) <- c("RELEASEID", "DAYSTOLVSD")
+LVSD$LVSD <- 1
+LVSD <- LVSD %>% arrange(RELEASEID, DAYSTOLVSD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+mi <- ame %>% filter(AMENAME == 5) %>% select(releaseid, DAYSTOAME)
+colnames(mi) <- c("RELEASEID", "DAYSTOMI")
+mi$MI <- 1
+mi <- mi %>% arrange(RELEASEID, DAYSTOMI) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+pad <- ame %>% filter(AMENAME == 6) %>% select(releaseid, DAYSTOAME)
+colnames(pad) <- c("RELEASEID", "DAYSTOPAD")
+pad$PAD <- 1
+pad <- pad %>% arrange(RELEASEID, DAYSTOPAD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+dvt <- ame %>% filter(AMENAME == 8) %>% select(releaseid, DAYSTOAME)
+colnames(dvt) <- c("RELEASEID", "DAYSTODVT")
+dvt$DVT <- 1
+dvt <- dvt %>% arrange(RELEASEID, DAYSTODVT) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+stroke <- ame %>% filter(AMENAME == 9) %>% select(releaseid, DAYSTOAME)
+colnames(stroke) <- c("RELEASEID", "DAYSTOSTROKE")
+stroke$STROKE <- 1
+stroke <- stroke %>% arrange(RELEASEID, DAYSTOSTROKE) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+tia <- ame %>% filter(AMENAME == 11) %>% select(releaseid, DAYSTOAME)
+colnames(tia) <- c("RELEASEID", "DAYSTOTIA")
+tia$TIA <- 1
+tia <- tia %>% arrange(RELEASEID, DAYSTOTIA) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+pancreatitis <- ame %>% filter(AMENAME == 12) %>% select(releaseid, DAYSTOAME)
+colnames(pancreatitis) <- c("RELEASEID", "DAYSTOPANCREATITIS")
+pancreatitis$PANCREATITIS <- 1
+pancreatitis <- pancreatitis %>% arrange(RELEASEID, DAYSTOPANCREATITIS) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+gallbladder <- ame %>% filter(AMENAME == 13) %>% select(releaseid, DAYSTOAME)
+colnames(gallbladder) <- c("RELEASEID", "DAYSTOGALLBLADDER")
+gallbladder$GALLBLADDER <- 1
+gallbladder <- gallbladder %>% arrange(RELEASEID, DAYSTOGALLBLADDER) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+pneuro <- ame %>% filter(AMENAME == 14) %>% select(releaseid, DAYSTOAME)
+colnames(pneuro) <- c("RELEASEID", "DAYSTOPNEURO")
+pneuro$PNEURO <- 1
+pneuro <- pneuro %>% arrange(RELEASEID, DAYSTOPNEURO) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+aneuro <- ame %>% filter(AMENAME == 15) %>% select(releaseid, DAYSTOAME)
+colnames(aneuro) <- c("RELEASEID", "DAYSTOANEURO")
+aneuro$ANEURO <- 1
+aneuro <- aneuro %>% arrange(RELEASEID, DAYSTOANEURO) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+mononeuro <- ame %>% filter(AMENAME == 16) %>% select(releaseid, DAYSTOAME)
+colnames(mononeuro) <- c("RELEASEID", "DAYSTOMONONEURO")
+mononeuro$MONONEURO <- 1
+mononeuro <- mononeuro %>% arrange(RELEASEID, DAYSTOMONONEURO) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+ckd <- ame %>% filter(AMENAME == 17) %>% select(releaseid, DAYSTOAME)
+colnames(ckd) <- c("RELEASEID", "DAYSTOCKD")
+ckd$CKD <- 1
+ckd <- ckd %>% arrange(RELEASEID, DAYSTOCKD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+eskd <- ame %>% filter(AMENAME == 18) %>% select(releaseid, DAYSTOAME)
+colnames(eskd) <- c("RELEASEID", "DAYSTOESKD")
+eskd$ESKD <- 1
+eskd <- eskd %>% arrange(RELEASEID, DAYSTOESKD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+npdr <- ame %>% filter(AMENAME == 19) %>% select(releaseid, DAYSTOAME)
+colnames(npdr) <- c("RELEASEID", "DAYSTONPDR")
+npdr$NPDR <- 1
+npdr <- npdr %>% arrange(RELEASEID, DAYSTONPDR) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+pdr <- ame %>% filter(AMENAME == 20) %>% select(releaseid, DAYSTOAME)
+colnames(pdr) <- c("RELEASEID", "DAYSTOPDR")
+pdr$PDR <- 1
+pdr <- pdr %>% arrange(RELEASEID, DAYSTOPDR) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+me <- ame %>% filter(AMENAME == 21) %>% select(releaseid, DAYSTOAME)
+colnames(me) <- c("RELEASEID", "DAYSTOME")
+me$ME <- 1
+me <- me %>% arrange(RELEASEID, DAYSTOME) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+vh <- ame %>% filter(AMENAME == 22) %>% select(releaseid, DAYSTOAME)
+colnames(vh) <- c("RELEASEID", "DAYSTOVH")
+vh$VH <- 1
+vh <- vh %>% arrange(RELEASEID, DAYSTOVH) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+blindness <- ame %>% filter(AMENAME == 23) %>% select(releaseid, DAYSTOAME)
+colnames(blindness) <- c("RELEASEID", "DAYSTOBLINDNESS")
+blindness$BLINDNESS <- 1
+blindness <- blindness %>% arrange(RELEASEID, DAYSTOBLINDNESS) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+cataracts <- ame %>% filter(AMENAME == 24) %>% select(releaseid, DAYSTOAME)
+colnames(cataracts) <- c("RELEASEID", "DAYSTOCATARACTS")
+cataracts$CATARACTS <- 1
+cataracts <- cataracts %>% arrange(RELEASEID, DAYSTOCATARACTS) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+glaucoma <- ame %>% filter(AMENAME == 25) %>% select(releaseid, DAYSTOAME)
+colnames(glaucoma) <- c("RELEASEID", "DAYSTOGLAUCOMA")
+glaucoma$GLAUCOMA <- 1
+glaucoma <- glaucoma %>% arrange(RELEASEID, DAYSTOGLAUCOMA) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+death <- ame %>% filter(AMENAME == 26) %>% select(releaseid, DAYSTOAME)
+colnames(death) <- c("RELEASEID", "DAYSTODEATH")
+death$DEATH <- 1
+death <- death %>% arrange(RELEASEID, DAYSTODEATH) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+# Merge all AME events
+ame_summary <- full_join(arrhythmia, cad, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, chf, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, LVSD, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, mi, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pad, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, dvt, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, stroke, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, tia, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pancreatitis, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, gallbladder, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pneuro, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, aneuro, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, mononeuro, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, ckd, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, eskd, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, npdr, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pdr, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, me, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, vh, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, blindness, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, cataracts, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, glaucoma, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, death, by = "RELEASEID")
+
+# Convert NAs to 0 and create factors
+ame_summary <- ame_summary %>% 
+    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "CKD", "ESKD", "DEATH"), ~replace_na(.,0))
+ame_summary <- ame_summary %>% 
+    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "CKD", "ESKD", "DEATH"), ~as.factor(.))
+
+# Clinical CVD composite
+ame_summary$clin_cvd <- ifelse(
+  rowSums(ame_summary[, c("ARRHYTHMIA", "CAD", "CHF", "MI", "PAD", "DVT", "STROKE", "TIA", "DEATH")] == 1, na.rm = TRUE) > 0,
+  1,
+  0)
+
+# Merge with comorb data
+comorb_ckm <- merge(comorb, ame_summary, by = "RELEASEID", all.x = TRUE)
+
+# Biomarker extraction for various markers
+bnp_vals <- extract_biomarker_values(addcbl_1, "bnp")
+troponin_vals <- extract_biomarker_values(addcbl_1, "troponin")
+adiponectin_vals <- extract_biomarker_values(addcbl_1, "adiponectin")
+hmwa_vals <- extract_biomarker_values(addcbl_1, "hmwa")
+edol_vals <- extract_biomarker_values(addcbl_1, "edol")
+shbg_vals <- extract_biomarker_values(addcbl_1, "shbg")
+test_vals <- extract_biomarker_values(addcbl_1, "testosterone")
+gfr_vals <- extract_biomarker_values(addcbl_1, "ckd_gfr")
+fas_vals <- extract_biomarker_values(addcbl_1, "eGFR_FAS")
+
+# Clean up deduplication for cbl_2
+cbl_2_unique <- cbl_2 %>%
+  filter(!is.na(pvisit)) %>%
+  group_by(days) %>%
+  slice(1) %>%
+  ungroup()
+
+# More biomarker extractions
+uacr_vals <- extract_biomarker_values(cbl_1, "UAlbCreat")
+ualb_vals <- extract_biomarker_values(cbl_1, "UAlb")
+il6_vals <- extract_biomarker_values(cbl_1, "IL6")
+il1_vals <- extract_biomarker_values(addcbl_1, "il1")
+hscrp_vals <- extract_biomarker_values(cbl_1, "hsCRP")
+apob_vals <- extract_biomarker_values(cbl_1, "ApoB")
+mcp1_vals <- extract_biomarker_values(addcbl_1, "mcp1")
+tnfa_vals <- extract_biomarker_values(addcbl_1, "tnfa")
+tnfr1_vals <- extract_biomarker_values(addcbl_1, "tnfr1")
+tnfr2_vals <- extract_biomarker_values(addcbl_1, "tnfr2")
+icam1_vals <- extract_biomarker_values(addcbl_1, "icam1")
+vcam1_vals <- extract_biomarker_values(addcbl_1, "vcam1")
+eselectin_vals <- extract_biomarker_values(addcbl_1, "eselectin")
+vegf_vals <- extract_biomarker_values(addcbl_1, "vegf")
+fgf23_vals <- extract_biomarker_values(addcbl_1, "fgf23")
+
+# Clean infinite values
+clean_infinite <- function(df) {
+  df %>% mutate(across(everything(), ~ifelse(. == -Inf, NA_real_, .)))
+}
+
+# Apply cleaning to all biomarker datasets
+biomarker_list <- list(bnp_vals, troponin_vals, adiponectin_vals, hmwa_vals, edol_vals, 
+                      shbg_vals, test_vals, gfr_vals, fas_vals, uacr_vals, ualb_vals,
+                      il6_vals, il1_vals, hscrp_vals, apob_vals, mcp1_vals, tnfa_vals,
+                      tnfr1_vals, tnfr2_vals, icam1_vals, vcam1_vals, eselectin_vals,
+                      vegf_vals, fgf23_vals)
+
+biomarker_list <- lapply(biomarker_list, clean_infinite)
+
+# Standardize RELEASEID to uppercase for all biomarker datasets
+biomarker_list <- lapply(biomarker_list, function(df) {
+  df %>% mutate(RELEASEID = toupper(releaseid)) %>% select(-releaseid)
+})
+
+# Create consolidated biomarker dataset
+biom_ckm <- list(biomarker_list[[1]], biomarker_list[[2]], biomarker_list[[8]], biomarker_list[[9]]) %>%
+  reduce(full_join, by = "RELEASEID")
+
+# Filter out rows where all biomarker columns are NA
+cols_to_check <- setdiff(names(biom_ckm), c("RELEASEID"))
+biom_ckm <- biom_ckm %>%
+  filter(!if_all(all_of(cols_to_check), is.na))
+
+# Create high troponin indicators
+biom_ckm <- biom_ckm %>%
+  mutate(
+    high_trop0 = ifelse(!is.na(troponin_baseline) & troponin_baseline > 0, 1, 0),
+    high_trop1 = ifelse(
+      (!is.na(troponin_highest) & troponin_highest > 0),
+      1, 0
+    )
+  )
+
+# Create high BNP indicators
+biom_ckm <- biom_ckm %>%
+  mutate(
+    high_bnp0 = ifelse(!is.na(bnp_baseline) & bnp_baseline > 35, 1, 0),
+    high_bnp1 = ifelse(
+      (!is.na(bnp_highest) & bnp_highest > 35),
+      1, 0
+    )
+  )
+```
+
+## Echocardiogram and PWV data processing
+
+```{r echo pwv processing}
+# =============================================================================
+# ECHO AND PWV DATA PROCESSING
+# =============================================================================
+
+# Process echo data
+drop_cols <- c("dopplerqc","mmodeqc","overallqc","plaxqc","saxqc","apicalqc","mmodeqc")
+today2_echo <- today2_echo %>% select(-one_of(drop_cols))
+
+# Combine echo datasets
+echo <- bind_rows(today2_echo, today_echo)
+echo$TIMEPOINT <- as.factor(echo$TIMEPOINT)
+echo$RELEASEID <- echo$releaseid
+echo$releaseid <- NULL
+
+# Keep only needed echo variables
+echo_keep <- echo %>% select(RELEASEID, TIMEPOINT, lvsepem, lvem, lvsepratio, lvratio, 
+                            peakvelo, laarea2d, lvmass, walthick, ivsdias, ivssyst, 
+                            walldias, wallsyst)
+echo_keep$average_E_Em <- (echo_keep$lvsepratio + echo_keep$lvratio) / 2
+
+# Process speckle tracking
+speckle_keep <- speckle %>% select(RELEASEID, TIMEPOINT, GLS_4CH, GLS_2CH, GLS_3CH)
+speckle_keep$TIMEPOINT <- gsub("SPECKLE", "", speckle_keep$TIMEPOINT)
+
+# Merge echo and speckle
+echo_keep <- merge(echo_keep, speckle_keep, by = c("RELEASEID", "TIMEPOINT"), all.x = TRUE)
+
+# Process PWV data
+pwv_keep <- pwv %>% select(RELEASEID, TIMEPOINT, PWVF)
+pwv_keep$pwv_cf_gt10 <- ifelse(is.na(pwv_keep$PWVF), NA, 
+                               ifelse(pwv_keep$PWVF > 10, 1, 0))
+pwv_keep <- pwv_keep %>% arrange(RELEASEID, desc(pwv_cf_gt10)) %>% 
+                        group_by(RELEASEID) %>% filter(row_number()==1)
+
+# Create PWV flags
+pwv_keep$high_pwv0 <- ifelse(pwv_keep$TIMEPOINT == 1, pwv_keep$pwv_cf_gt10, NA)
+pwv_keep$high_pwv1 <- ifelse(pwv_keep$TIMEPOINT == 2, pwv_keep$pwv_cf_gt10, NA)
+
+pwv_flags <- pwv_keep %>%
+  group_by(RELEASEID) %>%
+  summarise(
+    high_pwv0 = suppressWarnings(max(high_pwv0, na.rm = TRUE)),
+    high_pwv1 = suppressWarnings(max(high_pwv1, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    high_pwv0 = ifelse(is.infinite(high_pwv0), NA, high_pwv0),
+    high_pwv1 = ifelse(is.infinite(high_pwv1), NA, high_pwv1)
+  )
+
+# Add height and weight data for BSA calculation
+long_clean <- long %>%
+  mutate(
+    RELEASEID = toupper(releaseid),
+    visit_type = substr(visit, 1, 1),
+    visit_num = as.numeric(str_extract(visit, "\\d+"))
+  )
+
+# Get heights by visit type
+height_M <- long_clean %>%
+  filter(visit_type == "M", !is.na(height)) %>%
+  group_by(RELEASEID) %>%
+  slice_max(order_by = visit_num, n = 1, with_ties = FALSE) %>%
+  select(RELEASEID, height) %>%
+  rename(height_M = height)
+
+height_P <- long_clean %>%
+  filter(visit_type == "P", !is.na(height)) %>%
+  group_by(RELEASEID) %>%
+  slice_max(order_by = visit_num, n = 1, with_ties = FALSE) %>%
+  select(RELEASEID, height) %>%
+  rename(height_P = height)
+
+# Add heights to echo data
+echo_keep <- echo_keep %>%
+  mutate(RELEASEID = toupper(RELEASEID)) %>%
+  left_join(height_M, by = "RELEASEID") %>%
+  left_join(height_P, by = "RELEASEID") %>%
+  mutate(
+    height_final = case_when(
+      TIMEPOINT == 1 ~ height_M,
+      TIMEPOINT == 2 ~ height_P,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  select(-height_M, -height_P)
+
+# Add weight data through visit matching
+long_clean <- long %>%
+  mutate(RELEASEID = toupper(releaseid)) %>%
+  select(RELEASEID, visit, visit_days, weight, height) %>%
+  filter(!is.na(visit))
+
+# Match closest visits for missing weight data
+echo_keep <- echo_keep %>%
+  left_join(echo %>% select(RELEASEID, TIMEPOINT, days), by = c("RELEASEID", "TIMEPOINT"))
+
+# weight addition based on closest day
+echo_keep <- echo_keep %>%
+  rowwise() %>%
+  mutate(
+    weight = {
+      weights <- long_clean %>% filter(RELEASEID == RELEASEID, !is.na(weight))
+      if(nrow(weights) > 0) {
+        weights$weight[which.min(abs(weights$visit_days - days))]
+      } else NA_real_
+    }
+  ) %>%
+  ungroup()
+
+# Calculate BSA using Du Bois and Mosteller formulas
+echo_keep <- echo_keep %>%
+  mutate(
+    BSA_dubois = ifelse(!is.na(height_final) & !is.na(weight),
+                        0.007184 * (height_final ^ 0.725) * (weight ^ 0.425),
+                        NA_real_),
+    BSA_mosteller = ifelse(!is.na(height_final) & !is.na(weight),
+                           sqrt((height_final * weight) / 3600),
+                           NA_real_)
+  )
+
+# Add sex information for LVMI calculation
+echo_keep <- echo_keep %>%
+  mutate(releaseid = tolower(RELEASEID)) %>%
+  left_join(baserisk %>% select(releaseid, sex), by = "releaseid") %>%
+  select(-releaseid)
+
+# Calculate LVMI and related scores
+echo_keep <- echo_keep %>%
+  mutate(
+    lvmi = ifelse(!is.na(lvmass) & !is.na(BSA_dubois), lvmass / BSA_dubois, NA_real_),
+    lvmi_score = case_when(
+      sex == 2 & lvmi >= 149 ~ 2,
+      sex == 2 & lvmi >= 122 ~ 1,
+      sex == 2 ~ 0,
+      sex == 1 & lvmi >= 115 ~ 2,
+      sex == 1 & lvmi >= 95  ~ 1,
+      sex == 1 ~ 0,
+      TRUE ~ NA_real_
+    )
+  )
+
+echo_keep <- echo_keep %>%
+  left_join(
+    echo %>% select(RELEASEID, ladimen),
+    by = "RELEASEID"
+  )
+
+# Calculate LAVI estimation
+echo_keep <- echo_keep %>%
+  mutate(
+    LA_volume_est = ifelse(!is.na(laarea2d) & !is.na(ladimen),
+                           (8 / (3 * pi)) * (laarea2d^2 / ladimen),
+                           NA_real_),
+    LAVI_est = ifelse(!is.na(LA_volume_est) & !is.na(BSA_dubois),
+                      LA_volume_est / BSA_dubois,
+                      NA_real_)
+  )
+```
+
+## HFpEF scoring system
+
+```{r hfpef scoring}
+# =============================================================================
+# HFpEF SCORING SYSTEM
+# =============================================================================
+
+# Initialize HFpEF points
+echo_keep$HFpEF_points <- 0
+
+# Get maximum BNP per participant
+max_bnp_by_id <- aggregate(addcbl_1$bnp ~ addcbl_1$releaseid, data = addcbl_1, FUN = function(x) {
+  if(all(is.na(x))) return(NA)
+  return(max(x, na.rm = TRUE))
+})
+colnames(max_bnp_by_id) <- c("RELEASEID", "bnp")
+
+# Merge BNP data
+echo_keep <- merge(echo_keep, max_bnp_by_id, by = "RELEASEID", all.x = TRUE)
+
+# HFpEF scoring algorithm
+for (i in 1:nrow(echo_keep)) {
+  scored_2pts <- FALSE
+  
+  # 2-point functional scoring
+  if (!is.na(echo_keep$lvsepem[i]) && echo_keep$lvsepem[i] < 7) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+    scored_2pts <- TRUE
+  } else if (!is.na(echo_keep$lvem[i]) && echo_keep$lvem[i] < 10) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+    scored_2pts <- TRUE
+  } else if (!is.na(echo_keep$average_E_Em[i]) && echo_keep$average_E_Em[i] >= 15) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+    scored_2pts <- TRUE
+  } else if (!is.na(echo_keep$peakvelo[i]) && echo_keep$peakvelo[i] > 280) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+    scored_2pts <- TRUE
+  }
+  
+  # 1-point functional scoring (only if no 2-point condition was met)
+  if (!scored_2pts) {
+    if (
+      (!is.na(echo_keep$GLS_4CH[i]) && echo_keep$GLS_4CH[i] > -16) ||
+      (!is.na(echo_keep$GLS_3CH[i]) && echo_keep$GLS_3CH[i] > -16) ||
+      (!is.na(echo_keep$GLS_2CH[i]) && echo_keep$GLS_2CH[i] > -16) ||
+      (!is.na(echo_keep$average_E_Em[i]) && echo_keep$average_E_Em[i] >= 9 && echo_keep$average_E_Em[i] < 15)
+    ) {
+      echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 1
+    }
+  }
+  
+  # BNP scoring
+  if(!is.na(echo_keep$bnp[i])) {
+    if(echo_keep$bnp[i] >= 80) {
+      echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+    } else if(echo_keep$bnp[i] >= 35 && echo_keep$bnp[i] < 80) {
+      echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 1
+    }
+  }
+  
+  # Morphological scoring
+  if(!is.na(echo_keep$lvmi_score[i])) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + echo_keep$lvmi_score[i]
+  }
+  
+  # Wall thickness scoring
+  if (
+    (!is.na(echo_keep$ivsdias[i]) && echo_keep$ivsdias[i] > 1.2) ||
+    (!is.na(echo_keep$walldias[i]) && echo_keep$walldias[i] > 1.2) ||
+    (!is.na(echo_keep$walthick[i]) && echo_keep$walthick[i] > 0.42)
+  ) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 1
+  }
+}
+
+# Create HFpEF diagnosis variable
+echo_keep$hfpef <- ifelse(echo_keep$HFpEF_points >= 5, 1, 0)
+
+# Create timepoint-specific HFpEF variables
+echo_keep$hfpef1 <- ifelse(echo_keep$TIMEPOINT == 1, echo_keep$hfpef, NA)
+echo_keep$hfpef2 <- ifelse(echo_keep$TIMEPOINT == 2, echo_keep$hfpef, NA)
+
+# Create separate datasets for each timepoint
+echo_hfpef <- echo_keep %>%
+  filter(TIMEPOINT == 1) %>%
+  select(RELEASEID, hfpef1) %>%
+  filter(!is.na(hfpef1)) %>%
+  distinct(RELEASEID, .keep_all = TRUE)
+
+echo_hfpef2 <- echo_keep %>%
+  filter(TIMEPOINT == 2) %>%
+  select(RELEASEID, hfpef2) %>%
+  filter(!is.na(hfpef2)) %>%
+  distinct(RELEASEID, .keep_all = TRUE)
+```
+
+## QUALITY OF LIFE (PedsQL) PROCESSING
+
+```{r pedsql processing}
+# =============================================================================
+# QUALITY OF LIFE (PedsQL) PROCESSING
+# =============================================================================
+
+# Define columns to keep from PedsQL
+cols_to_keep <- c("RELEASEID", "DAYS", "G01WALK", "G02RUN", "G03SPORT",
+                  "G04LIFT", "G05BATH", "G06CHORE", "G07HURT", "G08ENERG")
+
+# Combine all PedsQL datasets
+pedsQL_all <- bind_rows(
+  pedsQL_Y %>% select(all_of(cols_to_keep)),
+  pedsQL_T %>% select(all_of(cols_to_keep)),
+  pedsQL_A %>% select(all_of(cols_to_keep))
+)
+
+# Define PedsQL items
+pedsQL_items <- c("G01WALK", "G02RUN", "G03SPORT", "G04LIFT", 
+                  "G05BATH", "G06CHORE", "G07HURT", "G08ENERG")
+
+# Calculate physical activity total
+pedsQL_all <- pedsQL_all %>%
+  rowwise() %>%
+  mutate(physical_total = sum(c_across(all_of(pedsQL_items)), na.rm = TRUE)) %>%
+  ungroup()
+
+# Ensure DAYS is numeric
+pedsQL_all <- pedsQL_all %>%
+  mutate(DAYS = as.numeric(DAYS))
+
+# Get baseline, latest, and highest scores per participant
+pedsQL_summary <- pedsQL_all %>%
+  group_by(RELEASEID) %>%
+  summarise(
+    pedsql_baseline = physical_total[which.min(DAYS)],
+    days_baseline = DAYS[which.min(DAYS)],
+    pedsql_last = physical_total[which.max(DAYS)],
+    days_last = DAYS[which.max(DAYS)],
+    pedsql_highest = max(physical_total, na.rm = TRUE),
+    days_highest = DAYS[which.max(physical_total)],
+    .groups = "drop"
+  )
+```
+
+## Data Integration and CKM staging
+
+```{r data integration}
+# =============================================================================
+# DATA INTEGRATION AND CKM STAGING
+# =============================================================================
+
+# Fix the column name first
+baseline <- baseline %>% 
+  rename(RELEASEID = releaseid)  # or whatever the actual column name is
+
+baserisk <- baserisk %>% 
+  rename(RELEASEID = releaseid)  # or whatever the actual column name is
+
+# Create main analysis dataset
+comorb_ckm2 <- comorb_ckm %>%
+  left_join(biom_ckm %>% select(RELEASEID, high_trop0, high_trop1, high_bnp0, high_bnp1), 
+            by = "RELEASEID") %>%
+  left_join(pwv_flags, by = "RELEASEID") %>%
+  left_join(echo_hfpef, by = "RELEASEID") %>%
+  left_join(echo_hfpef2, by = "RELEASEID") %>%
+  left_join(pedsQL_summary, by = "RELEASEID") %>%
+  left_join(baseline %>% select(RELEASEID, bmi, sbp, dbp, wastcirc), by = "RELEASEID") %>%
+  left_join(baserisk %>% select(RELEASEID, sex, AGEBASE), by = "RELEASEID")
+
+# Add all biomarker data
+biomarker_vars <- c("adiponectin", "hmwa", "edol", "shbg", "testosterone", "ualb", "ualbcreat",
+                   "il6", "il1", "hscrp", "apob", "mcp1", "tnfa", "tnfr1", "tnfr2", "icam1",
+                   "vcam1", "eselectin", "vegf", "fgf23", "bnp", "eGFR_FAS", "ckd_gfr")
+
+for (var in biomarker_vars) {
+  if (paste0(var, "_vals") %in% ls()) {
+    biomarker_data <- get(paste0(var, "_vals"))
+    if ("RELEASEID" %in% names(biomarker_data)) {
+      comorb_ckm2 <- comorb_ckm2 %>%
+        left_join(biomarker_data, by = "RELEASEID")
+    }
+  }
+}
+
+# Merge all biomarker datasets at once
+all_biomarkers <- biomarker_list %>%
+  reduce(full_join, by = "RELEASEID")
+
+# Add to main dataset
+comorb_ckm2 <- comorb_ckm2 %>%
+  left_join(all_biomarkers, by = "RELEASEID")
+
+# CKM Staging - Main classification
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    CKM_syn = case_when(
+      # Stage 4: most severe
+      clin_cvd == 1 |
+      CKD == 1 |
+      hfpef1 == 1 | hfpef2 == 1 |
+      MAC0 == 1 | MAC == 1 ~ "Stage4",
+      
+      # Stage 3: elevated biomarkers
+      (high_bnp0 == 1 | high_bnp1 == 1 |
+       high_trop0 == 1 | high_trop1 == 1 |
+       high_pwv0 == 1 | high_pwv1 == 1 |
+       MAC0 == 1 | MAC == 1) ~ "Stage3",
+      
+      # Stage 2_plus: risk factors
+      (HTN0 == 1 | HTN == 1 |
+       ANYDLP0 == 1 | ANYDLP == 1 |
+       MAC0 == 1 | MAC == 1) ~ "Stage2_plus",
+      
+      TRUE ~ "Stage2"
+    )
+  )
+
+# CKM Staging with BMI inclusion
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    CKM_syn2 = case_when(
+      # Stage 4: most severe
+      clin_cvd == 1 |
+      CKD == 1 |
+      hfpef1 == 1 | hfpef2 == 1 |
+      MAC0 == 1 | MAC == 1 ~ "Stage4",
+      
+      # Stage 3: elevated biomarkers
+      (high_bnp0 == 1 | high_bnp1 == 1 |
+       high_trop0 == 1 | high_trop1 == 1 |
+       high_pwv0 == 1 | high_pwv1 == 1 |
+       MAC0 == 1 | MAC == 1) ~ "Stage3",
+      
+      # Stage 2_plus: risk factors OR BMI ≥30
+      (HTN0 == 1 | HTN == 1 |
+       ANYDLP0 == 1 | ANYDLP == 1 |
+       MAC0 == 1 | MAC == 1 | 
+       bmi >= 30) ~ "Stage2_plus",
+      
+      TRUE ~ "Stage2"
+    )
+  )
+
+# Baseline-only CKM staging
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    CKM_syn_base = case_when(
+      MAC0 == 1 ~ "Stage4",
+      high_bnp0 == 1 | high_trop0 == 1 | high_pwv0 == 1 | MAC0 == 1 ~ "Stage3",
+      HTN0 == 1 | ANYDLP0 == 1 | MAC0 == 1 ~ "Stage2_plus",
+      TRUE ~ "Stage2"
+    ),
+    CKM_syn_base2 = case_when(
+      MAC0 == 1 ~ "Stage4",
+      high_bnp0 == 1 | high_trop0 == 1 | high_pwv0 == 1 | MAC0 == 1 ~ "Stage3",
+      HTN0 == 1 | ANYDLP0 == 1 | MAC0 == 1 | bmi >= 30 ~ "Stage2_plus",
+      TRUE ~ "Stage2"
+    )
+  )
+
+# Collapsed CKM staging
+## CKM stages 3 and 4 will be joined because both are CV stages
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    CKM_syn_collapsed = case_when(
+      CKM_syn %in% c("Stage3", "Stage4") ~ "Adv_CVDCKM",
+      CKM_syn == "Stage2_plus" ~ "Stage2_plus",
+      CKM_syn == "Stage2" ~ "Stage2"
+    )
+  )
+
+# Set factor levels for proper ordering
+comorb_ckm2$CKM_syn <- factor(comorb_ckm2$CKM_syn, levels = c("Stage2", "Stage2_plus", "Stage3", "Stage4"))
+comorb_ckm2$CKM_syn2 <- factor(comorb_ckm2$CKM_syn2, levels = c("Stage2", "Stage2_plus", "Stage3", "Stage4"))
+
+```
+
+## Results and Statistical Analysis
+
+```{r results analysis}
+# =============================================================================
+# RESULTS AND STATISTICAL ANALYSIS
+# =============================================================================
+
+# AME event labeling
+#ame$AMENAME <- factor(ame$AMENAME, labels = c("Arrhythmia", "Coronary artery disease", 
+ #                                             "Coronary heart failure", "Left ventricular #systolic dysfunction", "Myocardial infarction", "PAD/vascular insufficiency", "Deep vein #thrombosis", "Stroke", "TIA", "Chronic kidney disease", "ESKD", "Death"))
+
+# Distribution of CKM stages
+table(comorb_ckm2$CKM_syn, useNA = "ifany")
+table(comorb_ckm2$CKM_syn2, useNA = "ifany")
+table(comorb_ckm2$CKM_syn_base, useNA = "ifany")
+table(comorb_ckm2$CKM_syn_base2, useNA = "ifany")
+
+# Baseline vs Follow-up stage percentages
+baseline_pct <- comorb_ckm2 %>%
+  group_by(CKM_syn_base) %>%
+  summarise(count = n()) %>%
+  mutate(total = sum(count), percent = round(100 * count / total, 1), timepoint = "Baseline")
+
+followup_pct <- comorb_ckm2 %>%
+  group_by(CKM_syn) %>%
+  summarise(count = n()) %>%
+  mutate(total = sum(count), percent = round(100 * count / total, 1), timepoint = "Follow-up")
+
+# Combined advanced stages (Stage 3 + 4)
+combined_baseline <- comorb_ckm2 %>%
+  filter(CKM_syn_base %in% c("Stage3", "Stage4")) %>%
+  summarise(count = n(), total = nrow(comorb_ckm2), 
+            percent = round(100 * count / total, 1)) %>%
+  mutate(timepoint = "Baseline")
+
+combined_followup <- comorb_ckm2 %>%
+  filter(CKM_syn %in% c("Stage3", "Stage4")) %>%
+  summarise(count = n(), total = nrow(comorb_ckm2), 
+            percent = round(100 * count / total, 1)) %>%
+  mutate(timepoint = "Follow-up")
+
+# Statistical tests for outcomes by CKM stage
+test_results <- list()
+
+# Hypertension outcomes
+test_results$hyp0_kruskal <- kruskal.test(HYP0 ~ CKM_syn2, data = comorb_ckm2)
+test_results$hyp_kruskal <- kruskal.test(HYP ~ CKM_syn2, data = comorb_ckm2)
+test_results$hyp0_dunn <- dunnTest(HYP0 ~ CKM_syn2, data = comorb_ckm2, method = "holm")
+test_results$hyp_dunn <- dunnTest(HYP ~ CKM_syn2, data = comorb_ckm2, method = "holm")
+
+# Nephropathy outcomes
+test_results$mic0_kruskal <- kruskal.test(MIC0 ~ CKM_syn2, data = comorb_ckm2)
+test_results$mic_kruskal <- kruskal.test(MIC ~ CKM_syn2, data = comorb_ckm2)
+test_results$mic0_dunn <- dunnTest(MIC0 ~ CKM_syn2, data = comorb_ckm2, method = "holm")
+test_results$mic_dunn <- dunnTest(MIC ~ CKM_syn2, data = comorb_ckm2, method = "holm")
+
+# eGFR outcomes
+test_results$egfr_base_kruskal <- kruskal.test(eGFR_FAS_baseline ~ CKM_syn2, data = comorb_ckm2)
+test_results$egfr_base_dunn <- dunnTest(eGFR_FAS_baseline ~ CKM_syn2, data = comorb_ckm2, method = "holm")
+
+# Biomarker outcomes
+biomarker_tests <- c("ualb_baseline", "ualbcreat_baseline", "il6_highest", "hscrp_highest", 
+                    "apob_highest", "mcp1_highest", "tnfa_highest", "bnp_baseline", "bnp_highest")
+
+for (biomarker in biomarker_tests) {
+  if (biomarker %in% names(comorb_ckm2)) {
+    test_results[[paste0(biomarker, "_kruskal")]] <- kruskal.test(get(biomarker) ~ CKM_syn2, data = comorb_ckm2)
+    test_results[[paste0(biomarker, "_dunn")]] <- dunnTest(get(biomarker) ~ CKM_syn2, data = comorb_ckm2, method = "holm")
+  }
+}
+
+# Contingency table analyses
+table_hyp0 <- table(comorb_ckm2$CKM_syn_collapsed, comorb_ckm2$HYP0)
+table_hyp <- table(comorb_ckm2$CKM_syn_collapsed, comorb_ckm2$HYP)
+
+test_results$hyp0_chisq <- chisq.test(table_hyp0)
+test_results$hyp_chisq <- chisq.test(table_hyp)
+test_results$hyp0_fisher <- fisher.test(table_hyp0)
+test_results$hyp_fisher <- fisher.test(table_hyp)
+
+# McNemar's tests for paired outcomes
+run_mcnemar <- function(stage) {
+  tab <- comorb_ckm2 %>%
+    filter(CKM_syn_collapsed == stage) %>%
+    select(HYP0, HYP) %>%
+    table(useNA = "no")
+  
+  if (all(dim(tab) == c(2, 2))) {
+    return(mcnemar.test(tab))
+  } else {
+    return(NULL)
+  }
+}
+
+mcnemar_results <- unique(comorb_ckm2$CKM_syn_collapsed) %>%
+  map(run_mcnemar) %>%
+  set_names(unique(comorb_ckm2$CKM_syn_collapsed))
+
+# Logistic regression models
+model_hyp0 <- glm(HYP0 ~ CKM_syn, data = comorb_ckm2, family = binomial)
+model_hyp <- glm(HYP ~ CKM_syn, data = comorb_ckm2, family = binomial)
+```
+
+## Visualizations
+
+```{r visualizations}
+# =============================================================================
+# VISUALIZATIONS
+# =============================================================================
+
+# Distribution of CKM stages
+p1 <- ggplot(comorb_ckm2, aes(x = CKM_syn)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Distribution of CKM Stages", x = "CKM Stage", y = "Number of Patients") +
+  theme_minimal(base_size = 14)
+
+# eGFR by CKM stage
+p2 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = eGFR_FAS_baseline)) +
+  geom_boxplot(fill = "skyblue", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.4, color = "darkblue") +
+  stat_summary(fun = median, geom = "point", shape = 18, size = 3, color = "red") +
+  labs(x = "CKM Stage", y = "eGFR_FAS_baseline (mL/min/1.73m²)", 
+       title = "Baseline eGFR by CKM Stage") +
+  theme_minimal()
+
+# Biomarker visualizations
+p3 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = ualb_baseline)) +
+  geom_boxplot(fill = "lightblue", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
+  labs(title = "UALB by CKM Stage", x = "CKM Stage", y = "UALB (mg/dL)") +
+  theme_minimal()
+
+p4 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = ualbcreat_baseline)) +
+  geom_boxplot(fill = "lightgreen", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "darkgreen") +
+  labs(title = "UACR by CKM Stage", x = "CKM Stage", y = "UACR (mg/g)") +
+  theme_minimal()
+
+p5 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = il6_highest)) +
+  geom_boxplot(fill = "lightgreen", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "darkgreen") +
+  labs(title = "IL-6 by CKM Stage", x = "CKM Stage", y = "IL-6") +
+  theme_minimal()
+
+p6 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = hscrp_highest)) +
+  geom_boxplot(fill = "lightblue", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
+  labs(title = "hs-CRP by CKM Stage", x = "CKM Stage", y = "hs-CRP") +
+  theme_minimal()
+
+p7 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = bmi)) +
+  geom_boxplot(fill = "lightblue", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
+  labs(title = "BMI by CKM Stage", x = "CKM Stage", y = "BMI (kg/m²)") +
+  theme_minimal()
+
+p8 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = sbp)) +
+  geom_boxplot(fill = "pink", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "darkred") +
+  labs(title = "SBP by CKM Stage", x = "CKM Stage", y = "SBP (mmHg)") +
+  theme_minimal()
+
+p9 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn), y = bnp_highest)) +
+  geom_boxplot(fill = "orange", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "darkorange3") +
+  labs(title = "BNP-highest by CKM Stage", x = "CKM Stage", y = "BNP (ng/mL)") +
+  theme_minimal()
+
+p10 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = pedsql_highest)) +
+  geom_boxplot(fill = "orange", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "darkorange3") +
+  labs(title = "PedsQL by CKM Stage", x = "CKM Stage", y = "PedsQL") +
+  theme_minimal()
+
+# Sankey diagram for CKM transitions
+df_alluvial <- comorb_ckm2 %>%
+  select(RELEASEID, CKM_syn_base, CKM_syn) %>%
+  mutate(CKM_syn_base = as.factor(CKM_syn_base), CKM_syn = as.factor(CKM_syn))
+
+p11 <- ggplot(df_alluvial, aes(axis1 = CKM_syn_base, axis2 = CKM_syn)) +
+  geom_alluvium(aes(fill = CKM_syn_base), width = 1/12, alpha = 0.8) +
+  geom_stratum(width = 1/12, fill = "grey80", color = "black") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Baseline CKM Stage", "Follow-up CKM Stage"), expand = c(.05, .05)) +
+  labs(title = "Transitions Between CKM Stages", y = "Number of Participants") +
+  theme_minimal()
+
+# Sankey with BMI inclusion
+df_alluvial2 <- comorb_ckm2 %>%
+  select(RELEASEID, CKM_syn_base2, CKM_syn2) %>%
+  mutate(CKM_syn_base2 = as.factor(CKM_syn_base2), CKM_syn2 = as.factor(CKM_syn2))
+
+p12 <- ggplot(df_alluvial2, aes(axis1 = CKM_syn_base2, axis2 = CKM_syn2)) +
+  geom_alluvium(aes(fill = CKM_syn_base2), width = 1/12, alpha = 0.8) +
+  geom_stratum(width = 1/12, fill = "grey80", color = "black") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Baseline CKM Stage", "Follow-up CKM Stage"), expand = c(.05, .05)) +
+  labs(title = "Transitions Between CKM Stages (with BMI)", y = "Number of Participants") +
+  theme_minimal()
+
+# Display key plots
+print(p1)
+print(p2)
+print(p11)
+print(p12)
+```
+
+## Summary Tables
+
+```{r summary-tables}
+# =============================================================================
+# SUMMARY TABLES
+# =============================================================================
+
+# Count of events (can be multiple events per person)
+#event_table <- tableby(data = ame, ~ as.factor(AMENAME))
+#summary(event_table)
+
+# Count of people with each type of event
+#person_table <- tableby(data = ame_summary, ~ ARRHYTHMIA + CAD + CHF + LVSD + MI + PAD + 
+   #                    DVT + STROKE + TIA + PANCREATITIS + GALLBLADDER + PNEURO + ANEURO + 
+    #                   MONONEURO + CKD + ESKD + NPDR + PDR + ME + VH + BLINDNESS + CATARACTS + 
+     #                  GLAUCOMA + DEATH)
+#summary(person_table)
+
+# Outcome proportions by CKM stage
+outcome_summary <- comorb_ckm2 %>%
+  group_by(CKM_syn_collapsed) %>%
+  summarise(
+    n = n(),
+    prop_HYP0 = mean(HYP0 == 1, na.rm = TRUE),
+    prop_HYP = mean(HYP == 1, na.rm = TRUE),
+    prop_MIC0 = mean(MIC0 == 1, na.rm = TRUE),
+    prop_MIC = mean(MIC == 1, na.rm = TRUE),
+    prop_DNE = mean(DNE == 1, na.rm = TRUE),
+    prop_CKD = mean(CKD == 1, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+print(outcome_summary)
+
+# Write output files
+write.csv(comorb_ckm2, file = "comorb_ckm2_final.csv", row.names = FALSE)
+
+```
