@@ -42,8 +42,8 @@ library(reshape2)
 library(broom.mixed)
 library(nebula)
 #library(table1)
-#library(clusterProfiler)
-#library('org.Hs.eg.db')
+library(clusterProfiler)
+library('org.Hs.eg.db')
 
 
 
@@ -220,6 +220,12 @@ save.image('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Line265.RD
 ##Start here
 load('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Line265.RData')
 
+pdf("C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/CelltypeDistribution_bySex.pdf")
+ggplot(meta.data %>% filter(celltype_rpca != 'ATL'), aes(x=group_labels, fill=celltype_rpca))+
+  geom_bar(position='fill')+theme_classic()+labs(x='Condition Group', fill='Cell Type')
+
+dev.off()
+
 
 
 #Function
@@ -320,6 +326,21 @@ dev.off()
 
 
 
+
+meta.data <- meta.data %>% 
+  mutate(group_sex=paste0(group,'_',sex)) %>% 
+  filter(group == 'Lean_Control' | group == 'Type_2_Diabetes')
+
+
+pdf("C:/Documents and Settings/netio/Documents/UofW/Projects/Sex_based_Analysis/CellDistributions_bySex.pdf",
+    width=15, height=12)
+ggplot(meta.data, 
+       aes(x=group_sex, fill=KPMP_celltype))+
+  geom_bar(position='fill')+theme_classic()+
+  labs(x='Sex and Diabetes Status', fill='Cell Type')+
+  theme(text = element_text(size = 15))
+
+dev.off()
 
 
 
