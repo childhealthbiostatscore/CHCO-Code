@@ -41,6 +41,9 @@ library(glmmTMB)
 library(reshape2)
 library(broom.mixed)
 library(nebula)
+library(GSEABase)
+library(clusterProfiler)
+library('org.Hs.eg.db')
 
 
 load('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Line265.RData')
@@ -859,6 +862,60 @@ for(celltype in celltypes){
 
 
 #Clean results 
+
+
+summary_files <- list.files('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/MainEffects_Sex/', pattern='txt')
+
+
+results.dir <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/MainEffects_Sex/'
+for(i in c(1:length(summary_files))){
+  tmp_df <- data.table::fread(paste0(results.dir, summary_files[i]))
+new_file_name <- str_replace(summary_files[i], '.txt', '')
+
+  tmp_df <- tmp_df %>% 
+    dplyr::select(gene = summary.gene, 
+                  logFC = summary.logFC_sexMale, 
+                  pvalue = summary.p_sexMale)
+  
+  write.table(tmp_df, paste0(results.dir, new_file_name, '_cleaned.csv'),
+              row.names=F, quote = F, sep=',')
+  
+  sig_genes_small <- tmp_df %>% filter(pvalue < 0.05)
+  if(nrow(sig_genes_small) == 0){
+    next
+  }
+  enrich_GO_BP <- enrichGO(gene = sig_genes_small$gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "BP") %>% 
+    #  as.data.frame() %>% #dplyr::select(Description, GeneRatio, p.adjust, Count) %>% 
+    filter(p.adjust < 0.05)
+  enrich_GO_MF <- enrichGO(gene = sig_genes_small$gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "MF") %>% 
+    filter(p.adjust < 0.05)
+  enrich_GO_CC <- enrichGO(gene = sig_genes_small$gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "CC") %>% 
+    filter(p.adjust < 0.05)
+  
+  #dotplot
+  jpeg(paste0(results.dir, 'GSEA/', new_file_name, '_significant_GSEA.jpeg'), height = 800, width = 600)
+  if(nrow(as.data.frame(enrich_GO_BP) > 0)){
+  dotplot(enrich_GO_BP, showCategory = 20)
+  }
+  if(nrow(as.data.frame(enrich_GO_MF) > 0)){
+  dotplot(enrich_GO_MF, showCategory = 20)
+  }
+  if(nrow(as.data.frame(enrich_GO_CC) > 0)){
+  dotplot(enrich_GO_CC, showCategory = 20)
+  }
+  
+  dev.off()
+  
+  
+  
+  
+  
+  
+  
+  
+  print(i)
+  
+}
 
 
 

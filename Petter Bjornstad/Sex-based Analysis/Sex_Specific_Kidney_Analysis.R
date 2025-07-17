@@ -42,8 +42,8 @@ library(reshape2)
 library(broom.mixed)
 library(nebula)
 #library(table1)
-#library(clusterProfiler)
-#library('org.Hs.eg.db')
+library(clusterProfiler)
+library('org.Hs.eg.db')
 
 
 
