@@ -10,7 +10,7 @@ obs <- as.data.frame(obs)
 obs <- blockrand(n=nrow(obs), levels = c(0:1), block.sizes = 1)
 obs$treatment_char <- NA
 obs$treatment_char <- ifelse(obs$treatment==1, "SEMAGLUTIDE", "USUAL_CARE")
-obs$source <- "OBS"
+obs$intinclusion7 <- "OBS"
 
 # existing patient pool
 existing <- rep("EXISTING", 100)
@@ -18,14 +18,14 @@ existing <- as.data.frame(existing)
 existing <- blockrand(n=nrow(existing), levels = c(0:1), block.sizes = 1)
 existing$treatment_char <- NA
 existing$treatment_char <- ifelse(existing$treatment==1, "SEMAGLUTIDE", "USUAL_CARE")
-existing$source <- "EXISTING"
+existing$intinclusion7 <- "EXISTING"
 
 # combine
 rand <- rbind(obs, existing)
 
 # check
 table(rand$treatment_char)
-table(rand$source, rand$treatment_char)
+table(rand$intinclusion7, rand$treatment_char)
 
 # output
 write.csv(rand, 
