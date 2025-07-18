@@ -1,4 +1,7 @@
 
+
+color_5 <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")
+
 # ATTEMPT analysis related functions
 
 # ---- Analysis Functions ----
@@ -1670,4 +1673,733 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
     go_results = go_res,
     rankings = rankings
   ))
+}
+
+# slingshot
+# ===========================================================================
+# Function: slingshot_setup
+# ===========================================================================
+
+slingshot_setup <- function(seurat_obj, celltype_prefix) {
+  library(SingleCellExperiment)
+  library(slingshot)
+  library(uwot)
+  library(mclust)
+  library(ggplot2)
+  library(RColorBrewer)
+  
+  # Extract counts and convert to SCE
+  counts <- GetAssayData(seurat_obj, layer = "counts")
+  sce <- SingleCellExperiment(assays = List(counts = counts), colData = seurat_obj@meta.data)
+  
+  # Gene filtering
+  gene_filter <- apply(assays(sce)$counts, 1, function(x) sum(x >= 3) >= 10)
+  sce <- sce[gene_filter, ]
+  
+  # Normalization using quantile normalization (FQ)
+  FQnorm <- function(counts){
+    rk <- apply(counts, 2, rank, ties.method = 'min')
+    counts.sort <- apply(counts, 2, sort)
+    refdist <- apply(counts.sort, 1, median)
+    norm <- apply(rk, 2, function(r) { refdist[r] })
+    rownames(norm) <- rownames(counts)
+    return(norm)
+  }
+  assays(sce)$norm <- FQnorm(assays(sce)$counts)
+  
+  # PCA
+  pca <- prcomp(t(log1p(assays(sce)$norm)), scale. = FALSE)
+  
+  # Variance explained
+  var_explained <- pca$sdev^2 / sum(pca$sdev^2)
+  
+  # Elbow plot as ggplot
+  elbow_df <- data.frame(PC = 1:50, VarianceExplained = var_explained[1:50])
+  elbow_plot <- ggplot(elbow_df, aes(x = PC, y = VarianceExplained)) +
+    geom_point(size = 2) +
+    geom_line() +
+    labs(title = paste("Elbow Plot:", celltype_prefix),
+         x = "Principal Component",
+         y = "Proportion of Variance Explained") +
+    theme_bw()
+  
+  # Return necessary outputs
+  return(list(
+    sce = sce,
+    pca = pca,
+    var_explained = var_explained,
+    elbow_plot = elbow_plot
+  ))
+}
+
+# ===========================================================================
+# Function: run_slingshot
+# ===========================================================================
+
+run_slingshot <- function(sce, pca_obj, n_pcs = 6, start_cluster = NULL, end_cluster = NULL, cluster_label = "celltype") {
+  library(slingshot)
+  library(uwot)
+  
+  # Get top PCs
+  rd1 <- pca_obj$x[, 1:n_pcs]
+  
+  # Visualize PCA (optional)
+  plot(rd1, col = rgb(0, 0, 0, 0.5), pch = 16, asp = 1, main = "PCA")
+  
+  # Run UMAP
+  umap_mat <- uwot::umap(t(log1p(assays(sce)$norm)))
+  colnames(umap_mat) <- c("UMAP1", "UMAP2")
+  
+  # Visualize UMAP (optional)
+  plot(umap_mat, col = rgb(0, 0, 0, 0.5), pch = 16, asp = 1, main = "UMAP")
+  
+  # Add to reducedDims
+  reducedDims(sce) <- SimpleList(PCA = rd1, UMAP = umap_mat)
+  
+  # Run Slingshot
+  sce_sl <- slingshot(sce, clusterLabels = cluster_label, reducedDim = "PCA", 
+                      start.clus = start_cluster,
+                      end.clus = end_cluster)
+  
+  return(sce_sl)
+}
+
+# ===========================================================================
+# Function: plot_slingshot_trajectory
+# ===========================================================================
+
+plot_slingshot_trajectory <- function(sce_sl, 
+                                      celltype_levels, 
+                                      custom_colors = color_5, 
+                                      bucket = "attempt",
+                                      celltype_suffix = NULL,
+                                      title = "Slingshot trajectory",
+                                      lineage = 1) {
+  library(ggplot2)
+  library(RColorBrewer)
+  library(slingshot)
+  
+  # Extract PCA and pseudotime
+  pca_df <- as.data.frame(reducedDims(sce_sl)$PCA)
+  pca_df$celltype <- factor(colData(sce_sl)$celltype, levels = celltype_levels)
+  pca_df$pseudotime <- slingPseudotime(sce_sl)[, lineage]  # first lineage
+  
+  # Get curve
+  curves <- slingCurves(sce_sl)
+  curve_df <- as.data.frame(curves[[1]]$s)
+  lineage <- slingshot::slingLineages(sce_sl)
+  # names(curve_df) <- c("PC1", "PC2")
+  
+  # Generate ggplot
+  p <- ggplot(pca_df, 
+              aes(x = PC1, y = PC2, color = celltype)) +
+    geom_point(alpha = 0.3, size = 1) +
+    geom_path(data = curve_df, aes(x = PC1, y = PC2), color = "black", size = 1.2, inherit.aes = FALSE) +
+    theme_bw() + 
+    theme(panel.grid = element_blank()) + 
+    labs(color = NULL) +
+    scale_color_manual(values = custom_colors) 
+  
+  # Save if bucket is provided
+  if (!is.null(bucket)) {
+    temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+    ggsave(filename = temp_file, width = 7, height = 5)
+    s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_pca_", tolower(celltype_suffix), "_slingshot.jpeg"))
+  }
+  
+  return(list(
+    pca_plot = p,
+    curves = curves,
+    pca_df = pca_df,
+    curve_df = curve_df,
+    lineage = lineage
+  ))
+}
+# ===========================================================================
+# Function: create_pseudotime_df
+# ===========================================================================
+
+create_pseudotime_df <- function(sce_obj, lineage = 1) {
+  # Check if slingPseudotime exists
+  if (!"slingPseudotime_1" %in% names(colData(sce_obj))) {
+    stop("The input object does not contain slingPseudotime. Run Slingshot first.")
+  }
+  
+  # Extract relevant metadata and pseudotime
+  pseudotime_df <- data.frame(
+    pseudotime = slingPseudotime(sce_obj)[, lineage],
+    treatment = sce_obj$treatment,
+    visit = sce_obj$visit,
+    celltype = sce_obj$celltype,
+    visit_treatment = paste(sce_obj$visit, sce_obj$treatment)
+  )
+  
+  # Reorder factor levels
+  pseudotime_df$visit_treatment <- factor(pseudotime_df$visit_treatment, 
+                                          levels = c("PRE Placebo", "POST Placebo", 
+                                                     "PRE Dapagliflozin", "POST Dapagliflozin"))
+  return(pseudotime_df)
+}
+
+
+# ===========================================================================
+# Function: plot_pseudotime_violin
+# ===========================================================================
+
+plot_pseudotime_violin <- function(df, s3_folder = "slingshot", 
+                                   celltype_suffix = "celltype") {
+  pseudotime_df <- df
+  # Calculate medians
+  median_df <- pseudotime_df %>%
+    group_by(visit_treatment) %>%
+    summarise(median_pt = median(pseudotime, na.rm = TRUE), .groups = "drop")
+  
+  # Define colors
+  fill_colors <- c("PRE Placebo" = "#fbc4ab", "POST Placebo" = "#f4978e",
+                   "PRE Dapagliflozin" = "#ccd5ae", "POST Dapagliflozin" = "#828e82")
+  
+  # Create plot
+  p <- ggplot(pseudotime_df, aes(x = visit_treatment, y = pseudotime)) +
+    geom_violin(aes(fill = visit_treatment, color = visit_treatment), trim = FALSE, alpha = 0.7) +
+    geom_boxplot(width = 0.1, outlier.shape = NA, aes(color = visit_treatment)) +
+    geom_line(data = subset(median_df, grepl("Placebo", visit_treatment)), 
+              aes(x = visit_treatment, y = median_pt, group = 1), 
+              color = "#343a40", linewidth = 0.5, linetype = "dashed") +
+    geom_line(data = subset(median_df, grepl("Dapagliflozin", visit_treatment)), 
+              aes(x = visit_treatment, y = median_pt, group = 1), 
+              color = "#343a40", linewidth = 0.5, linetype = "dashed") +
+    theme_classic() +
+    labs(x = NULL, y = "Pseudotime", fill = NULL, color = NULL) +
+    scale_fill_manual(values = fill_colors) +
+    scale_color_manual(values = fill_colors) +
+    theme(legend.position = "none",
+          text = element_text(size = 15),
+          axis.text.x = element_text(angle = 30, hjust = 1))
+  
+  # Save and upload to S3
+  temp_file <- tempfile(fileext = ".jpeg")
+  ggsave(filename = temp_file, plot = p, width = 7, height = 5)
+  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0(tolower(celltype_suffix), "_attempt_slingshot_violin.jpeg")))
+  return(p)
+}
+
+# ===========================================================================
+# Function: plot_slingshot_3d
+# ===========================================================================
+
+library(plotly)
+library(htmlwidgets)
+
+plot_slingshot_3d <- function(pca_df, curve_df, custom_colors = color_5,
+                              s3_folder = "slingshot", 
+                              celltype_suffix = "celltype") {
+  
+  # Create plot
+  pt_plotly <- plot_ly() %>%
+    add_trace(
+      data = pca_df,
+      x = ~PC1, y = ~PC2, z = ~PC3,
+      type = "scatter3d",
+      mode = "markers",
+      color = ~celltype,
+      colors = custom_colors,
+      marker = list(size = 2),
+      name = "Cells") %>%
+    add_trace(
+      data = curve_df,
+      x = ~PC1, y = ~PC2, z = ~PC3,
+      type = "scatter3d",
+      mode = "lines",
+      line = list(color = "black", width = 4),
+      name = "Trajectory")
+  
+  # Save and upload to S3
+  temp_file <- tempfile(fileext = ".html")
+  saveWidget(pt_plotly, file = temp_file, selfcontained = TRUE)
+  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", tolower(celltype_suffix), "_slingshot_plotly.html")))
+  return(pt_plotly)
+}
+
+# ===========================================================================
+# Function: plot_and_test_pseudotime_distribution
+# ===========================================================================
+
+plot_and_test_pseudotime_distribution <- function(df,
+                                                  sce_object,
+                                                  pseudotime_var = "pseudotime",
+                                                  visit_treatment_var = "visit_treatment",
+                                                  s3_folder = "slingshot",
+                                                  filename_suffix = "celltype") {
+  library(condiments)
+  BiocParallel::register(BiocParallel::SerialParam())
+  # Set colors
+  group_colors <- c("PRE Placebo" = "#fbc4ab",
+                    "POST Placebo" = "#f4978e",
+                    "PRE Dapagliflozin" = "#ccd5ae",
+                    "POST Dapagliflozin" = "#828e82")
+  
+  # Create plot
+  p <- ggplot(df, aes(x = .data[[pseudotime_var]],
+                      fill = .data[[visit_treatment_var]],
+                      color = .data[[visit_treatment_var]])) +
+    geom_density(alpha = 0.3) +
+    theme_minimal() +
+    labs(x = "Pseudotime", y = "Density", fill = NULL, color = NULL) +
+    theme(
+      legend.position = c(0.5, 0.85),
+      legend.direction = "horizontal",
+      legend.text = element_text(size = 10),
+      panel.grid = element_blank(),
+      text = element_text(size = 15)
+    ) +
+    scale_fill_manual(values = group_colors) +
+    scale_color_manual(values = group_colors)
+  
+  # Save and upload
+  temp_file <- tempfile(fileext = ".jpeg")
+  ggsave(filename = temp_file, plot = p, width = 7, height = 5)
+  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", filename_suffix, "_slingshot_density_trtvisit.jpeg")))
+  
+  # Run progressionTest
+  test_result <- progressionTest(sce_object, conditions = df[[visit_treatment_var]])
+  print(test_result)
+  return(p)
+  invisible(list(plot = p, test_result = test_result))
+}
+
+# ===========================================================================
+# Function: plot_pseudotime_density_faceted_by_treatment
+# ===========================================================================
+
+plot_pseudotime_density_faceted_by_treatment <- function(df,
+                                                         pseudotime_var = "slingPseudotime_1",
+                                                         visit_col = "visit",
+                                                         treatment_col = "treatment",
+                                                         visit_treatment_col = "visit_treatment",
+                                                         s3_folder = "slingshot",
+                                                         filename_suffix = "celltype") {
+  # Quantile summary
+  raw_summary <- df %>%
+    as.data.frame() %>%
+    group_by(.data[[treatment_col]], .data[[visit_col]]) %>%
+    summarise(
+      p25 = quantile(.data[[pseudotime_var]], probs = 0.25, na.rm = TRUE),
+      p65 = quantile(.data[[pseudotime_var]], probs = 0.65, na.rm = TRUE),
+      p85 = quantile(.data[[pseudotime_var]], probs = 0.85, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    ) %>%
+    mutate(visit_treatment = paste(.data[[visit_col]], .data[[treatment_col]]))
+  
+  # Color palette
+  fill_colors <- c("PRE Placebo" = "#fbc4ab", 
+                   "POST Placebo" = "#f4978e",
+                   "PRE Dapagliflozin" = "#ccd5ae", 
+                   "POST Dapagliflozin" = "#828e82")
+  
+  # Plot
+  p <- ggplot(df, aes(x = .data[[pseudotime_var]], fill = .data[[visit_treatment_col]])) +
+    geom_density(alpha = 0.5, aes(color = .data[[visit_treatment_col]])) +
+    facet_wrap(vars(.data[[treatment_col]]), strip.position = "bottom") +
+    geom_vline(data = raw_summary, aes(xintercept = p25, color = visit_treatment), linetype = "dashed") +
+    geom_vline(data = raw_summary, aes(xintercept = p65, color = visit_treatment), linetype = "dashed") +
+    geom_vline(data = raw_summary, aes(xintercept = p85, color = visit_treatment), linetype = "dashed") +
+    theme_minimal() +
+    labs(x = "Pseudotime", y = "Density", color = NULL, fill = NULL) +
+    theme(panel.grid = element_blank(),
+          text = element_text(size = 15),
+          legend.position = c(0.45, 0.95),
+          legend.direction = "horizontal",
+          legend.text = element_text(size = 12)) +
+    scale_fill_manual(values = fill_colors) +
+    scale_color_manual(values = fill_colors)
+  
+  # Save and upload
+  temp_file <- tempfile(fileext = ".jpeg")
+  ggsave(filename = temp_file, plot = p, width = 7, height = 5)
+  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", filename_suffix, "_slingshot_density_trt.jpeg")))
+  
+  return(p)
+}
+
+# ===========================================================================
+# Function: plot_delta_percentile_heatmap
+# ===========================================================================
+
+plot_delta_percentile_heatmap <- function(df,
+                                          percentile_prefix = "rq",
+                                          visit_col = "visit",
+                                          treatment_col = "treatment",
+                                          s3_folder = "slingshot",
+                                          filename_suffix = "celltype",
+                                          width = 5,
+                                          height = 5) {
+  library(ggplot2)
+  library(dplyr)
+  library(tidyr)
+  
+  # Prepare data for heatmap
+  heatmap_df <- df %>%
+    pivot_longer(cols = starts_with(percentile_prefix),
+                 names_to = "q",
+                 names_prefix = percentile_prefix,
+                 values_to = "value") %>%
+    pivot_wider(names_from = .data[[visit_col]], values_from = value) %>%
+    mutate(delta = POST - PRE)
+  
+  # Plot
+  p <- ggplot(heatmap_df, aes(x = .data[[treatment_col]], y = q, fill = delta)) +
+    geom_tile() +
+    scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+    labs(x = NULL, y = "Percentile", fill = "\u0394\n(POST-PRE)") +
+    theme_minimal() +
+    theme(
+      legend.title.position = "top",
+      legend.title = element_text(hjust = 0.5, size = 10),
+      legend.position = c(1.08, 0.5),
+      panel.grid = element_blank(),
+      text = element_text(size = 15),
+      legend.text = element_text(size = 10),
+      plot.margin = unit(c(0, 1.8, 0, 0), "cm")
+    )
+  
+  # Save and upload
+  temp_file <- tempfile(fileext = ".jpeg")
+  ggsave(filename = temp_file, plot = p, width = width, height = height)
+  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", filename_suffix, "_slingshot_percentile_heatmap.jpeg")))
+  
+  return(p)
+}
+
+# ===========================================================================
+# Function: analyze_pseudotime_by_clinvar
+# ===========================================================================
+
+library(dplyr)
+library(ggplot2)
+
+analyze_pseudotime_by_clinvar <- function(df,
+                                          clinical_var,          # unquoted column name of clinical variable
+                                          pseudotime_var,        # unquoted column name of pseudotime
+                                          subject_id = "subject_id",
+                                          visit_col = "visit",
+                                          pre_label = "PRE",
+                                          post_label = "POST",
+                                          bin_probs = 2,
+                                          bin_levels_to_compare = c(1, 2),
+                                          caption_clinical_var = "",
+                                          bucket = "attempt",
+                                          celltype_suffix = "",
+                                          filesuffix = "") {
+  
+  clinical_var <- ensym(clinical_var)
+  pseudotime_var <- ensym(pseudotime_var)
+  clinical_var_chr <- rlang::as_string(clinical_var)
+  
+  # Step 1: Calculate subject-level delta of the clinical variable
+  delta_df <- df %>%
+    group_by(.data[[subject_id]]) %>%
+    summarise(
+      delta_value = mean(.data[[clinical_var_chr]][.data[[visit_col]] == post_label], na.rm = TRUE) -
+        mean(.data[[clinical_var_chr]][.data[[visit_col]] == pre_label], na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  # Step 2: Join delta back to the original dataframe
+  df <- df %>%
+    left_join(delta_df, by = subject_id)
+  
+  # Step 3: Bin the clinical variable by quantiles
+  df_binned <- if (identical(bin_probs, "direction")) {
+    df %>%
+      mutate(clinical_bin = case_when(
+        .data[[clinical_var_chr]] > 0 ~ "+",
+        .data[[clinical_var_chr]] < 0 ~ "-",
+        .data[[clinical_var_chr]] == 0 ~  "No Change"
+      )) %>%
+      mutate(clinical_bin = factor(clinical_bin, levels = c("-", "No Change", "+")))
+  } else {
+    df %>%
+      mutate(clinical_bin = cut(.data[[clinical_var_chr]],
+                                breaks = quantile(.data[[clinical_var_chr]], 
+                                                  probs = seq(0, 1, 1/bin_probs), na.rm = TRUE),
+                                include.lowest = TRUE)) %>%
+      filter(!is.na(clinical_bin))
+  }
+  
+  # Step 4: Plot density of pseudotime by clinical bins
+  n_bins <- nlevels(droplevels(df_binned$clinical_bin))
+  custom_colors <- NULL
+  if (n_bins == 2) {
+    custom_colors <- c("#457b9d", "#f28482")
+    names(custom_colors) <- levels(droplevels(df_binned$clinical_bin))
+  }
+  
+  p <- df_binned %>%
+    filter(!is.na(clinical_bin)) %>%
+    ggplot(aes(x = !!pseudotime_var, fill = clinical_bin)) +
+    geom_density(alpha = 0.5) +
+    theme_minimal() +
+    labs(
+      y = "Density", x = "Pseudotime", fill = NULL, color = NULL,
+      caption = paste0(caption_clinical_var, " across pseudotime")) +
+    theme(panel.grid = element_blank(), 
+          text = element_text(size = 15),
+          legend.position = c(0.5,0.95),
+          legend.direction = "horizontal") +
+    {
+      if (!is.null(custom_colors)) {
+        list(
+          scale_fill_manual(values = custom_colors)
+        )
+      } else {
+        NULL
+      }
+    }
+  
+  if (!is.null(bucket)) {
+    temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+    ggsave(filename = temp_file, width = 7, height = 5)
+    s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_density_", 
+                                             tolower(celltype_suffix), "_", clinical_var, 
+                                             filesuffix,
+                                             "_slingshot.jpeg"))
+  }
+  
+  print(p)
+  
+  # Step 5: KS test between selected bin levels
+  bin_levels <- levels(droplevels(df_binned$clinical_bin))
+  if (length(bin_levels) >= max(bin_levels_to_compare)) {
+    pt1 <- df_binned %>%
+      filter(clinical_bin == bin_levels[bin_levels_to_compare[1]]) %>%
+      pull(!!pseudotime_var)
+    
+    pt2 <- df_binned %>%
+      filter(clinical_bin == bin_levels[bin_levels_to_compare[2]]) %>%
+      pull(!!pseudotime_var)
+    
+    ks <- ks.test(pt1, pt2)
+    print(ks)
+  } else {
+    warning("Not enough bins to compare the requested levels.")
+    ks <- NULL
+  }
+  
+  return(invisible(list(plot = p, ks_test = ks, delta_df = delta_df)))
+}
+
+# ===========================================================================
+# Function: plot_clinvar_pseudotime_arrows
+# ===========================================================================
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(rlang)
+library(grid)
+
+plot_clinvar_pseudotime_arrows <- function(df,
+                                           pseudotime_var = "slingPseudotime_1",
+                                           subject_col = "subject_id",
+                                           visit_col = "visit",
+                                           treatment_col = "treatment",
+                                           visit_treatment_col = "visit_treatment",
+                                           clinical_var,                # unquoted, e.g. hba1c
+                                           clinical_var_label = NULL,   # for axis label
+                                           percentile_filter = 50,
+                                           percentiles = c(25, 50, 65, 85),
+                                           shape_pre = 16,
+                                           shape_post = 17,
+                                           celltype_suffix = "",
+                                           bucket = "attempt",
+                                           color_palette = c("PRE Placebo" = "#fbc4ab",
+                                                             "POST Placebo" = "#f4978e",
+                                                             "PRE Dapagliflozin" = "#ccd5ae",
+                                                             "POST Dapagliflozin" = "#828e82",
+                                                             "Consistent" = "#160f29",
+                                                             "Inconsistent" = "#e5e5e5")) {
+  
+  clinical_var <- rlang::ensym(clinical_var)
+  pseudotime_var_chr <- rlang::as_string(rlang::ensym(pseudotime_var))
+  clinical_var_chr <- rlang::as_string(clinical_var)
+  
+  # Step 1: Pseudotime percentiles
+  med <- df %>%
+    group_by(.data[[subject_col]], .data[[visit_col]]) %>%
+    summarise(across(
+      .data[[pseudotime_var_chr]],
+      list("25" = ~quantile(., 0.25, na.rm = TRUE),
+           "50" = ~quantile(., 0.50, na.rm = TRUE),
+           "65" = ~quantile(., 0.65, na.rm = TRUE),
+           "85" = ~quantile(., 0.85, na.rm = TRUE)),
+      .names = "pseudotime_{fn}"
+    ), .groups = "drop")
+  
+  # Step 2: Construct plot_df
+  plot_df <- df %>%
+    dplyr::select(all_of(c(subject_col, visit_col, treatment_col, clinical_var_chr, visit_treatment_col))) %>%
+    distinct(.data[[subject_col]], .data[[visit_col]], .keep_all = TRUE) %>%
+    left_join(med, by = c(subject_col, visit_col)) %>%
+    pivot_longer(
+      cols = starts_with("pseudotime_"),
+      names_to = "percentile",
+      names_prefix = "pseudotime_",
+      values_to = "pseudotime"
+    ) %>%
+    mutate(percentile = as.numeric(percentile))
+  
+  # Step 3: Format wide for arrow plot
+  arrow_df <- plot_df %>%
+    dplyr::select(all_of(c(subject_col, treatment_col, clinical_var_chr, "percentile", visit_col, "pseudotime", visit_treatment_col))) %>%
+    pivot_wider(names_from = .data[[visit_col]],
+                values_from = c(pseudotime, !!clinical_var, !!visit_treatment_col)) %>%
+    mutate(expectations = case_when(
+      pseudotime_POST - pseudotime_PRE > 0 & !!sym(paste0(clinical_var_chr, "_POST")) - !!sym(paste0(clinical_var_chr, "_PRE")) > 0 ~ "Consistent",
+      pseudotime_POST - pseudotime_PRE < 0 & !!sym(paste0(clinical_var_chr, "_POST")) - !!sym(paste0(clinical_var_chr, "_PRE")) < 0 ~ "Consistent",
+      TRUE ~ "Inconsistent"
+    ))
+  
+  # Step 4: Plot
+  p <- arrow_df %>%
+    filter(percentile == percentile_filter) %>%
+    ggplot() +
+    geom_segment(aes(x = pseudotime_PRE,
+                     y = !!sym(paste0(clinical_var_chr, "_PRE")),
+                     xend = pseudotime_POST,
+                     yend = !!sym(paste0(clinical_var_chr, "_POST")),
+                     color = expectations),
+                 arrow = arrow(length = unit(0.5, "cm")),
+                 alpha = 1) +
+    geom_point(aes(x = pseudotime_PRE,
+                   y = !!sym(paste0(clinical_var_chr, "_PRE")),
+                   color = .data[[paste0(visit_treatment_col, "_PRE")]]),
+               shape = shape_pre, size = 4, alpha = 0.7) +
+    geom_point(aes(x = pseudotime_POST,
+                   y = !!sym(paste0(clinical_var_chr, "_POST")),
+                   color = .data[[paste0(visit_treatment_col, "_POST")]]),
+               shape = shape_post, size = 4, alpha = 0.7) +
+    scale_color_manual(values = color_palette) +
+    labs(x = "Pseudotime",
+         y = clinical_var_label %||% clinical_var_chr,
+         color = NULL) +
+    theme_minimal(base_size = 15) +
+    theme(panel.grid = element_blank())
+  
+  if (!is.null(bucket)) {
+    temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+    ggsave(filename = temp_file, width = 7, height = 5)
+    s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_arrow_scatter", 
+                                             tolower(celltype_suffix), "_", clinical_var, "_slingshot.jpeg"))
+  }
+  return(p)
+}
+
+# ===========================================================================
+# Function: plot_clinvar_pseudotime_arrows
+# ===========================================================================
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(rlang)
+library(grid)
+
+plot_clinvar_pseudotime_arrows_delta <- function(df,
+                                           pseudotime_var = "slingPseudotime_1",
+                                           subject_col = "subject_id",
+                                           visit_col = "visit",
+                                           treatment_col = "treatment",
+                                           visit_treatment_col = "visit_treatment",
+                                           clinical_var,                # unquoted, e.g. hba1c
+                                           clinical_var_label = NULL,   # for axis label
+                                           percentile_filter = 50,
+                                           percentiles = c(25, 50, 65, 85),
+                                           shape_pre = 16,
+                                           shape_post = 17,
+                                           bucket = "attempt",
+                                           celltype_suffix = "",
+                                           color_palette = c("PRE Placebo" = "#fbc4ab",
+                                                             "POST Placebo" = "#f4978e",
+                                                             "PRE Dapagliflozin" = "#ccd5ae",
+                                                             "POST Dapagliflozin" = "#828e82",
+                                                             "Healthy state" = "#8d99ae",
+                                                             "Injured state" = "#e5e5e5")) {
+  
+  clinical_var <- rlang::ensym(clinical_var)
+  pseudotime_var_chr <- rlang::as_string(rlang::ensym(pseudotime_var))
+  clinical_var_chr <- rlang::as_string(clinical_var)
+  
+  # Step 1: Pseudotime percentiles
+  med <- df %>%
+    group_by(.data[[subject_col]], .data[[visit_col]]) %>%
+    summarise(across(
+      .data[[pseudotime_var_chr]],
+      list("25" = ~quantile(., 0.25, na.rm = TRUE),
+           "50" = ~quantile(., 0.50, na.rm = TRUE),
+           "65" = ~quantile(., 0.65, na.rm = TRUE),
+           "85" = ~quantile(., 0.85, na.rm = TRUE)),
+      .names = "pseudotime_{fn}"
+    ), .groups = "drop")
+  
+  # Step 2: Construct plot_df
+  plot_df <- df %>%
+    dplyr::select(all_of(c(subject_col, visit_col, treatment_col, clinical_var_chr, visit_treatment_col))) %>%
+    distinct(.data[[subject_col]], .data[[visit_col]], .keep_all = TRUE) %>%
+    left_join(med, by = c(subject_col, visit_col)) %>%
+    pivot_longer(
+      cols = starts_with("pseudotime_"),
+      names_to = "percentile",
+      names_prefix = "pseudotime_",
+      values_to = "pseudotime"
+    ) %>%
+    mutate(percentile = as.numeric(percentile))
+  
+  # Step 3: Format wide for arrow plot
+  arrow_df <- plot_df %>%
+    dplyr::select(all_of(c(subject_col, treatment_col, clinical_var_chr, "percentile", visit_col, "pseudotime", visit_treatment_col))) %>%
+    pivot_wider(names_from = .data[[visit_col]],
+                values_from = c(pseudotime, !!clinical_var, !!visit_treatment_col)) %>%
+    mutate(expectations = case_when(
+      pseudotime_POST - pseudotime_PRE < 0 ~ "Healthy state",
+      TRUE ~ "Injured state"
+    ))
+  
+  # Step 4: Plot
+  p <- arrow_df %>%
+    filter(percentile == percentile_filter & 
+             !is.na(expectations) & 
+             (!is.na(.data[[paste0(visit_treatment_col, "_PRE")]])| !is.na(.data[[paste0(visit_treatment_col, "_POST")]]))) %>%
+    ggplot() +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "#2b2d42") +
+    geom_segment(aes(x = pseudotime_PRE,
+                     y = !!sym(paste0(clinical_var_chr, "_PRE")),
+                     xend = pseudotime_POST,
+                     yend = !!sym(paste0(clinical_var_chr, "_POST")),
+                     color = expectations),
+                 arrow = arrow(length = unit(0.5, "cm")),
+                 alpha = 1) +
+    geom_point(aes(x = pseudotime_PRE,
+                   y = !!sym(paste0(clinical_var_chr, "_PRE")),
+                   color = .data[[paste0(visit_treatment_col, "_PRE")]]),
+               shape = shape_pre, size = 4, alpha = 0.7) +
+    geom_point(aes(x = pseudotime_POST,
+                   y = !!sym(paste0(clinical_var_chr, "_POST")),
+                   color = .data[[paste0(visit_treatment_col, "_POST")]]),
+               shape = shape_post, size = 4, alpha = 0.7) +
+    scale_color_manual(values = color_palette) +
+    labs(x = "Pseudotime",
+         y = clinical_var_label %||% clinical_var_chr,
+         color = NULL) +
+    theme_minimal(base_size = 15) +
+    theme(panel.grid = element_blank())
+  
+  if (!is.null(bucket)) {
+    temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+    ggsave(filename = temp_file, width = 7, height = 5)
+    s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_arrow_scatter", 
+                                             tolower(celltype_suffix), "_", clinical_var, "_slingshot.jpeg"))
+  }
+
+  return(p)
 }

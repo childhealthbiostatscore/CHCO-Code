@@ -70,7 +70,6 @@ subject_modes_by_range <- sce_pt_celltype_df %>%
 
 ```
 
-
 ```{r}
 subject_modes_by_range %>%
   ggplot(aes(x = mode_range1, y = hba1c, color = visit)) +
@@ -83,7 +82,9 @@ subject_modes_by_range %>%
   ggplot(aes(x = mode_range3, y = hba1c, color = visit)) +
   geom_point()
 ```
+
 # cluster to three (overall)
+
 ```{r echo = F}
 # Load required libraries
 # Load required libraries
@@ -261,6 +262,7 @@ print(p_heatmap)
 #           "gmm_cluster_results.csv", row.names = FALSE)
 
 ```
+
 ```{r echo = F}
 # 1. Separate clustering by treatment group
 treated_df <- sce_pt_celltype_df[sce_pt_celltype_df$treatment == "Dapagliflozin", ]
@@ -462,7 +464,6 @@ clinical_vars <- c("hba1c", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "cgm_tir")
 # Run the analyses
 cluster_dist_plot <- plot_cluster_distributions(sce_pt_celltype_df)
 clinical_strata <- analyze_clinical_by_strata(sce_pt_celltype_df, clinical_vars)
-treatment_effects <- test_treatment_effects(sce_pt_celltype_df, clinical_vars)
 trajectory_plot <- plot_pseudotime_trajectories(sce_pt_celltype_df)
 transitions <- analyze_cluster_transitions(sce_pt_celltype_df)
 
@@ -677,6 +678,7 @@ sce_pt_celltype_df$cluster <- sce_pt_celltype_df$cluster_refined
 print("\nProceed with clinical analysis using the refined clusters...")
 
 ```
+
 ```{r echo = F}
 # Clustering Analysis Separated by Treatment Group
 # Analyze Dapagliflozin and Placebo groups independently
@@ -1458,19 +1460,60 @@ results_list <- list(
 cat("\n\nAnalysis complete. Cell type composition has been analyzed across clusters.\n")
 ```
 
+```{r echo = F}
+# Function to analyze cell type composition
+analyze_celltype_composition_cluster <- function(data, stratify_by = NULL) {
+  
+  # Create base analysis
+  if (!is.null(stratify_by)) {
+    comp_data <- data %>%
+      group_by(cluster, !!sym(stratify_by)) %>%
+      summarise(n = n(), .groups = "drop") %>%
+      group_by(!!sym(stratify_by)) %>%
+      mutate(
+        total_in_cluster = sum(n),
+        percent = n / total_in_cluster * 100
+      )
+  } else {
+    comp_data <- data %>%
+      group_by(cluster) %>%
+      summarise(n = n(), .groups = "drop") %>%
+      group_by(cluster) %>%
+      mutate(
+        total_in_cluster = sum(n),
+        percent = n / total_in_cluster * 100
+      )
+  }
+  
+  return(comp_data)
+}
+
+
+visit_treatment_comp <- analyze_celltype_composition_cluster(sce_pt_celltype_df, "visit_treatment")
+visit_treatment_comp
+visit_treatment_comp %>%
+  ggplot(aes(x = visit_treatment, y = percent, fill = cluster)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  theme(panel.grid = element_blank()) +
+  labs(x = NULL, y = NULL, fill = "Cluster") +
+  scale_fill_manual(values = c("#c9cba3", "#ffe1a8", "#e26d5c"))
+
+```
+
+
 # pseudobulk
 
 ```{r echo = F}
 # Association Analysis between Pseudotime and Clinical Variables
 # No clustering - just direct correlations and relationships
-
 library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(ggpubr)
 library(corrplot)
 
-# 1. Create pseudobulk data by aggregating cells per subject/visit
+# pseudobulk data by aggregating cells per subject/visit
 pseudobulk_data <- sce_pt_celltype_df %>%
   group_by(subject_id, visit, treatment) %>%
   summarise(
@@ -1481,7 +1524,7 @@ pseudobulk_data <- sce_pt_celltype_df %>%
     sd_pseudotime = sd(slingPseudotime_1, na.rm = TRUE),
     mode_pseudotime = Modes(slingPseudotime_1),
     
-    # Clinical variables (should be constant within subject/visit)
+    # Clinical variables
     hba1c = dplyr::first(hba1c),
     weight = dplyr::first(weight),
     mgfr_jodal = dplyr::first(mgfr_jodal),
@@ -1491,54 +1534,135 @@ pseudobulk_data <- sce_pt_celltype_df %>%
     .groups = "drop"
   )
 
-pseudobulk_data %>%
-  ggplot(aes(x = median_pseudotime, y = hba1c, color = treatment, shape = visit)) +
-  geom_point(size = 5)
+# pseudobulk_data %>%
+#   ggplot(aes(x = median_pseudotime, y = hba1c, color = treatment, shape = visit)) +
+#   geom_point(size = 5)
+# 
+# pseudobulk_data %>%
+#   ggplot(aes(x = median_pseudotime, y = weight, color = treatment, shape = visit)) +
+#   geom_point(size = 5)
+# 
+# pseudobulk_data %>%
+#   ggplot(aes(x = median_pseudotime, y = mgfr_jodal, color = treatment, shape = visit)) +
+#   geom_point(size = 5)
+# 
+# pseudobulk_data %>%
+#   ggplot(aes(x = median_pseudotime, y = mgfr_jodal_bsa, color = treatment, shape = visit)) +
+#   geom_point(size = 5)
+# 
+# pseudobulk_data %>%
+#   ggplot(aes(x = median_pseudotime, y = cgm_tir, color = treatment, shape = visit)) +
+#   geom_point(size = 5)
 
-pseudobulk_data %>%
-  ggplot(aes(x = median_pseudotime, y = weight, color = treatment, shape = visit)) +
-  geom_point(size = 5)
+summary(lmer(median_pseudotime ~ hba1c + (1|subject_id), data = pseudobulk_data))
+summary(lmer(median_pseudotime  ~ weight + (1|subject_id), data = pseudobulk_data))
+summary(lmer(median_pseudotime  ~ mgfr_jodal + (1|subject_id), data = pseudobulk_data))
+summary(lmer(median_pseudotime  ~ mgfr_jodal_bsa + (1|subject_id), data = pseudobulk_data))
+summary(lmer(median_pseudotime  ~ cgm_tir + (1|subject_id), data = pseudobulk_data))
 
-pseudobulk_data %>%
-  ggplot(aes(x = median_pseudotime, y = mgfr_jodal, color = treatment, shape = visit)) +
-  geom_point(size = 5)
 
-pseudobulk_data %>%
-  ggplot(aes(x = median_pseudotime, y = mgfr_jodal_bsa, color = treatment, shape = visit)) +
-  geom_point(size = 5)
+# summary(lm(median_pseudotime ~ hba1c_delta, data = pseudobulk_data))
+# summary(lm(median_pseudotime  ~ weight_delta, data = pseudobulk_data))
+# summary(lm(median_pseudotime  ~ mgfr_jodal_delta, data = pseudobulk_data))
+# summary(lm(median_pseudotime  ~ mgfr_jodal_bsa_delta, data = pseudobulk_data))
+# summary(lm(median_pseudotime  ~ tir_delta, data = pseudobulk_data))
+```
 
-pseudobulk_data %>%
-  ggplot(aes(x = median_pseudotime, y = cgm_tir, color = treatment, shape = visit)) +
-  geom_point(size = 5)
+# correlations on pseudobulk
+```{r echo = F}
+cor(nonmissing_hba1c_pseudobulk_data$median_pseudotime, nonmissing_hba1c_pseudobulk_data$hba1c)
+cor(pseudobulk_data$median_pseudotime, pseudobulk_data$weight)
+cor(pseudobulk_data$median_pseudotime, pseudobulk_data$mgfr_jodal)
+cor(pseudobulk_data$median_pseudotime, pseudobulk_data$mgfr_jodal_bsa)
+cor(pseudobulk_data$median_pseudotime, pseudobulk_data$cgm_tir)
 
-summary(lmer(median_pseudotime ~ hba1c *treatment + visit + (1|subject_id), data = pseudobulk_data))
-summary(lmer(median_pseudotime  ~ weight *treatment + visit + (1|subject_id), data = pseudobulk_data))
-summary(lmer(median_pseudotime  ~ mgfr_jodal *treatment + visit + (1|subject_id), data = pseudobulk_data))
-summary(lmer(median_pseudotime  ~ cgm_tir *treatment + visit + (1|subject_id), data = pseudobulk_data))
+```
+
+# lmer w/ pseudotime
+
+```{r echo = F}
+model <- (lmer(slingPseudotime_1 ~ hba1c + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(slingPseudotime_1 ~ weight + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(slingPseudotime_1 ~ mgfr_jodal + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(slingPseudotime_1 ~ mgfr_jodal_bsa + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(slingPseudotime_1 ~ cgm_tir + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
 ```
 
 # lmer w/ scaled pseudotime (0-1)
+
 ```{r echo = F}
 sce_pt_celltype_df$scaled_pseudotime <- sce_pt_celltype_df$slingPseudotime_1/max(sce_pt_celltype_df$slingPseudotime_1)
 
-model <- (lmer(scaled_pseudotime ~ hba1c + treatment + visit + (1 |subject_id), data = sce_pt_celltype_df))
+model <- (lmer(scaled_pseudotime ~ hba1c + (1 |subject_id), data = sce_pt_celltype_df))
 summary(model)
 qqnorm(resid(model)); qqline(resid(model))
 
-model <- (lmer(scaled_pseudotime ~ weight + treatment + visit + (1 |subject_id), data = sce_pt_celltype_df))
+model <- (lmer(scaled_pseudotime ~ weight + (1 |subject_id), data = sce_pt_celltype_df))
 summary(model)
 qqnorm(resid(model)); qqline(resid(model))
 
-model <- (lmer(scaled_pseudotime ~ mgfr_jodal + treatment + visit + (1 |subject_id), data = sce_pt_celltype_df))
+model <- (lmer(scaled_pseudotime ~ mgfr_jodal + (1 |subject_id), data = sce_pt_celltype_df))
 summary(model)
 qqnorm(resid(model)); qqline(resid(model))
 
-model <- (lmer(scaled_pseudotime ~ mgfr_jodal_bsa + treatment + visit + (1 |subject_id), data = sce_pt_celltype_df))
+model <- (lmer(scaled_pseudotime ~ mgfr_jodal_bsa + (1 |subject_id), data = sce_pt_celltype_df))
 summary(model)
 qqnorm(resid(model)); qqline(resid(model))
 
-model <- (lmer(scaled_pseudotime ~ cgm_tir + treatment + visit + (1 |subject_id), data = sce_pt_celltype_df))
+model <- (lmer(scaled_pseudotime ~ cgm_tir + (1 |subject_id), data = sce_pt_celltype_df))
 summary(model)
 qqnorm(resid(model)); qqline(resid(model))
 
+```
+# lmer w/ log transformed
+
+```{r echo = F}
+sce_pt_celltype_df$log_pseudotime <- log(sce_pt_celltype_df$slingPseudotime_1+1)
+
+model <- (lmer(log_pseudotime ~ hba1c + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(log_pseudotime ~ weight + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(log_pseudotime ~ mgfr_jodal + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(log_pseudotime ~ mgfr_jodal_bsa + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+model <- (lmer(log_pseudotime ~ cgm_tir + (1 |subject_id), data = sce_pt_celltype_df))
+summary(model)
+qqnorm(resid(model)); qqline(resid(model))
+
+```
+# Kernal regression
+```{r echo = F}
+library(np)
+nonmissing_hba1c_pseudobulk_data <- subset(pseudobulk_data, !is.na(hba1c))
+bw <- npregbw(median_pseudotime ~ hba1c, data = nonmissing_hba1c_pseudobulk_data)
+model <- npreg(bw)
+summary(model)
+
+plot(nonmissing_hba1c_pseudobulk_data$hba1c, nonmissing_hba1c_pseudobulk_data$median_pseudotime)
+lines(nonmissing_hba1c_pseudobulk_data$hba1c, fitted(model), col = "blue", lwd = 2)
 ```

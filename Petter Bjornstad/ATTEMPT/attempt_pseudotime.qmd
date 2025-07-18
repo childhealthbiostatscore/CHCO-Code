@@ -13,6 +13,7 @@ format:
 
 ```{r libraries, message = F, warning=F}
 #| include: false
+source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
 library(future)
 library(future.apply)
 library(tidyverse)
@@ -67,6 +68,15 @@ library(circlize)
 library(slingshot)
 library(uwot)
 library(mclust, quietly = TRUE)
+library(condiments)
+library(plotly)
+library(grDevices)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(htmlwidgets)
+library(mixtools)
+library(quantreg)
 ```
 
 ```{r include = F}
@@ -87,6 +97,7 @@ session <- boto3$session$Session(
 
 ## Create an S3 client with the session
 s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+
 ```
 
 ```{r echo = F, eval = T}
@@ -95,24 +106,533 @@ temp_file <- tempfile(fileext = ".rds")
 s3$download_file("attempt", 'cleaned_data/attempt_clean_so.rds', temp_file)
 attempt_so <- readRDS(temp_file)
 ``` 
+```{r echo = F}
+# clustering cells
+# cl1 <- Mclust(rd1)$classification
+# colData(sce_pt)$GMM <- cl1
+# 
+# library(RColorBrewer)
+# plot(rd1, col = brewer.pal(9,"Set1")[cl1], pch=16, asp = 1)
+# 
+# cl2 <- kmeans(rd1, centers = 4)$cluster
+# colData(sce_pt)$kmeans <- cl2
+# 
+# plot(rd1, col = brewer.pal(9,"Set1")[cl2], pch=16, asp = 1)
+# 
+# sce_pt_gmm <- slingshot(sce_pt, clusterLabels = 'GMM', reducedDim = 'PCA')
+```
 
 # PT
+
 ```{r echo = F}
 attempt_so$celltype_pt <- ifelse(grepl("PT-", attempt_so$celltype),
                                  "PT", as.character(attempt_so$celltype))
 attempt_so_pt <- subset(attempt_so, celltype_pt == "PT" & celltype != "PT_lowQuality")
 ```
 
+## Slingshot
+
 ```{r echo = F}
-counts_pt <- GetAssayData(attempt_so_pt, layer = "counts")
-sce_pt <- SingleCellExperiment(assays = List(counts = counts_pt))
+sling_pt <- slingshot_setup(attempt_so_pt, celltype_prefix = "PT")
+sce_pt <- sling_pt$sce
+
+sling_pt$elbow_plot
+
+sce_pt_celltype <- run_slingshot(sce_pt, sling_pt$pca, 
+                                 n_pcs = 6, # choose N of PCs based on elbow plot inspection
+                                 start_cluster = "PT-2")
+```
+
+```{r echo = F}
+pt_slingshot_res <- plot_slingshot_trajectory(sce_sl = sce_pt_celltype,
+                                              celltype_levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"),
+                                              custom_colors = color_5,
+                                              celltype_suffix = "pt")
+pt_slingshot_res$pca_plot
+```
+
+```{r echo = F}
+pt_pseudotime_df <- create_pseudotime_df(sce_pt_celltype)
+```
+
+```{r echo = F}
+# violin plot
+plot_pseudotime_violin(df = pt_pseudotime_df, celltype_suffix = "pt")
+```
+
+```{r echo = F}
+# 3D scatter plot with trajectory
+plot_slingshot_3d(pca_df = pt_slingshot_res$pca_df,
+                  curve_df = pt_slingshot_res$curve_df,
+                  celltype_suffix = "pt")
+```
+
+## Quantile regression
+
+```{r echo = F}
+no_s4 <- setdiff(names(colData(sce_pt_celltype)), "slingshot")
+sce_pt_celltype_df <- as.data.frame(colData(sce_pt_celltype)[, no_s4]) %>%
+  mutate(visit_treatment = factor(paste(visit, treatment), levels = c("PRE Placebo", "POST Placebo",
+                                             "PRE Dapagliflozin", "POST Dapagliflozin")))
+
+# Quantile model
+pt_rq_fit <- rq(slingPseudotime_1 ~ treatment * visit, 
+                tau = c(0.25, 0.65, 0.85), # three peaks (approx)
+                data = sce_pt_celltype_df)
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_rq_fit, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Results/pt_rq_fit.rds')
+
+pt_rq_fit_summary <- summary(pt_rq_fit)
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_rq_fit_summary, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Results/pt_rq_fit_summary.rds')
+
+# Create a grid of conditions to predict on
+pt_rq_grid <- expand.grid(
+  treatment = c("Placebo", "Dapagliflozin"),
+  visit = c("PRE", "POST"))
+
+# Predicted 75th percentile pseudotime in each group
+pt_rq_grid$rq25 <- predict(pt_rq_fit, pt_rq_grid)[,1]
+pt_rq_grid$rq65 <- predict(pt_rq_fit, pt_rq_grid)[,2]
+pt_rq_grid$rq85 <- predict(pt_rq_fit, pt_rq_grid)[,3]
+
+pt_rq_grid <- as.data.frame(pt_rq_grid)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_rq_grid, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Results/pt_rq_fit_predict.rds')
+
+```
+
+## Density plots
+
+```{r echo = F}
+# density plot by visit/treatment group
+plot_and_test_pseudotime_distribution(
+  df = pt_pseudotime_df,
+  sce_object = sce_pt_celltype,
+  filename_suffix = "pt"
+)
+
+# statistic: 0.2964716;	p-value: 1.081761e-13
+```
+
+```{r echo = F}
+# density plots by trt group
+plot_pseudotime_density_faceted_by_treatment(
+  df = sce_pt_celltype_df,
+  filename_suffix = "pt"
+)
+```
+
+```{r echo = F}
+# Heatmap for delta
+plot_delta_percentile_heatmap(
+  df = pt_rq_grid,
+  filename_suffix = "pt"
+)
+```
+
+```{r echo = F}
+# Quantile model (visit and treatment on their own for sanity check)
+pt_rq_fit_trt <- rq(slingPseudotime_1 ~ treatment,
+                tau = c(0.25, 0.65, 0.85), # three peaks (approx)
+                data = sce_pt_celltype_df)
+summary(pt_rq_fit_trt)
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_rq_fit_trt, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Results/pt_rq_fit_trt.rds')
+
+pt_rq_fit_visit <- rq(slingPseudotime_1 ~ visit,
+                tau = c(0.25, 0.65, 0.85), # three peaks (approx)
+                data = sce_pt_celltype_df)
+summary(pt_rq_fit_visit)
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_rq_fit_visit, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Results/pt_rq_fit_visit.rds')
+```
+
+## Clinical vars
+
+### HbA1c
+```{r echo = F}
+# Quantile model
+pt_rq_fit_hba1c <- rq(slingPseudotime_1 ~ hba1c_delta, 
+                tau = c(0.25, 0.65, 0.85), # three peaks (approx)
+                data = sce_pt_celltype_df)
+summary(pt_rq_fit_hba1c)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_rq_fit_hba1c, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Results/pt_rq_fit_hba1c.rds')
+```
+
+
+```{r echo = F}
+analyze_pseudotime_by_clinvar(sce_pt_celltype_df,
+                              hba1c, slingPseudotime_1,
+                              bin_probs = 2,
+                              caption_clinical_var = "HbA1c",
+                              celltype_suffix = "pt")
+
+# D = 0.058914, p-value < 2.2e-16
+```
+
+```{r echo = F}
+analyze_pseudotime_by_clinvar(subset(sce_pt_celltype_df, visit == "PRE"),
+                              hba1c, slingPseudotime_1,
+                              bin_probs = 2,
+                              caption_clinical_var = "Baseline HbA1c",
+                              celltype_suffix = "pt",
+                              filesuffix = "pre")
+
+# D = 0.072015, p-value = 5.575e-16
+```
+
+```{r echo = F}
+# by clinical direction (pos/neg delta)
+analyze_pseudotime_by_clinvar(sce_pt_celltype_df,
+                              hba1c_delta, slingPseudotime_1,
+                              bin_probs = "direction",
+                              caption_clinical_var = "\u0394 HbA1c",
+                              celltype_suffix = "pt",
+                              filesuffix = "delta")
+
+# D = 0.23356, p-value < 2.2e-16
+```
+
+```{r echo = F}
+plot_clinvar_pseudotime_arrows(df = sce_pt_celltype_df,
+  clinical_var = hba1c,
+  clinical_var_label = "HbA1c (%)", 
+  celltype_suffix = "pt")
+
+plot_clinvar_pseudotime_arrows_delta(df = sce_pt_celltype_df,
+  clinical_var = hba1c_delta,
+  clinical_var_label = "HbA1c (%)", 
+  celltype_suffix = "pt")
+```
+
+### Weight
+```{r echo = F}
+# Quantile model
+pt_rq_fit_weight <- rq(slingPseudotime_1 ~ weight_delta, 
+                tau = c(0.25, 0.65, 0.85), # three peaks (approx)
+                data = sce_pt_celltype_df)
+summary(pt_rq_fit_weight)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_rq_fit_weight, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Results/pt_rq_fit_weight.rds')
+```
+
+
+```{r echo = F}
+analyze_pseudotime_by_clinvar(sce_pt_celltype_df,
+                              weight, slingPseudotime_1,
+                              bin_probs = 2,
+                              caption_clinical_var = "Weight",
+                              celltype_suffix = "pt")
+
+# D = 0.1847, p-value < 2.2e-16
+```
+
+```{r echo = F}
+analyze_pseudotime_by_clinvar(subset(sce_pt_celltype_df, visit == "PRE"),
+                              weight, slingPseudotime_1,
+                              bin_probs = 2,
+                              caption_clinical_var = "Baseline weight",
+                              celltype_suffix = "pt",
+                              filesuffix = "pre")
+
+# D = 0.2062, p-value < 2.2e-16
+```
+
+
+```{r echo = F}
+# by clinical direction (pos/neg delta)
+analyze_pseudotime_by_clinvar(sce_pt_celltype_df,
+                              weight_delta, slingPseudotime_1,
+                              bin_probs = "direction",
+                              caption_clinical_var = "\u0394 Weight",
+                              celltype_suffix = "pt",
+                              filesuffix = "delta")
+
+# D = 0.17651, p-value < 2.2e-16
+```
+
+
+```{r echo = F}
+plot_clinvar_pseudotime_arrows(df = sce_pt_celltype_df,
+  clinical_var = weight,
+  clinical_var_label = "Weight (kg)")
+
+plot_clinvar_pseudotime_arrows_delta(df = sce_pt_celltype_df,
+  clinical_var = weight_delta,
+  clinical_var_label = "Weight (kg)", 
+  celltype_suffix = "pt")
+```
+
+### mGFR
+```{r echo = F}
+# Quantile model
+pt_rq_fit_mgfr_jodal <- rq(slingPseudotime_1 ~ mgfr_jodal_delta, 
+                tau = c(0.25, 0.65, 0.85), # three peaks (approx)
+                data = sce_pt_celltype_df)
+summary(pt_rq_fit_mgfr_jodal)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_rq_fit_mgfr_jodal, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Results/pt_rq_fit_mgfr_jodal.rds')
+```
+
+```{r echo = F}
+analyze_pseudotime_by_clinvar(sce_pt_celltype_df,
+                              mgfr_jodal, slingPseudotime_1,
+                              bin_probs = 2,
+                              caption_clinical_var = "mGFR",
+                              celltype_suffix = "pt")
+
+# D = 0.24323, p-value < 2.2e-16
+```
+
+```{r echo = F}
+analyze_pseudotime_by_clinvar(subset(sce_pt_celltype_df, visit == "PRE"),
+                              mgfr_jodal, slingPseudotime_1,
+                              bin_probs = 2,
+                              caption_clinical_var = "Baseline mGFR",
+                              celltype_suffix = "pt",
+                              filesuffix = "pre")
+
+# D = 0.11037, p-value < 2.2e-16
+```
+
+
+```{r echo = F}
+# by clinical direction (pos/neg delta)
+analyze_pseudotime_by_clinvar(sce_pt_celltype_df,
+                              mgfr_jodal_delta, slingPseudotime_1,
+                              bin_probs = "direction",
+                              caption_clinical_var = "\u0394 mGFR",
+                              celltype_suffix = "pt",
+                              filesuffix = "delta")
+
+# D = 0.13687, p-value < 2.2e-16
+```
+
+```{r echo = F}
+plot_clinvar_pseudotime_arrows(df = sce_pt_celltype_df,
+  clinical_var = mgfr_jodal,
+  clinical_var_label = "mGFR")
+
+plot_clinvar_pseudotime_arrows_delta(df = sce_pt_celltype_df,
+  clinical_var = mgfr_jodal_delta,
+  clinical_var_label = "mGFR", 
+  celltype_suffix = "pt")
+```
+
+### mGFR (BSA)
+```{r echo = F}
+# Quantile model
+pt_rq_fit_mgfr_jodal_bsa <- rq(slingPseudotime_1 ~ mgfr_jodal_bsa_delta, 
+                tau = c(0.25, 0.65, 0.85), # three peaks (approx)
+                data = sce_pt_celltype_df)
+summary(pt_rq_fit_mgfr_jodal_bsa)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_rq_fit_mgfr_jodal_bsa, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Results/pt_rq_fit_mgfr_jodal_bsa.rds')
+```
+
+
+```{r echo = F}
+analyze_pseudotime_by_clinvar(sce_pt_celltype_df,
+                              mgfr_jodal_bsa, slingPseudotime_1,
+                              bin_probs = 2,
+                              caption_clinical_var = "mGFR (BSA)",
+                              celltype_suffix = "pt")
+
+# D = 0.24323, p-value < 2.2e-16
+```
+
+
+```{r echo = F}
+analyze_pseudotime_by_clinvar(subset(sce_pt_celltype_df, visit == "PRE"),
+                              mgfr_jodal_bsa, slingPseudotime_1,
+                              bin_probs = 2,
+                              caption_clinical_var = "Baseline mGFR (BSA)",
+                              celltype_suffix = "pt",
+                              filesuffix = "pre")
+
+# D = 0.19397, p-value < 2.2e-16
+```
+
+
+
+```{r echo = F}
+# by clinical direction (pos/neg delta)
+analyze_pseudotime_by_clinvar(sce_pt_celltype_df,
+                              mgfr_jodal_bsa_delta, slingPseudotime_1,
+                              bin_probs = "direction",
+                              caption_clinical_var = "\u0394 mGFR (BSA)",
+                              celltype_suffix = "pt",
+                              filesuffix = "delta")
+
+# D = 0.20191, p-value < 2.2e-16
+```
+
+
+```{r echo = F}
+plot_clinvar_pseudotime_arrows(df = sce_pt_celltype_df,
+  clinical_var = mgfr_jodal_bsa,
+  clinical_var_label = "mGFR (BSA)")
+
+plot_clinvar_pseudotime_arrows_delta(df = sce_pt_celltype_df,
+  clinical_var = mgfr_jodal_bsa_delta,
+  clinical_var_label = "mGFR (BSA)", 
+  celltype_suffix = "pt")
+```
+
+### TIR
+
+```{r echo = F}
+# Quantile model
+pt_rq_fit_tir <- rq(slingPseudotime_1 ~ tir_delta, 
+                tau = c(0.25, 0.65, 0.85), # three peaks (approx)
+                data = sce_pt_celltype_df)
+summary(pt_rq_fit_tir)
+
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_rq_fit_tir, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'Results/pt_rq_fit_tir.rds')
+```
+
+
+```{r echo = F}
+analyze_pseudotime_by_clinvar(sce_pt_celltype_df,
+                              cgm_tir, slingPseudotime_1,
+                              bin_probs = 2,
+                              caption_clinical_var = "TIR",
+                              celltype_suffix = "pt")
+# D = 0.043854, p-value = 1.095e-11
+```
+
+```{r echo = F}
+# baseline only
+analyze_pseudotime_by_clinvar(subset(sce_pt_celltype_df, visit == "PRE"),
+                              cgm_tir, slingPseudotime_1,
+                              bin_probs = 2,
+                              caption_clinical_var = "Baseline TIR",
+                              celltype_suffix = "pt",
+                              filesuffix = "pre")
+# D = 0.1183, p-value = < 2.2e-16
+```
+
+```{r echo = F}
+# by clinical direction (pos/neg delta)
+analyze_pseudotime_by_clinvar(sce_pt_celltype_df,
+                              tir_delta, slingPseudotime_1,
+                              bin_probs = "direction",
+                              caption_clinical_var = "\u0394 TIR",
+                              celltype_suffix = "pt",
+                              filesuffix = "delta")
+
+# D = 0.076585, p-value < 2.2e-16
+```
+
+```{r echo = F}
+plot_clinvar_pseudotime_arrows(df = sce_pt_celltype_df,
+  clinical_var = cgm_tir,
+  clinical_var_label = "Time in Range")
+
+plot_clinvar_pseudotime_arrows_delta(df = sce_pt_celltype_df,
+  clinical_var = tir_delta,
+  clinical_var_label = "Time in Range", 
+  celltype_suffix = "pt")
+```
+
+# TAL
+```{r echo = F}
+attempt_so$celltype_tal <- ifelse(grepl("TAL-", attempt_so$celltype),
+                                 "TAL", as.character(attempt_so$celltype))
+attempt_so_tal <- subset(attempt_so, celltype_tal == "TAL")
+```
+
+
+## Slingshot
+
+```{r echo = F}
+sling_tal <- slingshot_setup(attempt_so_tal, celltype_prefix = "TAL")
+sce_tal <- sling_tal$sce
+
+sling_tal$elbow_plot
+
+# slingshot by celltype
+sce_tal_celltype <- run_slingshot(sce_tal, sling_tal$pca, 
+                                  n_pcs = 10, # choose N of PCs based on elbow plot inspection
+                                  end_cluster = "TAL-2")
+
+# slingshot by KPMP celltype
+sce_tal_kpmp_celltype <- run_slingshot(sce_tal, 
+                                       sling_tal$pca, 
+                                       n_pcs = 10, # choose N of PCs based on elbow plot inspection
+                                       cluster_label = "KPMP_celltype")
+
+# Try different PC sets
+# Set up a color vector based on cluster labels
+cluster_var <- "celltype"  # or "GMM", "kmeans", etc.
+cluster_labels <- colData(sce_tal)[[cluster_var]]
+cluster_levels <- unique(cluster_labels)
+cluster_colors <- setNames(brewer.pal(length(cluster_levels), "Set1")[seq_along(cluster_levels)],
+                           cluster_levels)
+your_color_vector <- cluster_colors[cluster_labels]
+
+# Define PC ranges to test
+pcs_list <- list("PC1_2" = 1:2, "PC1_5" = 1:5,  "PC1_10" = 1:10, "PC1_15" = 1:15)
+
+# Run and plot Slingshot with each PC range
+par(mfrow = c(2,2))  # adjust depending on how many you're comparing
+
+for (name in names(pcs_list)) {
+  pcs <- pcs_list[[name]]
+  reducedDims(sce_tal) <- SimpleList(PCA = pca$x[, pcs])
+  
+  sce_sl <- slingshot(sce_tal, clusterLabels = cluster_var, reducedDim = 'PCA')
+  
+  plot(reducedDims(sce_sl)$PCA, col = your_color_vector, pch = 16, asp = 1,
+       main = paste("Slingshot -", name))
+  lines(SlingshotDataSet(sce_sl), lwd = 2, col = 'black')
+}
+```
+
+```{r echo = F}
+tal_slingshot_res <- plot_slingshot_trajectory(sce_sl = sce_tal_celltype,
+                                              celltype_levels = c("TAL-1", "TAL-2", "TAL-3"),
+                                              custom_colors = color_5,
+                                              celltype_suffix = "tal")
+tal_slingshot_res$lineage
+tal_slingshot_res$pca_plot
+
+plot(reducedDims(sce_tal_celltype)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sce_tal_celltype), lwd=2, col='black')
+
+plot(reducedDims(sce_tal_celltype)$PCA, asp=0.5, col = 'grey75', pch = 16)
+points(reducedDims(sce_tal_celltype)$PCA, col = hcl.colors(100)[cut(slingPseudotime(sce_tal_celltype)[,1], 100)], pch=16)
+legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
+```
+
+```{r echo = F}
+counts_tal <- GetAssayData(attempt_so_tal, layer = "counts")
+sce_tal <- SingleCellExperiment(assays = List(counts = counts_tal))
 
 # filter genes down to potential cell-type markers
 # at least M (15) reads in at least N (15) cells
-geneFilter <- apply(assays(sce_pt)$counts,1,function(x){
+geneFilter <- apply(assays(sce_tal)$counts,1,function(x){
     sum(x >= 3) >= 10
 })
-sce_pt <- sce_pt[geneFilter, ]
+sce_tal <- sce_tal[geneFilter, ]
 
 # normalization
 FQnorm <- function(counts){
@@ -123,102 +643,111 @@ FQnorm <- function(counts){
   rownames(norm) <- rownames(counts)
   return(norm)
 }
-assays(sce_pt)$norm <- FQnorm(assays(sce_pt)$counts)
+assays(sce_tal)$norm <- FQnorm(assays(sce_tal)$counts)
 
 # dimension reduction
-pca <- prcomp(t(log1p(assays(sce_pt)$norm)), scale. = FALSE)
-rd1 <- pca$x[,1:2]
+pca <- prcomp(t(log1p(assays(sce_tal)$norm)), scale. = FALSE)
+rd1 <- pca$x[,1:8]
 
 plot(rd1, col = rgb(0,0,0,.5), pch=16, asp = 1)
 
-rd2 <- uwot::umap(t(log1p(assays(sce_pt)$norm)))
-colnames(rd2) <- c('UMAP1', 'UMAP2')
-
-plot(rd2, col = rgb(0,0,0,.5), pch=16, asp = 1)
-
-reducedDims(sce_pt) <- SimpleList(PCA = rd1, UMAP = rd2)
-```
-
-```{r echo = F}
 # clustering cells
 cl1 <- Mclust(rd1)$classification
-colData(sce_pt)$GMM <- cl1
+colData(sce_tal)$GMM <- cl1
 
 library(RColorBrewer)
 plot(rd1, col = brewer.pal(9,"Set1")[cl1], pch=16, asp = 1)
 
 cl2 <- kmeans(rd1, centers = 4)$cluster
-colData(sce_pt)$kmeans <- cl2
+colData(sce_tal)$kmeans <- cl2
 
 plot(rd1, col = brewer.pal(9,"Set1")[cl2], pch=16, asp = 1)
 
-sce_pt_gmm <- slingshot(sce_pt, clusterLabels = 'GMM', reducedDim = 'PCA')
+sce_pt_gmm <- slingshot(sce_tal, clusterLabels = 'GMM', reducedDim = 'PCA')
+sce_pt_kmeans <- slingshot(sce_tal, clusterLabels = 'kmeans', reducedDim = 'PCA')
 
-colData(sce_pt)$celltype <- attempt_so_pt$celltype
-colData(sce_pt)$treatment <- attempt_so_pt$treatment
-colData(sce_pt)$visit <- attempt_so_pt$visit
-
-sce_pt_celltype <- slingshot(sce_pt, clusterLabels = 'celltype', reducedDim = 'PCA')
-
-```
-
-```{r echo = F}
-summary(sce_pt_celltype$slingPseudotime_1)
-library(grDevices)
+summary(sce_pt_kmeans$slingPseudotime_1)
 colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
-plotcol <- colors[cut(sce_pt_celltype$slingPseudotime_1, breaks=100)]
+plotcol <- colors[cut(sce_pt_kmeans$slingPseudotime_1, breaks=100)]
 
-plot(reducedDims(sce_pt_celltype)$PCA, col = plotcol, pch=16, asp = 1)
-lines(SlingshotDataSet(sce_pt_celltype), lwd=2, col='black')
+plot(reducedDims(sce_pt_kmeans)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sce_pt_kmeans), lwd=2, col='black')
 
-plot(reducedDims(sce_pt_celltype)$PCA, col = brewer.pal(9,'Set1')[sce_pt_celltype$GMM], pch=16, asp = 1)
-lines(SlingshotDataSet(sce_pt_celltype), lwd=2, type = 'lineages', col = 'black')
+plot(reducedDims(sce_pt_kmeans)$PCA, col = brewer.pal(9,'Set1')[sce_tal_celltype$GMM], pch=16, asp = 1)
+lines(SlingshotDataSet(sce_pt_kmeans), lwd=2, type = 'lineages', col = 'black')
 
 
-plot(reducedDims(sce_pt_celltype)$PCA, asp=0.5, col = 'grey75', pch = 16)
-points(reducedDims(sce_pt_celltype)$PCA, col = hcl.colors(100)[cut(slingPseudotime(sce_pt_celltype)[,1], 100)], pch=16)
+plot(reducedDims(sce_pt_kmeans)$PCA, asp=0.5, col = 'grey75', pch = 16)
+points(reducedDims(sce_pt_kmeans)$PCA, col = hcl.colors(100)[cut(slingPseudotime(sce_pt_kmeans)[,1], 100)], pch=16)
 legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
+```
 
 
-pca_df <- as.data.frame(reducedDims(sce_pt_celltype)$PCA)
-pca_df$celltype <- colData(sce_pt_celltype)$celltype
-pca_df$pseudotime <- slingPseudotime(sce_pt_celltype)[,1]  # choose a lineage if >1
-
-# Optional: get curve
-curves <- slingCurves(sce_pt_celltype)
-pca_df$celltype <- factor(pca_df$celltype, levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))
-slingshot::slingLineages(sce_pt_celltype)
-# Plot
-ggplot(pca_df, aes(x = PC1, y = PC2, color = celltype)) +
-  geom_point(alpha = 0.3, size = 1) +
-  geom_path(data = as.data.frame(curves[[1]]$s), aes(x = PC1, y = PC2), color = "black", size = 1.2) +
-  labs(title = "PT cell types along Slingshot trajectory") +
-  theme_bw() + 
-  theme(panel.grid = element_blank()) + 
-  labs(color = NULL)
-temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
-ggsave(filename = temp_file, width = 7, height = 5)
-s3$upload_file(temp_file, "attempt", "slingshot/attempt_pca_pt_slingshot.jpeg")
+```{r echo = F}
+# violin plot
+tal_pseudotime_df <- create_pseudotime_df(sce_tal_celltype)
+plot_pseudotime_violin(df = tal_pseudotime_df, celltype_suffix = "tal")
 ```
 
 ```{r echo = F}
-pseudotime_df <- data.frame(
-  pseudotime = slingPseudotime(sce_pt_celltype)[,1],
-  treatment  = sce_pt_celltype$treatment,  
-  visit      = sce_pt_celltype$visit, 
-  celltype   = sce_pt_celltype$celltype,
-  visit_treatment = paste0(sce_pt_celltype$treatment, ".", sce_pt_celltype$visit)
-)
-pseudotime_df$visit_treatment <- factor(pseudotime_df$visit_treatment, levels = c("Placebo.PRE", "Placebo.POST",
-                                                                                  "Dapagliflozin.PRE", "Dapagliflozin.POST"))
-ggplot(pseudotime_df, aes(x = visit_treatment, y = pseudotime)) +
-  geom_violin(aes(fill = treatment), trim = FALSE) +
-  geom_boxplot(width = 0.1, outlier.shape = NA) +
-  theme_classic() +
-  labs(x = "Group (Treatment x Visit)", y = "Slingshot Pseudotime",
-       fill = NULL)
-temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
-ggsave(filename = temp_file, width = 7, height = 5)
-s3$upload_file(temp_file, "attempt", "slingshot/attempt_slingshot_violin.jpeg")
+# 3D scatter plot with trajectory
+plot_slingshot_3d(pca_df = tal_slingshot_res$pca_df,
+                  curve = tal_slingshot_res$curve_df,
+                  celltype_suffix = "tal")
+```
 
+## Quantile regression
+
+```{r echo = F}
+no_s4 <- setdiff(names(colData(sce_tal_celltype)), "slingshot")
+sce_tal_celltype_df <- as.data.frame(colData(sce_tal_celltype)[, no_s4]) %>%
+  mutate(visit_treatment = factor(paste(visit, treatment), levels = c("PRE Placebo", "POST Placebo",
+                                             "PRE Dapagliflozin", "POST Dapagliflozin")))
+
+# Quantile model
+tal_rq_fit <- rq(slingPseudotime_1 ~ treatment * visit, 
+                tau = c(0.25, 0.65, 0.85), # three peaks (approx)
+                data = sce_tal_celltype_df)
+summary(tal_rq_fit)
+
+# Create a grid of conditions to predict on
+tal_rq_grid <- expand.grid(
+  treatment = c("Placebo", "Dapagliflozin"),
+  visit = c("PRE", "POST"))
+
+# Predicted 75th percentile pseudotime in each group
+tal_rq_grid$rq25 <- predict(tal_rq_fit, tal_rq_grid)[,1]
+tal_rq_grid$rq65 <- predict(tal_rq_fit, tal_rq_grid)[,2]
+tal_rq_grid$rq85 <- predict(tal_rq_fit, tal_rq_grid)[,3]
+
+tal_rq_grid <- as.data.frame(tal_rq_grid)
+```
+
+## Density plots
+
+```{r echo = F}
+# density plot by visit/treatment group
+plot_and_test_pseudotime_distribution(
+  df = tal_pseudotime_df,
+  sce_object = sce_tal_celltype,
+  filename_suffix = "tal"
+)
+
+# statistic: 0.2964716;	p-value: 1.081761e-13
+```
+
+```{r echo = F}
+# density plots by trt group
+plot_pseudotime_density_faceted_by_treatment(
+  df = sce_tal_celltype_df,
+  filename_suffix = "tal"
+)
+```
+
+```{r echo = F}
+# Heatmap for delta
+plot_delta_percentile_heatmap(
+  df = tal_rq_grid,
+  filename_suffix = "tal"
+)
 ```
