@@ -22,10 +22,12 @@ existing$source <- "EXISTING"
 
 # combine
 rand <- rbind(obs, existing)
+rand$intinclusion7 <- ifelse(rand$source == "OBS", 0, 1)
 
 # check
 table(rand$treatment_char)
 table(rand$source, rand$treatment_char)
+table(rand$source, rand$intinclusion7)
 
 # output
 write.csv(rand, 
