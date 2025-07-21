@@ -1,5 +1,3 @@
-
-
 color_5 <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")
 
 # ATTEMPT analysis related functions
@@ -251,6 +249,155 @@ run_nebula_attempt <- function(so,
 }
 
 # ---- Plot Functions ----
+
+# ===========================================================================
+# Function: plot_delta_by_category
+# ===========================================================================
+
+plot_delta_by_category <- function(data,
+                                   id_var = "subject_id",
+                                   treatment_var = "treatment",
+                                   value_var = "value",
+                                   x_var = NULL,  # NEW: variable to bin on (optional)
+                                   visit_var = "visit",
+                                   visit_baseline,
+                                   visit_pre,
+                                   visit_post,
+                                   bin_by_tertiles = FALSE,
+                                   bin_breaks = c(-Inf, 7.5, 8, Inf),
+                                   bin_labels = c("T1 (lowest)", "T2", "T3 (highest)"),
+                                   bin_var_name = "value_bin",
+                                   proper_name = "Value",
+                                   y_label = NULL,
+                                   x_label = NULL,
+                                   fill_colors = c("Placebo" = "#439799", 
+                                                   "Dapagliflozin 5mg" = "#483D90"),
+                                   y_limits = NULL,
+                                   output_path = NULL) {
+  
+  library(dplyr)
+  library(ggplot2)
+  library(ggbeeswarm)
+  library(rlang)
+  
+  if (is.null(y_label)) y_label <- paste0("\u0394 ", proper_name)
+  if (is.null(x_label)) x_label <- paste0("\nBaseline ", proper_name)
+  
+  value_sym <- sym(value_var)
+  x_sym <- if (!is.null(x_var)) sym(x_var) else value_sym
+  
+  # Step 1: Prepare raw data
+  summary_df <- data %>%
+    group_by(.data[[id_var]]) %>%
+    mutate(
+      baseline_value = .data[[value_var]][.data[[visit_var]] == visit_baseline],
+      baseline_x_value = .data[[as_string(x_sym)]][.data[[visit_var]] == visit_baseline],
+      pre_value = .data[[value_var]][.data[[visit_var]] == visit_pre],
+      post_value = .data[[value_var]][.data[[visit_var]] == visit_post],
+      delta_value = post_value - pre_value
+    ) %>%
+    ungroup() %>%
+    dplyr::select(-.data[[visit_var]], -.data[[value_var]]) %>%
+    distinct(.data[[id_var]], .keep_all = TRUE) %>%
+    filter(!is.na(baseline_value), !is.na(delta_value), !is.na(baseline_x_value))
+  
+  # Step 2: Binning
+  if (bin_by_tertiles) {
+    tertiles <- quantile(summary_df$baseline_x_value, probs = c(0, 1/3, 2/3, 1), na.rm = TRUE)
+    if (length(bin_labels) != 3) {
+      bin_labels <- c("T1 (lowest)", "T2", "T3 (highest)")
+    }
+    summary_df[[bin_var_name]] <- cut(
+      summary_df$baseline_x_value,
+      breaks = tertiles,
+      labels = bin_labels,
+      include.lowest = TRUE
+    )
+  } else {
+    summary_df[[bin_var_name]] <- cut(
+      summary_df$baseline_x_value,
+      breaks = bin_breaks,
+      labels = bin_labels,
+      right = FALSE
+    )
+  }
+  
+  summary_df <- summary_df %>%
+    filter(!is.na(.data[[bin_var_name]]))
+  
+  # Step 3: Summary for bars
+  plot_df <- summary_df %>%
+    group_by(.data[[bin_var_name]], .data[[treatment_var]]) %>%
+    summarise(
+      mean_delta = mean(delta_value, na.rm = TRUE),
+      se = sd(delta_value, na.rm = TRUE) / sqrt(n()),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      ci_lower = mean_delta - 1.96 * se,
+      ci_upper = mean_delta + 1.96 * se
+    )
+  
+  # Step 4: Paired t-test per bin × treatment
+  sig_df <- summary_df %>%
+    group_by(.data[[bin_var_name]], .data[[treatment_var]]) %>%
+    summarise(
+      p_val = tryCatch(t.test(post_value, pre_value, paired = TRUE)$p.value, error = function(e) NA_real_),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      stars = case_when(
+        is.na(p_val) ~ "",
+        p_val < 0.001 ~ "***",
+        p_val < 0.01 ~ "**",
+        p_val < 0.05 ~ "*",
+        TRUE ~ ""
+      )
+    )
+  
+  plot_df <- plot_df %>%
+    left_join(sig_df, by = c(bin_var_name, treatment_var)) %>%
+    mutate(y_position = ifelse(ci_upper > 0, ci_upper + 0.5, 0.5)) 
+  
+  # Step 5: Fill colors
+  if (is.null(fill_colors)) {
+    treatments <- unique(summary_df[[treatment_var]])
+    fill_colors <- setNames(RColorBrewer::brewer.pal(length(treatments), "Dark2"), treatments)
+  }
+  
+  # Step 6: Plot
+  p <- ggplot(plot_df, aes(x = .data[[bin_var_name]], y = mean_delta, fill = .data[[treatment_var]])) +
+    geom_col(color = "black") +
+    geom_quasirandom(
+      data = summary_df,
+      aes(x = .data[[bin_var_name]], y = delta_value),
+      width = 0.15, alpha = 0.15, size = 2
+    ) +
+    geom_errorbar(aes(ymin = ci_lower, ymax = ci_upper), width = 0.15, size = 0.5) +
+    geom_hline(yintercept = 0, size = 0.2) +
+    geom_text(aes(label = stars, y = y_position), size = 7, vjust = 0) +
+    facet_wrap(as.formula(paste("~", treatment_var))) +
+    theme_minimal(base_size = 15) +
+    theme(
+      axis.ticks = element_line(color = "grey"),
+      panel.grid = element_blank()
+    ) +
+    guides(fill = "none") +
+    labs(x = x_label, y = y_label) +
+    scale_fill_manual(values = fill_colors)
+  
+  if (!is.null(y_limits)) {
+    p <- p + ylim(y_limits[1], y_limits[2] + 0.3)
+  }
+  
+  print(p)
+  if (!is.null(output_path)) {
+    ggsave(output_path, p, width = 7, height = 5)
+  } else {
+    return(p)
+  }
+}
+
 # ===========================================================================
 # Function: make_comp_plot
 # ===========================================================================
@@ -775,11 +922,10 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
       top_lab = if_else(Gene %in% top_label_genes, Gene, ""),
       # Updated arrow logic based on clinical direction - only for concordant genes
       arrow_symbol = case_when(
-        # Only show arrows for concordant genes
-        Gene %in% concordant_genes & !is.null(clinical_direction) & clinical_direction == "+" & !!sym(fc) < 0 ~ "\u2193",
-        Gene %in% concordant_genes & !is.null(clinical_direction) & clinical_direction == "+" & !!sym(fc) > 0 ~ "\u2191",
-        Gene %in% concordant_genes & !is.null(clinical_direction) & clinical_direction == "-" & !!sym(fc) < 0 ~ "\u2191",
-        Gene %in% concordant_genes & !is.null(clinical_direction) & clinical_direction == "-" & !!sym(fc) > 0 ~ "\u2193",
+        Gene %in% concordant_genes & Gene %in% top_label_genes & !is.null(clinical_direction) & clinical_direction == "+" & !!sym(fc) < 0 ~ "\u2193",
+        Gene %in% concordant_genes & Gene %in% top_label_genes & !is.null(clinical_direction) & clinical_direction == "+" & !!sym(fc) > 0 ~ "\u2191",
+        Gene %in% concordant_genes & Gene %in% top_label_genes & !is.null(clinical_direction) & clinical_direction == "-" & !!sym(fc) < 0 ~ "\u2191",
+        Gene %in% concordant_genes & Gene %in% top_label_genes & !is.null(clinical_direction) & clinical_direction == "-" & !!sym(fc) > 0 ~ "\u2193",
         TRUE ~ ""
       )
     )
@@ -805,7 +951,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                                 shape = shape_var_plot), size = 2) +
     geom_text(aes(label = arrow_symbol, color = color_var_plot,
                   vjust = ifelse(arrow_symbol == "\u2193", 1, -0.5)),
-              size = 6, family = "Arial") +
+              size = 6, family = "Arial", alpha = 0.5) +
     scale_shape_manual(values = c("Left_Pos" = 22, "Left_Neg" = 22, "Right_Pos" = 22, "Right_Neg" = 22, "NS/NC" = 22),
                        labels = c("Left_Pos" = "Left Pos", "Left_Neg" = "Left Neg", 
                                   "Right_Pos" = "Right Pos", "Right_Neg" = "Right Neg", "NS/NC" = "NS/NC")) +
