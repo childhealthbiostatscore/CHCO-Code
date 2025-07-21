@@ -558,6 +558,16 @@ plot_clinvar_pseudotime_arrows_delta(df = sce_pt_celltype_df,
 attempt_so$celltype_tal <- ifelse(grepl("TAL-", attempt_so$celltype),
                                  "TAL", as.character(attempt_so$celltype))
 attempt_so_tal <- subset(attempt_so, celltype_tal == "TAL")
+
+# KPMP cell type
+attempt_so$kpmp_celltype_tal <- ifelse(grepl("TAL", attempt_so$KPMP_celltype),
+                                 "TAL", as.character(attempt_so$KPMP_celltype))
+attempt_so_kpmp_tal <- subset(attempt_so, kpmp_celltype_tal == "TAL")
+
+# KPMP cell type with ATL
+attempt_so$kpmp_celltype_tal_atl <- ifelse(grepl("TAL|ATL", attempt_so$KPMP_celltype),
+                                 "TAL", as.character(attempt_so$KPMP_celltype))
+attempt_so_kpmp_tal_atl <- subset(attempt_so, kpmp_celltype_tal_atl == "TAL")
 ```
 
 
@@ -573,38 +583,6 @@ sling_tal$elbow_plot
 sce_tal_celltype <- run_slingshot(sce_tal, sling_tal$pca, 
                                   n_pcs = 10, # choose N of PCs based on elbow plot inspection
                                   end_cluster = "TAL-2")
-
-# slingshot by KPMP celltype
-sce_tal_kpmp_celltype <- run_slingshot(sce_tal, 
-                                       sling_tal$pca, 
-                                       n_pcs = 10, # choose N of PCs based on elbow plot inspection
-                                       cluster_label = "KPMP_celltype")
-
-# Try different PC sets
-# Set up a color vector based on cluster labels
-cluster_var <- "celltype"  # or "GMM", "kmeans", etc.
-cluster_labels <- colData(sce_tal)[[cluster_var]]
-cluster_levels <- unique(cluster_labels)
-cluster_colors <- setNames(brewer.pal(length(cluster_levels), "Set1")[seq_along(cluster_levels)],
-                           cluster_levels)
-your_color_vector <- cluster_colors[cluster_labels]
-
-# Define PC ranges to test
-pcs_list <- list("PC1_2" = 1:2, "PC1_5" = 1:5,  "PC1_10" = 1:10, "PC1_15" = 1:15)
-
-# Run and plot Slingshot with each PC range
-par(mfrow = c(2,2))  # adjust depending on how many you're comparing
-
-for (name in names(pcs_list)) {
-  pcs <- pcs_list[[name]]
-  reducedDims(sce_tal) <- SimpleList(PCA = pca$x[, pcs])
-  
-  sce_sl <- slingshot(sce_tal, clusterLabels = cluster_var, reducedDim = 'PCA')
-  
-  plot(reducedDims(sce_sl)$PCA, col = your_color_vector, pch = 16, asp = 1,
-       main = paste("Slingshot -", name))
-  lines(SlingshotDataSet(sce_sl), lwd = 2, col = 'black')
-}
 ```
 
 ```{r echo = F}
@@ -622,67 +600,6 @@ plot(reducedDims(sce_tal_celltype)$PCA, asp=0.5, col = 'grey75', pch = 16)
 points(reducedDims(sce_tal_celltype)$PCA, col = hcl.colors(100)[cut(slingPseudotime(sce_tal_celltype)[,1], 100)], pch=16)
 legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
 ```
-
-```{r echo = F}
-counts_tal <- GetAssayData(attempt_so_tal, layer = "counts")
-sce_tal <- SingleCellExperiment(assays = List(counts = counts_tal))
-
-# filter genes down to potential cell-type markers
-# at least M (15) reads in at least N (15) cells
-geneFilter <- apply(assays(sce_tal)$counts,1,function(x){
-    sum(x >= 3) >= 10
-})
-sce_tal <- sce_tal[geneFilter, ]
-
-# normalization
-FQnorm <- function(counts){
-  rk <- apply(counts,2,rank,ties.method='min')
-  counts.sort <- apply(counts,2,sort)
-  refdist <- apply(counts.sort,1,median)
-  norm <- apply(rk,2,function(r){ refdist[r] })
-  rownames(norm) <- rownames(counts)
-  return(norm)
-}
-assays(sce_tal)$norm <- FQnorm(assays(sce_tal)$counts)
-
-# dimension reduction
-pca <- prcomp(t(log1p(assays(sce_tal)$norm)), scale. = FALSE)
-rd1 <- pca$x[,1:8]
-
-plot(rd1, col = rgb(0,0,0,.5), pch=16, asp = 1)
-
-# clustering cells
-cl1 <- Mclust(rd1)$classification
-colData(sce_tal)$GMM <- cl1
-
-library(RColorBrewer)
-plot(rd1, col = brewer.pal(9,"Set1")[cl1], pch=16, asp = 1)
-
-cl2 <- kmeans(rd1, centers = 4)$cluster
-colData(sce_tal)$kmeans <- cl2
-
-plot(rd1, col = brewer.pal(9,"Set1")[cl2], pch=16, asp = 1)
-
-sce_pt_gmm <- slingshot(sce_tal, clusterLabels = 'GMM', reducedDim = 'PCA')
-sce_pt_kmeans <- slingshot(sce_tal, clusterLabels = 'kmeans', reducedDim = 'PCA')
-
-summary(sce_pt_kmeans$slingPseudotime_1)
-colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
-plotcol <- colors[cut(sce_pt_kmeans$slingPseudotime_1, breaks=100)]
-
-plot(reducedDims(sce_pt_kmeans)$PCA, col = plotcol, pch=16, asp = 1)
-lines(SlingshotDataSet(sce_pt_kmeans), lwd=2, col='black')
-
-plot(reducedDims(sce_pt_kmeans)$PCA, col = brewer.pal(9,'Set1')[sce_tal_celltype$GMM], pch=16, asp = 1)
-lines(SlingshotDataSet(sce_pt_kmeans), lwd=2, type = 'lineages', col = 'black')
-
-
-plot(reducedDims(sce_pt_kmeans)$PCA, asp=0.5, col = 'grey75', pch = 16)
-points(reducedDims(sce_pt_kmeans)$PCA, col = hcl.colors(100)[cut(slingPseudotime(sce_pt_kmeans)[,1], 100)], pch=16)
-legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
-```
-
-
 ```{r echo = F}
 # violin plot
 tal_pseudotime_df <- create_pseudotime_df(sce_tal_celltype)
@@ -695,6 +612,125 @@ plot_slingshot_3d(pca_df = tal_slingshot_res$pca_df,
                   curve = tal_slingshot_res$curve_df,
                   celltype_suffix = "tal")
 ```
+
+#### KPMP celltype
+
+```{r echo = F}
+sling_tal_kpmp <- slingshot_setup(attempt_so_tal_kpmp, celltype_prefix = "TAL")
+sce_tal_kpmp <- sling_tal_kpmp$sce
+
+sling_tal_kpmp$elbow_plot
+
+# slingshot by celltype
+sce_tal_kpmp_celltype <- run_slingshot(sce_tal_kpmp, sling_tal_kpmp$pca, 
+                                  n_pcs = 10, # choose N of PCs based on elbow plot inspection
+                                  end_cluster = "dTAL",
+                                  cluster_label = "KPMP_celltype")
+```
+
+```{r echo = F}
+tal_kpmp_slingshot_res <- plot_slingshot_trajectory(sce_sl = sce_tal_kpmp_celltype,
+                                              custom_colors = color_5,
+                                              cluster_label = "KPMP_celltype",
+                                              celltype_suffix = "tal_kpmp")
+tal_kpmp_slingshot_res$lineage
+tal_kpmp_slingshot_res$pca_plot
+
+plot(reducedDims(sce_tal_kpmp_celltype)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sce_tal_kpmp_celltype), lwd=2, col='black')
+
+plot(reducedDims(sce_tal_kpmp_celltype)$PCA, asp=0.5, col = 'grey75', pch = 16)
+points(reducedDims(sce_tal_kpmp_celltype)$PCA, col = hcl.colors(100)[cut(slingPseudotime(sce_tal_kpmp_celltype)[,1], 100)], pch=16)
+legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
+```
+```{r echo = F}
+# violin plot
+tal_kpmp_pseudotime_df <- create_pseudotime_df(sce_tal_kpmp_celltype)
+plot_pseudotime_violin(df = tal_kpmp_pseudotime_df, celltype_suffix = "tal_kpmp")
+```
+
+```{r echo = F}
+# 3D scatter plot with trajectory
+plot_slingshot_3d(pca_df = tal_kpmp_slingshot_res$pca_df,
+                  curve = tal_kpmp_slingshot_res$curve_df,
+                  cluster_label = "KPMP_celltype",
+                  celltype_suffix = "tal_kpmp")
+```
+
+#### KPMP celltype with ATL
+
+```{r echo = F}
+sling_kpmp_tal_atl <- slingshot_setup(attempt_so_kpmp_tal_atl, celltype_prefix = "TAL_ATL")
+sce_kpmp_tal_atl <- sling_kpmp_tal_atl$sce
+
+sling_kpmp_tal_atl$elbow_plot
+
+# slingshot by celltype
+sce_kpmp_tal_atl_celltype <- run_slingshot(sce_kpmp_tal_atl, sling_kpmp_tal_atl$pca, 
+                                  n_pcs = 15, # choose N of PCs based on elbow plot inspection
+                                  end_cluster = "dTAL",
+                                  cluster_label = "KPMP_celltype")
+```
+
+```{r echo = F}
+tal_atl_slingshot_res <- plot_slingshot_trajectory(sce_sl = sce_kpmp_tal_atl_celltype,
+                                              custom_colors = color_5,
+                                              cluster_label = "KPMP_celltype",
+                                              celltype_suffix = "tal_atl")
+tal_atl_slingshot_res$lineage
+tal_atl_slingshot_res$pca_plot
+
+plot(reducedDims(sce_kpmp_tal_atl_celltype)$PCA, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(sce_kpmp_tal_atl_celltype), lwd=2, col='black')
+
+plot(reducedDims(sce_kpmp_tal_atl_celltype)$PCA, asp=0.5, col = 'grey75', pch = 16)
+points(reducedDims(sce_kpmp_tal_atl_celltype)$PCA, col = hcl.colors(100)[cut(slingPseudotime(sce_kpmp_tal_atl_celltype)[,1], 100)], pch=16)
+legend('topleft', title = 'Lineage 1', col = hcl.colors(4), legend=c('0%','25%','50%','100%'), pch=16)
+```
+
+```{r echo = F}
+# violin plot
+tal_atl_pseudotime_df <- create_pseudotime_df(sce_kpmp_tal_atl_celltype)
+plot_pseudotime_violin(df = tal_atl_pseudotime_df, celltype_suffix = "tal_atl")
+```
+
+```{r echo = F}
+# 3D scatter plot with trajectory
+plot_slingshot_3d(pca_df = tal_atl_slingshot_res$pca_df,
+                  curve = tal_atl_slingshot_res$curve_df,
+                  cluster_label = "KPMP_celltype",
+                  celltype_suffix = "tal_atl")
+```
+
+```{r echo = F}
+# # Try different PC sets
+# # Set up a color vector based on cluster labels
+# cluster_var <- "celltype"  # or "GMM", "kmeans", etc.
+# cluster_labels <- colData(sce_tal)[[cluster_var]]
+# cluster_levels <- unique(cluster_labels)
+# cluster_colors <- setNames(brewer.pal(length(cluster_levels), "Set1")[seq_along(cluster_levels)],
+#                            cluster_levels)
+# your_color_vector <- cluster_colors[cluster_labels]
+# 
+# # Define PC ranges to test
+# pcs_list <- list("PC1_2" = 1:2, "PC1_5" = 1:5,  "PC1_10" = 1:10, "PC1_15" = 1:15)
+# 
+# # Run and plot Slingshot with each PC range
+# par(mfrow = c(2,2))  # adjust depending on how many you're comparing
+# 
+# for (name in names(pcs_list)) {
+#   pcs <- pcs_list[[name]]
+#   reducedDims(sce_tal) <- SimpleList(PCA = pca$x[, pcs])
+#   
+#   sce_sl <- slingshot(sce_tal, clusterLabels = cluster_var, reducedDim = 'PCA')
+#   
+#   plot(reducedDims(sce_sl)$PCA, col = your_color_vector, pch = 16, asp = 1,
+#        main = paste("Slingshot -", name))
+#   lines(SlingshotDataSet(sce_sl), lwd = 2, col = 'black')
+# }
+```
+
+
 
 ## Quantile regression
 

@@ -1771,6 +1771,7 @@ run_slingshot <- function(sce, pca_obj, n_pcs = 6, start_cluster = NULL, end_clu
 plot_slingshot_trajectory <- function(sce_sl, 
                                       celltype_levels, 
                                       custom_colors = color_5, 
+                                      cluster_label = "celltype",
                                       bucket = "attempt",
                                       celltype_suffix = NULL,
                                       title = "Slingshot trajectory",
@@ -1781,29 +1782,30 @@ plot_slingshot_trajectory <- function(sce_sl,
   
   # Extract PCA and pseudotime
   pca_df <- as.data.frame(reducedDims(sce_sl)$PCA)
-  pca_df$celltype <- factor(colData(sce_sl)$celltype, levels = celltype_levels)
-  pca_df$pseudotime <- slingPseudotime(sce_sl)[, lineage]  # first lineage
+  
+  # Dynamically extract cluster labels
+  pca_df$cluster_label <- factor(colData(sce_sl)[[cluster_label]], levels = celltype_levels)
+  pca_df$pseudotime <- slingPseudotime(sce_sl)[, lineage]
   
   # Get curve
   curves <- slingCurves(sce_sl)
-  curve_df <- as.data.frame(curves[[1]]$s)
-  lineage <- slingshot::slingLineages(sce_sl)
-  # names(curve_df) <- c("PC1", "PC2")
+  curve_df <- as.data.frame(curves[[lineage]]$s)
+  lineage_obj <- slingshot::slingLineages(sce_sl)
   
   # Generate ggplot
-  p <- ggplot(pca_df, 
-              aes(x = PC1, y = PC2, color = celltype)) +
+  p <- ggplot(pca_df, aes(x = PC1, y = PC2, color = cluster_label)) +
     geom_point(alpha = 0.3, size = 1) +
-    geom_path(data = curve_df, aes(x = PC1, y = PC2), color = "black", size = 1.2, inherit.aes = FALSE) +
+    geom_path(data = curve_df, aes(x = PC1, y = PC2), 
+              color = "black", size = 1.2, inherit.aes = FALSE) +
     theme_bw() + 
     theme(panel.grid = element_blank()) + 
-    labs(color = NULL) +
-    scale_color_manual(values = custom_colors) 
+    labs(color = NULL, title = title) +
+    scale_color_manual(values = custom_colors)
   
   # Save if bucket is provided
   if (!is.null(bucket)) {
-    temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
-    ggsave(filename = temp_file, width = 7, height = 5)
+    temp_file <- tempfile(fileext = ".jpeg")
+    ggsave(filename = temp_file, plot = p, width = 7, height = 5)
     s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_pca_", tolower(celltype_suffix), "_slingshot.jpeg"))
   }
   
@@ -1812,7 +1814,7 @@ plot_slingshot_trajectory <- function(sce_sl,
     curves = curves,
     pca_df = pca_df,
     curve_df = curve_df,
-    lineage = lineage
+    lineage = lineage_obj
   ))
 }
 # ===========================================================================
@@ -1892,6 +1894,7 @@ library(htmlwidgets)
 
 plot_slingshot_3d <- function(pca_df, curve_df, custom_colors = color_5,
                               s3_folder = "slingshot", 
+                              cluster_label = "celltype",
                               celltype_suffix = "celltype") {
   
   # Create plot
@@ -1901,7 +1904,7 @@ plot_slingshot_3d <- function(pca_df, curve_df, custom_colors = color_5,
       x = ~PC1, y = ~PC2, z = ~PC3,
       type = "scatter3d",
       mode = "markers",
-      color = ~celltype,
+      color = ~cluster_label,
       colors = custom_colors,
       marker = list(size = 2),
       name = "Cells") %>%
