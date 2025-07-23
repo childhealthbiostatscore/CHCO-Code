@@ -458,30 +458,32 @@ head(GetAssayData(so_liver_sn, layer = "data")[, 1:5])    # Normalized data
 
 #Check for normality
 # Open a PDF device (all plots go here)
-pdf(fs::path(dir.results,"Normalization_gene_expression_histograms_counts.pdf"), width = 8, height = 6)
+# pdf(fs::path(dir.results,"Normalization_gene_expression_histograms_counts.pdf"), width = 8, height = 6)
+# 
+# # Randomly select 100 genes from the Seurat object
+# # genes <- sample(rownames(so_liver_sn), 100)
+# genes <- tca
+# genesN <- genes
+# # Set up a 2x3 plotting layout so you can plot multiple histograms in one figure
+# par(mfrow = c(2, 3))
+# 
+# # Loop over each randomly selected gene
+# for (g in genes) {
+#   
+#   # Plot a histogram of the expression values for gene 'g'
+#   # using normalized expression values from the "data" slot
+#   hist(GetAssayData(so_liver_sn, layer = "counts")[g, ],
+#        main = g,                # Title of the plot = gene name
+#        xlab = "Normalized Expression")     # Label for x-axis
+# }
+# 
+# # Close the PDF device — this writes the file to disk
+# dev.off()
 
+pdf(fs::path(dir.results,"Raw_Count_gene_expression_histograms_tca.pdf"), width = 8, height = 6)
 # Randomly select 100 genes from the Seurat object
-genes <- sample(rownames(so_liver_sn), 100)
-genesN <- genes
-# Set up a 2x3 plotting layout so you can plot multiple histograms in one figure
-par(mfrow = c(2, 3))
-
-# Loop over each randomly selected gene
-for (g in genes) {
-  
-  # Plot a histogram of the expression values for gene 'g'
-  # using normalized expression values from the "data" slot
-  hist(GetAssayData(so_liver_sn, layer = "counts")[g, ],
-       main = g,                # Title of the plot = gene name
-       xlab = "Normalized Expression")     # Label for x-axis
-}
-
-# Close the PDF device — this writes the file to disk
-dev.off()
-
-pdf(fs::path(dir.results,"Raw_Count_gene_expression_histograms_counts.pdf"), width = 8, height = 6)
-# Randomly select 100 genes from the Seurat object
-genes <- sample(rownames(so_liver_sn), 100)
+# genes <- sample(rownames(so_liver_sn), 100)
+genes <- tca[-9]
 genesR <- genes
 # Set up a 2x3 plotting layout so you can plot multiple histograms in one figure
 par(mfrow = c(2, 3))
@@ -13379,14 +13381,15 @@ gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)] #3770 prote
 
 #Merge alt and protein data togeth
 df <- df %>% 
-  dplyr::select(c(""))
+  dplyr::select(c("ID","visit","SEX","ETHN","bmi","HBA1C","NAFLD0","NAFLD1",
+                  "NAFLD2","NAFLD3","NAFLD4","NAFLD5","NAFLD6","ALT","AST",all_of(gene_proteins)))
   
 
 # Scatter plot with individual trajectories
-p3 <- ggplot(prot, aes(x = seq.15594.47, y = alt)) +
-  geom_point(aes(color = factor(time)), alpha = 0.6) +
-  geom_path(aes(group = subject_id), alpha = 0.2) +
-  geom_smooth(method = "lm", color = "black", size = 1.5) +
+p3 <- ggplot(df, aes(x = seq.10001.7, y = ALT)) +
+  geom_point(aes(color = factor(visit)), alpha = 0.6) +
+  geom_path(aes(group = ID), alpha = 0.2) +
+  geom_smooth(method = "lm", color = "black", linewidth= 0.5,se=F) +
   scale_color_viridis_d(name = "Time") +
   theme_minimal() +
   labs(title = "ALT vs Protein Levels",
@@ -13398,14 +13401,461 @@ p3 <- ggplot(prot, aes(x = seq.15594.47, y = alt)) +
 print(p3)
 
 # # Basic spaghetti plot
-# ggplot(df_sub, aes(x = visit, y = ALT, group = ID)) +
-#   geom_line(alpha = 0.5, color = "gray40") +
-#   geom_point(alpha = 0.5, size = 1.5, color = "gray40") +
-#   labs(title = "ALT Values Over Time by Individual",
-#        x = "Visit",
-#        y = "ALT") +
-#   theme_minimal() +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggplot(df, aes(x = visit, y = ALT, group = ID)) +
+  geom_line(alpha = 0.5, aes(color=ID)) +
+  geom_point(alpha = 0.5, size = 1.5,color="gray40") +
+  labs(title = "ALT Values Over Time by Individual",
+       x = "Visit",
+       y = "ALT") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+library(lme4)
+library(lmerTest)
+
+# First, ensure time is numeric for random slopes
+# Convert visit to numeric (assuming ordered visits)
+df$time_numeric <- as.numeric(factor(df$visit)) - 1  # Start at 0 for baseline
+
+# Model with random intercept for time
+alt_results <- data.frame()
+for (protein in gene_proteins) {
+m0 <- as.formula(paste0(protein,"~ ALT + time_numeric + (1|ID)"))
+model_simple <- lmer(m0, data = df)
+beta <- summary(model_simple)$coef[2,1]
+pval <- summary(model_simple)$coef[2,5]
+results <- data.frame(Protein=protein,Beta=beta,Pval=pval)
+alt_results <- rbind(alt_results,results)
+}
+alt_results <- alt_results %>% 
+  mutate(fdr = p.adjust(Pval,method="fdr")) %>% 
+  mutate(sig=ifelse(fdr<0.05,"*",""))
+
+
+alt_results <- data.frame()
+problem_proteins <- data.frame()
+
+for (protein in gene_proteins) {
+  m0 <- as.formula(paste0(protein, "~ ALT + time_numeric + (1|ID)"))
+  
+  # Track convergence and singularity
+  converged <- TRUE
+  is_singular <- FALSE
+  error_msg <- NA
+  
+  # Try to fit the model
+  tryCatch({
+    # Suppress warnings during fitting
+    model_simple <- suppressWarnings(lmer(m0, data = df))
+    
+    # Check for singular fit
+    if (isSingular(model_simple)) {
+      is_singular <- TRUE
+    }
+    
+    # Extract results
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    # Store results
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    alt_results <- rbind(alt_results, results)
+    
+  }, warning = function(w) {
+    # Fit model even with warnings
+    model_simple <- lmer(m0, data = df)
+    
+    # Check what type of warning
+    if (grepl("singular", w$message, ignore.case = TRUE)) {
+      is_singular <- TRUE
+    }
+    if (grepl("converge", w$message, ignore.case = TRUE)) {
+      converged <- FALSE
+    }
+    
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    alt_results <- rbind(alt_results, results)
+    
+    # Track problematic proteins
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = w$message))
+    
+  }, error = function(e) {
+    # Complete failure - store as NA
+    results <- data.frame(
+      Protein = protein,
+      Beta = NA,
+      Pval = NA,
+      Converged = FALSE,
+      Singular = NA
+    )
+    alt_results <<- rbind(alt_results, results)
+    
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = e$message))
+  })
+}
+
+# Add FDR correction only for successful models
+alt_results <- alt_results %>% 
+  mutate(fdr = ifelse(!is.na(Pval), p.adjust(Pval, method = "fdr"), NA)) %>% 
+  mutate(sig = ifelse(!is.na(fdr) & fdr < 0.05, "*", ""))
+alt_results <- alt_results %>% 
+  filter(Singular=="FALSE")
+
+alt_results <- alt_results %>% 
+  mutate(sig=case_when(fdr<0.05 & Beta>0 ~ "Significant Positive",
+                       fdr<0.05 & Beta<0 ~"Significant Negative",
+                       fdr>0.05~"Not Significant"))
+#Convert protein names to gene names
+key <- key %>% 
+  dplyr::rename(Protein=AptName)
+alt_results <- tidylog::left_join(alt_results,key,by="Protein")
+alt_results <- alt_results %>% 
+  dplyr::rename(Gene=EntrezGeneSymbol)
+
+alt_results$color <- ifelse(alt_results$fdr < 0.05 & alt_results$Beta > 0, "#990000",
+                             ifelse(alt_results$fdr < 0.05 & alt_results$Beta < 0, "#003366", "lightgray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- alt_results[alt_results$fdr < 0.05, ]
+
+
+N <- length(unique(df$ID))
+num_proteins <- length(unique(alt_results$Protein))
+
+volcano_plot <- ggplot(alt_results, aes(x = Beta, y = -log10(fdr), color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  theme_minimal() +  # Minimal theme
+   labs(
+    title = "Mixed-Effect Model for Proteins vs. ALT (U/L)",
+    x = "Beta",
+    y = "-log10(FDR)",
+    color = "Beta Direction",
+    caption = paste0("FDR < 0.05, Proteins = ",num_proteins,", N = ",N)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  # xlim(min,max)+
+  # # Add labels for significant points
+  geom_text(data = significant_df, aes(label = Gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+
+# volcano_plot_alt
+png(fs::path(dir.results,"ALT_Proteins_TeenLabs.png"),width=4000,height=4000,res=300)
+print(volcano_plot)
+dev.off()
+write.csv(alt_results,fs::path(dir.results,"ALT_Proteins_Teenlabs.csv"))
+
+#Volcano plot
+
+# Model with random intercept for time
+ast_results <- data.frame()
+for (protein in gene_proteins) {
+m0 <- as.formula(paste0(protein,"~ AST + time_numeric + (1|ID)"))
+model_simple <- lmer(m0, data = df)
+beta <- summary(model_simple)$coef[2,1]
+pval <- summary(model_simple)$coef[2,5]
+results <- data.frame(Protein=protein,Beta=beta,Pval=pval)
+ast_results <- rbind(ast_results,results)
+}
+ast_results <- ast_results %>% 
+  mutate(fdr = p.adjust(Pval,method="fdr")) %>% 
+  mutate(sig=ifelse(fdr<0.05,"*",""))
+
+ast_results <- data.frame()
+problem_proteins <- data.frame()
+
+for (protein in gene_proteins) {
+  m0 <- as.formula(paste0(protein, "~ AST + time_numeric + (1|ID)"))
+  
+  # Track convergence and singularity
+  converged <- TRUE
+  is_singular <- FALSE
+  error_msg <- NA
+  
+  # Try to fit the model
+  tryCatch({
+    # Suppress warnings during fitting
+    model_simple <- suppressWarnings(lmer(m0, data = df))
+    
+    # Check for singular fit
+    if (isSingular(model_simple)) {
+      is_singular <- TRUE
+    }
+    
+    # Extract results
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    # Store results
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    ast_results <- rbind(ast_results, results)
+    
+  }, warning = function(w) {
+    # Fit model even with warnings
+    model_simple <- lmer(m0, data = df)
+    
+    # Check what type of warning
+    if (grepl("singular", w$message, ignore.case = TRUE)) {
+      is_singular <- TRUE
+    }
+    if (grepl("converge", w$message, ignore.case = TRUE)) {
+      converged <- FALSE
+    }
+    
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    ast_results <- rbind(ast_results, results)
+    
+    # Track problematic proteins
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = w$message))
+    
+  }, error = function(e) {
+    # Complete failure - store as NA
+    results <- data.frame(
+      Protein = protein,
+      Beta = NA,
+      Pval = NA,
+      Converged = FALSE,
+      Singular = NA
+    )
+    ast_results <<- rbind(ast_results, results)
+    
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = e$message))
+  })
+}
+
+# Add FDR correction only for successful models
+ast_results <- ast_results %>% 
+  mutate(fdr = ifelse(!is.na(Pval), p.adjust(Pval, method = "fdr"), NA)) %>% 
+  mutate(sig = ifelse(!is.na(fdr) & fdr < 0.05, "*", ""))
+ast_results <- ast_results %>% 
+  filter(Singular=="FALSE")
+
+ast_results <- ast_results %>% 
+  mutate(sig=case_when(fdr<0.05 & Beta>0 ~ "Significant Positive",
+                       fdr<0.05 & Beta<0 ~"Significant Negative",
+                       fdr>0.05~"Not Significant"))
+#Convert protein names to gene names
+key <- key %>% 
+  dplyr::rename(Protein=AptName)
+ast_results <- tidylog::left_join(ast_results,key,by="Protein")
+ast_results <- ast_results %>% 
+  dplyr::rename(Gene=EntrezGeneSymbol)
+
+ast_results$color <- ifelse(ast_results$fdr < 0.05 & ast_results$Beta > 0, "#990000",
+                             ifelse(ast_results$fdr < 0.05 & ast_results$Beta < 0, "#003366", "lightgray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- ast_results[ast_results$fdr < 0.05, ]
+
+
+N <- length(unique(df$ID))
+num_proteins <- length(unique(ast_results$Protein))
+
+volcano_plot <- ggplot(ast_results, aes(x = Beta, y = -log10(fdr), color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  theme_minimal() +  # Minimal theme
+   labs(
+    title = "Mixed-Effect Model for Proteins vs. AST (U/L)",
+    x = "Beta",
+    y = "-log10(FDR)",
+    color = "Beta Direction",
+    caption = paste0("FDR < 0.05, Proteins = ",num_proteins,", N = ",N)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  # xlim(min,max)+
+  # # Add labels for significant points
+  geom_text(data = significant_df, aes(label = Gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+
+# volcano_plot_ast
+png(fs::path(dir.results,"AST_Proteins_TeenLabs.png"),width=4000,height=4000,res=300)
+print(volcano_plot)
+dev.off()
+
+write.csv(ast_results,fs::path(dir.results,"AST_Proteins_Teenlabs.csv"))
+
+#NAFLD
+NAFLD1_results <- data.frame()
+problem_proteins <- data.frame()
+
+for (protein in gene_proteins) {
+  m0 <- as.formula(paste0(protein, "~ NAFLD1 + time_numeric + (1|ID)"))
+  
+  # Track convergence and singularity
+  converged <- TRUE
+  is_singular <- FALSE
+  error_msg <- NA
+  
+  # Try to fit the model
+  tryCatch({
+    # Suppress warnings during fitting
+    model_simple <- suppressWarnings(lmer(m0, data = df))
+    
+    # Check for singular fit
+    if (isSingular(model_simple)) {
+      is_singular <- TRUE
+    }
+    
+    # Extract results
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    # Store results
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    NAFLD1_results <- rbind(NAFLD1_results, results)
+    
+  }, warning = function(w) {
+    # Fit model even with warnings
+    model_simple <- lmer(m0, data = df)
+    
+    # Check what type of warning
+    if (grepl("singular", w$message, ignore.case = TRUE)) {
+      is_singular <- TRUE
+    }
+    if (grepl("converge", w$message, ignore.case = TRUE)) {
+      converged <- FALSE
+    }
+    
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    NAFLD1_results <- rbind(NAFLD1_results, results)
+    
+    # Track problematic proteins
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = w$message))
+    
+  }, error = function(e) {
+    # Complete failure - store as NA
+    results <- data.frame(
+      Protein = protein,
+      Beta = NA,
+      Pval = NA,
+      Converged = FALSE,
+      Singular = NA
+    )
+    NAFLD1_results <<- rbind(NAFLD1_results, results)
+    
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = e$message))
+  })
+}
+
+# Add FDR correction only for successful models
+NAFLD1_results <- NAFLD1_results %>% 
+  mutate(fdr = ifelse(!is.na(Pval), p.adjust(Pval, method = "fdr"), NA)) %>% 
+  mutate(sig = ifelse(!is.na(fdr) & fdr < 0.05, "*", ""))
+NAFLD1_results <- NAFLD1_results %>% 
+  filter(Singular=="FALSE")
+
+NAFLD1_results <- NAFLD1_results %>% 
+  mutate(sig=case_when(fdr<0.05 & Beta>0 ~ "Significant Positive",
+                       fdr<0.05 & Beta<0 ~"Significant Negative",
+                       fdr>0.05~"Not Significant"))
+#Convert protein names to gene names
+key <- key %>% 
+  dplyr::rename(Protein=AptName)
+NAFLD1_results <- tidylog::left_join(NAFLD1_results,key,by="Protein")
+NAFLD1_results <- NAFLD1_results %>% 
+  dplyr::rename(Gene=EntrezGeneSymbol)
+
+NAFLD1_results$color <- ifelse(NAFLD1_results$fdr < 0.05 & NAFLD1_results$Beta > 0, "#990000",
+                             ifelse(NAFLD1_results$fdr < 0.05 & NAFLD1_results$Beta < 0, "#003366", "lightgray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- NAFLD1_results[NAFLD1_results$fdr < 0.05, ]
+
+
+N <- length(unique(df$ID))
+num_proteins <- length(unique(NAFLD1_results$Protein))
+
+volcano_plot <- ggplot(NAFLD1_results, aes(x = Beta, y = -log10(fdr), color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  theme_minimal() +  # Minimal theme
+   labs(
+    title = "Mixed-Effect Model for Proteins vs. NAFLD1 (U/L)",
+    x = "Beta",
+    y = "-log10(FDR)",
+    color = "Beta Direction",
+    caption = paste0("FDR < 0.05, Proteins = ",num_proteins,", N = ",N)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  # xlim(min,max)+
+  # # Add labels for significant points
+  geom_text(data = significant_df, aes(label = Gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+
+# volcano_plot_NAFLD1
+png(fs::path(dir.results,"NAFLD1_Proteins_TeenLabs.png"),width=4000,height=4000,res=300)
+print(volcano_plot)
+dev.off()
+```
+
+```{r}
 # 
 # # Calculate mean ALT for each visit
 # mean_data <- df_sub %>%
