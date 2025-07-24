@@ -227,6 +227,7 @@ ggplot(meta.data %>% filter(celltype_rpca != 'ATL'), aes(x=group_labels, fill=ce
 dev.off()
 
 
+so <- subset(so, group %in% c('Type_2_Diabetes', 'Lean_Control'))
 
 #Function
 scrna_analysis <- function(status = 'Both', Controls = 'Both', genelist = NULL,
@@ -297,8 +298,15 @@ write.table(result_allcells, paste(results.dir, 'NEBULA_fullanalysis_offset.txt'
 
 
 #plotting_function(as.data.frame(result_allcells), 'Top2000HVGs')
-
-sig_results <- as.data.frame(result_allcells) %>% dplyr::select(Gene = summary.gene, LogFC = summary.logFC_groupType_1_Diabetes, pvalue = summary.p_groupType_1_Diabetes) %>% filter(pvalue < 0.05)
+if(status == 'T2D'){
+sig_results <- as.data.frame(result_allcells) %>% 
+  dplyr::select(Gene = summary.gene, LogFC = summary.logFC_groupType_2_Diabetes, 
+                pvalue = summary.p_groupType_2_Diabetes) %>% filter(pvalue < 0.05)
+}else if(status == 'T1D'){
+  sig_results <- as.data.frame(result_allcells) %>% 
+    dplyr::select(Gene = summary.gene, LogFC = summary.logFC_groupType_1_Diabetes, 
+                  pvalue = summary.p_groupType_1_Diabetes) %>% filter(pvalue < 0.05)
+}
 
 }
 
@@ -307,6 +315,9 @@ scrna_analysis(status = 'T2D', Controls = 'LC',
                results.dir = 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_PT/', 
                celltype='PT')
 
+scrna_analysis(status = 'T2D', Controls = 'LC', 
+               results.dir = 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_All/', 
+               celltype='All')
 
 
 
@@ -510,6 +521,14 @@ pthOrganisms(PANTHER.db) <- "HUMAN"
 
 
 
+
+GO_pathways <- function(data, results.dir, label){
+  data <- data.table::fread(data)
+  data <- data 
+  
+  
+  
+}
 
 
 
