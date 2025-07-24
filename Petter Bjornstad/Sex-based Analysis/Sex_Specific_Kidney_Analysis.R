@@ -524,7 +524,8 @@ pthOrganisms(PANTHER.db) <- "HUMAN"
 
 GO_pathways <- function(data, results.dir, label){
   data <- data.table::fread(data)
-  data <- data 
+  data <- data %>% as.data.frame() %>% 
+    dplyr::select()
   
   
   
