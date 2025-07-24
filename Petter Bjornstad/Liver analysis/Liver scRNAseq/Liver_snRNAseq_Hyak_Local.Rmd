@@ -458,30 +458,32 @@ head(GetAssayData(so_liver_sn, layer = "data")[, 1:5])    # Normalized data
 
 #Check for normality
 # Open a PDF device (all plots go here)
-pdf(fs::path(dir.results,"Normalization_gene_expression_histograms_counts.pdf"), width = 8, height = 6)
+# pdf(fs::path(dir.results,"Normalization_gene_expression_histograms_counts.pdf"), width = 8, height = 6)
+# 
+# # Randomly select 100 genes from the Seurat object
+# # genes <- sample(rownames(so_liver_sn), 100)
+# genes <- tca
+# genesN <- genes
+# # Set up a 2x3 plotting layout so you can plot multiple histograms in one figure
+# par(mfrow = c(2, 3))
+# 
+# # Loop over each randomly selected gene
+# for (g in genes) {
+#   
+#   # Plot a histogram of the expression values for gene 'g'
+#   # using normalized expression values from the "data" slot
+#   hist(GetAssayData(so_liver_sn, layer = "counts")[g, ],
+#        main = g,                # Title of the plot = gene name
+#        xlab = "Normalized Expression")     # Label for x-axis
+# }
+# 
+# # Close the PDF device — this writes the file to disk
+# dev.off()
 
+pdf(fs::path(dir.results,"Raw_Count_gene_expression_histograms_tca.pdf"), width = 8, height = 6)
 # Randomly select 100 genes from the Seurat object
-genes <- sample(rownames(so_liver_sn), 100)
-genesN <- genes
-# Set up a 2x3 plotting layout so you can plot multiple histograms in one figure
-par(mfrow = c(2, 3))
-
-# Loop over each randomly selected gene
-for (g in genes) {
-  
-  # Plot a histogram of the expression values for gene 'g'
-  # using normalized expression values from the "data" slot
-  hist(GetAssayData(so_liver_sn, layer = "counts")[g, ],
-       main = g,                # Title of the plot = gene name
-       xlab = "Normalized Expression")     # Label for x-axis
-}
-
-# Close the PDF device — this writes the file to disk
-dev.off()
-
-pdf(fs::path(dir.results,"Raw_Count_gene_expression_histograms_counts.pdf"), width = 8, height = 6)
-# Randomly select 100 genes from the Seurat object
-genes <- sample(rownames(so_liver_sn), 100)
+# genes <- sample(rownames(so_liver_sn), 100)
+genes <- tca[-9]
 genesR <- genes
 # Set up a 2x3 plotting layout so you can plot multiple histograms in one figure
 par(mfrow = c(2, 3))
@@ -5664,120 +5666,115 @@ dev.off()
 ###i. LR Nebula
 ```{r}
 #Filter to celltype 
-LR_celltypes <- unique(so_liver_sn$celltype_LR)
-clinical_variables <- c("alt","ast","ggt","bmi","a1c")
-# ,"hepatocyte_ballooning_percent","lobular_inflammation_grade",
-# "steatosis_grade","fibrosis_stage")
-cell_name <- "Hep"
+LR_celltypes <- unique(so_liver_sn$celltype_LR)[-1]
+clinical_variables <- c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage")
+# clinical_variables <- c("hepatocyte_ballooning_score","lobular_inflammation_grade",
+#                         "steatosis_grade","fibrosis_stage")
+# cell_name <- "Hep"
 
-# {
-# for (cell_name in LR_celltypes)
-# {
-so_celltype <- subset(so_liver_sn,celltype_LR==cell_name)
-DefaultAssay(so_celltype) <- "RNA" 
+# is.numeric(so_liver_sn$fibrosis_stage)
 
-## Select Highly Variable Genes (HVGs)
-so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(so_celltype)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
-# so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
-
-#Make sure to set reference level
-# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
-# so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
-
-#Round counts layer for nb
-# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
-
-# List of genes
-genes_list <- rownames(counts_hvg)
-
-for (var in clinical_variables){
-  # With parallelization
-  cl <- makeCluster(20)
-  registerDoParallel(cl)
+for (cell_name in LR_celltypes){
+  so_celltype <- subset(so_liver_sn,celltype_LR==cell_name)
+  DefaultAssay(so_celltype) <- "RNA" 
   
-  start_time <- Sys.time()
-  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_hvg[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype,features=g)@meta.data
-      # pred_gene <- model.matrix(~var, data = meta_gene)
-      pred.formula <- as.formula(paste0("~",var))
-      pred_gene <- model.matrix(pred.formula, data = meta_gene)
-      library <- meta_gene$pooled_offset
-      data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
-      
-      if (is.null(data_g_gene)) {
-        data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+  ## Select Highly Variable Genes (HVGs)
+  so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+  hvgs <- VariableFeatures(so_celltype)
+  
+  #Round counts layer for nb
+  # counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+  counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
+  
+  # List of genes
+  genes_list <- rownames(counts_hvg)
+  
+  for (var in clinical_variables){
+    # With parallelization
+    cl <- makeCluster(20)
+    registerDoParallel(cl)
+    
+    start_time <- Sys.time()
+    nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+      tryCatch({
+        count_gene <- counts_hvg[g, , drop = FALSE]
+        meta_gene <- subset(so_celltype,features=g)@meta.data
+        # pred_gene <- model.matrix(~var, data = meta_gene)
+        pred.formula <- as.formula(paste0("~",var))
+        pred_gene <- model.matrix(pred.formula, data = meta_gene)
+        library <- meta_gene$pooled_offset
+        data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
+        
+        if (is.null(data_g_gene)) {
+          data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+        }
+        
+        #With offset
+        result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+        
+        list(gene = g, result = result)  # return both gene name and result
+        
+      }, error = function(e) {
+        NULL
+      })
+    }
+    
+    stopCluster(cl)
+    end_time <- Sys.time()
+    print(end_time - start_time)
+    
+    # set the names of results based on gene names
+    nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+    names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+    nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+    
+    hep_nebula_converged <- map_dfr(
+      names(nebula_results_list),
+      function(gene_name) {
+        converged <- nebula_results_list[[gene_name]]$convergence
+        df <- data.frame(Gene = gene_name,
+                         Convergence_Code = converged)
+        return(df)
       }
-      
-      #With offset
-      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
-      
-      list(gene = g, result = result)  # return both gene name and result
-      
-    }, error = function(e) {
-      NULL
-    })
+    )
+    
+    nebula_summaries <- map_dfr(
+      names(nebula_results_list),
+      function(gene_name) {
+        df <- nebula_results_list[[gene_name]]$summary
+        df <- df %>% mutate(Gene = gene_name)
+        return(df)
+      }
+    )
+    
+    full_results <- as.data.frame(nebula_summaries)
+    nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40|hep_nebula_converged$Convergence_Code==-50|hep_nebula_converged$Convergence_Code==-60)]
+    ) 
+    
+    #Calculate number of genes filtered out for low expression 
+    full_results$low_exp <- length(genes_list)-length(full_results$gene)
+    
+    #Filter out non-converging genes
+    full_results <- full_results %>% 
+      filter(!gene %in%  nonconverge_genes)
+    
+    #Calculate nonconvergence rate
+    full_results$nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+    
+    # full_results <- full_results %>%
+    #   mutate(fdr=p.adjust(`p_steatosis_catHigh Steatosis (2+3)`,method="fdr"))  
+    full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
+    # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+    # full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
+    full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
+    cell_name2 <- str_replace(cell_name,"/","_")
+    cell_name2 <- str_replace(cell_name2,"-","_")
+    full_results$variable <- var
+    full_results$celltype <- cell_name2
+    #Save Results
+    write.csv(full_results,fs::path(dir.results,paste0("NEBULA_",cell_name,"_",var,"_unadjusted_2000_pooled_offset.csv")))
+    
   }
-  
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  # set the names of results based on gene names
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-  
-  hep_nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      df <- data.frame(Gene = gene_name,
-                       Convergence_Code = converged)
-      return(df)
-    }
-  )
-  
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  
-  full_results <- as.data.frame(nebula_summaries)
-  nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40|hep_nebula_converged$Convergence_Code==-50|hep_nebula_converged$Convergence_Code==-60)]
-  ) 
-  
-  #Calculate number of genes filtered out for low expression 
-  full_results$low_exp <- length(genes_list)-length(full_results$gene)
-  
-  #Filter out non-converging genes
-  full_results <- full_results %>% 
-    filter(!gene %in%  nonconverge_genes)
-  
-  #Calculate nonconvergence rate
-  full_results$nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-  
-  # full_results <- full_results %>%
-  #   mutate(fdr=p.adjust(`p_steatosis_catHigh Steatosis (2+3)`,method="fdr"))  
-  full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
-  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  # full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
-  full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
-  
-  #Save Results
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_",cell_name,"_",var,"_unadjusted_2000_pooled_offset.csv")))
-  
-  # }
 }
 
 #Heat Map visualization of results
@@ -6042,7 +6039,7 @@ HR_celltypes <- unique(so_liver_sn$celltype)
 # [15] B/Plasma     Hep/Immune   cFIB/cImmune
 # clinical_variables <- c("alt","ast","ggt","bmi","a1c")
 clinical_variables <- c("hepatocyte_ballooning_score","lobular_inflammation_grade",
-"steatosis_grade","fibrosis_stage")
+                        "steatosis_grade","fibrosis_stage")
 # cell_name <- "Hep-1"
 # unique(so_liver_sn$hepatocyte_ballooning_percent)
 # unique(so_liver_sn$lobular_inflammation_grade)
@@ -6215,7 +6212,7 @@ heatmap_data$Celltype <- factor(heatmap_data$Celltype, levels = custom_order)
 heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = log_fc)) +
   geom_tile(color = "grey90") +
   geom_text(aes(label = signif), size = 3, color = "black") +
-    facet_wrap(~variable)+
+  facet_wrap(~variable)+
   scale_fill_gradient2(
     low = "#264653", mid = "white", high = "darkred",
     midpoint = 0,
@@ -6246,131 +6243,131 @@ dev.off()
 for (var in clinical_variables){
   results <- total_results %>% 
     filter(variable == var)
-Genes <- length(unique(results$Gene))
-results$p_value10 <- round(as.numeric(results$p_value10),3)
-results$fdr <- as.numeric(results$fdr)
-significant_df <- results[results$fdr < 0.05, ]
-
-celltype_limits <- results %>%
-  group_by(Celltype) %>%
-  summarise(
-    min = min(log_fc, na.rm = TRUE),
-    max = max(log_fc, na.rm = TRUE)
-  )
-
-# Join back to results
-results <- results %>%
-  left_join(celltype_limits, by = "Celltype")
-
-results <- results %>% 
-  na.omit()
-
-# Create the faceted volcano plot matching your style
-volcano_plot <- ggplot(results, aes(x = log_fc, y = p_value10, color = color)) +
-  geom_point(alpha = 0.7) +  # Plot points with transparency
-  scale_color_identity() +  # Use the color column directly
-  theme_bw() +  # Minimal theme
-  # Facet by cell type
-  facet_wrap(~ Celltype,
-             ncol = 5,  # Adjust as needed
-             scales = "free_y") +  # Free y-scale but fixed x-scale
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  )+
-  labs(title=paste0("Gene Expression vs. ",var))+
-  xlim(-1,1)+
-  # # Add labels for significant points
-  geom_text(data = significant_df, aes(label =Gene),
-            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-# Add labels for significant points with ggrepel
-# geom_text_repel(data = significant_df, aes(label = Gene),
-#                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-
-volcano_plot
-
-# Display the plot
-print(volcano_plot)
-png(fs::path(dir.results, paste0("Volcano_Plots_NEBULA_",var,"_All_Celltypes_HR_unadjusted_pooled_offset.png")),
-    width = 5000, height = 3000, res = 300)
-print(volcano_plot)
-dev.off()
+  Genes <- length(unique(results$Gene))
+  results$p_value10 <- round(as.numeric(results$p_value10),3)
+  results$fdr <- as.numeric(results$fdr)
+  significant_df <- results[results$fdr < 0.05, ]
+  
+  celltype_limits <- results %>%
+    group_by(Celltype) %>%
+    summarise(
+      min = min(log_fc, na.rm = TRUE),
+      max = max(log_fc, na.rm = TRUE)
+    )
+  
+  # Join back to results
+  results <- results %>%
+    left_join(celltype_limits, by = "Celltype")
+  
+  results <- results %>% 
+    na.omit()
+  
+  # Create the faceted volcano plot matching your style
+  volcano_plot <- ggplot(results, aes(x = log_fc, y = p_value10, color = color)) +
+    geom_point(alpha = 0.7) +  # Plot points with transparency
+    scale_color_identity() +  # Use the color column directly
+    theme_bw() +  # Minimal theme
+    # Facet by cell type
+    facet_wrap(~ Celltype,
+               ncol = 5,  # Adjust as needed
+               scales = "free_y") +  # Free y-scale but fixed x-scale
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    )+
+    labs(title=paste0("Gene Expression vs. ",var))+
+    xlim(-1,1)+
+    # # Add labels for significant points
+    geom_text(data = significant_df, aes(label =Gene),
+              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+  # Add labels for significant points with ggrepel
+  # geom_text_repel(data = significant_df, aes(label = Gene),
+  #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+  
+  volcano_plot
+  
+  # Display the plot
+  print(volcano_plot)
+  png(fs::path(dir.results, paste0("Volcano_Plots_NEBULA_",var,"_All_Celltypes_HR_unadjusted_pooled_offset.png")),
+      width = 5000, height = 3000, res = 300)
+  print(volcano_plot)
+  dev.off()
 }
 
 ##GSEA
 for (var in clinical_variables){
   results <- total_results %>% 
     filter(variable == var)
-for (celltype in HR_celltypes) {
-  cell_results <- results %>% 
-    filter(Celltype %in% celltype)
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(cell_results$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(cell_results$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(cell_results$Gene), savefile = FALSE)
-
-# rank genes by t-stats in DiD
-rankings_dHep <- cell_results$log_fc
-names(rankings_dHep) <- cell_results$Gene
-rankings_dHep <- sort(rankings_dHep, decreasing = TRUE)
-plot(rankings_dHep)
-min(rankings_dHep)
-max(rankings_dHep)
-
-
-set.seed(1234)
-
-kegg_legacy_res_dHep <- fgsea(pathways = kegg_legacy,
-                              stats = rankings_dHep,
-                              scoreType = 'std', 
-                              minSize = 3,
-                              maxSize = 500,
-                              nproc = 1)
-
-reactome_res_dHep <- fgsea(pathways = reactome,
-                           stats = rankings_dHep,
-                           scoreType = 'std', 
-                           minSize = 3,
-                           maxSize = 500,
-                           nproc = 1)
-# saveRDS(reactome_res_dHep,fs::path(dir.results,"dHep_Steatosis_reactome.rds"))
-go_res_dHep <- fgsea(pathways = go,
-                     stats = rankings_dHep,
-                     scoreType = 'std', 
-                     minSize = 5,
-                     maxSize = 500,
-                     nproc = 1)
-# saveRDS(go_res_dHep,fs::path(dir.results,"dHep_Steatosis_GO.rds"))
-dHep_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_dHep[, padj < 0.05]), sum(kegg_legacy_res_dHep[, pval < 0.05])),
-                         "REACTOME"=c(sum(reactome_res_dHep[, padj < 0.05]), sum(reactome_res_dHep[, pval < 0.05])),
-                         "GO"=c(sum(go_res_dHep[, padj < 0.05]), sum(go_res_dHep[, pval < 0.05])))
-rownames(dHep_fgsea) <- c("adj.pval", "p.val")
-
-##### KEGG Legacy
-# a <- plot_fgsea_transpose(kegg_legacy_res_dHep, title = "dHep Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position.inside = c(0.2, 0.5))
-
-# ggsave(fs::path(dir.results,"Hepatocytes_top30_kegg_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-##### REACTOME
-b <- plot_fgsea_transpose(reactome_res_dHep, title = paste0(var," in ",celltype,"Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)"), xlimit = 8)+ theme(legend.position.inside = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"Hepatocytes_top30_reactome_pathways_unadjusted.jpeg"),
-#        width = 13, height = 10, scale = 1)
-##### GO
-c <- plot_fgsea_transpose(go_res_dHep, title = paste0(var," in ",celltype,"Unadjusted Top 30 GO (REML, Log Normal, Offset)"), xlimit = 8)+ theme(legend.position.inside = c(0.1, 0.5))
-
-# ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
-#        width = 13, height = 10, scale = 1)
-
-combined_plot <- b + c + plot_layout(ncol = 1)
-print(combined_plot)
-ggsave(fs::path(dir.results,paste0(celltype,"_",var,"top30_pathways_unadjusted.jpeg")),
-       width = 15, height = 20, scale = 1)
-}
+  for (celltype in HR_celltypes) {
+    cell_results <- results %>% 
+      filter(Celltype %in% celltype)
+    # Filter out the gmt files for KEGG, Reactome and GOBP
+    list.files(bg_path)
+    gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+    gmt_files
+    kegg_legacy <- prepare_gmt(gmt_files[1], unique(cell_results$Gene), savefile = FALSE)
+    reactome <- prepare_gmt(gmt_files[3], unique(cell_results$Gene), savefile = FALSE)
+    go <- prepare_gmt(gmt_files[4], unique(cell_results$Gene), savefile = FALSE)
+    
+    # rank genes by t-stats in DiD
+    rankings_dHep <- cell_results$log_fc
+    names(rankings_dHep) <- cell_results$Gene
+    rankings_dHep <- sort(rankings_dHep, decreasing = TRUE)
+    plot(rankings_dHep)
+    min(rankings_dHep)
+    max(rankings_dHep)
+    
+    
+    set.seed(1234)
+    
+    kegg_legacy_res_dHep <- fgsea(pathways = kegg_legacy,
+                                  stats = rankings_dHep,
+                                  scoreType = 'std', 
+                                  minSize = 3,
+                                  maxSize = 500,
+                                  nproc = 1)
+    
+    reactome_res_dHep <- fgsea(pathways = reactome,
+                               stats = rankings_dHep,
+                               scoreType = 'std', 
+                               minSize = 3,
+                               maxSize = 500,
+                               nproc = 1)
+    # saveRDS(reactome_res_dHep,fs::path(dir.results,"dHep_Steatosis_reactome.rds"))
+    go_res_dHep <- fgsea(pathways = go,
+                         stats = rankings_dHep,
+                         scoreType = 'std', 
+                         minSize = 5,
+                         maxSize = 500,
+                         nproc = 1)
+    # saveRDS(go_res_dHep,fs::path(dir.results,"dHep_Steatosis_GO.rds"))
+    dHep_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_dHep[, padj < 0.05]), sum(kegg_legacy_res_dHep[, pval < 0.05])),
+                             "REACTOME"=c(sum(reactome_res_dHep[, padj < 0.05]), sum(reactome_res_dHep[, pval < 0.05])),
+                             "GO"=c(sum(go_res_dHep[, padj < 0.05]), sum(go_res_dHep[, pval < 0.05])))
+    rownames(dHep_fgsea) <- c("adj.pval", "p.val")
+    
+    ##### KEGG Legacy
+    # a <- plot_fgsea_transpose(kegg_legacy_res_dHep, title = "dHep Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position.inside = c(0.2, 0.5))
+    
+    # ggsave(fs::path(dir.results,"Hepatocytes_top30_kegg_pathways_unadjusted.jpeg"),
+    #        width = 13, height = 10, scale = 1)
+    
+    ##### REACTOME
+    b <- plot_fgsea_transpose(reactome_res_dHep, title = paste0(var," in ",celltype,"Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)"), xlimit = 8)+ theme(legend.position.inside = c(0.1, 0.5))
+    
+    # ggsave(fs::path(dir.results,"Hepatocytes_top30_reactome_pathways_unadjusted.jpeg"),
+    #        width = 13, height = 10, scale = 1)
+    ##### GO
+    c <- plot_fgsea_transpose(go_res_dHep, title = paste0(var," in ",celltype,"Unadjusted Top 30 GO (REML, Log Normal, Offset)"), xlimit = 8)+ theme(legend.position.inside = c(0.1, 0.5))
+    
+    # ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
+    #        width = 13, height = 10, scale = 1)
+    
+    combined_plot <- b + c + plot_layout(ncol = 1)
+    print(combined_plot)
+    ggsave(fs::path(dir.results,paste0(celltype,"_",var,"top30_pathways_unadjusted.jpeg")),
+           width = 15, height = 20, scale = 1)
+  }
 }
 ```
 
@@ -13359,34 +13356,38 @@ df <- df %>%
 key <- analyte_info %>% 
   dplyr::select(all_of(c("AptName","SeqId","EntrezGeneSymbol")))
 
-#Senescence Proteins
-hvg_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% hvgs)]
-prot <- df[c("ID","visit",hvg_proteins)]
-protein <- colnames(prot)[-c(1,2)]
-prot_baseline <- prot %>% 
-  filter(visit=="Month 1")
-prot_followup <- prot %>% 
-  filter(visit=="Month 6")
-#Name proteins baseline or followup 
-colnames(prot_baseline)[-c(1,2)] <- paste0(colnames(prot_baseline)[-c(1,2)],"_baseline")
-colnames(prot_followup)[-c(1,2)] <- paste0(colnames(prot_followup)[-c(1,2)],"_followup")
-prot_baseline <- prot_baseline %>% 
-  dplyr::select(-visit)
-prot_baseline_dat <- prot_baseline
-prot_followup <- prot_followup %>% 
-  dplyr::select(-visit)
+#HVGs Proteins
+genes <- rownames(so_liver_sn)
+gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)] #3770 proteins
+# prot <- df[c("ID","visit",gene_proteins)]
+# protein <- colnames(prot)[-c(1,2)] #3770
+# prot_baseline <- prot %>% 
+#   filter(visit=="Month 1")
+# prot_followup <- prot %>% 
+#   filter(visit=="Month 6")
+# #Name proteins baseline or followup 
+# colnames(prot_baseline)[-c(1,2)] <- paste0(colnames(prot_baseline)[-c(1,2)],"_baseline")
+# colnames(prot_followup)[-c(1,2)] <- paste0(colnames(prot_followup)[-c(1,2)],"_followup")
+# prot_baseline <- prot_baseline %>% 
+#   dplyr::select(-visit)
+# prot_baseline_dat <- prot_baseline
+# prot_followup <- prot_followup %>% 
+#   dplyr::select(-visit)
 
-prot <- tidylog::left_join(prot_baseline,prot_followup,by="ID")
-prot_id <- unique(prot$ID)
+# prot <- tidylog::left_join(prot_baseline,prot_followup,by="ID")
+# prot_id <- unique(prot$ID) #64 unique participants with multiple timepoints of data
 
-df_sub <- df %>% 
-  filter(ID %in% prot_id)
+#Merge alt and protein data togeth
+df <- df %>% 
+  dplyr::select(c("ID","visit","SEX","ETHN","bmi","HBA1C","NAFLD0","NAFLD1",
+                  "NAFLD2","NAFLD3","NAFLD4","NAFLD5","NAFLD6","ALT","AST",all_of(gene_proteins)))
+  
 
 # Scatter plot with individual trajectories
-p3 <- ggplot(your_data, aes(x = protein, y = alt)) +
-  geom_point(aes(color = factor(time)), alpha = 0.6) +
-  geom_path(aes(group = subject_id), alpha = 0.2) +
-  geom_smooth(method = "lm", color = "black", size = 1.5) +
+p3 <- ggplot(df, aes(x = seq.10001.7, y = ALT)) +
+  geom_point(aes(color = factor(visit)), alpha = 0.6) +
+  geom_path(aes(group = ID), alpha = 0.2) +
+  geom_smooth(method = "lm", color = "black", linewidth= 0.5,se=F) +
   scale_color_viridis_d(name = "Time") +
   theme_minimal() +
   labs(title = "ALT vs Protein Levels",
@@ -13398,14 +13399,461 @@ p3 <- ggplot(your_data, aes(x = protein, y = alt)) +
 print(p3)
 
 # # Basic spaghetti plot
-# ggplot(df_sub, aes(x = visit, y = ALT, group = ID)) +
-#   geom_line(alpha = 0.5, color = "gray40") +
-#   geom_point(alpha = 0.5, size = 1.5, color = "gray40") +
-#   labs(title = "ALT Values Over Time by Individual",
-#        x = "Visit",
-#        y = "ALT") +
-#   theme_minimal() +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggplot(df, aes(x = visit, y = ALT, group = ID)) +
+  geom_line(alpha = 0.5, aes(color=ID)) +
+  geom_point(alpha = 0.5, size = 1.5,color="gray40") +
+  labs(title = "ALT Values Over Time by Individual",
+       x = "Visit",
+       y = "ALT") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+library(lme4)
+library(lmerTest)
+
+# First, ensure time is numeric for random slopes
+# Convert visit to numeric (assuming ordered visits)
+df$time_numeric <- as.numeric(factor(df$visit)) - 1  # Start at 0 for baseline
+
+# Model with random intercept for time
+alt_results <- data.frame()
+for (protein in gene_proteins) {
+m0 <- as.formula(paste0(protein,"~ ALT + time_numeric + (1|ID)"))
+model_simple <- lmer(m0, data = df)
+beta <- summary(model_simple)$coef[2,1]
+pval <- summary(model_simple)$coef[2,5]
+results <- data.frame(Protein=protein,Beta=beta,Pval=pval)
+alt_results <- rbind(alt_results,results)
+}
+alt_results <- alt_results %>% 
+  mutate(fdr = p.adjust(Pval,method="fdr")) %>% 
+  mutate(sig=ifelse(fdr<0.05,"*",""))
+
+
+alt_results <- data.frame()
+problem_proteins <- data.frame()
+
+for (protein in gene_proteins) {
+  m0 <- as.formula(paste0(protein, "~ ALT + time_numeric + (1|ID)"))
+  
+  # Track convergence and singularity
+  converged <- TRUE
+  is_singular <- FALSE
+  error_msg <- NA
+  
+  # Try to fit the model
+  tryCatch({
+    # Suppress warnings during fitting
+    model_simple <- suppressWarnings(lmer(m0, data = df))
+    
+    # Check for singular fit
+    if (isSingular(model_simple)) {
+      is_singular <- TRUE
+    }
+    
+    # Extract results
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    # Store results
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    alt_results <- rbind(alt_results, results)
+    
+  }, warning = function(w) {
+    # Fit model even with warnings
+    model_simple <- lmer(m0, data = df)
+    
+    # Check what type of warning
+    if (grepl("singular", w$message, ignore.case = TRUE)) {
+      is_singular <- TRUE
+    }
+    if (grepl("converge", w$message, ignore.case = TRUE)) {
+      converged <- FALSE
+    }
+    
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    alt_results <- rbind(alt_results, results)
+    
+    # Track problematic proteins
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = w$message))
+    
+  }, error = function(e) {
+    # Complete failure - store as NA
+    results <- data.frame(
+      Protein = protein,
+      Beta = NA,
+      Pval = NA,
+      Converged = FALSE,
+      Singular = NA
+    )
+    alt_results <<- rbind(alt_results, results)
+    
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = e$message))
+  })
+}
+
+# Add FDR correction only for successful models
+alt_results <- alt_results %>% 
+  mutate(fdr = ifelse(!is.na(Pval), p.adjust(Pval, method = "fdr"), NA)) %>% 
+  mutate(sig = ifelse(!is.na(fdr) & fdr < 0.05, "*", ""))
+alt_results <- alt_results %>% 
+  filter(Singular=="FALSE")
+
+alt_results <- alt_results %>% 
+  mutate(sig=case_when(fdr<0.05 & Beta>0 ~ "Significant Positive",
+                       fdr<0.05 & Beta<0 ~"Significant Negative",
+                       fdr>0.05~"Not Significant"))
+#Convert protein names to gene names
+key <- key %>% 
+  dplyr::rename(Protein=AptName)
+alt_results <- tidylog::left_join(alt_results,key,by="Protein")
+alt_results <- alt_results %>% 
+  dplyr::rename(Gene=EntrezGeneSymbol)
+
+alt_results$color <- ifelse(alt_results$fdr < 0.05 & alt_results$Beta > 0, "#990000",
+                             ifelse(alt_results$fdr < 0.05 & alt_results$Beta < 0, "#003366", "lightgray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- alt_results[alt_results$fdr < 0.05, ]
+
+
+N <- length(unique(df$ID))
+num_proteins <- length(unique(alt_results$Protein))
+
+volcano_plot <- ggplot(alt_results, aes(x = Beta, y = -log10(fdr), color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  theme_minimal() +  # Minimal theme
+   labs(
+    title = "Mixed-Effect Model for Proteins vs. ALT (U/L)",
+    x = "Beta",
+    y = "-log10(FDR)",
+    color = "Beta Direction",
+    caption = paste0("FDR < 0.05, Proteins = ",num_proteins,", N = ",N)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  # xlim(min,max)+
+  # # Add labels for significant points
+  geom_text(data = significant_df, aes(label = Gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+
+# volcano_plot_alt
+png(fs::path(dir.results,"ALT_Proteins_TeenLabs.png"),width=4000,height=4000,res=300)
+print(volcano_plot)
+dev.off()
+write.csv(alt_results,fs::path(dir.results,"ALT_Proteins_Teenlabs.csv"))
+
+#Volcano plot
+
+# Model with random intercept for time
+ast_results <- data.frame()
+for (protein in gene_proteins) {
+m0 <- as.formula(paste0(protein,"~ AST + time_numeric + (1|ID)"))
+model_simple <- lmer(m0, data = df)
+beta <- summary(model_simple)$coef[2,1]
+pval <- summary(model_simple)$coef[2,5]
+results <- data.frame(Protein=protein,Beta=beta,Pval=pval)
+ast_results <- rbind(ast_results,results)
+}
+ast_results <- ast_results %>% 
+  mutate(fdr = p.adjust(Pval,method="fdr")) %>% 
+  mutate(sig=ifelse(fdr<0.05,"*",""))
+
+ast_results <- data.frame()
+problem_proteins <- data.frame()
+
+for (protein in gene_proteins) {
+  m0 <- as.formula(paste0(protein, "~ AST + time_numeric + (1|ID)"))
+  
+  # Track convergence and singularity
+  converged <- TRUE
+  is_singular <- FALSE
+  error_msg <- NA
+  
+  # Try to fit the model
+  tryCatch({
+    # Suppress warnings during fitting
+    model_simple <- suppressWarnings(lmer(m0, data = df))
+    
+    # Check for singular fit
+    if (isSingular(model_simple)) {
+      is_singular <- TRUE
+    }
+    
+    # Extract results
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    # Store results
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    ast_results <- rbind(ast_results, results)
+    
+  }, warning = function(w) {
+    # Fit model even with warnings
+    model_simple <- lmer(m0, data = df)
+    
+    # Check what type of warning
+    if (grepl("singular", w$message, ignore.case = TRUE)) {
+      is_singular <- TRUE
+    }
+    if (grepl("converge", w$message, ignore.case = TRUE)) {
+      converged <- FALSE
+    }
+    
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    ast_results <- rbind(ast_results, results)
+    
+    # Track problematic proteins
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = w$message))
+    
+  }, error = function(e) {
+    # Complete failure - store as NA
+    results <- data.frame(
+      Protein = protein,
+      Beta = NA,
+      Pval = NA,
+      Converged = FALSE,
+      Singular = NA
+    )
+    ast_results <<- rbind(ast_results, results)
+    
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = e$message))
+  })
+}
+
+# Add FDR correction only for successful models
+ast_results <- ast_results %>% 
+  mutate(fdr = ifelse(!is.na(Pval), p.adjust(Pval, method = "fdr"), NA)) %>% 
+  mutate(sig = ifelse(!is.na(fdr) & fdr < 0.05, "*", ""))
+ast_results <- ast_results %>% 
+  filter(Singular=="FALSE")
+
+ast_results <- ast_results %>% 
+  mutate(sig=case_when(fdr<0.05 & Beta>0 ~ "Significant Positive",
+                       fdr<0.05 & Beta<0 ~"Significant Negative",
+                       fdr>0.05~"Not Significant"))
+#Convert protein names to gene names
+key <- key %>% 
+  dplyr::rename(Protein=AptName)
+ast_results <- tidylog::left_join(ast_results,key,by="Protein")
+ast_results <- ast_results %>% 
+  dplyr::rename(Gene=EntrezGeneSymbol)
+
+ast_results$color <- ifelse(ast_results$fdr < 0.05 & ast_results$Beta > 0, "#990000",
+                             ifelse(ast_results$fdr < 0.05 & ast_results$Beta < 0, "#003366", "lightgray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- ast_results[ast_results$fdr < 0.05, ]
+
+
+N <- length(unique(df$ID))
+num_proteins <- length(unique(ast_results$Protein))
+
+volcano_plot <- ggplot(ast_results, aes(x = Beta, y = -log10(fdr), color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  theme_minimal() +  # Minimal theme
+   labs(
+    title = "Mixed-Effect Model for Proteins vs. AST (U/L)",
+    x = "Beta",
+    y = "-log10(FDR)",
+    color = "Beta Direction",
+    caption = paste0("FDR < 0.05, Proteins = ",num_proteins,", N = ",N)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  # xlim(min,max)+
+  # # Add labels for significant points
+  geom_text(data = significant_df, aes(label = Gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+
+# volcano_plot_ast
+png(fs::path(dir.results,"AST_Proteins_TeenLabs.png"),width=4000,height=4000,res=300)
+print(volcano_plot)
+dev.off()
+
+write.csv(ast_results,fs::path(dir.results,"AST_Proteins_Teenlabs.csv"))
+
+#NAFLD
+NAFLD1_results <- data.frame()
+problem_proteins <- data.frame()
+
+for (protein in gene_proteins) {
+  m0 <- as.formula(paste0(protein, "~ NAFLD1 + time_numeric + (1|ID)"))
+  
+  # Track convergence and singularity
+  converged <- TRUE
+  is_singular <- FALSE
+  error_msg <- NA
+  
+  # Try to fit the model
+  tryCatch({
+    # Suppress warnings during fitting
+    model_simple <- suppressWarnings(lmer(m0, data = df))
+    
+    # Check for singular fit
+    if (isSingular(model_simple)) {
+      is_singular <- TRUE
+    }
+    
+    # Extract results
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    # Store results
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    NAFLD1_results <- rbind(NAFLD1_results, results)
+    
+  }, warning = function(w) {
+    # Fit model even with warnings
+    model_simple <- lmer(m0, data = df)
+    
+    # Check what type of warning
+    if (grepl("singular", w$message, ignore.case = TRUE)) {
+      is_singular <- TRUE
+    }
+    if (grepl("converge", w$message, ignore.case = TRUE)) {
+      converged <- FALSE
+    }
+    
+    beta <- summary(model_simple)$coef[2,1]
+    pval <- summary(model_simple)$coef[2,5]
+    
+    results <- data.frame(
+      Protein = protein,
+      Beta = beta,
+      Pval = pval,
+      Converged = converged,
+      Singular = is_singular
+    )
+    NAFLD1_results <- rbind(NAFLD1_results, results)
+    
+    # Track problematic proteins
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = w$message))
+    
+  }, error = function(e) {
+    # Complete failure - store as NA
+    results <- data.frame(
+      Protein = protein,
+      Beta = NA,
+      Pval = NA,
+      Converged = FALSE,
+      Singular = NA
+    )
+    NAFLD1_results <<- rbind(NAFLD1_results, results)
+    
+    problem_proteins <<- rbind(problem_proteins, 
+                              data.frame(Protein = protein, 
+                                       Issue = e$message))
+  })
+}
+
+# Add FDR correction only for successful models
+NAFLD1_results <- NAFLD1_results %>% 
+  mutate(fdr = ifelse(!is.na(Pval), p.adjust(Pval, method = "fdr"), NA)) %>% 
+  mutate(sig = ifelse(!is.na(fdr) & fdr < 0.05, "*", ""))
+NAFLD1_results <- NAFLD1_results %>% 
+  filter(Singular=="FALSE")
+
+NAFLD1_results <- NAFLD1_results %>% 
+  mutate(sig=case_when(fdr<0.05 & Beta>0 ~ "Significant Positive",
+                       fdr<0.05 & Beta<0 ~"Significant Negative",
+                       fdr>0.05~"Not Significant"))
+#Convert protein names to gene names
+key <- key %>% 
+  dplyr::rename(Protein=AptName)
+NAFLD1_results <- tidylog::left_join(NAFLD1_results,key,by="Protein")
+NAFLD1_results <- NAFLD1_results %>% 
+  dplyr::rename(Gene=EntrezGeneSymbol)
+
+NAFLD1_results$color <- ifelse(NAFLD1_results$fdr < 0.05 & NAFLD1_results$Beta > 0, "#990000",
+                             ifelse(NAFLD1_results$fdr < 0.05 & NAFLD1_results$Beta < 0, "#003366", "lightgray"))
+
+# Identify significant points (fdr < 0.05)
+significant_df <- NAFLD1_results[NAFLD1_results$fdr < 0.05, ]
+
+
+N <- length(unique(df$ID))
+num_proteins <- length(unique(NAFLD1_results$Protein))
+
+volcano_plot <- ggplot(NAFLD1_results, aes(x = Beta, y = -log10(fdr), color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+  theme_minimal() +  # Minimal theme
+   labs(
+    title = "Mixed-Effect Model for Proteins vs. NAFLD1 (U/L)",
+    x = "Beta",
+    y = "-log10(FDR)",
+    color = "Beta Direction",
+    caption = paste0("FDR < 0.05, Proteins = ",num_proteins,", N = ",N)
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1)
+  )+
+  # xlim(min,max)+
+  # # Add labels for significant points
+  geom_text(data = significant_df, aes(label = Gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+
+# volcano_plot_NAFLD1
+png(fs::path(dir.results,"NAFLD1_Proteins_TeenLabs.png"),width=4000,height=4000,res=300)
+print(volcano_plot)
+dev.off()
+```
+
+```{r}
 # 
 # # Calculate mean ALT for each visit
 # mean_data <- df_sub %>%
@@ -16942,24 +17390,26 @@ for(pw in common_pathways) {
 ```
 
 #10. Pet Data with TCA Cycle and Ox Phos Genes
-##i. Set Up
+##i. Set Up - RH2 & CRC
 ```{r}
-#Local
-tca1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/tca_cycle_genes.csv")$genesymbol
-tca2 <- c(
-  "ACO1", "ACO2", "IDH1", "IDH2", "IDH3A", "IDH3B", "IDH3G", "OGDH", "OGDHL",
-  "SUCLA2", "SUCLG1", "SUCLG2", "SDHA", "SDHB", "SDHC", "SDHD", "FH", "MDH1",
-  "MDH2", "FAS", "CS"
-) #21 genes
+#Load PET data & alt, ast, ggt and potentially masld 
+harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
 
-tca <- unique(c(tca1,tca2))
+#Number of participants
+length(unique(harm_meta_data$record_id)) #651
 
-#Local
-ox_phos1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/ox_phos_genes.csv")$genesymbol
-ox_phos2 <- c(
-  "NDUFS6",  "SDHB", "SDHC", "SDHD",
-  "UQCRC1", "UQCRC2", "COX4I1", "COX4I2", "ATP5PF") #47 genes
-ox_phos <- unique(c(ox_phos1,ox_phos2))
+#Filter to RH2 and CRC 
+harm_meta_data <- harm_meta_data %>% 
+  filter(grepl("RH2",record_id)|grepl("CRC",record_id))
+
+#Number of participants
+length(unique(harm_meta_data$record_id)) #117
+
+#Filter to those with Pet data
+pet_dat <- harm_meta_data %>% 
+  dplyr::select(c("record_id","kit_id","lc_k2","rc_k2","lm_k2","rm_k2",
+                  "lc_f","rc_f","lm_f","rm_f","gptalt_base","gotast_base"))
+
 
 #Calculate K2 and F variables
 so_liver_sn$avg_c_k2 <- (so_liver_sn$lc_k2+so_liver_sn$rc_k2)/2 
@@ -17030,155 +17480,3 @@ so_subset$avg_m_k2_f_med <- relevel(so_subset$avg_m_k2_f_med,"Below Median")
 
 
 ```
-
-##ii. TCA Cycle
-```{r}
-#Filter to PT Cells
-rm(so_celltype)
-so_celltype <- subset(so_subset,celltype2=="PT")
-# so_celltype <- subset(so_celltype,group=="Type_2_Diabetes")
-k2_ids <- unique(so_celltype$kit_id[which(!is.na(so_celltype$avg_c_k2))])
-so_celltype <- subset(so_celltype, kit_id %in% k2_ids)
-DefaultAssay(so_celltype) <- "RNA" 
-
-nrow(so_celltype) #34 genes
-ncol(so_celltype) #4926 PT cells
-
-counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-
-# With parallelization
-#TCA Cycle
-# List of genes
-genes_list <- tca_genes
-
-k2_vars <- c("avg_c_k2_med","avg_m_k2_med","avg_c_f_med","avg_m_f_med","avg_c_k2_f_med","avg_m_k2_f_med")
-total_results <- data.frame()
-for (exposure in k2_vars) {
-  cl <- makeCluster(10)
-  registerDoParallel(cl)
-  
-  start_time <- Sys.time()
-  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_path[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred.formula <- as.formula(paste0("~",exposure))
-      pred_gene <- model.matrix(pred.formula, data = meta_gene)
-      # library <- meta_gene$library_size
-      library <- meta_gene$pooled_offset
-      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-      
-      if (is.null(data_g_gene)) {
-        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-      }
-      
-      #With offset
-      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
-      
-      list(gene = g, result = result)  # return both gene name and result
-      
-    }, error = function(e) {
-      list(gene = g, summary = NA, overdispersion = NA, convergence = NA, algorithm = NA, covariance = NA, random_effect = NA)
-    })
-  }
-  
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  # set the names of results based on gene names
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-  
-  PT_nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      df <- data.frame(Gene = gene_name,
-                       Convergence_Code = converged)
-      return(df)
-    }
-  )
-  
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-  
-  #Make dataframe of final results
-  full_results <- as.data.frame(nebula_summaries)
-  colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept","p_value","gene_id","gene","Gene")
-  full_results$Variable <- exposure
-  #Calculate number of genes filtered out for low expression 
-  full_results$low_exp <- length(tca_genes)-length(full_results$gene)
-  #Filter out non-converging genes
-  full_results <- full_results %>% 
-    filter(!gene %in%  nonconverge_genes)
-  #Calculate nonconvergence rate
-  full_results$nebula_nonconverged_percent <- paste0(round((1-(length(tca_genes)-length(nonconverge_genes))/length(tca_genes))*100,3),"%")
-  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
-  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-  full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
-  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
-  total_results <- rbind(total_results,full_results)
-}
-
-write.csv(total_results,fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_PET_Variables_unadjusted_pooled_offset.csv"))
-# total_results <- read.csv(fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_PET_Variables_unadjusted_pooled_offset.csv"))
-
-# Define significance stars
-total_results <- total_results %>%
-  mutate(signif = case_when(
-    fdr < 0.01 ~ "**",
-    fdr < 0.05 ~ "*",
-    TRUE ~ ""
-  ))
-
-# Select only the needed columns and rename LogFC for clarity
-heatmap_data <- total_results %>%
-  dplyr::select(Gene, Variable, logFC, signif)
-
-custom_order <- c("avg_c_k2_med", "avg_m_k2_med", "avg_c_f_med", "avg_m_f_med", "avg_c_k2_f_med", "avg_m_k2_f_med")
-heatmap_data$Variable <- factor(heatmap_data$Variable, levels = custom_order)
-custom_labels <- c("Average Cortical K2","Average Medulla K2","Average Cortical F","Average Medulla F",
-                   "Average Cortical K2/F","Average Medulla K2/F")
-
-heat_map_p <- ggplot(heatmap_data, aes(x = Variable, y = Gene, fill = logFC)) +
-  geom_tile(color = "grey90") +
-  geom_text(aes(label = signif), size = 3, color = "black") +
-  scale_fill_gradient2(
-    low = "#264653", mid = "white", high = "darkred",
-    midpoint = 0,
-    name = "LogFC"
-  ) +
-  theme_minimal() +
-  labs(title = "TCA Cycle Genes vs. PET Variables (T2D)",
-       subtitle = "Proximal Tubule Cells",
-       x = "Exposure",
-       y = "Gene") +
-  scale_x_discrete(labels = setNames(custom_labels, custom_order))+
-  theme(
-    text = element_text(face="bold"),
-    axis.text.y = element_text(size = 6),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.ticks.y = element_blank(),
-    axis.title.x = element_blank(),
-    panel.grid = element_blank()
-  )
-
-# custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
-
-png(fs::path(dir.results, "Heatmap_TCA_cycle_NEBULA_PT_PET_unadjusted_pooled_offset_T2D.png"), 
-    width = 1500, height = 2000, res = 300)
-print(heat_map_p)
-dev.off()
-
-```
-##iii. Ox Phos
