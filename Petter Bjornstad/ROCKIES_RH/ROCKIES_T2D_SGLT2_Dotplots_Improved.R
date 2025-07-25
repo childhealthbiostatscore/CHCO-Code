@@ -102,7 +102,7 @@ nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")
   tryCatch({
     count_gene <- counts_path[g, , drop = FALSE]
     meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
+    pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
     # library <- meta_gene$library_size
     library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -189,6 +189,9 @@ max <- max(full_results$`logFC_groupType_2_Diabetes`)
 # max <- 3.1
 min <- min(full_results$`logFC_groupType_2_Diabetes`)
 
+order_tca <- data.table::fread("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_ALL_cells_LC_T2D_NoMed_unadjusted_pooled_offset_no_IT_08.csv") %>%
+  arrange(`logFC_groupType_2_Diabetes`)
+
 
 dot_plot <- ggplot(full_results, aes(
   y = reorder(gene, `logFC_groupType_2_Diabetes`),
@@ -225,7 +228,7 @@ dot_plot <- ggplot(full_results, aes(
   )
 dot_plot
 
-png(fs::path(dir.results, "fdr/Plot__TCA_cycle_NEBULA_All_Cells_T2D_LC_NoMed_unadjusted_pooled_offset_no_IT_08.png"), 
+png(fs::path(dir.results, "fdr/Plot__TCA_cycle_NEBULA_All_Cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.png"), 
     width = 2500, height = 2000, res = 300)
 print(dot_plot)
 dev.off()
@@ -269,7 +272,7 @@ dot_plot <- ggplot(full_results, aes(
   )
 dot_plot
 
-png(fs::path(dir.results, "pvalue/Plot__TCA_cycle_NEBULA_All_Cells_T2D_LC_NoMed_unadjusted_pooled_offset_no_IT_08.png"), 
+png(fs::path(dir.results, "pvalue/Plot__TCA_cycle_NEBULA_All_Cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.png"), 
     width = 2500, height = 2000, res = 300)
 print(dot_plot)
 dev.off()
@@ -320,7 +323,7 @@ nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")
   tryCatch({
     count_gene <- counts_path[g, , drop = FALSE]
     meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
+    pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
     # library <- meta_gene$library_size
     library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -439,7 +442,7 @@ dot_plot <- ggplot(full_results, aes(
   )
 dot_plot
 
-png(fs::path(dir.results, "fdr/Plot__Ox_Phos_cycle_NEBULA_All_Cells_T2D_LC_NoMed_unadjusted_pooled_offset_no_IT_08.png"), 
+png(fs::path(dir.results, "fdr/Plot__Ox_Phos_cycle_NEBULA_All_Cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.png"), 
     width = 2500, height = 2000, res = 300)
 print(dot_plot)
 dev.off()
@@ -485,7 +488,7 @@ dot_plot <- ggplot(full_results, aes(
   )
 dot_plot
 
-png(fs::path(dir.results, "pvalue/Plot__OxPhos_cycle_NEBULA_All_Cells_T2D_LC_NoMed_unadjusted_pooled_offset_no_IT_08.png"), 
+png(fs::path(dir.results, "pvalue/Plot__OxPhos_cycle_NEBULA_All_Cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.png"), 
     width = 2500, height = 2000, res = 300)
 print(dot_plot)
 dev.off()
@@ -539,7 +542,7 @@ nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")
   tryCatch({
     count_gene <- counts_path[g, , drop = FALSE]
     meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
+    pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
     # library <- meta_gene$library_size
     library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -660,7 +663,7 @@ dot_plot <- ggplot(full_results, aes(
   )
 dot_plot
 
-png(fs::path(dir.results, "fdr/Plot__TCA_cycle_NEBULA_PT_Cells_T2D_LC_NoMed_unadjusted_pooled_offset_no_IT_08.png"), 
+png(fs::path(dir.results, "fdr/Plot__TCA_cycle_NEBULA_PT_Cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.png"), 
     width = 2500, height = 2000, res = 300)
 print(dot_plot)
 dev.off()
@@ -706,7 +709,7 @@ dot_plot <- ggplot(full_results, aes(
   )
 dot_plot
 
-png(fs::path(dir.results, "pvalue/Plot__TCA_cycle_NEBULA_PT_Cells_T2D_LC_NoMed_unadjusted_pooled_offset_no_IT_08.png"), 
+png(fs::path(dir.results, "pvalue/Plot__TCA_cycle_NEBULA_PT_Cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.png"), 
     width = 2500, height = 2000, res = 300)
 print(dot_plot)
 dev.off()
@@ -754,7 +757,7 @@ nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")
   tryCatch({
     count_gene <- counts_path[g, , drop = FALSE]
     meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~group, data = meta_gene)
+    pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
     # library <- meta_gene$library_size
     library <- meta_gene$pooled_offset
     data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -873,7 +876,7 @@ dot_plot <- ggplot(full_results, aes(
   )
 dot_plot
 
-png(fs::path(dir.results, "fdr/Plot__OX_PHOS_cycle_NEBULA_PT_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png"), 
+png(fs::path(dir.results, "fdr/Plot__OX_PHOS_cycle_NEBULA_PT_Cells_T2D_SGLT2_unadjusted_pooled_offset.png"), 
     width = 2500, height = 2000, res = 300)
 print(dot_plot)
 dev.off()
@@ -919,7 +922,7 @@ dot_plot <- ggplot(full_results, aes(
   )
 dot_plot
 
-png(fs::path(dir.results, "pvalue/Plot__OxPhos_cycle_NEBULA_PT_Cells_T2D_LC_NoMed_unadjusted_pooled_offset_no_IT_08.png"), 
+png(fs::path(dir.results, "pvalue/Plot__OxPhos_cycle_NEBULA_PT_Cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.png"), 
     width = 2500, height = 2000, res = 300)
 print(dot_plot)
 dev.off()
@@ -973,7 +976,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -1150,7 +1153,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -1313,22 +1316,22 @@ for (celltype in celltypes) {
   comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
   # dot_plot
   # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca_2)
   dev.off()
   
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos_2)
   dev.off()
@@ -1378,7 +1381,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -1558,7 +1561,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -1726,22 +1729,22 @@ for (celltype in celltypes) {
   comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
   # dot_plot
   # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca_2)
   dev.off()
   
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos_2)
   dev.off()
@@ -1789,7 +1792,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -1967,7 +1970,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -2135,22 +2138,22 @@ for (celltype in celltypes) {
   comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
   # dot_plot
   # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca_2)
   dev.off()
   
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos_2)
   dev.off()
@@ -2200,7 +2203,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -2379,7 +2382,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -2547,22 +2550,22 @@ for (celltype in celltypes) {
   comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
   # dot_plot
   # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca_2)
   dev.off()
   
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos_2)
   dev.off()
@@ -2613,7 +2616,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -2791,7 +2794,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -2959,22 +2962,22 @@ for (celltype in celltypes) {
   comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
   # dot_plot
   # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca_2)
   dev.off()
   
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos_2)
   dev.off()
@@ -3026,7 +3029,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -3203,7 +3206,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -3371,22 +3374,22 @@ for (celltype in celltypes) {
   comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
   # dot_plot
   # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca_2)
   dev.off()
   
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos_2)
   dev.off()
@@ -3436,7 +3439,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -3614,7 +3617,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -3782,22 +3785,22 @@ for (celltype in celltypes) {
   comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
   # dot_plot
   # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca_2)
   dev.off()
   
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos_2)
   dev.off()
@@ -3848,7 +3851,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -4026,7 +4029,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -4194,22 +4197,22 @@ for (celltype in celltypes) {
   comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
   # dot_plot
   # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca_2)
   dev.off()
   
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos_2)
   dev.off()
@@ -4271,7 +4274,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -4449,7 +4452,7 @@ for (celltype in celltypes) {
     tryCatch({
       count_gene <- counts_path[g, , drop = FALSE]
       meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
       # library <- meta_gene$library_size
       library <- meta_gene$pooled_offset
       data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
@@ -4617,22 +4620,22 @@ for (celltype in celltypes) {
   comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
   # dot_plot
   # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_tca_2)
   dev.off()
   
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos)
   dev.off()
   
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_LC_NoMed_unadjusted_pooled_offset.png")),
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
       width = 5000, height = 2000, res = 300)
   print(dot_plot_ox_phos_2)
   dev.off()
