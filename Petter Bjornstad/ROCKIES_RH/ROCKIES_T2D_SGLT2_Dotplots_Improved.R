@@ -82,6 +82,8 @@ so_subset@meta.data$epic_sglti2_1 <- test$epic_sglti2_1
 
 
 
+counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
+
 so_celltype <- so_subset
 genes_list <- tca_genes
 
@@ -162,9 +164,9 @@ nebula_nonconverged_percent <- paste0(round((1-(length(tca_genes)-length(nonconv
 # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+  mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
 
 write.csv(full_results,fs::path(dir.results,"NEBULA_TCA_cycle_ALL_cells_LC_T2D_NoMed_unadjusted_pooled_offset_no_IT_08.csv"))
 
@@ -383,9 +385,9 @@ nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(non
 # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+  mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
 
 write.csv(full_results,fs::path(dir.results,"NEBULA_Ox_Phos_cycle_ALL_cells_LC_T2D_NoMed_unadjusted_pooled_offset_no_IT_08.csv"))
 
@@ -602,9 +604,9 @@ nebula_nonconverged_percent <- paste0(round((1-(length(tca_genes)-length(nonconv
 # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+  mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
 
 write.csv(full_results,fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_LC_T2D_NoMed_unadjusted_pooled_offset_no_IT_08.csv"))
 
@@ -817,9 +819,9 @@ nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(non
 # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+  mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
 
 write.csv(full_results,fs::path(dir.results,"NEBULA_OX_PHOS_cycle_PT_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv"))
 
@@ -1036,9 +1038,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -1213,9 +1215,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_OX_PHOS_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -1441,9 +1443,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -1621,9 +1623,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -1852,9 +1854,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -2030,9 +2032,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -2263,9 +2265,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -2442,9 +2444,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -2676,9 +2678,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -2854,9 +2856,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -3089,9 +3091,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -3266,9 +3268,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -3499,9 +3501,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -3677,9 +3679,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -3911,9 +3913,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -4089,9 +4091,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -4334,9 +4336,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
@@ -4512,9 +4514,9 @@ for (celltype in celltypes) {
   # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
   # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
   full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
