@@ -11,6 +11,7 @@ format:
     toc: true
     toc-depth: 1
     fontsize: 15
+    number-sections: true
 ---
 
 ```{r include = F}
@@ -25,6 +26,10 @@ library(emmeans)
 library(broom)
 library(ggbeeswarm)
 library(lemon)
+library(quantreg)
+
+source("~/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
 ```
 
 ```{r include = F}
@@ -40,144 +45,6 @@ Sys.setenv(
 )
 ```
 
-```{r echo = F}
-run_ancova <- function(data, outcome_var, baseline_var, visit_week) {
-  outcome_sym <- rlang::sym(outcome_var)
-  baseline_sym <- rlang::sym(baseline_var)
-  
-  data_filtered <- data %>% 
-    filter(visit == visit_week)
-
-  ancova_results <- data_filtered %>%
-    nest_by(visit) %>%
-    mutate(
-      model = list(lm(!!outcome_sym ~ treatment + !!baseline_sym, data = data)),
-      tidy_results = list(broom::tidy(model)),
-      glance_results = list(broom::glance(model)),
-      emm = list(emmeans::emmeans(model, "treatment")),
-      emm_results = list(broom::tidy(emm, conf.int = TRUE)),
-      contrasts = list(pairs(emm)),
-      contrast_results = list(broom::tidy(contrasts))
-    )
-
-  ancova_summary <- ancova_results %>%
-    dplyr::select(visit, tidy_results) %>%
-    unnest(tidy_results) %>%
-    filter(term == "treatmentDapagliflozin 5mg") %>%
-    dplyr::select(visit, estimate, std.error, p.value, statistic)
-
-  ancova_means <- ancova_results %>%
-    dplyr::select(visit, emm_results) %>%
-    unnest(emm_results)
-
-  ancova_contrasts <- ancova_results %>%
-    dplyr::select(visit, contrast_results) %>%
-    unnest(contrast_results)
-
-  return(list(summary = ancova_summary,
-              means = ancova_means,
-              contrasts = ancova_contrasts))
-}
-```
-
-```{r echo = F}
-plot_mean_ci_stars <- function(data, y_var, y_axis_title, 
-                               legend_position = c(0.6, 0.8), 
-                               baseline_visit = 0, 
-                               visits_to_plot = c(-4, 0, 4, 16, 18),
-                               covariates = NULL) {
-  dodge_val <- 0.08
-  y_sym <- rlang::ensym(y_var)
-  y_name <- rlang::as_name(y_sym)
-  baseline_var <- paste0(y_name, "_bl")
-  
-  # Add baseline values to main dataset
-  baseline_df <- data %>%
-    filter(visit == baseline_visit) %>%
-    dplyr::select(subject_id, !!y_sym) %>%
-    rename_with(~ baseline_var, all_of(y_name))
-  
-  data <- data %>%
-    filter(visit %in% visits_to_plot) %>%
-    left_join(baseline_df)
-  
-  # 1. Compute means and 95% CI
-  mean_dat <- data %>%
-    group_by(treatment, visit) %>%
-    summarize(
-      n = sum(!is.na(!!y_sym)),
-      mean_y = mean(!!y_sym, na.rm = TRUE),
-      sd_y = sd(!!y_sym, na.rm = TRUE),
-      t_crit = qt(0.975, df = n - 1),
-      lower = mean_y - (t_crit * sd_y / sqrt(n)),
-      upper = mean_y + (t_crit * sd_y / sqrt(n)),
-      .groups = "drop"
-    )
-  
-  # 2. Use run_ancova() to get p-values from contrasts at each visit
-  contrast_results <- purrr::map_dfr(visits_to_plot, function(v) {
-    result <- tryCatch({
-      ancova <- run_ancova(data, outcome_var = y_name, baseline_var = baseline_var, visit_week = v)
-      ancova$contrasts %>%
-        filter(contrast == "Placebo - Dapagliflozin 5mg") %>%
-        mutate(visit = v)
-    }, error = function(e) {
-      message(glue::glue("ANCOVA failed for visit {v}: {e$message}"))
-      tibble(visit = v, p.value = NA_real_, estimate = NA_real_,
-             conf.low = NA, conf.high = NA, contrast = NA)
-    })
-  }) %>%
-    mutate(
-      stars = case_when(
-        p.value < 0.001 ~ "***",
-        p.value < 0.01  ~ "**",
-        p.value < 0.05  ~ "*",
-        TRUE            ~ ""
-      ))
-  
-  # 3. Determine Y position for stars
-  ttest_results <- contrast_results %>%
-    left_join(mean_dat %>%
-                group_by(visit) %>%
-                summarize(max_upper = max(upper, na.rm = TRUE), .groups = "drop"),
-              by = "visit") %>%
-    mutate(y_position = max_upper + 0.05 * max_upper)
-  
-  # 4. Plot
-  p <- data %>%
-    ggplot(aes(x = factor(visit, levels = visits_to_plot), y = !!y_sym, color = treatment)) +
-    geom_errorbar(data = mean_dat, 
-                  aes(x = factor(visit, levels = visits_to_plot), ymin = lower, ymax = upper, group = treatment), 
-                  inherit.aes = FALSE,
-                  width = 0.1, size = 0.3, position = position_dodge(width = dodge_val),
-                  color = "black") +
-    geom_line(data = mean_dat, aes(x = factor(visit, levels = visits_to_plot), y = mean_y, group = treatment), 
-              position = position_dodge(width = dodge_val),
-              size = 1.2) +
-    geom_point(data = mean_dat, aes(x = factor(visit, levels = visits_to_plot), y = mean_y, shape = treatment), 
-               size = 11, position = position_dodge(width = dodge_val), color = "white") +
-    geom_point(data = mean_dat, aes(x = factor(visit, levels = visits_to_plot), y = mean_y, shape = treatment), 
-               size = 7, position = position_dodge(width = dodge_val)) +
-    geom_text(data = ttest_results, 
-              aes(x = factor(visit, levels = visits_to_plot), y = y_position, label = stars), 
-              inherit.aes = FALSE,
-              size = 6, vjust = 0) +
-    scale_shape_manual(values = c("Placebo" = 15, "Dapagliflozin 5mg" = 18)) +
-    scale_color_manual(values = c("Placebo" = "#439799", "Dapagliflozin 5mg" = "#483D90")) +
-    scale_x_discrete(expand = expansion(mult = c(0.3, 0.3))) +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
-    theme(panel.background = element_blank(),
-          legend.position = legend_position,
-          legend.justification = c(1, 1),
-          legend.background = element_blank()) +
-    labs(x = "Visit", 
-         y = y_axis_title,
-         color = NULL, shape = NULL) +
-    guides(color = guide_legend(override.aes = list(size = 5)))
-
-  return(p)
-}
-```
 
 
 # Introduction {data-name="Introduction"}
@@ -192,16 +59,10 @@ Next steps:
 
 - Add scrolling menu?
 
-- Lipid profiles
-
-- Concordance in clinical variable associations
-
-- check on ambient signals with Phil and Raji
-
 - plot showing the relationship between the top gene and change in clinical variable
 
 
-# 1. Descriptive Tables/Plots
+# Descriptive Tables/Plots
 
 ```{r echo = F}
 harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
@@ -296,7 +157,7 @@ attempt_dat %>%
 ```
 
 
-## 1a. Baseline Table (Full cohort, Dapa vs. Placebo)
+## Baseline Table (Full cohort, Dapa vs. Placebo)
 
 ```{r echo = F, results='asis'}
 # hist(subset(attempt_dat2, visit == "PRE")$hba1c)
@@ -313,7 +174,39 @@ kable(summary(arsenal::tableby(treatment ~ mgfr_jodal_bsa + mgfr_jodal + mri_r2_
 # kable(summary(arsenal::tableby(treatment ~ mgfr_si + mgfr_si_adjusted + mgfr_bm_adult + mgfr_bm_adult_adjusted + mgfr_bm_adult_adjusted_cl1 + mgfr_bm_combined + mgfr_bm_combined_adjusted + mgfr_bm_combined_adjusted_cl1 + mgfr_bm_child + mgfr_bm_child_adjusted + mgfr_bm_child_adjusted_cl1 + mgfr_jodal + mgfr_jodal  + mgfr_jodal_bsa , data = subset(attempt_dat, visit == 0)), digits = 1))
 ```
 
-## 1b. MRI Mixed model (Full cohort, Dapa vs. Placebo over time, Unadjusted)
+
+```{r echo = F, include = F}
+# N's for consort diagram
+bl_attempt_dat <- subset(attempt_dat, visit == -4) # R2* collected at -4
+bl_attempt_dat_denver <- subset(bl_attempt_dat, site == "Denver")
+bl_attempt_dat_london <- subset(bl_attempt_dat, site == "London")
+bl_attempt_dat_toronto <- subset(bl_attempt_dat, site == "Toronto")
+
+# Number of each treatment group at each site
+table(bl_attempt_dat$site, bl_attempt_dat$treatment)
+
+# Number of subjects with R2* at each site/treatment group
+table(!is.na(bl_attempt_dat_denver$avg_c_r2), bl_attempt_dat_denver$treatment)
+table(!is.na(bl_attempt_dat_london$avg_c_r2), bl_attempt_dat_london$treatment)
+table(!is.na(bl_attempt_dat_toronto$avg_c_r2), bl_attempt_dat_toronto$treatment)
+
+# Number of subjects with R2* AND biopsy in Denver
+table(bl_attempt_dat_denver$biopsy_yn == "Yes" & !is.na(bl_attempt_dat_denver$avg_c_r2), 
+      bl_attempt_dat_denver$treatment)
+
+# Number of subjects with T1 mapping in Denver (regardless of biopsy)
+table(!is.na(subset(attempt_dat, visit == 0 & site == "Denver")$avg_c_t1), 
+      subset(attempt_dat, visit == 0 & site == "Denver")$treatment)
+
+# Number of subjects with biopsy in Denver (regardless of MRI)
+table(bl_attempt_dat_denver$biopsy_yn, bl_attempt_dat_denver$treatment)
+
+# Number of subjects with T1 AND biopsy in Denver
+table(bl_attempt_dat_denver$biopsy_yn == "Yes" & 
+        !is.na(subset(attempt_dat, visit == 0 & site == "Denver")$avg_c_t1), 
+      bl_attempt_dat_denver$treatment)
+```
+## MRI Mixed model (Full cohort, Dapa vs. Placebo over time, Unadjusted)
 
 ```{r echo = F}
 outcomes <- c(
@@ -359,7 +252,7 @@ kable(clean_results, digits = 3)
 
 ```
 
-## 1c. MRI Mixed model (Full cohort, Dapa vs. Placebo over time, Adjusted for age, sex, diabetes duration, site, and BMI)
+## MRI Mixed model (Full cohort, Dapa vs. Placebo over time, Adjusted for age, sex, diabetes duration, site, and BMI)
 
 ```{r echo = F}
 outcomes <- c(
@@ -401,18 +294,19 @@ clean_results <- fixed_effects_df %>%
   filter(term == "visit:treatmentDapagliflozin 5mg")
 
 kable(clean_results, digits = 3)
-
 ```
 
-## 1d. Baseline Table (Denver only cohort, Dapa vs. Placebo)
+## Baseline Table (Denver only cohort, Dapa vs. Placebo)
 
 ```{r echo = F, results='asis'}
-kable(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + ldl_serum_mmoll + hdl_serum_mmoll, data = subset(attempt_dat, visit == 0 & site == "Denver")), digits = 1))
+kable(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + ldl_serum_mmoll + hdl_serum_mmoll + avg_c_t1 + avg_k_t1 + avg_pcascl + avg_c_adc, data = subset(attempt_dat, visit == 0 & site == "Denver")), digits = 1))
+
+kable(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + ldl_serum_mmoll + hdl_serum_mmoll + avg_c_t1 + avg_k_t1 + avg_pcascl + avg_c_adc, data = subset(attempt_dat, visit == 16 & site == "Denver")), digits = 1))
 
 kable(summary(arsenal::tableby(treatment ~ mgfr_jodal_bsa + mgfr_jodal + mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2, data = subset(attempt_dat, visit == -4 & site == "Denver")), digits = 1))
 ```
 
-## 1e. MRI Mixed model (Denver only cohort, Dapa vs. Placebo over time)
+## MRI Mixed model (Denver only cohort, Dapa vs. Placebo over time)
 
 ```{r echo = F}
 # kable(summary(arsenal::tableby(visit ~ mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2 + t1_l_cortex + t1_r_cortex + avg_c_t1 + t1_l_kidney + t1_r_kidney + avg_k_t1 + adc_left + adc_right + avg_c_adc + pcasl3d_left + pcasl3d_right + avg_pcascl + volume_left + volume_right + tkv, data = subset(attempt_dat, site == "Denver"), strata = treatment), digits = 1))
@@ -463,7 +357,7 @@ clean_results <- fixed_effects_df %>%
 kable(clean_results, digits = 3)
 ```
 
-## 1f. Baseline Table (Biopsy only cohort, Dapa vs. Placebo)
+## Baseline Table (Biopsy only cohort, Dapa vs. Placebo)
 
 ```{r echo = F, results='asis'}
 kable(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse  + ldl_serum_mmoll + hdl_serum_mmoll + t1_l_cortex + t1_r_cortex + avg_c_t1 + t1_l_kidney + t1_r_kidney + avg_k_t1 + adc_left + adc_right + avg_c_adc + pcasl3d_left + pcasl3d_right + avg_pcascl + volume_left + volume_right + tkv, data = subset(attempt_dat, visit == 0  & biopsy_yn == "Yes")), digits = 1))
@@ -473,7 +367,7 @@ kable(summary(arsenal::tableby(treatment ~ mgfr_jodal_bsa + mgfr_jodal + mri_r2_
 kable(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + t1_l_cortex + t1_r_cortex + avg_c_t1 + t1_l_kidney + t1_r_kidney + avg_k_t1 + adc_left + adc_right + avg_c_adc + pcasl3d_left + pcasl3d_right + avg_pcascl + volume_left + volume_right + tkv, data = subset(attempt_dat, visit == 16  & biopsy_yn == "Yes")), digits = 1))
 ```
 
-## 1g. MRI Mixed model (Biopsy only cohort, Dapa vs. Placebo over time)
+## MRI Mixed model (Biopsy only cohort, Dapa vs. Placebo over time)
 
 ```{r echo = F}
 # kable(summary(arsenal::tableby(visit ~ mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2 + t1_l_cortex + t1_r_cortex + avg_c_t1 + t1_l_kidney + t1_r_kidney + avg_k_t1 + adc_left + adc_right + avg_c_adc + pcasl3d_left + pcasl3d_right + avg_pcascl + volume_left + volume_right + tkv, data = subset(attempt_dat, site == "Denver"), strata = treatment), digits = 1))
@@ -524,16 +418,15 @@ clean_results <- fixed_effects_df %>%
 kable(clean_results, digits = 3)
 ```
 
-## 1h. Plots over time (Full cohort)
+## Plots over time (Full cohort)
 
 ```{r echo = F}
 delta_df <- attempt_dat %>%
   filter(!is.na(visit)) %>%
-  dplyr::select(subject_id, visit, treatment, site, hba1c, cgm_tir, weight, sex, mgfr_jodal_bsa,mgfr_jodal,
-                avg_c_r2, avg_k_r2) %>%
   pivot_wider(id_cols = c(subject_id, treatment, site, sex),
               names_from = visit,
-              values_from = c(hba1c, cgm_tir, weight, mgfr_jodal_bsa, mgfr_jodal, avg_c_r2, avg_k_r2)) %>%
+              values_from = c(hba1c, cgm_tir, weight, mgfr_jodal_bsa, mgfr_jodal, avg_c_r2, avg_k_r2,
+                              avg_c_t1, avg_k_t1, avg_pcascl, avg_c_adc)) %>%
   mutate(
     delta_hba1c_4 = hba1c_4 - hba1c_0,
     delta_hba1c_16 = hba1c_16 - hba1c_0,
@@ -549,26 +442,27 @@ delta_df <- attempt_dat %>%
     delta_avg_c_r2_16 = avg_c_r2_16 - `avg_c_r2_-4`,
     delta_avg_k_r2_4 = avg_k_r2_4 - `avg_k_r2_-4`,
     delta_avg_k_r2_16 = avg_k_r2_16 - `avg_k_r2_-4`,
+    delta_avg_c_t1_4 = avg_c_t1_4 - `avg_c_t1_0`,
+    delta_avg_c_t1_16 = avg_c_t1_16 - `avg_c_t1_0`,
+    delta_avg_k_t1_4 = avg_k_t1_4 - `avg_k_t1_0`,
+    delta_avg_k_t1_16 = avg_k_t1_16 - `avg_k_t1_0`,
+    delta_avg_pcascl_4 = avg_pcascl_4 - `avg_pcascl_0`,
+    delta_avg_pcascl_16 = avg_pcascl_16 - `avg_pcascl_0`,
+    delta_avg_c_adc_4 = avg_c_adc_4 - `avg_c_adc_0`,
+    delta_avg_c_adc_16 = avg_c_adc_16 - `avg_c_adc_0`,    
     delta_hba1c_0 = 0,
     delta_tir_0 = 0,
     delta_weight_0 = 0,
     `delta_mgfr_jodal_bsa_-4` = 0,
     `delta_mgfr_jodal_-4` = 0,
     `delta_avg_c_r2_-4` = 0,
-    `delta_avg_k_r2_-4` = 0
+    `delta_avg_k_r2_-4` = 0,
+    `delta_avg_pcascl_0` = 0,
+    `delta_avg_c_adc_0` = 0,
+    `delta_avg_c_t1_0` = 0,
+    `delta_avg_k_t1_0` = 0
   ) %>%
-  dplyr::select(subject_id, treatment, site, sex,
-                delta_hba1c_0, delta_hba1c_4, delta_hba1c_16,
-                delta_tir_0, delta_tir_4, delta_tir_16,
-                delta_weight_0, delta_weight_4, delta_weight_16,
-                `delta_mgfr_jodal_bsa_-4`, delta_mgfr_jodal_bsa_4, 
-                delta_mgfr_jodal_bsa_16,
-                `delta_mgfr_jodal_-4`, delta_mgfr_jodal_4, 
-                delta_mgfr_jodal_16,
-                `delta_avg_c_r2_-4`, delta_avg_c_r2_4, 
-                delta_avg_c_r2_16,
-                `delta_avg_k_r2_-4`, delta_avg_k_r2_4, 
-                delta_avg_k_r2_16) %>%
+  dplyr::select(subject_id, treatment, site, sex, matches("delta_.*_(-?4|16|0)$")) %>%
   pivot_longer(
     cols = -c(subject_id, treatment, sex, site),
     names_to = c("variable", "visit"),
@@ -603,25 +497,6 @@ attempt_dat %>%
 ### mGFR (BSA)
 
 ```{r echo = F, include = F, eval = T}
-plot_delta_by_category(
-  data = attempt_dat,
-  id_var = "subject_id",
-  treatment_var = "treatment",
-  value_var = "mgfr_jodal_bsa",
-  visit_var = "visit",
-  visit_baseline = -4,
-  visit_pre = -4,
-  visit_post = 16,
-  bin_by_tertiles = F,
-  bin_breaks = c(-Inf, 90, 110, Inf),
-  bin_labels = c("<90", "90-110", "\u2265110"),
-  proper_name =  "mGFR (BSA)",
-  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_jodal_bsa_category_bars.jpeg"
-)
-```
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_jodal_bsa_category_bars.jpeg){width = 100%}
-
-```{r echo = F, include = F, eval = T}
 plot_mean_ci_stars(attempt_dat,
                    y_var = mgfr_jodal_bsa, 
                    y_axis_title = expression("Measured GFR (ml min"^{-1}~"1.73 m"^{-2}~")"),
@@ -632,8 +507,7 @@ plot_mean_ci_stars(attempt_dat,
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_overtime.jpeg", width = 7, height = 5)
 ```
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_overtime.jpeg){width=100%}
-
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_overtime.jpeg){width=70%}
 
 ```{r echo = F, include = T, eval = T}
 model_mgfr_jodal_bsa <- lmer(
@@ -657,14 +531,15 @@ contrast(emm_mgfr_jodal_bsa, method = "revpairwise", by = "visit", adjust = "bon
 run_ancova(delta_df, outcome_var = "mgfr_jodal_bsa", baseline_var = "mgfr_jodal_bsa_bl", visit_week = 16)
 ```
 
-### mGFR (Raw)
+
+#### Tertiles/bins
 
 ```{r echo = F, include = F, eval = T}
 plot_delta_by_category(
   data = attempt_dat,
   id_var = "subject_id",
   treatment_var = "treatment",
-  value_var = "mgfr_jodal",
+  value_var = "mgfr_jodal_bsa",
   visit_var = "visit",
   visit_baseline = -4,
   visit_pre = -4,
@@ -672,11 +547,14 @@ plot_delta_by_category(
   bin_by_tertiles = F,
   bin_breaks = c(-Inf, 90, 110, Inf),
   bin_labels = c("<90", "90-110", "\u2265110"),
-  proper_name =  "mGFR (Raw)",
-  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_jodal_raw_category_bars.jpeg"
+  proper_name =  "mGFR (BSA)",
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_jodal_bsa_category_bars.jpeg"
 )
 ```
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_jodal_raw_category_bars.jpeg){width = 100%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_jodal_bsa_category_bars.jpeg){width=70%}
+
+### mGFR (Raw)
 
 ```{r echo = F, include = F, eval = T}
 plot_mean_ci_stars(attempt_dat,
@@ -689,7 +567,7 @@ plot_mean_ci_stars(attempt_dat,
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_raw_overtime.jpeg", width = 7, height = 5)
 ```
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_raw_overtime.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_raw_overtime.jpeg){width=70%}
 
 
 ```{r echo = F, include = T, eval = T}
@@ -714,27 +592,28 @@ contrast(emm_mgfr_jodal, method = "revpairwise", by = "visit", adjust = "bonferr
 run_ancova(delta_df, outcome_var = "mgfr_jodal", baseline_var = "mgfr_jodal_bl", visit_week = 16)
 ```
 
-### HbA1c
+#### Tertiles/bins
 
 ```{r echo = F, include = F, eval = T}
 plot_delta_by_category(
   data = attempt_dat,
   id_var = "subject_id",
   treatment_var = "treatment",
-  value_var = "hba1c",
+  value_var = "mgfr_jodal",
   visit_var = "visit",
   visit_baseline = -4,
-  visit_pre = 0,
+  visit_pre = -4,
   visit_post = 16,
   bin_by_tertiles = F,
-  proper_name =  "HbA1c (%)",
-    bin_breaks = c(-Inf, 7.5, 8, Inf),
-  bin_labels = c("<7.5", "7.5-8", "\u22658"),
-  y_limits = c(-2, 2),
-  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/hba1c_category_bars.jpeg"
+  bin_breaks = c(-Inf, 90, 110, Inf),
+  bin_labels = c("<90", "90-110", "\u2265110"),
+  proper_name =  "mGFR (Raw)",
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_jodal_raw_category_bars.jpeg"
 )
 ```
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/hba1c_category_bars.jpeg){width = 100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_jodal_raw_category_bars.jpeg){width=70%}
+
+### HbA1c
 
 ```{r echo = F}
 plot_mean_ci_stars2 <- function(data, y_var, y_axis_title, legend_position = c(0.6, 0.8)) {
@@ -751,7 +630,7 @@ plot_mean_ci_stars2 <- function(data, y_var, y_axis_title, legend_position = c(0
   # 1. Calculate mean and 95% CI (t-based)
   mean_dat <- data %>%
     group_by(treatment_arm, visit) %>%
-    summarize(
+    dplyr::summarise(
       n = sum(!is.na(!!y_sym)),
       mean_y = mean(!!y_sym, na.rm = TRUE),
       sd_y = sd(!!y_sym, na.rm = TRUE),
@@ -764,7 +643,7 @@ plot_mean_ci_stars2 <- function(data, y_var, y_axis_title, legend_position = c(0
   # 2. Run t-tests between treatments at each visit
   ttest_results <- data %>%
     group_by(visit) %>%
-    summarize(
+    dplyr::summarise(
       p_value = tryCatch(
         t.test(!!y_sym ~ treatment_arm)$p.value,
         error = function(e) NA_real_
@@ -783,7 +662,7 @@ plot_mean_ci_stars2 <- function(data, y_var, y_axis_title, legend_position = c(0
   # 3. Set y position for stars (above upper CI)
   ttest_results <- ttest_results %>%
     left_join(mean_dat %>% group_by(visit) %>%
-                summarize(max_upper = max(upper), .groups = "drop"),
+                dplyr::summarise(max_upper = max(upper), .groups = "drop"),
               by = "visit") %>%
     mutate(y_position = max_upper + 0.05 * max_upper)  # 5% above max_upper
   
@@ -808,8 +687,8 @@ plot_mean_ci_stars2 <- function(data, y_var, y_axis_title, legend_position = c(0
                 size = 6, vjust = 0) +
       scale_shape_manual(values = c("A" = 15,   # Square
                                     "B" = 18)) +   # Diamond
-      scale_color_manual(values = c("A" = "#439799", 
-                                    "B" = "#483D90")) +
+      scale_color_manual(values = c("A" = "#f8ae9d", 
+                                    "B" = "#a7b298")) +
       scale_x_discrete(expand = expansion(mult = c(0.3, 0.3))) +
       scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
       theme(panel.background = element_blank(),
@@ -852,8 +731,8 @@ plot_mean_ci_stars(data = subset(delta_df), y_var = hba1c,
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_hba1c_overtime_2.jpeg", width = 7, height = 5)
 ```
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/hba1c_overtime_2.jpeg){width=100%}
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_hba1c_overtime_2.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/hba1c_overtime_2.jpeg){width=70%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_hba1c_overtime_2.jpeg){width=70%}
 
 
 
@@ -880,25 +759,51 @@ run_ancova(delta_df, outcome_var = "hba1c", baseline_var = "hba1c_bl", visit_wee
 run_ancova(delta_df, outcome_var = "hba1c", baseline_var = "hba1c_bl", visit_week = 16)
 ```
 
-### TIR
+#### Tertiles/bins
 
 ```{r echo = F, include = F, eval = T}
 plot_delta_by_category(
   data = attempt_dat,
   id_var = "subject_id",
   treatment_var = "treatment",
-  value_var = "cgm_tir",
+  value_var = "hba1c",
   visit_var = "visit",
-  visit_baseline = 0,
+  visit_baseline = -4,
   visit_pre = 0,
   visit_post = 16,
-  bin_breaks = c(-Inf, 45, 60, Inf),
-  bin_labels = c("<45", "45-60", "\u226560"),
-  proper_name =  "TIR (%)",
-  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/cgm_tir_category_bars.jpeg"
+  bin_by_tertiles = F,
+  proper_name =  "HbA1c (%)",
+    bin_breaks = c(-Inf, 7.5, 8, Inf),
+  bin_labels = c("<7.5", "7.5-8", "\u22658"),
+  y_limits = c(-2, 2),
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/hba1c_category_bars.jpeg"
+)
+
+plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  x_var = "mgfr_jodal_bsa",
+  value_var = "hba1c",
+  visit_var = "visit",
+  visit_baseline = -4,
+  visit_pre = 0,
+  visit_post = 16,
+  bin_by_tertiles = F,
+  proper_name =  "HbA1c (%)",
+  x_label = "\nBaseline mGFR (BSA)",
+  bin_breaks = c(-Inf, 90, 110, Inf),
+  bin_labels = c("<90", "90-110", "\u2265110"),
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/hba1c_by_mgfr_category_bars.jpeg"
 )
 ```
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/cgm_tir_category_bars.jpeg){width = 100%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/hba1c_category_bars.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/hba1c_by_mgfr_category_bars.jpeg){width=70%}
+
+
+### TIR
 
 ```{r echo = F, include = F}
 plot_mean_ci_stars(subset(attempt_dat, visit %in% c(0, 16)), 
@@ -916,9 +821,9 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/tir_overtime.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/tir_overtime.jpeg){width=70%}
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_tir_overtime.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_tir_overtime.jpeg){width=70%}
 
 ```{r echo = F, include = T, eval = T}
 model_tir <- lmer(
@@ -941,25 +846,53 @@ contrast(emm_tir, method = "revpairwise", by = "visit", adjust = "bonferroni")
 run_ancova(delta_df, outcome_var = "tir", baseline_var = "tir_bl", visit_week = 16)
 ```
 
-
-### Weight
+#### Tertiles/bins
 
 ```{r echo = F, include = F, eval = T}
 plot_delta_by_category(
   data = attempt_dat,
   id_var = "subject_id",
   treatment_var = "treatment",
-  value_var = "weight",
+  value_var = "cgm_tir",
   visit_var = "visit",
   visit_baseline = 0,
   visit_pre = 0,
   visit_post = 16,
-  bin_by_tertiles = T,
-  proper_name =  "Weight (kg)",
-  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/weight_category_bars.jpeg"
+  bin_breaks = c(-Inf, 45, 60, Inf),
+  bin_labels = c("<45", "45-60", "\u226560"),
+  proper_name =  "TIR (%)",
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/cgm_tir_category_bars.jpeg"
+)
+
+
+attempt_dat %>%
+  mutate(visit = case_when(visit <= 0 ~ "baseline", T ~ "followup")) %>%
+  ggplot(aes(x = mgfr_jodal_bsa, y = cgm_tir, color = treatment, shape = visit)) +
+  geom_point()
+
+plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  x_var = "mgfr_jodal_bsa",
+  value_var = "cgm_tir",
+  visit_var = "visit",
+  visit_baseline = -4,
+  visit_pre = 0,
+  visit_post = 16,
+  bin_by_tertiles = F,
+  proper_name =  "TIR (%)",
+  x_label = "\nBaseline mGFR (BSA)",
+  bin_breaks = c(-Inf, 90, 110, Inf),
+  bin_labels = c("<90", "90-110", "\u2265110"),
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/cgm_tir_by_mgfr_category_bars.jpeg"
 )
 ```
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/weight_category_bars.jpeg){width = 100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/cgm_tir_category_bars.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/cgm_tir_by_mgfr_category_bars.jpeg){width=70%}
+
+### Weight
 
 ```{r echo = F, include = F}
 plot_mean_ci_stars(subset(attempt_dat, visit %in% c(0, 4, 16)), 
@@ -977,9 +910,9 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/weight_overtime.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/weight_overtime.jpeg){width=70%}
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_weight_overtime.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_weight_overtime.jpeg){width=70%}
 
 ```{r echo = F, include = T, eval = T}
 model_weight <- lmer(
@@ -1003,20 +936,21 @@ run_ancova(delta_df, outcome_var = "weight", baseline_var = "weight_bl", visit_w
 run_ancova(delta_df, outcome_var = "weight", baseline_var = "weight_bl", visit_week = 16)
 ```
 
-### Avg cortex R2*
+#### Tertiles/bins
+
 ```{r echo = F, include = F, eval = T}
 plot_delta_by_category(
   data = attempt_dat,
   id_var = "subject_id",
   treatment_var = "treatment",
-  value_var = "avg_c_r2",
+  value_var = "weight",
   visit_var = "visit",
-  visit_baseline = -4,
-  visit_pre = -4,
+  visit_baseline = 0,
+  visit_pre = 0,
   visit_post = 16,
   bin_by_tertiles = T,
-  proper_name =  "Cortical R2*",
-  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_category_bars.jpeg"
+  proper_name =  "Weight (kg)",
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/weight_category_bars.jpeg"
 )
 
 plot_delta_by_category(
@@ -1024,21 +958,24 @@ plot_delta_by_category(
   id_var = "subject_id",
   treatment_var = "treatment",
   x_var = "mgfr_jodal_bsa",
-  value_var = "avg_c_r2",
+  value_var = "weight",
   visit_var = "visit",
   visit_baseline = -4,
-  visit_pre = -4,
+  visit_pre = 0,
   visit_post = 16,
   bin_by_tertiles = F,
-  proper_name =  "Cortical R2*",
+  proper_name =  "Weight (kg)",
   x_label = "\nBaseline mGFR (BSA)",
   bin_breaks = c(-Inf, 90, 110, Inf),
   bin_labels = c("<90", "90-110", "\u2265110"),
-  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_by_mgfr_category_bars.jpeg"
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/weight_by_mgfr_category_bars.jpeg"
 )
 ```
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_category_bars.jpeg){width = 100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/weight_category_bars.jpeg){width=70%}
 
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/weight_by_mgfr_category_bars.jpeg){width=70%}
+
+### Avg cortex R2*
 
 ```{r echo = F, include = F}
 plot_mean_ci_stars(attempt_dat, baseline_visit = -4,
@@ -1055,9 +992,9 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_overtime.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_overtime.jpeg){width=70%}
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_c_r2_overtime.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_c_r2_overtime.jpeg){width=70%}
 
 ```{r echo = F, include = T, eval = T}
 model_avg_c_r2 <- lmer(
@@ -1080,7 +1017,149 @@ contrast(emm_avg_c_r2, method = "revpairwise", by = "visit", adjust = "bonferron
 run_ancova(delta_df, outcome_var = "avg_c_r2", baseline_var = "avg_c_r2_bl", visit_week = 16)
 ```
 
+#### Tertiles/bins
+
+```{r echo = F, include = F, eval = T}
+plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  value_var = "avg_c_r2",
+  visit_var = "visit",
+  visit_baseline = -4,
+  visit_pre = -4,
+  visit_post = 16,
+  bin_by_tertiles = T,
+  proper_name =  "Cortical R2*",
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_category_bars.jpeg"
+)
+
+# by baseline mGFR
+plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  x_var = "mgfr_jodal_bsa",
+  value_var = "avg_c_r2",
+  visit_var = "visit",
+  visit_baseline = -4,
+  visit_pre = -4,
+  visit_post = 16,
+  bin_by_tertiles = F,
+  proper_name =  "Cortical R2*",
+  x_label = "\nBaseline mGFR (BSA)",
+  bin_breaks = c(-Inf, 90, 110, Inf),
+  bin_labels = c("<90", "90-110", "\u2265110"),
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_by_mgfr_category_bars.jpeg"
+)
+
+# by baseline HbA1c
+plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  x_var = "hba1c",
+  value_var = "avg_c_r2",
+  visit_var = "visit",
+  visit_baseline = -4,
+  visit_pre = -4,
+  visit_post = 16,
+  bin_by_tertiles = F,
+  proper_name =  "Cortical R2*",
+  x_label = "\nBaseline HbA1c (%)",
+  bin_breaks = c(-Inf, 7.5, 8, Inf),
+  bin_labels = c("<7.5", "7.5-8", "\u22658"),
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_by_hba1c_category_bars.jpeg"
+)
+
+# by baseline weight
+plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  x_var = "weight",
+  value_var = "avg_c_r2",
+  visit_var = "visit",
+  visit_baseline = -4,
+  visit_pre = -4,
+  visit_post = 16,
+  bin_by_tertiles = T,
+  proper_name =  "Cortical R2*",
+  x_label = "\nBaseline Weight (kg)",
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_by_weight_category_bars.jpeg"
+)
+
+# by baseline tir
+plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  x_var = "cgm_tir",
+  value_var = "avg_c_r2",
+  visit_var = "visit",
+  visit_baseline = 0,
+  visit_pre = -4,
+  visit_post = 16,
+  bin_by_tertiles = T,
+  proper_name =  "Cortical R2*",
+  x_label = "\nBaseline TIR (%)",
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_by_cgm_tir_category_bars.jpeg"
+)
+```
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_category_bars.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_by_mgfr_category_bars.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_by_hba1c_category_bars.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_by_weight_category_bars.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_by_cgm_tir_category_bars.jpeg){width=70%}
+
 ### Avg kidney R2*
+
+```{r echo = F, include = F}
+plot_mean_ci_stars(subset(attempt_dat, visit %in% c(-4, 16)), 
+                   visits_to_plot = c(-4, 16), baseline_visit = -4,
+                   y_var = avg_k_r2, y_axis_title = "Avg kidney R2*", legend_position = c(0.6,0.2))
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_overtime.jpeg", width = 7, height = 5)
+
+
+plot_mean_ci_stars(data = delta_df, 
+                   visits_to_plot = c(-4, 16),baseline_visit = -4,
+                   y_var = avg_k_r2, y_axis_title = "\u0394 Avg kidney R2*",
+                   legend_position = c(0.3,0.8)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_k_r2_overtime.jpeg", width = 7, height = 5)
+```
+
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_overtime.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_k_r2_overtime.jpeg){width=70%}
+
+```{r echo = F, include = T, eval = T}
+model_avg_k_r2 <- lmer(
+  avg_k_r2 ~ treatment * factor(visit) +
+    age + sex + diabetes_dx_duration + 
+    (1 | subject_id),
+  data = delta_df
+)
+
+# summary(model_avg_k_r2)
+
+emm_avg_k_r2 <- emmeans(model_avg_k_r2, ~ treatment | visit)
+summary(emm_avg_k_r2)
+
+# Pairwise comparisons at each week
+contrast(emm_avg_k_r2, method = "revpairwise", by = "visit", adjust = "bonferroni")
+```
+
+```{r echo = F}
+run_ancova(delta_df, outcome_var = "avg_k_r2", baseline_var = "avg_k_r2_bl", visit_week = 16)
+```
+
+#### Tertiles/bins
 
 ```{r echo = F, include = F, eval = T}
 plot_delta_by_category(
@@ -1114,51 +1193,147 @@ plot_delta_by_category(
   bin_labels = c("<90", "90-110", "\u2265110"),
   output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_by_mgfr_category_bars.jpeg"
 )
-```
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_category_bars.jpeg){width = 100%}
 
-```{r echo = F, include = F}
-plot_mean_ci_stars(subset(attempt_dat, visit %in% c(-4, 16)), 
-                   visits_to_plot = c(-4, 16), baseline_visit = -4,
-                   y_var = avg_k_r2, y_axis_title = "Avg kidney R2*", legend_position = c(0.6,0.2))
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_overtime.jpeg", width = 7, height = 5)
-
-
-plot_mean_ci_stars(data = delta_df, 
-                   visits_to_plot = c(-4, 16),baseline_visit = -4,
-                   y_var = avg_k_r2, y_axis_title = "\u0394 Avg kidney R2*",
-                   legend_position = c(0.3,0.8)) +
-  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_k_r2_overtime.jpeg", width = 7, height = 5)
-```
-
-
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_overtime.jpeg){width=100%}
-
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_k_r2_overtime.jpeg){width=100%}
-
-```{r echo = F, include = T, eval = T}
-model_avg_k_r2 <- lmer(
-  avg_k_r2 ~ treatment * factor(visit) +
-    age + sex + diabetes_dx_duration + 
-    (1 | subject_id),
-  data = delta_df
+# by baseline HbA1c
+plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  x_var = "hba1c",
+  value_var = "avg_k_r2",
+  visit_var = "visit",
+  visit_baseline = -4,
+  visit_pre = -4,
+  visit_post = 16,
+  bin_by_tertiles = F,
+  proper_name =  "Kidney R2*",
+  x_label = "\nBaseline HbA1c (%)",
+  bin_breaks = c(-Inf, 7.5, 8, Inf),
+  bin_labels = c("<7.5", "7.5-8", "\u22658"),
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_by_hba1c_category_bars.jpeg"
 )
 
-# summary(model_avg_k_r2)
+# by baseline weight
+plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  x_var = "weight",
+  value_var = "avg_k_r2",
+  visit_var = "visit",
+  visit_baseline = -4,
+  visit_pre = -4,
+  visit_post = 16,
+  bin_by_tertiles = T,
+  proper_name =  "Kidney R2*",
+  x_label = "\nBaseline Weight (kg)",
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_by_weight_category_bars.jpeg"
+)
 
-emm_avg_k_r2 <- emmeans(model_avg_k_r2, ~ treatment | visit)
-summary(emm_avg_k_r2)
-
-# Pairwise comparisons at each week
-contrast(emm_avg_k_r2, method = "revpairwise", by = "visit", adjust = "bonferroni")
+# by baseline tir
+plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  x_var = "cgm_tir",
+  value_var = "avg_k_r2",
+  visit_var = "visit",
+  visit_baseline = 0,
+  visit_pre = -4,
+  visit_post = 16,
+  bin_by_tertiles = T,
+  proper_name =  "Kidney R2*",
+  x_label = "\nBaseline TIR (%)",
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_by_cgm_tir_category_bars.jpeg"
+)
 ```
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_category_bars.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_by_mgfr_category_bars.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_by_hba1c_category_bars.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_by_weight_category_bars.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_by_cgm_tir_category_bars.jpeg){width=70%}
+
+### Correlations
+
+*Pooled*
 
 ```{r echo = F}
-run_ancova(delta_df, outcome_var = "avg_k_r2", baseline_var = "avg_k_r2_bl", visit_week = 16)
+vars_to_replicate <- c("hba1c", "tir", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "avg_c_r2", "avg_k_r2", 
+                         "avg_c_t1", "avg_k_t1", "avg_pcascl", "avg_c_adc")
+for (var in vars_to_replicate) {
+  delta_df[[paste0(var, "_1")]] <- delta_df[[var]]
+}
+dict = data.frame(hba1c = "\u0394 HbA1c",
+                  tir = "\u0394 TIR",
+                  weight = "\u0394 Weight",
+                  mgfr_jodal = "\u0394 mGFR",
+                  mgfr_jodal_bsa = "\u0394 mGFR (BSA)",
+                  avg_c_r2 = "\u0394 Cortical R2*",
+                  avg_k_r2 = "\u0394 Kidney R2*",
+                  avg_c_t1 = "\u0394 Cortical T1",
+                  avg_k_t1 = "\u0394 Kidney T1",
+                  avg_pcascl = "\u0394 ASL",
+                  avg_c_adc = "\u0394 Cortical ADC")
+for (var in vars_to_replicate) {
+  dict[[paste0(var, "_1")]] <- dict[[var]]
+}
+
+corr_plot_modified(data = subset(delta_df, visit == 16),
+                   X = c("hba1c", "tir", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "avg_c_r2", "avg_k_r2"),
+                   Y = c("hba1c_1", "tir_1", "weight_1", "mgfr_jodal_1", "mgfr_jodal_bsa_1", "avg_c_r2_1", "avg_k_r2_1"),
+                   dict = dict,
+                   adj_var = "treatment")
+
 ```
 
-## 1i. Plots over time (Denver cohort)
+*Placebo*
+
+```{r echo = F}
+corr_plot_modified(data = subset(delta_df, treatment == "Placebo" & visit == 16),
+                   X = c("hba1c", "tir", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "avg_c_r2", "avg_k_r2"),
+                   Y = c("hba1c_1", "tir_1", "weight_1", "mgfr_jodal_1", "mgfr_jodal_bsa_1", "avg_c_r2_1", "avg_k_r2_1"),
+                   dict = dict)
+
+cor.test(subset(delta_df, treatment == "Placebo" & visit == 16)$hba1c,
+         subset(delta_df, treatment == "Placebo" & visit == 16)$mgfr_jodal)
+
+cor.test(subset(delta_df, treatment == "Placebo" & visit == 16)$hba1c,
+         subset(delta_df, treatment == "Placebo" & visit == 16)$avg_c_r2)
+
+cor.test(subset(delta_df, treatment == "Placebo" & visit == 16)$hba1c,
+         subset(delta_df, treatment == "Placebo" & visit == 16)$avg_k_r2)
+
+cor.test(subset(delta_df, treatment == "Placebo" & visit == 16)$avg_k_r2,
+         subset(delta_df, treatment == "Placebo" & visit == 16)$mgfr_jodal)
+```
+
+*Dapagliflozin*
+
+```{r echo = F}
+corr_plot_modified(data = subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16),
+                   X = c("hba1c", "tir", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "avg_c_r2", "avg_k_r2"),
+                   Y = c("hba1c_1", "tir_1", "weight_1", "mgfr_jodal_1", "mgfr_jodal_bsa_1", "avg_c_r2_1", "avg_k_r2_1"),
+                   dict = dict)
+
+cor.test(subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16)$hba1c,
+         subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16)$mgfr_jodal)
+
+cor.test(subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16)$hba1c,
+         subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16)$avg_c_r2)
+
+cor.test(subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16)$hba1c,
+         subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16)$avg_k_r2)
+
+cor.test(subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16)$avg_k_r2,
+         subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16)$mgfr_jodal)
+```
+
+## Plots over time (Denver cohort)
 
 ### mGFR (BSA)
 
@@ -1174,8 +1349,7 @@ plot_mean_ci_stars(subset(attempt_dat, visit %in% c(-4,16) & site == "Denver"),
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_overtime_denver.jpeg", width = 7, height = 5)
 ```
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_overtime_denver.jpeg){width=100%}
-
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_overtime_denver.jpeg){width=70%}
 
 ```{r echo = F, include = T, eval = T}
 model_mgfr_jodal_bsa <- lmer(
@@ -1208,7 +1382,7 @@ plot_mean_ci_stars(subset(attempt_dat, visit %in% c(-4,16) & site == "Denver"),
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_raw_overtime_denver.jpeg", width = 7, height = 5)
 ```
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_raw_overtime_denver.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_raw_overtime_denver.jpeg){width=70%}
 
 
 ```{r echo = F, include = T, eval = T}
@@ -1244,8 +1418,8 @@ plot_mean_ci_stars(data = subset(delta_df, site == "Denver"), y_var = hba1c,
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_hba1c_overtime_2_denver.jpeg", width = 7, height = 5)
 ```
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/hba1c_overtime_2_denver.jpeg){width=100%}
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_hba1c_overtime_2_denver.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/hba1c_overtime_2_denver.jpeg){width=70%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_hba1c_overtime_2_denver.jpeg){width=70%}
 
 
 
@@ -1284,9 +1458,9 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/tir_overtime_denver.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/tir_overtime_denver.jpeg){width=70%}
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_tir_overtime_denver.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_tir_overtime_denver.jpeg){width=70%}
 
 ```{r echo = F, include = T, eval = T}
 model_tir <- lmer(
@@ -1324,9 +1498,9 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/weight_overtime_denver.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/weight_overtime_denver.jpeg){width=70%}
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_weight_overtime_denver.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_weight_overtime_denver.jpeg){width=70%}
 
 ```{r echo = F, include = T, eval = T}
 model_weight <- lmer(
@@ -1364,9 +1538,9 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_overtime_denver.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_c_r2_overtime_denver.jpeg){width=70%}
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_c_r2_overtime_denver.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_c_r2_overtime_denver.jpeg){width=70%}
 
 ```{r echo = F, include = T, eval = T}
 model_avg_c_r2 <- lmer(
@@ -1407,9 +1581,9 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```
 
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_overtime_denver.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_overtime_denver.jpeg){width=70%}
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_k_r2_overtime_denver.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_k_r2_overtime_denver.jpeg){width=70%}
 
 ```{r echo = F, include = T, eval = T}
 model_avg_k_r2 <- lmer(
@@ -1432,7 +1606,70 @@ contrast(emm_avg_k_r2, method = "revpairwise", by = "visit", adjust = "bonferron
 run_ancova(delta_df, outcome_var = "avg_k_r2", baseline_var = "avg_k_r2_bl", visit_week = 16)
 ```
 
-# 2. Data Driven
+### Correlations
+
+*Pooled*
+
+```{r echo = F}
+corr_plot_modified(data = subset(delta_df, visit == 16 & site == "Denver"),
+                   X = c("hba1c", "tir", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "avg_c_r2", "avg_k_r2", 
+                         "avg_c_t1", "avg_k_t1", "avg_pcascl", "avg_c_adc"),
+                   Y = c("hba1c_1", "tir_1", "weight_1", "mgfr_jodal_1", "mgfr_jodal_bsa_1", "avg_c_r2_1", "avg_k_r2_1", 
+                         "avg_c_t1_1", "avg_k_t1_1", "avg_pcascl_1", "avg_c_adc_1"),
+                   dict = dict,
+                   adj_var = "treatment")
+```
+
+*Placebo*
+
+```{r echo = F}
+corr_plot_modified(data = subset(delta_df, treatment == "Placebo" & visit == 16 & site == "Denver"),
+                   X = c("hba1c", "tir", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "avg_c_r2", "avg_k_r2", 
+                         "avg_c_t1", "avg_k_t1", "avg_pcascl", "avg_c_adc"),
+                   Y = c("hba1c_1", "tir_1", "weight_1", "mgfr_jodal_1", "mgfr_jodal_bsa_1", "avg_c_r2_1", "avg_k_r2_1", 
+                         "avg_c_t1_1", "avg_k_t1_1", "avg_pcascl_1", "avg_c_adc_1"),
+                   dict = dict)
+
+cor.test(subset(delta_df, treatment == "Placebo" & visit == 16 & site == "Denver")$hba1c,
+         subset(delta_df, treatment == "Placebo" & visit == 16 & site == "Denver")$mgfr_jodal)
+
+cor.test(subset(delta_df, treatment == "Placebo" & visit == 16 & site == "Denver")$hba1c,
+         subset(delta_df, treatment == "Placebo" & visit == 16 & site == "Denver")$avg_c_r2)
+
+cor.test(subset(delta_df, treatment == "Placebo" & visit == 16 & site == "Denver")$hba1c,
+         subset(delta_df, treatment == "Placebo" & visit == 16 & site == "Denver")$avg_k_r2)
+
+cor.test(subset(delta_df, treatment == "Placebo" & visit == 16 & site == "Denver")$avg_k_r2,
+         subset(delta_df, treatment == "Placebo" & visit == 16 & site == "Denver")$mgfr_jodal)
+```
+
+*Dapagliflozin*
+
+Not enough obs for ASL in dapagliflozin group
+
+```{r echo = F}
+corr_plot_modified(data = subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site == "Denver"),
+                   X = c("hba1c", "tir", "weight", "mgfr_jodal", "mgfr_jodal_bsa", "avg_c_r2", "avg_k_r2", 
+                         "avg_c_t1", "avg_k_t1", "avg_c_adc"),
+                   Y = c("hba1c_1", "tir_1", "weight_1", "mgfr_jodal_1", "mgfr_jodal_bsa_1", "avg_c_r2_1", "avg_k_r2_1", 
+                         "avg_c_t1_1", "avg_k_t1_1", "avg_c_adc_1"),
+                   dict = dict)
+
+
+cor.test(subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site == "Denver")$hba1c,
+         subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site == "Denver")$mgfr_jodal)
+
+cor.test(subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site == "Denver")$hba1c,
+         subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site == "Denver")$avg_c_r2)
+
+cor.test(subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site == "Denver")$hba1c,
+         subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site == "Denver")$avg_k_r2)
+
+cor.test(subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site == "Denver")$avg_k_r2,
+         subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site == "Denver")$mgfr_jodal)
+```
+
+# Data Driven
 
 - Used 2000 top HVG for each cell type
 
@@ -1442,38 +1679,55 @@ run_ancova(delta_df, outcome_var = "avg_k_r2", baseline_var = "avg_k_r2_bl", vis
 
 ---
 
-## 2a. DEGs (Dapagliflozin vs. Placebo) - DiD using NEBULA across all celltypes
+## DEGs (Dapagliflozin vs. Placebo) - DiD using NEBULA across all celltypes
 
+### Top 2000 HVG
 
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("PT", "TAL", "PC", "Immune", "Immune_Myeloid", "Immune_Lymphoid", "IC", "EC", "FIBVSMCP")
 
 for (cells in celltype_list) {
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", tolower(cells), "_hvg_placebo_pvalue_nebula_reml_pooled.jpeg)\n\n"))
+  # cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", tolower(cells), "_hvg_placebo_pvalue_nebula_reml_pooled.jpeg)\n\n"))
   
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/hvg_", cells, "_subtypes_nebula_scores_volcano.jpeg)\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/", cells, "_hvg_subtypes_nebula_scores_volcano_heat.jpeg)\n\n"))
 }
 ```
 
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/pod_hvg_placebo_pvalue_nebula_reml_pooled.jpeg)
 
 ---
 
-## 2b. GSEA
+### Not limited to top 2000 HVG
+
+```{r echo = F, results = 'asis', eval = T}
+celltype_list <- c("PT", "TAL", "PC", "Immune", "Immune_Myeloid", "Immune_Lymphoid", "IC", "EC", "FIBVSMCP")
+
+for (cells in celltype_list) {
+
+  # cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", tolower(cells), "_placebo_pvalue_nebula_reml_pooled.jpeg)\n\n"))
+
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/", cells, "_subtypes_nebula_scores_volcano_heat.jpeg)\n\n"))
+}
+```
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/pod_placebo_pvalue_nebula_reml_pooled.jpeg)
+
+## GSEA
 
 
 ### Positive PT KEGG
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_kegg_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_kegg_pathways.jpeg){width=70%}
 
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### PT KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1484,9 +1738,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### PT KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1494,15 +1748,15 @@ for (i in 1:10) {
 
 ### Positive PT Reactome
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_reactome_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_reactome_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### PT Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_reactome.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1513,9 +1767,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### PT Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_reactome.jpeg){width=70%}\n\n"))
   
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1523,14 +1777,14 @@ for (i in 1:10) {
 
 ### Positive PT GO
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_go_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_top30_go_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### PT GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_go.jpeg){width=100%}\n\n"))
-    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_go.jpeg){width=70%}\n\n"))
+    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_pos", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 
 }
 ```
@@ -1542,23 +1796,23 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### PT GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_go.jpeg){width=100%}\n\n"))
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_go_heatmap.jpeg){width=100%}\n\n"))}
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_go.jpeg){width=70%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_nebula_neg", i, "_go_heatmap.jpeg){width=70%}\n\n"))}
 ```
 
 ---
 
 ### Positive TAL KEGG
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_kegg_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_kegg_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### TAL KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1569,9 +1823,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### TAL KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1579,15 +1833,15 @@ for (i in 1:10) {
 
 ### Positive TAL Reactome
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_reactome_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_reactome_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### TAL Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_reactome.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1598,9 +1852,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### TAL Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_reactome.jpeg){width=70%}\n\n"))
   
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1608,14 +1862,14 @@ for (i in 1:10) {
 
 ### Positive TAL GO
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_go_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_go_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### TAL GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_go.jpeg){width=100%}\n\n"))
-    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_go.jpeg){width=70%}\n\n"))
+    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_pos", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 
 }
 ```
@@ -1627,8 +1881,8 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### TAL GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_go.jpeg){width=100%}\n\n"))
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_go.jpeg){width=70%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_neg", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1636,15 +1890,15 @@ for (i in 1:10) {
 
 ### Positive PC KEGG
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_kegg_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_kegg_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### PC KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1655,9 +1909,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### PC KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1665,15 +1919,15 @@ for (i in 1:10) {
 
 ### Positive PC Reactome
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_reactome_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_reactome_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### PC Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_reactome.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1684,9 +1938,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### PC Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_reactome.jpeg){width=70%}\n\n"))
   
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1694,14 +1948,14 @@ for (i in 1:10) {
 
 ### Positive PC GO
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_go_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_go_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### PC GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_go.jpeg){width=100%}\n\n"))
-    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_go.jpeg){width=70%}\n\n"))
+    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_pos", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 
 }
 ```
@@ -1713,8 +1967,8 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### PC GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_go.jpeg){width=100%}\n\n"))
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_go.jpeg){width=70%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_neg", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1722,15 +1976,15 @@ for (i in 1:10) {
 
 ### Positive Immune KEGG
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_kegg_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_kegg_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### Immune KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1741,9 +1995,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### Immune KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1751,15 +2005,15 @@ for (i in 1:10) {
 
 ### Positive Immune Reactome
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_reactome_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_reactome_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### Immune Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_reactome.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1770,9 +2024,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### Immune Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_reactome.jpeg){width=70%}\n\n"))
   
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1780,14 +2034,14 @@ for (i in 1:10) {
 
 ### Positive Immune GO
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_go_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_go_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### Immune GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_go.jpeg){width=100%}\n\n"))
-    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_go.jpeg){width=70%}\n\n"))
+    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_pos", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 
 }
 ```
@@ -1800,8 +2054,8 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### Immune GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_go.jpeg){width=100%}\n\n"))
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_go.jpeg){width=70%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_neg", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1810,15 +2064,15 @@ for (i in 1:10) {
 
 ### Positive Immune Myeloid KEGG
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_top30_kegg_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_top30_kegg_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### Immune Myeloid KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1829,9 +2083,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### Immune Myeloid KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1839,15 +2093,15 @@ for (i in 1:10) {
 
 ### Positive Immune Myeloid Reactome
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_top30_reactome_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_top30_reactome_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### Immune Myeloid Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_reactome.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1858,9 +2112,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### Immune Myeloid Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_reactome.jpeg){width=70%}\n\n"))
   
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1868,14 +2122,14 @@ for (i in 1:10) {
 
 ### Positive Immune Myeloid GO
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_top30_go_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_top30_go_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### Immune Myeloid GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_go.jpeg){width=100%}\n\n"))
-    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_go.jpeg){width=70%}\n\n"))
+    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_pos", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 
 }
 ```
@@ -1887,8 +2141,8 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### Immune Myeloid GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_go.jpeg){width=100%}\n\n"))
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_go.jpeg){width=70%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_myeloid_nebula_neg", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1897,15 +2151,15 @@ for (i in 1:10) {
 
 ### Positive Immune Lymphoid KEGG
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_top30_kegg_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_top30_kegg_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### Immune Lymphoid KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1916,9 +2170,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### Immune Lymphoid KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1926,15 +2180,15 @@ for (i in 1:10) {
 
 ### Positive Immune Lymphoid Reactome
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_top30_reactome_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_top30_reactome_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### Immune Lymphoid Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_reactome.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1945,9 +2199,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### Immune Lymphoid Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_reactome.jpeg){width=70%}\n\n"))
   
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1955,14 +2209,14 @@ for (i in 1:10) {
 
 ### Positive Immune Lymphoid GO
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_top30_go_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_top30_go_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### Immune Lymphoid GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_go.jpeg){width=100%}\n\n"))
-    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_go.jpeg){width=70%}\n\n"))
+    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_pos", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 
 }
 ```
@@ -1974,8 +2228,8 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### Immune Lymphoid GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_go.jpeg){width=100%}\n\n"))
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_go.jpeg){width=70%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_lymphoid_nebula_neg", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -1984,15 +2238,15 @@ for (i in 1:10) {
 
 ### Positive IC KEGG
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_kegg_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_kegg_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### IC KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2003,9 +2257,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### IC KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2013,15 +2267,15 @@ for (i in 1:10) {
 
 ### Positive IC Reactome
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_reactome_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_reactome_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### IC Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_reactome.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2032,9 +2286,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### IC Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_reactome.jpeg){width=70%}\n\n"))
   
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2042,14 +2296,14 @@ for (i in 1:10) {
 
 ### Positive IC GO
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_go_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_go_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### IC GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_go.jpeg){width=100%}\n\n"))
-    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_go.jpeg){width=70%}\n\n"))
+    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_pos", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 
 }
 ```
@@ -2061,8 +2315,8 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### IC GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_go.jpeg){width=100%}\n\n"))
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_go_heatmap.jpeg){width=100%}\n\n"))}
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_go.jpeg){width=70%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_neg", i, "_go_heatmap.jpeg){width=70%}\n\n"))}
 ```
 
 ---
@@ -2070,15 +2324,15 @@ for (i in 1:10) {
 
 ### Positive EC KEGG
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_kegg_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_kegg_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### EC KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2089,9 +2343,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### EC KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2099,15 +2353,15 @@ for (i in 1:10) {
 
 ### Positive EC Reactome
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_reactome_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_reactome_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### EC Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_reactome.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2118,9 +2372,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### EC Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_reactome.jpeg){width=70%}\n\n"))
   
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2128,14 +2382,14 @@ for (i in 1:10) {
 
 ### Positive EC GO
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_go_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_go_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### EC GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_go.jpeg){width=100%}\n\n"))
-    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_go.jpeg){width=70%}\n\n"))
+    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_pos", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 
 }
 ```
@@ -2147,8 +2401,8 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### EC GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_go.jpeg){width=100%}\n\n"))
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_go.jpeg){width=70%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_neg", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2157,15 +2411,15 @@ for (i in 1:10) {
 
 ### Positive FIB/VSMC/P KEGG
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_kegg_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_kegg_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("FIB/VSMC/P KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2176,9 +2430,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### FIB/VSMC/P KEGG Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_kegg_legacy.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_kegg_legacy.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_kegg_legacy_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2186,15 +2440,15 @@ for (i in 1:10) {
 
 ### Positive FIB/VSMC/P Reactome
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_reactome_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_reactome_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### FIB/VSMC/P Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_reactome.jpeg){width=70%}\n\n"))
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2205,9 +2459,9 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### FIB/VSMC/P Reactome Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_reactome.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_reactome.jpeg){width=70%}\n\n"))
   
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_reactome_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_reactome_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2215,14 +2469,14 @@ for (i in 1:10) {
 
 ### Positive FIB/VSMC/P GO
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_go_pathways.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_go_pathways.jpeg){width=70%}
 
 ```{r echo=FALSE, results='asis'}
 for (i in 1:10) {
   cat("#### FIB/VSMC/P GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_go.jpeg){width=100%}\n\n"))
-    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_go.jpeg){width=70%}\n\n"))
+    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_pos", i, "_go_heatmap.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2233,15 +2487,15 @@ for (i in 1:10) {
 for (i in 1:10) {
   cat("#### FIB/VSMC/P GO Pathway Top ", i, "\n\n")  # Adds a section header
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_go.jpeg){width=100%}\n\n"))
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_go_heatmap.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_go.jpeg){width=70%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_neg", i, "_go_heatmap.jpeg){width=70%}\n\n"))
   }
 ```
 
 ---
 
 
-## 2c. IPA
+## IPA
 
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("pt", "tal", "pc", "immune", "ic", "ec", "fibvsmcp")
@@ -2261,65 +2515,70 @@ celltype_list <- c("pt", "tal", "pc", "immune", "ic", "ec", "fibvsmcp")
 for (cells in celltype_list) {
   cat("### Inhibited IPA Pathway for", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/", cells, "_top10_inhibited_pathway_zscores.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/", cells, "_top10_inhibited_pathway_zscores.jpeg){width=70%}\n\n"))
 }
 ```
 
 
-# 3. T1D vs. HC
+# T1D vs. HC
 
 ---
 
 
-## 3a. T1D (CRC T1D vs. HC, same approach as #2, informed approach)
+## T1D (CRC T1D vs. HC, same approach as #2, informed approach)
+
 
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("pt", "tal", "pc", "immune", "ic", "ec", "fibvsmcp")
 
 for (cells in celltype_list) {
 
-    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_targeted_t1dvhc_", cells, "_deg.jpeg){width=100%}\n\n"))
+    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_targeted_t1dvhc_", cells, "_deg.jpeg){width=50%}\n\n"))
   
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/", cells, "_croc_attempt_dot.jpeg){width=100%}\n\n"))
+    cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/", cells ,"_targeted_volcano_attempt_directions_labeled.jpeg){width=50%}\n\n"))
+    
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/", cells, "_croc_attempt_dot.jpeg){width=50%}\n\n"))
+  
+
 }
 ```
 
 ---
 
-## 3b. T1D (CRC T1D vs. HC, same approach as #2, non-informed approach)
+## T1D (CRC T1D vs. HC, same approach as #2, non-informed approach)
 
-![PT](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_pt_deg.jpeg){width=100%}
-![TAL](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_tal_deg.jpeg){width=100%}
-![PC](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_pc_deg.jpeg){width=100%}
-![Immune](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_immune_deg.jpeg){width=100%}
-![Immune Myeloid](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_immune_myeloid_deg.jpeg){width=100%}
-![Immune Lymphoid](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_immune_lymphoid_deg.jpeg){width=100%}
-![EC](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_ec_deg.jpeg){width=100%}
-![IC](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_ic_deg.jpeg){width=100%}
-![FIB/VSMC/P](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_fibvsmcp_deg.jpeg){width=100%}
+![PT](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_pt_deg.jpeg){width=70%}
+![TAL](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_tal_deg.jpeg){width=70%}
+![PC](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_pc_deg.jpeg){width=70%}
+![Immune](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_immune_deg.jpeg){width=70%}
+![Immune Myeloid](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_immune_myeloid_deg.jpeg){width=70%}
+![Immune Lymphoid](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_immune_lymphoid_deg.jpeg){width=70%}
+![EC](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_ec_deg.jpeg){width=70%}
+![IC](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_ic_deg.jpeg){width=70%}
+![FIB/VSMC/P](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_fibvsmcp_deg.jpeg){width=70%}
 
 ---
 
-## 3c. T1D (CRC T1D + BL ATTEMPT vs. HC, same approach as #2, informed approach)
+## T1D (CRC T1D + BL ATTEMPT vs. HC, same approach as #2, informed approach)
 
 - Work in progress...
 
 ---
 
-## 3d. T1D (CRC T1D + BL ATTEMPT vs. HC, same approach as #2, non-informed approach)
+## T1D (CRC T1D + BL ATTEMPT vs. HC, same approach as #2, non-informed approach)
 
 - Work in progress...
 
 ---
 
-## 3c. Evaluate the effect of Dapagliflozin vs. Placebo on these DEGs characteristic of T1D
+## Evaluate the effect of Dapagliflozin vs. Placebo on these DEGs characteristic of T1D
 
 - Work in progress...
 
----
 
-# 4. Cell type proportions
+# Cell type proportions
 
+## Subtype to general type clusters
 
 | General type      | Sub type                      |
 |-------------------|-------------------------------|
@@ -2332,29 +2591,30 @@ for (cells in celltype_list) {
 | Immune (Lymphoid) | NKT/NKC, T, B                 |
 | FIB/VSMC/P        | FIB, VSMC/P                   |
 
+## Proportion figures
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_cellcounts_plot.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_cellcounts_proportions_plot.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_general_cellcounts_plot_clean.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_general_cellcounts_proportions_plot_clean.jpeg){width=70%}
+
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_pt_treatment_visit_proportions_plot.jpeg){width=70%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_pt_visit_treatment_proportions_plot_kpmp.jpeg){width=70%}
+
+
+## Upset and circular plot
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Upset/celltype_deg_upset.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/celltype_deg_chordplot.png){width=70%}
+
 ---
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_cellcounts_plot.jpeg){width=100%}
-
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_cellcounts_proportions_plot.jpeg){width=100%}
-
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_general_cellcounts_plot_clean.jpeg){width=100%}
-
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_general_cellcounts_proportions_plot_clean.jpeg){width=100%}
-
-
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_pt_treatment_visit_proportions_plot.jpeg){width=100%}
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/attempt_pt_visit_treatment_proportions_plot_kpmp.jpeg){width=100%}
-
-
----
-
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Upset/celltype_deg_upset.jpeg){width=100%}
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proportions/celltype_deg_chordplot.png){width=100%}
-
----
-
-## 4a. T1D PRE vs. POST in Placebo (ATTEMPT only)
+## T1D PRE vs. POST in Placebo (ATTEMPT only)
 
 ### Propeller
 
@@ -2431,7 +2691,7 @@ kable(dirichlet_res_kpmp_placebo,format = "html",
 
 ---
 
-## 4b. T1D PRE vs. POST in Dapagliflozin (ATTEMPT only)
+## T1D PRE vs. POST in Dapagliflozin (ATTEMPT only)
 
 ### Propeller
 
@@ -2508,38 +2768,108 @@ kable(dirichlet_res_kpmp_dapa,format = "html",
 
 ---
 
-## 4c. T1D vs. HC (CROCODILE + ATTEMPT)
+## T1D vs. HC (CROCODILE + ATTEMPT)
 
 ---
 
-## 4d. T1D vs. HC (CROCODILE only)
+## T1D vs. HC (CROCODILE only)
+
+
+
+
+# Pseudotime trajectories
 
 ---
 
-
-# 5. Pseudotime trajectories
-
----
-
-## 5a. T1D vs. HC (Cross sectional)
+## T1D vs. HC (Cross sectional)
 
 ---
 
-## 5b. Dapagliflozin vs. Placebo in T1D (serial data)
+## Dapagliflozin vs. Placebo in T1D (serial data)
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pca_pt_slingshot.jpeg){width=100%}
+### PT
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_slingshot_violin.jpeg){width=100%}
+Lineage: PT-2, PT-1, PT-3, PT-5, PT-4
 
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pca_pt_slingshot.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_slingshot_density_trtvisit.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_slingshot_violin.jpeg){width=70%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_slingshot_density_trt.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_slingshot_percentile_heatmap.jpeg){width=70%}
+
+#### Regression
+```{r echo = F, results = 'asis'}
+pt_rq <- s3readRDS("Results/pt_rq_fit.rds", "attempt", region ="")
+pt_rq_summary <- summary(pt_rq, se = "nid")
+
+kable(bind_rows(
+  lapply(seq_along(pt_rq_summary), function(i) {
+    coef_df <- as.data.frame(pt_rq_summary[[i]]$coefficients)
+    coef_df$term <- rownames(coef_df)
+    coef_df$tau <- pt_rq$tau[i]
+    coef_df
+  }),
+  .id = "quantile"
+), row.names = F)
+```
+
+#### Associations with clinical variables
+
+```{r echo = F, results = 'asis', eval = T}
+vars <- c("hba1c", "weight", "tir", "mgfr_jodal", "mgfr_jodal_bsa")
+
+for (v in vars) {
+  cat("Density plot for ", v, "\n\n") 
+
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_density_pt_", v, "_deltadelta_slingshot.jpeg){width=70%}\n\n"))
+}
+```
+
+---
+
+##### Regression
+
+```{r echo = F, results='asis'}
+vars <- c("hba1c", "weight", "tir", "mgfr_jodal", "mgfr_jodal_bsa", "visit", "trt")
+
+for (v in vars) {
+  cat("Quantile Regression Summary for ", v, "\n\n")
+  
+  # Load the model
+  model_path <- paste0("Results/pt_rq_fit_", v, ".rds")
+  pt_rq_fit <- s3readRDS(model_path, bucket = "attempt", region = "")
+  
+  # Force correct summary method
+  pt_rq_summary <- quantreg:::summary.rqs(pt_rq_fit, se = "nid")
+  
+  # Extract coefficient table
+  coef_table <- bind_rows(
+    lapply(seq_along(pt_rq_summary), function(i) {
+      coef_df <- as.data.frame(pt_rq_summary[[i]]$coefficients)
+      coef_df$term <- rownames(coef_df)
+      coef_df$tau <- pt_rq_fit$tau[i]
+      coef_df
+    }),
+    .id = "quantile"
+  )
+  
+  # Display nicely
+  print(kable(coef_table, row.names = F))
+  cat("\n\n")
+}
+```
 
 
 ---
 
-# 6. Associate DEGs with clinical markers adjusting for treatment group
+# Associate DEGs with clinical markers adjusting for treatment group
 
 ---
 
-## 6a. Change in mGFR (raw)
+## Change in mGFR (raw)
 
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("pt", "tal", "pc", "immune", "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmc")
@@ -2547,7 +2877,7 @@ celltype_list <- c("pt", "tal", "pc", "immune", "immune_myeloid", "immune_lympho
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_mgfr_jodal_trtcolors_concordance.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_mgfr_jodal_trtcolors_concordance.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2569,7 +2899,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_raw_top30_kegg_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_raw_top30_kegg_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2583,7 +2913,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_raw_top30_reactome_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_raw_top30_reactome_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2597,13 +2927,13 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_raw_top30_go_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_raw_top30_go_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
 ---
 
-## 6b. Change in mGFR (BSA)
+## Change in mGFR (BSA)
 
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmc")
@@ -2611,7 +2941,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_mgfr_jodal_bsa_trtcolors_concordance.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_mgfr_jodal_bsa_trtcolors_concordance.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2633,7 +2963,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_bsa_top30_kegg_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_bsa_top30_kegg_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2647,7 +2977,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_bsa_top30_reactome_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_bsa_top30_reactome_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2661,13 +2991,13 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_bsa_top30_go_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_mgfr_bsa_top30_go_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
 ---
 
-## 6c. Change in TIR
+## Change in TIR
 
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmc")
@@ -2675,13 +3005,13 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n")
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_tir_trtcolors_concordance.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_tir_trtcolors_concordance.jpeg){width=70%}\n\n"))
 }
 ```
 
 ---
 
-## 6d. Change in HbA1c
+## Change in HbA1c
 
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmc")
@@ -2689,7 +3019,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n")
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_hba1c_trtcolors_concordance.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_hba1c_trtcolors_concordance.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2712,7 +3042,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_hba1c_top30_kegg_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_hba1c_top30_kegg_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2726,7 +3056,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_hba1c_top30_reactome_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_hba1c_top30_reactome_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2740,13 +3070,13 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_hba1c_top30_go_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_hba1c_top30_go_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
 ---
 
-## 6e. Change in weight
+## Change in weight
 
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmc")
@@ -2754,7 +3084,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_weight_trtcolors_concordance.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_weight_trtcolors_concordance.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2778,7 +3108,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_weight_top30_kegg_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_weight_top30_kegg_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2792,7 +3122,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_weight_top30_reactome_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_weight_top30_reactome_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2806,20 +3136,20 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_weight_top30_go_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_weight_top30_go_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
 ---
 
-## 6f. Change in avg cortical R2*
+## Change in avg cortical R2*
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmc")
 
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_avg_c_r2_trtcolors_concordance.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_avg_c_r2_trtcolors_concordance.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2842,7 +3172,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_c_r2_top30_kegg_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_c_r2_top30_kegg_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2856,7 +3186,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_c_r2_top30_reactome_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_c_r2_top30_reactome_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2870,13 +3200,13 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_c_r2_top30_go_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_c_r2_top30_go_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
 ---
 
-## 6g. Change in avg kidney R2*
+## Change in avg kidney R2*
 
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmc")
@@ -2884,7 +3214,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_avg_k_r2_trtcolors_concordance.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_avg_k_r2_trtcolors_concordance.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2904,7 +3234,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_k_r2_top30_kegg_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_k_r2_top30_kegg_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2918,7 +3248,7 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_k_r2_top30_reactome_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_k_r2_top30_reactome_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
@@ -2932,24 +3262,24 @@ celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymph
 for (cells in celltype_list) {
   cat("#### ", toupper(cells), "\n\n") 
 
-  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_k_r2_top30_go_pathways.jpeg){width=100%}\n\n"))
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/", cells, "_avg_k_r2_top30_go_pathways.jpeg){width=70%}\n\n"))
 }
 ```
 
 ---
 
-# 7. Cell-to-cell interaction
+# Cell-to-cell interaction
 
 ---
 
-## 7a. T1D vs. HC
+## T1D vs. HC
 
 ---
 
-## 7b. Dapagliflozin vs. Placebo
+## Dapagliflozin vs. Placebo
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/LIANA/liana_heatmap_2.jpeg){width=100%}
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/LIANA/liana_heatmap.jpeg){width=100%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/LIANA/liana_heatmap_2.jpeg){width=70%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/LIANA/liana_heatmap.jpeg){width=70%}
 
 ```{r echo = F, results = 'asis', eval = T}
 # Define the folder path
@@ -2965,22 +3295,22 @@ for (file_name in file_list) {
 
   cat("#### ", toupper(label), "\n\n") 
 
-  cat(paste0("![](", file.path(folder_path, file_name), "){width=100%}\n\n"))
+  cat(paste0("![](", file.path(folder_path, file_name), "){width=70%}\n\n"))
 }
 ```
 
 ---
 
-# 8. Associate DEGs w/ proteomics
+# Associate DEGs w/ proteomics
 
 ---
 
-## 8a. EC DEGs with change in plasma proteomics
+## EC DEGs with change in plasma proteomics
 
 ---
 
-## 8b. PT DEGs with change in urine proteomics
+## PT DEGs with change in urine proteomics
 
 ---
 
-## 8c. TAL DEGs with change in urine proteomics
+## TAL DEGs with change in urine proteomics
