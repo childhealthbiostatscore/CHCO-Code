@@ -187,6 +187,7 @@ correlation_p_value_matrix <- function(data, relevant_vars, n_cols, cor_method =
   corr_pval <- as.data.frame(res2$P) %>%
     dplyr::select(all_of(relevant_vars[1:n_cols]))
   corr_pval = corr_pval[(n_cols + 1):nrow(corr_pval),]
+  corr_pval[is.na(corr_pval)] <- 1
   return(as.matrix(corr_pval))
 }
 
@@ -233,7 +234,8 @@ corr_plot_modified <- function(data, X, Y, cor_method = "pearson", adj_var = NUL
     }
   }
   
-  correlation_p_value <- correlation_p_value_matrix(data, relevant_vars = c(Y, X), n_cols = n_cols, cor_method = cor_method)
+  correlation_p_value <- correlation_p_value_matrix(data, relevant_vars = c(Y, X), 
+                                                    n_cols = n_cols, cor_method = cor_method)
   
   corrplot(M,
            p.mat = correlation_p_value,
