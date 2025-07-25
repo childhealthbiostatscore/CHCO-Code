@@ -168,7 +168,7 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_TCA_cycle_ALL_cells_LC_T2D_NoMed_unadjusted_pooled_offset_no_IT_08.csv"))
+write.csv(full_results,fs::path(dir.results,"NEBULA_TCA_cycle_ALL_cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.csv"))
 
 
 names(full_results)[6] <- 'pvalue' 
@@ -187,19 +187,19 @@ Nonconvergence_Rate <- nebula_nonconverged_percent
 # # Identify significant points (fdr < 0.05)
 # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
 
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
+max <- max(full_results$`logFC_epic_sglti2_1Yes`)
 # max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
+min <- min(full_results$`logFC_epic_sglti2_1Yes`)
 
-order_tca <- data.table::fread("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_ALL_cells_LC_T2D_NoMed_unadjusted_pooled_offset_no_IT_08.csv") %>%
+order <- data.table::fread("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_ALL_cells_LC_T2D_NoMed_unadjusted_pooled_offset_no_IT_08.csv ") %>%
   arrange(`logFC_groupType_2_Diabetes`)
 
 
 dot_plot <- ggplot(full_results, aes(
-  y = reorder(gene, `logFC_groupType_2_Diabetes`),
-  x = `logFC_groupType_2_Diabetes`,
+  y = factor(gene, levels = order$gene),
+  x = `logFC_epic_sglti2_1Yes`,
   color = color1,
-  size = abs(`logFC_groupType_2_Diabetes`)
+  size = abs(`logFC_epic_sglti2_1Yes`)
 )) +
   geom_point(alpha = 0.7) +
   scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -235,15 +235,15 @@ png(fs::path(dir.results, "fdr/Plot__TCA_cycle_NEBULA_All_Cells_T2D_SGLT2_unadju
 print(dot_plot)
 dev.off()
 
-write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
             paste0(dir.results, 'Order_FDR_TCA_AllCells.txt'), quote=F, sep='\t', row.names=F)
 
 #pvalue
 dot_plot <- ggplot(full_results, aes(
-  y = reorder(gene, `logFC_groupType_2_Diabetes`),
-  x = `logFC_groupType_2_Diabetes`,
+  y = factor(gene, levels = order$gene),
+  x = `logFC_epic_sglti2_1Yes`,
   color = color2,
-  size = abs(`logFC_groupType_2_Diabetes`)
+  size = abs(`logFC_epic_sglti2_1Yes`)
 )) +
   geom_point(alpha = 0.7) +
   scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -279,7 +279,7 @@ png(fs::path(dir.results, "pvalue/Plot__TCA_cycle_NEBULA_All_Cells_T2D_SGLT2_una
 print(dot_plot)
 dev.off()
 
-write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
             paste0(dir.results, 'Order_Pvalue_TCA_AllCells.txt'), quote=F, sep='\t', row.names=F)
 
 
@@ -297,9 +297,9 @@ nrow(so_celltype) #34 genes
 ncol(so_celltype) #13534 PT cells
 
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
+so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
 #Make sure to set reference level
-so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
 
 counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
 
@@ -389,7 +389,7 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_Ox_Phos_cycle_ALL_cells_LC_T2D_NoMed_unadjusted_pooled_offset_no_IT_08.csv"))
+write.csv(full_results,fs::path(dir.results,"NEBULA_Ox_Phos_cycle_ALL_cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.csv"))
 
 names(full_results)[6] <- 'pvalue' 
 full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -407,15 +407,22 @@ Nonconvergence_Rate <- nebula_nonconverged_percent
 # # Identify significant points (fdr < 0.05)
 # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
 
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
+max <- max(full_results$`logFC_epic_sglti2_1Yes`)
 # max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
+min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+
+rm(order)
+order <- data.table::fread("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_Ox_Phos_cycle_ALL_cells_LC_T2D_NoMed_unadjusted_pooled_offset_no_IT_08.csv ") %>%
+  arrange(`logFC_groupType_2_Diabetes`)
+
+
+
 
 dot_plot <- ggplot(full_results, aes(
-  y = reorder(gene, `logFC_groupType_2_Diabetes`),
-  x = `logFC_groupType_2_Diabetes`,
+  y = factor(gene, levels = order$gene),
+  x = `logFC_epic_sglti2_1Yes`,
   color = color1,
-  size = abs(`logFC_groupType_2_Diabetes`)
+  size = abs(`logFC_epic_sglti2_1Yes`)
 )) +
   geom_point(alpha = 0.7) +
   scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -449,17 +456,17 @@ png(fs::path(dir.results, "fdr/Plot__Ox_Phos_cycle_NEBULA_All_Cells_T2D_SGLT2_un
 print(dot_plot)
 dev.off()
 
-write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
             paste0(dir.results, 'Order_FDR_OxPhos_AllCells.txt'), quote=F, sep='\t', row.names=F)
 
 
 #pvalue
 names(full_results)[6] <- 'pvalue' 
 dot_plot <- ggplot(full_results, aes(
-  y = reorder(gene, `logFC_groupType_2_Diabetes`),
-  x = `logFC_groupType_2_Diabetes`,
+  y = factor(gene, levels = order$gene),
+  x = `logFC_epic_sglti2_1Yes`,
   color = color2,
-  size = abs(`logFC_groupType_2_Diabetes`)
+  size = abs(`logFC_epic_sglti2_1Yes`)
 )) +
   geom_point(alpha = 0.7) +
   scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -496,7 +503,7 @@ print(dot_plot)
 dev.off()
 
 
-write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
             paste0(dir.results, 'Order_Pvalue_OxPhos_AllCells.txt'), quote=F, sep='\t', row.names=F)
 
 
@@ -517,9 +524,9 @@ nrow(so_celltype) #34 genes
 ncol(so_celltype) #13534 PT cells
 
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
+so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
 #Make sure to set reference level
-so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
 
 
 counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
@@ -608,7 +615,7 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_LC_T2D_NoMed_unadjusted_pooled_offset_no_IT_08.csv"))
+write.csv(full_results,fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.csv"))
 
 names(full_results)[6] <- 'pvalue' 
 full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -627,15 +634,19 @@ Nonconvergence_Rate <- nebula_nonconverged_percent
 # # Identify significant points (fdr < 0.05)
 # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
 
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
+max <- max(full_results$`logFC_epic_sglti2_1Yes`)
 # max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
+min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+
+order <- data.table::fread("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_PT_cells_LC_T2D_NoMed_unadjusted_pooled_offset_no_IT_08.csv") %>%
+  arrange(`logFC_groupType_2_Diabetes`)
+
 
 dot_plot <- ggplot(full_results, aes(
-  y = reorder(gene, `logFC_groupType_2_Diabetes`),
-  x = `logFC_groupType_2_Diabetes`,
+  y = factor(gene, levels = order$gene),
+  x = `logFC_epic_sglti2_1Yes`,
   color = color1,
-  size = abs(`logFC_groupType_2_Diabetes`)
+  size = abs(`logFC_epic_sglti2_1Yes`)
 )) +
   geom_point(alpha = 0.7) +
   scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -670,17 +681,17 @@ png(fs::path(dir.results, "fdr/Plot__TCA_cycle_NEBULA_PT_Cells_T2D_SGLT2_unadjus
 print(dot_plot)
 dev.off()
 
-write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
             paste0(dir.results, 'Order_FDR_TCA_PTCells.txt'), quote=F, sep='\t', row.names=F)
 
 
 #pvalue
 names(full_results)[6] <- 'pvalue' 
 dot_plot <- ggplot(full_results, aes(
-  y = reorder(gene, `logFC_groupType_2_Diabetes`),
-  x = `logFC_groupType_2_Diabetes`,
+  y = factor(gene, levels = order$gene),
+  x = `logFC_epic_sglti2_1Yes`,
   color = color2,
-  size = abs(`logFC_groupType_2_Diabetes`)
+  size = abs(`logFC_epic_sglti2_1Yes`)
 )) +
   geom_point(alpha = 0.7) +
   scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -716,7 +727,7 @@ png(fs::path(dir.results, "pvalue/Plot__TCA_cycle_NEBULA_PT_Cells_T2D_SGLT2_unad
 print(dot_plot)
 dev.off()
 
-write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
             paste0(dir.results, 'Order_Pvalue_TCA_PTCells.txt'), quote=F, sep='\t', row.names=F)
 
 
@@ -734,9 +745,9 @@ nrow(so_celltype) #34 genes
 ncol(so_celltype) #13534 PT cells
 
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_celltype$group <- factor(so_celltype$group)
+so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
 #Make sure to set reference level
-so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
 
 
 counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
@@ -823,7 +834,7 @@ full_results <- full_results %>%
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
 full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,"NEBULA_OX_PHOS_cycle_PT_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv"))
+write.csv(full_results,fs::path(dir.results,"NEBULA_OX_PHOS_cycle_PT_cells_T2D_SGLT2_unadjusted_pooled_offset.csv"))
 
 names(full_results)[6] <- 'pvalue' 
 full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -841,15 +852,19 @@ Nonconvergence_Rate <- nebula_nonconverged_percent
 # # Identify significant points (fdr < 0.05)
 # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
 
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
+max <- max(full_results$`logFC_epic_sglti2_1Yes`)
 # max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
+min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+
+rm(order)
+order <- data.table::fread("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_PT_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv") %>%
+  arrange(`logFC_groupType_2_Diabetes`)
 
 dot_plot <- ggplot(full_results, aes(
-  y = reorder(gene, `logFC_groupType_2_Diabetes`),
-  x = `logFC_groupType_2_Diabetes`,
+  y = factor(gene, levels = order$gene),
+  x = `logFC_epic_sglti2_1Yes`,
   color = color1,
-  size = abs(`logFC_groupType_2_Diabetes`)
+  size = abs(`logFC_epic_sglti2_1Yes`)
 )) +
   geom_point(alpha = 0.7) +
   scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -883,17 +898,17 @@ png(fs::path(dir.results, "fdr/Plot__OX_PHOS_cycle_NEBULA_PT_Cells_T2D_SGLT2_una
 print(dot_plot)
 dev.off()
 
-write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
             paste0(dir.results, 'Order_FDR_OxPhos_PTCells.txt'), quote=F, sep='\t', row.names=F)
 
 
 
 names(full_results)[6] <- 'pvalue' 
 dot_plot <- ggplot(full_results, aes(
-  y = reorder(gene, `logFC_groupType_2_Diabetes`),
-  x = `logFC_groupType_2_Diabetes`,
+  y = factor(gene, levels = order$gene),
+  x = `logFC_epic_sglti2_1Yes`,
   color = color2,
-  size = abs(`logFC_groupType_2_Diabetes`)
+  size = abs(`logFC_epic_sglti2_1Yes`)
 )) +
   geom_point(alpha = 0.7) +
   scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -929,7 +944,7 @@ png(fs::path(dir.results, "pvalue/Plot__OxPhos_cycle_NEBULA_PT_Cells_T2D_SGLT2_u
 print(dot_plot)
 dev.off()
 
-write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
             paste0(dir.results, 'Order_Pvalue_OxPhos_PTCells.txt'), quote=F, sep='\t', row.names=F)
 
 
@@ -953,9 +968,9 @@ for (celltype in celltypes) {
   celltype2 <- str_replace_all(celltype2,"-","_")
   
   #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$group <- factor(so_celltype$group)
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
   #Make sure to set reference level
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
   
   
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
@@ -1042,7 +1057,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -1060,15 +1075,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_tca <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -1097,16 +1116,16 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -1135,7 +1154,7 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   #Ox_Phos Cycle
@@ -1219,7 +1238,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_OX_PHOS_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_OX_PHOS_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -1233,15 +1252,21 @@ for (celltype in celltypes) {
   Nonconvergence_Rate <- nebula_nonconverged_percent
   
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
+  
   
   dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -1270,16 +1295,16 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -1308,7 +1333,7 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
@@ -1358,9 +1383,9 @@ for (celltype in celltypes) {
   celltype2 <- str_replace_all(celltype2,"-","_")
   
   #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$group <- factor(so_celltype$group)
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
   #Make sure to set reference level
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
   
   
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
@@ -1447,7 +1472,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -1465,15 +1490,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_tca <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
@@ -1501,17 +1530,17 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -1540,10 +1569,10 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   
   
@@ -1627,7 +1656,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -1645,17 +1674,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
   
-  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -1684,15 +1715,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -1721,7 +1752,7 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
@@ -1769,9 +1800,9 @@ for (celltype in celltypes) {
   celltype2 <- str_replace_all(celltype2,"-","_")
   
   #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$group <- factor(so_celltype$group)
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
   #Make sure to set reference level
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
   
   
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
@@ -1858,7 +1889,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -1876,15 +1907,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_tca <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -1912,16 +1947,16 @@ for (celltype in celltypes) {
           panel.border = element_blank(),
           panel.background = element_blank()
     )
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -1950,10 +1985,10 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   
   
@@ -2036,7 +2071,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -2054,17 +2089,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
   
-  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -2093,15 +2130,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -2130,7 +2167,7 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
@@ -2180,9 +2217,9 @@ for (celltype in celltypes) {
   celltype2 <- str_replace_all(celltype2,"-","_")
   
   #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$group <- factor(so_celltype$group)
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
   #Make sure to set reference level
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
   
   
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
@@ -2269,7 +2306,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -2287,15 +2324,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_tca <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -2324,15 +2365,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -2361,10 +2402,10 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   
   
@@ -2448,7 +2489,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -2466,17 +2507,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
   
-  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -2505,15 +2548,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -2543,7 +2586,7 @@ for (celltype in celltypes) {
     )
   
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
@@ -2593,9 +2636,9 @@ for (celltype in celltypes) {
   celltype2 <- str_replace_all(celltype2,"-","_")
   
   #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$group <- factor(so_celltype$group)
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
   #Make sure to set reference level
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
   
   
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
@@ -2682,7 +2725,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -2700,15 +2743,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_tca <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -2737,15 +2784,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -2774,11 +2821,11 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   
   genes_list <- ox_phos_genes
@@ -2860,7 +2907,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -2878,17 +2925,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
   
-  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -2917,15 +2966,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -2954,7 +3003,7 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
@@ -3006,9 +3055,9 @@ for (celltype in celltypes) {
   celltype2 <- str_replace_all(celltype2,"-","_")
   
   #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$group <- factor(so_celltype$group)
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
   #Make sure to set reference level
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
   
   
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
@@ -3095,7 +3144,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -3113,15 +3162,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_tca <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -3150,15 +3203,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -3187,10 +3240,10 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   
   
@@ -3272,7 +3325,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -3290,17 +3343,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
   
-  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -3329,15 +3384,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -3366,7 +3421,7 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
@@ -3416,9 +3471,9 @@ for (celltype in celltypes) {
   celltype2 <- str_replace_all(celltype2,"-","_")
   
   #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$group <- factor(so_celltype$group)
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
   #Make sure to set reference level
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
   
   
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
@@ -3505,7 +3560,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -3523,15 +3578,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_tca <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -3560,15 +3619,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -3597,10 +3656,10 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   
   
@@ -3683,7 +3742,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -3701,17 +3760,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
   
-  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -3740,15 +3801,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -3777,7 +3838,7 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
@@ -3828,9 +3889,9 @@ for (celltype in celltypes) {
   celltype2 <- str_replace_all(celltype2,"-","_")
   
   #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$group <- factor(so_celltype$group)
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
   #Make sure to set reference level
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
   
   
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
@@ -3917,7 +3978,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -3935,15 +3996,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_tca <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -3972,15 +4037,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -4009,10 +4074,10 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   
   
@@ -4095,7 +4160,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -4113,17 +4178,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
   
-  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -4152,15 +4219,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -4189,7 +4256,7 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
@@ -4251,9 +4318,9 @@ for (celltype in celltypes) {
   celltype2 <- str_replace_all(celltype2,"\\+","_")
   
   #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$group <- factor(so_celltype$group)
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
   #Make sure to set reference level
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
   
   
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
@@ -4340,7 +4407,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -4358,15 +4425,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_tca <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -4395,15 +4466,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -4432,10 +4503,10 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   
   
@@ -4518,7 +4589,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -4536,17 +4607,19 @@ for (celltype in celltypes) {
   # # Identify significant points (fdr < 0.05)
   # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
   
-  max <- max(full_results$`logFC_groupType_2_Diabetes`)
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
   # max <- 3.1
-  min <- min(full_results$`logFC_groupType_2_Diabetes`)
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
   
-  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
   
   dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color1,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -4575,15 +4648,15 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   names(full_results)[6] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = reorder(gene, `logFC_groupType_2_Diabetes`),
-    x = `logFC_groupType_2_Diabetes`,
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
     color = color2,
-    size = abs(`logFC_groupType_2_Diabetes`)
+    size = abs(`logFC_epic_sglti2_1Yes`)
   )) +
     geom_point(alpha = 0.7) +
     scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
@@ -4613,7 +4686,7 @@ for (celltype in celltypes) {
     )
   
   
-  write.table(full_results%>% arrange(`logFC_groupType_2_Diabetes`) %>% dplyr::select(gene) %>% as.character(), 
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
