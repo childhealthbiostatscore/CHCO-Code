@@ -203,11 +203,11 @@ dot_plot <- ggplot(full_results, aes(
   theme_minimal() +  # Retains grid lines
   labs(
     title = "Differentially Expressed TCA Cycle Genes in All Cell Types",
-    subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+    subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
     x = "Log Fold Change",
     y = "Gene",
     caption = paste0(
-      "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
       "; Genes = ", Genes,
       ", Cells = ", Cell,
       ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -247,11 +247,11 @@ dot_plot <- ggplot(full_results, aes(
   theme_minimal() +  # Retains grid lines
   labs(
     title = "Differentially Expressed TCA Cycle Genes in All Cell Types",
-    subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+    subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
     x = "Log Fold Change",
     y = "Gene",
     caption = paste0(
-      "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
       "; Genes = ", Genes,
       ", Cells = ", Cell,
       ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -418,10 +418,10 @@ dot_plot <- ggplot(full_results, aes(
   theme_minimal() +  # Retains grid lines
   labs(
     title = "Differentially Expressed Ox Phos Cycle Genes in All Cell Types",
-    subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+    subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
     x = "Log Fold Change",
     y = "Gene",
-    caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+    caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                      "; Genes = ", Genes,
                      ", Cells = ", Cell,
                      ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -463,11 +463,11 @@ dot_plot <- ggplot(full_results, aes(
   theme_minimal() +  # Retains grid lines
   labs(
     title = "Differentially Expressed OxPhos Cycle Genes in All Cell Types",
-    subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+    subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
     x = "Log Fold Change",
     y = "Gene",
     caption = paste0(
-      "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
       "; Genes = ", Genes,
       ", Cells = ", Cell,
       ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -639,10 +639,10 @@ dot_plot <- ggplot(full_results, aes(
   theme_minimal() +  # Retains grid lines
   labs(
     title = "Differentially Expressed TCA Cycle Genes in PT Cells",
-    subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+    subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
     x = "Log Fold Change",
     y = "Gene",
-    caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+    caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                      "; Genes = ", Genes,
                      ", Cells = ", Cell,
                      ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -684,11 +684,11 @@ dot_plot <- ggplot(full_results, aes(
   theme_minimal() +  # Retains grid lines
   labs(
     title = "Differentially Expressed TCA Cycle Genes in PT Cells",
-    subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+    subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
     x = "Log Fold Change",
     y = "Gene",
     caption = paste0(
-      "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
       "; Genes = ", Genes,
       ", Cells = ", Cell,
       ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -852,10 +852,10 @@ dot_plot <- ggplot(full_results, aes(
   theme_minimal() +  # Retains grid lines
   labs(
     title = "Differentially Expressed OX PHOS Cycle Genes in PT Cells",
-    subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+    subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
     x = "Log Fold Change",
     y = "Gene",
-    caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+    caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                      "; Genes = ", Genes,
                      ", Cells = ", Cell,
                      ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -897,11 +897,11 @@ dot_plot <- ggplot(full_results, aes(
   theme_minimal() +  # Retains grid lines
   labs(
     title = "Differentially Expressed OxPhos Cycle Genes in PT Cells",
-    subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+    subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
     x = "Log Fold Change",
     y = "Gene",
     caption = paste0(
-      "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
       "; Genes = ", Genes,
       ", Cells = ", Cell,
       ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -1072,10 +1072,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -1110,10 +1110,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -1245,10 +1245,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
                               ", Cells = ", Cell,
                               ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -1283,10 +1283,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -1476,10 +1476,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -1515,10 +1515,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -1659,10 +1659,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
                               ", Cells = ", Cell,
                               ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -1696,10 +1696,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -1888,10 +1888,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -1925,10 +1925,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -2068,10 +2068,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
                               ", Cells = ", Cell,
                               ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -2105,10 +2105,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -2299,10 +2299,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -2336,10 +2336,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -2480,10 +2480,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
                               ", Cells = ", Cell,
                               ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -2517,10 +2517,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -2712,10 +2712,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -2749,10 +2749,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -2892,10 +2892,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
                               ", Cells = ", Cell,
                               ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -2929,10 +2929,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -3125,10 +3125,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -3162,10 +3162,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -3304,10 +3304,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
                               ", Cells = ", Cell,
                               ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -3341,10 +3341,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -3535,10 +3535,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -3572,10 +3572,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -3715,10 +3715,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
                               ", Cells = ", Cell,
                               ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -3752,10 +3752,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -3947,10 +3947,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -3984,10 +3984,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -4127,10 +4127,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
                               ", Cells = ", Cell,
                               ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -4164,10 +4164,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -4370,10 +4370,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -4407,10 +4407,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -4550,10 +4550,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
                               ", Cells = ", Cell,
                               ", Non-Convergence Rate: ", Nonconvergence_Rate,
@@ -4587,10 +4587,10 @@ for (celltype in celltypes) {
     theme_minimal() +  # Retains grid lines
     labs(
       title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
       x = "Log Fold Change",
       y = "Gene",
-      caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
                        ", Cells = ", Cell,
                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
