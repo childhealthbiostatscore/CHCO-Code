@@ -277,9 +277,9 @@ scrna_analysis <- function(status = 'Both', Controls = 'Both', genelist = NULL,
   
   
   
-full_analysis <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
+full_analysis <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
 hvgs <- VariableFeatures(full_analysis)
-full_analysis <- subset(so_subset, features = hvgs)
+full_analysis <- subset(so_celltype, features = hvgs)
 full_counts <- round(GetAssayData(full_analysis, layer = "counts")) 
 
 
@@ -318,6 +318,7 @@ scrna_analysis(status = 'T2D', Controls = 'LC',
 scrna_analysis(status = 'T2D', Controls = 'LC', 
                results.dir = 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_All/', 
                celltype='All')
+
 
 
 

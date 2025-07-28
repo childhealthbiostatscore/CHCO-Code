@@ -170,12 +170,14 @@ so <- subset(so, group == 'Lean_Control')
 
 
 #PT Cells
-so_subset <- subset(so,celltype2 == 'PT')
+#so_subset <- subset(so,celltype2 == 'PT')
+so_subset <- so 
+remove(so)
 
 cellcounts <- ncol(so_subset)
 partcounts <- length(unique(so_subset@meta.data$kit_id))
 
-celltype2 <- 'PT'
+#celltype2 <- 'PT'
 
 counts_t1d_hc <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
 counts_t1d_hc_mtap <- counts_t1d_hc[interaction$gene,]
@@ -202,11 +204,11 @@ lc <- result_allcells %>% as.data.frame() %>%
 
 
 
+remove(so_subset)
 
 ##T2D 
 load('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Line265.RData')
 so <- subset(so, group == 'Type_2_Diabetes')
-
 
 #PT Cells
 so_subset <- subset(so,celltype2 == 'PT')
@@ -270,7 +272,15 @@ pheatmap(heatmap_data,
 dev.off()
 
 
+enrich_GO_BP <- enrichGO(gene = interaction$gene, OrgDb = org.Hs.eg.db, keyType = "SYMBOL", ont = "BP") %>% 
+  #  as.data.frame() %>% #dplyr::select(Description, GeneRatio, p.adjust, Count) %>% 
+  filter(p.adjust < 0.05)
 
+#dotplot
+pdf('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_PT/GSEA_SignificantInteraction_dotplot.pdf',
+    width=10, height=15)
+dotplot(enrich_GO_BP, showCategory = 20)
+dev.off()
 
 
 
