@@ -3046,6 +3046,8 @@ plot_croc_attempt_volcano <- function(attempt_df,
                                       y_axis = "-log10(p-value)",
                                       save_path = NULL) {
   
+  croc_df <- croc_df %>% 
+    filter(abs(.data[[FC_croc]]) < 10)
   # Subset by significance and direction
   attempt_pos <- attempt_df %>% filter(.data[[FC_attempt]] > 0 & .data[[p_attempt]] < attempt_p_cut)
   attempt_neg <- attempt_df %>% filter(.data[[FC_attempt]] < 0 & .data[[p_attempt]] < attempt_p_cut)
@@ -3060,31 +3062,28 @@ plot_croc_attempt_volcano <- function(attempt_df,
   top_pos <- croc_pos %>% arrange(.data[[p_croc]]) %>% slice_head(n = top_n)
   top_neg <- croc_neg %>% arrange(.data[[p_croc]]) %>% slice_head(n = top_n)
   
-  top_reversed <- croc_pos %>% filter(Gene %in% attempt_neg$Gene) %>%
-    rbind(croc_neg %>% filter(Gene %in% attempt_pos$Gene)) %>%
-    mutate(top_fill = case_when(Gene %in% attempt_neg$Gene ~ "-", 
-                                Gene %in% attempt_pos$Gene ~ "+"),
-           top_color = case_when(Gene %in% attempt_pos$Gene ~ "#457b9d",
-                                 Gene %in% attempt_neg$Gene ~ "#f28482",
-                                 TRUE ~ "#ced4da"))
-  
-  top_nonreversed <- top_pos %>% filter(Gene %in% attempt_pos$Gene) %>%
-    rbind(top_neg %>% filter(Gene %in% attempt_neg$Gene))
+  top_merged <- rbind(top_pos, top_neg) %>%
+    mutate(attempt_direction = case_when(Gene %in% attempt_neg$Gene ~ "-",
+                                         Gene %in% attempt_pos$Gene ~ "+",
+                                         T ~ "NA"),
+           croc_direction = case_when(Gene %in% croc_neg$Gene ~ "-",
+                                      Gene %in% croc_pos$Gene ~ "+"),
+           match = case_when(attempt_direction == croc_direction  ~ "nonreversed",
+                             (attempt_direction == "+" & croc_direction == "-") | 
+                               (attempt_direction == "-" & croc_direction == "+") ~ "reversed",
+                             T ~ "no match"),
+           top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
+                                 Gene %in% croc_neg$Gene ~ "#457b9d",
+                                 TRUE ~ "#ced4da"),
+           reversed_fill = case_when(attempt_direction == "+" & match == "reversed" ~ "+",
+                                     attempt_direction == "-" & match == "reversed" ~ "-",
+                                     T ~ "nonreversed"),
+           face = case_when(match == "reversed" ~ "bold",
+                            T ~ "plain"))
   
   n_reversed <- length(intersect(attempt_pos$Gene, croc_neg$Gene)) +
     length(intersect(attempt_neg$Gene, croc_pos$Gene))
   n_nonreversed <- nrow(all_pos_match) + nrow(all_neg_match)
-  
-  # Add plotting info to full CROC data
-  croc_df <- croc_df %>%
-    mutate(top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
-                                 Gene %in% croc_neg$Gene ~ "#457b9d",
-                                 TRUE ~ "#ced4da"),
-           match_color = case_when(Gene %in% all_pos_match$Gene ~ "#f28482",
-                                   Gene %in% all_neg_match$Gene ~ "#457b9d",
-                                   TRUE ~ "#ced4da"),
-           top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
-           top_lab  = if_else(Gene %in% top_nonreversed$Gene, Gene, ""))
   
   # Max and min for annotation arrows
   max_fc <- max(croc_df[[FC_croc]], na.rm = TRUE)
@@ -3093,44 +3092,21 @@ plot_croc_attempt_volcano <- function(attempt_df,
   # Get y-axis max for dynamic scaling
   y_max <- max(-log10(croc_df[[p_croc]]), na.rm = TRUE) * 1.1
   
+  croc_df <- croc_df %>%
+    mutate(top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
+                                 Gene %in% croc_neg$Gene ~ "#457b9d",
+                                 TRUE ~ "#ced4da"))
   # Create plot
   p <- ggplot(croc_df, aes(x = .data[[FC_croc]], y = -log10(.data[[p_croc]]))) +
     geom_hline(yintercept = -log10(attempt_p_cut), linetype = "dashed", color = "darkgrey") +
-    geom_point(alpha = 0.3, aes(color = top_color, size = top_size)) +
-    geom_text_repel(data = subset(croc_df, Gene %in% top_pos$Gene),
-                    aes(label = top_lab, color = top_color),
-                    size = 3, max.overlaps = Inf, force = 30,
-                    segment.alpha = 0.5, segment.size = 0.4,
-                    segment.color = "#ced4da", seed = 1234,
-                    ylim = c(NA, 1.30103), xlim = c(0, NA)) +
-    geom_text_repel(data = subset(croc_df, Gene %in% top_neg$Gene),
-                    aes(label = top_lab, color = top_color),
-                    size = 3, max.overlaps = Inf, force = 30,
-                    segment.alpha = 0.5, segment.size = 0.4,
-                    segment.color = "#ced4da", seed = 1234,
-                    ylim = c(NA, 1.30103), xlim = c(NA, 0)) +
-    geom_label_repel(
-      data = top_reversed %>%
-        filter(!!sym(FC_croc) > 0) %>%
-        arrange(!!sym(p_croc)) %>%
-        slice_head(n = top_n - sum(croc_df$top_lab != "" & croc_df$Gene %in% croc_pos$Gene)),
-      aes(label = Gene, fill = top_fill),
+    geom_vline(xintercept = 0, linetype = "dashed", color = "darkgrey") +
+    geom_point(alpha = 0.3, aes(color = top_color)) +
+    geom_label_repel(data = top_merged,
+      aes(label = Gene, fill = reversed_fill, color = top_color, fontface = face),
       size = 3, max.overlaps = Inf,
       force = 30, segment.alpha = 0.5, segment.size = 0.4,
       min.segment.length = 0,
-      segment.color = "#ced4da", seed = 1234, label.size = 0,
-      ylim = c(1.30103, NA), xlim = c(0, NA)) +
-    geom_label_repel(
-      data = top_reversed %>%
-        filter(!!sym(FC_croc) < 0) %>%
-        arrange(!!sym(p_croc)) %>%
-        slice_head(n = top_n - sum(croc_df$top_lab != "" & croc_df$Gene %in% croc_neg$Gene)),
-      aes(label = Gene, fill = top_fill),
-      size = 3, max.overlaps = Inf,
-      force = 30, segment.alpha = 0.5, segment.size = 0.4,
-      min.segment.length = 0,
-      segment.color = "#ced4da", seed = 1234, label.size = 0,
-      ylim = c(1.30103, NA), xlim = c(NA, 0)) +
+      segment.color = "#ced4da", seed = 1234, label.size = 0) +
     labs(x = x_axis,
          y = y_axis,
          caption = paste0("\n\nCell type: ", cell_type, " | ",
@@ -3139,15 +3115,18 @@ plot_croc_attempt_volcano <- function(attempt_df,
                           "\n\nUp to top ", top_n, " from each direction are labeled.\n",
                           "Reversed genes are boxed in fill color corresponding to direction of dapagliflozin effect.")) +
     scale_size_continuous(range = c(1, 1.3)) +
-    scale_fill_manual(values = c("+" = scales::alpha("#ff9996", 0.3),
-                                 "-" = scales::alpha("#5c9fc1", 0.3))) +
+    scale_fill_manual(values = c("+" = scales::alpha("#ff9996", 0.2),
+                                 "-" = scales::alpha("#5c9fc1", 0.2),
+                                 "nonreversed" = scales::alpha("white", 0))) +
     scale_color_manual(values = c("#457b9d" = "#457b9d",
                                   "#ced4da" = "#ced4da",
                                   "#f28482" = "#f28482")) +
     theme_minimal() +
     theme(panel.grid = element_blank(),
           text = element_text(size = 9, family = "Arial"),
-          plot.caption = element_text(size = 8.5, hjust = 0.5, margin = margin(t = 8), family = "Arial")) +
+          plot.caption = element_text(size = 8.5, 
+                                      hjust = 0.5, margin = margin(t = 8), 
+                                      family = "Arial")) +
     guides(color = "none", size = "none", fill = "none") +
     annotate("segment", 
              x=max_fc/8, 
