@@ -397,7 +397,19 @@ def clean_crocodile():
     pet.columns = pet.columns.str.replace(r"pet_", "", regex=True)
     pet["procedure"] = "pet_scan"
     pet["visit"] = "baseline"
+    
+    # --------------------------------------------------------------------------
+    # Liver PET scan
+    # --------------------------------------------------------------------------
 
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "liver_pet_scan", "field_name"]]
+    liver_pet = pd.DataFrame(proj.export_records(fields=var))
+    # Replace missing values
+    liver_pet.replace(rep, np.nan, inplace=True)
+    liver_pet["procedure"] = "liver_pet_scan"
+    liver_pet["visit"] = "baseline"
+    
     # --------------------------------------------------------------------------
     # Voxelwise
     # --------------------------------------------------------------------------
@@ -477,6 +489,7 @@ def clean_crocodile():
     rct.dropna(thresh=4, axis=0, inplace=True)
     biopsy.dropna(thresh=4, axis=0, inplace=True)
     pet.dropna(thresh=4, axis=0, inplace=True)
+    liver_pet.dropna(thresh=5, axis=0, inplace=True)
     brain.dropna(thresh=2, axis=0, inplace=True)
     voxelwise.dropna(thresh=4, axis=0, inplace=True)
     metabolomics_blood.dropna(thresh=4, axis=0, inplace=True)
@@ -500,6 +513,7 @@ def clean_crocodile():
     df = pd.concat([df, biopsy], join='outer', ignore_index=True)
     pet = pd.merge(pet, voxelwise, how = 'outer')
     df = pd.concat([df, pet], join='outer', ignore_index=True)
+    df = pd.concat([df, liver_pet], join='outer', ignore_index=True)
     df = pd.concat([df, brain], join='outer', ignore_index=True)
     df = pd.concat([df, metabolomics_blood], join='outer', ignore_index=True)
     df = pd.concat([df, metabolomics_tissue], join='outer', ignore_index=True)
