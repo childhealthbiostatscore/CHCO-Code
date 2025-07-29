@@ -4706,7 +4706,7 @@ dev.off()
 #Filter to celltype 
 LR_celltypes <- unique(so_liver_sn$celltype_LR)
 
-cell_name <- "Hep"
+# cell_name <- "Hep"
 # for (cell_name in LR_celltypes) 
 # {
 so_celltype <- subset(so_liver_sn,celltype_LR==cell_name)
@@ -5781,18 +5781,24 @@ for (cell_name in LR_celltypes){
 total_results <- data.frame()
 LR_celltypes <- unique(so_liver_sn$celltype_LR)[-1]
 for (cell_name in LR_celltypes) {
-  full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_",cell_name,"_Steatosis_unadjusted_2000_pooled_offset.csv"))) 
-  full_results <- full_results %>% 
-    clean_names() %>% 
-    dplyr::rename(logFC=log_fc_steatosis_cat_high_steatosis_2_3) %>% 
-    dplyr::rename(Gene=gene)
-  full_results <- full_results[,-1]
-  full_results$Celltype <- cell_name
-  total_results <- rbind(total_results,full_results)
+  for (var in clinical_variables) {
+  full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_",cell_name,"_",var,"_unadjusted_2000_pooled_offset.csv")))
+    full_results <- full_results %>% 
+      clean_names() %>% 
+      # dplyr::rename(logFC=log_fc_steatosis_cat_high_steatosis_2_3) %>% 
+      dplyr::rename(Gene=gene)
+    full_results <- full_results[,-1]
+    full_results$Celltype <- cell_name2
+    full_results$variable <- var
+    full_results$log_fc <- full_results[,2]
+    full_results <- full_results %>% 
+      dplyr::select(log_fc, fdr, p_value10,Celltype,variable,Gene)
+    total_results <- rbind(total_results,full_results)
+  }
 }
 
-total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$logFC > 0, "#990000",
-                              ifelse(total_results$fdr < 0.05 & total_results$logFC < 0, "#003366", "lightgray"))
+total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$log_fc > 0, "#990000",
+                              ifelse(total_results$fdr < 0.05 & total_results$log_fc < 0, "#003366", "lightgray"))
 
 # Define significance stars
 total_results <- total_results %>%
@@ -5802,16 +5808,16 @@ total_results <- total_results %>%
     TRUE ~ ""
   ))
 
-# Select only the needed columns and rename LogFC for clarity
+# Select only the needed columns and rename log_fc for clarity
 heatmap_data <- total_results %>%
-  dplyr::select(Gene, Celltype, logFC, signif)
+  dplyr::select(Gene, Celltype, log_fc, signif)
 
 custom_order <- LR_celltypes
 heatmap_data$Celltype <- factor(heatmap_data$Celltype, levels = custom_order)
 # custom_labels <- c("Average Cortical K2","Average Medulla K2","Average Cortical F","Average Medulla F",
 #                    "Average Cortical K2/F","Average Medulla K2/F")
 
-heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = logFC)) +
+heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = log_fc)) +
   geom_tile(color = "grey90") +
   geom_text(aes(label = signif), size = 3, color = "black") +
   scale_fill_gradient2(
@@ -5837,7 +5843,7 @@ heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = logFC)) +
 
 # png(fs::path(dir.results, "Heatmap__NEBULA_Other_Celltypess_unadjusted_pooled_offset_Steatosis.png"), 
 #     width = 1500, height = 2000, res = 300)
-# print(heat_map_p)
+print(heat_map_p)
 # dev.off()
 
 # Prepare data for volcano plots - keeping your exact color scheme and logic
@@ -5909,125 +5915,201 @@ png(fs::path(dir.results, "Volcano_Plots_NEBULA_Other_Celltypess_unadjusted_pool
 print(volcano_plots)
 dev.off()
 
-# Alternative: Create individual plots with custom captions for each cell type
-library(patchwork)
-
-# Function to create individual volcano plots matching your exact style
-create_volcano_by_celltype <- function(data, celltype_name) {
-  
-  # Filter data for this cell type
-  ct_data <- filter(data, Celltype == celltype_name)
-  
-  # Identify significant points
-  significant_df <- ct_data[ct_data$fdr < 0.05, ]
-  
-  # Calculate stats for this cell type
-  Genes <- length(unique(ct_data$Gene))
-  Significant_Genes <- nrow(significant_df)
-  
-  # Create the plot
-  p <- ggplot(ct_data, aes(x = logFC, y = PValue10, color = color)) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity() +
-    theme_minimal() +
-    labs(
-      title = celltype_name,
-      subtitle = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
-      x = "Log Fold Change",
-      y = "-log10(P-Value)",
-      caption = paste0("FDR < 0.05, Genes = ", Genes, ", Significant = ", Significant_Genes)
-    ) +
-    theme(
-      plot.title = element_text(hjust = 0, face = "bold"),
-      plot.subtitle = element_text(hjust = 0, size = 9),
-      axis.text.x = element_text(angle = 0, hjust = 1),
-      plot.caption = element_text(size = 7, hjust = 0)
-    ) +
-    xlim(-2.5, 2.5) +
-    geom_text(data = significant_df, aes(label = Gene),
-              vjust = 1, hjust = 1, size = 2.5, check_overlap = TRUE, color = "black")
-  
-  return(p)
-}
-
-# Create individual plots for each cell type
-volcano_list <- list()
-for (ct in levels(total_results$Celltype)) {
-  volcano_list[[ct]] <- create_volcano_by_celltype(total_results, ct)
-}
-
-# Combine plots using patchwork
-combined_volcanoes <- wrap_plots(volcano_list, ncol = 3) + 
-  plot_annotation(
-    title = "Differential Gene Expression by Cell Type",
-    subtitle = "High Steatosis (2+3) vs. Low Steatosis (0+1), 2000 HVGs",
-    theme = theme(
-      plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
-      plot.subtitle = element_text(hjust = 0.5, size = 11)
-    )
-  )
-
-print(combined_volcanoes)
-
-# Version with ggrepel for better label placement (if you prefer)
-library(ggrepel)
-
-volcano_plots_repel <- ggplot(total_results, aes(x = logFC, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +
-  scale_color_identity() +
-  
-  # Add labels for significant points with ggrepel
-  geom_text_repel(data = total_results[total_results$fdr < 0.05, ], 
-                  aes(label = Gene),
-                  size = 2.5, color = "black", 
-                  box.padding = 0.3, 
-                  point.padding = 0.2,
-                  max.overlaps = 10,
-                  segment.size = 0.3) +
-  
-  facet_wrap(~ Celltype, ncol = 3, scales = "free_y") +
-  xlim(-2.5, 2.5) +
-  
-  labs(
-    title = "High Steatosis (2+3) vs. Low Steatosis (0+1) by Cell Type",
-    subtitle = "2000 HVGs, Unadjusted",
-    x = "Log Fold Change",
-    y = "-log10(P-Value)"
-  ) +
-  
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1),
-    strip.text = element_text(face = "bold", size = 10),
-    strip.background = element_rect(fill = "gray95", color = NA),
-    panel.border = element_rect(color = "gray80", fill = NA)
-  )
-
-# Create a summary plot showing number of DEGs per cell type
-deg_summary <- total_results %>%
-  group_by(Celltype) %>%
-  summarise(
-    Upregulated = sum(fdr < 0.05 & logFC > 0),
-    Downregulated = sum(fdr < 0.05 & logFC < 0),
-    .groups = 'drop'
-  ) %>%
-  pivot_longer(cols = c(Upregulated, Downregulated), 
-               names_to = "Direction", 
-               values_to = "Count")
-
-summary_barplot <- ggplot(deg_summary, aes(x = Celltype, y = Count, fill = Direction)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  scale_fill_manual(values = c("Upregulated" = "#990000", "Downregulated" = "#003366")) +
-  theme_minimal() +
-  labs(title = "Number of Differentially Expressed Genes by Cell Type",
-       x = "Cell Type",
-       y = "Number of DEGs (FDR < 0.05)") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        plot.title = element_text(hjust = 0.5, face = "bold"))
-
-print(summary_barplot)
+# # Alternative: Create individual plots with custom captions for each cell type
+# library(patchwork)
+# 
+# # Function to create individual volcano plots matching your exact style
+# create_volcano_by_celltype <- function(data, celltype_name) {
+#   
+#   # Filter data for this cell type
+#   ct_data <- filter(data, Celltype == celltype_name)
+#   
+#   # Identify significant points
+#   significant_df <- ct_data[ct_data$fdr < 0.05, ]
+#   
+#   # Calculate stats for this cell type
+#   Genes <- length(unique(ct_data$Gene))
+#   Significant_Genes <- nrow(significant_df)
+#   
+#   # Create the plot
+#   p <- ggplot(ct_data, aes(x = logFC, y = PValue10, color = color)) +
+#     geom_point(alpha = 0.7) +
+#     scale_color_identity() +
+#     theme_minimal() +
+#     labs(
+#       title = celltype_name,
+#       subtitle = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
+#       x = "Log Fold Change",
+#       y = "-log10(P-Value)",
+#       caption = paste0("FDR < 0.05, Genes = ", Genes, ", Significant = ", Significant_Genes)
+#     ) +
+#     theme(
+#       plot.title = element_text(hjust = 0, face = "bold"),
+#       plot.subtitle = element_text(hjust = 0, size = 9),
+#       axis.text.x = element_text(angle = 0, hjust = 1),
+#       plot.caption = element_text(size = 7, hjust = 0)
+#     ) +
+#     xlim(-2.5, 2.5) +
+#     geom_text(data = significant_df, aes(label = Gene),
+#               vjust = 1, hjust = 1, size = 2.5, check_overlap = TRUE, color = "black")
+#   
+#   return(p)
 # }
+# 
+# # Create individual plots for each cell type
+# volcano_list <- list()
+# for (ct in levels(total_results$Celltype)) {
+#   volcano_list[[ct]] <- create_volcano_by_celltype(total_results, ct)
+# }
+# 
+# # Combine plots using patchwork
+# combined_volcanoes <- wrap_plots(volcano_list, ncol = 3) + 
+#   plot_annotation(
+#     title = "Differential Gene Expression by Cell Type",
+#     subtitle = "High Steatosis (2+3) vs. Low Steatosis (0+1), 2000 HVGs",
+#     theme = theme(
+#       plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+#       plot.subtitle = element_text(hjust = 0.5, size = 11)
+#     )
+#   )
+# 
+# print(combined_volcanoes)
+# 
+# # Version with ggrepel for better label placement (if you prefer)
+# library(ggrepel)
+# 
+# volcano_plots_repel <- ggplot(total_results, aes(x = logFC, y = PValue10, color = color)) +
+#   geom_point(alpha = 0.7) +
+#   scale_color_identity() +
+#   
+#   # Add labels for significant points with ggrepel
+#   geom_text_repel(data = total_results[total_results$fdr < 0.05, ], 
+#                   aes(label = Gene),
+#                   size = 2.5, color = "black", 
+#                   box.padding = 0.3, 
+#                   point.padding = 0.2,
+#                   max.overlaps = 10,
+#                   segment.size = 0.3) +
+#   
+#   facet_wrap(~ Celltype, ncol = 3, scales = "free_y") +
+#   xlim(-2.5, 2.5) +
+#   
+#   labs(
+#     title = "High Steatosis (2+3) vs. Low Steatosis (0+1) by Cell Type",
+#     subtitle = "2000 HVGs, Unadjusted",
+#     x = "Log Fold Change",
+#     y = "-log10(P-Value)"
+#   ) +
+#   
+#   theme_minimal() +
+#   theme(
+#     plot.title = element_text(hjust = 0),
+#     axis.text.x = element_text(angle = 0, hjust = 1),
+#     strip.text = element_text(face = "bold", size = 10),
+#     strip.background = element_rect(fill = "gray95", color = NA),
+#     panel.border = element_rect(color = "gray80", fill = NA)
+#   )
+# 
+# # Create a summary plot showing number of DEGs per cell type
+# deg_summary <- total_results %>%
+#   group_by(Celltype) %>%
+#   summarise(
+#     Upregulated = sum(fdr < 0.05 & logFC > 0),
+#     Downregulated = sum(fdr < 0.05 & logFC < 0),
+#     .groups = 'drop'
+#   ) %>%
+#   pivot_longer(cols = c(Upregulated, Downregulated), 
+#                names_to = "Direction", 
+#                values_to = "Count")
+# 
+# summary_barplot <- ggplot(deg_summary, aes(x = Celltype, y = Count, fill = Direction)) +
+#   geom_bar(stat = "identity", position = "dodge") +
+#   scale_fill_manual(values = c("Upregulated" = "#990000", "Downregulated" = "#003366")) +
+#   theme_minimal() +
+#   labs(title = "Number of Differentially Expressed Genes by Cell Type",
+#        x = "Cell Type",
+#        y = "Number of DEGs (FDR < 0.05)") +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1),
+#         plot.title = element_text(hjust = 0.5, face = "bold"))
+# 
+# print(summary_barplot)
+# # }
+
+##GSEA
+for (var in clinical_variables){
+  results <- total_results %>% 
+    filter(variable == var)
+  for (celltype in LR_celltypes) {
+    cell_results <- results %>% 
+      filter(Celltype %in% celltype)
+    # Filter out the gmt files for KEGG, Reactome and GOBP
+    list.files(bg_path)
+    gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+    gmt_files
+    kegg_legacy <- prepare_gmt(gmt_files[1], unique(cell_results$Gene), savefile = FALSE)
+    reactome <- prepare_gmt(gmt_files[3], unique(cell_results$Gene), savefile = FALSE)
+    go <- prepare_gmt(gmt_files[4], unique(cell_results$Gene), savefile = FALSE)
+    
+    # rank genes by t-stats in DiD
+    rankings_dHep <- cell_results$log_fc
+    names(rankings_dHep) <- cell_results$Gene
+    rankings_dHep <- sort(rankings_dHep, decreasing = TRUE)
+    plot(rankings_dHep)
+    min(rankings_dHep)
+    max(rankings_dHep)
+    
+    
+    set.seed(1234)
+    
+    kegg_legacy_res_dHep <- fgsea(pathways = kegg_legacy,
+                                  stats = rankings_dHep,
+                                  scoreType = 'std', 
+                                  minSize = 3,
+                                  maxSize = 500,
+                                  nproc = 1)
+    
+    reactome_res_dHep <- fgsea(pathways = reactome,
+                               stats = rankings_dHep,
+                               scoreType = 'std', 
+                               minSize = 3,
+                               maxSize = 500,
+                               nproc = 1)
+    # saveRDS(reactome_res_dHep,fs::path(dir.results,"dHep_Steatosis_reactome.rds"))
+    go_res_dHep <- fgsea(pathways = go,
+                         stats = rankings_dHep,
+                         scoreType = 'std', 
+                         minSize = 5,
+                         maxSize = 500,
+                         nproc = 1)
+    # saveRDS(go_res_dHep,fs::path(dir.results,"dHep_Steatosis_GO.rds"))
+    dHep_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_dHep[, padj < 0.05]), sum(kegg_legacy_res_dHep[, pval < 0.05])),
+                             "REACTOME"=c(sum(reactome_res_dHep[, padj < 0.05]), sum(reactome_res_dHep[, pval < 0.05])),
+                             "GO"=c(sum(go_res_dHep[, padj < 0.05]), sum(go_res_dHep[, pval < 0.05])))
+    rownames(dHep_fgsea) <- c("adj.pval", "p.val")
+    
+    ##### KEGG Legacy
+    # a <- plot_fgsea_transpose(kegg_legacy_res_dHep, title = "dHep Unadjusted Top 30 KEGG (REML, Log Normal, Offset)", xnudge = 0.03)+ theme(legend.position.inside = c(0.2, 0.5))
+    
+    # ggsave(fs::path(dir.results,"Hepatocytes_top30_kegg_pathways_unadjusted.jpeg"),
+    #        width = 13, height = 10, scale = 1)
+    
+    ##### REACTOME
+    b <- plot_fgsea_transpose(reactome_res_dHep, title = paste0(var," in ",celltype,"Unadjusted Top 30 REACTOME (REML, Log Normal, Offset)"), xlimit = 8)+ theme(legend.position.inside = c(0.1, 0.5))
+    
+    # ggsave(fs::path(dir.results,"Hepatocytes_top30_reactome_pathways_unadjusted.jpeg"),
+    #        width = 13, height = 10, scale = 1)
+    ##### GO
+    c <- plot_fgsea_transpose(go_res_dHep, title = paste0(var," in ",celltype,"Unadjusted Top 30 GO (REML, Log Normal, Offset)"), xlimit = 8)+ theme(legend.position.inside = c(0.1, 0.5))
+    
+    # ggsave(fs::path(dir.results,"Hepatocytes_top30_go_pathways_unadjusted_reml_offset.jpeg"),
+    #        width = 13, height = 10, scale = 1)
+    
+    combined_plot <- b + c + plot_layout(ncol = 1)
+    print(combined_plot)
+    ggsave(fs::path(dir.results,paste0(celltype,"_",var,"top30_pathways_unadjusted.jpeg")),
+           width = 15, height = 20, scale = 1)
+  }
+}
 ```
 
 ###ii. HR Nebula
@@ -6840,15 +6922,19 @@ for (cell_name in HR_celltypes){
 
 
 #Heat Map visualization of results]
+# total_results <- data.frame()
 HR_celltypes <- str_replace_all(unique(so_liver_sn$celltype),"/","_")
 HR_celltypes <- str_replace_all(HR_celltypes,"-","_")
 # cell_name2 <- "B_Plasma"
 # cell_name2
 
-for (cell_name2 in HR_celltypes){
+# HR_celltypes <- unique(so_oro$celltype)[-17]
+for (cell_name2 in HR_celltypes[-17]){
   total_results <- data.frame()
   for (oro in oro_vars) {
-    full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_",oro,"_",cell_name2,"_unadjusted_2000_ox_phos.csv"))) 
+    # cell_name2 <- str_replace_all(cell_name,"/","_")
+    # cell_name2 <- str_replace_all(cell_name2,"-","_")
+    full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_",oro,"_",cell_name2,"_unadjusted_2000_ox_phos.csv")))
     full_results <- full_results %>% 
       clean_names() %>% 
       dplyr::rename(logFC=log_fc) %>% 
@@ -6911,6 +6997,8 @@ for (cell_name2 in HR_celltypes){
   print(heat_map_p)
   dev.off()
 }
+
+
 ```
 ##B. MT Genes
 ```{r}
@@ -11219,9 +11307,52 @@ assays(sce)$norm <- FQnorm(assays(sce)$counts)
 ####
 library(irlba)
 pca <- irlba(t(log1p(assays(sce)$norm)), nv = 50, center = TRUE, scale = FALSE)
-rd1 <- pca$u[, 1:2]  # Note: $u instead of $x
+# rd1 <- pca$u[, 1:2]  # Note: $u instead of $x
+# rownames(rd1) <- colnames(sce)
+# colnames(rd1) <- c("PC1", "PC2")
+
+# Use more PCs (e.g., first 10, 20, or even all 50)
+# rd1 <- pca$u[, 1:10]  # Use first 10 PCs
+# or
+rd1 <- pca$u[, 1:15]  # Use first 20 PCs
+# or
+# rd1 <- pca$u  # Use all 50 PCs
+
 rownames(rd1) <- colnames(sce)
-colnames(rd1) <- c("PC1", "PC2")
+colnames(rd1) <- paste0("PC", 1:ncol(rd1))
+
+# Add to SingleCellExperiment object
+reducedDim(sce, "PCA") <- rd1
+
+# # Check variance explained by each PC
+# var_explained <- pca$d^2 / sum(pca$d^2)
+# cumsum_var <- cumsum(var_explained)
+# 
+# # Plot to visualize
+# plot(1:50, cumsum_var, type = "b", 
+#      xlab = "Number of PCs", 
+#      ylab = "Cumulative Variance Explained",
+#      main = "Scree Plot")
+# abline(h = 0.8, col = "red", lty = 2)  # 80% variance line
+# 
+# # Find number of PCs for desired variance (e.g., 80%)
+# n_pcs <- which(cumsum_var >= 0.8)[1]
+# print(paste("Need", n_pcs, "PCs to explain 80% variance"))
+# 
+# # Calculate individual variance for each PC
+# var_explained <- (pca$d^2) / sum(pca$d^2) * 100
+# 
+# # Plot individual variance (traditional elbow plot)
+# plot(1:30, var_explained[1:30], 
+#      type = "b", 
+#      pch = 19,
+#      xlab = "Principal Component", 
+#      ylab = "% Variance Explained (Individual)",
+#      main = "Traditional Elbow Plot")
+# 
+# # This will show where each PC's contribution drops off
+
+
 ####
 # rd1 <- pca$x[,1:2]
 
@@ -11229,6 +11360,350 @@ colnames(rd1) <- c("PC1", "PC2")
 pdf(fs::path(dir.results,"PCA_Slingshot.pdf"),width=10,height=10)
 plot(rd1, col = rgb(0,0,0,.5), pch=16, asp = 1)
 dev.off()
+
+# Basic pairs plot for first few PCs
+pairs(rd1[, 1:6], 
+      col = rgb(0,0,0,.5), 
+      pch = 16,
+      cex = 0.3,
+      main = "First 6 Principal Components")
+
+# Or with color by cluster
+pairs(rd1[, 1:6], 
+      col = as.factor(colData(sce)$your_cluster_column), 
+      pch = 16,
+      cex = 0.3)
+
+# Add PCA to your SCE object first
+reducedDim(sce, "PCA") <- rd1
+
+# Method 1: k-means clustering
+set.seed(123)
+k <- 8  # Choose number of clusters based on your data
+kmeans_clusters <- kmeans(rd1, centers = k)$cluster
+colData(sce)$kmeans_cluster <- as.factor(kmeans_clusters)
+
+# Method 2: Graph-based clustering (recommended for scRNA-seq)
+library(scran)
+library(igraph)
+
+# Build shared nearest neighbor graph
+snn.gr <- buildSNNGraph(sce, use.dimred = "PCA", k = 20)
+
+# Perform Louvain clustering
+clusters <- cluster_louvain(snn.gr)$membership
+colData(sce)$clusters <- as.factor(clusters)
+
+print(paste("Found", length(unique(clusters)), "clusters"))
+print(table(clusters))
+
+# Plot with cluster colors
+plot(rd1[, 1:2], 
+     col = colData(sce)$clusters,
+     pch = 16,
+     main = "PCA with clusters",
+     xlab = "PC1", ylab = "PC2")
+
+# Add cluster labels
+cluster_centers <- aggregate(rd1[, 1:2], 
+                             by = list(colData(sce)$clusters), 
+                             FUN = mean)
+text(cluster_centers[,2], cluster_centers[,3], 
+     labels = cluster_centers[,1], 
+     cex = 1.5, font = 2)
+
+# Create a color palette for 11 clusters
+colors_11 <- c("#E41A1C", "#377EB8", "#4DAF4A", "#984EA3", "#FF7F00", 
+               "#FFFF33", "#A65628", "#F781BF", "#999999", "#66C2A5", "#FC8D62")
+
+# Plot with cluster colors
+plot(rd1[, 1:2], 
+     col = colors_11[clusters],
+     pch = 16,
+     cex = 0.5,  # Smaller points since you have many cells
+     main = "PCA with 11 clusters",
+     xlab = "PC1", ylab = "PC2")
+
+# Add legend
+legend("topright", 
+       legend = 1:11,
+       col = colors_11,
+       pch = 16,
+       title = "Clusters",
+       cex = 0.8)
+
+# Plot points
+plot(rd1[, 1:2], 
+     col = colors_11[clusters],
+     pch = 16,
+     cex = 0.3,
+     main = "PCA with 11 clusters (n = 104,299 cells)",
+     xlab = paste0("PC1 (", round(var_explained[1], 1), "% variance)"),
+     ylab = paste0("PC2 (", round(var_explained[2], 1), "% variance)"))
+
+# Calculate and add cluster centroids
+cluster_centers <- aggregate(rd1[, 1:2], 
+                             by = list(clusters), 
+                             FUN = mean)
+
+# Add cluster numbers at centroids
+text(cluster_centers[,2], cluster_centers[,3], 
+     labels = cluster_centers[,1], 
+     cex = 1.2, 
+     font = 2,
+     bg = "white",
+     col = "black")
+
+# Add cluster sizes to legend
+cluster_sizes <- table(clusters)
+legend_labels <- paste0("Cluster ", 1:11, " (n=", cluster_sizes, ")")
+legend("topright", 
+       legend = legend_labels,
+       col = colors_11,
+       pch = 16,
+       cex = 0.6,
+       ncol = 2)  # Two columns for space
+
+# First, check if there's continuous variation vs discrete states
+# Plot PC1 vs PC3, PC2 vs PC3, etc.
+par(mfrow = c(2, 3))
+pc_pairs <- list(c(1,3), c(2,3), c(1,4), c(2,4), c(3,4), c(4,5))
+
+for (i in 1:length(pc_pairs)) {
+  plot(rd1[, pc_pairs[[i]][1]], rd1[, pc_pairs[[i]][2]],
+       col = colors_11[clusters],
+       pch = 16, cex = 0.3,
+       xlab = paste0("PC", pc_pairs[[i]][1]),
+       ylab = paste0("PC", pc_pairs[[i]][2]))
+}
+
+# Try different k values for SNN graph
+for (k_val in c(10, 30, 50)) {
+  snn.gr <- buildSNNGraph(sce, use.dimred = "PCA", k = k_val)
+  clusters_test <- cluster_louvain(snn.gr)$membership
+  
+  print(paste("k =", k_val, "gives", length(unique(clusters_test)), "clusters"))
+  
+  # Plot to see if separation improves
+  plot(rd1[, 1:2], 
+       col = rainbow(length(unique(clusters_test)))[clusters_test],
+       pch = 16, cex = 0.3,
+       main = paste("k =", k_val))
+}
+
+# # Try different clustering resolutions with Leiden
+# library(leiden)
+# for (res in c(0.5, 1, 1.5, 2)) {
+#     clusters_leiden <- leiden(snn.gr, resolution = res)
+#     print(paste("Resolution", res, "gives", length(unique(clusters_leiden)), "clusters"))
+# }
+
+# Use k=10 clustering since it shows the clearest structure
+snn.gr <- buildSNNGraph(sce, use.dimred = "PCA", k = 10)
+clusters_k10 <- cluster_louvain(snn.gr)$membership
+colData(sce)$clusters <- as.factor(clusters_k10)
+
+# The yellow cluster (likely cluster 1) might be your starting point
+table(clusters_k10)
+
+# Run slingshot - let it discover the trajectory
+sce <- slingshot(sce, 
+                 clusterLabels = 'clusters',
+                 reducedDim = 'PCA',
+                 start.clus = 1,  # Yellow cluster as start (adjust based on your biology)
+                 omega = TRUE,
+                 extend = 'y')
+
+# Visualize the trajectory
+colors_12 <- c("#FFFF00", "#1CE6FF", "#FF34FF", "#FF4A46", "#008941", "#006FA6", 
+               "#A30059", "#FFDBE5", "#7A4900", "#0000A6", "#63FFAC", "#B79762")
+
+plot(rd1[, 1:2], 
+     col = colors_12[clusters_k10],
+     pch = 16, cex = 0.3,
+     main = "Slingshot trajectory on hepatocyte gradient")
+
+# Add trajectory lines
+lines(SlingshotDataSet(sce), lwd = 3, col = 'black')
+
+# Use fewer clusters for a cleaner trajectory
+set.seed(123)
+simple_clusters <- kmeans(rd1, centers = 5)$cluster
+colData(sce)$simple_clusters <- as.factor(simple_clusters)
+
+# Visualize the simpler clustering
+plot(rd1[, 1:2], 
+     col = rainbow(5)[simple_clusters],
+     pch = 16, cex = 0.3,
+     main = "Simplified clustering (k=5)")
+
+# Force a simpler trajectory
+sce_clean <- slingshot(sce, 
+                       clusterLabels = 'simple_clusters',
+                       reducedDim = 'PCA',
+                       omega = FALSE,  # Stricter curve fitting
+                       extend = 'n',   # Don't extend to disconnected clusters
+                       shrink = 1,     # Keep curves close to cluster centers
+                       thresh = 0.001) # Stricter convergence
+
+# Plot the cleaner result
+plot(rd1[, 1:2], 
+     col = rainbow(5)[simple_clusters],
+     pch = 16, cex = 0.3,
+     main = "Simplified trajectory")
+lines(SlingshotDataSet(sce_clean), lwd = 3, col = 'black')
+
+# See how many lineages you have with the simplified approach
+sds_simple <- SlingshotDataSet(sce_clean)
+lineages_simple <- slingLineages(sds_simple)
+print(paste("Number of lineages:", length(lineages_simple)))
+print(lineages_simple)
+
+# Extract just the first lineage curve
+sds <- SlingshotDataSet(sce_clean)
+curves <- slingCurves(sds)
+
+# Plot your data
+plot(rd1[, 1:2], 
+     col = rainbow(5)[simple_clusters],
+     pch = 16, cex = 0.3,
+     main = "First lineage only")
+
+# Add only the first curve
+lines(curves[[2]]$s, lwd = 4, col = 'black')
+
+# First recreate the plot
+plot(rd1[, 1:2], 
+     col = rainbow(5)[simple_clusters],
+     pch = 16, cex = 0.3,
+     main = "First lineage only")
+
+# Add the trajectory curve
+lines(curves[[2]]$s, lwd = 4, col = 'black')
+
+# Calculate cluster centers
+cluster_centers <- aggregate(rd1[, 1:2], 
+                             by = list(simple_clusters), 
+                             FUN = mean)
+names(cluster_centers)[1] <- "cluster"
+
+# Add cluster numbers
+text(cluster_centers[,2], cluster_centers[,3], 
+     labels = cluster_centers$cluster, 
+     cex = 1.5, 
+     font = 2,
+     bg = "white",
+     col = "black")
+
+# Define lineage clusters
+lineage_clusters <- c(4, 2, 5, 3)
+
+# Create a subset of cells that belong to lineage clusters
+cells_in_lineage <- which(simple_clusters %in% lineage_clusters)
+
+# Create subset data
+rd1_lineage <- rd1[cells_in_lineage, ]
+clusters_lineage <- simple_clusters[cells_in_lineage]
+
+png(fs::path(dir.results,"PCA_Slingshot_Lineage2.png"),width=2000,height=2000,res=300)
+# Plot only lineage cells
+plot(rd1_lineage[, 1:2], 
+     col = rainbow(5)[clusters_lineage],
+     pch = 16, cex = 0.3,
+     main = "Lineage 4 → 5 → 2 → 3",
+     xlab = "PC1", ylab = "PC2")
+
+# Add trajectory line (you might need to recalculate for subset)
+lines(curves[[2]]$s, lwd = 4, col = 'black')
+
+# Add cluster centers for lineage clusters only
+cluster_centers_lineage <- aggregate(rd1_lineage[, 1:2], 
+                                     by = list(clusters_lineage), 
+                                     FUN = mean)
+text(cluster_centers_lineage[,2], cluster_centers_lineage[,3], 
+     labels = cluster_centers_lineage[,1], 
+     cex = 1.5, font = 2, bg = "white")
+
+# Add legend
+cluster_sizes <- table(clusters_lineage)
+legend_text <- paste0("Cluster ", names(cluster_sizes), " (n=", cluster_sizes, ")")
+legend("topright", 
+       legend = legend_text,
+       col = rainbow(5)[as.numeric(names(cluster_sizes))],
+       pch = 16,
+       title = "Clusters in Lineage",
+       cex = 0.8,
+       bg = "white")
+dev.off()
+
+# Assuming your Seurat cell type info is in metadata
+# You'll need to match the cell names between SCE and Seurat
+
+# Get cell types (adjust column name as needed)
+cell_types <- colData(sce)$celltype  # or whatever your column is called
+
+# If you need to transfer from Seurat object:
+# cell_types <- seurat_obj@meta.data$celltype[match(colnames(sce), colnames(seurat_obj))]
+
+# Create plot colored by cell type instead of clusters
+cell_types_lineage <- cell_types[cells_in_lineage]
+
+# Define colors for cell types
+unique_types <- unique(cell_types_lineage)
+type_colors <- rainbow(length(unique_types))
+names(type_colors) <- unique_types
+
+plot(rd1_lineage[, 1:2], 
+     col = type_colors[cell_types_lineage],
+     pch = 16, cex = 0.3,
+     main = "Lineage colored by cell type",
+     xlab = "PC1", ylab = "PC2")
+
+# Add legend for cell types
+legend("topright", 
+       legend = names(type_colors),
+       col = type_colors,
+       pch = 16,
+       title = "Cell Types",
+       cex = 0.7,
+       bg = "white")
+
+# Create a two-panel plot
+png(fs::path(dir.results,"Slingshot_Hepatocytes.png"),width=4000,height=2000,res=300)
+par(mfrow = c(1, 2))
+# Panel 1: Colored by clusters
+plot(rd1_lineage[, 1:2],
+     col = rainbow(5)[clusters_lineage],
+     pch = 16, cex = 0.3,
+     main = "Colored by Clusters")
+text(cluster_centers_lineage[,2], cluster_centers_lineage[,3],
+     labels = cluster_centers_lineage[,1],
+     cex = 1.5, font = 2, bg = "white")
+
+# Panel 2: Colored by cell types
+plot(rd1_lineage[, 1:2], 
+     col = type_colors[cell_types_lineage],
+     pch = 16, cex = 0.3,
+     main = "Colored by Cell Types")
+
+# Add cell type labels at centroids
+type_centers <- aggregate(rd1_lineage[, 1:2], 
+                          by = list(cell_types_lineage), 
+                          FUN = mean)
+text(type_centers[,2], type_centers[,3],
+     labels = type_centers[,1],
+     cex = 0.8, font = 2, bg = "white")
+
+dev.off()
+
+# Create a table showing cell type composition per cluster
+cluster_celltype_table <- table(clusters_lineage, cell_types_lineage)
+print(cluster_celltype_table)
+
+# Convert to proportions to see percentages
+prop_table <- prop.table(cluster_celltype_table, margin = 1) * 100
+print(round(prop_table, 1))
+###############################################################################
 
 library(uwot)
 rd2 <- uwot::umap(t(log1p(assays(sce)$norm)))
@@ -13381,7 +13856,7 @@ gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)] #3770 prote
 df <- df %>% 
   dplyr::select(c("ID","visit","SEX","ETHN","bmi","HBA1C","NAFLD0","NAFLD1",
                   "NAFLD2","NAFLD3","NAFLD4","NAFLD5","NAFLD6","ALT","AST",all_of(gene_proteins)))
-  
+
 
 # Scatter plot with individual trajectories
 p3 <- ggplot(df, aes(x = seq.10001.7, y = ALT)) +
@@ -13418,12 +13893,12 @@ df$time_numeric <- as.numeric(factor(df$visit)) - 1  # Start at 0 for baseline
 # Model with random intercept for time
 alt_results <- data.frame()
 for (protein in gene_proteins) {
-m0 <- as.formula(paste0(protein,"~ ALT + time_numeric + (1|ID)"))
-model_simple <- lmer(m0, data = df)
-beta <- summary(model_simple)$coef[2,1]
-pval <- summary(model_simple)$coef[2,5]
-results <- data.frame(Protein=protein,Beta=beta,Pval=pval)
-alt_results <- rbind(alt_results,results)
+  m0 <- as.formula(paste0(protein,"~ ALT + time_numeric + (1|ID)"))
+  model_simple <- lmer(m0, data = df)
+  beta <- summary(model_simple)$coef[2,1]
+  pval <- summary(model_simple)$coef[2,5]
+  results <- data.frame(Protein=protein,Beta=beta,Pval=pval)
+  alt_results <- rbind(alt_results,results)
 }
 alt_results <- alt_results %>% 
   mutate(fdr = p.adjust(Pval,method="fdr")) %>% 
@@ -13491,8 +13966,8 @@ for (protein in gene_proteins) {
     
     # Track problematic proteins
     problem_proteins <<- rbind(problem_proteins, 
-                              data.frame(Protein = protein, 
-                                       Issue = w$message))
+                               data.frame(Protein = protein, 
+                                          Issue = w$message))
     
   }, error = function(e) {
     # Complete failure - store as NA
@@ -13506,8 +13981,8 @@ for (protein in gene_proteins) {
     alt_results <<- rbind(alt_results, results)
     
     problem_proteins <<- rbind(problem_proteins, 
-                              data.frame(Protein = protein, 
-                                       Issue = e$message))
+                               data.frame(Protein = protein, 
+                                          Issue = e$message))
   })
 }
 
@@ -13530,7 +14005,7 @@ alt_results <- alt_results %>%
   dplyr::rename(Gene=EntrezGeneSymbol)
 
 alt_results$color <- ifelse(alt_results$fdr < 0.05 & alt_results$Beta > 0, "#990000",
-                             ifelse(alt_results$fdr < 0.05 & alt_results$Beta < 0, "#003366", "lightgray"))
+                            ifelse(alt_results$fdr < 0.05 & alt_results$Beta < 0, "#003366", "lightgray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- alt_results[alt_results$fdr < 0.05, ]
@@ -13543,7 +14018,7 @@ volcano_plot <- ggplot(alt_results, aes(x = Beta, y = -log10(fdr), color = color
   geom_point(alpha = 0.7) +  # Plot points with transparency
   scale_color_identity() +  # Use the color column directly
   theme_minimal() +  # Minimal theme
-   labs(
+  labs(
     title = "Mixed-Effect Model for Proteins vs. ALT (U/L)",
     x = "Beta",
     y = "-log10(FDR)",
@@ -13570,12 +14045,12 @@ write.csv(alt_results,fs::path(dir.results,"ALT_Proteins_Teenlabs.csv"))
 # Model with random intercept for time
 ast_results <- data.frame()
 for (protein in gene_proteins) {
-m0 <- as.formula(paste0(protein,"~ AST + time_numeric + (1|ID)"))
-model_simple <- lmer(m0, data = df)
-beta <- summary(model_simple)$coef[2,1]
-pval <- summary(model_simple)$coef[2,5]
-results <- data.frame(Protein=protein,Beta=beta,Pval=pval)
-ast_results <- rbind(ast_results,results)
+  m0 <- as.formula(paste0(protein,"~ AST + time_numeric + (1|ID)"))
+  model_simple <- lmer(m0, data = df)
+  beta <- summary(model_simple)$coef[2,1]
+  pval <- summary(model_simple)$coef[2,5]
+  results <- data.frame(Protein=protein,Beta=beta,Pval=pval)
+  ast_results <- rbind(ast_results,results)
 }
 ast_results <- ast_results %>% 
   mutate(fdr = p.adjust(Pval,method="fdr")) %>% 
@@ -13642,8 +14117,8 @@ for (protein in gene_proteins) {
     
     # Track problematic proteins
     problem_proteins <<- rbind(problem_proteins, 
-                              data.frame(Protein = protein, 
-                                       Issue = w$message))
+                               data.frame(Protein = protein, 
+                                          Issue = w$message))
     
   }, error = function(e) {
     # Complete failure - store as NA
@@ -13657,8 +14132,8 @@ for (protein in gene_proteins) {
     ast_results <<- rbind(ast_results, results)
     
     problem_proteins <<- rbind(problem_proteins, 
-                              data.frame(Protein = protein, 
-                                       Issue = e$message))
+                               data.frame(Protein = protein, 
+                                          Issue = e$message))
   })
 }
 
@@ -13674,14 +14149,14 @@ ast_results <- ast_results %>%
                        fdr<0.05 & Beta<0 ~"Significant Negative",
                        fdr>0.05~"Not Significant"))
 #Convert protein names to gene names
-key <- key %>% 
-  dplyr::rename(Protein=AptName)
+# key <- key %>% 
+#   dplyr::rename(Protein=AptName)
 ast_results <- tidylog::left_join(ast_results,key,by="Protein")
 ast_results <- ast_results %>% 
   dplyr::rename(Gene=EntrezGeneSymbol)
 
 ast_results$color <- ifelse(ast_results$fdr < 0.05 & ast_results$Beta > 0, "#990000",
-                             ifelse(ast_results$fdr < 0.05 & ast_results$Beta < 0, "#003366", "lightgray"))
+                            ifelse(ast_results$fdr < 0.05 & ast_results$Beta < 0, "#003366", "lightgray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- ast_results[ast_results$fdr < 0.05, ]
@@ -13694,7 +14169,7 @@ volcano_plot <- ggplot(ast_results, aes(x = Beta, y = -log10(fdr), color = color
   geom_point(alpha = 0.7) +  # Plot points with transparency
   scale_color_identity() +  # Use the color column directly
   theme_minimal() +  # Minimal theme
-   labs(
+  labs(
     title = "Mixed-Effect Model for Proteins vs. AST (U/L)",
     x = "Beta",
     y = "-log10(FDR)",
@@ -13779,8 +14254,8 @@ for (protein in gene_proteins) {
     
     # Track problematic proteins
     problem_proteins <<- rbind(problem_proteins, 
-                              data.frame(Protein = protein, 
-                                       Issue = w$message))
+                               data.frame(Protein = protein, 
+                                          Issue = w$message))
     
   }, error = function(e) {
     # Complete failure - store as NA
@@ -13794,8 +14269,8 @@ for (protein in gene_proteins) {
     NAFLD1_results <<- rbind(NAFLD1_results, results)
     
     problem_proteins <<- rbind(problem_proteins, 
-                              data.frame(Protein = protein, 
-                                       Issue = e$message))
+                               data.frame(Protein = protein, 
+                                          Issue = e$message))
   })
 }
 
@@ -13818,7 +14293,7 @@ NAFLD1_results <- NAFLD1_results %>%
   dplyr::rename(Gene=EntrezGeneSymbol)
 
 NAFLD1_results$color <- ifelse(NAFLD1_results$fdr < 0.05 & NAFLD1_results$Beta > 0, "#990000",
-                             ifelse(NAFLD1_results$fdr < 0.05 & NAFLD1_results$Beta < 0, "#003366", "lightgray"))
+                               ifelse(NAFLD1_results$fdr < 0.05 & NAFLD1_results$Beta < 0, "#003366", "lightgray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- NAFLD1_results[NAFLD1_results$fdr < 0.05, ]
@@ -13831,7 +14306,7 @@ volcano_plot <- ggplot(NAFLD1_results, aes(x = Beta, y = -log10(fdr), color = co
   geom_point(alpha = 0.7) +  # Plot points with transparency
   scale_color_identity() +  # Use the color column directly
   theme_minimal() +  # Minimal theme
-   labs(
+  labs(
     title = "Mixed-Effect Model for Proteins vs. NAFLD1 (U/L)",
     x = "Beta",
     y = "-log10(FDR)",

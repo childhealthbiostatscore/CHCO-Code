@@ -1075,6 +1075,114 @@ print(p1)
 print(p2)
 print(p11)
 print(p12)
+
+### Create progression variables for both BMI and non-BMI comparisons
+
+# Create progression variables for both BMI and non-BMI comparisons
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    # Convert stages to numeric (without BMI)
+    baseline_numeric = case_when(
+      CKM_syn_base == "Stage2" ~ 1,
+      CKM_syn_base == "Stage2_plus" ~ 2,
+      CKM_syn_base == "Stage3" ~ 3,
+      CKM_syn_base == "Stage4" ~ 4
+    ),
+    followup_numeric = case_when(
+      CKM_syn == "Stage2" ~ 1,
+      CKM_syn == "Stage2_plus" ~ 2,
+      CKM_syn == "Stage3" ~ 3,
+      CKM_syn == "Stage4" ~ 4
+    ),
+    
+    # Convert stages to numeric (with BMI)
+    baseline_numeric2 = case_when(
+      CKM_syn_base2 == "Stage2" ~ 1,
+      CKM_syn_base2 == "Stage2_plus" ~ 2,
+      CKM_syn_base2 == "Stage3" ~ 3,
+      CKM_syn_base2 == "Stage4" ~ 4
+    ),
+    followup_numeric2 = case_when(
+      CKM_syn2 == "Stage2" ~ 1,
+      CKM_syn2 == "Stage2_plus" ~ 2,
+      CKM_syn2 == "Stage3" ~ 3,
+      CKM_syn2 == "Stage4" ~ 4
+    ),
+    
+    # Progression variables (without BMI)
+    progress_CKM = case_when(
+      baseline_numeric == 4 ~ NA_real_,  # Already at highest stage
+      followup_numeric > baseline_numeric ~ 1,  # Progressed
+      followup_numeric <= baseline_numeric ~ 0  # Stayed same
+    ),
+    progress_CKM2 = case_when(
+      baseline_numeric == 4 ~ NA_real_,  # Already at highest stage
+      TRUE ~ pmax(0, followup_numeric - baseline_numeric)  # Steps progressed (0 if stayed same)
+    ),
+    
+    # Progression variables (with BMI)
+    progress_CKM_bmi = case_when(
+      baseline_numeric2 == 4 ~ NA_real_,
+      followup_numeric2 > baseline_numeric2 ~ 1,
+      followup_numeric2 <= baseline_numeric2 ~ 0
+    ),
+    progress_CKM2_bmi = case_when(
+      baseline_numeric2 == 4 ~ NA_real_,
+      TRUE ~ pmax(0, followup_numeric2 - baseline_numeric2)
+    ),
+    
+    # CV progression classification (without BMI)
+    CV_progress = case_when(
+      CKM_syn_base %in% c("Stage3", "Stage4") ~ "already_advanced",
+      CKM_syn %in% c("Stage3", "Stage4") & !CKM_syn_base %in% c("Stage3", "Stage4") ~ "CV_progressor",
+      TRUE ~ "non_progressor"
+    ),
+    
+    # CV progression classification (with BMI)
+    CV_progress_bmi = case_when(
+      CKM_syn_base2 %in% c("Stage3", "Stage4") ~ "already_advanced",
+      CKM_syn2 %in% c("Stage3", "Stage4") & !CKM_syn_base2 %in% c("Stage3", "Stage4") ~ "CV_progressor",
+      TRUE ~ "non_progressor"
+    )
+  )
+
+# Join variables from baserisk and baseline into comorb_ckm2
+comorb_ckm2 <- comorb_ckm2 %>%
+  left_join(
+    baserisk %>% select(RELEASEID, HbA1c, log_trig, uacid, HDL, ALT, AST, dxtime, AGEBASE),
+    by = "RELEASEID"
+  ) %>%
+  left_join(
+    baseline %>% select(RELEASEID, bmipct),
+    by = "RELEASEID"
+  )
+
+comorb_ckm2 <- comorb_ckm2 %>%
+  left_join(
+    baserisk %>% select(RELEASEID, sex, sex_char), by = "RELEASEID")
+
+comorb_ckm2$GLYC
+
+# Logistic regression for progression
+model1 <- glm(progress_CKM ~ AGEBASE + sex + bmi + bnp_baseline + ualbcreat_baseline, 
+              data = comorb_ckm2, family = binomial)
+
+model1 <- glm(progress_CKM ~ bmipct + HbA1c + ualbcreat_baseline + HYP0 + sbp, 
+              data = comorb_ckm2, family = binomial)
+
+model1 <- glm(progress_CKM ~ ualbcreat_baseline + high_trop0 +high_bnp0, 
+              data = comorb_ckm2, family = binomial)
+
+model2 <- glm(progress_CKM ~ ualbcreat_baseline +tnfa_baseline + GLYC, 
+              data = comorb_ckm2, family = binomial)
+
+summary(model2)
+
+# McNemar's test for paired progression
+mcnemar.test(table(comorb_ckm2$CKM_syn_base, comorb_ckm2$CKM_syn))
+
+
+
 ```
 
 ## Summary Tables
