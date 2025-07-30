@@ -45,8 +45,6 @@ Sys.setenv(
 )
 ```
 
-
-
 # Introduction {data-name="Introduction"}
 
 This is a report compiling results from the ATTEMPT scRNA analysis. 
@@ -62,7 +60,7 @@ Next steps:
 - plot showing the relationship between the top gene and change in clinical variable
 
 
-# Descriptive Tables/Plots
+# Baseline descriptive tables
 
 ```{r echo = F}
 harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
@@ -206,95 +204,6 @@ table(bl_attempt_dat_denver$biopsy_yn == "Yes" &
         !is.na(subset(attempt_dat, visit == 0 & site == "Denver")$avg_c_t1), 
       bl_attempt_dat_denver$treatment)
 ```
-## MRI Mixed model (Full cohort, Dapa vs. Placebo over time, Unadjusted)
-
-```{r echo = F}
-outcomes <- c(
-  "mri_r2_cortex_l", "mri_r2_cortex_r", "avg_c_r2",
-  "mri_r2_kidney_l", "mri_r2_kidney_r", "avg_k_r2"
-)
-
-# Run models and store summaries in a list
-model_summaries <- lapply(outcomes, function(var) {
-  cat("\n=====================\n")
-  cat("Outcome:", var, "\n")
-  cat("=====================\n")
-  
-  formula <- as.formula(paste(var, "~ visit * treatment + (1 | subject_id)"))
-  model <- lmerTest::lmer(formula, data = attempt_dat)
-  print(summary(model))
-  
-  return(summary(model))
-})
-names(model_summaries) <- outcomes
-
-fixed_effects_df <- do.call(rbind, lapply(names(model_summaries), function(var) {
-  model_summary <- model_summaries[[var]]
-  fe <- coef(summary(model_summary)) %>%
-    as.data.frame() %>%
-    tibble::rownames_to_column("term") %>%
-    mutate(outcome = var, .before = 1)
-}))
-
-clean_results <- fixed_effects_df %>%
-  dplyr::rename(
-    estimate = Estimate,
-    std_error = `Std. Error`,
-    df = df,
-    t_value = `t value`,
-    p_value = `Pr(>|t|)`
-  ) %>%
-  dplyr::select(outcome, term, estimate, std_error, df, t_value, p_value) %>%
-  filter(term == "visit:treatmentDapagliflozin 5mg")
-
-kable(clean_results, digits = 3)
-
-
-```
-
-## MRI Mixed model (Full cohort, Dapa vs. Placebo over time, Adjusted for age, sex, diabetes duration, site, and BMI)
-
-```{r echo = F}
-outcomes <- c(
-  "mri_r2_cortex_l", "mri_r2_cortex_r", "avg_c_r2",
-  "mri_r2_kidney_l", "mri_r2_kidney_r", "avg_k_r2"
-)
-
-# Run models and store summaries in a list
-model_summaries <- lapply(outcomes, function(var) {
-  cat("\n=====================\n")
-  cat("Outcome:", var, "\n")
-  cat("=====================\n")
-  
-  formula <- as.formula(paste(var, "~ visit * treatment + age + sex + diabetes_dx_duration + site + bmi + (1 | subject_id)"))
-  model <- lmerTest::lmer(formula, data = attempt_dat)
-  print(summary(model))
-  
-  return(summary(model))
-})
-names(model_summaries) <- outcomes
-
-fixed_effects_df <- do.call(rbind, lapply(names(model_summaries), function(var) {
-  model_summary <- model_summaries[[var]]
-  fe <- coef(summary(model_summary)) %>%
-    as.data.frame() %>%
-    tibble::rownames_to_column("term") %>%
-    mutate(outcome = var, .before = 1)
-}))
-
-clean_results <- fixed_effects_df %>%
-  dplyr::rename(
-    estimate = Estimate,
-    std_error = `Std. Error`,
-    df = df,
-    t_value = `t value`,
-    p_value = `Pr(>|t|)`
-  ) %>%
-  dplyr::select(outcome, term, estimate, std_error, df, t_value, p_value) %>%
-  filter(term == "visit:treatmentDapagliflozin 5mg")
-
-kable(clean_results, digits = 3)
-```
 
 ## Baseline Table (Denver only cohort, Dapa vs. Placebo)
 
@@ -304,58 +213,17 @@ kable(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hb
 kable(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + ldl_serum_mmoll + hdl_serum_mmoll + avg_c_t1 + avg_k_t1 + avg_pcascl + avg_c_adc, data = subset(attempt_dat, visit == 16 & site == "Denver")), digits = 1))
 
 kable(summary(arsenal::tableby(treatment ~ mgfr_jodal_bsa + mgfr_jodal + mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2, data = subset(attempt_dat, visit == -4 & site == "Denver")), digits = 1))
+
+# denver_mri_ids <- attempt_dat %>%
+#   filter(site == "Denver") %>%
+#   filter(!is.na(avg_c_r2)|!is.na(avg_k_r2)) %>%
+#   dplyr::select(subject_id, visit) %>%
+#   mutate(visit = case_when(visit == -4 ~ "PRE",
+#                            visit == 16 ~ "POST"))
+# 
+# write.csv(denver_mri_ids, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Clean/Denver_MRI_IDs.csv", row.names = F)
 ```
 
-## MRI Mixed model (Denver only cohort, Dapa vs. Placebo over time)
-
-```{r echo = F}
-# kable(summary(arsenal::tableby(visit ~ mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2 + t1_l_cortex + t1_r_cortex + avg_c_t1 + t1_l_kidney + t1_r_kidney + avg_k_t1 + adc_left + adc_right + avg_c_adc + pcasl3d_left + pcasl3d_right + avg_pcascl + volume_left + volume_right + tkv, data = subset(attempt_dat, site == "Denver"), strata = treatment), digits = 1))
-
-outcomes <- c(
-  "mri_r2_cortex_l", "mri_r2_cortex_r", "avg_c_r2",
-  "mri_r2_kidney_l", "mri_r2_kidney_r", "avg_k_r2",
-  "t1_l_cortex", "t1_r_cortex", "avg_c_t1",
-  "t1_l_kidney", "t1_r_kidney", "avg_k_t1",
-  "adc_left", "adc_right", "avg_c_adc",
-  "pcasl3d_left", "pcasl3d_right", "avg_pcascl",
-  "volume_left", "volume_right", "tkv"
-)
-
-# Run models and store summaries in a list
-model_summaries <- lapply(outcomes, function(var) {
-  cat("\n=====================\n")
-  cat("Outcome:", var, "\n")
-  cat("=====================\n")
-  
-  formula <- as.formula(paste(var, "~ visit * treatment + (1 | subject_id)"))
-  model <- lmerTest::lmer(formula, data = subset(attempt_dat, site == "Denver"))
-  print(summary(model))
-  
-  return(summary(model))
-})
-names(model_summaries) <- outcomes
-
-fixed_effects_df <- do.call(rbind, lapply(names(model_summaries), function(var) {
-  model_summary <- model_summaries[[var]]
-  fe <- coef(summary(model_summary)) %>%
-    as.data.frame() %>%
-    tibble::rownames_to_column("term") %>%
-    mutate(outcome = var, .before = 1)
-}))
-
-clean_results <- fixed_effects_df %>%
-  dplyr::rename(
-    estimate = Estimate,
-    std_error = `Std. Error`,
-    df = df,
-    t_value = `t value`,
-    p_value = `Pr(>|t|)`
-  ) %>%
-  dplyr::select(outcome, term, estimate, std_error, df, t_value, p_value) %>%
-  filter(term == "visit:treatmentDapagliflozin 5mg")
-
-kable(clean_results, digits = 3)
-```
 
 ## Baseline Table (Biopsy only cohort, Dapa vs. Placebo)
 
@@ -367,67 +235,24 @@ kable(summary(arsenal::tableby(treatment ~ mgfr_jodal_bsa + mgfr_jodal + mri_r2_
 kable(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + t1_l_cortex + t1_r_cortex + avg_c_t1 + t1_l_kidney + t1_r_kidney + avg_k_t1 + adc_left + adc_right + avg_c_adc + pcasl3d_left + pcasl3d_right + avg_pcascl + volume_left + volume_right + tkv, data = subset(attempt_dat, visit == 16  & biopsy_yn == "Yes")), digits = 1))
 ```
 
-## MRI Mixed model (Biopsy only cohort, Dapa vs. Placebo over time)
-
-```{r echo = F}
-# kable(summary(arsenal::tableby(visit ~ mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2 + t1_l_cortex + t1_r_cortex + avg_c_t1 + t1_l_kidney + t1_r_kidney + avg_k_t1 + adc_left + adc_right + avg_c_adc + pcasl3d_left + pcasl3d_right + avg_pcascl + volume_left + volume_right + tkv, data = subset(attempt_dat, site == "Denver"), strata = treatment), digits = 1))
-
-outcomes <- c(
-  "mri_r2_cortex_l", "mri_r2_cortex_r", "avg_c_r2",
-  "mri_r2_kidney_l", "mri_r2_kidney_r", "avg_k_r2",
-  "t1_l_cortex", "t1_r_cortex", "avg_c_t1",
-  "t1_l_kidney", "t1_r_kidney", "avg_k_t1",
-  "adc_left", "adc_right", "avg_c_adc",
-  "pcasl3d_left", "pcasl3d_right", "avg_pcascl",
-  "volume_left", "volume_right", "tkv"
-)
-
-# Run models and store summaries in a list
-model_summaries <- lapply(outcomes, function(var) {
-  cat("\n=====================\n")
-  cat("Outcome:", var, "\n")
-  cat("=====================\n")
-  
-  formula <- as.formula(paste(var, "~ visit * treatment + (1 | subject_id)"))
-  model <- lmerTest::lmer(formula, data = subset(attempt_dat, biopsy_yn == "Yes"))
-  print(summary(model))
-  
-  return(summary(model))
-})
-names(model_summaries) <- outcomes
-
-fixed_effects_df <- do.call(rbind, lapply(names(model_summaries), function(var) {
-  model_summary <- model_summaries[[var]]
-  fe <- coef(summary(model_summary)) %>%
-    as.data.frame() %>%
-    tibble::rownames_to_column("term") %>%
-    mutate(outcome = var, .before = 1)
-}))
-
-clean_results <- fixed_effects_df %>%
-  dplyr::rename(
-    estimate = Estimate,
-    std_error = `Std. Error`,
-    df = df,
-    t_value = `t value`,
-    p_value = `Pr(>|t|)`
-  ) %>%
-  dplyr::select(outcome, term, estimate, std_error, df, t_value, p_value) %>%
-  filter(term == "visit:treatmentDapagliflozin 5mg")
-
-kable(clean_results, digits = 3)
-```
+# Clinical variable plots
 
 ## Plots over time (Full cohort)
 
 ```{r echo = F}
 delta_df <- attempt_dat %>%
   filter(!is.na(visit)) %>%
-  pivot_wider(id_cols = c(subject_id, treatment, site, sex),
-              names_from = visit,
-              values_from = c(hba1c, cgm_tir, weight, mgfr_jodal_bsa, mgfr_jodal, avg_c_r2, avg_k_r2,
-                              avg_c_t1, avg_k_t1, avg_pcascl, avg_c_adc)) %>%
+  pivot_wider(
+    id_cols = c(subject_id, treatment, site, sex),
+    names_from = visit,
+    values_from = c(
+      hba1c, cgm_tir, weight, mgfr_jodal_bsa, mgfr_jodal, avg_c_r2, avg_k_r2,
+      avg_c_t1, avg_k_t1, avg_pcascl, avg_c_adc,
+      cholesterol_serum_mmoll, triglycerides_serum_mmoll, ldl_serum_mmoll, hdl_serum_mmoll
+    )
+  ) %>%
   mutate(
+    # Existing deltas
     delta_hba1c_4 = hba1c_4 - hba1c_0,
     delta_hba1c_16 = hba1c_16 - hba1c_0,
     delta_tir_4 = cgm_tir_4 - cgm_tir_0,
@@ -449,7 +274,19 @@ delta_df <- attempt_dat %>%
     delta_avg_pcascl_4 = avg_pcascl_4 - `avg_pcascl_0`,
     delta_avg_pcascl_16 = avg_pcascl_16 - `avg_pcascl_0`,
     delta_avg_c_adc_4 = avg_c_adc_4 - `avg_c_adc_0`,
-    delta_avg_c_adc_16 = avg_c_adc_16 - `avg_c_adc_0`,    
+    delta_avg_c_adc_16 = avg_c_adc_16 - `avg_c_adc_0`,
+    
+    # New lipid deltas (baseline = visit 0)
+    delta_cholesterol_4 = cholesterol_serum_mmoll_4 - cholesterol_serum_mmoll_0,
+    delta_cholesterol_16 = cholesterol_serum_mmoll_16 - cholesterol_serum_mmoll_0,
+    delta_triglycerides_4 = triglycerides_serum_mmoll_4 - triglycerides_serum_mmoll_0,
+    delta_triglycerides_16 = triglycerides_serum_mmoll_16 - triglycerides_serum_mmoll_0,
+    delta_ldl_4 = ldl_serum_mmoll_4 - ldl_serum_mmoll_0,
+    delta_ldl_16 = ldl_serum_mmoll_16 - ldl_serum_mmoll_0,
+    delta_hdl_4 = hdl_serum_mmoll_4 - hdl_serum_mmoll_0,
+    delta_hdl_16 = hdl_serum_mmoll_16 - hdl_serum_mmoll_0,
+    
+    # Zero deltas for baseline
     delta_hba1c_0 = 0,
     delta_tir_0 = 0,
     delta_weight_0 = 0,
@@ -460,7 +297,11 @@ delta_df <- attempt_dat %>%
     `delta_avg_pcascl_0` = 0,
     `delta_avg_c_adc_0` = 0,
     `delta_avg_c_t1_0` = 0,
-    `delta_avg_k_t1_0` = 0
+    `delta_avg_k_t1_0` = 0,
+    delta_cholesterol_0 = 0,
+    delta_triglycerides_0 = 0,
+    delta_ldl_0 = 0,
+    delta_hdl_0 = 0
   ) %>%
   dplyr::select(subject_id, treatment, site, sex, matches("delta_.*_(-?4|16|0)$")) %>%
   pivot_longer(
@@ -473,23 +314,42 @@ delta_df <- attempt_dat %>%
 
 delta_df$treatment <- factor(delta_df$treatment, levels = c("Placebo", "Dapagliflozin 5mg"))
 
-delta_df <- delta_df %>% left_join(
-attempt_dat %>%
-  group_by(subject_id) %>%
-  filter(visit == 0) %>%
-  dplyr::select(subject_id, age, diabetes_dx_duration, hba1c, cgm_tir, weight) %>%
-  dplyr::rename(hba1c_bl = hba1c,
-                tir_bl = cgm_tir,
-                weight_bl = weight)) %>% left_join(
-attempt_dat %>%
-  group_by(subject_id) %>%
-  filter(visit == -4) %>%
-  dplyr::select(subject_id, mgfr_jodal_bsa, mgfr_jodal,
-                avg_c_r2, avg_k_r2) %>%
-  dplyr::rename(mgfr_jodal_bsa_bl = mgfr_jodal_bsa,
-                mgfr_jodal_bl = mgfr_jodal,
-                avg_c_r2_bl = avg_c_r2,
-                avg_k_r2_bl = avg_k_r2))
+# Add baseline values for covariate adjustment (includes lipid baselines)
+delta_df <- delta_df %>% 
+  left_join(
+    attempt_dat %>%
+      group_by(subject_id) %>%
+      filter(visit == 0) %>%
+      dplyr::select(
+        subject_id, age, diabetes_dx_duration, 
+        hba1c, cgm_tir, weight,
+        cholesterol_serum_mmoll, triglycerides_serum_mmoll, 
+        ldl_serum_mmoll, hdl_serum_mmoll
+      ) %>%
+      dplyr::rename(
+        hba1c_bl = hba1c,
+        tir_bl = cgm_tir,
+        weight_bl = weight,
+        cholesterol_bl = cholesterol_serum_mmoll,
+        triglycerides_bl = triglycerides_serum_mmoll,
+        ldl_bl = ldl_serum_mmoll,
+        hdl_bl = hdl_serum_mmoll
+      )
+  ) %>% 
+  left_join(
+    attempt_dat %>%
+      group_by(subject_id) %>%
+      filter(visit == -4) %>%
+      dplyr::select(subject_id, mgfr_jodal_bsa, mgfr_jodal,
+                    avg_c_r2, avg_k_r2) %>%
+      dplyr::rename(
+        mgfr_jodal_bsa_bl = mgfr_jodal_bsa,
+        mgfr_jodal_bl = mgfr_jodal,
+        avg_c_r2_bl = avg_c_r2,
+        avg_k_r2_bl = avg_k_r2
+      )
+  )
+
 ```
 
 
@@ -1669,13 +1529,379 @@ cor.test(subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site 
          subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site == "Denver")$mgfr_jodal)
 ```
 
-# Data Driven
 
-- Used 2000 top HVG for each cell type
+# Mixed models for clinical vars
 
-- NEBULA (~ treatment + visit + treatment * visit)
+## MRI Mixed model (Full cohort, Dapa vs. Placebo over time, Unadjusted)
 
-- Used pooled offset and REML in NEBULA
+```{r echo = F}
+outcomes <- c(
+  "mri_r2_cortex_l", "mri_r2_cortex_r", "avg_c_r2",
+  "mri_r2_kidney_l", "mri_r2_kidney_r", "avg_k_r2"
+)
+
+# Run models and store summaries in a list
+model_summaries <- lapply(outcomes, function(var) {
+  cat("\n=====================\n")
+  cat("Outcome:", var, "\n")
+  cat("=====================\n")
+  
+  formula <- as.formula(paste(var, "~ visit * treatment + (1 | subject_id)"))
+  model <- lmerTest::lmer(formula, data = attempt_dat)
+  print(summary(model))
+  
+  return(summary(model))
+})
+names(model_summaries) <- outcomes
+
+fixed_effects_df <- do.call(rbind, lapply(names(model_summaries), function(var) {
+  model_summary <- model_summaries[[var]]
+  fe <- coef(summary(model_summary)) %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    mutate(outcome = var, .before = 1)
+}))
+
+clean_results <- fixed_effects_df %>%
+  dplyr::rename(
+    estimate = Estimate,
+    std_error = `Std. Error`,
+    df = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  dplyr::select(outcome, term, estimate, std_error, df, t_value, p_value) %>%
+  filter(term == "visit:treatmentDapagliflozin 5mg")
+
+kable(clean_results, digits = 3)
+
+
+```
+
+## MRI Mixed model (Full cohort, Dapa vs. Placebo over time, Adjusted for age, sex, diabetes duration, site, and BMI)
+
+```{r echo = F}
+outcomes <- c(
+  "mri_r2_cortex_l", "mri_r2_cortex_r", "avg_c_r2",
+  "mri_r2_kidney_l", "mri_r2_kidney_r", "avg_k_r2"
+)
+
+# Run models and store summaries in a list
+model_summaries <- lapply(outcomes, function(var) {
+  cat("\n=====================\n")
+  cat("Outcome:", var, "\n")
+  cat("=====================\n")
+  
+  formula <- as.formula(paste(var, "~ visit * treatment + age + sex + diabetes_dx_duration + site + bmi + (1 | subject_id)"))
+  model <- lmerTest::lmer(formula, data = attempt_dat)
+  print(summary(model))
+  
+  return(summary(model))
+})
+names(model_summaries) <- outcomes
+
+fixed_effects_df <- do.call(rbind, lapply(names(model_summaries), function(var) {
+  model_summary <- model_summaries[[var]]
+  fe <- coef(summary(model_summary)) %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    mutate(outcome = var, .before = 1)
+}))
+
+clean_results <- fixed_effects_df %>%
+  dplyr::rename(
+    estimate = Estimate,
+    std_error = `Std. Error`,
+    df = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  dplyr::select(outcome, term, estimate, std_error, df, t_value, p_value) %>%
+  filter(term == "visit:treatmentDapagliflozin 5mg")
+
+kable(clean_results, digits = 3)
+```
+
+## MRI Mixed model (Denver only cohort, Dapa vs. Placebo over time)
+
+```{r echo = F}
+# kable(summary(arsenal::tableby(visit ~ mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2 + t1_l_cortex + t1_r_cortex + avg_c_t1 + t1_l_kidney + t1_r_kidney + avg_k_t1 + adc_left + adc_right + avg_c_adc + pcasl3d_left + pcasl3d_right + avg_pcascl + volume_left + volume_right + tkv, data = subset(attempt_dat, site == "Denver"), strata = treatment), digits = 1))
+
+outcomes <- c(
+  "mri_r2_cortex_l", "mri_r2_cortex_r", "avg_c_r2",
+  "mri_r2_kidney_l", "mri_r2_kidney_r", "avg_k_r2",
+  "t1_l_cortex", "t1_r_cortex", "avg_c_t1",
+  "t1_l_kidney", "t1_r_kidney", "avg_k_t1",
+  "adc_left", "adc_right", "avg_c_adc",
+  "pcasl3d_left", "pcasl3d_right", "avg_pcascl",
+  "volume_left", "volume_right", "tkv"
+)
+
+# Run models and store summaries in a list
+model_summaries <- lapply(outcomes, function(var) {
+  cat("\n=====================\n")
+  cat("Outcome:", var, "\n")
+  cat("=====================\n")
+  
+  formula <- as.formula(paste(var, "~ visit * treatment + (1 | subject_id)"))
+  model <- lmerTest::lmer(formula, data = subset(attempt_dat, site == "Denver"))
+  print(summary(model))
+  
+  return(summary(model))
+})
+names(model_summaries) <- outcomes
+
+fixed_effects_df <- do.call(rbind, lapply(names(model_summaries), function(var) {
+  model_summary <- model_summaries[[var]]
+  fe <- coef(summary(model_summary)) %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    mutate(outcome = var, .before = 1)
+}))
+
+clean_results <- fixed_effects_df %>%
+  dplyr::rename(
+    estimate = Estimate,
+    std_error = `Std. Error`,
+    df = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  dplyr::select(outcome, term, estimate, std_error, df, t_value, p_value) %>%
+  filter(term == "visit:treatmentDapagliflozin 5mg")
+
+kable(clean_results, digits = 3)
+```
+
+## MRI Mixed model (Biopsy only cohort, Dapa vs. Placebo over time)
+
+```{r echo = F}
+# kable(summary(arsenal::tableby(visit ~ mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2 + t1_l_cortex + t1_r_cortex + avg_c_t1 + t1_l_kidney + t1_r_kidney + avg_k_t1 + adc_left + adc_right + avg_c_adc + pcasl3d_left + pcasl3d_right + avg_pcascl + volume_left + volume_right + tkv, data = subset(attempt_dat, site == "Denver"), strata = treatment), digits = 1))
+
+outcomes <- c(
+  "mri_r2_cortex_l", "mri_r2_cortex_r", "avg_c_r2",
+  "mri_r2_kidney_l", "mri_r2_kidney_r", "avg_k_r2",
+  "t1_l_cortex", "t1_r_cortex", "avg_c_t1",
+  "t1_l_kidney", "t1_r_kidney", "avg_k_t1",
+  "adc_left", "adc_right", "avg_c_adc",
+  "pcasl3d_left", "pcasl3d_right", "avg_pcascl",
+  "volume_left", "volume_right", "tkv"
+)
+
+# Run models and store summaries in a list
+model_summaries <- lapply(outcomes, function(var) {
+  cat("\n=====================\n")
+  cat("Outcome:", var, "\n")
+  cat("=====================\n")
+  
+  formula <- as.formula(paste(var, "~ visit * treatment + (1 | subject_id)"))
+  model <- lmerTest::lmer(formula, data = subset(attempt_dat, biopsy_yn == "Yes"))
+  print(summary(model))
+  
+  return(summary(model))
+})
+names(model_summaries) <- outcomes
+
+fixed_effects_df <- do.call(rbind, lapply(names(model_summaries), function(var) {
+  model_summary <- model_summaries[[var]]
+  fe <- coef(summary(model_summary)) %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    mutate(outcome = var, .before = 1)
+}))
+
+clean_results <- fixed_effects_df %>%
+  dplyr::rename(
+    estimate = Estimate,
+    std_error = `Std. Error`,
+    df = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  dplyr::select(outcome, term, estimate, std_error, df, t_value, p_value) %>%
+  filter(term == "visit:treatmentDapagliflozin 5mg")
+
+kable(clean_results, digits = 3)
+```
+
+
+# Lipid profiles
+## Lipid profile Mixed model (Full cohort, Dapa vs. Placebo over time, Unadjusted)
+
+```{r echo = F}
+lipid_profiles <- c(
+  "cholesterol_serum_mmoll", "triglycerides_serum_mmoll", 
+  "ldl_serum_mmoll","hdl_serum_mmoll"
+)
+
+# Run models and store summaries in a list
+model_summaries <- lapply(lipid_profiles, function(var) {
+  cat("\n=====================\n")
+  cat("Outcome:", var, "\n")
+  cat("=====================\n")
+  
+  formula <- as.formula(paste(var, "~ visit * treatment + (1 | subject_id)"))
+  model <- lmerTest::lmer(formula, data = subset(attempt_dat, visit %in% c(0, 16)))
+  print(summary(model))
+  
+  return(summary(model))
+})
+names(model_summaries) <- lipid_profiles
+
+fixed_effects_df <- do.call(rbind, lapply(names(model_summaries), function(var) {
+  model_summary <- model_summaries[[var]]
+  fe <- coef(summary(model_summary)) %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    mutate(outcome = var, .before = 1)
+}))
+
+clean_results <- fixed_effects_df %>%
+  dplyr::rename(
+    estimate = Estimate,
+    std_error = `Std. Error`,
+    df = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  dplyr::select(outcome, term, estimate, std_error, df, t_value, p_value) %>%
+  filter(term == "visit:treatmentDapagliflozin 5mg")
+
+kable(clean_results, digits = 3)
+
+# hist(attempt_dat$cholesterol_serum_mmoll)
+# hist(attempt_dat$triglycerides_serum_mmoll)
+# hist(attempt_dat$ldl_serum_mmoll)
+# hist(attempt_dat$hdl_serum_mmoll)
+
+subset(attempt_dat, visit %in% c(18))$cholesterol_serum_mmoll
+
+```
+
+```{r echo = F}
+delta_df$treatment <- relevel(delta_df$treatment, ref = "Dapagliflozin 5mg")
+run_ancova(delta_df, outcome_var = "cholesterol", baseline_var = "cholesterol_bl", visit_week = 16)$contrasts
+run_ancova(delta_df, outcome_var = "triglycerides", baseline_var = "triglycerides_bl", visit_week = 16)$contrasts
+run_ancova(delta_df, outcome_var = "ldl", baseline_var = "ldl_bl", visit_week = 16)$contrasts
+run_ancova(delta_df, outcome_var = "hdl", baseline_var = "hdl_bl", visit_week = 16)$contrasts
+```
+
+
+## Lipid profiles Mixed model (Denver only cohort, Dapa vs. Placebo over time)
+
+```{r echo = F}
+lipid_profiles <- c(
+  "cholesterol_serum_mmoll", "triglycerides_serum_mmoll", 
+  "ldl_serum_mmoll","hdl_serum_mmoll"
+)
+
+# Run models and store summaries in a list
+model_summaries <- lapply(lipid_profiles, function(var) {
+  cat("\n=====================\n")
+  cat("Outcome:", var, "\n")
+  cat("=====================\n")
+  
+  formula <- as.formula(paste(var, "~ visit * treatment + (1 | subject_id)"))
+  model <- lmerTest::lmer(formula, data = subset(attempt_dat, site == "Denver" & visit %in% c(0, 16)))
+  print(summary(model))
+  
+  return(summary(model))
+})
+names(model_summaries) <- lipid_profiles
+
+fixed_effects_df <- do.call(rbind, lapply(names(model_summaries), function(var) {
+  model_summary <- model_summaries[[var]]
+  fe <- coef(summary(model_summary)) %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    mutate(outcome = var, .before = 1)
+}))
+
+clean_results <- fixed_effects_df %>%
+  dplyr::rename(
+    estimate = Estimate,
+    std_error = `Std. Error`,
+    df = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  dplyr::select(outcome, term, estimate, std_error, df, t_value, p_value) %>%
+  filter(term == "visit:treatmentDapagliflozin 5mg")
+
+kable(clean_results, digits = 3)
+# 
+# hist(subset(attempt_dat, site == "Denver")$cholesterol_serum_mmoll)
+# hist(subset(attempt_dat, site == "Denver")$triglycerides_serum_mmoll)
+# hist(subset(attempt_dat, site == "Denver")$ldl_serum_mmoll)
+# hist(subset(attempt_dat, site == "Denver")$hdl_serum_mmoll)
+```
+
+
+```{r echo = F}
+# Reverse reference level (make Placebo the comparison)
+delta_df$treatment <- relevel(delta_df$treatment, ref = "Dapagliflozin 5mg")
+run_ancova(subset(delta_df, site == "Denver"), outcome_var = "cholesterol", baseline_var = "cholesterol_bl", visit_week = 16)$contrasts
+run_ancova(subset(delta_df, site == "Denver"), outcome_var = "triglycerides", baseline_var = "triglycerides_bl", visit_week = 16)$contrasts
+run_ancova(subset(delta_df, site == "Denver"), outcome_var = "ldl", baseline_var = "ldl_bl", visit_week = 16)$contrasts
+run_ancova(subset(delta_df, site == "Denver"), outcome_var = "hdl", baseline_var = "hdl_bl", visit_week = 16)$contrasts
+
+```
+
+## Lipid profiles Mixed model (Biopsy only cohort, Dapa vs. Placebo over time)
+
+```{r echo = F}
+lipid_profiles <- c(
+  "cholesterol_serum_mmoll", "triglycerides_serum_mmoll", 
+  "ldl_serum_mmoll","hdl_serum_mmoll"
+)
+
+# Run models and store summaries in a list
+model_summaries <- lapply(lipid_profiles, function(var) {
+  cat("\n=====================\n")
+  cat("Outcome:", var, "\n")
+  cat("=====================\n")
+  
+  formula <- as.formula(paste(var, "~ visit * treatment + (1 | subject_id)"))
+  model <- lmerTest::lmer(formula, data = subset(attempt_dat, biopsy_yn == "Yes"))
+  print(summary(model))
+  
+  return(summary(model))
+})
+names(model_summaries) <- lipid_profiles
+
+fixed_effects_df <- do.call(rbind, lapply(names(model_summaries), function(var) {
+  model_summary <- model_summaries[[var]]
+  fe <- coef(summary(model_summary)) %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("term") %>%
+    mutate(outcome = var, .before = 1)
+}))
+
+clean_results <- fixed_effects_df %>%
+  dplyr::rename(
+    estimate = Estimate,
+    std_error = `Std. Error`,
+    df = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  dplyr::select(outcome, term, estimate, std_error, df, t_value, p_value) %>%
+  filter(term == "visit:treatmentDapagliflozin 5mg")
+
+kable(clean_results, digits = 3)
+```
+
+
+# Transcriptomics
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/UMAP/attempt_umap_celltype.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/UMAP/attempt_umap_kpmpcelltype.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/UMAP/attempt_umap_treat.jpeg){width=50%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/UMAP/attempt_umap_visit.jpeg){width=50%}
+
 
 ---
 
@@ -1684,7 +1910,7 @@ cor.test(subset(delta_df, treatment == "Dapagliflozin 5mg" & visit == 16 & site 
 ### Top 2000 HVG
 
 ```{r echo = F, results = 'asis', eval = T}
-celltype_list <- c("PT", "TAL", "PC", "Immune", "Immune_Myeloid", "Immune_Lymphoid", "IC", "EC", "FIBVSMCP")
+celltype_list <- c("PT", "TAL", "PC", "Immune", "Immune_Myeloid", "Immune_Lymphoid", "IC", "EC", "FIBVSMCP", "POD")
 
 for (cells in celltype_list) {
 
@@ -1694,14 +1920,12 @@ for (cells in celltype_list) {
 }
 ```
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/pod_hvg_placebo_pvalue_nebula_reml_pooled.jpeg)
-
 ---
 
 ### Not limited to top 2000 HVG
 
 ```{r echo = F, results = 'asis', eval = T}
-celltype_list <- c("PT", "TAL", "PC", "Immune", "Immune_Myeloid", "Immune_Lymphoid", "IC", "EC", "FIBVSMCP")
+celltype_list <- c("PT", "TAL", "PC", "Immune", "Immune_Myeloid", "Immune_Lymphoid", "IC", "EC", "FIBVSMCP", "POD")
 
 for (cells in celltype_list) {
 
@@ -1711,7 +1935,6 @@ for (cells in celltype_list) {
 }
 ```
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/pod_placebo_pvalue_nebula_reml_pooled.jpeg)
 
 ## GSEA
 
@@ -2529,7 +2752,7 @@ for (cells in celltype_list) {
 
 
 ```{r echo = F, results = 'asis', eval = T}
-celltype_list <- c("pt", "tal", "pc", "immune", "ic", "ec", "fibvsmcp")
+celltype_list <- c("pt", "tal", "pc", "immune", "ic", "ec", "fibvsmcp", "pod")
 
 for (cells in celltype_list) {
 
@@ -2539,7 +2762,6 @@ for (cells in celltype_list) {
     
   cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/", cells, "_croc_attempt_dot.jpeg){width=50%}\n\n"))
   
-
 }
 ```
 
@@ -2556,6 +2778,7 @@ for (cells in celltype_list) {
 ![EC](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_ec_deg.jpeg){width=70%}
 ![IC](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_ic_deg.jpeg){width=70%}
 ![FIB/VSMC/P](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_fibvsmcp_deg.jpeg){width=70%}
+![POD](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_pod_deg.jpeg){width=70%}
 
 ---
 
