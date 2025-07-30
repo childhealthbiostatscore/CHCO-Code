@@ -1,0 +1,140 @@
+---
+title: "Revealjs Template"
+author: "{{Laura Pyle}}"
+date: today()
+format:
+  revealjs:
+    embed-resources: true
+    scrollable: true
+    transition: slide
+    controls-layout: bottom-right
+    menu: true
+    toc: true
+    toc-depth: 1
+    fontsize: 20
+---
+
+This is a quarto file to be used as a template for a Revealjs report.
+
+Markdown formatting applies here. Checkout the cheatsheet [here](https://www.markdownguide.org/cheat-sheet/) for additional resources.
+	
+```{r include = F}
+library(jsonlite)
+library(aws.s3)
+library(dplyr)
+library(knitr)
+library(readxl)
+
+```
+
+```{r include = F}
+# read in top HTN proteins in TODAY 
+today_htn <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Results/Linear and Cox models/TODAY somalogic limma baseline unadjusted.xlsx', sheet = "htn_moderated_FDR")
+today_htn <- today_htn %>% arrange(adj.P.Val)
+today_htn_20 <- today_htn %>% slice_head(n=20)
+
+# get DXA and BMI
+# load clinical data
+load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/clinical_data_long.Rdata")
+calc_slope <- function(data, outcome) {
+  slope_summary <- NULL
+  df = data
+  ids = as.factor(unique(df$releaseid))
+  for (i in levels(ids)) {
+    df_i = df[df$releaseid==i,]
+    XY <- NULL
+    # Predictor matrix
+    X = df_i[,"visit_num"]
+    # Outcome
+    Y = df_i[,outcome]
+    XY = cbind(X,Y)
+    XY = XY[complete.cases(XY),]
+    slope <- NA
+    try(
+      if (nrow(XY)>2) {
+      # Regression 
+      mod = lm(as.numeric(Y) ~ as.numeric(X), na.action = na.omit)
+      int = coef(mod)[1]
+      slope = coef(mod)[2]
+      } else {slope <- NA})
+    slope_summary <- c(slope_summary,slope)
+  }
+  slope_summary <- data.frame(cbind(unlist(unique(df$releaseid)),unlist(slope_summary)))
+  slope_summary[,2] <- as.numeric(slope_summary[,2])
+  colnames(slope_summary) <- c("releaseid",paste0("slope",outcome))
+  return(slope_summary)
+}
+slope_bmi <- calc_slope(data = long, outcome = "bmi")
+```
+
+# New Heading
+
+Create bullet points using "* ". 
+
+* Remember to have a space ("# ", "* ", etc.) following your hashtags and asterisks so that your title is properly rendered as a new section header or a bullet point.
+
+* Also add an **empty line** following your headers and bullets.
+
+```{r echo = T}
+# You can have code chunks like this and code as usual .qmd or markdown files
+```
+
+## Subheading
+
+# Read in RDS from Kopah
+
+```{r echo = T, eval = F}
+# Read RDS files directly from Kopah using code like this:
+exampleRDS <- s3readRDS("folder1/examplefile.rds", "bucketname", region = "") # region must be left blank
+```
+
+# Kable
+
+```{r echo = T, results='asis'}
+# When printing knitr::kable, make sure to have results = 'asis' in the chunk opener
+
+set.seed(123)
+# Create dummy data
+df <- data.frame(
+  x1 = rnorm(100, mean = 50, sd = 10),
+  x2 = rnorm(100, mean = 0, sd = 1),
+  x3 = runif(100, min = 0, max = 1),
+  y = sample(c("A", "B", "C"), 100, replace = TRUE)
+)
+
+kable(summary(arsenal::tableby(y ~ x1 + x2 + x3, data = df), digits = 1))
+```
+
+
+---
+
+To create a new page without a new header/subheader, break the page using "---" (3 dashes). **Again, remember to keep a space before and after "---".**
+
+# Manual table
+
+Create tables like this:
+
+| Column 1  | Column 2  |
+|-----------|-----------|
+| content 1 | content 2 |
+| content 3 | content 4 |
+
+[Resource](https://www.tablesgenerator.com/markdown_tables)
+
+# Figures
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/BjornstadPyleTommerdahlLogo.png){width=50%}
+
+You can use a for loop to pull multiple figures if they have similar names:
+
+```{r echo = T, eval = F}
+# example code
+celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmc")
+
+for (cells in celltype_list) {
+  cat("#### ", toupper(cells), "\n\n") 
+
+  cat(paste0("![](/Folder1/Folder2/", cells, "_common_file_name_suffix.jpeg){width=100%}\n\n"))
+}
+```
+
