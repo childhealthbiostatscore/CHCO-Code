@@ -322,6 +322,87 @@ t1_bmi <- tableby(
 summary(t1_bmi, labelTranslations = labels(df), pfootnote = T, digits.p = 4)
 ```
 
+# Plots
+
+```{r}
+# Boxplot/violin plot
+plot_vars <- c("cv_a1c", "cv_tg", "cv_shbg", "cv_alt", "cv_sbp", "cv_hdl")
+cv1 %>%
+  select(record_number, weight_cat, all_of(plot_vars)) %>%
+  remove_labels() %>%
+  pivot_longer(all_of(plot_vars)) %>%
+  mutate(
+    name = factor(name,
+      levels = plot_vars,
+      labels = c(
+        "HbA1c (%)", "Triglycerides (mg/dL)", "SHBG (mmol/L)",
+        "ALT (U/L)", "Systolic Blood Pressure (mmHg)", "HDL (mg/dL)"
+      )
+    )
+  ) %>%
+  drop_na() %>%
+  ggplot(., aes(x = weight_cat, y = value, fill = weight_cat)) +
+  geom_jitter(width = 0.2, alpha = 0.2) +
+  geom_boxplot(outliers = F) +
+  stat_compare_means(
+    comparisons = list(
+      c("Normal weight", "Overweight"),
+      c("Overweight", "Obese"),
+      c("Normal weight", "Obese")
+    ), method = "wilcox.test",
+    symnum.args =
+      list(
+        cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, Inf),
+        symbols = c("****", "***", "**", "*", "ns")
+      ),
+    label.y.npc = c(0.5)
+  ) +
+  theme_bw() +
+  theme(
+    axis.title.x = element_blank(), axis.title.y = element_blank(),
+    legend.position = "none"
+  ) +
+  facet_wrap(~name, scales = "free_y") +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))
+# Bar chart
+plot_df <- cv1 %>%
+  select(record_number, weight_cat, all_of(plot_vars)) %>%
+  remove_labels() %>%
+  mutate(
+    cv_a1c = cut(cv_a1c, c(-Inf, 5.6, 6.4, Inf),
+      labels = c("<=5.6%", "5.7-6.4%", ">=6.5%")
+    ),
+    cv_tg = cut(cv_tg, c(-Inf, 90, 150, Inf),
+      labels = c("<90", "90-149", ">=150"), right = F
+    ),
+    cv_hdl = cut(cv_hdl, c(-Inf, 45, Inf),
+      labels = c("<45", ">=45"), right = F
+    ),
+    cv_alt = cut(cv_alt, c(-Inf, 35, Inf),
+      labels = c("<35", ">=35"), right = F
+    ),
+    cv_shbg = cut(cv_shbg, c(-Inf, 20, Inf),
+      labels = c("<20", ">=20"), right = F
+    ),
+    cv_sbp = cut(cv_sbp, c(-Inf, 120, 130, 140, Inf),
+      labels = c("<120", "120-129", "130-139", ">=140"), right = F
+    )
+  ) %>%
+  pivot_longer(all_of(plot_vars)) %>%
+  drop_na() %>%
+  group_by(weight_cat, name) %>%
+  count(value) %>%
+  mutate(perc = (n / sum(n)) * 100)
+ggplot(
+  plot_df[plot_df$name == "cv_a1c", ],
+  aes(fill = weight_cat, y = perc, x = value)
+) +
+  geom_bar(position = "dodge", stat = "identity") +
+  ylab("Percent") +
+  theme_bw() +
+  theme(legend.title = element_blank(), axis.title.x = element_blank())
+```
+
 # ROC Analysis
 
 We used an ROC curve to assess total testosterone % ULN's ability to distinguish between participants with and without free testosterone > 100% ULN.
