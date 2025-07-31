@@ -263,6 +263,9 @@ scrna_analysis <- function(status = 'Both', Controls = 'Both', genelist = NULL,
     }else if(celltype == 'PT'){
     so_celltype <- subset(so_subset,celltype2 == celltype)
     cat('PT Cells')
+    }else if(celltype == 'EC'){
+   so_celltype <- subset(so_subset, celltype2 == celltype)
+   cat("Endothelial Cells")
   }else if(celltype == 'TAL'){
     so_celltype <- subset(so_subset, TAL_celltype == celltype)
     cat('TAL Cells')
@@ -319,7 +322,13 @@ scrna_analysis(status = 'T2D', Controls = 'LC',
                results.dir = 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_All/', 
                celltype='All')
 
+scrna_analysis(status = 'T2D', Controls = 'LC', 
+               results.dir = 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_TAL/', 
+               celltype='TAL')
 
+scrna_analysis(status = 'T2D', Controls = 'LC', 
+               results.dir = 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_EC/', 
+               celltype='EC')
 
 
 
