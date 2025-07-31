@@ -1,7 +1,7 @@
 ---
-title: "Revealjs Template"
-author: "{{Laura Pyle}}"
-date: today()
+title: "TODAY HTN and adiposity"
+author: "Laura Pyle"
+date: "`r lubridate::today()`"
 format:
   revealjs:
     embed-resources: true
@@ -14,17 +14,123 @@ format:
     fontsize: 20
 ---
 
-This is a quarto file to be used as a template for a Revealjs report.
-
-Markdown formatting applies here. Checkout the cheatsheet [here](https://www.markdownguide.org/cheat-sheet/) for additional resources.
-	
 ```{r include = F}
 library(jsonlite)
 library(aws.s3)
 library(dplyr)
 library(knitr)
 library(readxl)
+library(corrplot)
+library(gtools)
+library(here)
+```
 
+```{r, include=FALSE}
+corr_plot_modified_nodict <- function(data, X, Y, cor_method = "spearman", adj_var = NULL, 
+                               method = "color", insig = "pch", coef_col = NULL,
+                               pch = 4, pch.col = "black", pch.cex = 0, colnames_M, rownames_M) {
+  prot_heatmap <- today_htn_20 %>%
+  filter(AptName %in% seq_keep) %>%
+  pull(AptName)
+  analytes_temp <- analytes
+  analytes_temp$Target_apt <- paste0(analytes_temp$Target, " (", analytes_temp$AptName, ")")
+  TA <- analytes_temp$Target_apt[match(prot_heatmap, analytes_temp$AptName)]
+  colnames(Y) <- TA
+  n_cols = length(Y)
+  M <- cor(y = Y,
+           x = X,
+           use = "pairwise.complete.obs",
+           method = cor_method)
+  M <- M[,order(colnames(M))]
+  if (!is.na(adj_var)){
+    x_vars <- rep(X, times = length(Y))
+    x_coord <- rep(seq(1,length(Y)), each = length(X))
+    y_vars <- rep(Y, each = length(X))
+    y_coord <- rep(seq(length(X),1), times = length(Y))
+    lm_extracted <- data.frame(yName = character(0),
+                               xName = character(0),
+                               x = numeric(0),
+                               y = numeric(0),
+                               adj_var = character(0),
+                               adj_x_coef = numeric(0),
+                               adj_x_pval = numeric(0))
+    for (i in 1:length(x_vars)) {
+      if(x_vars[i] != y_vars[i]) {
+        lm_formula <- as.formula(paste0(y_vars[i], "~", x_vars[i], "+", adj_var))
+        lm_model <- lm(lm_formula, data = data)
+        lm_summary <- summary(lm_model)
+        lm_coef <- lm_summary$coefficient[x_vars[i], "Estimate"]
+        lm_p_val <- lm_summary$coefficient[x_vars[i], "Pr(>|t|)"]
+        lm_extracted <- rbind(lm_extracted,
+                              data.frame(
+                                yName = y_vars[i],
+                                xName = x_vars[i],
+                                x = x_coord[i],
+                                y = y_coord[i],
+                                adj_var = adj_var,
+                                adj_x_coef = lm_coef,
+                                adj_x_pval = lm_p_val))
+      }
+    }
+  }
+  
+  correlation_p_value <- correlation_p_value_matrix(data, relevant_vars = c(colnames(Y),colnames(X)), n_cols = n_cols, cor_method = cor_method, Y=Y, X=X)
+
+  corrplot(M,
+           p.mat = correlation_p_value,
+           method = method,
+           tl.col = "black",
+           tl.srt = 45,
+           tl.cex = 1.2,
+           insig = insig,
+           addCoef.col = coef_col,
+           addgrid.col = 'lightgray',
+           number.digits = 2,
+           pch.col = pch.col, 
+           pch = pch,
+           pch.cex = pch.cex)$corrPos -> p1
+  p1_sub <- subset(p1, p.value <= 0.05)
+  p1_sub2 <- subset(p1, p.value <= 0.05 & abs(corr) >= 0.7)
+  
+  if (nrow(p1) > 0) {
+    graphics::text(p1$x, p1$y, sprintf("%.2f", p1$corr), adj = c(0.5, 0), cex=1.2)
+    if (nrow(p1_sub > 0)) {
+      graphics::text(p1_sub$x, p1_sub$y, stars.pval(p1_sub$p.value), adj = c(0.5, 2), cex=1.2)
+    }
+  }
+  if (nrow(p1_sub2) > 0) {
+    graphics::text(p1_sub2$x, p1_sub2$y, sprintf("%.2f", p1_sub2$corr), col = "white", adj = c(0.5, 0), cex=1.2)
+    graphics::text(p1_sub2$x, p1_sub2$y, stars.pval(p1_sub2$p.value), col = "white", adj = c(0.5, 2), cex=1.2)
+  }
+  if (!is.na(adj_var)) {
+    lm_extracted <- subset(lm_extracted, adj_x_pval <= 0.05)
+    if (nrow(lm_extracted) > 0){
+      graphics::rect(xleft = lm_extracted$x-.45, 
+                     ybottom = lm_extracted$y-.45,
+                     xright = lm_extracted$x+.45,
+                     ytop = lm_extracted$y+.45)
+    }
+  }
+}
+
+
+correlation_p_value_matrix <- function(data, relevant_vars, n_cols, cor_method = "spearman", Y=Y, X=X) {
+  analytes_temp <- analytes
+  analytes_temp$Target_apt <- paste0(analytes_temp$Target, " (", analytes_temp$AptName, ")")
+  # Filter relevant variables for the correlation matrix
+  #relevant_vars_apt <- analytes_temp$AptName[match(colnames(Y), analytes_temp$Target_apt)]
+  Y <- Y[,order(colnames(Y))]
+  dat_correlation <- cbind(Y,X) %>%
+    dplyr::select(all_of(relevant_vars))
+    # Compute p-values 
+  res2 <- Hmisc::rcorr(as.matrix(dat_correlation),
+                       type = cor_method)
+  corr_pval <- as.data.frame(res2$P) %>%
+    dplyr::select(all_of(relevant_vars[1:n_cols]))
+  corr_pval = corr_pval[(n_cols + 1):nrow(corr_pval),]
+  corr_pval <- corr_pval[,order(colnames(corr_pval))]
+  return(as.matrix(corr_pval))
+}
 ```
 
 ```{r include = F}
@@ -36,6 +142,8 @@ today_htn_20 <- today_htn %>% slice_head(n=20)
 # get DXA and BMI
 # load clinical data
 load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/clinical_data_long.Rdata")
+baseline_adiposity <- long %>% filter(visit == "M00") %>% select(releaseid, bmi, WB_TOT_PFAT, WB_TOT_PFAT_P)
+colnames(baseline_adiposity) <- c("releaseid", "Baseline BMI", "Baseline DXA % fat", "Baseline DXA corrected % fat")
 calc_slope <- function(data, outcome) {
   slope_summary <- NULL
   df = data
@@ -51,7 +159,7 @@ calc_slope <- function(data, outcome) {
     XY = XY[complete.cases(XY),]
     slope <- NA
     try(
-      if (nrow(XY)>2) {
+      if (nrow(XY)>=2) {
       # Regression 
       mod = lm(as.numeric(Y) ~ as.numeric(X), na.action = na.omit)
       int = coef(mod)[1]
@@ -65,76 +173,200 @@ calc_slope <- function(data, outcome) {
   return(slope_summary)
 }
 slope_bmi <- calc_slope(data = long, outcome = "bmi")
+slope_WB_TOT_PFAT <- calc_slope(data = long, outcome = "WB_TOT_PFAT")
+slope_WB_TOT_PFAT_P <- calc_slope(data = long, outcome = "WB_TOT_PFAT_P")
+
+# read in protein raw data
+# load somalogic data, with QC samples already excluded
+load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Somalogic data raw/soma.Rdata")
+# load analyte info
+load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward//Somalogic data raw/analytes.Rdata")
+base <- soma %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
+# these 3 release IDs have first sample after end of recruitment, so they must be missing the baseline visit
+base <- base %>% filter(!releaseid %in% c("65-85903","65-47984","65-25901"))
+# keep top 20 proteins
+seq_keep <- today_htn_20$AptName
+soma_keep <- base %>% select(any_of(c("releaseid", "Target", seq_keep)))
+soma_keep <- left_join(soma_keep, slope_bmi, by = "releaseid")
+soma_keep <- left_join(soma_keep, slope_WB_TOT_PFAT, by = "releaseid")
+soma_keep <- left_join(soma_keep, slope_WB_TOT_PFAT_P, by = "releaseid")
+soma_keep <- soma_keep %>% rename(`Slope - BMI` = slopebmi)
+soma_keep <- soma_keep %>% rename(`Slope - DXA % body fat` = slopeWB_TOT_PFAT)
+soma_keep <- soma_keep %>% rename(`Slope - DXA corrected % body fat` = slopeWB_TOT_PFAT_P)
+soma_keep <- left_join(soma_keep, baseline_adiposity, by = "releaseid")
+
+# get data from IMPROVE and RH/RH2
+load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Proteomics HTN/copy_of_old_analysis_dataset_for_HTN_response.RData")
+df <- df[!is.na(df$htn),]
+df <- df %>% filter(visit == "baseline")
+df$htn <- droplevels(df$htn)
+#prot_include <- c("SEZ6L","NCAM-120","NCAM1","SCG3","Aminoacylase-1",
+#"ESPN","PURA1","SERB","CHL1","LSAMP",
+#"Growth hormone receptor","OFUT1")
+seq_include <- seq_keep
+#top_htn <- top_htn_df %>%
+#  filter(AptName %in% seq_include) %>%
+#  slice_max(abs(log(estimate)), n = 21) %>%
+#  pull(AptName)
+top_htn <- top_htn_df %>%
+  filter(AptName %in% seq_include) %>%
+  pull(AptName)
+df_t2d <- df %>% filter(group=="Type 2 Diabetes")
+df_lc <- df %>% filter(group=="Lean Control")
+df_oc <- df %>% filter(group=="Obese Control")
 ```
 
-# New Heading
+# Association of top 20 HTN proteins with adiposity in TODAY (unadjusted models)
 
-Create bullet points using "* ". 
+* Select top 20 proteins associated with time to hypertension in unadjusted Cox models in the TODAY data
+* Correlate the top 20 proteins with adiposity in TODAY
 
-* Remember to have a space ("# ", "* ", etc.) following your hashtags and asterisks so that your title is properly rendered as a new section header or a bullet point.
-
-* Also add an **empty line** following your headers and bullets.
-
-```{r echo = T}
-# You can have code chunks like this and code as usual .qmd or markdown files
+```{r results='asis', dpi=1200, include=FALSE}
+# correlate proteins with change in BMI, DXA
+prot_heatmap <- seq_keep
+colnames_M <- analytes %>%
+  filter(AptName %in% seq_keep) %>%
+  pull(Target)
+colnames_M <- paste0(colnames_M,"_",prot_heatmap)
+png(file = "heatmap_TODAY_htn_adiposity.png", res = 170, width = 3000, height = 2500)
+corr_plot_modified_nodict(data=soma_keep, 
+                   Y=soma_keep[,seq_keep],   
+                 X=soma_keep[,c("Baseline BMI", "Baseline DXA % fat", "Baseline DXA corrected % fat", "Slope - BMI","Slope - DXA % body fat","Slope - DXA corrected % body fat")],
+                 cor_method="spearman", adj_var = NA,
+                 colnames_M=colnames_M)
+dev.off()
 ```
 
-## Subheading
+![](heatmap_TODAY_htn_adiposity.png){.r-fit-text}
 
-# Read in RDS from Kopah
+# Association of top 20 HTN proteins in TODAY with BP in IMPROVE/RENAL-HEIR participants with T2D
 
-```{r echo = T, eval = F}
-# Read RDS files directly from Kopah using code like this:
-exampleRDS <- s3readRDS("folder1/examplefile.rds", "bucketname", region = "") # region must be left blank
+* Select top 20 proteins associated with time to hypertension in unadjusted Cox models in the TODAY data
+* Correlate the top 20 proteins with blood pressure in IMPROVE and RENAL-HEIR participants with T2D
+
+```{r results='asis', dpi=1200, include=FALSE}
+prot_heatmap <- seq_keep
+colnames_M <- top_htn_df %>%
+  filter(AptName %in% seq_keep) %>%
+  pull(Target)
+#colnames_M <- paste0(colnames_M,"_",prot_heatmap)
+png(height = 4000, width = 5000, file = "local_T2D_BP_heatmap.png", res = 170)
+corr_plot_modified_nodict(data=df_t2d, 
+                   Y=df_t2d[,prot_heatmap], 
+                 X=df_t2d[,c("sbp","dbp","bmi")],
+                 cor_method="spearman", adj_var = NA,
+                 colnames_M=colnames_M,
+                 rownames_M=c("SBP","DBP"))
+dev.off()
 ```
 
-# Kable
+![](local_T2D_BP_heatmap.png){.r-stretch}
 
-```{r echo = T, results='asis'}
-# When printing knitr::kable, make sure to have results = 'asis' in the chunk opener
+# Association of top 20 HTN proteins with adiposity in TODAY (adjusted for HbA1c, TG, Si, eGFR)
 
-set.seed(123)
-# Create dummy data
-df <- data.frame(
-  x1 = rnorm(100, mean = 50, sd = 10),
-  x2 = rnorm(100, mean = 0, sd = 1),
-  x3 = runif(100, min = 0, max = 1),
-  y = sample(c("A", "B", "C"), 100, replace = TRUE)
-)
+* Select top 20 proteins associated with time to hypertension in the TODAY data using Cox models adjusted for HbA1c, TG, Si, and eGFR
+* Correlate the top 20 proteins with adiposity in TODAY
 
-kable(summary(arsenal::tableby(y ~ x1 + x2 + x3, data = df), digits = 1))
-```
+```{r include = F}
+# read in top HTN proteins in TODAY 
+today_htn <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Results/Linear and Cox models/TODAY somalogic Cox models scaled baseline adjusted new covariates.xlsx', sheet = "HTN CPH")
+today_htn <- today_htn %>% arrange(adj.p.value)
+today_htn_20 <- today_htn %>% slice_head(n=20)
 
-
----
-
-To create a new page without a new header/subheader, break the page using "---" (3 dashes). **Again, remember to keep a space before and after "---".**
-
-# Manual table
-
-Create tables like this:
-
-| Column 1  | Column 2  |
-|-----------|-----------|
-| content 1 | content 2 |
-| content 3 | content 4 |
-
-[Resource](https://www.tablesgenerator.com/markdown_tables)
-
-# Figures
-
-![](/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/BjornstadPyleTommerdahlLogo.png){width=50%}
-
-You can use a for loop to pull multiple figures if they have similar names:
-
-```{r echo = T, eval = F}
-# example code
-celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmc")
-
-for (cells in celltype_list) {
-  cat("#### ", toupper(cells), "\n\n") 
-
-  cat(paste0("![](/Folder1/Folder2/", cells, "_common_file_name_suffix.jpeg){width=100%}\n\n"))
+# get DXA and BMI
+# load clinical data
+load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/clinical_data_long.Rdata")
+baseline_adiposity <- long %>% filter(visit == "M00") %>% select(releaseid, bmi, WB_TOT_PFAT, WB_TOT_PFAT_P)
+colnames(baseline_adiposity) <- c("releaseid", "Baseline BMI", "Baseline DXA % fat", "Baseline DXA corrected % fat")
+calc_slope <- function(data, outcome) {
+  slope_summary <- NULL
+  df = data
+  ids = as.factor(unique(df$releaseid))
+  for (i in levels(ids)) {
+    df_i = df[df$releaseid==i,]
+    XY <- NULL
+    # Predictor matrix
+    X = df_i[,"visit_num"]
+    # Outcome
+    Y = df_i[,outcome]
+    XY = as.data.frame(cbind(X,Y))
+    XY = XY[complete.cases(XY),]
+    slope <- NA
+    try(
+      if (nrow(XY)>=2) {
+      # Regression 
+      mod = lm(as.numeric(Y) ~ as.numeric(X), na.action = na.omit)
+      int = coef(mod)[1]
+      slope = coef(mod)[2]
+      } else {slope <- NA})
+    slope_summary <- c(slope_summary,slope)
+  }
+  slope_summary <- data.frame(cbind(unlist(unique(df$releaseid)),unlist(slope_summary)))
+  slope_summary[,2] <- as.numeric(slope_summary[,2])
+  colnames(slope_summary) <- c("releaseid",paste0("slope",outcome))
+  return(slope_summary)
 }
+slope_bmi <- calc_slope(data = long, outcome = "bmi")
+slope_WB_TOT_PFAT <- calc_slope(data = long, outcome = "WB_TOT_PFAT")
+slope_WB_TOT_PFAT_P <- calc_slope(data = long, outcome = "WB_TOT_PFAT_P")
+
+# read in protein raw data
+# load somalogic data, with QC samples already excluded
+load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Somalogic data raw/soma.Rdata")
+# load analyte info
+load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward//Somalogic data raw/analytes.Rdata")
+base <- soma %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
+# these 3 release IDs have first sample after end of recruitment, so they must be missing the baseline visit
+base <- base %>% filter(!releaseid %in% c("65-85903","65-47984","65-25901"))
+# keep top 20 proteins
+seq_keep <- today_htn_20$AptName
+soma_keep <- base %>% select(any_of(c("releaseid", "Target", seq_keep)))
+soma_keep <- left_join(soma_keep, slope_bmi, by = "releaseid")
+soma_keep <- left_join(soma_keep, slope_WB_TOT_PFAT, by = "releaseid")
+soma_keep <- left_join(soma_keep, slope_WB_TOT_PFAT_P, by = "releaseid")
+soma_keep <- soma_keep %>% rename(`Slope - BMI` = slopebmi)
+soma_keep <- soma_keep %>% rename(`Slope - DXA % body fat` = slopeWB_TOT_PFAT)
+soma_keep <- soma_keep %>% rename(`Slope - DXA corrected % body fat` = slopeWB_TOT_PFAT_P)
+soma_keep <- left_join(soma_keep, baseline_adiposity, by = "releaseid")
 ```
 
+```{r results='asis', dpi=1200, include=FALSE}
+# correlate proteins with change in BMI, DXA
+prot_heatmap <- seq_keep
+colnames_M <- analytes %>%
+  filter(AptName %in% seq_keep) %>%
+  pull(Target)
+colnames_M <- paste0(colnames_M,"_",prot_heatmap)
+png(file = "heatmap_TODAY_htn_adiposity_adjusted.png", res = 170, width = 3000, height = 2500)
+corr_plot_modified_nodict(data=soma_keep, 
+                   Y=soma_keep[,seq_keep],   
+                 X=soma_keep[,c("Baseline BMI", "Baseline DXA % fat", "Baseline DXA corrected % fat", "Slope - BMI","Slope - DXA % body fat","Slope - DXA corrected % body fat")],
+                 cor_method="spearman", adj_var = NA,
+                 colnames_M=colnames_M)
+dev.off()
+```
+
+![](heatmap_TODAY_htn_adiposity_adjusted.png){.r-fit-text}
+
+# Association of top 20 HTN proteins in TODAY (adjusted) with BP in IMPROVE/RENAL-HEIR participants with T2D
+
+* Select top 20 proteins associated with time to hypertension in the TODAY data using Cox models adjusted for HbA1c, TG, Si, and eGFR
+* Correlate the top 20 proteins with blood pressure in IMPROVE and RENAL-HEIR participants with T2D
+
+```{r results='asis', dpi=1200, include=FALSE}
+prot_heatmap <- seq_keep
+colnames_M <- top_htn_df %>%
+  filter(AptName %in% seq_keep) %>%
+  pull(Target)
+#colnames_M <- paste0(colnames_M,"_",prot_heatmap)
+png(height = 4000, width = 5000, file = "local_T2D_BP_heatmap_adjusted.png", res = 170)
+corr_plot_modified_nodict(data=df_t2d, 
+                   Y=df_t2d[,prot_heatmap], 
+                 X=df_t2d[,c("sbp","dbp","bmi")],
+                 cor_method="spearman", adj_var = NA,
+                 colnames_M=colnames_M,
+                 rownames_M=c("SBP","DBP"))
+dev.off()
+```
+
+![](local_T2D_BP_heatmap_adjusted.png){.r-stretch}

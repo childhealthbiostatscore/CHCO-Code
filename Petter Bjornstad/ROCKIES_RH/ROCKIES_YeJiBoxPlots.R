@@ -72,108 +72,34 @@ df_plot <- bind_rows(dat_results, dat_results_combined) %>%
                                             'T2D Combined')))
 
 
-dat_results <- 
+df_plot <- df_plot %>% 
+  dplyr::select(mrn, group, group2, avg_c_k2, avg_c_f, 
+                avg_m_k2, avg_m_f, avg_c_k2_f, avg_m_k2_f)
 
 
-boxplot_function <- function(data, combined_data, variable, label){
+df_plot <- df_plot %>% mutate(position = ifelse(group2 == 'T2D-No SGLTi2', 1.7, ifelse(group2 == 'T2D-SGLTi2', 2.0, NA)))
 
-  data <- data %>% filter()
+
+
+boxplot_function <- function(data, variable, label){
   
-  ggplot(data, aes(x = group, y = value, fill = group),
-         mapping = aes(x = group,
-                       y = value,
-                       fill = group))  +
-    scale_fill_manual(values = c("#c2dfe3", "#fff9ec", 
-                                 "#fcb1a6","#fb6376")) +
-    labs(x = NULL,
-         y = NULL,
-         fill = NULL) +
-    geom_boxplot(outlier.shape = NA) +
-    geom_rect(data=data.frame(pet_param="avg_f"), 
-              aes(ymin = dat_quantile$mild_mod_f[2], 
-                  ymax = dat_quantile$mild_mod_f[4], 
-                  xmin = 1.75, 
-                  xmax = 1.85),
-              fill = "#fcb1a6", alpha = 0.9, inherit.aes = F) +
-    geom_rect(data=data.frame(pet_param="avg_f"), 
-              aes(ymin = dat_quantile$severe_f[2], 
-                  ymax = dat_quantile$severe_f[4], 
-                  xmin = 2.15, 
-                  xmax = 2.25),
-              fill = "#fb6376", alpha = 0.9, inherit.aes = F) +
-    geom_segment(data=data.frame(pet_param="avg_f"), 
-                 aes(y = dat_quantile$mild_mod_f[3],
-                     yend = dat_quantile$mild_mod_f[3],
-                     x = 1.75, xend = 1.85), linewidth = 0.4, inherit.aes = F) +
-    geom_segment(data=data.frame(pet_param="avg_f"), 
-                 aes(y = dat_quantile$severe_f[3],
-                     yend = dat_quantile$severe_f[3],
-                     x = 2.15, xend = 2.25), linewidth = 0.4, inherit.aes = F) +
-    geom_segment(data=data.frame(pet_param="avg_f"), 
-                 aes(y = dat_quantile$mild_mod_f[1],
-                     yend = dat_quantile$mild_mod_f[5],
-                     x = 1.8, xend = 1.8),
-                 linetype = "dashed", linewidth = 0.2, inherit.aes = F) +
-    geom_segment(data=data.frame(pet_param="avg_f"), 
-                 aes(y = dat_quantile$severe_f[1],
-                     yend = dat_quantile$severe_f[5],
-                     x = 2.2, xend = 2.2),
-                 linetype = "dashed", linewidth = 0.2, inherit.aes = F) +
-    geom_rect(data=data.frame(pet_param="avg_k1"), 
-              aes(ymin = dat_quantile$mild_mod_k1[2], 
-                  ymax = dat_quantile$mild_mod_k1[4], 
-                  xmin = 1.75, 
-                  xmax = 1.85),
-              fill = "#fcb1a6", alpha = 0.9, inherit.aes = F) +
-    geom_rect(data=data.frame(pet_param="avg_k1"), 
-              aes(ymin = dat_quantile$severe_k1[2], 
-                  ymax = dat_quantile$severe_k1[4], 
-                  xmin = 2.15, 
-                  xmax = 2.25),
-              fill = "#fb6376", alpha = 0.9, inherit.aes = F) +
-    geom_segment(data=data.frame(pet_param="avg_k1"), 
-                 aes(y = dat_quantile$mild_mod_k1[3],
-                     yend = dat_quantile$mild_mod_k1[3],
-                     x = 1.75, xend = 1.85), linewidth = 0.4, inherit.aes = F) +
-    geom_segment(data=data.frame(pet_param="avg_k1"), 
-                 aes(y = dat_quantile$severe_k1[3],
-                     yend = dat_quantile$severe_k1[3],
-                     x = 2.15, xend = 2.25), linewidth = 0.4, inherit.aes = F) +
-    geom_segment(data=data.frame(pet_param="avg_k1"), 
-                 aes(y = dat_quantile$mild_mod_k1[1],
-                     yend = dat_quantile$mild_mod_k1[5],
-                     x = 1.8, xend = 1.8),
-                 linetype = "dashed", linewidth = 0.2, inherit.aes = F) +
-    geom_segment(data=data.frame(pet_param="avg_k1"), 
-                 aes(y = dat_quantile$severe_k1[1],
-                     yend = dat_quantile$severe_k1[5],
-                     x = 2.2, xend = 2.2),
-                 linetype = "dashed", linewidth = 0.2, inherit.aes = F) +    
-    new_scale_fill() +
-    geom_point(aes(fill = group_w_class),
-               color = "black",
-               alpha = 0.7, 
-               shape = 21,
-               position = position_jitterdodge()) +
-    facet_grid(pet_param ~ .,
-               switch = "y",
-               labeller = labeller(pet_param = c("avg_f" = "Avg F", "avg_k1" = "Avg K1"))) +
-    scale_fill_manual(values = c("#c2dfe3", "#fcb1a6", "#fb6376")) +
-    scale_color_manual(values = c("#c2dfe3", "#fff9ec",
-                                  "#fcb1a6", "#fb6376")) +
-    labs(x = NULL,
-         y = NULL,
-         fill = NULL) + 
-    theme(axis.title.x = element_blank(),
-          axis.title.y = element_blank(),
-          axis.text.x = element_blank(), 
-          legend.position = "none",
-          panel.background = element_rect(fill = "#f2e9e4",
-                                          color = "grey"),
-          strip.background = element_rect(fill = "#f2e9e4",
-                                          color = "grey"),
-          strip.text = element_text(size = 10)) +
-    geom_signif(annotations = "***", y_position = c(2.5), xmin = c(1), xmax = c(2))
+  var_index <- which(names(data) == variable)
+  data <- data %>% dplyr::select(group2, var_index)
+  names(data)[2] <- 'Variable'
+  
+  data <- data %>% mutate(position = ifelse(group2 == 'T2D-No SGLTi2', 1.7, ifelse(group2 == 'T2D-SGLTi2', 2.0, NA)))
+  
+  
+  ggplot(data %>% dplyr::filter(group2 %in% c('Lean Control', 'T2D Combined')), aes(x = group2, y = Variable, fill = group2))  +
+    geom_boxplot(width = 1.3, size = 1)+
+    scale_fill_manual(values = c("#c2dfe3", "#fff9ec", "#fcb1a6", "#fb6376")) +
+    geom_boxplot(data = data %>%
+                   dplyr::filter(group2 %in% c('T2D-No SGLTi2', 'T2D-SGLTi2')), 
+                 aes(x = position, y=Variable, fill = group2), width = 0.1, size = 1)+
+    labs(x= 'Study Group', y = label, fill = 'Study Group')+
+    theme_minimal()+
+    theme(axis.text.x = element_blank(),
+          text = element_text(size = 20))
   
 }
 
@@ -182,8 +108,38 @@ boxplot_function <- function(data, combined_data, variable, label){
 
 
 
+for(i in c(1:length(tests))){
+  if(i == 1){
+    results_list <- list()
+  }
+  results_list[[i]]<- boxplot_function(df_plot, tests[i], tests[i])
+}
+  
+  
+  
+pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_KidneyImaging.pdf', 
+    width =20, height = 20)  
+gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+                        results_list[[3]], results_list[[4]], 
+                        results_list[[5]], results_list[[6]], ncol = 2)
 
-boxplot1 <-
+dev.off()
+
+  
+  
+  
+  
+  
+
+
+
+
+
+
+
+
+
+
   ggplot(subset(boxplot_adpkd_combined_dat, 
                 (pet_param == "avg_f"|pet_param == "avg_k1") & 
                   group_w_class != "ADPKD"),
