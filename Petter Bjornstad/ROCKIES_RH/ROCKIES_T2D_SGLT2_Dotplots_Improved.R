@@ -108,7 +108,8 @@ so_subset$celltype2 <- ifelse(so_subset$KPMP_celltype=="aPT" |
                                       ifelse(grepl("EC-",so_subset$KPMP_celltype),"EC",so_subset$KPMP_celltype2)))
 
 
-
+so_subset$DCT_celltype <- ifelse((so_subset$KPMP_celltype=="DCT" | 
+                                     so_subset$KPMP_celltype=="dDCT"), "DCT","Non-DCT")
 
 
 
