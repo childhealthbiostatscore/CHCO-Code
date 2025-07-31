@@ -251,6 +251,12 @@ keepPRIMOUT <- PRIMOUT %>% select(releaseid,tx,txdesc)
 BW <- read.csv("./Clinical data/TODAY/Birthweight.csv")
 BW[,2:6] <- apply(BW[,2:6], 2, as.numeric)
 
+# DXA
+DXA <- read.csv("./Clinical data/TODAY/DEXA.csv")
+DXA$visit <- DXA$mvisit
+keepDXA <- DXA %>% select(releaseid, visit, WB_TOT_PFAT, WB_TOT_PFAT_P)
+baseDXA <- keepDXA %>% filter(visit=="M00")
+
 # create new dataset of baseline risk factors
 basecbl <- CBL %>% filter(mvisit=="M00")
 baseaddcbl <- ADDCBL %>% filter(mvisit=="M00")
@@ -266,6 +272,7 @@ baserisk$age <- NULL
 baserisk <- merge(baserisk,AGEBASE,by="releaseid",all.x = T,all.y = F)
 baserisk <- merge(baserisk, keepPRIMOUT,by="releaseid",all.x = T,all.y = F)
 baserisk <- merge(baserisk, BW, by="releaseid", all.x = T, all.y = T)
+baserisk <- merge(baserisk, baseDXA, by="releaseid", all.x=T, all.y=T)
 
 # Save
 save(baserisk,file = "./Clinical data/TODAY/baserisk.Rdata")
@@ -278,7 +285,6 @@ save(baserisk,file = "./Clinical data/TODAY/baserisk.Rdata")
 CBL_TODAY2 <- read.csv("./Clinical data/TODAY2/CBL.csv")
 CBL_TODAY2_KEEP <- CBL_TODAY2 %>% filter(pvisit=="P120") %>% select(releaseid, hba1c, trig, 
                                                                     estcreatclear, ualbcreat)
-
 # INS 
 # insulin was measured at 9 year visit not 10 year
 INS_TODAY2 <- read.csv("./Clinical data/TODAY2/CBL.csv")
@@ -353,6 +359,8 @@ CBL_TODAY2$visit <- CBL_TODAY2$pvisit
 CBL_TODAY2$ins0min <- CBL_TODAY2$ins
 CBL_TODAY2_KEEP <- CBL_TODAY2 %>% select(releaseid, visit, ins0min, codi,  trig, hba1c)
 
+# TODAY2 DXA - no DXA in TODAY2
+
 # calculate length of follow-up for each person
 # we don't have visit dates, just visit numbers
 ALL_VISITS_TODAY <- VISIT %>% select(releaseid, visit)
@@ -375,6 +383,7 @@ long <- rbind(BASELINE_keep,VISIT_keep,VISIT_TODAY2_KEEP)
 labs <- merge(CBL_keep,ADDCBL_keep,by=c("releaseid","visit"),all.x = T, all.y = T)
 labs <- rbind(labs,CBL_TODAY2_KEEP)
 long <- merge(long,labs,by=c("releaseid","visit"),all.x = T, all.y = T)
+long <- merge(long,keepDXA,by=c("releaseid","visit"),all.x = T, all.y = T)
 # add a numeric visit variable
 long$visit_num <- as.numeric(str_sub(long$visit,2,length(long$visit)))
 # calculated variables - eIS
