@@ -451,6 +451,19 @@ plotting_function("C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D
                   'T2D_vs_LC_PT', results.dir = 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_PT/')
 
 
+plotting_function("C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_EC/ NEBULA_fullanalysis_offset.txt",
+                  'T2D_vs_LC_EC', results.dir = 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_EC/')
+
+
+plotting_function("C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_TAL/ NEBULA_fullanalysis_offset.txt",
+                  'T2D_vs_LC_TAL', results.dir = 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_TAL/')
+
+
+
+
+
+
+
 so <- subset(so, features = sig_genes$gene)
 
 meta <- so@meta.data
