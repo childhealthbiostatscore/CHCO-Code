@@ -15,7 +15,6 @@ panda <- harm_dat %>% filter(!is.na(panda_id)) %>%
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) %>%
   arrange(mrn) %>%
-  dplyr::select(record_id, mrn, visit, ends_with("_id"), study) %>%
   filter(!is.na(kit_id))
 
 panda_unique_bx <- panda |>
@@ -25,8 +24,12 @@ panda_unique_bx <- panda |>
     filter(study == "PANDA") %>%
     mutate(site = case_when(grepl("^PNDA[- ]1\\d{2}$", record_id) ~ "CU",
                             grepl("^PNDA[- ]2\\d{2}$", record_id) ~ "UW"),
-           panda_id = gsub(" ", "-", panda_id))
+           panda_id = gsub(" ", "-", panda_id)) %>%
+  dplyr::select(record_id, mrn, visit, ends_with("_id"), study)
 
+# panda_followup <- panda %>%
+#   dplyr::select(record_id, panda_id, p1_raw_m, p2_raw_m) %>%
+#   filter(!is.na(p1_raw_m))
 
 # pull in master biopsy spreadsheet
 
@@ -87,7 +90,24 @@ combined_panda <- rbind(master_panda_sub, harm_panda_sub) %>%
          #                    T ~ kit_id)
          ) %>%
   # filter(!is.na(cryostor_id)) %>%
-  dplyr::select(-attempt_id, -croc_id, site)
+  dplyr::select(-attempt_id, croc_id, site)
 
 write.csv(combined_panda, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANDA/Data_Cleaned/panda_unique_biopsy_ids.csv", row.names = F, na = "")
 
+# crocodile Kit IDs
+
+
+croc <- harm_dat %>% filter(record_id %in% combined_panda$croc_id[!is.na(combined_panda$croc_id)]) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  arrange(mrn) %>%
+  filter(!is.na(kit_id))
+
+croc_unique_bx <- croc |>
+  mutate(kit_id_croc = kit_id, cryostor_id_croc = cryostor_id, croc_id = record_id) |> 
+  dplyr::select(croc_id, kit_id_croc, cryostor_id_croc) 
+
+croc_panda_combined <- left_join(combined_panda, croc_unique_bx)
+
+write.csv(croc_panda_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANDA/Data_Cleaned/panda_unique_biopsy_ids.csv", row.names = F, na = "")
