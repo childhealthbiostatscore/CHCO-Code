@@ -89,19 +89,35 @@ ggplot(dat %>% filter(acr_u < 2000 & diabetes_duration < 15) %>%
 
 
 
+ggplot(dat %>% filter(acr_u < 2000 & diabetes_duration < 15) %>% 
+         filter(!is.na(sex)), 
+       aes(x=diabetes_duration, y = log10(acr_u), color = sex))+
+  geom_point()+
+  geom_smooth(method = 'lm')+
+  theme_classic()
 
 
 
 
+gfr_variables <- names.dat[str_which(names.dat, 'gfr')]
 
-
-
-
-
-
-
-
-
+pdf('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Clinical/GFR_graphs.pdf')
+for(i in c(1:length(gfr_variables))){
+  index_var <- which(names(dat) == gfr_variables[i])
+  tmp <- dat %>% select(diabetes_duration, sex, index_var)
+  names(tmp)[3] <- 'Variable'
+  
+  gfr_graphs <- ggplot(tmp %>% filter(diabetes_duration < 15) %>% 
+           filter(!is.na(sex)), 
+         aes(x=diabetes_duration, y = Variable, color = sex))+
+    geom_point()+
+    geom_smooth(method = 'lm')+
+    theme_classic()+labs(y=gfr_variables[i])
+  print(gfr_graphs)
+  
+  
+}
+dev.off()
 
 
 

@@ -22,8 +22,11 @@ library(stringr)
 # Example: Prepare your gene list (differential expression results)
 # Your data should have gene symbols and fold changes/statistics
 
-results <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/')
-
+results <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_All/ NEBULA_fullanalysis_offset.txt')
+deg_data <- results %>% dplyr::select(gene_symbol = summary.gene,
+                                     log2FC = summary.logFC_groupType_2_Diabetes.sexMale,
+                                     pvalue = summary.p_groupType_2_Diabetes.sexMale) %>% 
+  filter(pvalue < 0.05)
 
 
 # Convert gene symbols to Entrez IDs (required for ReactomePA)

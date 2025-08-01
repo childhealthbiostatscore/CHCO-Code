@@ -556,3 +556,22 @@ GO_pathways <- function(data, results.dir, label){
 
 
 
+
+cleaning_file <- function(filepath, results.dir){
+  file <- data.table::fread(filepath) %>% 
+    dplyr::select(gene = summary.gene, 
+                  LogFC = summary.logFC_groupType_2_Diabetes.sexMale,
+                  pvalue = summary.p_groupType_2_Diabetes.sexMale) %>% 
+    arrange(pvalue)
+  write.table(file, paste0(results.dir, 'Cleaned_results.csv'), row.names=F, quote=F, sep=',')
+}
+
+
+cleaning_file('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_PT/ NEBULA_fullanalysis_offset.txt', 
+              results.dir = 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_LC_PT/')
+
+
+
+
+
+
