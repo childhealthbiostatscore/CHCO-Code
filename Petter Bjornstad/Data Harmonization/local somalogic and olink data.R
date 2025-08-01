@@ -6,6 +6,16 @@ library(dplyr)
 library(tidyr)
 library(purrr)
 
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  setwd("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/")
+} else if (user == "pylell") {
+  setwd("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
 # if(Sys.info()["sysname"] == "Windows"){
 #   home_dir = "E:/Petter Bjornstad"
 # } else if (Sys.info()["sysname"] == "Linux"){
@@ -15,23 +25,20 @@ library(purrr)
 # }
 # setwd(home_dir)
 
-#setwd("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/")
-setwd("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive")
-
 ###################
 # ANML ADAT FILES #
 ###################
 
 # read in data - we want to use the fully processed, normalized file ending in "anmlSMP.adat"
 soma <- read_adat("./Local cohort Somalogic data/WUS-22-002/WUS-22-002_v4.1_EDTAPlasma_hybNorm_medNormInt_plateScale_calibrate_anmlQC_qcCheck_anmlSMP.adat")
-soma <- soma %>% select(-Optional2)
+soma <- soma %>% dplyr::select(-Optional2)
 soma <- soma %>% filter(!is.na(SampleDescription))
 analytes <- getAnalyteInfo(soma)
-analytes <- analytes %>% select(AptName,SeqId,SeqIdVersion,SomaId,TargetFullName,Target,UniProt,EntrezGeneID,EntrezGeneSymbol,Organism,Units,Type)
+analytes <- analytes %>% dplyr::select(AptName,SeqId,SeqIdVersion,SomaId,TargetFullName,Target,UniProt,EntrezGeneID,EntrezGeneSymbol,Organism,Units,Type)
 # remove fc mouse and no protein
 drop <- analytes %>% filter(Target == "Fc_MOUSE" | Target == "No Protein" | !(Organism == "Human") | !(Type == "Protein"))
 apt_drop <- drop$AptName
-soma <- soma %>% select(!all_of(apt_drop))
+soma <- soma %>% dplyr::select(!all_of(apt_drop))
 analytes <- analytes %>% filter(!Target == "Fc_MOUSE")
 analytes <- analytes %>% filter(!Target == "No Protein")
 analytes <- analytes %>% filter(Organism == "Human")
@@ -47,21 +54,21 @@ soma2$SampleDescription <- str_remove_all(soma2$SampleDescription, "\\(\\S+")
 # there is one duplicate sample - delete the second result
 soma2 <- soma2 %>% filter(!SampleDescription=="RH-14-O")
 # remove FC_Mouse and no protein
-soma2 <- soma2 %>% select(!all_of(apt_drop))
+soma2 <- soma2 %>% dplyr::select(!all_of(apt_drop))
 analytes2 <- getAnalyteInfo(soma2)
 # 2nd analytes file is esssentially the same as the first except for some batch specific information we don't need
 # will keep the first file
 
 # read in data - we want to use the fully processed, normalized file ending in "anmlSMP.adat"
 soma <- read_adat("./Local cohort Somalogic data/WUS-22-002/WUS-22-002_v4.1_EDTAPlasma_hybNorm_medNormInt_plateScale_calibrate_anmlQC_qcCheck_anmlSMP.adat")
-soma <- soma %>% select(-Optional2)
+soma <- soma %>% dplyr::select(-Optional2)
 soma <- soma %>% filter(!is.na(SampleDescription))
 analytes <- getAnalyteInfo(soma)
-analytes <- analytes %>% select(AptName,SeqId,SeqIdVersion,SomaId,TargetFullName,Target,UniProt,EntrezGeneID,EntrezGeneSymbol,Organism,Units,Type)
+analytes <- analytes %>% dplyr::select(AptName,SeqId,SeqIdVersion,SomaId,TargetFullName,Target,UniProt,EntrezGeneID,EntrezGeneSymbol,Organism,Units,Type)
 # remove fc mouse and no protein
 drop <- analytes %>% filter(Target == "Fc_MOUSE" | Target == "No Protein" | !(Organism == "Human") | !(Type == "Protein"))
 apt_drop <- drop$AptName
-soma <- soma %>% select(!all_of(apt_drop))
+soma <- soma %>% dplyr::select(!all_of(apt_drop))
 analytes <- analytes %>% filter(!Target == "Fc_MOUSE")
 analytes <- analytes %>% filter(!Target == "No Protein")
 analytes <- analytes %>% filter(Organism == "Human")
@@ -70,26 +77,26 @@ analytes <- analytes %>% filter(Type == "Protein")
 # read in PANTHER data
 panther <- read_adat("./Local cohort Somalogic data/PANTHER/20240126_597_Bjornstad_SOMAscan7k_WUS-24-002_data_export/WUS-24-002_2024-01-26_Somalogic_standardized_files/WUS_24_002_v4.1_EDTAPlasma.hybNorm.medNormInt.plateScale.calibrate.anmlQC.qcCheck.anmlSMP.adat")
 panther <- panther %>% filter(!is.na(SampleDescription))
-panther <- panther %>% select(-Optional1)
+panther <- panther %>% dplyr::select(-Optional1)
 # remove fc mouse and no protein
-panther <- panther %>% select(!all_of(apt_drop))
+panther <- panther %>% dplyr::select(!all_of(apt_drop))
 # one ID changed
 panther$SampleDescription <- ifelse(panther$SampleDescription == "PAN-14-C", "PAN-14-O", panther$SampleDescription)
 
 # read in ATTEMPT data
 attempt <- read_adat("./Local cohort Somalogic data/ATTEMPT/20250313_SR006998_Bjornstad_SOMAscan_11K_WUS_25_003_data_export/WUS_25_003_somalogic_standardized_data_files/WUS_25_003_v5.0_EDTAPlasma.hybNorm.medNormInt.plateScale.calibrate.anmlQC.qcCheck.anmlSMP.20250312.adat")
 attempt <- attempt %>% filter(!is.na(SampleDescription))
-attempt <- attempt %>% select(-Optional1, -Optional2, -SampleNumber)
+attempt <- attempt %>% dplyr::select(-Optional1, -Optional2, -SampleNumber)
 # remove fc mouse and no protein
-attempt <- attempt %>% select(!all_of(apt_drop))
+attempt <- attempt %>% dplyr::select(!all_of(apt_drop))
 
 # ATTEMPT analytes file (9k)
 analytes_attempt <- getAnalyteInfo(attempt)
-analytes_attempt <- analytes_attempt %>% select(AptName,SeqId,SeqIdVersion,SomaId,TargetFullName,Target,UniProt,EntrezGeneID,EntrezGeneSymbol,Organism,Units,Type)
+analytes_attempt <- analytes_attempt %>% dplyr::select(AptName,SeqId,SeqIdVersion,SomaId,TargetFullName,Target,UniProt,EntrezGeneID,EntrezGeneSymbol,Organism,Units,Type)
 # remove fc mouse and no protein
 drop <- analytes_attempt %>% filter(Target == "Fc_MOUSE" | Target == "No Protein" | !(Organism == "Human") | !(Type == "Protein"))
 apt_drop <- drop$AptName
-attempt <- attempt %>% select(!all_of(apt_drop))
+attempt <- attempt %>% dplyr::select(!all_of(apt_drop))
 analytes_attempt <- analytes_attempt %>% filter(!Target == "Fc_MOUSE")
 analytes_attempt <- analytes_attempt %>% filter(!Target == "No Protein")
 analytes_attempt <- analytes_attempt %>% filter(Organism == "Human")
@@ -98,15 +105,15 @@ additional_proteins9k <- colnames(attempt)[colnames(attempt) %nin% colnames(soma
 # add in ATTEMPT urine proteomics
 attempt_urine <- read_adat("./Local cohort Somalogic data/ATTEMPT/20250527_Petter_SOMAscan7k_Urine_WUS_25_015_SR007698_data_export/WUS_25_015_v4.1_Urine.hybNorm.medNormInt.plateScale.anmlQC.qcCheck.AddLOD.anmlSMP.adat")
 attempt_urine <- attempt_urine %>% filter(!is.na(SampleDescription))
-attempt_urine <- attempt_urine %>% select(-SampleNumber)
+attempt_urine <- attempt_urine %>% dplyr::select(-SampleNumber)
 urine_analytes <- getAnalyteInfo(attempt_urine)
 # remove fc mouse and no protein
-attempt_urine <- attempt_urine %>% select(!all_of(apt_drop))
+attempt_urine <- attempt_urine %>% dplyr::select(!all_of(apt_drop))
 #attempt_urine[additional_proteins9k] <- NA
 attempt_urine[,c("NormScale_20","NormScale_0_005","NormScale_0_5","ANMLFractionUsed_20","ANMLFractionUsed_0_005","ANMLFractionUsed_0_5")] <- NA
 drop <- urine_analytes %>% filter(Target == "Fc_MOUSE" | Target == "No Protein" | !(Organism == "Human") | !(Type == "Protein"))
 apt_drop <- drop$AptName
-attempt_urine <- attempt_urine %>% select(!all_of(apt_drop))
+attempt_urine <- attempt_urine %>% dplyr::select(!all_of(apt_drop))
 urine_analytes <- urine_analytes %>% filter(!Target == "Fc_MOUSE")
 urine_analytes <- urine_analytes %>% filter(!Target == "No Protein")
 urine_analytes <- urine_analytes %>% filter(Organism == "Human")
@@ -116,6 +123,19 @@ new_names <- paste0(colnames(attempt_urine), "_urine")
 colnames(attempt_urine) <- new_names
 # recode one ID
 attempt_urine$SampleDescription_urine <- ifelse(attempt_urine$SampleDescription_urine == "a10397", "10397", attempt_urine$SampleDescription_urine)
+# normalize urine soma by creatinine
+attempt_urine_creat <- read.xlsx('./ATTEMPT/Data Raw/Urine Proteomics Sample Manifest Jun 25 2025.xlsx', sheet = "Working")
+names(attempt_urine_creat) <- c("position", "SampleDescription_urine", "TimePoint_urine", "box", "urine_creat_proteomics", "urine_creat_comments")
+attempt_urine_creat$TimePoint_urine <- trimws(attempt_urine_creat$TimePoint_urine)
+attempt_urine_creat$SampleDescription_urine <- as.character(attempt_urine_creat$SampleDescription_urine)
+attempt_urine <- left_join(attempt_urine, attempt_urine_creat)
+attempt_urine <- attempt_urine %>%
+  mutate(
+    across(
+      .cols = matches("^seq\\..*_urine$"),
+      .fns = ~ .x / urine_creat_proteomics,
+      .names = "{.col}_cradj"))
+  
 # merge ATTEMPT blood and urine proteomics by SampleDescription and TimePoint (need to remove _urine from urine variable names)
 attempt_urine$SampleDescription <- as.numeric(attempt_urine$SampleDescription_urine)
 attempt_urine$TimePoint <- attempt_urine$TimePoint_urine
