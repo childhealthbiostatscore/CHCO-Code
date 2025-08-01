@@ -1,8 +1,9 @@
+library(enrichplot)
 library(clusterProfiler)
 library(ReactomePA)
 library(org.Hs.eg.db)  # Human annotation, change for other species
 library(DOSE)
-library(enrichplot)
+
 library(ggplot2)
 library(dplyr)
 
@@ -10,17 +11,20 @@ library(dplyr)
 library(msigdbr)  # For MSigDB gene sets
 library(fgsea)    # Fast GSEA implementation
 
+library(dplyr)
+library(stringr)
+
+
 # ====================================================================
 # METHOD 1: Using ReactomePA for Reactome pathway analysis
 # ====================================================================
 
 # Example: Prepare your gene list (differential expression results)
 # Your data should have gene symbols and fold changes/statistics
-deg_data <- data.frame(
-  gene_symbol = c("TP53", "BRCA1", "EGFR", "MYC", "PTEN"),
-  log2FC = c(-2.5, 1.8, -1.2, 2.1, -1.9),
-  pvalue = c(0.001, 0.002, 0.01, 0.005, 0.003)
-)
+
+results <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/')
+
+
 
 # Convert gene symbols to Entrez IDs (required for ReactomePA)
 gene_symbols <- deg_data$gene_symbol
