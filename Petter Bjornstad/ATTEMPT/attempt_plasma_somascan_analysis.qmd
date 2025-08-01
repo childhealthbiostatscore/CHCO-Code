@@ -30,361 +30,53 @@ library(psych)
 library(openxlsx)
 library(SomaPlotr)
 
-#bg_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/GSEA/"
-bg_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/GSEA/"
-load("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/KNIGHT/Somalogic data/analytes.Rdata")
+# specify user for paths
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+bg_path <- file.path(root_path, "GSEA/")
+load(file.path(root_path, "KNIGHT/Somalogic data/analytes.Rdata"))
 ```
 
-```{r functions, include=FALSE}
-volcano <- function(data, lab = "Target", xcol = "logFC", ycol = "adj.P.Val",
-                    top = 14,
-                    xlimit = c(-1, 1), ylimit = c(0, -log10(10e-7)),
-                    xlabel = "logFC", pCutoff = 0.05, overlaps = 20,
-                    log_t = F) {
-  data <- as.data.frame(data)
-  data <- data %>% arrange(adj.P.Val)
-  t <- data[data[, "adj.P.Val"] <= pCutoff, ]
-  if (log_t) {
-    t <- t[order(abs(log(t[, "adj.P.Val"])), decreasing = F), ]
-  } else {
-    t <- t[order(abs(t[, "adj.P.Val"]), decreasing = F), ]
-  }
-  data$top <- data[, "AptName"] %in% t[1:top, "AptName"]
-  data$logp <- -log10(data[, ycol])
-  data$fc <- data[, xcol]
-  data$sig <- data[, ycol] <= pCutoff
-  p <- ggplot(data = data, aes(x = fc, y = logp, color = sig)) +
-    geom_hline(yintercept = -log10(pCutoff), linetype = "dashed") +
-    geom_point(size = 2) +
-    geom_label_repel(
-      data = data[data$top, ], aes(label = Target), color = "black",
-      max.overlaps = overlaps
-    ) +
-    scale_color_manual(values = c("grey", "#3e6dbf")) +
-    xlab(xlabel) +
-    ylab(bquote(~ -Log[10] ~ italic(Q))) +
-    theme_bw() +
-    theme(legend.position = "none")
-  return(p)
-}
-
-plotVolcano_mod <- function (data, FC, p.value, labels, identify = FALSE, fc.cutoff = 1, 
-  pt.size = 2.5, text.size = 3, cutoff = 0.05/nrow(data), sig_fc_lab = "Significant & Fold-Change",
-  sig_lab = "Significant", fc_lab = "Fold-Change", ns_lab = "Non-Significant", 
-  sig_fc_lab_col = "#f28482", sig_lab_col = "#f6bd60",
-  fc_lab_col = "#84a59d", ns_lab_col = "#dad7cd",
-  main = NULL, x.lab = NULL, ...) 
-{
-  .fc <- enquo(FC)
-  .p <- enquo(p.value)
-  if (all(pull(data, !!.fc) >= 0)) {
-    warning("It appears you are not passing log2-transformed ", 
-      "fold-change values. Please check.", call. = FALSE)
-  }
-  if (is.null(main)) {
-    main <- "Volcano Plot of Significant Fold Changes"
-  }
-  if (is.null(x.lab)) {
-    x.lab <- bquote(italic(log)[2] ~ (Fold ~ Change))
-  }
-  y.lab <- bquote(-italic(log)[10] ~ (p - value))
-  plot_df <- dplyr::mutate(data, group = case_when((-log10(!!.p) >= 
-    -log10(cutoff)) & (abs(!!.fc) >= fc.cutoff) ~ sig_fc_lab, 
-    -log10(!!.p) >= -log10(cutoff) ~ sig_lab, abs(!!.fc) >= 
-      fc.cutoff ~ fc_lab, TRUE ~ ns_lab), 
-    type = grepl(paste0("^", sig_lab, "|", sig_fc_lab, "|Significant"), group))
-
-  create_col_vector <- function(label_values, colors) {
-    cols <- setNames(colors, label_values)
-    return(cols)
-  }
-  
-  label_values = c(ns_lab, fc_lab, sig_lab, sig_fc_lab)
-  label_colors = c(ns_lab_col, fc_lab_col, sig_lab_col, sig_fc_lab_col)
-  cols <- create_col_vector(label_values, label_colors)
-
-  p <- ggplot(plot_df, aes(x = !!.fc, y = -log10(!!.p), color = group)) + 
-    geom_point(alpha = 0.5, size = pt.size, ...) + scale_color_manual(values = cols, 
-    name = "") + labs(x = x.lab, y = y.lab, title = main) + 
-    geom_vline(xintercept = c(-1, 1) * fc.cutoff, color = "grey", 
-      linetype = "longdash", alpha = 0.75) + geom_vline(xintercept = 0, 
-    color = "grey50", linetype = "solid") + theme_soma() + 
-    NULL
-  if (identify) {
-    p <- p + geom_text(data = dplyr::filter(plot_df, type), 
-      aes(label = !!enquo(labels)), hjust = 0, nudge_x = 0.05, 
-      size = text.size, color = "black", check_overlap = TRUE)
-  }
-  p
-}
-
-plotVolcano_mod_new <- function (data, FC, p.value, labels, identify = FALSE, identify_manual = NULL, fc.cutoff = 1, 
-  label_apt = F, pt.size = 2.5, text.size = 3, cutoff = 0.05/nrow(data), 
-  sig_fc_pos_lab = "Significant & Fold-Change (+)",
-  sig_fc_neg_lab = "Significant & Fold-Change (-)", 
-  sig_lab = "Significant", 
-  fc_lab = "Fold-Change", ns_lab = "Non-Significant", 
-  sig_fc_pos_lab_col = "#f28482", sig_fc_neg_lab_col = "#8ecae6", sig_lab_col = "#f6bd60",
-  fc_lab_col = "#84a59d", ns_lab_col = "#dad7cd",
-  main = NULL, x.lab = NULL, sig_fc_lab = NULL, overlaps = 10, ...) 
-{
-  .fc <- enquo(FC)
-  .p <- enquo(p.value)
-  .label <- enquo(labels)
-  
-  if (all(pull(data, !!.fc) >= 0)) {
-    warning("It appears you are not passing log2-transformed ", 
-      "fold-change values. Please check.", call. = FALSE)
-  }
-  if (is.null(main)) {
-    main <- "Volcano Plot of Significant Fold Changes"
-  }
-  if (is.null(x.lab)) {
-    x.lab <- bquote(italic(log)[2] ~ (Fold ~ Change))
-  }
-  y.lab <- bquote(-italic(log)[10] ~ (p - value))
-  plot_df <- dplyr::mutate(data, 
-                           group = case_when((-log10(!!.p) >= -log10(cutoff)) & (abs(!!.fc) >= fc.cutoff & !!.fc > 0) ~ sig_fc_pos_lab, 
-                                             (-log10(!!.p) >= -log10(cutoff)) & (abs(!!.fc) >= fc.cutoff & !!.fc < 0) ~ sig_fc_neg_lab, 
-                                             -log10(!!.p) >= -log10(cutoff) ~ sig_lab, abs(!!.fc) >= fc.cutoff ~ fc_lab, 
-                                             TRUE ~ ns_lab), 
-    type = grepl(paste0("^", sig_lab, "|", sig_fc_lab, "|Significant"), group))
-
-  create_col_vector <- function(label_values, colors) {
-    cols <- setNames(colors, label_values)
-    return(cols)
-  }
-  
-  label_values = c(ns_lab, fc_lab, sig_lab, sig_fc_pos_lab, sig_fc_neg_lab)
-  label_colors = c(ns_lab_col, fc_lab_col, sig_lab_col, sig_fc_pos_lab_col, sig_fc_neg_lab_col)
-  cols <- create_col_vector(label_values, label_colors)
-
-  p <- ggplot(plot_df, aes(x = !!.fc, y = -log10(!!.p), color = group)) + 
-    geom_point(alpha = 0.5, size = pt.size) + scale_color_manual(values = cols, 
-    name = "") + labs(x = x.lab, y = y.lab, title = main) + 
-    geom_vline(xintercept = c(-1, 1) * fc.cutoff, color = "grey", 
-      linetype = "longdash", alpha = 0.75, ...) + geom_vline(xintercept = 0, 
-    color = "grey50", linetype = "solid") + theme_soma() + 
-    NULL
-  if (identify) {
-    p <- p + geom_text(data = dplyr::filter(plot_df, type), 
-      aes(label = !!enquo(labels)), hjust = "inward", vjust = 0, nudge_x = 0.05, 
-      size = text.size, color = "black", check_overlap = TRUE)
-  }
-  if (!is.null(identify_manual) & label_apt) {
-    plot_df <- plot_df %>%
-        dplyr::mutate(label_col = rownames(plot_df))
-    p <- p + geom_label_repel(
-      data = dplyr::filter(plot_df, !!.label %in% identify_manual & !!.p < 0.05), aes(label = Target), color = "black", min.segment.length = 0,
-      max.overlaps = overlaps, nudge_x = -0.3, force = 6,
-    ) 
-  }
-  if (!is.null(identify_manual) & !label_apt) {
-    p <- p + geom_text(data = dplyr::filter(plot_df, !!.label %in% identify_manual & !!.p < 0.05), 
-      aes(label = !!enquo(label_apt)), hjust = "inward", vjust = 0, nudge_x = 0.05, 
-      size = text.size, color = "black", check_overlap = TRUE)
-  }
-  p
-}
-
-```
 
 ```{r echo = F, include = F}
 # SOMA analytes names/info
-#load("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Combined SomaScan/analytes_2.Rdata")
-load("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Combined SomaScan/analytes_2.Rdata")
+load(file.path(root_path, "Data Harmonization/Combined SomaScan/analytes_2.Rdata"))
 ```
 
 ```{r echo = F}
-harm_dat_raw <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "") 
+harm_dat_raw <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/soma_harmonized_dataset.csv"), na.strings = "") 
 
 harm_dat <- harm_dat_raw %>%
   filter(study == "ATTEMPT") %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) %>%
-  mutate(visit = case_when(visit == "4_months_post" ~ "POST",
-                           visit == "baseline" ~ "PRE"),
+  mutate(visit = case_when(visit == "baseline" ~ 0,
+                           visit == "4_weeks_post" ~ 4,
+                           visit == "4_months_post" ~ 16,
+                           visit == "screening"  ~ -4,
+                           visit == "follow_up" ~ 18),
          record_id_visit = paste0(record_id, "_", visit),
          treatment_arm = case_when(treatment_arm == "Placebo" ~ "Placebo",
-                                   T ~ "Dapagliflozin"))
+                                   T ~ "Dapagliflozin")) %>%
+  filter(visit %in% c(0, 16))
 
+# load SOMA and exclude the 5 with mix up
 soma <- harm_dat %>%
-  filter(!is.na(seq.10000.28))
+  filter(!is.na(seq.10030.8)) %>%
+  filter(urine_creat_proteomics > 1) # filtering out those with extremely low creatinine (mix up with serum)
 
-```
-
-```{r echo = F, include = F}
-# List of acronyms to uppercase
-acronyms <- c("rna", "dna", "mtor", "foxo", "ppar", "nmd", "fgfr", "robo", 
-              "bhl", "cov", "jak", "stat", "wnt", "hiv", "bcl", "mapk",
-              "pt", "tal", "pc", "ic", "ec", "fibvsmcp")
-#              ,
-#             unique(pt_emmeans_df_mod1$Gene))
-special_mixed <- c("rrna", "mrna", "trna", "gtpase", "atpase", "robos", "slits", "fibvsmcp")
-special_replacements <- c("rRNA", "mRNA", "tRNA", "GTPase", "ATPase", "ROBOs", "SLITs", "FIB/VSMC/P")
-
-replace_mixed_case <- function(text, from, to) {
-  for (i in seq_along(from)) {
-    pattern <- paste0("\\b", from[i], "\\b")
-    text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), to[i])
-  }
-  return(text)
-}
-
-capitalize_acronyms <- function(text, terms) {
-  for (term in terms) {
-    pattern <- paste0("\\b", term, "\\b")
-    replacement <- toupper(term)
-    text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), replacement)
-  }
-  return(text)
-}
-
-## Function: Adjacency matrix to list -------------------------
-matrix_to_list <- function(pws){
-  pws.l <- list()
-  for (pw in colnames(pws)) {
-    pws.l[[pw]] <- rownames(pws)[as.logical(pws[, pw])]
-  }
-  return(pws.l)
-}
-
-## Function: prepare_gmt --------------------------------------
-prepare_gmt <- function(gmt_file, genes_in_data, savefile = FALSE){
-
-  # Read in gmt file
-  gmt <- gmtPathways(gmt_file)
-  hidden <- unique(unlist(gmt))
-  
-  # Convert gmt file to a matrix with the genes as rows and for each go annotation (columns) the values are 0 or 1
-  mat <- matrix(NA, dimnames = list(hidden, names(gmt)),
-                nrow = length(hidden), ncol = length(gmt))
-  for (i in 1:dim(mat)[2]){
-    mat[,i] <- as.numeric(hidden %in% gmt[[i]])
-  }
-  
-  #Subset to the genes that are present in our data to avoid bias
-  hidden1 <- intersect(genes_in_data, hidden)
-  mat <- mat[hidden1, colnames(mat)[which(colSums(mat[hidden1,])>5)]] # filter for gene sets with more than 5 genes annotated
-  # And get the list again
-  final_list <- matrix_to_list(mat) # for this we use the function we previously defined
-  
-  if(savefile){
-    saveRDS(final_list, file = paste0(gsub('.gmt', '', gmt_file), '_subset_', format(Sys.time(), '%d%m'), '.RData'))
-  }
-  
-  print('Wohoo! .gmt conversion successfull!:)')
-  return(final_list)
-}
-
-# volcano plot function
-plot_volcano <- function(data, p_col, title_suffix, x_axis, y_axis, p_thresh = 0.05) {
-  top_pos <- data %>%
-    filter(logFC > 0, !!sym(p_col) < p_thresh) %>%
-    arrange(!!sym(p_col)) %>%
-    head(20)
-
-  top_neg <- data %>%
-    filter(logFC < 0, !!sym(p_col) < p_thresh) %>%
-    arrange(!!sym(p_col)) %>%
-    head(20)
-
-  data <- data %>%
-    mutate(top_color = case_when(rownames(data) %in% rownames(top_pos) ~ "#f28482",
-                                 rownames(data) %in% rownames(top_neg) ~ "#457b9d",
-                                 TRUE ~ "#ced4da"),
-           top_size = if_else(rownames(data) %in% c(rownames(top_pos), rownames(top_neg)), 1.3, 1),
-           top_lab  = if_else(rownames(data) %in% c(rownames(top_pos), rownames(top_neg)), EntrezGeneSymbol, ""))
-
-  p <- ggplot(data, aes(x = logFC, y = -log10(!!sym(p_col)))) +
-    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
-    geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
-    geom_text_repel(aes(label = top_lab, color = top_color),
-                    size = 3, max.overlaps = Inf,
-                    force = 6, segment.alpha = 0.3, segment.size = 0.3) +
-    labs(title = paste(title_suffix),
-         x = paste(x_axis),
-         y = paste(y_axis)) +
-    scale_size_continuous(range = c(1, 1.3)) + 
-    scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
-    theme_minimal() +
-    theme(legend.title = element_blank(),
-          panel.grid = element_blank(),
-          text = element_text(size = 15),
-          title = element_text(size = 9)) +
-    guides(color = "none", size = "none")
-  return(p)
-}
-
-plot_fgsea <- function(fgsea_res,
-                            top_n = 30,
-                            title = "Top Enriched Pathways",
-                            xlimit = 3,
-                            xnudge = xlimit/100,
-                            text1 = 4.5,
-                            text2 = 8,
-                            text3 = 8,
-                       face = "plain") {
-  
-fgsea_res <- fgsea_res %>%
-  arrange(pval) %>%
-  head(top_n) %>%
-  mutate(
-    direction = case_when(NES < 0 ~ "Negative", NES > 0 ~ "Positive"),
-    pathway_clean = str_remove(pathway, "^KEGG_"), 
-    pathway_clean = str_remove(pathway_clean, "^REACTOME_"), 
-    pathway_clean = str_remove(pathway_clean, "^GOBP_"), 
-    pathway_clean = str_remove(pathway_clean, "^GOMF_"), 
-    pathway_clean = str_replace_all(pathway_clean, "_", " "),
-    pathway_clean = str_to_sentence(pathway_clean),
-    pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
-    pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
-    pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
-    pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
-    pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
-    pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
-    pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
-    pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
-    pathway_clean = paste0(pathway_clean, " (", size, ")")
-  ) %>%
-  arrange(pval)
-
-  fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, fgsea_res$pval)
-  
-  fgsea_res %>%
-    ggplot(aes(x = -log10(pval), y = fct_rev(pathway_clean), label = pathway_clean)) +
-    geom_point(aes(size = abs(NES), color = direction, alpha = 0.8)) +
-    geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-    geom_text(aes(group = pathway_clean, color = direction, fontface = face), 
-              hjust = 0, size = text1, nudge_x = xnudge) +
-    scale_size_binned() +
-    scale_color_manual(values = c("Positive" = "#c75146", "Negative" = "#2c7da0")) +
-    scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
-    scale_y_discrete(expand = expansion(add = 1)) +
-    labs(
-      x = "-log(p-value)",
-      y = "Pathways",
-      color = "Direction",
-      size = "NES",
-      title = title
-    ) +
-    guides(alpha = "none") +
-    theme_bw() +
-    theme(
-      axis.text.y = element_blank(),
-      panel.grid = element_blank(),
-      axis.text.x = element_text(size = text3),
-      axis.title = element_text(size = text3),
-      axis.ticks.y = element_blank(), 
-      legend.position = c(0.9, 0.2),
-      legend.background = element_blank(),
-      legend.box.background = element_rect(color = "black"),
-      legend.title = element_text(size = text2),
-      legend.text = element_text(size = text2),
-      title = element_text(size = text3)
-    )
-}
+soma$visit <- factor(soma$visit, levels = c(0, 16), label = c("PRE", "POST"))
 ```
 
 # SOMA
@@ -398,49 +90,32 @@ summary(arsenal::tableby(visit ~ age + sex + bmi + diabetes_duration,
 ## Placebo
 #### Top 20 DE
 ```{r echo = F}
-# filter soma scan data to baseline data only and log transform
-soma_placebo <- soma %>% arrange(record_id) %>%
-  filter(treatment_arm == "Placebo") 
-
-soma_placebo_filtered <- soma_placebo %>% 
-  arrange(record_id) %>%
-  remove_rownames() %>% column_to_rownames(var = "record_id_visit") %>%
-  dplyr::select(starts_with("seq"))
-
-y <- t(soma_placebo_filtered)
-y <- log2(y)
-
-# Design matrix
-cond = as.factor(soma_placebo$visit)
-design_mat <- model.matrix(~0 + visit, data = soma_placebo)
-colnames(design_mat) = gsub("visit","",colnames(design_mat))
-# Fit
-contrast = makeContrasts(contrasts = c("POST-PRE"), levels = design_mat)
-fit <- lmFit(y, design_mat)
-fit <- contrasts.fit(fit, contrasts = contrast)
-fit <- eBayes(fit)
-res <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
-res$EntrezGeneSymbol <- analytes_attempt$EntrezGeneSymbol[match(rownames(res), analytes_attempt$AptName)]
-res$TargetFullName <- analytes_attempt$TargetFullName[match(rownames(res), analytes_attempt$AptName)]
-kbl(head(res, 50)) %>%
-  kable_paper() %>%
-  scroll_box(width = "100%", height = "500px")
-res_save <- res %>%
-  rownames_to_column("AptName") %>%
-  dplyr::select(-c(EntrezGeneSymbol, TargetFullName)) %>%
-  left_join(analytes_attempt, by = "AptName")
+placebo_res_plasma <- run_limma_proteomics(data = soma,
+                                     analyte_info = analytes_attempt,
+                                     treatment = "Placebo",
+                                     feature_suffix = "_urine_cradj",
+                                    model_type = "within_treatment")
 ```
 
 ```{r echo = F}
-plot_volcano(res, "adj.P.Val",
-             "Placebo (PRE/POST DE)", 
-             "LogFC", 
-             "-log10(adj.p-value)")
-
-plot_volcano(res, "P.Value",
-             "Placebo (PRE/POST DE)", 
-             "LogFC", 
-             "-log10(p-value)")
+plot_volcano_proteomics(data = placebo_res$results_annotated, fc = "logFC",
+             p_col = "P.Value",
+             title = NULL,
+             x_axis = "LogFC", 
+             y_axis = "-log10(p-value)",
+             positive_text = "Positive after placebo treatment",
+             negative_text = "Negative after placebo treatment",
+             formula = "visit",
+             file_suffix = "_placebo_urine_proteomics")
+plot_volcano_proteomics(data = placebo_res$results_annotated, fc = "logFC",
+             p_col = "adj.P.Val",
+             title = NULL,
+             x_axis = "LogFC", 
+             y_axis = "-log10(adj.p-value)",
+             positive_text = "Positive after placebo treatment",
+             negative_text = "Negative after placebo treatment",
+             formula = "visit",
+             file_suffix = "_placebo_urine_proteomics_adjp")
 ```
 
 ## Dapagliflozin
@@ -590,57 +265,62 @@ plot_volcano(res, "P.Value",
 # DiD
 ## Top 20 DE
 ```{r echo = F}
-# filter soma scan data to baseline data only and log transform
-soma$treatment_arm <- factor(soma$treatment_arm, levels = c("Placebo", "Dapagliflozin"))
-soma$visit <- factor(soma$visit, levels = c("PRE", "POST"))
-soma <- soma %>% arrange(record_id)
-soma_filtered <- soma %>% 
-  arrange(record_id) %>%
-  remove_rownames() %>% column_to_rownames(var = "record_id_visit") %>%
-  dplyr::select(starts_with("seq"))
+did_res_plasma <- run_limma_proteomics(data = soma,
+                                 analyte_info = analytes_attempt,
+                                 feature_suffix = "",
+                                 model_type = "interaction")
 
-y <- t(soma_filtered)
-y <- log2(y)
-
-# Design matrix
-design_mat <- model.matrix(~ treatment_arm * visit, data = soma)
-# Fit
-# contrast = makeContrasts(contrasts = c("Dapagliflozin-Placebo"), levels = design_mat)
-fit <- lmFit(y, design_mat)
-# fit <- contrasts.fit(fit, contrasts = contrast)
-fit <- eBayes(fit)
-res <- topTable(fit, coef = "treatment_armDapagliflozin:visitPOST", number = Inf)
-res$EntrezGeneSymbol <- analytes_attempt$EntrezGeneSymbol[match(rownames(res), analytes_attempt$AptName)]
-res$TargetFullName <- analytes_attempt$TargetFullName[match(rownames(res), analytes_attempt$AptName)]
-kbl(head(res, 50)) %>%
-  kable_paper() %>%
-  scroll_box(width = "100%", height = "500px")
-res_save <- res %>%
-  rownames_to_column("AptName") %>%
-  dplyr::select(-c(EntrezGeneSymbol, TargetFullName)) %>%
-  left_join(analytes_attempt, by = "AptName")
-write.csv(res_save, "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Somascan/ATTEMPT_soma_DID_results.csv", row.names = F)
-res_save_did <- res_save
-res_save_did_sig <- res_save_did %>% filter(P.Value < 0.05)
-res_save_did_sig_up <- res_save_did_sig %>% filter(logFC > 0) %>% select(AptName)
-res_save_did_sig_down <- res_save_did_sig %>% filter(logFC < 0) %>% select(AptName)
+did_res_mixed_plasma <- run_limma_proteomics(data = soma,
+                                 analyte_info = analytes_attempt,
+                                 feature_suffix = "",
+                                 model_type = "interaction_random")
+# 87 out of 10776 singularity warning (0.8%)
 ```
 
 ```{r echo = F}
-plot_volcano(res, "adj.P.Val",
-             "DiD on Protein Expression", 
-             "LogFC", 
-             "-log10(adj.p-value)")
+plot_volcano_proteomics(data = did_res_plasma$results_annotated, 
+                        fc = "logFC",
+                        p_col = "P.Value",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(p-value)",
+                        positive_text = "Positive DiD",
+                        negative_text = "Negative DiD",
+                        formula = "treatment:visit",
+                        file_suffix = "_DiD_plasma_proteomics")
 
-plot_volcano(res, "P.Value",
-             "DiD on Protein Expression", 
-             "LogFC", 
-             "-log10(p-value)")
-#ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/soma_DiD_pval.jpeg",
-#        scale = 1)
-ggsave("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/soma_DiD_pval.jpeg",
-        scale = 1)
+plot_volcano_proteomics(data = did_res_plasma$results_annotated, 
+                        fc = "logFC",
+                        p_col = "adj.P.Val",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(adj.p-value)",
+                        positive_text = "Positive DiD",
+                        negative_text = "Negative DiD",
+                        formula = "treatment:visit",
+                        file_suffix = "_DiD_plasma_proteomics_adjp")
 
+plot_volcano_proteomics(data = did_res_mixed_plasma$results_annotated, 
+                        fc = "logFC",
+                        p_col = "P.Value",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(p-value)",
+                        positive_text = "Positive DiD",
+                        negative_text = "Negative DiD",
+                        formula = "treatment:visit + (1|subject)",
+                        file_suffix = "_DiD_plasma_proteomics_mixed")
+
+plot_volcano_proteomics(data = did_res_mixed_plasma$results_annotated, 
+                        fc = "logFC",
+                        p_col = "adj.P.Val",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(adj.p-value)",
+                        positive_text = "Positive DiD",
+                        negative_text = "Negative DiD",
+                        formula = "treatment:visit + (1|subject)",
+                        file_suffix = "_DiD_plasma_proteomics_adjp_mixed")
 ```
 
 #### GSEA (fgsea)
@@ -697,8 +377,8 @@ soma_DiD_fgsea
 ```{r echo = F}
 plot_fgsea(kegg_legacy_res_soma_DiD, title = "SOMA DiD Top 30 KEGG", xlim= 20)
 
-#ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/SOMA_DiD_KEGG.jpeg",
-#       width = 27.5, height = 14, scale = 1)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Pathways/SOMA_DiD_KEGG.jpeg"),
+  width = 27.5, height = 14, scale = 1)
 
 
 ```
@@ -707,23 +387,16 @@ plot_fgsea(kegg_legacy_res_soma_DiD, title = "SOMA DiD Top 30 KEGG", xlim= 20)
 ```{r echo = F}
 plot_fgsea(reactome_res_soma_DiD, title = "SOMA DiD Top 30 REACTOME", xlimit = 30)
 
-#ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/SOMA_DiD_REACTOME.jpeg",
-#       width = 27.5, height = 14, scale = 1)
-ggsave("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/SOMA_DiD_REACTOME.jpeg",
-       width = 27.5, height = 14, scale = 1)
-
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Pathways/SOMA_DiD_REACTOME.jpeg"),
+  width = 27.5, height = 14, scale = 1)
 
 ```
 ##### GO
 ```{r echo = F}
 plot_fgsea(go_res_soma_DiD, title = "SOMA DiD Top 30 GO", xlimit = 30)
 
-#ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/SOMA_DiD_GO.jpeg",
-#       width = 27.5, height = 14, scale = 1)
-ggsave("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/SOMA_DiD_GO.jpeg",
-       width = 27.5, height = 14, scale = 1)
-
-
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Pathways/SOMA_DiD_GO.jpeg"),
+  width = 27.5, height = 14, scale = 1)
 ```
 
 # Correlations with clinical variables
@@ -736,23 +409,24 @@ ggsave("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad
 is_seq <- function(.x) grepl("seq", .x)
 
 # read in clinical variables
-attempt_clin <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250314.csv')
+attempt_clin <- read.csv(file.path(root_path, "ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250314.csv"), na.strings = "") 
+
 attempt_clin <- attempt_clin %>% filter(visit %in% c("V1 Screening", "V4 Final"))
 attempt_clin$record_id <- attempt_clin$subject_id
 
 # reshape to wide
-attempt_clin_keep <- attempt_clin %>% select(record_id, visit, mgfr_si, mgfr_si_adjusted, PWV, hba1c_percent)
+attempt_clin_keep <- attempt_clin %>% dplyr::select(record_id, visit, mgfr_si, mgfr_si_adjusted, PWV, hba1c_percent)
 attempt_clin_wide <- reshape(attempt_clin_keep, timevar = "visit", idvar = "record_id", direction = "wide")
 # calculate deltas
 attempt_clin_wide$delta_mgfr_si <- attempt_clin_wide$`mgfr_si.V4 Final` - attempt_clin_wide$`mgfr_si.V1 Screening`
 attempt_clin_wide$delta_mgfr_si_adjusted <- attempt_clin_wide$`mgfr_si_adjusted.V4 Final` - attempt_clin_wide$`mgfr_si_adjusted.V1 Screening`
 attempt_clin_wide$delta_PWV <- attempt_clin_wide$`PWV.V4 Final` - attempt_clin_wide$`PWV.V1 Screening`
 attempt_clin_wide$delta_hba1c_percent <- attempt_clin_wide$`hba1c_percent.V4 Final` - attempt_clin_wide$`hba1c_percent.V1 Screening`
-attempt_clin_wide <- attempt_clin_wide %>% select(record_id, delta_mgfr_si, delta_mgfr_si_adjusted, delta_PWV, delta_hba1c_percent)
+attempt_clin_wide <- attempt_clin_wide %>% dplyr::select(record_id, delta_mgfr_si, delta_mgfr_si_adjusted, delta_PWV, delta_hba1c_percent)
 
 # reshape the soma data to wide
 seq <- names(soma)[is_seq(names(soma))]
-soma_keep <- soma %>% select(record_id, visit, starts_with("seq"))
+soma_keep <- soma %>% dplyr::select(record_id, visit, starts_with("seq"))
 soma_wide <- reshape(soma_keep, timevar = "visit", idvar = "record_id", direction = "wide")
 #predictors <- colnames(base_log[seq])
 for (i in 1:length(seq)) {
@@ -761,7 +435,7 @@ for (i in 1:length(seq)) {
 
 # calculate correlation between change in mGFR, HbA1c, UACR, PWV
 # create CSV with all results as well as volcano plot
-source("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+source(file.path(git_path, "Resources/YC/R Functions/correlation_function.R"))
 ```
 
 ```{r echo = F, warning=FALSE, quiet = TRUE}
@@ -1095,7 +769,7 @@ addWorksheet(wb,"Change in HbA1c")
 writeData(wb,"Change in HbA1c",corr_delta_hba1c_percent_mat,rowNames = F)
 addWorksheet(wb,"Change in PWV")
 writeData(wb,"Change in PWV",corr_delta_PWV_mat,rowNames = F)
-saveWorkbook(wb,"/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Somascan/Somascan_clinical_correlations.xlsx",overwrite = TRUE)
+saveWorkbook(wb,file.path(root_path, "ATTEMPT/Results/Somascan/Somascan_clinical_correlations.xlsx"),overwrite = TRUE)
 ```
 
 ### Aptamers significantly up in dapagliflozin compared to placebo in DiD analysis
