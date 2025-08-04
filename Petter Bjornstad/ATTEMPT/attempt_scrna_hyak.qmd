@@ -59,13 +59,13 @@ library(Matrix)
 library(scran)
 library(DirichletReg)
 library(BiocParallel)
-library(scDC)
+# library(scDC)
 library(DoubletFinder)
 library(scCustomize)
 ```
 
 ```{r include = F}
-reticulate::use_python("/mmfs1/gscratch/scrubbed/yejichoi/mypy/bin/python", required = T)
+reticulate::use_python("/mmfs1/gscratch/togo/yejichoi/mypy/bin/python", required = T)
 reticulate::repl_python()
 reticulate::py_config()
 # set up Kopah connection
@@ -707,7 +707,7 @@ ggsave(temp_file, height = 10)
 s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_visit_treatment_proportions_plot_kpmp.jpeg")
 ```
 
-```{r echo = F}
+```{r echo = F, eval = F}
 # test on proportions using Dirichlet
 pt_props <- attempt_meta %>%
   filter(celltype_general %in% c("PT")) %>%
@@ -752,7 +752,7 @@ s3$upload_file(temp_file, "attempt", 'PT/pt_dirichlet_post.rds')
 
 ```
 
-```{r echo = F}
+```{r echo = F, eval = F}
 # test on proportions using Dirichlet (KPMP celltypes)
 pt_props <- attempt_meta %>%
   filter(KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT")) %>%
@@ -797,7 +797,7 @@ s3$upload_file(temp_file, "attempt", 'PT/pt_dirichlet_post_kpmp.rds')
 
 ```
 
-```{r echo = F}
+```{r echo = F, eval = F}
 # scDC package (sc differential composition analysis)
 attempt_so_pt$celltype <- factor(attempt_so_pt$celltype, levels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"))
 exprsMat <- GetAssayData(attempt_so_pt, assay = "RNA", slot = "counts")
@@ -1287,13 +1287,6 @@ print(data_all)
 #### Mixed model (hurdle, no nested random effect)
 
 ##### nebula
-```{r echo = F, eval = F}
-# nebula built-in testing
-# data(sample_data)
-# pred = model.matrix(~X1+X2+cc,data=sample_data$pred)
-# re = nebula(count=sample_data$count,id=sample_data$sid,pred=pred, , output_re = T, covariance = T)
-```
-
 
 ###### REML with rounded counts & pooled offset
 
@@ -4550,88 +4543,6 @@ saveRDS(nebula_pod_results_list_reml_pooled, temp_file) # save the temp file loc
 s3$upload_file(temp_file, "attempt", 'POD/nebula/pod_attempt_hvg_nebula_res_reml_pooled.rds')
 ```
 
-
-```{r echo = F, eval = T}
-# POD subtypes
-celltype_vec <- c("POD")
-
-cl <- makeCluster(100)
-registerDoParallel(cl)
-
-overall_start_time <- Sys.time()
-nebula_results_by_subtype <- vector("list", length(celltype_vec))
-names(nebula_results_by_subtype) <- celltype_vec
-
-for (ct in celltype_vec) {
-
-  message("===== Running Nebula for ", ct, " =====")
-
-  so_ct <- subset(attempt_so_hvg_pod, celltype == ct)
-
-  counts_ct   <- round(GetAssayData(so_ct, layer = "counts"))
-  genes_list  <- rownames(counts_ct)
-  meta_ct     <- so_ct@meta.data
-
-  ## Run your original foreach loop
-  nebula_res_list <- foreach(
-    g = genes_list, .packages = c("nebula", "Matrix"),
-    .errorhandling = "pass"
-  ) %dopar% {
-
-    warn <- err <- res <- NULL
-    tryCatch({
-      meta_gene <- subset(so_ct, features = g)@meta.data
-      count_gene <- counts_ct[g, , drop = FALSE]
-      pred_gene  <- model.matrix(~ treatment * visit, data = meta_gene)
-      data_gene  <- group_cell(count = count_gene,
-                               id    = meta_gene$subject_id,
-                               pred  = pred_gene)
-
-      res <- withCallingHandlers(
-        nebula(
-          count  = data_gene$count,
-          id     = data_gene$id,
-          pred   = data_gene$pred,
-          ncore  = 1,
-          output_re  = TRUE,
-          covariance = TRUE,
-          reml   = 1,
-          model  = "NBLMM",
-          offset = meta_gene$pooled_offset
-        ),
-        warning = function(w) {
-          warn <<- conditionMessage(w)
-          invokeRestart("muffleWarning")
-        }
-      )
-    }, error = function(e) {
-      err <<- conditionMessage(e)
-    })
-    list(gene = g, result = res, warning = warn, error = err)
-  }
-
-  ## Post-process & save
-  names(nebula_res_list) <- vapply(nebula_res_list, `[[`, "", "gene")
-  nebula_res_list <- lapply(nebula_res_list, `[[`, "result")
-  nebula_res_list <- Filter(Negate(is.null), nebula_res_list)
-
-  nebula_results_by_subtype[[ct]] <- nebula_res_list
-
-  pct_nonconv <- (length(genes_list) - length(nebula_res_list)) / length(genes_list)
-  message(sprintf("%.2f%% models failed to converge for %s",
-                  100 * pct_nonconv, ct))
-
-  tmp <- tempfile(fileext = ".rds")
-  saveRDS(nebula_res_list, tmp)
-  s3_key <- sprintf("POD/%s/nebula/%s_nebula_res_reml_pooled.rds", ct, ct)
-  s3$upload_file(tmp, "attempt", s3_key)
-}
-
-stopCluster(cl)
-overall_end_time <- Sys.time()
-print(overall_end_time - overall_start_time)
-```
-
 ###### REML with rounded counts & pooled offset
 
 ```{r echo = F, eval = T}
@@ -4697,88 +4608,6 @@ print(paste0(nebula_nonconverged_percent*100, "% filtered due to low expression"
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(nebula_pod_results_list_reml_pooled, temp_file) # save the temp file locally (will delete after R session)
 s3$upload_file(temp_file, "attempt", 'POD/nebula/pod_attempt_nebula_res_reml_pooled.rds')
-```
-
-
-```{r echo = F}
-# POD subtypes
-celltype_vec <- c("POD")
-
-cl <- makeCluster(100)
-registerDoParallel(cl)
-
-overall_start_time <- Sys.time()
-nebula_results_by_subtype <- vector("list", length(celltype_vec))
-names(nebula_results_by_subtype) <- celltype_vec
-
-for (ct in celltype_vec) {
-
-  message("===== Running Nebula for ", ct, " =====")
-
-  so_ct <- subset(attempt_so_pod, celltype == ct)
-
-  counts_ct   <- round(GetAssayData(so_ct, layer = "counts"))
-  genes_list  <- rownames(counts_ct)
-  meta_ct     <- so_ct@meta.data
-
-  ## Run your original foreach loop
-  nebula_res_list <- foreach(
-    g = genes_list, .packages = c("nebula", "Matrix"),
-    .errorhandling = "pass"
-  ) %dopar% {
-
-    warn <- err <- res <- NULL
-    tryCatch({
-      meta_gene <- subset(so_ct, features = g)@meta.data
-      count_gene <- counts_ct[g, , drop = FALSE]
-      pred_gene  <- model.matrix(~ treatment * visit, data = meta_gene)
-      data_gene  <- group_cell(count = count_gene,
-                               id    = meta_gene$subject_id,
-                               pred  = pred_gene)
-
-      res <- withCallingHandlers(
-        nebula(
-          count  = data_gene$count,
-          id     = data_gene$id,
-          pred   = data_gene$pred,
-          ncore  = 1,
-          output_re  = TRUE,
-          covariance = TRUE,
-          reml   = 1,
-          model  = "NBLMM",
-          offset = meta_gene$pooled_offset
-        ),
-        warning = function(w) {
-          warn <<- conditionMessage(w)
-          invokeRestart("muffleWarning")
-        }
-      )
-    }, error = function(e) {
-      err <<- conditionMessage(e)
-    })
-    list(gene = g, result = res, warning = warn, error = err)
-  }
-
-  ## Post-process & save
-  names(nebula_res_list) <- vapply(nebula_res_list, `[[`, "", "gene")
-  nebula_res_list <- lapply(nebula_res_list, `[[`, "result")
-  nebula_res_list <- Filter(Negate(is.null), nebula_res_list)
-
-  nebula_results_by_subtype[[ct]] <- nebula_res_list
-
-  pct_nonconv <- (length(genes_list) - length(nebula_res_list)) / length(genes_list)
-  message(sprintf("%.2f%% models failed to converge for %s",
-                  100 * pct_nonconv, ct))
-
-  tmp <- tempfile(fileext = ".rds")
-  saveRDS(nebula_res_list, tmp)
-  s3_key <- sprintf("POD/%s/nebula/%s_nebula_res_reml_pooled_full.rds", ct, ct)
-  s3$upload_file(tmp, "attempt", s3_key)
-}
-
-stopCluster(cl)
-overall_end_time <- Sys.time()
-print(overall_end_time - overall_start_time)
 ```
 
 
