@@ -151,6 +151,24 @@ def harmonize_data():
         harmonized[["lm_k2_wo_cyst_vw", "rm_k2_wo_cyst_vw"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_c_k2_wo_cyst_vw"] = \
         harmonized[["lc_k2_wo_cyst_vw", "rc_k2_wo_cyst_vw"]].apply(lambda x: x.mean(), axis=1)
+
+    # Average K1
+    harmonized["avg_c_k1"]= \
+        harmonized[["lc_k1", "rc_k1"]].apply(lambda x: x.mean(), axis=1)
+    harmonized["avg_m_k1"]= \
+        harmonized[["lm_k1", "rm_k1"]].apply(lambda x: x.mean(), axis=1)   
+    # Average k2
+    harmonized["avg_c_k2"]= \
+        harmonized[["lc_k2", "rc_k2"]].apply(lambda x: x.mean(), axis=1)
+    harmonized["avg_m_k2"]= \
+        harmonized[["lm_k2", "rm_k2"]].apply(lambda x: x.mean(), axis=1) 
+    # Average F
+    harmonized["avg_c_f"]= \
+        harmonized[["lc_f", "rc_f"]].apply(lambda x: x.mean(), axis=1)
+    harmonized["avg_m_k2"]= \
+        harmonized[["lm_f", "rm_f"]].apply(lambda x: x.mean(), axis=1)         
+        
+        
     # Calculate FSOC = bl_bold - pf_bold
     cols = [c for c in harmonized.columns if "_bl_" in c] + \
         [c for c in harmonized.columns if "_pf_" in c]
