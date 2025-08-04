@@ -2,6 +2,8 @@
 library(readxl)
 library(dplyr)
 library(tidyverse)
+library(jsonlite)
+library(aws.s3)
 
 attempt_file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_AnalyticalDatasets_Denver.xlsx"
 attempt_mri_file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_MRI_SK_LHSC_TorontoLondon.csv"
@@ -74,6 +76,8 @@ egfr <- read_excel(attempt_file, sheet = "ATTEMPT_eGFR", na = c("NA", ""))
 mgfr <- attempt_061725_raw # newer mgfr file
 mri <- read_excel(attempt_file, sheet = "ATTEMPT_BoldMRI", na = c("NA", "")) %>%
   bind_rows(attempt_mri)
+ketones <- read_excel(attempt_file, sheet = "ATTEMPT_mGFR", na = c("NA", "")) %>%
+  dplyr::select(subject_id, visit, site, starts_with("mgfr_ketone"))
 
 randomization <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_Randomization_Denver.xlsx",
                             sheet = "ATTEMPT_Randomization", na = c("NA", ""))
@@ -86,7 +90,7 @@ data_frames <- list(attempt_031425 = attempt_031425,
   bloodlab_local = bloodlab_local, 
   bloodlab_central = bloodlab_central, compliance = compliance, 
   egfr = egfr, mgfr = mgfr, mri = mri, attempt_mri_labs = attempt_mri_labs,
-  tir = attempt_052825_raw)
+  tir = attempt_052825_raw, ketones = ketones)
 
 data_frames <- lapply(data_frames, function(df) {
   df %>%
@@ -198,3 +202,21 @@ merged_data <- merged_data[, !grepl("^ethnicity_ca___|^ethnicity_us___", names(m
 # merge and save
 save(merged_data, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Clean/ATTEMPT_AC.RData")
 
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
+# save in kopah
+s3saveRDS(
+  merged_data, 
+  object = "Clinical Data/ATTEMPT_AC.RDS",  # remote path
+  bucket = "attempt",                       # bucket name
+  region = ""
+)
