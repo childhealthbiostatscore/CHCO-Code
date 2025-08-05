@@ -146,3 +146,25 @@ def add_id_column(df, study_name):
     df[f'{study_name.lower().replace("-", "")}_id'] = df['mrn'].map(id_map)   
   
 
+def create_study_id_columns(harmonized):
+    import os
+    study_list = [('CASPER', 'casper_id'), ('COFFEE', 'coffee_id'), ('CROCODILE','croc_id'), ('IMPROVE','improve_id'), ('PENGUIN','penguin_id'), ('RENAL-HEIR','rh_id'), ('RENAL-HEIRitage','rh2_id'), ('PANTHER','panther_id'), ('PANDA','panda_id'), ('ATTEMPT','attempt_id')]
+
+    for study, id in study_list: 
+        study_mrns = harmonized.loc[harmonized['study'] == study, ['mrn', 'record_id']]
+        study_id_map = dict(zip(study_mrns['mrn'], study_mrns['record_id']))
+        harmonized[id] = harmonized.apply(lambda row: study_id_map[row['mrn']] if row['mrn'] in study_id_map else '', axis=1)
+
+    # ---- Create and Save ID Linkage Matrix ----
+    linkage_df = (
+        harmonized
+        .dropna(subset=['mrn', 'study', 'record_id'])
+        .drop_duplicates(subset=['mrn', 'study'])
+        .pivot(index='mrn', columns='study', values='record_id')
+        .fillna('')
+        .reset_index()
+    )
+
+    output_path = os.path.join(os.getcwd(), "id_linkage_matrix.csv")
+    linkage_df.to_csv(output_path, index=False)
+    return harmonized
