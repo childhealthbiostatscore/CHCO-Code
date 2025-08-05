@@ -19,11 +19,13 @@ editor: source
 
 ```{r setup}
 #| include: false
-library(Hmisc)
+library(labelled)
 library(tidyverse)
 library(arsenal)
 library(gtsummary)
 library(sjPlot)
+library(ggpubr)
+library(ggradar)
 library(pROC)
 library(gt)
 home_dir <- switch(Sys.info()["sysname"],
@@ -45,55 +47,55 @@ knitr::opts_knit$set(root.dir = home_dir)
 load("./Data_Clean/analysis_data.RData")
 # Create additional categorical variables per Grayson and Melanie
 df$cv_ft_above_uln <- df$cv_ft_perc > 100
-label(df$cv_ft_above_uln) <- "Free Testosterone > 100% ULN"
+var_label(df$cv_ft_above_uln) <- "Free Testosterone > 100% ULN"
 df$cv_tt_above_uln <- df$cv_tt_perc > 100
-label(df$cv_tt_above_uln) <- "Total Testosterone > 100% ULN"
+var_label(df$cv_tt_above_uln) <- "Total Testosterone > 100% ULN"
 df$cv_ft_perc_over_tt_perc_under <- df$cv_tt_perc <= 100 & df$cv_ft_perc > 100
-label(df$cv_ft_perc_over_tt_perc_under) <- "TT <= 100% ULN & FT > 100% ULN"
+var_label(df$cv_ft_perc_over_tt_perc_under) <- "TT <= 100% ULN & FT > 100% ULN"
 df$cv_dheas_above_uln <- df$cv_dheas_perc > 100
-label(df$cv_dheas_above_uln) <- "DHEAS > 100% ULN"
+var_label(df$cv_dheas_above_uln) <- "DHEAS > 100% ULN"
 df$cv_androstendione_above_uln <- df$cv_androstendione_perc > 100
-label(df$cv_androstendione_above_uln) <- "Androstendione > 100% ULN"
+var_label(df$cv_androstendione_above_uln) <- "Androstendione > 100% ULN"
 df$cv_amh_above_uln <- df$cv_amh_perc > 100
-label(df$cv_amh_above_uln) <- "AMH > 100% ULN"
+var_label(df$cv_amh_above_uln) <- "AMH > 100% ULN"
 df$cv_lh_fsh <- df$cv_lh / df$cv_fsh
-label(df$cv_lh_fsh) <- "LH:FSH ratio"
+var_label(df$cv_lh_fsh) <- "LH:FSH ratio"
 df$lh_fsh_ratio_above_2 <- df$cv_lh_fsh > 2
-label(df$lh_fsh_ratio_above_2) <- "LH:FSH ratio > 2"
+var_label(df$lh_fsh_ratio_above_2) <- "LH:FSH ratio > 2"
 df$lh_fsh_ratio_under_1 <- df$cv_lh_fsh < 1
-label(df$lh_fsh_ratio_under_1) <- "LH:FSH ratio < 1"
+var_label(df$lh_fsh_ratio_under_1) <- "LH:FSH ratio < 1"
 df$cv_shbg_under_20 <- df$cv_shbg < 20
-label(df$cv_shbg_under_20) <- "SHBG < 20 "
+var_label(df$cv_shbg_under_20) <- "SHBG < 20 "
 df$cv_sbp_cat <- cut(df$cv_sbp,
   breaks = c(-Inf, 120, 130, 140, Inf),
   labels = c("<120", "120-129", "130-139", "140+"), right = F
 )
-label(df$cv_sbp_cat) <- "SBP category"
+var_label(df$cv_sbp_cat) <- "SBP category"
 df$cv_a1c_cat <- cut(df$cv_a1c,
   breaks = c(-Inf, 5.6, 6.4, Inf),
   labels = c("<=5.6", "5.7-6.4", ">=6.5")
 )
-label(df$cv_a1c_cat) <- "HbA1c category"
+var_label(df$cv_a1c_cat) <- "HbA1c category"
 df$cv_fbg_cat <- cut(df$cv_fbg,
   breaks = c(-Inf, 100, 126, Inf),
   labels = c("<100", "100-125", "126+"), right = F
 )
-label(df$cv_fbg_cat) <- "Fasting glucose category"
+var_label(df$cv_fbg_cat) <- "Fasting glucose category"
 df$cv_2hrglucoseogtt_cat <- cut(df$cv_2hrglucoseogtt,
   breaks = c(-Inf, 140, 200, Inf), labels = c("<140", "140-199", "200+"),
   right = F
 )
-label(df$cv_2hrglucoseogtt_cat) <- "2-hr glucose category"
+var_label(df$cv_2hrglucoseogtt_cat) <- "2-hr glucose category"
 df$cv_tg_cat <- cut(df$cv_tg,
   breaks = c(-Inf, 90, 150, Inf),
   labels = c("<90", "90-149", "150+"),
   right = F
 )
-label(df$cv_tg_cat) <- "Triglycerides category"
+var_label(df$cv_tg_cat) <- "Triglycerides category"
 df$cv_hdl_under_45 <- df$cv_hdl < 45
-label(df$cv_hdl_under_45) <- "HDL < 45"
+var_label(df$cv_hdl_under_45) <- "HDL < 45"
 df$cv_alt_above_35 <- df$cv_alt > 35
-label(df$cv_alt_above_35) <- "ALT > 35"
+var_label(df$cv_alt_above_35) <- "ALT > 35"
 # Private vs. public/none/military/other
 df$insur_type_2 <- factor(df$insur_type,
   levels = c("Public", "Private", "Military", "None", "Other", "{insur_other}"),
@@ -399,8 +401,30 @@ ggplot(
 ) +
   geom_bar(position = "dodge", stat = "identity") +
   ylab("Percent") +
+  ggtitle("HbA1c (%)") +
   theme_bw() +
-  theme(legend.title = element_blank(), axis.title.x = element_blank())
+  theme(
+    legend.title = element_blank(), axis.title.x = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+# Stacked bar
+ggplot(
+  plot_df[plot_df$name == "cv_a1c", ],
+  aes(x = weight_cat, y = perc, fill = value)
+) +
+  geom_bar(position = "stack", stat = "identity") +
+  ylab("Percent") +
+  ggtitle("HbA1c (%)") +
+  theme_bw() +
+  theme(
+    legend.title = element_blank(), axis.title.x = element_blank(),
+    plot.title = element_text(hjust = 0.5)
+  )
+# Spider graph
+plot_df %>%
+  filter(name == "cv_a1c") %>%
+  pivot_wider(names_from = value,values_from = perc,id_cols = weight_cat)%>%
+  ggradar()
 ```
 
 # ROC Analysis
@@ -448,13 +472,13 @@ cv1 |>
 load("./Data_Clean/analysis_data.RData")
 # LF:FSH ratio
 df$cv_lh_fsh <- df$cv_lh / df$cv_fsh
-label(df$cv_lh_fsh) <- "LH:FSH"
+var_label(df$cv_lh_fsh) <- "LH:FSH"
 # Combine lean and overweight
 df$weight_cat <- factor(df$weight_cat,
   levels = c("Normal weight", "Overweight", "Obese"),
   labels = c("Non-Obese", "Non-Obese", "Obese")
 )
-label(df$weight_cat) <- "Weight Category (by percentile then raw value)"
+var_label(df$weight_cat) <- "Weight Category (by percentile then raw value)"
 # Combine race categories
 df$combined_race <- factor(df$combined_race,
   levels = c(
@@ -466,7 +490,7 @@ df$combined_race <- factor(df$combined_race,
     "Other/More than one", "Other/More than one", "Other/More than one"
   )
 )
-label(df$combined_race) <- "Race"
+var_label(df$combined_race) <- "Race"
 # Combine other variable levels
 df$cv_acneface <- factor(df$cv_acneface,
   levels = c(
@@ -478,7 +502,7 @@ df$cv_acneface <- factor(df$cv_acneface,
     "None/Mild/Unknown", "None/Mild/Unknown"
   )
 )
-label(df$cv_acneface) <- "Acne severity on the face"
+var_label(df$cv_acneface) <- "Acne severity on the face"
 df$cv_acanthosisneck <- factor(df$cv_acanthosisneck,
   levels = c(
     "Back of neck, barely visible (minimal)", "Back of neck, obvious (mild)",
@@ -486,7 +510,7 @@ df$cv_acanthosisneck <- factor(df$cv_acanthosisneck,
   ),
   labels = c("Present", "Present", "Present", "Present", "Absent")
 )
-label(df$cv_acanthosisneck) <- "Acanthosis at the neck"
+var_label(df$cv_acanthosisneck) <- "Acanthosis at the neck"
 df$cv_osa_sx <- factor(df$cv_osa_sx,
   levels = c(
     "Yes, not addressed", "Yes, prescribed CPAP but not using it",
@@ -495,7 +519,7 @@ df$cv_osa_sx <- factor(df$cv_osa_sx,
   ),
   labels = c("Present", "Present", "Present", "Absent", "Absent")
 )
-label(df$cv_osa_sx) <- "Symptoms of sleep apnea (snoring, frequent awakening, AM headaches, daytime fatigue, napping during day)"
+var_label(df$cv_osa_sx) <- "Symptoms of sleep apnea (snoring, frequent awakening, AM headaches, daytime fatigue, napping during day)"
 # Variable lists
 demo_vars <- c(
   "pcosdx_age", "combined_race", "ethnicity", "insur_type"
