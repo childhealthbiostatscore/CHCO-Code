@@ -1225,7 +1225,9 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                                      caption_text = paste0("Point position reflects association with clinical variable; point color indicates treatment effect direction.\nPoints are colored if concordant with clinical variable direction after treatment. \nUp to top ", top_n, " from each direction are labeled."),
                                      cell_type = "", top_n = 50,
                                      seed = 1, 
-                                     force = 50) {
+                                     force = 50,
+                                     box.padding = 0.6,
+                                     point.padding = 0.4) {
   
   set.seed(seed)
   # Add treatment effect directions
@@ -1367,13 +1369,13 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                     ylim = c(y_max*0.2, NA),
                     segment.size = 0.4,
                     segment.color = "darkgrey",
-                    segment.alpha = 0.5,
+                    segment.alpha = 0.3,
                     hjust = 0,
                     size = 3,
                     max.overlaps = Inf,
                     force = force,
-                    box.padding = 0.6,
-                    point.padding = 0.4,
+                    box.padding = box.padding,
+                    point.padding = point.padding,
                     min.segment.length = 0,
                     seed = seed) +
     
@@ -1386,13 +1388,13 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                     ylim = c(y_max*0.2, NA),
                     segment.size = 0.4,
                     segment.color = "darkgrey",
-                    segment.alpha = 0.5,
+                    segment.alpha = 0.3,
                     hjust = 1,
                     size = 3,
                     max.overlaps = Inf,
                     force = force,
-                    box.padding = 0.6,
-                    point.padding = 0.4,
+                    box.padding = box.padding,
+                    point.padding = point.padding,
                     min.segment.length = 0,
                     seed = seed) +
     
@@ -3475,7 +3477,8 @@ soma_corr <- function(
     top_n = 20,         # number of top labels to show
     proper_name,
     pre_visit = 0,
-    post_visit = 16
+    post_visit = 16,
+    label = "Target"
 ) {
   library(psych)
   library(dplyr)
@@ -3563,7 +3566,7 @@ soma_corr <- function(
     data = corr_mat,
     FC = paste0("spearman_delta_", clinical_var),
     p.value = "p.value",
-    labels = "Target",
+    labels = label,
     pos_did = corr_did_up,
     neg_did = corr_did_down,
     cutoff = 0.05,
@@ -3594,7 +3597,7 @@ soma_plot_corr_volcano <- function (data,
                                     sig_neg_lab = "Significant (-)", 
                                     ns_lab = "Non-Significant", 
                                     sig_pos_col = "#f28482", 
-                                    sig_neg_col = "#8ecae6", 
+                                    sig_neg_col = "#457b9d", 
                                     ns_col = "#dad7cd",
                                     main = NULL, 
                                     x.lab = NULL, 
@@ -3644,10 +3647,13 @@ soma_plot_corr_volcano <- function (data,
         T ~ "not-DiD"
       ),
       
-      did_face = case_when(DiD_status == "DiD" ~ "plain",
-                           T ~ "bold"),
+
       # Flag for significant entries
       is_significant = -log10(.data[[p.value]]) >= -log10(cutoff),
+      sig_face = case_when(is_significant ~ "bold",
+                           T ~ "plain"),
+      did_face = case_when(DiD_status == "DiD" ~ "plain",
+                           T ~ "bold"),
       combined_status = case_when(!is.na(significance_status) & !is.na(did_label) ~ paste0(significance_status," & ", did_label),
                                   !is.na(significance_status) ~ significance_status,
                                   !is.na(did_label) ~ did_label))
@@ -3696,7 +3702,7 @@ soma_plot_corr_volcano <- function (data,
                        dplyr::filter(is_significant | DiD_status == "DiD"), 
                      aes(label = !!.label_sym,
                          fill = did_label,
-                         fontface = did_face),  
+                         fontface = sig_face),  
                      label.size = 0,
                      segment.color = "grey",
                      size = text.size, 
@@ -3717,8 +3723,6 @@ soma_plot_corr_volcano <- function (data,
   
   return(p)
 }
-
-
 
 # ===========================================================================
 # Function: run_limma_proteomics
