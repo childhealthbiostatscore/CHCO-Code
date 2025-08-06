@@ -6,7 +6,7 @@ library(dplyr)
 library(tidyr)
 library(purrr)
 library(REDCapR)
-
+library(readxl)
 
 harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
 
@@ -55,7 +55,7 @@ biopsy_master_panda <- biopsy_master %>%
   dplyr::select(record_id, Study, Biopsy_date, visit, Shipped_Y_N, scRNA_status, ends_with("_ID")) %>%
   filter(!is.na(record_id)) %>%
   # filter(Shipped_Y_N == "Yes") %>%
-  filter(scRNA_status != "No sample") %>%
+  # filter(scRNA_status != "No sample") %>%
   filter(Study == "PANDA") %>%
   mutate(sequenced = case_when(scRNA_status == "Complete" ~ "Yes",
                                T~ "No"),
@@ -65,7 +65,6 @@ biopsy_master_panda <- biopsy_master %>%
 # panda_unique_bx$kit_id[panda_unique_bx$kit_id %nin% biopsy_master_panda$Kit_ID]
 
 # PNDA 205 missing cryostor
-
 
 master_panda_sub <- biopsy_master_panda %>%
   dplyr::select(panda_id, Kit_ID, Cryostor_ID) %>%
@@ -79,7 +78,7 @@ harm_panda_sub <- panda_unique_bx %>%
 
 combined_panda <- rbind(master_panda_sub, harm_panda_sub) %>%
   group_by(panda_id) %>%
-  fill(attempt_id, croc_id, .direction = "updown") %>%
+  fill(attempt_id, croc_id, kit_id, cryostor_id, .direction = "updown") %>%
   filter(is.na(attempt_id)) %>%
   distinct(panda_id, .keep_all = T) %>%
   mutate(site = case_when(grepl("^PNDA[- ]1\\d{2}$", panda_id) ~ "Colorado",
@@ -91,6 +90,14 @@ combined_panda <- rbind(master_panda_sub, harm_panda_sub) %>%
          ) %>%
   # filter(!is.na(cryostor_id)) %>%
   dplyr::select(-attempt_id, croc_id, site)
+
+# pnda14 <- combined_panda %>%
+#   filter(startsWith(panda_id, "PNDA-2"))
+
+# pnda17 <- combined_panda %>%
+#   filter(startsWith(panda_id, "PNDA-2"))
+# 
+# pnda17$panda_id[pnda17$panda_id %nin% pnda14$panda_id]
 
 write.csv(combined_panda, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANDA/Data_Cleaned/panda_unique_biopsy_ids.csv", row.names = F, na = "")
 
