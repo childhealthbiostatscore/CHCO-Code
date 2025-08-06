@@ -49,7 +49,7 @@ library(REDCapR)
 library(reshape2)
 library(rstatix)
 library(SAVER)
-library(scDC)
+# library(scDC)
 library(scater)
 library(scran)
 library(Seurat)
@@ -64,7 +64,7 @@ library(doParallel)
 
 
 ```{r include = F}
-reticulate::use_python("/mmfs1/gscratch/scrubbed/yejichoi/mypy/bin/python", required = T)
+reticulate::use_python("/mmfs1/gscratch/togo/yejichoi/mypy/bin/python", required = T)
 reticulate::repl_python()
 reticulate::py_config()
 # set up Kopah connection
@@ -169,20 +169,19 @@ s3$download_file("harmonized.dataset", "attempt_clinical_data.RDS", temp_file)
 attempt_dat <- readRDS(temp_file)
 
 # another clinical dataset from Antoine (merged version)
-temp_file <- tempfile(fileext = ".RData")
-s3$download_file("attempt", "Clinical Data/ATTEMPT_AC.RData", temp_file)
-load(temp_file)
-attempt_dat2 <- merged_data
+temp_file <- tempfile(fileext = ".RDS")
+s3$download_file("attempt", "Clinical Data/ATTEMPT_AC.RDS", temp_file)
+attempt_dat2 <- readRDS(temp_file)
 attempt_dat2[attempt_dat2 == ""] <- NA
 attempt_dat2 <- attempt_dat2 %>%
-  dplyr::select(-mgfr_jodal_bsa, -mgfr_jodal, -avg_k_r2, -avg_c_r2) %>%
+  dplyr::select(-mgfr_jodal_bsa, -mgfr_jodal, -mgfr_ketone_iv, -mgfr_ketones_pre, -avg_k_r2, -avg_c_r2) %>%
   filter(visit %in% c("baseline", "4_months_post")) %>%
   dplyr::mutate(visit = case_when(visit == "baseline" ~ "PRE", 
                                   visit == "4_months_post" ~ "POST"),
                 record_id = as.integer(record_id)) %>%
   left_join(
     attempt_dat2 %>%
-      dplyr::select(record_id, visit, mgfr_jodal_bsa, mgfr_jodal, avg_k_r2, avg_c_r2) %>%
+      dplyr::select(record_id, visit, mgfr_jodal_bsa, mgfr_jodal, mgfr_ketone_iv, mgfr_ketones_pre, avg_k_r2, avg_c_r2) %>%
       filter(visit %in% c("screening", "4_months_post")) %>%
       dplyr::mutate(visit = case_when(visit == "screening" ~ "PRE",
                                       visit == "4_months_post" ~ "POST"),
@@ -232,9 +231,20 @@ delta_df <-  attempt_so_meta %>%
             avg_k_r2_post = mean(avg_k_r2[visit == "POST"], na.rm = T),
             avg_k_r2_pre  = mean(avg_k_r2[visit == "PRE"], na.rm = T),
             avg_k_r2_delta = avg_k_r2_post - avg_k_r2_pre,
+            avg_ketones_post = mean(c(mgfr_ketone_iv[visit == "POST"], mgfr_ketones_pre[visit == "POST"]), 
+                                    na.rm = T),
+            avg_ketones_pre  = mean(c(mgfr_ketone_iv[visit == "PRE"], mgfr_ketones_pre[visit == "PRE"]), 
+                                    na.rm = T),
+            avg_ketones_delta = avg_ketones_post - avg_ketones_pre,
             .groups = "drop") %>%
   dplyr::select(subject_id, ends_with("_delta"))
-delta_df[is.nan(delta_df)] <- NA
+# Replace NaN with NA only in numeric columns
+delta_df[] <- lapply(delta_df, function(x) {
+  if (is.numeric(x)) {
+    x[is.nan(x)] <- NA
+  }
+  return(x)
+})
 
 attempt_so_meta <- left_join(attempt_so_meta, delta_df)
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
@@ -810,6 +820,75 @@ print(paste0(pt_avg_k_r2_filtered*100, "% filtered due to low expression"))
 temp_file <- tempfile(fileext = "rds") # need to create a temporary file
 saveRDS(pt_avg_k_r2_pooled, temp_file) # save the temp file locally (will delete after R session)
 s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_k_r2/pt_attempt_nebula_avg_k_r2.rds')
+```
+
+#### Ketones
+
+```{r echo = F}
+# Subset the Seurat object to nonmissing avg_ketones_delta
+attempt_so_hvg_pt_meta <- attempt_so_hvg_pt@meta.data
+attempt_so_hvg_pt_nonmissing_names <- rownames(attempt_so_hvg_pt_meta)[!is.na(attempt_so_hvg_pt_meta$avg_ketones_delta)]
+attempt_so_hvg_pt_nonmissing <- attempt_so_hvg_pt[, attempt_so_hvg_pt_nonmissing_names]
+counts_hvg_pt_nonmissing <- round(GetAssayData(attempt_so_hvg_pt_nonmissing, layer = "counts")) # load counts and round
+
+genes_list <- rownames(counts_hvg_pt_nonmissing)
+
+cl <- makeCluster(100)
+registerDoParallel(cl)
+
+start_time <- Sys.time()
+
+pt_avg_ketones_pooled <- foreach(g = genes_list, .packages = c("nebula", "Matrix"),
+                              .errorhandling = "pass") %dopar% {
+                                warn <- NULL
+                                err <- NULL
+                                res <- NULL
+                                
+                                tryCatch({
+                                  count_gene <- counts_hvg_pt_nonmissing[g, , drop = F]
+                                  meta_gene <- subset(attempt_so_hvg_pt_nonmissing, features = g)@meta.data
+                                  pred_gene <- model.matrix(~avg_ketones_delta + treatment, data = meta_gene)
+                                  data_g_gene <- group_cell(count = count_gene, id = meta_gene$subject_id, pred = pred_gene)
+                                  
+                                  res <- withCallingHandlers({
+                                    nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred,
+                                           ncore = 1, output_re = TRUE, covariance = TRUE, reml = 1, model = "NBLMM", 
+                                           offset = meta_gene$pooled_offset)
+                                  }, warning = function(w) {
+                                    warn <<- conditionMessage(w)
+                                    invokeRestart("muffleWarning")
+                                  })
+                                  
+                                }, error = function(e) {
+                                  err <<- conditionMessage(e)
+                                })
+                                
+                                list(gene = g, result = res, warning = warn, error = err)
+                              }
+
+## After the loop:
+for (res in pt_avg_ketones_pooled) {
+  if (!is.null(res$warning)) cat(sprintf("Warning for gene %s: %s\n", res$gene, res$warning))
+  if (!is.null(res$error)) cat(sprintf("Error for gene %s: %s\n", res$gene, res$error))
+}
+
+
+# set the names of results based on gene names
+names(pt_avg_ketones_pooled) <- sapply(pt_avg_ketones_pooled, function(x) x$gene)  # set names
+pt_avg_ketones_pooled <- lapply(pt_avg_ketones_pooled, function(x) x$result)  # clean list back to just results
+pt_avg_ketones_pooled <- Filter(Negate(is.null), pt_avg_ketones_pooled)  # remove NULLs first
+
+end_time <- Sys.time()
+print(end_time - start_time)
+stopCluster(cl)
+
+pt_avg_ketones_filtered <- (length(genes_list)-length(pt_avg_ketones_pooled))/length(genes_list)
+print(paste0(pt_avg_ketones_filtered*100, "% filtered due to low expression"))
+temp_file <- tempfile(fileext = "rds") # need to create a temporary file
+saveRDS(pt_avg_ketones_pooled, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "attempt", 'associations/nebula/avg_ketones/pt_attempt_nebula_avg_ketones.rds')
+
+
 ```
 
 ### TAL
