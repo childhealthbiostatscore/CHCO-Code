@@ -41,6 +41,9 @@ library(Hmisc)
 library(ggrounded)
 library(circlize)
 library(tidyverse)
+library(biomaRt)
+library(Seurat)
+library(openxlsx)
 ```
 
 ```{r echo = F, include = F}
@@ -65,7 +68,7 @@ Sys.setenv(
 ```{r echo = F}
 ## read mixed model results dataframe (rendered in Hyak)
 # process and read all results from ATTEMPT
-
+mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl") # to join full name description
 celltypes <- c("PT", "TAL", "PC", "Immune_Myeloid", "Immune_Lymphoid", 
                "Immune", "IC", "EC", "FIBVSMCP", "POD")
 
@@ -75,23 +78,77 @@ for (cell in celltypes)  {
   cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
   
   processed <- process_nebula_results(cell_df)
-  lower_cell <- tolower(cell)
-  var_name <- paste0(lower_cell, "_hvg_nebula_res_combined_reml_pooled")
+
+  # Get gene symbols
+  gene_symbols <- processed$results$Gene
   
-  assign(var_name, processed$results)
+  # Query Ensembl
+  gene_info <- getBM(
+    attributes = c("hgnc_symbol", "description", "gene_biotype"),
+    filters = "hgnc_symbol",
+    values = gene_symbols,
+    mart = mart
+  ) %>%
+    dplyr::rename(Gene = hgnc_symbol)
+  
+  # Join annotation
+  annotated_df <- processed$results %>%
+    left_join(gene_info, by = "Gene")
+  
+  # Assign to variable dynamically
+  var_name <- paste0(tolower(cell), "_hvg_nebula_res_combined_reml_pooled")
+  assign(var_name, annotated_df, envir = .GlobalEnv)
 }
 
 # Full gene set
 for (cell in celltypes)  {
   input_path <- paste0(cell,"/nebula/",tolower(cell),"_attempt_nebula_res_reml_pooled.rds")
   cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
-  head(cell_df)
+
   processed <- process_nebula_results(cell_df)
-  lower_cell <- tolower(cell)
-  var_name <- paste0(lower_cell, "_nebula_res_combined_reml_pooled")
+  # Get gene symbols
+  gene_symbols <- processed$results$Gene
   
-  assign(var_name, processed$results)
+  # Query Ensembl
+  gene_info <- getBM(
+    attributes = c("hgnc_symbol", "description", "gene_biotype"),
+    filters = "hgnc_symbol",
+    values = gene_symbols,
+    mart = mart
+  ) %>%
+    dplyr::rename(Gene = hgnc_symbol)
+  
+  # Join annotation
+  annotated_df <- processed$results %>%
+    left_join(gene_info, by = "Gene")
+  
+  # Assign to variable dynamically
+  var_name <- paste0(tolower(cell), "_nebula_res_combined_reml_pooled")
+  assign(var_name, annotated_df, envir = .GlobalEnv)
 }
+```
+
+```{r echo = F}
+top20_wb <- createWorkbook()
+
+# Loop through and extract top 20 genes per cell type
+for (cell in celltypes) {
+  var_name <- paste0(tolower(cell), "_hvg_nebula_res_combined_reml_pooled")
+  df <- get(var_name)
+
+  # Extract top 20 by lowest p-value
+  top_genes <- df %>%
+    arrange(`p_treatmentDapagliflozin:visitPOST`) %>%
+    slice_head(n = 20)
+
+  # Add a worksheet and write the top genes
+  addWorksheet(top20_wb, sheetName = cell)
+  writeData(top20_wb, sheet = cell, x = top_genes)
+}
+
+# Save the workbook
+saveWorkbook(top20_wb, file = "//Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT//Results/top20_hvg_nebula_results_by_celltype.xlsx", overwrite = TRUE)
+
 ```
 
 ### PT
