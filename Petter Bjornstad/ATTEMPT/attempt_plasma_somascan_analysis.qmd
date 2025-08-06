@@ -110,8 +110,7 @@ attempt_redcap_denver <- attempt_redcap %>%
   dplyr::rename(subject_id = record_id)
 
 # clinical dataset from Antoine (merged version)
-s3load("Clinical Data/ATTEMPT_AC.RData", "attempt", region = "")
-attempt_dat <- merged_data
+attempt_dat <- s3readRDS("Clinical Data/ATTEMPT_AC.RDS", "attempt", region = "")
 attempt_dat[attempt_dat == ""] <- NA
 attempt_dat <- attempt_dat %>%
   filter(visit %in% c("baseline", "4_weeks_post", "4_months_post", "screening", "follow_up")) %>%
@@ -388,6 +387,63 @@ ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Pathways/plasma_
        width = 27.5, height = 14, scale = 1)
 ```
 
+## Integrate transcriptomics
+
+```{r echo = F}
+# read in results from transcriptomics (EC, POD, MES, VSMC, Immune) for plasma proteimics)
+celltypes <- c("EC", "POD", "FIB/VSMC/P", "Immune")
+
+# Full gene set (not limited to 2000 HVG)
+for (cell in celltypes)  {
+  input_path <- paste0(cell,"/nebula/",tolower(cell),"_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+  head(cell_df)
+  processed <- process_nebula_results(cell_df)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_nebula_res_combined_reml_pooled")
+  
+  assign(var_name, processed$results)
+}
+
+plasma_did_sig <- did_res_plasma_mixed$results_annotated %>%
+  filter(P.Value < 0.05)
+
+plasma_delta <- soma %>%
+  select(record_id, visit, treatment_arm, starts_with(pt_map$AptName) & ends_with("cradj")) %>%
+  pivot_wider(
+    names_from = visit,
+    values_from = starts_with("seq"),
+    names_glue = "{.value}_{visit}"
+  ) %>%
+  mutate(across(ends_with("_POST"), 
+                ~ . - get(sub("_POST$", "_PRE", cur_column())),
+                .names = "delta_{.col}")) %>%
+  select(record_id, treatment_arm, starts_with("delta_"))
+
+s3saveRDS(plasma_delta, "Proteomics/plasma_cradj_proteomics_delta.RDS", "attempt", region = "")
+```
+
+```{r echo = F}
+# create mapping table for each celltype
+
+walk(celltypes, function(ct) {
+  
+  # Dynamically get the nebula results object based on cell type
+  nebula_obj <- get(paste0(tolower(ct), "_nebula_res_combined_reml_pooled"))
+  
+  sig <- nebula_obj %>%
+    filter(`p_treatmentDapagliflozin:visitPOST` < 0.05)
+  
+  map <- analytes_info %>%
+    filter(EntrezGeneSymbol %in% unique(sig$Gene[sig$Gene %in% plasma_did_sig$EntrezGeneSymbol])) %>%
+    select(Target, TargetFullName, AptName, EntrezGeneSymbol)
+  
+  write.csv(map, 
+            file.path(root_path, paste0("ATTEMPT/Results/Somascan/", ct, "_plasma_proteomics_map.csv")), 
+            row.names = FALSE, na = "")
+})
+```
+
 ## Correlations with clinical variables
 
 ### mGFR
@@ -401,7 +457,7 @@ plasma_soma_mgfr <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "mgfr_jodal",
   feature_suffix = "",
-  proper_name = "mGFR",
+  proper_name = "\u0394 mGFR",
   pre_visit = -4
 )
 
@@ -424,7 +480,7 @@ plasma_soma_mgfr_adj <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "mgfr_jodal_bsa",
   feature_suffix = "",
-  proper_name = "mGFR (BSA)",
+  proper_name = "\u0394 mGFR (BSA)",
   pre_visit = -4
 )
 
@@ -447,7 +503,7 @@ plasma_soma_hba1c <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "hba1c",
   feature_suffix = "",
-  proper_name = "HbA1c"
+  proper_name = "\u0394 HbA1c"
 )
 
 # correlation table
@@ -469,7 +525,7 @@ plasma_soma_tir <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "cgm_tir",
   feature_suffix = "",
-  proper_name = "TIR"
+  proper_name = "\u0394 TIR"
 )
 
 # correlation table
@@ -491,7 +547,7 @@ plasma_soma_weight <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "weight",
   feature_suffix = "",
-  proper_name = "Weight"
+  proper_name = "\u0394 Weight"
 )
 
 # correlation table
@@ -513,7 +569,7 @@ plasma_soma_PWV <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "PWV",
   feature_suffix = "",
-  proper_name = "PWV",
+  proper_name = "\u0394 PWV",
   pre_visit = -4
 )
 
@@ -536,7 +592,7 @@ plasma_soma_avg_c_r2 <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "avg_c_r2",
   feature_suffix = "",
-  proper_name = "Cortical R2*",
+  proper_name = "\u0394 Cortical R2*",
   pre_visit = -4
 )
 
@@ -559,7 +615,7 @@ plasma_soma_avg_k_r2 <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "avg_k_r2",
   feature_suffix = "",
-  proper_name = "Kidney R2*",
+  proper_name = "\u0394 Kidney R2*",
   pre_visit = -4
 )
 

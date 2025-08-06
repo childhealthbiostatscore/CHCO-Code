@@ -110,8 +110,7 @@ attempt_redcap_denver <- attempt_redcap %>%
   dplyr::rename(subject_id = record_id)
 
 # clinical dataset from Antoine (merged version)
-s3load("Clinical Data/ATTEMPT_AC.RData", "attempt", region = "")
-attempt_dat <- merged_data
+attempt_dat <- s3readRDS("Clinical Data/ATTEMPT_AC.RDS", "attempt", region = "")
 attempt_dat[attempt_dat == ""] <- NA
 attempt_dat <- attempt_dat %>%
   filter(visit %in% c("baseline", "4_weeks_post", "4_months_post", "screening", "follow_up")) %>%
@@ -300,6 +299,7 @@ plot_volcano_proteomics(data = post_res_urine$results_annotated, fc = "logFC",
 ```
 
 # DiD (Normalized by creatinine)
+
 ```{r echo = F}
 # using creatinine adjusted proteins
 did_res_urine <- run_limma_proteomics(data = soma,
@@ -390,6 +390,66 @@ ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Pathways/urine_S
        width = 27.5, height = 14, scale = 1)
 ```
 
+## Integrate transcriptomics
+
+```{r echo = F}
+# looking for direct protein shedding/secretion into urine
+# read in results from transcriptomics (PT, TAL, DCT, CD (collecting duct = PC, IC), and POD for urine proteimics)
+celltypes <- c("PT", "TAL", "PC", "IC", "POD")
+
+# Full gene set (not limited to 2000 HVG)
+for (cell in celltypes)  {
+  input_path <- paste0(cell,"/nebula/",tolower(cell),"_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+  head(cell_df)
+  processed <- process_nebula_results(cell_df)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_nebula_res_combined_reml_pooled")
+  
+  assign(var_name, processed$results)
+}
+
+urine_did_sig <- did_res_urine_mixed$results_annotated %>%
+  filter(P.Value < 0.05)
+
+urine_delta <- soma %>%
+  select(record_id, visit, treatment_arm, starts_with("seq") & ends_with("cradj")) %>%
+  pivot_wider(
+    names_from = visit,
+    values_from = starts_with("seq"),
+    names_glue = "{.value}_{visit}"
+  ) %>%
+  mutate(across(ends_with("_POST"), 
+                ~ . - get(sub("_POST$", "_PRE", cur_column())),
+                .names = "delta_{.col}")) %>%
+  select(record_id, treatment_arm, starts_with("delta_"))
+
+s3saveRDS(urine_delta, "Proteomics/urine_cradj_proteomics_delta.RDS", "attempt", region = "")
+```
+
+```{r echo = F}
+# create mapping table for each celltype
+
+
+walk(celltypes, function(ct) {
+  
+  # Dynamically get the nebula results object based on cell type
+  nebula_obj <- get(paste0(tolower(ct), "_nebula_res_combined_reml_pooled"))
+  
+  sig <- nebula_obj %>%
+    filter(`p_treatmentDapagliflozin:visitPOST` < 0.05)
+  
+  map <- analytes_info %>%
+    filter(EntrezGeneSymbol %in% unique(sig$Gene[sig$Gene %in% urine_did_sig$EntrezGeneSymbol])) %>%
+    select(Target, TargetFullName, AptName, EntrezGeneSymbol)
+  
+  write.csv(map, 
+            file.path(root_path, paste0("ATTEMPT/Results/Somascan/", ct, "_urine_proteomics_map.csv")), 
+            row.names = FALSE, na = "")
+})
+```
+
+
 ## Correlations with clinical variables
 
 ### mGFR
@@ -403,8 +463,9 @@ urine_soma_mgfr <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "mgfr_jodal",
   feature_suffix = "_urine_cradj",
-  proper_name = "mGFR",
-  pre_visit = -4
+  proper_name = "\u0394 mGFR",
+  pre_visit = -4,
+  label = "Target"
 )
 
 # correlation table
@@ -414,6 +475,27 @@ urine_soma_mgfr$correlation_table
 urine_soma_mgfr$plot_all
 ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_urine_mgfr.jpeg"),
        urine_soma_mgfr$plot_all, width = 10, height = 7)
+
+# mGFR 
+urine_soma_mgfr_gene <- soma_corr(
+  clinical_raw = attempt_dat,
+  soma_raw     = soma,
+  did_df       = did_res_urine_mixed$results_annotated,
+  analytes_info= analytes_attempt,
+  clinical_var = "mgfr_jodal",
+  feature_suffix = "_urine_cradj",
+  proper_name = "\u0394 mGFR",
+  pre_visit = -4,
+  label = "EntrezGeneSymbol"
+)
+
+# correlation table
+urine_soma_mgfr_gene$correlation_table
+
+# plots
+urine_soma_mgfr_gene$plot_all
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_urine_mgfr_gene.jpeg"),
+       urine_soma_mgfr_gene$plot_all, width = 10, height = 7)
 ```
 
 ### mGFR adjusted
@@ -426,7 +508,7 @@ urine_soma_mgfr_adj <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "mgfr_jodal_bsa",
   feature_suffix = "_urine_cradj",
-  proper_name = "mGFR (BSA)",
+  proper_name = "\u0394 mGFR (BSA)",
   pre_visit = -4
 )
 
@@ -449,7 +531,7 @@ urine_soma_hba1c <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "hba1c",
   feature_suffix = "_urine_cradj",
-  proper_name = "HbA1c"
+  proper_name = "\u0394 HbA1c"
 )
 
 # correlation table
@@ -471,7 +553,7 @@ urine_soma_tir <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "cgm_tir",
   feature_suffix = "_urine_cradj",
-  proper_name = "TIR"
+  proper_name = "\u0394 TIR"
 )
 
 # correlation table
@@ -493,7 +575,7 @@ urine_soma_weight <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "weight",
   feature_suffix = "_urine_cradj",
-  proper_name = "Weight"
+  proper_name = "\u0394 Weight"
 )
 
 # correlation table
@@ -515,7 +597,7 @@ urine_soma_PWV <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "PWV",
   feature_suffix = "_urine_cradj",
-  proper_name = "PWV",
+  proper_name = "\u0394 PWV",
   pre_visit = -4
 )
 
@@ -538,7 +620,7 @@ urine_soma_avg_c_r2 <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "avg_c_r2",
   feature_suffix = "_urine_cradj",
-  proper_name = "Cortical R2*",
+  proper_name = "\u0394 Cortical R2*",
   pre_visit = -4
 )
 
@@ -561,7 +643,7 @@ urine_soma_avg_k_r2 <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "avg_k_r2",
   feature_suffix = "_urine_cradj",
-  proper_name = "Kidney R2*",
+  proper_name = "\u0394 Kidney R2*",
   pre_visit = -4
 )
 
@@ -696,7 +778,7 @@ urine_soma_mgfr <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "mgfr_jodal",
   feature_suffix = "_urine_cradj",
-  proper_name = "mGFR",
+  proper_name = "\u0394 mGFR",
   pre_visit = -4
 )
 
@@ -719,7 +801,7 @@ urine_soma_mgfr_adj <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "mgfr_jodal_bsa",
   feature_suffix = "_urine_cradj",
-  proper_name = "mGFR (BSA)",
+  proper_name = "\u0394 mGFR (BSA)",
   pre_visit = -4
 )
 
@@ -742,7 +824,7 @@ urine_soma_hba1c <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "hba1c",
   feature_suffix = "_urine_cradj",
-  proper_name = "HbA1c"
+  proper_name = "\u0394 HbA1c"
 )
 
 # correlation table
@@ -763,7 +845,7 @@ urine_soma_tir <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "cgm_tir",
   feature_suffix = "_urine_cradj",
-  proper_name = "TIR"
+  proper_name = "\u0394 TIR"
 )
 
 # correlation table
@@ -785,7 +867,7 @@ urine_soma_weight <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "weight",
   feature_suffix = "_urine_cradj",
-  proper_name = "Weight"
+  proper_name = "\u0394 Weight"
 )
 
 # correlation table
@@ -807,7 +889,7 @@ urine_soma_PWV <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "PWV",
   feature_suffix = "_urine_cradj",
-  proper_name = "PWV",
+  proper_name = "\u0394 PWV",
   pre_visit = -4
 )
 
@@ -830,7 +912,7 @@ urine_soma_avg_c_r2 <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "avg_c_r2",
   feature_suffix = "_urine_cradj",
-  proper_name = "Cortical R2*",
+  proper_name = "\u0394 Cortical R2*",
   pre_visit = -4
 )
 
@@ -853,7 +935,7 @@ urine_soma_avg_k_r2 <- soma_corr(
   analytes_info= analytes_attempt,
   clinical_var = "avg_k_r2",
   feature_suffix = "_urine_cradj",
-  proper_name = "Kidney R2*",
+  proper_name = "\u0394 Kidney R2*",
   pre_visit = -4
 )
 
