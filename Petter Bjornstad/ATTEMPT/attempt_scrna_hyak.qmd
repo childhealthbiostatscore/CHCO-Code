@@ -4627,14 +4627,14 @@ celltypes <- unique(Idents(attempt_so))
 celltype_groups <- list(
   PT = c("PT-S1/S2", "PT-S3", "aPT"),
   TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
-  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC")
-  # ,
-  # EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
-  # IC = c("IC-A", "IC-B", "aIC"),
-  # Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
-  # VSMC_P_FIB = c("VSMC/P", "FIB"),
-  # POD = "POD"
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD"
 )
+
 all_listed_celltypes <- unique(unlist(celltype_groups))
 
 # --- Initialize result list
@@ -4643,18 +4643,18 @@ nebula_kpmp_results_list_reml_pooled <- list()
 # --- Helper function to run HVG + ALL analysis
 run_for_subset <- function(so_subset, label) {
   # --- HVG selection for this subset
-  so_hvg <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
-  hvgs <- VariableFeatures(so_hvg)
-  so_hvg <- subset(so_subset, features = hvgs)
-  
+  # so_hvg <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
+  # hvgs <- VariableFeatures(so_hvg)
+  # so_hvg <- subset(so_subset, features = hvgs)
+  # 
   # --- HVG run
-  res_hvg <- run_nebula_parallel(
-    seurat_obj = so_hvg,
-    n_cores = 100,
-    s3_bucket = "attempt",
-    s3_key = paste0(label, "/HVG/nebula/", gsub("/", "_", tolower(label)),
-                    "_kpmp_attempt_nebula_res_reml_pooled.rds")
-  )
+  # res_hvg <- run_nebula_parallel(
+  #   seurat_obj = so_hvg,
+  #   n_cores = 100,
+  #   s3_bucket = "attempt",
+  #   s3_key = paste0(label, "/HVG/nebula/", gsub("/", "_", tolower(label)),
+  #                   "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  # )
 
   # --- ALL run
   res_all <- run_nebula_parallel(
@@ -4665,25 +4665,27 @@ run_for_subset <- function(so_subset, label) {
                     "_kpmp_attempt_nebula_res_reml_pooled.rds")
   )
 
-  list(HVG = res_hvg, ALL = res_all)
+  list(
+    # HVG = res_hvg, 
+       ALL = res_all)
 }
 
 # --- Loop through each cell type group
-# for (grp_name in names(celltype_groups)) {
-#   message("Processing group: ", grp_name)
-#   
-#   so_subset <- subset(attempt_so, idents = celltype_groups[[grp_name]])
-#   res_list <- run_for_subset(so_subset, paste0("kpmp_grouped/", grp_name))
-#   
-#   nebula_kpmp_results_list_reml_pooled[[paste0(grp_name, "_group")]] <- res_list
-# }
+for (grp_name in names(celltype_groups)) {
+  message("Processing group: ", grp_name)
+
+  so_subset <- subset(attempt_so, idents = celltype_groups[[grp_name]])
+  res_list <- run_for_subset(so_subset, paste0("grouped/", grp_name))
+
+  nebula_kpmp_results_list_reml_pooled[[paste0(grp_name, "_group")]] <- res_list
+}
 
 # --- Loop through each individual cell type
 for (ct in all_listed_celltypes) {
   message("Processing individual cell type: ", ct)
   
   so_subset <- subset(attempt_so, idents = ct)
-  res_list <- run_for_subset(so_subset, paste0("kpmp_individual/", ct))
+  res_list <- run_for_subset(so_subset, paste0("individual/", ct))
   
   nebula_kpmp_results_list_reml_pooled[[paste0(ct, "_individual")]] <- res_list
 }
