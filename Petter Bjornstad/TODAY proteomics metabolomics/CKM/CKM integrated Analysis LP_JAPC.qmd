@@ -510,8 +510,9 @@ pwv_keep <- pwv_keep %>% arrange(RELEASEID, desc(pwv_cf_gt10)) %>%
                         group_by(RELEASEID) %>% filter(row_number()==1)
 
 # Create PWV flags
-pwv_keep$high_pwv0 <- ifelse(pwv_keep$TIMEPOINT == 1, pwv_keep$pwv_cf_gt10, NA)
-pwv_keep$high_pwv1 <- ifelse(pwv_keep$TIMEPOINT == 2, pwv_keep$pwv_cf_gt10, NA)
+# LP fixed timepoints - were coded as 1/2, but data were PWV1/PWV2
+pwv_keep$high_pwv0 <- ifelse(pwv_keep$TIMEPOINT == "PWV1", pwv_keep$pwv_cf_gt10, NA)
+pwv_keep$high_pwv1 <- ifelse(pwv_keep$TIMEPOINT == "PWV2", pwv_keep$pwv_cf_gt10, NA)
 
 pwv_flags <- pwv_keep %>%
   group_by(RELEASEID) %>%
@@ -534,6 +535,7 @@ long_clean <- long %>%
   )
 
 # Get heights by visit type
+# LP: This is taking the last height - is that what we want?
 height_M <- long_clean %>%
   filter(visit_type == "M", !is.na(height)) %>%
   group_by(RELEASEID) %>%
@@ -541,6 +543,7 @@ height_M <- long_clean %>%
   select(RELEASEID, height) %>%
   rename(height_M = height)
 
+# LP: This is taking the last height - is that what we want?
 height_P <- long_clean %>%
   filter(visit_type == "P", !is.na(height)) %>%
   group_by(RELEASEID) %>%
@@ -573,6 +576,8 @@ echo_keep <- echo_keep %>%
   left_join(echo %>% select(RELEASEID, TIMEPOINT, days), by = c("RELEASEID", "TIMEPOINT"))
 
 # weight addition based on closest day
+# LP: I am not sure this is working correctly
+# see example of 65-10111, no weight value in long_clean is >100 but echo_keep weight is 103.4
 echo_keep <- echo_keep %>%
   rowwise() %>%
   mutate(
@@ -603,6 +608,7 @@ echo_keep <- echo_keep %>%
   select(-releaseid)
 
 # Calculate LVMI and related scores
+# LP: I think this logic is incorrect
 echo_keep <- echo_keep %>%
   mutate(
     lvmi = ifelse(!is.na(lvmass) & !is.na(BSA_dubois), lvmass / BSA_dubois, NA_real_),
@@ -790,6 +796,8 @@ baseline <- baseline %>%
 
 baserisk <- baserisk %>% 
   rename(RELEASEID = releaseid)  # or whatever the actual column name is
+
+# LP NOTE: need to check if comorb event missing values need to be replaced with 0
 
 # Create main analysis dataset
 comorb_ckm2 <- comorb_ckm %>%
