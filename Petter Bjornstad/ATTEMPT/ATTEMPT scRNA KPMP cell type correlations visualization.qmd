@@ -1,5 +1,5 @@
 ---
-title: "ATTEMPT scRNA correlations visualization"
+title: "ATTEMPT scRNA (KPMP cell types) correlations visualization"
 author: "Ye Ji Choi"
 date: "`r lubridate::today()`"
 format: 
@@ -56,13 +56,125 @@ Sys.setenv(
 source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
 ```
 
-
-
 # Define clinical directions
 ```{r echo = F}
 clinical_directions <- data.frame(variable = c("mgfr_jodal", "mgfr_jodal_bsa", "tir", "hba1c", "weight", "avg_c_r2", "avg_k_r2", "avg_ketones"),
                                   direction = c("-", "-", "+", "-", "-", "+","+", "+"))
 
+```
+
+```{r echo = F}
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD"
+)
+
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl") # to join full name description
+
+# Top 2000 HVG
+for (cell in names(celltype_groups))  {
+  print(paste0("Processing: ", cell))
+  input_path <- paste0("grouped/", cell, "/HVG/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+
+  processed <- process_nebula_results(cell_df)
+  # Get gene symbols
+  gene_symbols <- processed$results$Gene
+  
+  # Query Ensembl
+  gene_info <- getBM(
+    attributes = c("hgnc_symbol", "description", "gene_biotype"),
+    filters = "hgnc_symbol",
+    values = gene_symbols,
+    mart = mart
+  ) %>%
+    dplyr::rename(Gene = hgnc_symbol)
+  
+  # Join annotation
+  annotated_df <- processed$results %>%
+    left_join(gene_info, by = "Gene")
+
+  # Assign to variable dynamically
+  var_name <- paste0(tolower(cell), "hvg_kpmp")
+  assign(var_name, annotated_df, envir = .GlobalEnv)
+  write.csv(processed$results, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/",tolower(cell),"_kpmp_hvg_res.csv"), row.names = F)
+}
+
+# Top 2000 HVG subtypes
+for (cell in unlist(celltype_groups))  {
+  print(paste0("Processing: ", cell))
+  cell <- gsub("/", "_", cell)
+  input_path <- paste0("individual/", cell, "/HVG/nebula/individual_", 
+                       tolower(cell),
+                       "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+  
+  processed <- process_nebula_results(cell_df)
+  
+  # # Get gene symbols
+  # gene_symbols <- processed$results$Gene
+  # 
+  # # Query Ensembl
+  # gene_info <- getBM(
+  #   attributes = c("hgnc_symbol", "description", "gene_biotype"),
+  #   filters = "hgnc_symbol",
+  #   values = gene_symbols,
+  #   mart = mart
+  # ) %>%
+  #   dplyr::rename(Gene = hgnc_symbol)
+  # 
+  # # Join annotation
+  # annotated_df <- processed$results %>%
+  #   left_join(gene_info, by = "Gene")
+
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_hvg_kpmp")
+  print(var_name)
+  assign(var_name, processed$results)
+  write.csv(processed$results, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/",tolower(cell),"_kpmp_hvg_res.csv"), row.names = F)
+}
+
+# # Full gene set
+# for (cell in names(celltype_groups))  {
+# print(paste0("Processing: ", cell))
+#   input_path <- paste0("kpmp_grouped/", cell, "/ALL/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
+#   cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+#   
+#   processed <- process_nebula_results(cell_df)
+#   lower_cell <- tolower(cell)
+#   var_name <- paste0(lower_cell, "_kpmp")
+#   
+#   assign(var_name, processed$results)
+# }
+
+# # Full gene set subtypes
+# for (cell in names(celltype_groups))  {
+# print(paste0("Processing: ", cell))
+#   input_path <- paste0("kpmp_individual/", cell, "/ALL/nebula/kpmp_individual_", 
+#                        tolower(cell),
+#                        "_kpmp_attempt_nebula_res_reml_pooled.rds")
+#   cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+#   
+#   processed <- process_nebula_results(cell_df)
+#   cell <- gsub("-", "_", cell)
+#   lower_cell <- tolower(cell)
+#   var_name <- paste0(lower_cell, "_kpmp")
+#   
+#   assign(var_name, processed$results)
+# }
 ```
 
 # PT

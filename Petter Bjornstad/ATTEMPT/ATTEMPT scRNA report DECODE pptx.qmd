@@ -1,0 +1,1002 @@
+---
+title: "ATTEMPT scRNA report"
+author: "Ye Ji Choi"
+format:
+  revealjs:
+    embed-resources: true
+    scrollable: true
+    transition: slide
+    controls-layout: bottom-right
+    menu: true
+    toc: true
+    toc-depth: 1
+    fontsize: 15
+---
+
+```{r include = F}
+library(jsonlite)
+library(aws.s3)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+library(lmerTest)
+library(emmeans)
+library(broom)
+library(ggbeeswarm)
+library(lemon)
+library(quantreg)
+
+source("~/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
+```
+
+```{r include = F}
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r echo = F}
+harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
+
+attempt_redcap <- harm_dat %>% filter(study == "ATTEMPT") %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                                     race == "Black or African American" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                                     T ~ "Not Hispanic or Latino Other")) %>%
+  arrange(record_id) %>%
+  dplyr::select(-hba1c)
+
+attempt_redcap_denver <- attempt_redcap %>%
+  filter(grepl("^3", record_id)) %>%
+  mutate(visit = case_when(visit == "baseline" ~ 0,
+                           visit == "4_weeks_post" ~ 4,
+                           visit == "4_months_post" ~ 16,
+                           visit == "screening"  ~ -4,
+                           visit == "follow_up" ~ 18),
+         record_id = as.integer(record_id)) %>%
+  dplyr::select(-c(ethnicity, bmi, gfr_raw_plasma, gfr_bsa_plasma, date, sex, mri_date, PWV,
+                   creatinine_s, cystatin_c_s, temp, pulse, height, avg_c_r2, avg_k_r2, 
+                   sbp, dbp, hct, age, weight)) %>%
+  rowwise() %>%
+  mutate(avg_c_t1 = mean(c(t1_r_cortex, t1_l_cortex), na.rm = T),
+         avg_k_t1 = mean(c(t1_r_kidney, t1_l_kidney), na.rm = T),
+         tkv = (volume_left + volume_right)) %>%
+  ungroup() %>%
+  dplyr::rename(subject_id = record_id)
+
+## clinical dataset from Antoine (merged version)
+attempt_dat <- s3readRDS("Clinical Data/ATTEMPT_AC.RDS", "attempt", region = "")
+attempt_dat[attempt_dat == ""] <- NA
+attempt_dat <- attempt_dat %>%
+  filter(visit %in% c("baseline", "4_weeks_post", "4_months_post", "screening", "follow_up")) %>%
+  mutate(visit = case_when(visit == "baseline" ~ 0,
+                           visit == "4_weeks_post" ~ 4,
+                           visit == "4_months_post" ~ 16,
+                           visit == "screening"  ~ -4,
+                           visit == "follow_up" ~ 18),
+         record_id = as.integer(record_id)) %>%
+  dplyr::rename(subject_id = record_id,
+                treatment = treatment_arm)
+
+## extract IDs with biopsy
+attempt_clean_so_metadata <- s3readRDS("cleaned_data/attempt_clean_so_metadata.rds", "attempt", region = "")
+attempt_biopsy_yn <- attempt_clean_so_metadata %>%
+  dplyr::select(subject_id, visit) %>%
+  distinct(subject_id, visit, .keep_all = T) %>%
+  mutate(visit = case_when(visit == "PRE" ~ 0,
+                           visit == "POST" ~ 16),
+         biopsy_yn = "Yes")
+attempt_biopsy_yn <- attempt_biopsy_yn %>%
+  rbind(attempt_biopsy_yn %>%
+          filter(visit == 0) %>%
+          mutate(visit = -4))
+
+## merge REDCap version (for Denver) and dataset from Antoine
+attempt_dat <- left_join(attempt_dat, attempt_redcap_denver) %>%
+  left_join(attempt_biopsy_yn) %>%
+  group_by(subject_id, visit) %>%
+  mutate(biopsy_yn = case_when(biopsy_yn == "Yes" ~ "Yes",
+                               T ~ "No"),
+         avg_ketones = mean(c(mgfr_ketones_pre, mgfr_ketone_iv), na.rm = T)) %>%
+  ungroup()
+attempt_dat$treatment <- factor(attempt_dat$treatment, levels = c("Placebo", "Dapagliflozin 5mg"))
+
+attempt_dat %>%
+  filter(biopsy_yn == "Yes") %>%
+  filter(visit %in% c(0)) %>%
+  filter(subject_id != 30001) %>%
+  dplyr::select(subject_id, visit, treatment) %>%
+  arrange(subject_id) %>%
+  write.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Clean/ATTEMPT_BL_LN2.csv", na = "",
+            row.names = F)
+
+attempt_dat %>%
+  filter(biopsy_yn == "Yes") %>%
+  filter(visit %in% c(16)) %>%
+  filter(subject_id != 30013) %>%
+  dplyr::select(subject_id, visit, treatment) %>%
+  arrange(subject_id) %>%
+  rbind(attempt_dat[attempt_dat$subject_id == 30472,] %>%
+          filter(visit %in% c(16)) %>%
+          dplyr::select(subject_id, visit, treatment) %>%
+          arrange(subject_id)) %>%
+  write.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Clean/ATTEMPT_4M_LN2.csv", na = "",
+            row.names = F)
+```
+
+
+```{r echo = F}
+delta_df <- attempt_dat %>%
+  filter(!is.na(visit)) %>%
+  pivot_wider(
+    id_cols = c(subject_id, treatment, site, sex),
+    names_from = visit,
+    values_from = c(
+      hba1c, cgm_tir, weight, mgfr_jodal_bsa, mgfr_jodal, avg_c_r2, avg_k_r2,
+      avg_c_t1, avg_k_t1, avg_pcascl, avg_c_adc, avg_ketones,
+      cholesterol_serum_mmoll, triglycerides_serum_mmoll, ldl_serum_mmoll, hdl_serum_mmoll
+    )
+  ) %>%
+  mutate(
+    ## Existing deltas
+    delta_hba1c_4 = hba1c_4 - hba1c_0,
+    delta_hba1c_16 = hba1c_16 - hba1c_0,
+    delta_tir_4 = cgm_tir_4 - cgm_tir_0,
+    delta_tir_16 = cgm_tir_16 - cgm_tir_0,
+    delta_weight_4 = weight_4 - weight_0,
+    delta_weight_16 = weight_16 - weight_0,
+    delta_mgfr_jodal_bsa_4 = mgfr_jodal_bsa_4 - `mgfr_jodal_bsa_-4`,
+    delta_mgfr_jodal_bsa_16 = mgfr_jodal_bsa_16 - `mgfr_jodal_bsa_-4`,
+    delta_mgfr_jodal_4 = mgfr_jodal_4 - `mgfr_jodal_-4`,
+    delta_mgfr_jodal_16 = mgfr_jodal_16 - `mgfr_jodal_-4`,
+    delta_avg_ketones_4 = avg_ketones_4 - `avg_ketones_-4`,
+    delta_avg_ketones_16 = avg_ketones_16 - `avg_ketones_-4`,
+    delta_avg_c_r2_4 = avg_c_r2_4 - `avg_c_r2_-4`,
+    delta_avg_c_r2_16 = avg_c_r2_16 - `avg_c_r2_-4`,
+    delta_avg_k_r2_4 = avg_k_r2_4 - `avg_k_r2_-4`,
+    delta_avg_k_r2_16 = avg_k_r2_16 - `avg_k_r2_-4`,
+    delta_avg_c_t1_4 = avg_c_t1_4 - `avg_c_t1_0`,
+    delta_avg_c_t1_16 = avg_c_t1_16 - `avg_c_t1_0`,
+    delta_avg_k_t1_4 = avg_k_t1_4 - `avg_k_t1_0`,
+    delta_avg_k_t1_16 = avg_k_t1_16 - `avg_k_t1_0`,
+    delta_avg_pcascl_4 = avg_pcascl_4 - `avg_pcascl_0`,
+    delta_avg_pcascl_16 = avg_pcascl_16 - `avg_pcascl_0`,
+    delta_avg_c_adc_4 = avg_c_adc_4 - `avg_c_adc_0`,
+    delta_avg_c_adc_16 = avg_c_adc_16 - `avg_c_adc_0`,
+    
+    ## New lipid deltas (baseline = visit 0)
+    delta_cholesterol_4 = cholesterol_serum_mmoll_4 - cholesterol_serum_mmoll_0,
+    delta_cholesterol_16 = cholesterol_serum_mmoll_16 - cholesterol_serum_mmoll_0,
+    delta_triglycerides_4 = triglycerides_serum_mmoll_4 - triglycerides_serum_mmoll_0,
+    delta_triglycerides_16 = triglycerides_serum_mmoll_16 - triglycerides_serum_mmoll_0,
+    delta_ldl_4 = ldl_serum_mmoll_4 - ldl_serum_mmoll_0,
+    delta_ldl_16 = ldl_serum_mmoll_16 - ldl_serum_mmoll_0,
+    delta_hdl_4 = hdl_serum_mmoll_4 - hdl_serum_mmoll_0,
+    delta_hdl_16 = hdl_serum_mmoll_16 - hdl_serum_mmoll_0,
+    
+    ## Zero deltas for baseline
+    delta_hba1c_0 = 0,
+    delta_tir_0 = 0,
+    delta_weight_0 = 0,
+    `delta_avg_ketones_-4` = 0,
+    `delta_mgfr_jodal_bsa_-4` = 0,
+    `delta_mgfr_jodal_-4` = 0,
+    `delta_avg_c_r2_-4` = 0,
+    `delta_avg_k_r2_-4` = 0,
+    `delta_avg_pcascl_0` = 0,
+    `delta_avg_c_adc_0` = 0,
+    `delta_avg_c_t1_0` = 0,
+    `delta_avg_k_t1_0` = 0,
+    delta_cholesterol_0 = 0,
+    delta_triglycerides_0 = 0,
+    delta_ldl_0 = 0,
+    delta_hdl_0 = 0
+  ) %>%
+  dplyr::select(subject_id, treatment, site, sex, matches("delta_.*_(-?4|16|0)$")) %>%
+  pivot_longer(
+    cols = -c(subject_id, treatment, sex, site),
+    names_to = c("variable", "visit"),
+    names_pattern = "delta_(.*)_(-?\\d+)"
+  ) %>% 
+  pivot_wider(names_from = variable, values_from = value) %>%
+  mutate(visit = as.numeric(visit))
+
+delta_df$treatment <- factor(delta_df$treatment, levels = c("Placebo", "Dapagliflozin 5mg"))
+
+## Add baseline values for covariate adjustment (includes lipid baselines)
+delta_df <- delta_df %>% 
+  left_join(
+    attempt_dat %>%
+      group_by(subject_id) %>%
+      filter(visit == 0) %>%
+      dplyr::select(
+        subject_id, age, diabetes_dx_duration, 
+        hba1c, cgm_tir, weight,
+        cholesterol_serum_mmoll, triglycerides_serum_mmoll, 
+        ldl_serum_mmoll, hdl_serum_mmoll
+      ) %>%
+      dplyr::rename(
+        hba1c_bl = hba1c,
+        tir_bl = cgm_tir,
+        weight_bl = weight,
+        cholesterol_bl = cholesterol_serum_mmoll,
+        triglycerides_bl = triglycerides_serum_mmoll,
+        ldl_bl = ldl_serum_mmoll,
+        hdl_bl = hdl_serum_mmoll
+      )
+  ) %>% 
+  left_join(
+    attempt_dat %>%
+      group_by(subject_id) %>%
+      filter(visit == -4) %>%
+      dplyr::select(subject_id, mgfr_jodal_bsa, mgfr_jodal,
+                    avg_c_r2, avg_k_r2, avg_ketones) %>%
+      dplyr::rename(
+        mgfr_jodal_bsa_bl = mgfr_jodal_bsa,
+        mgfr_jodal_bl = mgfr_jodal,
+        avg_c_r2_bl = avg_c_r2,
+        avg_k_r2_bl = avg_k_r2,
+        avg_ketones_bl = avg_ketones
+      )
+  )
+```
+
+```{r echo = F}
+plot_mean_ci_stars2 <- function(data, y_var, y_axis_title, legend_position = c(0.6, 0.8)) {
+  
+  dodge_val <- 0.08
+  
+  ## Dynamically evaluate y_var
+  y_sym <- rlang::ensym(y_var)
+  
+  ## Keep only visits 0, 4, 16
+  visits_to_plot <- c(-4,0,4,16,18)
+  data <- data %>% filter(visit %in% visits_to_plot)
+  
+  ## 1. Calculate mean and 95% CI (t-based)
+  mean_dat <- data %>%
+    group_by(treatment_arm, visit) %>%
+    dplyr::summarise(
+      n = sum(!is.na(!!y_sym)),
+      mean_y = mean(!!y_sym, na.rm = TRUE),
+      sd_y = sd(!!y_sym, na.rm = TRUE),
+      t_crit = qt(0.975, df = n - 1),
+      lower = mean_y - (t_crit * sd_y / sqrt(n)),
+      upper = mean_y + (t_crit * sd_y / sqrt(n)),
+      .groups = "drop"
+    )
+  
+  ## 2. Run t-tests between treatments at each visit
+  ttest_results <- data %>%
+    group_by(visit) %>%
+    dplyr::summarise(
+      p_value = tryCatch(
+        t.test(!!y_sym ~ treatment_arm)$p.value,
+        error = function(e) NA_real_
+      ),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      stars = case_when(
+        p_value < 0.001 ~ "***",
+        p_value < 0.01  ~ "**",
+        p_value < 0.05  ~ "*",
+        TRUE            ~ ""
+      )
+    )
+  
+  ## 3. Set y position for stars (above upper CI)
+  ttest_results <- ttest_results %>%
+    left_join(mean_dat %>% group_by(visit) %>%
+                dplyr::summarise(max_upper = max(upper), .groups = "drop"),
+              by = "visit") %>%
+    mutate(y_position = max_upper + 0.05 * max_upper)  ## 5% above max_upper
+  
+  ## 4. Plot
+  p <- data %>%
+    ggplot(aes(x = factor(visit, levels = visits_to_plot), y = !!y_sym, color = treatment_arm)) +
+    geom_errorbar(data = mean_dat, 
+                  aes(x = factor(visit, levels = visits_to_plot), ymin = lower, ymax = upper,  group = treatment_arm), 
+                  inherit.aes = FALSE,
+                  width = 0.1, size = 0.3, position = position_dodge(width = dodge_val),
+                  color = "black") +
+    geom_line(data = mean_dat, aes(x = factor(visit, levels = visits_to_plot), y = mean_y, group = treatment_arm), 
+              position = position_dodge(width = dodge_val),
+              size = 1.2) +
+    geom_point(data = mean_dat, aes(x = factor(visit, levels = visits_to_plot), y = mean_y, shape = treatment_arm), 
+               size = 11, position = position_dodge(width = dodge_val), color = "white") +
+    geom_point(data = mean_dat, aes(x = factor(visit, levels = visits_to_plot), y = mean_y, shape = treatment_arm), 
+               size = 7, position = position_dodge(width = dodge_val)) +
+    geom_text(data = ttest_results, 
+              aes(x = factor(visit, levels = visits_to_plot), y = y_position, label = stars), 
+              inherit.aes = FALSE,
+              size = 6, vjust = 0) +
+    scale_shape_manual(values = c("A" = 15,   ## Square
+                                  "B" = 18)) +   ## Diamond
+    scale_color_manual(values = c("A" = "#f8ae9d", 
+                                  "B" = "#a7b298")) +
+    scale_x_discrete(expand = expansion(mult = c(0.3, 0.3))) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+    theme(panel.background = element_blank(),
+          legend.position = legend_position,
+          legend.justification = c(1, 1),
+          legend.background = element_blank()) +
+    labs(x = "Visit", 
+         y = y_axis_title,
+         color = NULL, shape = NULL) +
+    guides(color = guide_legend(override.aes = list(size=5)))
+  
+  return(p)
+}
+```
+
+```{r echo = F, include = F}
+attempt_031425_raw <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250314.csv")
+
+attempt_031425_raw <- attempt_031425_raw %>%
+  mutate(visit = case_when(visit == "V1 Screening" ~ -4,
+                           visit == "V2 Randomization" ~ 0,
+                           visit == "V3 Safety" ~ 4,
+                           visit == "V4 Final" ~ 16,
+                           visit == "V5 Follow-Up" ~ 18))
+
+attempt_031425_raw$hba1c_percent <- as.numeric(attempt_031425_raw$hba1c_percent)
+```
+
+## Consort Diagram
+
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/ATTEMPT_FU_Consort_diagram.png){width="100%"}
+
+## Baseline Table (Full cohort, Dapa vs. Placebo)
+
+```{r echo = F, results='asis'}
+summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + ldl_serum_mmoll + hdl_serum_mmoll, data = subset(attempt_dat, visit == 0)), digits = 1)
+```
+
+## Baseline Table (Denver only cohort, Dapa vs. Placebo)
+
+```{r echo = F, results='asis'}
+(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + ldl_serum_mmoll + hdl_serum_mmoll + avg_c_t1 + avg_k_t1 + avg_pcascl + avg_c_adc, data = subset(attempt_dat, visit == 0 & site == "Denver")), digits = 1))
+
+(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + ldl_serum_mmoll + hdl_serum_mmoll + avg_c_t1 + avg_k_t1 + avg_pcascl + avg_c_adc, data = subset(attempt_dat, visit == 16 & site == "Denver")), digits = 1))
+
+(summary(arsenal::tableby(treatment ~ mgfr_jodal_bsa + mgfr_jodal + mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2, data = subset(attempt_dat, visit == -4 & site == "Denver")), digits = 1))
+```
+
+## mGFR (BSA)
+
+::: columns
+
+::: column
+
+Whole cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/mgfr_overtime.jpeg){width="100%"}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/mgfr_jodal_bsa_category_bars.jpeg){width="100%"}
+
+:::
+
+::: column
+
+Denver cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/mgfr_overtime_denver.jpeg){width="100%"}
+
+:::
+
+:::
+
+
+
+## HbA1c
+
+::: columns
+
+::: column
+
+Whole cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/delta_hba1c_overtime_2.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/hba1c_category_bars.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/hba1c_by_mgfr_category_bars.jpeg){width="100%"}
+
+:::
+
+::: column
+
+Denver cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/delta_hba1c_overtime_2_denver.jpeg){width="100%"}
+
+:::
+
+:::
+
+
+## TIR
+
+::: columns
+
+::: column
+
+Whole cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/delta_tir_overtime.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/cgm_tir_category_bars.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/cgm_tir_by_mgfr_category_bars.jpeg){width="100%"}
+
+:::
+
+::: column
+
+Denver cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/delta_tir_overtime_denver.jpeg){width="100%"}
+
+:::
+
+:::
+
+## Weight
+
+::: columns
+
+::: column
+
+Whole cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/delta_weight_overtime.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/weight_category_bars.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/weight_by_mgfr_category_bars.jpeg){width="100%"}
+
+
+:::
+
+::: column
+
+Denver cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/delta_weight_overtime_denver.jpeg){width="100%"}
+
+:::
+
+:::
+
+## Avg kidney R2*
+
+::: columns
+
+::: column
+
+Whole cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/delta_avg_k_r2_overtime.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/avg_k_r2_category_bars.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/avg_k_r2_by_mgfr_category_bars.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/avg_k_r2_by_hba1c_category_bars.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/avg_k_r2_by_weight_category_bars.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/avg_k_r2_by_cgm_tir_category_bars.jpeg){width="100%"}
+
+:::
+
+::: column
+
+Denver cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/delta_avg_k_r2_overtime_denver.jpeg){width="100%"}
+
+:::
+
+:::
+
+Difference in kidney R2\* correlation with baseline kidney R2\*
+
+```{r echo = F, include = T, eval = T}
+cor.test(subset(delta_df, site == "Denver" & visit == 16)$avg_k_r2, 
+subset(delta_df, site == "Denver" & visit == 16)$avg_k_r2_bl)
+```
+
+## Ketones (avg of mgfr_ketone_iv and mgfr_ketones_pre)
+
+::: columns
+
+::: column
+
+Denver cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/avg_ketones_overtime_denver.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/delta_avg_ketones_overtime_denver.jpeg){width="100%"}
+
+:::
+
+:::
+
+Difference in ketones correlation with baseline ketones
+
+```{r echo = F, include = T, eval = T}
+cor.test(subset(delta_df, site == "Denver" & visit == 16)$avg_ketones, 
+subset(delta_df, site == "Denver" & visit == 16)$avg_ketones_bl)
+```
+
+## UMAPs for transcriptomics
+
+::: columns
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/UMAP/attempt_umap_celltype.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/UMAP/attempt_umap_kpmpcelltype.jpeg){width="100%"}
+
+:::
+
+::: column
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/UMAP/attempt_umap_treat.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/UMAP/attempt_umap_visit.jpeg){width="100%"}
+
+:::
+
+:::
+
+## Cell subtypes
+
+::: columns
+
+::: column
+
+| General type      | Sub type                      |
+|-------------------|-------------------------------|
+| PT                | PT-1, PT-2, PT-3, PT-4, PT-5  |
+| TAL               | TAL-1, TAL-2, TAL-3           |
+| PC                | tPC-IC, PC-1, PC-2            |
+| IC                | IC-A, IC-B                    |
+| EC                | EC-PTC, EC-GC, EC-AEA, EC-LYM |
+| Immune (Myeloid)  | MAC, MON                      |
+| Immune (Lymphoid) | NKT/NKC, T, B                 |
+| FIB/VSMC/P        | FIB, VSMC/P                   |
+| POD.              | POD                           |
+
+
+:::
+
+::: column
+
+| General type        | KPMP Sub type                                  |
+|---------------------|------------------------------------------------|
+| PT                  | PT-S1/S2, PT-S3, aPT                           |
+| TAL                 | C-TAL-1, C-TAL-2, aTAL, dTAL                   |
+| PC                  | CCD-PC, CNT-PC, dCCD-PC, M-PC, tPC-IC          |
+| IC                  | IC-A, IC-B, aIC                                |
+| EC                  | EC-AVR, EC-GC, EC-PTC, EC-AEA, EC-LYM, EC/VSMC |
+| Immune (Myeloid)    | MAC, MON, cDC, pDC                             |
+| Immune (Lymphoid)   | CD4+ T, CD8+ T, B, NK                          |
+| FIB/VSMC/P          | FIB, VSMC/P                                    |
+| POD                 | POD                                            |
+
+:::
+:::
+
+## KPMP cell types analysis on top 2000 HVG
+
+```{r echo = F, results = 'asis', eval = T}
+celltype_groups <- list(
+PT = c("PT-S1/S2", "PT-S3", "aPT"),
+TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+IC = c("IC-A", "IC-B", "aIC"),
+EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+VSMC_P_FIB = c("VSMC/P", "FIB"),
+POD = "POD"
+)
+
+
+celltype_paragraphs <- list(
+PT = "In PT cells, dapagliflozin caused downregulation of key metabolic and oxidative-stress-related
+genes, aligning with improved tubular metabolic health (Fig. #). Notably, the gluconeogenic enzyme PCK1
+(phosphoenolpyruvate carboxykinase) was markedly decreased (log2FC ≈ –2.1), potentially reversing the diabetes driven increase in renal gluconeogenesis. Multiple metallothionein (MT) isoforms (MT1X, MT1G, MT2A, etc.) were sharply downregulated (log2FC ~–1.3 to –1.8), consistent with reduced oxidative stress since MTs are usually induced in hyperglycemia as antioxidants. MIOX (myo-inositol oxygenase), a PT-specific enzyme that generates ROS under high glucose, was also significantly lower, indicating less oxidative burden. APOE (apolipoprotein E), implicated in tubular lipid handling, was reduced; in diabetes, elevated PT ApoE promotes lipid accumulation, so its decrease suggests alleviated lipotoxic stress. Overall, these changes are consistent with dapagliflozin ameliorating the hyperglycemic milieu in PT cells (lower ROS, less aberrant gluconeogenesis and lipid uptake). A few transcripts were upregulated in PT (e.g. COL4A2, a collagen IV isoform, and structural proteins like AHNAK), which could reflect remodeling of the tubular basement membrane or cytoskeleton. Since there was no evidence of fibrosis on MRI and histopathology, this mild ECM upturn may represent a transient normalization of basement
+membrane composition or acute repair response rather than progressive fibrosis.",
+TAL = "TAL cells showed a mixed response: predominantly downregulation of stress/injury genes, but upregulation of metabolic genes, consistent with increased workload from enhanced distal Na+ delivery under SGLT2 inhibition. Notably, EGF (epidermal growth factor) expression rose (log2FC +0.39) consistent with SGLT2i fostering a healthier tubular epithelium. Many antioxidant and injury-response genes were suppressed: MT1G and other MT isoforms decreased (less oxidative stress need, similar to PT), and GSTA2 (glutathione S-transferase) fell, indicating reduced oxidative load. UCHL1 (a neuronally expressed deubiquitinase aberrantly expressed in injured kidneys) was lower, implying less cellular injury. Interestingly, PCK1 in TAL was upregulated (log2FC ≈ +0.94), in contrast to its suppression in PT, consistent with prior data from our group. Aside from this, TAL cells overall exhibit changes consistent with reduced inflammatory signaling and oxidative stress under dapagliflozin. The net picture is TAL tubules working harder in ion transport (hence metabolic upregulation) but experiencing less diabetes-related stress.",
+PC = " Parietal epithelial cells in the same glomerular cluster co up regulated PAPP A and its endogenous inhibitor STC1, implying finely balanced IGF signaling that supports controlled remodeling rather than unchecked growth.",
+IC = "Intercalated cells in the cortical collecting duct showed a predominance of upregulated transcripts (all top 100 were increased by dapagliflozin vs. placebo). This pattern reflects a concerted activation of acid-base transport mechanisms, likely in response to the mild metabolic acidosis/ketosis induced by SGLT2 inhibition. Consistently, IC cells upregulated multiple genes involved in proton secretion and bicarbonate reabsorption: CA2 (carbonic anhydrase II) was up (log2FC +0.78), facilitating intracellular HCO3- generation for secretion; SLC26A7 (Cl-/HCO3 exchanger on basolateral membrane of type A intercalated cells) was strongly up (log2FC +1.02), which is crucial for bicarbonate reabsorption in acidic conditions. ATP6AP2 (proton pump accessory unit) rose (log2FC +0.95), indicating increased H+ pumping capacity. These changes are highly consistent with the expected physiologic response: the kidney ramping up acid secretion to counter the SGLT2i-induced acid load. Additionally, IGFBP7 (Insulin-like Growth Factor Binding Protein 7) was up (log2FC +1.00), which could indicate cellular stress in response to high metabolic state to proton pumps, but could also be temporarily elevated as cells adapt to a new workload. Intercalated cells also showed increased expression of various transporters: e.g. SLC4A9 (AE4) up (log2FC +0.42), another bicarbonate transporter; V-ATPase subunits and co-factors (like ATP6V1G3, perhaps). ",
+EC = "Endothelial cells responded to dapagliflozin with a clear antifibrotic and anti-inflammatory expression profile. A prominent change was the downregulation of extracellular matrix (ECM) and adhesion molecules. Fibronectin-1 (FN1), a key fibrogenic ECM protein that accumulates in DKD (driven by TGF-β), was significantly decreased (log2FC -1.14). This is strongly consistent with SGLT2i’s antifibrotic effect, as reduced fibronectin implies less ongoing remodeling in glomerular basement membranes and interstitium. Likewise, VCAM1 fell (log2FC -1.37); hyperglycemia and inflammation normally upregulate endothelial VCAM-1, promoting leukocyte adhesion and interstitial inflammation. Its suppression by dapagliflozin indicates reduced endothelial inflammation, likely contributing to less immune cell recruitment to the kidney. Endothelial injury markers improved: Clusterin (CLU), which is elevated in stressed glomeruli and serves as a protective chaperone, was downregulated (log2FC -0.9 in EC cluster) which is consistent with less cellular stress/injury to endothelium. Moreover, EMCN (endomucin), a glycocalyx protein, was up (log₂FC +0.42), suggesting restoration of the endothelial surface layer integrity (T1D often sheds glycocalyx, impairing endothelium). Netrin-4 (NTN4), an extracellular matrix protein with anti-angiogenic and anti-inflammatory properties in vasculature, was upregulated (log2FC +0.72); netrin-4 is known to provide an anti-inflammatory, endothelial-protective milieu. This aligns with improved endothelial function under SGLT2 inhibition. Another matricellular protein, SPARCL1 (hevin), was down (log2FC -1.33); its role in kidney is not well defined, but in other organs it can modulate angiogenesis and anti-fibrosis. Additionally, SLC14A1 (UT-B urea transporter), expressed in endothelial cells of the vasa recta, decreased (log2FC -0.55), potentially reflecting altered medullary urea handling due to osmotic diuresis. Additionally, multiple inflammation-related transcripts (adhesion molecules, chemokines like CXCL12 [log2FC –0.5], etc.) were suppressed. ",
+Immune = "Lymphoid cells were broadly transcriptionally silent, indicating reduced intrarenal T- , B- , and NK cell activity, whereas myeloid cells suppressed interferon stimulated genes and increased oxidative metabolism markers such as PDK4 and SLC38A2—hallmarks of a shift from inflammatory M1 toward reparative M2 phenotypes.",
+VSMC_P_FIB = " Stromal fibroblast/smooth muscle/mesangial cells displayed a strongly anti fibrotic pattern, with higher TIMP3, A2M, and BMP responsive ID1 and no induction of TGF β targets; the modest CTNNB1 rise appeared isolated and non pathogenic. ",
+POD = "Podocytes exhibited a distinct AMPK centered re programming: dapagliflozin dropped the interferon stress marker IFI6, and simultaneously raised ARRDC4, an α arrestin that retunes GLUT trafficking during energy stress, and thymosin β4 (TMSB4X), which fortifies the actin cytoskeleton. This triad signals a shift toward fatty acid/ketone oxidation, enhanced autophagy, and slit diaphragm stability, providing a plausible molecular basis for the drug’s albuminuria lowering effect."
+)
+
+for (cells in names(celltype_groups)) {
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/kpmp_", cells, "_hvg_subtypes_nebula_scores_volcano_heat.jpeg)\n\n"))
+
+cat(paste0(celltype_paragraphs[cells], "\n\n"))
+
+}
+```
+
+
+## T1D vs. HC from CROCODILE
+
+```{r echo = F, results = 'asis', eval = T}
+#| layout-ncol: 2
+celltype_list <- c("pt", "tal", "pc", "immune", "ic", "ec", "fibvsmcp")
+
+for (cells in celltype_list) {
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/", cells ,"_targeted_volcano_attempt_directions_labeled.jpeg){width=100%}\n\n"))
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/", cells, "_croc_attempt_dot.jpeg){width=100%}\n\n"))
+
+}
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/", "pod" ,"_targeted_volcano_attempt_directions_labeled.jpeg){width=50%}\n\n"))
+```
+
+
+## Change in mGFR (BSA)
+
+```{r echo = F, results = 'asis', eval = T}
+
+celltype_paragraphs <- list(
+"pt" = "A coherent hemodynamic signature emerged: ten transcripts, including LGALS3 (galectin 3), VEGFA and FGFR3 declined in proportion to the fall in absolute mGFR, and four of these also tracked with BSA adjusted mGFR. Suppression of galectin 3, VEGF and related mediators suggests attenuation of pathways linked to tubular basement membrane and cytoskeletal remodeling that accompany progressive kidney injury. ",
+"tal" = "Core oxidative phosphorylation subunits (ATP5ME, NDUFA3, COX7A1, NDUFB1) declined step for step with the dapagliflozin induced fall in mGFR. In contrast, transcripts involved in vesicle trafficking and cytoskeletal reorganization, including the TAL enriched GTPase ARL15 and the kinase PRKD1, rose as filtration dropped, suggesting adaptive remodeling of membrane transport machinery. ",
+"ic" = " As mGFR fell, polarity genes PALMD and MFHAS1 and the Na⁺/H⁺ exchanger SLC9A9 dropped, whereas the lysosomal-mTOR scaffold LAMTOR1 and vesicle trafficking factors BLOC1S2, RAB31, and DSP rose, implying less proton export but greater membrane recycling.", 
+"ec" = "As mGFR declined, expression of basement membrane and inflammatory mediators, including COL4A5 (type IV collagen α5) and the transcription factor STAT1, fell in lock step, implying reduced extracellular matrix turnover and dampened cytokine signaling. At the same time, stress adaptation genes such as the glucocorticoid co chaperone FKBP5 and tissue plasminogen activator PLAT rose with the fall in mGFR, suggesting an endocrine and fibrinolytic response to hemodynamic load. ",
+"pc" ="", "immune" ="",  "immune_myeloid" ="", "immune_lymphoid" ="", "fibvsmc" ="")
+
+
+celltype_list <- c("pt", "tal", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmc")
+
+for (cells in celltype_list) {
+cat("### ", toupper(cells), "\n\n") 
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_mgfr_jodal_bsa_trtcolors_concordance.jpeg){width=100%}\n\n"))
+
+cat(paste0(celltype_paragraphs[cells], "\n\n"))
+
+}
+```
+
+## Change in HbA1c
+
+```{r echo = F, results = 'asis', eval = T}
+celltype_paragraphs <- list(
+"pt" = "Glycemic improvements showed complementary patterns. Eleven metal binding/oxidative stress transcripts (MT1 family, FMO5) and VEGFA decreased as TIR rose, while 17 transcripts, including the lipid transporter SLC27A2/FATP2, decreased with falling HbA1c, consistent with reduced oxidative stress and lower fatty acid influx into PT cells. ",
+"tal" = "The same OXPHOS genes decreased with tighter glycemic control (↑TIR, ↓HbA1c), while a smaller set linked to glutamine and lipid handling (GLS, STARD13, CASC2) showed the opposite trend, implying reduced energetic demand and substrate switching under euglycemic conditions. ",
+"ic" = "Better glycemic control produced similar shifts: rising time in range induced the chloride transporter CLCNKA, and urea cycle enzyme ARG2 while further suppressing SLC9A9, consistent with reinforced acid base buffering during euglycemia. Falling HbA1c again up regulated ARG2 and BPGM and repressed the epithelial marker KRT19.", 
+"ec" = "Glycemic improvements showed complementary patterns: up regulation of netrin 4 (NTN4), a barrier stabilizing ligand, and the Rho GAP STARD13 paralleled gains in time in range, whereas the interferon responsive gene IFI6 moved in the opposite direction, consistent with lower endothelial inflammation under tighter glycemic control. Only four transcripts, led by the long non coding RNA KCNQ1OT1, rose as HbA1c fell",
+"pc" ="", "immune" ="",  "immune_myeloid" ="", "immune_lymphoid" ="", "fibvsmc" ="")
+
+celltype_list <- c("pt", "tal", "ic", "ec", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "fibvsmc")
+
+for (cells in celltype_list) {
+cat("### ", toupper(cells), "\n\n")
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_hba1c_trtcolors_concordance.jpeg){width=100%}\n\n"))
+
+cat(paste0(celltype_paragraphs[cells], "\n\n"))
+
+}
+```
+
+## Change in TIR
+
+```{r echo = F, results = 'asis', eval = T}
+celltype_paragraphs <- list(
+"pt" = "Glycemic improvements showed complementary patterns. Eleven metal binding/oxidative stress transcripts (MT1 family, FMO5) and VEGFA decreased as TIR rose, while 17 transcripts, including the lipid transporter SLC27A2/FATP2, decreased with falling HbA1c, consistent with reduced oxidative stress and lower fatty acid influx into PT cells. ",
+"tal" = "The same OXPHOS genes decreased with tighter glycemic control (↑TIR, ↓HbA1c), while a smaller set linked to glutamine and lipid handling (GLS, STARD13, CASC2) showed the opposite trend, implying reduced energetic demand and substrate switching under euglycemic conditions. ",
+"ic" = "Better glycemic control produced similar shifts: rising time in range induced the chloride transporter CLCNKA, and urea cycle enzyme ARG2 while further suppressing SLC9A9, consistent with reinforced acid base buffering during euglycemia. Falling HbA1c again up regulated ARG2 and BPGM and repressed the epithelial marker KRT19.", 
+"ec" = "Glycemic improvements showed complementary patterns: up regulation of netrin 4 (NTN4), a barrier stabilizing ligand, and the Rho GAP STARD13 paralleled gains in time in range, whereas the interferon responsive gene IFI6 moved in the opposite direction, consistent with lower endothelial inflammation under tighter glycemic control. Only four transcripts, led by the long non coding RNA KCNQ1OT1, rose as HbA1c fell",
+"pc" ="", "immune" ="",  "immune_myeloid" ="", "immune_lymphoid" ="", "fibvsmc" ="")
+
+celltype_list <- c("pt", "tal", "ic", "ec", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "fibvsmc")
+
+for (cells in celltype_list) {
+cat("### ", toupper(cells), "\n\n")
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_tir_trtcolors_concordance.jpeg){width=100%}\n\n"))
+
+cat(paste0(celltype_paragraphs[cells], "\n\n"))
+
+}
+```
+
+## Change in avg kidney R2*
+
+```{r echo = F, results = 'asis', eval = T}
+celltype_paragraphs <- list(
+"pt" = "Kidney oxygenation changes were linked to only three PT genes: up regulation of the long non coding RNA XIST associated with higher kidney R2*, while down regulation of SPARCL1 and PCSK1N, genes ordinarily associated with extracellular matrix and secretory pathways, was likewise associated with increases in R2*.",
+"tal" = "Kidney R2* changes were tied to structural regulators: up regulation of the centrosomal microtubule protein CEP170 and down regulation of actin cytoskeletal genes (ACTB, MEF2C, GSN, SHROOM3) each associated with higher kidney R2*, indicating convergent cytoskeletal influences on tissue deoxy hemoglobin. ",
+"ic" = "Kidney R2* changes mapped to metabolic regulators, carbonic anhydrase VIII and NF κB inhibitor NFKBIA increased, whereas the hypoxia sensitive kinase PDK4 decreased, highlighting pH and energy tuning in more deoxygenated tissue. ", 
+"ec" = "no EC genes significantly tracked with kidney or medullary R2*, underscoring that the dominant endothelial signals relate to filtration pressure and metabolic state rather than tissue oxygenation.",
+"pc" ="", "immune" ="",  "immune_myeloid" ="", "immune_lymphoid" ="", "fibvsmc" ="")
+
+celltype_list <- c("pt", "tal", "ic", "ec", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "fibvsmc")
+
+for (cells in celltype_list) {
+cat("### ", toupper(cells), "\n\n") 
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_avg_k_r2_trtcolors_concordance.jpeg){width=100%}\n\n"))
+
+cat(paste0(celltype_paragraphs[cells], "\n\n"))
+
+}
+```
+
+
+## Change in weight
+
+```{r echo = F, results = 'asis', eval = T}
+celltype_list <- c("pt", "tal", "ic", "ec", "pc", "immune",  "immune_myeloid", "immune_lymphoid", "fibvsmc")
+
+for (cells in celltype_list) {
+cat("### ", toupper(cells), "\n\n") 
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_weight_trtcolors_concordance.jpeg){width=100%}\n\n"))
+}
+```
+
+
+## Change in avg ketones
+
+```{r echo = F, results = 'asis', eval = T}
+celltype_list <- c("pt", "tal", "ic", "ec", "pc", "immune", "fibvsmcp")
+
+for (cells in celltype_list) {
+cat("### ", toupper(cells), "\n\n") 
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_avg_ketones_trtcolors_concordance.jpeg){width=100%}\n\n"))
+}
+
+```
+
+
+
+## Proteomics
+
+### Plasma
+
+::: columns
+
+::: column
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Proteomics/Volcano%20Plots/Volcano_DiD_plasma_proteomics_mixed.jpeg)
+:::
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Proteomics/Volcano%20Plots/Volcano_DiD_plasma_proteomics_adjp_mixed.jpeg)
+
+:::
+
+
+:::
+
+### Urine
+
+::: columns
+
+::: column
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Proteomics/Volcano%20Plots/Volcano_DiD_urine_proteomics_mixed.jpeg)
+:::
+
+::: column
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Proteomics/Volcano%20Plots/Volcano_DiD_urine_proteomics_adjp_mixed.jpeg)
+:::
+
+:::
+
+
+## Proportion figures
+
+::: columns
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Proportions/attempt_cellcounts_plot.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Proportions/attempt_general_cellcounts_plot_clean.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Proportions/attempt_pt_treatment_visit_proportions_plot.jpeg){width="100%"} 
+
+:::
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Proportions/attempt_cellcounts_proportions_plot.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Proportions/attempt_general_cellcounts_proportions_plot_clean.jpeg){width="100%"}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Proportions/attempt_pt_visit_treatment_proportions_plot_kpmp.jpeg){width="100%"}
+
+:::
+
+:::
+
+## KPMP PT Pseudotime
+
+Lineage: PT-S1/S2, PT-S3, aPT
+
+::: columns
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pca_pt_kpmp_slingshot.jpeg){width="100%"}
+
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_kpmp_slingshot_density_trt.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_kpmp_slingshot_percentile_heatmap.jpeg){width="100%"}
+
+:::
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_kpmp_slingshot_density_trtvisit.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_slingshot_violin.jpeg){width="100%"} 
+
+```{r echo = F, results = 'asis'}
+
+pt_kpmp_rq <- s3readRDS("Results/pt_kpmp_rq_fit.rds", "attempt", region ="")
+pt_kpmp_rq_summary <- summary(pt_kpmp_rq, se = "nid")
+
+kable(bind_rows(
+lapply(seq_along(pt_kpmp_rq_summary), function(i) {
+coef_df <- as.data.frame(pt_kpmp_rq_summary[[i]]$coefficients)
+coef_df$term <- rownames(coef_df)
+coef_df$tau <- pt_kpmp_rq$tau[i]
+coef_df
+}),
+.id = "quantile"
+), row.names = F)
+```
+
+:::
+
+:::
+
+
+## KPMP PT Pseudotime associations with clinical variables
+
+```{r echo = F, results='asis'}
+#| layout-ncol: 2
+
+vars <- c("mgfr_jodal_bsa", "hba1c",  "tir", "weight")
+
+for (v in vars) {
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_density_pt_kpmp_", v, "_deltadelta_slingshot.jpeg){width=100%}\n\n"))
+
+v = paste0(v, "_delta")
+
+## Load the model
+model_path <- paste0("Results/pt_kpmp_rq_fit_", v, ".rds")
+pt_kpmp_rq_fit <- s3readRDS(model_path, bucket = "attempt", region = "")
+
+## Force correct summary method
+pt_kpmp_rq_summary <- quantreg:::summary.rqs(pt_kpmp_rq_fit, se = "nid")
+
+## Extract coefficient table
+coef_table <- bind_rows(
+lapply(seq_along(pt_kpmp_rq_summary), function(i) {
+coef_df <- as.data.frame(pt_kpmp_rq_summary[[i]]$coefficients)
+coef_df$term <- rownames(coef_df)
+coef_df$tau <- pt_kpmp_rq_fit$tau[i]
+coef_df
+}),
+.id = "quantile"
+)
+
+## Display nicely
+print(kable(coef_table, row.names = F))
+cat("\n\n")
+}
+```
+
+
+
+## PT Pseudotime (Non-KPMP)
+
+Lineage: PT-2, PT-1, PT-3, PT-5, PT-4
+
+::: columns
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pca_pt_slingshot.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_slingshot_density_trt.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_slingshot_percentile_heatmap.jpeg){width="100%"}
+
+:::
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_slingshot_density_trtvisit.jpeg){width="100%"}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_slingshot_violin.jpeg){width="100%"} 
+
+```{r echo = F, results = 'asis'}
+pt_rq <- s3readRDS("Results/pt_rq_fit.rds", "attempt", region ="")
+pt_rq_summary <- summary(pt_rq, se = "nid")
+
+kable(bind_rows(
+lapply(seq_along(pt_rq_summary), function(i) {
+coef_df <- as.data.frame(pt_rq_summary[[i]]$coefficients)
+coef_df$term <- rownames(coef_df)
+coef_df$tau <- pt_rq$tau[i]
+coef_df
+}),
+.id = "quantile"
+), row.names = F)
+```
+
+:::
+:::
+
+## Non-KPMP PT Pseudotime associations with clinical variables
+
+
+```{r echo = F, results='asis'}
+#| layout-ncol: 2
+vars <- c("mgfr_jodal_bsa", "hba1c",  "tir", "weight")
+
+for (v in vars) {
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_density_pt_", v, "_deltadelta_slingshot.jpeg){width=100%}\n\n"))
+
+v = paste0(v, "_delta")
+## Load the model
+model_path <- paste0("Results/pt_rq_fit_", v, ".rds")
+pt_rq_fit <- s3readRDS(model_path, bucket = "attempt", region = "")
+
+## Force correct summary method
+pt_rq_summary <- quantreg:::summary.rqs(pt_rq_fit, se = "nid")
+
+## Extract coefficient table
+coef_table <- bind_rows(
+lapply(seq_along(pt_rq_summary), function(i) {
+coef_df <- as.data.frame(pt_rq_summary[[i]]$coefficients)
+coef_df$term <- rownames(coef_df)
+coef_df$tau <- pt_rq_fit$tau[i]
+coef_df
+}),
+.id = "quantile"
+)
+
+## Display nicely
+print(kable(coef_table, row.names = F))
+cat("\n\n")
+}
+```
+
+---
+
+Primary outcome paper: https://rdcu.be/epIA2

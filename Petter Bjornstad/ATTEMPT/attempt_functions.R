@@ -1651,7 +1651,7 @@ create_gene_expression_plots <- function(main_results,
   
   # Select top negative genes
   top_neg_genes <- main_results %>%
-    arrange(!!sym(fdr_col)) %>%
+    arrange((!!sym(fdr_col))) %>%
     filter(!!sym(logfc_col) < 0) %>%
     head(n_top_genes) %>%
     pull(Gene)
@@ -1665,9 +1665,14 @@ create_gene_expression_plots <- function(main_results,
   # Set factor levels for ordering
   combined_plot_dat$celltype <- factor(combined_plot_dat$celltype, levels = cell_type_order)
   combined_plot_dat$Gene <- factor(combined_plot_dat$Gene, levels = c(top_neg_genes, top_pos_genes))
-  
+  if (length(unique(combined_plot_dat$Gene)) < (n_top_genes*2)) {
+    missing_df <- data.frame(Gene = rep(c(top_pos_genes, top_neg_genes)[c(top_pos_genes, top_neg_genes) %nin% combined_plot_dat$Gene], each = length(cell_type_order)),
+                             celltype = cell_type_order,
+                             direction = "+")
+    combined_plot_dat <- dplyr::bind_rows(combined_plot_dat, missing_df)
+  }
   # Create color vector for x-axis labels
-  gene_levels <- levels(combined_plot_dat$Gene)
+  gene_levels <- c(top_neg_genes, top_pos_genes)
   x_colors <- setNames(
     c(rep("#457b9d", n_top_genes), rep("#f28482", n_top_genes)),
     gene_levels
@@ -1762,6 +1767,7 @@ BCD"
 
 #' Create dot plot for gene expression
 create_dot_plot <- function(plot_data, x_colors, n_genes_per_direction, text_size = 10) {
+  plot_data$Gene <- factor(plot_data$Gene, levels = (names(x_colors)))
   plot_data %>%
     ggplot(aes(x = Gene, y = celltype, size = abs(logFC), color = direction)) +
     annotate("rect", 
@@ -2975,6 +2981,42 @@ analyze_pseudotime_by_celltype <- function(so,
                      Key = paste0("Results/", suffix, "_rq_fit.rds"))
   if (file.exists(temp_file)) unlink(temp_file)
   
+  log_step("Step 10b: Running quantile regression for clinical variables...")
+  
+  clin_vars <- c(
+    "hba1c_delta" = "\u0394HbA1c",
+    "weight_delta" = "\u0394Weight", 
+    "mgfr_jodal_delta" = "\u0394mGFR",
+    "mgfr_jodal_bsa_delta" = "\u0394mGFR (BSA)",
+    "tir_delta" = "\u0394TIR"
+  )
+  
+  for (clin_var in names(clin_vars)) {
+    formula_clin <- reformulate(clin_var, response = "slingPseudotime_1")
+    rq_fit_clin <- rq(formula_clin, tau = tau, data = sce_df)
+    
+    # Clean environments for saving
+    attr(rq_fit_clin$terms, ".Environment") <- NULL
+    attr(rq_fit_clin$formula, ".Environment") <- NULL
+    environment(attr(rq_fit_clin$model, "terms")) <- baseenv()
+    
+    # Save to temp file and upload
+    temp_file_clin <- tempfile(fileext = ".rds")
+    tryCatch({
+      R.utils::withTimeout({
+        saveRDS(rq_fit_clin, temp_file_clin)
+        message(sprintf("   ✅ Saved rq for %s (%.2f MB)", clin_var, file.size(temp_file_clin) / 1024^2))
+      }, timeout = 30, onTimeout = "error")
+    }, error = function(e) {
+      message(sprintf(" ❌ Save timed out for %s", clin_var))
+    })
+    
+    s3_key_rq <- paste0("Results/", suffix, "_rq_fit_", clin_var, ".rds")
+    aws_s3$upload_file(temp_file_clin, Bucket = "attempt", Key = s3_key_rq)
+    if (file.exists(temp_file_clin)) unlink(temp_file_clin)
+    
+    message(sprintf("⬆️  Clinical rq uploaded to s3://%s/%s", "attempt", s3_key_rq))
+  }
   log_step("Step 11: Predicting values from quantile regression...")
   rq_grid <- expand.grid(treatment = c("Placebo", "Dapagliflozin"),
                          visit = c("PRE", "POST"))
@@ -2997,13 +3039,6 @@ analyze_pseudotime_by_celltype <- function(so,
   
   log_step("Step 13: Running delta clinical variable analyses...")
   
-  clin_vars <- c(
-    "hba1c_delta" = "\u0394HbA1c",
-    "weight_delta" = "\u0394Weight", 
-    "mgfr_jodal_delta" = "\u0394mGFR",
-    "mgfr_jodal_bsa_delta" = "\u0394mGFR (BSA)",
-    "tir_delta" = "\u0394TIR"
-  )
   
   for (clin_var in names(clin_vars)) {
     message(sprintf("   [%s]   Analyzing %s...", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), clin_var))
@@ -3034,6 +3069,7 @@ plot_treatment_heatmap <- function(data,
                                    top_n = 10,
                                    p_col = "p_treatmentDapagliflozin:visitPOST",
                                    logfc_col = "logFC_treatmentDapagliflozin:visitPOST",
+                                   fdr_col = "fdr",
                                    gene_col = "Gene",
                                    logfc_visit = "logFC_visitPOST") {
   library(dplyr)
@@ -3045,13 +3081,13 @@ plot_treatment_heatmap <- function(data,
   
   # Identify top positive and negative genes
   top_pos <- data %>%
-    arrange(.data[[p_col]]) %>%
+    arrange(.data[[fdr_col]]) %>%
     filter(.data[[logfc_col]] > 0) %>%
     head(top_n) %>%
     pull(.data[[gene_col]])
   
   top_neg <- data %>%
-    arrange(.data[[p_col]]) %>%
+    arrange(.data[[fdr_col]]) %>%
     filter(.data[[logfc_col]] < 0) %>%
     head(top_n) %>%
     pull(.data[[gene_col]])
@@ -3081,12 +3117,26 @@ plot_treatment_heatmap <- function(data,
   
   abs_max <- max(abs(plot_df$Slope)) * 1.1
   
+  gene_levels <- c(top_neg, top_pos)
+  
+  y_colors <- setNames(
+    c(rep("#457b9d", top_n), rep("#f28482", top_n)),
+    gene_levels
+  )
+  plot_df$Gene <- factor(plot_df$Gene, levels = rev(gene_levels))
   # Heatmap
-  ggplot(plot_df, aes(x = group, y = .data[[gene_col]], fill = Slope)) +
+  ggplot(plot_df, aes(x = group, y = Gene, fill = Slope)) +
     geom_tile() +
     scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674",
                          midpoint = 0, limits = c(-abs_max, abs_max)) +
-    scale_y_discrete(position = "right") +
+    scale_y_discrete(
+      position = "right", 
+      labels = function(x) {
+        mapply(function(label, col) {
+          glue::glue("<span style='color:{col}'>{label}</span>")
+        }, x, y_colors[x], SIMPLIFY = TRUE)
+      }
+    ) +
     theme_minimal() +
     theme(
       panel.grid = element_blank(),
@@ -3095,6 +3145,8 @@ plot_treatment_heatmap <- function(data,
       legend.text.position = "left",
       legend.title = element_text(hjust = 0.5, size = 10),
       legend.position = "left",
+      axis.text.x = element_text(angle = 70, hjust = 1), 
+      axis.text.y = element_markdown(),
       plot.caption = element_text(size = 18, hjust = 0.5)
     ) +
     labs(
