@@ -25,6 +25,213 @@ if (user == "choiyej") { # local version
 # ATTEMPT analysis related functions
 
 # ---- Analysis Functions ----
+
+#----------------------------------------------------------#
+# run_nebula_for_clinvar
+#----------------------------------------------------------#
+
+run_nebula_for_clinvar <- function(
+    seurat_obj,
+    celltype_values,                 # e.g., c("PT-S1/S2","PT-S3","aPT")
+    celltype_var = "celltype",
+    clinical_var,                    # e.g., "mgfr_jodal_bsa"
+    suffix = NULL,                   # e.g., "kpmp"
+    exclude_values = NULL,           # e.g., "PT_lowQuality"
+    n_hvgs = 2000,
+    workers = 50,                    # parallel workers for foreach
+    s3,                              # your S3 client object (e.g., `s3`)
+    s3_bucket,                       # e.g., "attempt"
+    s3_key_prefix = "associations/nebula",  # base path
+    assay_layer = "counts",          # use "counts" layer (Seurat v5); change to slot="counts" if needed
+    id_var = "subject_id",
+    offset_var = "pooled_offset",
+    treatment_var = "treatment",
+    extra_covars = NULL              # character vec of extra covariate names in meta.data (optional)
+) {
+  # --- packages
+  library(Seurat)
+  library(Matrix)
+  library(nebula)
+  library(doParallel)
+  library(foreach)
+  library(rlang)
+  
+  # --- sanity checks
+  md <- seurat_obj@meta.data
+  needed_cols <- c(id_var, treatment_var, clinical_var, offset_var, celltype_var)
+  missing_cols <- setdiff(needed_cols, colnames(md))
+  if (length(missing_cols)) {
+    stop("Missing required meta columns: ", paste(missing_cols, collapse = ", "))
+  }
+  if (!all(celltype_values %in% unique(md[[celltype_var]]))) {
+    warning("Some target celltype values not present in meta; continuing with those that exist.")
+  }
+  
+  message("Subsetting cells where ", celltype_var, " %in% {", paste(celltype_values, collapse = ", "), "}")
+  
+  # subset to chosen cell types (and optionally drop any excluded labels)
+  subset_expr <- md[[celltype_var]] %in% celltype_values
+  if (!is.null(exclude_values)) {
+    subset_expr <- subset_expr & !(md[[celltype_var]] %in% exclude_values)
+  }
+  so_sub <- seurat_obj[, subset_expr]
+  
+  # HVGs
+  so_sub <- FindVariableFeatures(so_sub, selection.method = "vst", nfeatures = n_hvgs)
+  hvgs <- VariableFeatures(so_sub)
+  so_hvg <- subset(so_sub, features = hvgs)
+  
+  # keep only rows with non-missing clinical var
+  md_hvg <- so_hvg@meta.data
+  keep_cells <- rownames(md_hvg)[!is.na(md_hvg[[clinical_var]])]
+  so_hvg <- so_hvg[, keep_cells, drop = FALSE]
+  
+  # counts matrix (Seurat v5 “layer” API)
+  counts <- round(GetAssayData(so_hvg, layer = assay_layer))
+  genes <- rownames(counts)
+  
+  # design matrix terms: clinical_var + treatment + optional extras
+  rhs_terms <- c(clinical_var, treatment_var, extra_covars)
+  rhs <- paste(rhs_terms, collapse = " + ")
+  fml <- as.formula(paste("~", rhs))
+  
+  # parallel
+  workers <- max(1, min(workers, parallel::detectCores(logical = TRUE)))
+  cl <- parallel::makeCluster(workers)
+  on.exit(try(parallel::stopCluster(cl), silent = TRUE), add = TRUE)
+  registerDoParallel(cl)
+  
+  message("Running nebula on ", length(genes), " genes with ", workers, " workers...")
+  start_time <- Sys.time()
+  
+  res_list <- foreach(g = genes, .packages = c("nebula", "Matrix", "Seurat")) %dopar% {
+    warn <- NULL; err <- NULL; res <- NULL
+    # per-gene meta (keeps rows aligned to columns of count matrix)
+    meta_g <- subset(so_hvg, features = g)@meta.data
+    pred <- tryCatch(model.matrix(fml, data = meta_g), error = function(e) { err <<- conditionMessage(e); NULL })
+    if (is.null(pred)) {
+      return(list(gene = g, result = NULL, warning = warn, error = err))
+    }
+    
+    # build grouped count structure
+    count_g <- counts[g, , drop = FALSE]
+    dat <- tryCatch({
+      group_cell(count = count_g, id = meta_g[[id_var]], pred = pred)
+    }, error = function(e) { err <<- conditionMessage(e); NULL })
+    
+    if (is.null(dat)) {
+      return(list(gene = g, result = NULL, warning = warn, error = err))
+    }
+    
+    # run nebula
+    tryCatch({
+      res <- withCallingHandlers({
+        nebula(
+          count = dat$count,
+          id    = dat$id,
+          pred  = dat$pred,
+          ncore = 1,
+          output_re = TRUE,
+          covariance = TRUE,
+          reml = 1,
+          model = "NBLMM",
+          offset = meta_g[[offset_var]]
+        )
+      }, warning = function(w) { warn <<- conditionMessage(w); invokeRestart("muffleWarning") })
+    }, error = function(e) { err <<- conditionMessage(e); res <- NULL })
+    
+    list(gene = g, result = res, warning = warn, error = err)
+  }
+  
+  # collect logs
+  for (x in res_list) {
+    if (!is.null(x$warning)) message(sprintf("[WARN] %s: %s", x$gene, x$warning))
+    if (!is.null(x$error))   message(sprintf("[ERR ] %s: %s", x$gene, x$error))
+  }
+  
+  names(res_list) <- vapply(res_list, function(x) x$gene, "", USE.NAMES = FALSE)
+  res_clean <- lapply(res_list, `[[`, "result")
+  res_clean <- Filter(Negate(is.null), res_clean)
+  
+  filtered_prop <- (length(genes) - length(res_clean)) / length(genes)
+  message(sprintf("Filtered due to errors/low expr: %.2f%%", 100 * filtered_prop))
+  
+  # save to S3
+  group_tag <- paste0(gsub("[^A-Za-z0-9]+", "_", paste(unique(celltype_values), collapse = "-")))
+  file_stub <- paste0(clinical_var, "__", group_tag, if (!is.null(suffix)) paste0("__", suffix))
+  out_key <- file.path(s3_key_prefix, clinical_var, paste0(file_stub, ".rds"))
+  tmp <- tempfile(fileext = ".rds")
+  saveRDS(res_clean, tmp)
+  s3$upload_file(tmp, s3_bucket, out_key)
+  unlink(tmp)
+  
+  total_min <- round(as.numeric(difftime(Sys.time(), start_time, units = "mins")), 2)
+  message("Done: ", clinical_var, " [", group_tag, "] in ", total_min, " min; saved to s3://", s3_bucket, "/", out_key)
+  
+  # return both results and where it went
+  list(
+    clinical_var = clinical_var,
+    celltypes = celltype_values,
+    n_genes = length(genes),
+    kept_genes = length(res_clean),
+    filtered_prop = filtered_prop,
+    s3_bucket = s3_bucket,
+    s3_key = out_key,
+    results = res_clean
+  )
+}
+
+#----------------------------------------------------------#
+# run_nebula_by_groups
+#----------------------------------------------------------#
+
+run_nebula_by_groups <- function(
+    seurat_obj,
+    celltype_groups,        # named list: group -> vector of celltype values
+    celltype_var = "celltype",
+    clin_vars,              # character vec of clinical vars
+    suffix = NULL,
+    exclude_values = NULL,  # vector of labels to drop (e.g., "PT_lowQuality")
+    n_hvgs = 2000,
+    workers = 50,
+    s3, s3_bucket, s3_key_prefix = "associations/nebula",
+    assay_layer = "counts",
+    id_var = "subject_id",
+    offset_var = "pooled_offset",
+    treatment_var = "treatment",
+    extra_covars = NULL
+) {
+  out <- list()
+  for (grp in names(celltype_groups)) {
+    ct_vals <- celltype_groups[[grp]]
+    for (cv in clin_vars) {
+      message("=== Group: ", grp, " | ClinVar: ", cv, " ===")
+      res <- run_nebula_for_clinvar(
+        seurat_obj = seurat_obj,
+        celltype_values = ct_vals,
+        celltype_var = celltype_var,
+        clinical_var = cv,
+        suffix = suffix,
+        exclude_values = exclude_values,
+        n_hvgs = n_hvgs,
+        workers = workers,
+        s3 = s3,
+        s3_bucket = s3_bucket,
+        s3_key_prefix = s3_key_prefix,
+        assay_layer = assay_layer,
+        id_var = id_var,
+        offset_var = offset_var,
+        treatment_var = treatment_var,
+        extra_covars = extra_covars
+      )
+      if (is.null(out[[grp]])) out[[grp]] <- list()
+      out[[grp]][[cv]] <- res
+    }
+  }
+  out
+}
+
+
 #----------------------------------------------------------#
 # run_ancova
 #----------------------------------------------------------#
