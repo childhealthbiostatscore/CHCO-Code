@@ -249,6 +249,33 @@ def harmonize_data():
         search_eis = np.exp((4.64725 - (0.02032 * harmonized.groupby("record_id")["waistcm"].transform("mean")) - 
         (0.09779 * harmonized.groupby("record_id")["hba1c"].transform("mean")) - 
         (0.00235 * harmonized.groupby("record_id")["triglycerides"].transform("mean")))))
+    
+    # Merge copeptin values (CASPER, RH2, CROCODILE)
+    # Step 1: Replace empty strings with NaN in both columns
+    harmonized['copeptin'].replace("", np.nan, inplace=True)
+    harmonized['pi_copeptin'].replace("", np.nan, inplace=True)
+
+    # Step 2: Convert both columns to numeric (coerce errors to NaN)
+    harmonized['copeptin'] = pd.to_numeric(harmonized['copeptin'], errors='coerce')
+    harmonized['pi_copeptin'] = pd.to_numeric(harmonized['pi_copeptin'], errors='coerce')
+
+    # Step 3: Move pi_copeptin value to copeptin if copeptin is missing but pi_copeptin is present
+    mask_move = harmonized['copeptin'].isna() & harmonized['pi_copeptin'].notna()
+    harmonized.loc[mask_move, 'copeptin'] = harmonized.loc[mask_move, 'pi_copeptin']
+    harmonized.loc[mask_move, 'pi_copeptin'] = np.nan  # clear pi_copeptin after move
+
+    # Step 4: If both have values but differ, keep copeptin and clear pi_copeptin
+    mask_diff = harmonized['copeptin'].notna() & harmonized['pi_copeptin'].notna() & (harmonized['copeptin'] != harmonized['pi_copeptin'])
+    harmonized.loc[mask_diff, 'pi_copeptin'] = np.nan
+
+    # Step 5: If both have values and are equal, clear pi_copeptin (optional cleanup)
+    mask_equal = harmonized['copeptin'].notna() & harmonized['pi_copeptin'].notna() & (harmonized['copeptin'] == harmonized['pi_copeptin'])
+    harmonized.loc[mask_equal, 'pi_copeptin'] = np.nan
+
+    # Step 6: Drop pi_copeptin column (all handled)
+    harmonized.drop(columns=['pi_copeptin'], inplace=True)
+
+
     # Co-enroll IDs
     # casper_mrns = harmonized.loc[harmonized['study'] == 'CASPER', ['mrn', 'record_id']]
     # casper_id_map = dict(zip(casper_mrns['mrn'], casper_mrns['record_id']))
