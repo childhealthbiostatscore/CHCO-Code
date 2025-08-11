@@ -46,8 +46,14 @@ library(nebula)
 
 load('C:/Users/netio/Documents/UofW/Rockies/Line438_Boxplots_NoMed.RData')
 
+dat2 <- dat %>% filter(visit == 'baseline') %>% 
+  filter(study %in% c('RENAL-HEIR', 'RENAL-HEIRitage') | record_id == 'IT_19') %>%
+  filter(group != 'Obese Control') %>% 
+  dplyr::select(mrn, record_id, visit, group, group2, starts_with('fsoc'), bmi, 
+                epic_sglti2_1, age, sex, epic_mfm_1, epic_insulin_1, epic_glp1ra_1)
 
-
+table1::table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_glp1ra_1+epic_sglti2_1 | group2,data=dat2 %>% 
+                 filter(!is.na(group2)))
 
 
 tests <- c('fsoc_l_cortex', 'fsoc_r_cortex', 
@@ -57,6 +63,8 @@ tests <- c('fsoc_l_cortex', 'fsoc_r_cortex',
 
 graphs <- list()
 
+
+dat_results <- dat2
 
 
 
