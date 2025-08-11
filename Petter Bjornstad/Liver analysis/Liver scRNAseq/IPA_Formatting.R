@@ -110,25 +110,25 @@ ipa_plot <- function(data){
 
 # alb <- read_xls("/Volumes/PEDS/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/Results/Linear and Cox models/IPA/Output from IPA/albuminuria.xls",
 #                 skip = 1)
-ast <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways.xls", skip = 1)
+ast <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_TeenLabs.xls", skip = 1)
 
 ast <- ast %>% arrange(desc("-log(p-value)")) 
 ast_keep <- ast[1:60,]
 
 ast_plot <- ipa_plot(ast_keep)
 ast_plot 
-pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways.pdf",width=10,height=8)
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways_TeenLabs.pdf",width=10,height=8)
 plot(ast_plot)
 dev.off()
 
-ast <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways_02_pval.xls", skip = 1)
+ast <- readxl::read_xls("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/ALT_TeenLabs.xls", skip = 1)
 
 ast <- ast %>% arrange(desc("-log(p-value)")) 
 ast_keep <- ast[1:60,]
 
 ast_plot <- ipa_plot(ast_keep)
 ast_plot 
-pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/AST_pathways_02_pval.pdf",width=10,height=8)
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/IPA Results/ALT_pathways_TeenLabs.pdf",width=10,height=8)
 plot(ast_plot)
 dev.off()
 

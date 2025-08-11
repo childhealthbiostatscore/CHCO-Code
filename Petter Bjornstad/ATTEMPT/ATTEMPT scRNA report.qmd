@@ -97,8 +97,7 @@ attempt_redcap_denver <- attempt_redcap %>%
   dplyr::rename(subject_id = record_id)
 
 # clinical dataset from Antoine (merged version)
-s3load("Clinical Data/ATTEMPT_AC.RData", "attempt", region = "")
-attempt_dat <- merged_data
+attempt_dat <- s3readRDS("Clinical Data/ATTEMPT_AC.RDS", "attempt", region = "")
 attempt_dat[attempt_dat == ""] <- NA
 attempt_dat <- attempt_dat %>%
   filter(visit %in% c("baseline", "4_weeks_post", "4_months_post", "screening", "follow_up")) %>%
@@ -127,8 +126,11 @@ attempt_biopsy_yn <- attempt_biopsy_yn %>%
 # merge REDCap version (for Denver) and dataset from Antoine
 attempt_dat <- left_join(attempt_dat, attempt_redcap_denver) %>%
   left_join(attempt_biopsy_yn) %>%
+  group_by(subject_id, visit) %>%
   mutate(biopsy_yn = case_when(biopsy_yn == "Yes" ~ "Yes",
-                               T ~ "No"))
+                               T ~ "No"),
+         avg_ketones = mean(c(mgfr_ketones_pre, mgfr_ketone_iv), na.rm = T)) %>%
+  ungroup()
 attempt_dat$treatment <- factor(attempt_dat$treatment, levels = c("Placebo", "Dapagliflozin 5mg"))
 
 attempt_dat %>%
@@ -166,6 +168,13 @@ attempt_dat %>%
 kable(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + ldl_serum_mmoll + hdl_serum_mmoll, data = subset(attempt_dat, visit == 0)), digits = 1))
 
 kable(summary(arsenal::tableby(treatment ~ mgfr_jodal_bsa + mgfr_jodal + mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2, data = subset(attempt_dat, visit == -4)), digits = 1))
+
+kable(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + ldl_serum_mmoll + hdl_serum_mmoll + mgfr_jodal_bsa + mgfr_jodal + mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2, data = subset(attempt_dat, visit == 16)), digits = 1))
+
+# kable(summary(arsenal::tableby(visit ~  hba1c + mgfr_jodal_bsa + mgfr_jodal, data = attempt_dat), digits = 1))
+
+# kable(summary(arsenal::tableby(treatment ~ mgfr_ketone_iv + mgfr_ketones_pre + mgfr_ketones_t240, data = subset(attempt_dat, visit == -4)), digits = 1))
+# kable(summary(arsenal::tableby(treatment ~ mgfr_ketone_iv + mgfr_ketones_pre + mgfr_ketones_t240, data = subset(attempt_dat, visit == 16)), digits = 1))
 ```
 
 ```{r echo = F}
@@ -247,7 +256,7 @@ delta_df <- attempt_dat %>%
     names_from = visit,
     values_from = c(
       hba1c, cgm_tir, weight, mgfr_jodal_bsa, mgfr_jodal, avg_c_r2, avg_k_r2,
-      avg_c_t1, avg_k_t1, avg_pcascl, avg_c_adc,
+      avg_c_t1, avg_k_t1, avg_pcascl, avg_c_adc, avg_ketones,
       cholesterol_serum_mmoll, triglycerides_serum_mmoll, ldl_serum_mmoll, hdl_serum_mmoll
     )
   ) %>%
@@ -263,6 +272,8 @@ delta_df <- attempt_dat %>%
     delta_mgfr_jodal_bsa_16 = mgfr_jodal_bsa_16 - `mgfr_jodal_bsa_-4`,
     delta_mgfr_jodal_4 = mgfr_jodal_4 - `mgfr_jodal_-4`,
     delta_mgfr_jodal_16 = mgfr_jodal_16 - `mgfr_jodal_-4`,
+    delta_avg_ketones_4 = avg_ketones_4 - `avg_ketones_-4`,
+    delta_avg_ketones_16 = avg_ketones_16 - `avg_ketones_-4`,
     delta_avg_c_r2_4 = avg_c_r2_4 - `avg_c_r2_-4`,
     delta_avg_c_r2_16 = avg_c_r2_16 - `avg_c_r2_-4`,
     delta_avg_k_r2_4 = avg_k_r2_4 - `avg_k_r2_-4`,
@@ -290,6 +301,7 @@ delta_df <- attempt_dat %>%
     delta_hba1c_0 = 0,
     delta_tir_0 = 0,
     delta_weight_0 = 0,
+    `delta_avg_ketones_-4` = 0,
     `delta_mgfr_jodal_bsa_-4` = 0,
     `delta_mgfr_jodal_-4` = 0,
     `delta_avg_c_r2_-4` = 0,
@@ -341,12 +353,13 @@ delta_df <- delta_df %>%
       group_by(subject_id) %>%
       filter(visit == -4) %>%
       dplyr::select(subject_id, mgfr_jodal_bsa, mgfr_jodal,
-                    avg_c_r2, avg_k_r2) %>%
+                    avg_c_r2, avg_k_r2, avg_ketones) %>%
       dplyr::rename(
         mgfr_jodal_bsa_bl = mgfr_jodal_bsa,
         mgfr_jodal_bl = mgfr_jodal,
         avg_c_r2_bl = avg_c_r2,
-        avg_k_r2_bl = avg_k_r2
+        avg_k_r2_bl = avg_k_r2,
+        avg_ketones_bl = avg_ketones
       )
   )
 
@@ -998,6 +1011,14 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 ![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_k_r2_overtime.jpeg){width=70%}
 
+Difference in kidney R2* correlation with baseline kidney R2*
+
+```{r echo = F, include = T, eval = T}
+cor.test(subset(delta_df, visit == 16)$avg_k_r2, 
+          subset(delta_df, visit == 16)$avg_k_r2_bl)
+```
+
+
 ```{r echo = F, include = T, eval = T}
 model_avg_k_r2 <- lmer(
   avg_k_r2 ~ treatment * factor(visit) +
@@ -1214,9 +1235,8 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F, include = T, eval = T}
 model_mgfr_jodal_bsa <- lmer(
   mgfr_jodal_bsa ~ treatment * factor(visit) +
-    age + sex + diabetes_dx_duration + 
     (1 | subject_id),
-  data = subset(delta_df,site == "Denver")
+  data = subset(delta_df, site == "Denver")
 )
 
 # summary(model_mgfr_jodal_bsa)
@@ -1248,7 +1268,6 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F, include = T, eval = T}
 model_mgfr_jodal <- lmer(
   mgfr_jodal ~ treatment * factor(visit) +
-    age + sex + diabetes_dx_duration + 
     (1 | subject_id),
   data = subset(delta_df,site == "Denver")
 )
@@ -1286,7 +1305,6 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F, include = T, eval = T}
 model_hba1c <- lmer(
   hba1c ~ treatment * factor(visit) +
-    age + sex + diabetes_dx_duration + 
     (1 | subject_id),
   data = subset(delta_df, site == "Denver")
 )
@@ -1325,7 +1343,6 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F, include = T, eval = T}
 model_tir <- lmer(
   tir ~ treatment * factor(visit) +
-    age + sex + diabetes_dx_duration + 
     (1 | subject_id),
   data = subset(delta_df, site == "Denver")
 )
@@ -1365,7 +1382,6 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F, include = T, eval = T}
 model_weight <- lmer(
   weight ~ treatment * factor(visit) +
-    age + sex + diabetes_dx_duration + 
     (1 | subject_id),
   data = subset(delta_df, site == "Denver")
 )
@@ -1405,9 +1421,8 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F, include = T, eval = T}
 model_avg_c_r2 <- lmer(
   avg_c_r2 ~ treatment * factor(visit) +
-    age + sex + diabetes_dx_duration + 
     (1 | subject_id),
-  data = delta_df
+  data = subset(delta_df, site == "Denver")
 )
 
 # summary(model_avg_c_r2)
@@ -1420,7 +1435,7 @@ contrast(emm_avg_c_r2, method = "revpairwise", by = "visit", adjust = "bonferron
 ```
 
 ```{r echo = F}
-run_ancova(delta_df, outcome_var = "avg_c_r2", baseline_var = "avg_c_r2_bl", visit_week = 16)
+run_ancova(subset(delta_df, site == "Denver"), outcome_var = "avg_c_r2", baseline_var = "avg_c_r2_bl", visit_week = 16)
 ```
 
 ### Avg kidney R2*
@@ -1432,7 +1447,7 @@ plot_mean_ci_stars(subset(attempt_dat, site == "Denver" & visit %in% c(-4, 16)),
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_overtime_denver.jpeg", width = 7, height = 5)
 
 
-plot_mean_ci_stars(data = delta_df, 
+plot_mean_ci_stars(data = subset(delta_df, site == "Denver"), 
                    visits_to_plot = c(-4, 16),
                    y_var = avg_k_r2, y_axis_title = "\u0394 Avg kidney R2*",
                    legend_position = c(0.3,0.8)) +
@@ -1445,12 +1460,20 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 ![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_k_r2_overtime_denver.jpeg){width=70%}
 
+
+Difference in kidney R2* correlation with baseline kidney R2*
+
+```{r echo = F, include = T, eval = T}
+cor.test(subset(delta_df, site == "Denver" & visit == 16)$avg_k_r2, 
+          subset(delta_df, site == "Denver" & visit == 16)$avg_k_r2_bl)
+```
+
+
 ```{r echo = F, include = T, eval = T}
 model_avg_k_r2 <- lmer(
   avg_k_r2 ~ treatment * factor(visit) +
-    age + sex + diabetes_dx_duration + 
     (1 | subject_id),
-  data = delta_df
+  data = subset(delta_df, site == "Denver")
 )
 
 # summary(model_avg_k_r2)
@@ -1463,7 +1486,59 @@ contrast(emm_avg_k_r2, method = "revpairwise", by = "visit", adjust = "bonferron
 ```
 
 ```{r echo = F}
-run_ancova(delta_df, outcome_var = "avg_k_r2", baseline_var = "avg_k_r2_bl", visit_week = 16)
+run_ancova(subset(delta_df, site == "Denver"), outcome_var = "avg_k_r2", baseline_var = "avg_k_r2_bl", visit_week = 16)
+```
+
+
+### Ketones (avg of mgfr_ketone_iv and mgfr_ketones_pre)
+
+```{r echo = F, include = F}
+plot_mean_ci_stars(subset(attempt_dat, site == "Denver" & visit %in% c(-4, 16)), 
+                   visits_to_plot = c(-4, 16),
+                   y_var = avg_ketones, y_axis_title = "Ketones", legend_position = c(0.6,0.2))
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_ketones_overtime_denver.jpeg", width = 7, height = 5)
+
+
+plot_mean_ci_stars(data = subset(delta_df, site == "Denver"), 
+                   visits_to_plot = c(-4, 16),
+                   y_var = avg_ketones, y_axis_title = "\u0394 Ketones",
+                   legend_position = c(0.3,0.8)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_ketones_overtime_denver.jpeg", width = 7, height = 5)
+```
+
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_ketones_overtime_denver.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/delta_avg_ketones_overtime_denver.jpeg){width=70%}
+
+
+Difference in ketones correlation with baseline ketones
+
+```{r echo = F, include = T, eval = T}
+cor.test(subset(delta_df, site == "Denver" & visit == 16)$avg_ketones, 
+          subset(delta_df, site == "Denver" & visit == 16)$avg_ketones_bl)
+```
+
+
+```{r echo = F, include = T, eval = T}
+model_avg_ketones <- lmer(
+  avg_ketones ~ treatment * factor(visit) +
+    (1 | subject_id),
+  data = subset(delta_df, site == "Denver")
+)
+
+# summary(model_avg_ketones)
+
+emm_avg_ketones <- emmeans(model_avg_ketones, ~ treatment | visit)
+summary(emm_avg_ketones)
+
+# Pairwise comparisons at each week
+contrast(emm_avg_ketones, method = "revpairwise", by = "visit", adjust = "bonferroni")
+```
+
+```{r echo = F}
+run_ancova(subset(delta_df, site == "Denver"), outcome_var = "avg_ketones", baseline_var = "avg_ketones_bl", visit_week = 16)
 ```
 
 ### Correlations
@@ -1907,7 +1982,31 @@ kable(clean_results, digits = 3)
 
 ## DEGs (Dapagliflozin vs. Placebo) - DiD using NEBULA across all celltypes
 
-### Top 2000 HVG
+### KPMP Cell types
+
+#### Top 2000 HVG
+
+```{r echo = F, results = 'asis', eval = T}
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD"
+)
+for (cells in names(celltype_groups)) {
+  
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/kpmp_", cells, "_hvg_subtypes_nebula_scores_volcano_heat.jpeg)\n\n"))
+}
+```
+
+---
+
+### Non-KPMP Cell types
+#### Top 2000 HVG
 
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("PT", "TAL", "PC", "Immune", "Immune_Myeloid", "Immune_Lymphoid", "IC", "EC", "FIBVSMCP", "POD")
@@ -1922,7 +2021,7 @@ for (cells in celltype_list) {
 
 ---
 
-### Not limited to top 2000 HVG
+#### Not limited to top 2000 HVG
 
 ```{r echo = F, results = 'asis', eval = T}
 celltype_list <- c("PT", "TAL", "PC", "Immune", "Immune_Myeloid", "Immune_Lymphoid", "IC", "EC", "FIBVSMCP", "POD")
@@ -2752,7 +2851,7 @@ for (cells in celltype_list) {
 
 
 ```{r echo = F, results = 'asis', eval = T}
-celltype_list <- c("pt", "tal", "pc", "immune", "ic", "ec", "fibvsmcp", "pod")
+celltype_list <- c("pt", "tal", "pc", "immune", "ic", "ec", "fibvsmcp")
 
 for (cells in celltype_list) {
 
@@ -2763,6 +2862,10 @@ for (cells in celltype_list) {
   cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/", cells, "_croc_attempt_dot.jpeg){width=50%}\n\n"))
   
 }
+
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE/Results/Figures/Volcano/nebula/croc_targeted_t1dvhc_", "pod", "_deg.jpeg){width=50%}\n\n"))
+  
+cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/", "pod" ,"_targeted_volcano_attempt_directions_labeled.jpeg){width=50%}\n\n"))
 ```
 
 ---
@@ -2999,8 +3102,169 @@ kable(dirichlet_res_kpmp_dapa,format = "html",
 
 
 
+# Pseudotime trajectories (KPMP Cell types)
 
-# Pseudotime trajectories
+---
+
+## T1D vs. HC (Cross sectional)
+
+---
+
+## Dapagliflozin vs. Placebo in T1D (serial data)
+
+### PT
+
+Lineage: PT-S1/S2, PT-S3, aPT
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pca_pt_kpmp_slingshot.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_kpmp_slingshot_density_trtvisit.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_slingshot_violin.jpeg){width=70%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_kpmp_slingshot_density_trt.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_kpmp_slingshot_percentile_heatmap.jpeg){width=70%}
+
+#### Regression
+```{r echo = F, results = 'asis'}
+pt_kpmp_rq <- s3readRDS("Results/pt_kpmp_rq_fit.rds", "attempt", region ="")
+pt_kpmp_rq_summary <- summary(pt_kpmp_rq, se = "nid")
+
+kable(bind_rows(
+  lapply(seq_along(pt_kpmp_rq_summary), function(i) {
+    coef_df <- as.data.frame(pt_kpmp_rq_summary[[i]]$coefficients)
+    coef_df$term <- rownames(coef_df)
+    coef_df$tau <- pt_kpmp_rq$tau[i]
+    coef_df
+  }),
+  .id = "quantile"
+), row.names = F)
+```
+
+#### Associations with clinical variables
+
+```{r echo = F, results = 'asis', eval = T}
+vars <- c("hba1c", "weight", "tir", "mgfr_jodal", "mgfr_jodal_bsa")
+
+for (v in vars) {
+  cat("Density plot for ", v, "\n\n") 
+
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_density_pt_kpmp_", v, "_deltadelta_slingshot.jpeg){width=70%}\n\n"))
+}
+```
+
+---
+
+##### Regression
+
+```{r echo = F, results='asis'}
+# need to add TIR
+vars <- c("hba1c", "weight",  "mgfr_jodal", "mgfr_jodal_bsa", "visit", "trt")
+
+for (v in vars) {
+  cat("Quantile Regression Summary for ", v, "\n\n")
+  
+  # Load the model
+  model_path <- paste0("Results/pt_kpmp_rq_fit_", v, ".rds")
+  pt_kpmp_rq_fit <- s3readRDS(model_path, bucket = "attempt", region = "")
+  
+  # Force correct summary method
+  pt_kpmp_rq_summary <- quantreg:::summary.rqs(pt_kpmp_rq_fit, se = "nid")
+  
+  # Extract coefficient table
+  coef_table <- bind_rows(
+    lapply(seq_along(pt_kpmp_rq_summary), function(i) {
+      coef_df <- as.data.frame(pt_kpmp_rq_summary[[i]]$coefficients)
+      coef_df$term <- rownames(coef_df)
+      coef_df$tau <- pt_kpmp_rq_fit$tau[i]
+      coef_df
+    }),
+    .id = "quantile"
+  )
+  
+  # Display nicely
+  print(kable(coef_table, row.names = F))
+  cat("\n\n")
+}
+```
+
+### TAL
+
+Lineage: aTAL, C-TAL-1, C-TAL-2, dTAL
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pca_tal_kpmp_slingshot.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_tal_kpmp_slingshot_density_trtvisit.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_slingshot_violin.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_tal_kpmp_slingshot_density_trt.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_tal_kpmp_slingshot_percentile_heatmap.jpeg){width=70%}
+
+#### Regression
+```{r echo = F, results = 'asis'}
+tal_kpmp_rq <- s3readRDS("Results/tal_kpmp_rq_fit.rds", "attempt", region ="")
+tal_kpmp_rq_summary <- summary(tal_kpmp_rq, se = "nid")
+
+kable(bind_rows(
+  lapply(seq_along(tal_kpmp_rq_summary), function(i) {
+    coef_df <- as.data.frame(tal_kpmp_rq_summary[[i]]$coefficients)
+    coef_df$term <- rownames(coef_df)
+    coef_df$tau <- tal_kpmp_rq$tau[i]
+    coef_df
+  }),
+  .id = "quantile"
+), row.names = F)
+```
+
+#### Associations with clinical variables
+
+```{r echo = F, results = 'asis', eval = T}
+vars <- c("hba1c", "weight", "tir", "mgfr_jodal", "mgfr_jodal_bsa")
+
+for (v in vars) {
+  cat("Density plot for ", v, "\n\n") 
+
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_density_tal_kpmp_", v, "_deltadelta_slingshot.jpeg){width=70%}\n\n"))
+}
+```
+
+---
+
+##### Regression
+
+```{r echo = F, results='asis', eval = F}
+vars <- c("hba1c", "weight", "tir", "mgfr_jodal", "mgfr_jodal_bsa", "visit", "trt")
+
+for (v in vars) {
+  cat("Quantile Regression Summary for ", v, "\n\n")
+  
+  # Load the model
+  model_path <- paste0("Results/tal_kpmp_rq_fit_", v, ".rds")
+  tal_kpmp_rq_fit <- s3readRDS(model_path, bucket = "attempt", region = "")
+  
+  # Force correct summary method
+  tal_kpmp_rq_summary <- quantreg:::summary.rqs(tal_kpmp_rq_fit, se = "nid")
+  
+  # Extract coefficient table
+  coef_table <- bind_rows(
+    lapply(seq_along(tal_kpmp_rq_summary), function(i) {
+      coef_df <- as.data.frame(tal_kpmp_rq_summary[[i]]$coefficients)
+      coef_df$term <- rownames(coef_df)
+      coef_df$tau <- tal_kpmp_rq_fit$tau[i]
+      coef_df
+    }),
+    .id = "quantile"
+  )
+  
+  # Display nicely
+  print(kable(coef_table, row.names = F))
+  cat("\n\n")
+}
+```
+
+# Pseudotime trajectories (Non-KPMP Cell types)
 
 ---
 
@@ -3086,7 +3350,81 @@ for (v in vars) {
 ```
 
 
+### TAL
+
+Lineage: TAL-2, TAL-1, TAL-3
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pca_tal_slingshot.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_tal_slingshot_density_trtvisit.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_slingshot_violin.jpeg){width=70%}
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_tal_slingshot_density_trt.jpeg){width=70%}
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_tal_slingshot_percentile_heatmap.jpeg){width=70%}
+
+#### Regression
+```{r echo = F, results = 'asis'}
+tal_rq <- s3readRDS("Results/tal_rq_fit.rds", "attempt", region ="")
+tal_rq_summary <- summary(tal_rq, se = "nid")
+
+kable(bind_rows(
+  lapply(seq_along(tal_rq_summary), function(i) {
+    coef_df <- as.data.frame(tal_rq_summary[[i]]$coefficients)
+    coef_df$term <- rownames(coef_df)
+    coef_df$tau <- tal_rq$tau[i]
+    coef_df
+  }),
+  .id = "quantile"
+), row.names = F)
+```
+
+#### Associations with clinical variables
+
+```{r echo = F, results = 'asis', eval = T}
+vars <- c("hba1c", "weight", "tir", "mgfr_jodal", "mgfr_jodal_bsa")
+
+for (v in vars) {
+  cat("Density plot for ", v, "\n\n") 
+
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_density_tal_", v, "_deltadelta_slingshot.jpeg){width=70%}\n\n"))
+}
+```
+
 ---
+
+##### Regression
+
+```{r echo = F, results='asis', eval = F}
+vars <- c("hba1c", "weight", "tir", "mgfr_jodal", "mgfr_jodal_bsa", "visit", "trt")
+
+for (v in vars) {
+  cat("Quantile Regression Summary for ", v, "\n\n")
+  
+  # Load the model
+  model_path <- paste0("Results/tal_rq_fit_", v, ".rds")
+  tal_rq_fit <- s3readRDS(model_path, bucket = "attempt", region = "")
+  
+  # Force correct summary method
+  tal_rq_summary <- quantreg:::summary.rqs(tal_rq_fit, se = "nid")
+  
+  # Extract coefficient table
+  coef_table <- bind_rows(
+    lapply(seq_along(tal_rq_summary), function(i) {
+      coef_df <- as.data.frame(tal_rq_summary[[i]]$coefficients)
+      coef_df$term <- rownames(coef_df)
+      coef_df$tau <- tal_rq_fit$tau[i]
+      coef_df
+    }),
+    .id = "quantile"
+  )
+  
+  # Display nicely
+  print(kable(coef_table, row.names = F))
+  cat("\n\n")
+}
+```
+
 
 # Associate DEGs with clinical markers adjusting for treatment group
 
@@ -3489,7 +3827,17 @@ for (cells in celltype_list) {
 }
 ```
 
----
+## Change in avg ketones
+
+```{r echo = F, results = 'asis', eval = T}
+celltype_list <- c("pt", "tal", "pc", "immune", "ic", "ec", "fibvsmcp")
+
+for (cells in celltype_list) {
+  cat("#### ", toupper(cells), "\n\n") 
+
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/nebula/", cells, "_avg_ketones_trtcolors_concordance.jpeg){width=70%}\n\n"))
+}
+```
 
 # Cell-to-cell interaction
 
@@ -3522,7 +3870,84 @@ for (file_name in file_list) {
 }
 ```
 
----
+
+# Proteomics DiD
+
+## Plasma Proteomics 
+
+::: columns
+::: column
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Volcano_DiD_plasma_proteomics_mixed.jpeg)
+:::
+
+::: column
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Volcano_DiD_plasma_proteomics_adjp_mixed.jpeg)
+:::
+:::
+
+### Clinical associations
+
+```{r echo = F, results = 'asis', eval = T}
+vars <- c("hba1c", "tir", "weight", "mgfr", "mgfr_bsa", "avg_c_r2", "avg_k_r2", "PWV")
+
+for (var in vars) {
+  cat("#### ", var, " in plasma\n\n") 
+
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_plasma_",  var, ".jpeg)\n\n"))
+}
+```
+
+
+## Urine Proteomics 
+
+#### Normalized by creatinine
+
+::: columns
+::: column
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Volcano_DiD_urine_proteomics_mixed.jpeg)
+:::
+
+::: column
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Volcano_DiD_urine_proteomics_adjp_mixed.jpeg)
+:::
+:::
+
+#### Creatinine in model
+
+::: columns
+::: column
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Volcano_DiD_urine_proteomics_mixed.jpeg)
+:::
+
+::: column
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Volcano_DiD_urine_proteomics_adjp_mixed.jpeg)
+:::
+:::
+
+
+### Clinical associations (Correlations with creatinine normalized urine, DiD ref model: creatinine normalized proteomics)
+
+```{r echo = F, results = 'asis', eval = T}
+vars <- c("hba1c", "tir", "weight", "mgfr", "mgfr_bsa", "avg_c_r2", "avg_k_r2", "PWV")
+
+for (var in vars) {
+  cat("#### ", var, " in urine\n\n") 
+
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_urine_",  var, ".jpeg)\n\n"))
+}
+```
+
+### Clinical associations (Correlations with creatinine normalized urine, DiD ref model: non-normalized proteomics with creatinine in model)
+
+```{r echo = F, results = 'asis', eval = T}
+vars <- c("hba1c", "tir", "weight", "mgfr", "mgfr_bsa", "avg_c_r2", "avg_k_r2", "PWV")
+
+for (var in vars) {
+  cat("#### ", var, " in urine\n\n") 
+
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_cr_spearman_urine_",  var, ".jpeg)\n\n"))
+}
+```
 
 # Associate DEGs w/ proteomics
 

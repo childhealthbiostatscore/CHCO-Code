@@ -14,6 +14,8 @@ format:
 ---
 
 ```{r echo = F, include = F}
+library(jsonlite)
+library(aws.s3)
 library(dplyr)
 library(ggplot2)
 library(knitr)
@@ -29,6 +31,8 @@ library(correlation)
 library(psych)
 library(openxlsx)
 library(SomaPlotr)
+library(lme4)
+library(lmerTest)
 
 # specify user for paths
 user <- Sys.info()[["user"]]
@@ -43,19 +47,104 @@ if (user == "choiyej") {
   stop("Unknown user: please specify root path for this user.")
 }
 
+source(file.path(git_path, "ATTEMPT/attempt_functions.R"))
+source(file.path(git_path, "Resources/YC/R Functions/correlation_function.R"))
+
 bg_path <- file.path(root_path, "GSEA/")
 load(file.path(root_path, "KNIGHT/Somalogic data/analytes.Rdata"))
-```
 
-
-```{r echo = F, include = F}
+# load urine creatinine
+urine_creat <- read.xlsx(file.path(root_path, 'ATTEMPT/Data Raw/Urine Proteomics Sample Manifest Jun 25 2025.xlsx'), sheet = "Working")
+names(urine_creat) <- c("position", "record_id", "visit", "box", "creatinine_u_proteomics", "comments")
 # SOMA analytes names/info
 load(file.path(root_path, "Data Harmonization/Combined SomaScan/analytes_2.Rdata"))
+
 ```
+
+```{r include = F}
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
 
 ```{r echo = F}
 harm_dat_raw <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/soma_harmonized_dataset.csv"), na.strings = "") 
 
+attempt_redcap <- harm_dat_raw %>% filter(study == "ATTEMPT") %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                                     race == "Black or African American" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                                     T ~ "Not Hispanic or Latino Other")) %>%
+  arrange(record_id) %>%
+  dplyr::select(-hba1c, -starts_with("seq."))
+
+attempt_redcap_denver <- attempt_redcap %>%
+  filter(grepl("^3", record_id)) %>%
+  mutate(visit = case_when(visit == "baseline" ~ 0,
+                           visit == "4_weeks_post" ~ 4,
+                           visit == "4_months_post" ~ 16,
+                           visit == "screening"  ~ -4,
+                           visit == "follow_up" ~ 18),
+         record_id = as.integer(record_id)) %>%
+  dplyr::select(-c(ethnicity, bmi, gfr_raw_plasma, gfr_bsa_plasma, date, sex, mri_date, PWV,
+                   creatinine_s, cystatin_c_s, temp, pulse, height, avg_c_r2, avg_k_r2, 
+                   sbp, dbp, hct, age, weight)) %>%
+  rowwise() %>%
+  mutate(avg_c_t1 = mean(c(t1_r_cortex, t1_l_cortex), na.rm = T),
+         avg_k_t1 = mean(c(t1_r_kidney, t1_l_kidney), na.rm = T),
+         tkv = (volume_left + volume_right)) %>%
+  ungroup() %>%
+  dplyr::rename(subject_id = record_id)
+
+# clinical dataset from Antoine (merged version)
+attempt_dat <- s3readRDS("Clinical Data/ATTEMPT_AC.RDS", "attempt", region = "")
+attempt_dat[attempt_dat == ""] <- NA
+attempt_dat <- attempt_dat %>%
+  filter(visit %in% c("baseline", "4_weeks_post", "4_months_post", "screening", "follow_up")) %>%
+  mutate(visit = case_when(visit == "baseline" ~ 0,
+                           visit == "4_weeks_post" ~ 4,
+                           visit == "4_months_post" ~ 16,
+                           visit == "screening"  ~ -4,
+                           visit == "follow_up" ~ 18),
+         record_id = as.integer(record_id)) %>%
+  dplyr::rename(subject_id = record_id,
+                treatment = treatment_arm)
+
+# extract IDs with biopsy
+attempt_clean_so_metadata <- s3readRDS("cleaned_data/attempt_clean_so_metadata.rds", "attempt", region = "")
+attempt_biopsy_yn <- attempt_clean_so_metadata %>%
+  dplyr::select(subject_id, visit) %>%
+  distinct(subject_id, visit, .keep_all = T) %>%
+  mutate(visit = case_when(visit == "PRE" ~ 0,
+                           visit == "POST" ~ 16),
+         biopsy_yn = "Yes")
+attempt_biopsy_yn <- attempt_biopsy_yn %>%
+  rbind(attempt_biopsy_yn %>%
+          filter(visit == 0) %>%
+          mutate(visit = -4))
+
+# merge REDCap version (for Denver) and dataset from Antoine
+attempt_dat <- left_join(attempt_dat, attempt_redcap_denver) %>%
+  left_join(attempt_biopsy_yn) %>%
+  mutate(biopsy_yn = case_when(biopsy_yn == "Yes" ~ "Yes",
+                               T ~ "No"))
+attempt_dat$treatment <- factor(attempt_dat$treatment, levels = c("Placebo", "Dapagliflozin 5mg"))
+```
+
+```{r echo = F}
 harm_dat <- harm_dat_raw %>%
   filter(study == "ATTEMPT") %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
@@ -88,193 +177,138 @@ summary(arsenal::tableby(visit ~ age + sex + bmi + diabetes_duration,
 ```
 
 ## Placebo
-#### Top 20 DE
 ```{r echo = F}
 placebo_res_plasma <- run_limma_proteomics(data = soma,
-                                     analyte_info = analytes_attempt,
-                                     treatment = "Placebo",
-                                     feature_suffix = "_urine_cradj",
-                                    model_type = "within_treatment")
+                                           analyte_info = analytes_attempt,
+                                           treatment = "Placebo",
+                                           feature_suffix = "",
+                                           model_type = "within_treatment")
 ```
 
 ```{r echo = F}
-plot_volcano_proteomics(data = placebo_res$results_annotated, fc = "logFC",
-             p_col = "P.Value",
-             title = NULL,
-             x_axis = "LogFC", 
-             y_axis = "-log10(p-value)",
-             positive_text = "Positive after placebo treatment",
-             negative_text = "Negative after placebo treatment",
-             formula = "visit",
-             file_suffix = "_placebo_urine_proteomics")
-plot_volcano_proteomics(data = placebo_res$results_annotated, fc = "logFC",
-             p_col = "adj.P.Val",
-             title = NULL,
-             x_axis = "LogFC", 
-             y_axis = "-log10(adj.p-value)",
-             positive_text = "Positive after placebo treatment",
-             negative_text = "Negative after placebo treatment",
-             formula = "visit",
-             file_suffix = "_placebo_urine_proteomics_adjp")
+plot_volcano_proteomics(data = placebo_res_plasma$results_annotated, fc = "logFC",
+                        p_col = "P.Value",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(p-value)",
+                        positive_text = "Positive after placebo treatment",
+                        negative_text = "Negative after placebo treatment",
+                        formula = "visit",
+                        file_suffix = "_placebo_plasma_proteomics")
+plot_volcano_proteomics(data = placebo_res_plasma$results_annotated, fc = "logFC",
+                        p_col = "adj.P.Val",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(adj.p-value)",
+                        positive_text = "Positive after placebo treatment",
+                        negative_text = "Negative after placebo treatment",
+                        formula = "visit",
+                        file_suffix = "_placebo_plasma_proteomics_adjp")
 ```
 
 ## Dapagliflozin
-#### Top 20 DE
 ```{r echo = F}
-# filter soma scan data to baseline data only and log transform
-soma_dapa <- soma %>% arrange(record_id) %>%
-  filter(treatment_arm == "Dapagliflozin") 
-
-soma_dapa_filtered <- soma_dapa %>% 
-  arrange(record_id) %>%
-  remove_rownames() %>% column_to_rownames(var = "record_id_visit") %>%
-  dplyr::select(starts_with("seq"))
-
-y <- t(soma_dapa_filtered)
-y <- log2(y)
-
-# Design matrix
-cond = as.factor(soma_dapa$visit)
-design_mat <- model.matrix(~0 + visit, data = soma_dapa)
-colnames(design_mat) = gsub("visit","",colnames(design_mat))
-# Fit
-contrast = makeContrasts(contrasts = c("POST-PRE"), levels = design_mat)
-fit <- lmFit(y, design_mat)
-fit <- contrasts.fit(fit, contrasts = contrast)
-fit <- eBayes(fit)
-res <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
-res$EntrezGeneSymbol <- analytes_attempt$EntrezGeneSymbol[match(rownames(res), analytes_attempt$AptName)]
-res$TargetFullName <- analytes_attempt$TargetFullName[match(rownames(res), analytes_attempt$AptName)]
-kbl(head(res, 50)) %>%
-  kable_paper() %>%
-  scroll_box(width = "100%", height = "500px")
-res_save <- res %>%
-  rownames_to_column("AptName") %>%
-  dplyr::select(-c(EntrezGeneSymbol, TargetFullName)) %>%
-  left_join(analytes_attempt, by = "AptName")
+dapa_res_plasma <- run_limma_proteomics(data = soma,
+                                        analyte_info = analytes_attempt,
+                                        treatment = "Dapagliflozin",
+                                        feature_suffix = "",
+                                        model_type = "within_treatment")
 ```
 
 ```{r echo = F}
-plot_volcano(res, "adj.P.Val",
-             "Dapagliflozin (PRE/POST DE)", 
-             "LogFC", 
-             "-log10(adj.p-value)")
-
-plot_volcano(res, "P.Value",
-             "Dapagliflozin (PRE/POST DE)", 
-             "LogFC", 
-             "-log10(p-value)")
+plot_volcano_proteomics(data = dapa_res_plasma$results_annotated, fc = "logFC",
+                        p_col = "P.Value",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(p-value)",
+                        positive_text = "Positive after dapagliflozin treatment",
+                        negative_text = "Negative after dapagliflozin treatment",
+                        formula = "visit",
+                        file_suffix = "_dapa_plasma_proteomics")
+plot_volcano_proteomics(data = dapa_res_plasma$results_annotated, fc = "logFC",
+                        p_col = "adj.P.Val",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(adj.p-value)",
+                        positive_text = "Positive after dapagliflozin treatment",
+                        negative_text = "Negative after dapagliflozin treatment",
+                        formula = "visit",
+                        file_suffix = "_dapa_plasma_proteomics_adjp")
 ```
 
 ## PRE (Placebo vs. Dapa)
-#### Top 20 DE
 ```{r echo = F}
-# filter soma scan data to baseline data only and log transform
-soma_pre <- soma %>% arrange(record_id) %>%
-  filter(visit == "PRE") 
-
-soma_pre_filtered <- soma_pre %>% 
-  arrange(record_id) %>%
-  remove_rownames() %>% column_to_rownames(var = "record_id_visit") %>%
-  dplyr::select(starts_with("seq"))
-
-y <- t(soma_pre_filtered)
-y <- log2(y)
-
-# Design matrix
-cond = as.factor(soma_pre$treatment_arm)
-design_mat <- model.matrix(~0 + treatment_arm, data = soma_pre)
-colnames(design_mat) = gsub("treatment_arm","",colnames(design_mat))
-# Fit
-contrast = makeContrasts(contrasts = c("Dapagliflozin-Placebo"), levels = design_mat)
-fit <- lmFit(y, design_mat)
-fit <- contrasts.fit(fit, contrasts = contrast)
-fit <- eBayes(fit)
-res <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
-res$EntrezGeneSymbol <- analytes_attempt$EntrezGeneSymbol[match(rownames(res), analytes_attempt$AptName)]
-res$TargetFullName <- analytes_attempt$TargetFullName[match(rownames(res), analytes_attempt$AptName)]
-kbl(head(res, 50)) %>%
-  kable_paper() %>%
-  scroll_box(width = "100%", height = "500px")
-res_save <- res %>%
-  rownames_to_column("AptName") %>%
-  dplyr::select(-c(EntrezGeneSymbol, TargetFullName)) %>%
-  left_join(analytes_attempt, by = "AptName")
+pre_res_plasma <- run_limma_proteomics(data = soma,
+                                       analyte_info = analytes_attempt,
+                                       visit = "PRE",
+                                       feature_suffix = "",
+                                       model_type = "within_visit")
 ```
 
 ```{r echo = F}
-plot_volcano(res, "adj.P.Val",
-             "PRE (Placebo / Dapa DE)", 
-             "LogFC", 
-             "-log10(adj.p-value)")
-
-plot_volcano(res, "P.Value",
-             "PRE (Placebo / Dapa DE)", 
-             "LogFC", 
-             "-log10(p-value)")
+plot_volcano_proteomics(data = pre_res_plasma$results_annotated, fc = "logFC",
+                        p_col = "P.Value",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(p-value)",
+                        positive_text = "Positive in dapagliflozin\ncompared to placebo (at baseline)",
+                        negative_text = "Negative in dapagliflozin\ncompared to placebo (at baseline)",
+                        formula = "treatment",
+                        file_suffix = "_pre_plasma_proteomics")
+plot_volcano_proteomics(data = pre_res_plasma$results_annotated, fc = "logFC",
+                        p_col = "adj.P.Val",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(adj.p-value)",
+                        positive_text = "Positive in dapagliflozin\ncompared to placebo (at baseline)",
+                        negative_text = "Negative in dapagliflozin\ncompared to placebo (at baseline)",
+                        formula = "treatment",
+                        file_suffix = "_pre_plasma_proteomics_adjp")
 ```
 
 ## POST (Placebo vs. Dapa)
-#### Top 20 DE
 ```{r echo = F}
-# filter soma scan data to baseline data only and log transform
-soma_post <- soma %>% arrange(record_id) %>%
-  filter(visit == "POST") 
-
-soma_post_filtered <- soma_post %>% 
-  arrange(record_id) %>%
-  remove_rownames() %>% column_to_rownames(var = "record_id_visit") %>%
-  dplyr::select(starts_with("seq"))
-
-y <- t(soma_post_filtered)
-y <- log2(y)
-
-# Design matrix
-cond = as.factor(soma_post$treatment_arm)
-design_mat <- model.matrix(~0 + treatment_arm, data = soma_post)
-colnames(design_mat) = gsub("treatment_arm","",colnames(design_mat))
-# Fit
-contrast = makeContrasts(contrasts = c("Dapagliflozin-Placebo"), levels = design_mat)
-fit <- lmFit(y, design_mat)
-fit <- contrasts.fit(fit, contrasts = contrast)
-fit <- eBayes(fit)
-res <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
-res$EntrezGeneSymbol <- analytes_attempt$EntrezGeneSymbol[match(rownames(res), analytes_attempt$AptName)]
-res$TargetFullName <- analytes_attempt$TargetFullName[match(rownames(res), analytes_attempt$AptName)]
-kbl(head(res, 50)) %>%
-  kable_paper() %>%
-  scroll_box(width = "100%", height = "500px")
-res_save <- res %>%
-  rownames_to_column("AptName") %>%
-  dplyr::select(-c(EntrezGeneSymbol, TargetFullName)) %>%
-  left_join(analytes_attempt, by = "AptName")
+post_res_plasma <- run_limma_proteomics(data = soma,
+                                        analyte_info = analytes_attempt,
+                                        visit = "POST",
+                                        feature_suffix = "",
+                                        model_type = "within_visit")
 ```
 
 ```{r echo = F}
-plot_volcano(res, "adj.P.Val",
-             "PRE (Placebo / Dapa DE)", 
-             "LogFC", 
-             "-log10(adj.p-value)")
-
-plot_volcano(res, "P.Value",
-             "PRE (Placebo / Dapa DE)", 
-             "LogFC", 
-             "-log10(p-value)")
+plot_volcano_proteomics(data = post_res_plasma$results_annotated, fc = "logFC",
+                        p_col = "P.Value",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(p-value)",
+                        positive_text = "Positive in dapagliflozin\ncompared to placebo (at follow-up)",
+                        negative_text = "Negative in dapagliflozin\ncompared to placebo (at follow-up)",
+                        formula = "treatment",
+                        file_suffix = "_post_plasma_proteomics")
+plot_volcano_proteomics(data = post_res_plasma$results_annotated, fc = "logFC",
+                        p_col = "adj.P.Val",
+                        title = NULL,
+                        x_axis = "LogFC", 
+                        y_axis = "-log10(adj.p-value)",
+                        positive_text = "Positive in dapagliflozin\ncompared to placebo (at follow-up)",
+                        negative_text = "Negative in dapagliflozin\ncompared to placebo (at follow-up)",
+                        formula = "treatment",
+                        file_suffix = "_post_plasma_proteomics_adjp")
 ```
 
 # DiD
-## Top 20 DE
 ```{r echo = F}
+# using creatinine adjusted proteins
 did_res_plasma <- run_limma_proteomics(data = soma,
-                                 analyte_info = analytes_attempt,
-                                 feature_suffix = "",
-                                 model_type = "interaction")
+                                       analyte_info = analytes_attempt,
+                                       feature_suffix = "",
+                                       model_type = "interaction")
 
-did_res_mixed_plasma <- run_limma_proteomics(data = soma,
-                                 analyte_info = analytes_attempt,
-                                 feature_suffix = "",
-                                 model_type = "interaction_random")
-# 87 out of 10776 singularity warning (0.8%)
+did_res_plasma_mixed <- run_limma_proteomics(data = soma,
+                                             analyte_info = analytes_attempt,
+                                             feature_suffix = "",
+                                             model_type = "interaction_random")
+# 6 out of 7289 singularity warning (0.1%)
 ```
 
 ```{r echo = F}
@@ -300,7 +334,7 @@ plot_volcano_proteomics(data = did_res_plasma$results_annotated,
                         formula = "treatment:visit",
                         file_suffix = "_DiD_plasma_proteomics_adjp")
 
-plot_volcano_proteomics(data = did_res_mixed_plasma$results_annotated, 
+plot_volcano_proteomics(data = did_res_plasma_mixed$results_annotated, 
                         fc = "logFC",
                         p_col = "P.Value",
                         title = NULL,
@@ -311,7 +345,7 @@ plot_volcano_proteomics(data = did_res_mixed_plasma$results_annotated,
                         formula = "treatment:visit + (1|subject)",
                         file_suffix = "_DiD_plasma_proteomics_mixed")
 
-plot_volcano_proteomics(data = did_res_mixed_plasma$results_annotated, 
+plot_volcano_proteomics(data = did_res_plasma_mixed$results_annotated, 
                         fc = "logFC",
                         p_col = "adj.P.Val",
                         title = NULL,
@@ -323,496 +357,288 @@ plot_volcano_proteomics(data = did_res_mixed_plasma$results_annotated,
                         file_suffix = "_DiD_plasma_proteomics_adjp_mixed")
 ```
 
-#### GSEA (fgsea)
-```{r echo = F}
-# For GSEA
-# Filter out the gmt files for KEGG, Reactome and GOBP
-list.files(bg_path)
-gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
-gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(res$EntrezGeneSymbol), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(res$EntrezGeneSymbol), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(res$EntrezGeneSymbol), savefile = FALSE)
+## GSEA (fgsea)
 
-# rank genes by t-stats in DiD
-rankings_soma_DiD <- res$t
-names(rankings_soma_DiD) <- res$EntrezGeneSymbol
-rankings_soma_DiD <- sort(rankings_soma_DiD, decreasing = TRUE)
-plot(rankings_soma_DiD)
-min(rankings_soma_DiD)
-max(rankings_soma_DiD)
+```{r echo = F}
+soma_DiD_fgsea <- run_fgsea_analysis(bg_path = bg_path,
+                                     results_annotated = did_res_plasma_mixed$results_annotated,
+                                     stat_col = "statistic")
+soma_DiD_fgsea$summary
 ```
 
 ```{r echo = F}
-set.seed(1234)
-
-kegg_legacy_res_soma_DiD <- fgsea(pathways = kegg_legacy,
-                                 stats = rankings_soma_DiD,
-                                 scoreType = 'std', 
-                                 minSize = 3,
-                                 maxSize = 500,
-                                 nproc = 1)
-
-reactome_res_soma_DiD <- fgsea(pathways = reactome,
-                              stats = rankings_soma_DiD,
-                              scoreType = 'std', 
-                              minSize = 3,
-                              maxSize = 500,
-                              nproc = 1)
-go_res_soma_DiD <- fgsea(pathways = go,
-                         stats = rankings_soma_DiD,
-                         scoreType = "std",
-                         minSize = 5,
-                         maxSize = 500,
-                         nPermSimple = 10000,
-                         nproc = 1)
-
-soma_DiD_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_soma_DiD[, padj < 0.05]), sum(kegg_legacy_res_soma_DiD[, pval < 0.05])),
-                         "REACTOME"=c(sum(reactome_res_soma_DiD[, padj < 0.05]), sum(reactome_res_soma_DiD[, pval < 0.05])),
-                         "GO"=c(sum(go_res_soma_DiD[, padj < 0.05]), sum(go_res_soma_DiD[, pval < 0.05])))
-rownames(soma_DiD_fgsea) <- c("adj.pval", "p.val")
-soma_DiD_fgsea
+# KEGG
+plot_fgsea_transpose(soma_DiD_fgsea$kegg, 
+                     title = "SOMA DiD Top 30 KEGG",
+                     xmax = 30)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Pathways/plasma_SOMA_DiD_KEGG.jpeg"),
+       width = 27.5, height = 14, scale = 1)
+# REACTOME
+plot_fgsea_transpose(soma_DiD_fgsea$reactome, 
+                     title = "SOMA DiD Top 30 REACTOME", 
+                     xmax = 30)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Pathways/plasma_SOMA_DiD_REACTOME.jpeg"),
+       width = 27.5, height = 14, scale = 1)
+# GO
+plot_fgsea_transpose(soma_DiD_fgsea$go, 
+                     title = "SOMA DiD Top 30 GO", 
+                     xmax = 30)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Pathways/plasma_SOMA_DiD_GO.jpeg"),
+       width = 27.5, height = 14, scale = 1)
 ```
-##### KEGG Legacy
+
+## Integrate transcriptomics
+
 ```{r echo = F}
-plot_fgsea(kegg_legacy_res_soma_DiD, title = "SOMA DiD Top 30 KEGG", xlim= 20)
+# read in results from transcriptomics (EC, POD, MES, VSMC, Immune) for plasma proteimics)
+celltypes <- c("EC", "POD", "FIB/VSMC/P", "Immune")
 
-ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Pathways/SOMA_DiD_KEGG.jpeg"),
-  width = 27.5, height = 14, scale = 1)
-
-
-```
-
-##### REACTOME
-```{r echo = F}
-plot_fgsea(reactome_res_soma_DiD, title = "SOMA DiD Top 30 REACTOME", xlimit = 30)
-
-ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Pathways/SOMA_DiD_REACTOME.jpeg"),
-  width = 27.5, height = 14, scale = 1)
-
-```
-##### GO
-```{r echo = F}
-plot_fgsea(go_res_soma_DiD, title = "SOMA DiD Top 30 GO", xlimit = 30)
-
-ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Pathways/SOMA_DiD_GO.jpeg"),
-  width = 27.5, height = 14, scale = 1)
-```
-
-# Correlations with clinical variables
-
-## mGFR
-
-### All aptamers
-
-```{r include = FALSE}
-is_seq <- function(.x) grepl("seq", .x)
-
-# read in clinical variables
-attempt_clin <- read.csv(file.path(root_path, "ATTEMPT/Data Raw/ATTEMPT_DenverDataRequest_20250314.csv"), na.strings = "") 
-
-attempt_clin <- attempt_clin %>% filter(visit %in% c("V1 Screening", "V4 Final"))
-attempt_clin$record_id <- attempt_clin$subject_id
-
-# reshape to wide
-attempt_clin_keep <- attempt_clin %>% dplyr::select(record_id, visit, mgfr_si, mgfr_si_adjusted, PWV, hba1c_percent)
-attempt_clin_wide <- reshape(attempt_clin_keep, timevar = "visit", idvar = "record_id", direction = "wide")
-# calculate deltas
-attempt_clin_wide$delta_mgfr_si <- attempt_clin_wide$`mgfr_si.V4 Final` - attempt_clin_wide$`mgfr_si.V1 Screening`
-attempt_clin_wide$delta_mgfr_si_adjusted <- attempt_clin_wide$`mgfr_si_adjusted.V4 Final` - attempt_clin_wide$`mgfr_si_adjusted.V1 Screening`
-attempt_clin_wide$delta_PWV <- attempt_clin_wide$`PWV.V4 Final` - attempt_clin_wide$`PWV.V1 Screening`
-attempt_clin_wide$delta_hba1c_percent <- attempt_clin_wide$`hba1c_percent.V4 Final` - attempt_clin_wide$`hba1c_percent.V1 Screening`
-attempt_clin_wide <- attempt_clin_wide %>% dplyr::select(record_id, delta_mgfr_si, delta_mgfr_si_adjusted, delta_PWV, delta_hba1c_percent)
-
-# reshape the soma data to wide
-seq <- names(soma)[is_seq(names(soma))]
-soma_keep <- soma %>% dplyr::select(record_id, visit, starts_with("seq"))
-soma_wide <- reshape(soma_keep, timevar = "visit", idvar = "record_id", direction = "wide")
-#predictors <- colnames(base_log[seq])
-for (i in 1:length(seq)) {
-  soma_wide[,paste0("delta_",seq[i])] <- soma_wide[,paste0(seq[i],".POST")] - soma_wide[,paste0(seq[i],".PRE")]
+# Full gene set (not limited to 2000 HVG)
+for (cell in celltypes)  {
+  input_path <- paste0(cell,"/nebula/",tolower(cell),"_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+  head(cell_df)
+  processed <- process_nebula_results(cell_df)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_nebula_res_combined_reml_pooled")
+  
+  assign(var_name, processed$results)
 }
 
-# calculate correlation between change in mGFR, HbA1c, UACR, PWV
-# create CSV with all results as well as volcano plot
-source(file.path(git_path, "Resources/YC/R Functions/correlation_function.R"))
+plasma_did_sig <- did_res_plasma_mixed$results_annotated %>%
+  filter(P.Value < 0.05)
+
+plasma_delta <- soma %>%
+  select(record_id, visit, treatment_arm, starts_with(pt_map$AptName) & ends_with("cradj")) %>%
+  pivot_wider(
+    names_from = visit,
+    values_from = starts_with("seq"),
+    names_glue = "{.value}_{visit}"
+  ) %>%
+  mutate(across(ends_with("_POST"), 
+                ~ . - get(sub("_POST$", "_PRE", cur_column())),
+                .names = "delta_{.col}")) %>%
+  select(record_id, treatment_arm, starts_with("delta_"))
+
+s3saveRDS(plasma_delta, "Proteomics/plasma_cradj_proteomics_delta.RDS", "attempt", region = "")
 ```
+
+```{r echo = F}
+# create mapping table for each celltype
+
+walk(celltypes, function(ct) {
+  
+  # Dynamically get the nebula results object based on cell type
+  nebula_obj <- get(paste0(tolower(ct), "_nebula_res_combined_reml_pooled"))
+  
+  sig <- nebula_obj %>%
+    filter(`p_treatmentDapagliflozin:visitPOST` < 0.05)
+  
+  map <- analytes_info %>%
+    filter(EntrezGeneSymbol %in% unique(sig$Gene[sig$Gene %in% plasma_did_sig$EntrezGeneSymbol])) %>%
+    select(Target, TargetFullName, AptName, EntrezGeneSymbol)
+  
+  write.csv(map, 
+            file.path(root_path, paste0("ATTEMPT/Results/Somascan/", ct, "_plasma_proteomics_map.csv")), 
+            row.names = FALSE, na = "")
+})
+```
+
+## Correlations with clinical variables
+
+### mGFR
 
 ```{r echo = F, warning=FALSE, quiet = TRUE}
 # mGFR 
-y <- soma_wide %>%
-  dplyr::select(contains("delta")) 
-x <- attempt_clin_wide %>% 
-  dplyr::select(delta_mgfr_si)
-corr_delta_mgfr_si <- corr.test(x = x, y = y, method = "spearman", adjust = "none")
-corr_delta_mgfr_si_r <- data.frame(spearman_delta_mgfr_si = (corr_delta_mgfr_si$r %>% t() ))
-corr_delta_mgfr_si_p <- data.frame(p.value = (corr_delta_mgfr_si$p.adj %>% t() ))
-corr_delta_mgfr_si_mat <- cbind(corr_delta_mgfr_si_r, corr_delta_mgfr_si_p)
-colnames(corr_delta_mgfr_si_mat) <- c("spearman_delta_mgfr_si", "p.value")
-corr_delta_mgfr_si_mat$AptName <- rownames(corr_delta_mgfr_si_mat)
-corr_delta_mgfr_si_mat$AptName <- str_remove(corr_delta_mgfr_si_mat$AptName, "delta_")
-corr_delta_mgfr_si_mat <- corr_delta_mgfr_si_mat %>%
-  left_join(analytes_attempt, by = "AptName") 
-  # column_to_rownames("Target") %>%
-  #dplyr::select(spearman_delta_testosterone, p.value, Target)
-corr_delta_mgfr_si_mat$Target_apt <- paste0(corr_delta_mgfr_si_mat$Target, " (", corr_delta_mgfr_si_mat$AptName, ")")
-corr_delta_mgfr_si_mat <- corr_delta_mgfr_si_mat %>%
-  column_to_rownames("Target_apt") 
-corr_delta_mgfr_si_mat <- corr_delta_mgfr_si_mat %>% arrange(p.value)
+plasma_soma_mgfr <- soma_corr(
+  clinical_raw = attempt_dat,
+  soma_raw     = soma,
+  did_df       = did_res_plasma_mixed$results_annotated,
+  analytes_info= analytes_attempt,
+  clinical_var = "mgfr_jodal",
+  feature_suffix = "",
+  proper_name = "\u0394 mGFR",
+  pre_visit = -4
+)
 
-# create dfs for those proteins significantly up and down in the DiD analysis
-corr_delta_mgfr_si_mat_did_up <- corr_delta_mgfr_si_mat %>% filter(AptName %in% res_save_did_sig_up$AptName)
-corr_delta_mgfr_si_mat_did_down <- corr_delta_mgfr_si_mat %>% filter(AptName %in% res_save_did_sig_down$AptName)
+# correlation table
+plasma_soma_mgfr$correlation_table
 
-p <- plotVolcano_mod_new(data = corr_delta_mgfr_si_mat, 
-            FC = spearman_delta_mgfr_si, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_mgfr_si_mat[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
+# plots
+plasma_soma_mgfr$plot_all
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_plasma_mgfr.jpeg"),
+       plasma_soma_mgfr$plot_all, width = 10, height = 7)
 ```
 
-### Aptamers significantly up in dapagliflozin compared to placebo in DiD analysis
-
-```{r echo = F, warning=FALSE, quiet = TRUE}
-p <- plotVolcano_mod_new(data = corr_delta_mgfr_si_mat_did_up, 
-            FC = spearman_delta_mgfr_si, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_mgfr_si_mat_did_up[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
-```
-
-### Aptamers significantly down in dapagliflozin compared to placebo in DiD analysis
-
-```{r echo = F, warning=FALSE, quiet = TRUE}
-p <- plotVolcano_mod_new(data = corr_delta_mgfr_si_mat_did_down, 
-            FC = spearman_delta_mgfr_si, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_mgfr_si_mat_did_down[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
-```
-
-## mGFR adjusted
-
-### All aptamers
+### mGFR adjusted
 
 ```{r echo = F, warning=FALSE}
-y <- soma_wide %>%
-  dplyr::select(contains("delta")) 
-x <- attempt_clin_wide %>% 
-  dplyr::select(delta_mgfr_si_adjusted)
-corr_delta_mgfr_si_adjusted <- corr.test(x = x, y = y, method = "spearman", adjust = "none")
-corr_delta_mgfr_si_adjusted_r <- data.frame(spearman_delta_mgfr_si_adjusted = (corr_delta_mgfr_si_adjusted$r %>% t() ))
-corr_delta_mgfr_si_adjusted_p <- data.frame(p.value = (corr_delta_mgfr_si_adjusted$p.adj %>% t() ))
-corr_delta_mgfr_si_adjusted_mat <- cbind(corr_delta_mgfr_si_adjusted_r, corr_delta_mgfr_si_adjusted_p)
-colnames(corr_delta_mgfr_si_adjusted_mat) <- c("spearman_delta_mgfr_si_adjusted", "p.value")
-corr_delta_mgfr_si_adjusted_mat$AptName <- rownames(corr_delta_mgfr_si_adjusted_mat)
-corr_delta_mgfr_si_adjusted_mat$AptName <- str_remove(corr_delta_mgfr_si_adjusted_mat$AptName, "delta_")
-corr_delta_mgfr_si_adjusted_mat <- corr_delta_mgfr_si_adjusted_mat %>%
-  left_join(analytes_attempt, by = "AptName") 
-  # column_to_rownames("Target") %>%
-  #dplyr::select(spearman_delta_testosterone, p.value, Target)
-corr_delta_mgfr_si_adjusted_mat$Target_apt <- paste0(corr_delta_mgfr_si_adjusted_mat$Target, " (", corr_delta_mgfr_si_adjusted_mat$AptName, ")")
-corr_delta_mgfr_si_adjusted_mat <- corr_delta_mgfr_si_adjusted_mat %>%
-  column_to_rownames("Target_apt") 
-corr_delta_mgfr_si_adjusted_mat <- corr_delta_mgfr_si_adjusted_mat %>% arrange(p.value)
+plasma_soma_mgfr_adj <- soma_corr(
+  clinical_raw = attempt_dat,
+  soma_raw     = soma,
+  did_df       = did_res_plasma_mixed$results_annotated,
+  analytes_info= analytes_attempt,
+  clinical_var = "mgfr_jodal_bsa",
+  feature_suffix = "",
+  proper_name = "\u0394 mGFR (BSA)",
+  pre_visit = -4
+)
 
-# create dfs for those proteins significantly up and down in the DiD analysis
-corr_delta_mgfr_si_adjusted_mat_did_up <- corr_delta_mgfr_si_adjusted_mat %>% filter(AptName %in% res_save_did_sig_up$AptName)
-corr_delta_mgfr_si_adjusted_mat_did_down <- corr_delta_mgfr_si_adjusted_mat %>% filter(AptName %in% res_save_did_sig_down$AptName)
+# correlation table
+plasma_soma_mgfr_adj$correlation_table
 
-p <- plotVolcano_mod_new(data = corr_delta_mgfr_si_adjusted_mat, 
-            FC = spearman_delta_mgfr_si_adjusted, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_mgfr_si_mat[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
+# plots
+plasma_soma_mgfr_adj$plot_all
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_plasma_mgfr_bsa.jpeg"),
+       plasma_soma_mgfr_adj$plot_all, width = 10, height = 7)
 ```
 
-### Aptamers significantly up in dapagliflozin compared to placebo in DiD analysis
-
-```{r echo = F, warning=FALSE, quiet = TRUE}
-p <- plotVolcano_mod_new(data = corr_delta_mgfr_si_adjusted_mat_did_up, 
-            FC = spearman_delta_mgfr_si_adjusted, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_mgfr_si_adjusted_mat_did_up[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
-```
-
-### Aptamers significantly down in dapagliflozin compared to placebo in DiD analysis
-
-```{r echo = F, warning=FALSE, quiet = TRUE}
-p <- plotVolcano_mod_new(data = corr_delta_mgfr_si_adjusted_mat_did_down, 
-            FC = spearman_delta_mgfr_si_adjusted, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_mgfr_si_adjusted_mat_did_down[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
-```
-
-## HbA1c
-
-### All aptamers
+### HbA1c
 
 ```{r echo = F, warning=FALSE}
-y <- soma_wide %>%
-  dplyr::select(contains("delta")) 
-x <- attempt_clin_wide %>% 
-  dplyr::select(delta_hba1c_percent)
-corr_delta_hba1c_percent <- corr.test(x = x, y = y, method = "spearman", adjust = "none")
-corr_delta_hba1c_percent_r <- data.frame(spearman_delta_hba1c_percent = (corr_delta_hba1c_percent$r %>% t() ))
-corr_delta_hba1c_percent_p <- data.frame(p.value = (corr_delta_hba1c_percent$p.adj %>% t() ))
-corr_delta_hba1c_percent_mat <- cbind(corr_delta_hba1c_percent_r, corr_delta_hba1c_percent_p)
-colnames(corr_delta_hba1c_percent_mat) <- c("spearman_delta_hba1c_percent", "p.value")
-corr_delta_hba1c_percent_mat$AptName <- rownames(corr_delta_hba1c_percent_mat)
-corr_delta_hba1c_percent_mat$AptName <- str_remove(corr_delta_hba1c_percent_mat$AptName, "delta_")
-corr_delta_hba1c_percent_mat <- corr_delta_hba1c_percent_mat %>%
-  left_join(analytes_attempt, by = "AptName") 
-  # column_to_rownames("Target") %>%
-  #dplyr::select(spearman_delta_testosterone, p.value, Target)
-corr_delta_hba1c_percent_mat$Target_apt <- paste0(corr_delta_hba1c_percent_mat$Target, " (", corr_delta_hba1c_percent_mat$AptName, ")")
-corr_delta_hba1c_percent_mat <- corr_delta_hba1c_percent_mat %>%
-  column_to_rownames("Target_apt") 
-corr_delta_hba1c_percent_mat <- corr_delta_hba1c_percent_mat %>% arrange(p.value)
+plasma_soma_hba1c <- soma_corr(
+  clinical_raw = attempt_dat,
+  soma_raw     = soma,
+  did_df       = did_res_plasma_mixed$results_annotated,
+  analytes_info= analytes_attempt,
+  clinical_var = "hba1c",
+  feature_suffix = "",
+  proper_name = "\u0394 HbA1c"
+)
 
-# create dfs for those proteins significantly up and down in the DiD analysis
-corr_delta_hba1c_percent_mat_did_up <- corr_delta_hba1c_percent_mat %>% filter(AptName %in% res_save_did_sig_up$AptName)
-corr_delta_hba1c_percent_mat_did_down <- corr_delta_hba1c_percent_mat %>% filter(AptName %in% res_save_did_sig_down$AptName)
+# correlation table
+plasma_soma_hba1c$correlation_table
 
-p <- plotVolcano_mod_new(data = corr_delta_hba1c_percent_mat, 
-            FC = spearman_delta_hba1c_percent, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_hba1c_percent_mat[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
+# plots
+plasma_soma_hba1c$plot_all
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_plasma_hba1c.jpeg"),
+       plasma_soma_hba1c$plot_all, width = 10, height = 7)
 ```
 
-### Aptamers significantly up in dapagliflozin compared to placebo in DiD analysis
-
-```{r echo = F, warning=FALSE, quiet = TRUE}
-p <- plotVolcano_mod_new(data = corr_delta_hba1c_percent_mat_did_up, 
-            FC = spearman_delta_hba1c_percent, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_hba1c_percent_mat_did_up[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
-```
-
-### Aptamers significantly down in dapagliflozin compared to placebo in DiD analysis
-
-```{r echo = F, warning=FALSE, quiet = TRUE}
-p <- plotVolcano_mod_new(data = corr_delta_hba1c_percent_mat_did_down, 
-            FC = spearman_delta_hba1c_percent, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_hba1c_percent_mat_did_down[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
-```
-
-## PWV
-
-### All aptamers
+### TIR
 
 ```{r echo = F, warning=FALSE}
-y <- soma_wide %>%
-  dplyr::select(contains("delta")) 
-x <- attempt_clin_wide %>% 
-  dplyr::select(delta_PWV)
-corr_delta_PWV <- corr.test(x = x, y = y, method = "spearman", adjust = "none")
-corr_delta_PWV_r <- data.frame(spearman_delta_PWV = (corr_delta_PWV$r %>% t() ))
-corr_delta_PWV_p <- data.frame(p.value = (corr_delta_PWV$p.adj %>% t() ))
-corr_delta_PWV_mat <- cbind(corr_delta_PWV_r, corr_delta_PWV_p)
-colnames(corr_delta_PWV_mat) <- c("spearman_delta_PWV", "p.value")
-corr_delta_PWV_mat$AptName <- rownames(corr_delta_PWV_mat)
-corr_delta_PWV_mat$AptName <- str_remove(corr_delta_PWV_mat$AptName, "delta_")
-corr_delta_PWV_mat <- corr_delta_PWV_mat %>%
-  left_join(analytes_attempt, by = "AptName") 
-  # column_to_rownames("Target") %>%
-  #dplyr::select(spearman_delta_testosterone, p.value, Target)
-corr_delta_PWV_mat$Target_apt <- paste0(corr_delta_PWV_mat$Target, " (", corr_delta_PWV_mat$AptName, ")")
-corr_delta_PWV_mat <- corr_delta_PWV_mat %>%
-  column_to_rownames("Target_apt") 
+plasma_soma_tir <- soma_corr(
+  clinical_raw = attempt_dat,
+  soma_raw     = soma,
+  did_df       = did_res_plasma_mixed$results_annotated,
+  analytes_info= analytes_attempt,
+  clinical_var = "cgm_tir",
+  feature_suffix = "",
+  proper_name = "\u0394 TIR"
+)
 
-corr_delta_PWV_mat <- corr_delta_PWV_mat %>% arrange(p.value)
+# correlation table
+plasma_soma_tir$correlation_table
 
-# create dfs for those proteins significantly up and down in the DiD analysis
-corr_delta_PWV_mat_did_up <- corr_delta_PWV_mat %>% filter(AptName %in% res_save_did_sig_up$AptName)
-corr_delta_PWV_mat_did_down <- corr_delta_PWV_mat %>% filter(AptName %in% res_save_did_sig_down$AptName)
-
-p <- plotVolcano_mod_new(data = corr_delta_PWV_mat, 
-            FC = spearman_delta_PWV, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_PWV_mat[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
-
-# write correlation results to file
-wb <- createWorkbook()
-addWorksheet(wb,"Change in mgfr_si")
-writeData(wb,"Change in mgfr_si",corr_delta_mgfr_si_mat,rowNames = F)
-addWorksheet(wb,"Change in mgfr_si_adjusted")
-writeData(wb,"Change in mgfr_si_adjusted",corr_delta_mgfr_si_adjusted_mat,rowNames = F)
-addWorksheet(wb,"Change in HbA1c")
-writeData(wb,"Change in HbA1c",corr_delta_hba1c_percent_mat,rowNames = F)
-addWorksheet(wb,"Change in PWV")
-writeData(wb,"Change in PWV",corr_delta_PWV_mat,rowNames = F)
-saveWorkbook(wb,file.path(root_path, "ATTEMPT/Results/Somascan/Somascan_clinical_correlations.xlsx"),overwrite = TRUE)
+# plots
+plasma_soma_tir$plot_all
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_plasma_tir.jpeg"),
+       plasma_soma_tir$plot_all, width = 10, height = 7)
 ```
 
-### Aptamers significantly up in dapagliflozin compared to placebo in DiD analysis
+### Weight
 
-```{r echo = F, warning=FALSE, quiet = TRUE}
-p <- plotVolcano_mod_new(data = corr_delta_PWV_mat_did_up, 
-            FC = spearman_delta_PWV, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_PWV_mat_did_up[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
+```{r echo = F, warning=FALSE}
+plasma_soma_weight <- soma_corr(
+  clinical_raw = attempt_dat,
+  soma_raw     = soma,
+  did_df       = did_res_plasma_mixed$results_annotated,
+  analytes_info= analytes_attempt,
+  clinical_var = "weight",
+  feature_suffix = "",
+  proper_name = "\u0394 Weight"
+)
+
+# correlation table
+plasma_soma_weight$correlation_table
+
+# plots
+plasma_soma_weight$plot_all
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_plasma_weight.jpeg"),
+       plasma_soma_weight$plot_all, width = 10, height = 7)
 ```
 
-### Aptamers significantly down in dapagliflozin compared to placebo in DiD analysis
+### PWV
 
-```{r echo = F, warning=FALSE, quiet = TRUE}
-p <- plotVolcano_mod_new(data = corr_delta_PWV_mat_did_down, 
-            FC = spearman_delta_PWV, 
-            p.value = p.value, 
-            labels = Target, 
-            label_apt = T, 
-            identify = F,
-            identify_manual = corr_delta_PWV_mat_did_down[1:20, "Target"],
-            fc.cutoff = 0,
-            cutoff = 0.05,
-            x.lab = "Correlation",
-            main = "",
-            pt.size = 1,
-            fc_lab = "p > 0.05",
-            fc_lab_col = "#dad7cd",
-            sig_fc_pos_lab = "p < 0.05 (Positive correlation)",
-            sig_fc_neg_lab = "p < 0.05 (Negative correlation)") 
-p
+```{r echo = F, warning=FALSE}
+plasma_soma_PWV <- soma_corr(
+  clinical_raw = attempt_dat,
+  soma_raw     = soma,
+  did_df       = did_res_plasma_mixed$results_annotated,
+  analytes_info= analytes_attempt,
+  clinical_var = "PWV",
+  feature_suffix = "",
+  proper_name = "\u0394 PWV",
+  pre_visit = -4
+)
+
+# correlation table
+plasma_soma_PWV$correlation_table
+
+# plots
+plasma_soma_PWV$plot_all
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_plasma_PWV.jpeg"),
+       plasma_soma_PWV$plot_all, width = 10, height = 7)
 ```
 
+### Cortical R2*
+
+```{r echo = F, warning=FALSE}
+plasma_soma_avg_c_r2 <- soma_corr(
+  clinical_raw = attempt_dat,
+  soma_raw     = soma,
+  did_df       = did_res_plasma_mixed$results_annotated,
+  analytes_info= analytes_attempt,
+  clinical_var = "avg_c_r2",
+  feature_suffix = "",
+  proper_name = "\u0394 Cortical R2*",
+  pre_visit = -4
+)
+
+# correlation table
+plasma_soma_avg_c_r2$correlation_table
+
+# plots
+plasma_soma_avg_c_r2$plot_all
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_plasma_avg_c_r2.jpeg"),
+       plasma_soma_avg_c_r2$plot_all, width = 10, height = 7)
+```
+
+### Kidney R2*
+
+```{r echo = F, warning=FALSE}
+plasma_soma_avg_k_r2 <- soma_corr(
+  clinical_raw = attempt_dat,
+  soma_raw     = soma,
+  did_df       = did_res_plasma_mixed$results_annotated,
+  analytes_info= analytes_attempt,
+  clinical_var = "avg_k_r2",
+  feature_suffix = "",
+  proper_name = "\u0394 Kidney R2*",
+  pre_visit = -4
+)
+
+# correlation table
+plasma_soma_avg_k_r2$correlation_table
+
+# plots
+plasma_soma_avg_k_r2$plot_all
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Correlations/volcano_mixed_spearman_plasma_avg_k_r2.jpeg"),
+       plasma_soma_avg_k_r2$plot_all, width = 10, height = 7)
+```
+
+```{r echo = F}
+# # write correlation results to file
+# wb <- createWorkbook()
+# addWorksheet(wb,"Change in mgfr_si")
+# writeData(wb,"Change in mgfr_si",corr_delta_mgfr_si_mat,rowNames = F)
+# addWorksheet(wb,"Change in mgfr_si_adjusted")
+# writeData(wb,"Change in mgfr_si_adjusted",corr_delta_mgfr_si_adjusted_mat,rowNames = F)
+# addWorksheet(wb,"Change in HbA1c")
+# writeData(wb,"Change in HbA1c",corr_delta_hba1c_percent_mat,rowNames = F)
+# addWorksheet(wb,"Change in PWV")
+# writeData(wb,"Change in PWV",corr_delta_PWV_mat,rowNames = F)
+# 
+# saveWorkbook(wb,file.path(root_path, "ATTEMPT/Results/Somascan/Somascan_clinical_correlations.xlsx"),overwrite = TRUE)
+```

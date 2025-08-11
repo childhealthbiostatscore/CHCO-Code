@@ -1,0 +1,133 @@
+---
+title: "ATTEMPT scRNA (KPMP) correlations"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r echo = F, include = F}
+library(arsenal)
+library(Biobase)
+library(BiocGenerics)
+library(BiocParallel)
+library(broom.mixed)
+library(colorspace)
+library(cowplot)
+library(data.table)
+library(DirichletReg)
+library(dplyr)
+library(edgeR)
+library(emmeans)
+library(enrichR)
+library(foreach)
+library(future)
+library(future.apply)
+library(GSEABase)
+library(ggdendro)
+library(ggpubr)
+library(glmmTMB)
+library(harmony)
+library(jsonlite)
+library(kableExtra)
+library(limma)
+library(MAST)
+library(Matrix)
+library(msigdbr)
+library(muscat)
+library(NMF)
+library(nebula)
+library(patchwork)
+library(pheatmap)
+library(readxl)
+library(REDCapR)
+library(reshape2)
+library(rstatix)
+library(SAVER)
+# library(scDC)
+library(scater)
+library(scran)
+library(Seurat)
+library(SingleCellExperiment)
+library(slingshot)
+library(tidyverse)
+library(UpSetR)
+library(WriteXLS)
+library(parallel)
+library(doParallel)
+```
+
+
+```{r include = F}
+reticulate::use_python("/mmfs1/gscratch/togo/yejichoi/mypy/bin/python", required = T)
+reticulate::repl_python()
+reticulate::py_config()
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+
+```{r echo = F, eval = T}
+# Read in clean seurat object saved
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("attempt", 'cleaned_data/attempt_clean_so.rds', temp_file)
+attempt_so <- readRDS(temp_file)
+``` 
+
+```{r echo = F}
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+", "T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD"
+)
+
+clin_vars <- c("mgfr_jodal_delta", "mgfr_jodal_bsa_delta", "tir_delta", 
+               "hba1c_delta", "weight_delta", "avg_c_r2_delta", "avg_k_r2_delta",
+               "avg_ketones_delta")
+```
+
+
+```{r echo = F}
+results_grid <- run_nebula_by_groups(
+  seurat_obj = attempt_so,
+  celltype_groups = celltype_groups,
+  celltype_var = "KPMP_celltype",
+  clin_vars = clin_vars,
+  suffix = "kpmp",
+  n_hvgs = 2000,
+  workers = 100,
+  s3 = s3,
+  s3_bucket = "attempt",
+  s3_key_prefix = "associations/nebula",
+  assay_layer = "counts",
+  id_var = "subject_id",
+  offset_var = "pooled_offset",
+  treatment_var = "treatment",
+  extra_covars = NULL
+)
+```
+

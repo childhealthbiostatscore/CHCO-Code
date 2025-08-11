@@ -35,7 +35,7 @@ def harmonize_data():
     from panther import clean_panther
     from panda import clean_panda
     from attempt import clean_attempt
-    from harmonization_functions import calc_egfr
+    from harmonization_functions import calc_egfr, create_study_id_columns
     # Use individual data functions to import cleaned DFs
     casper = clean_casper()
     coffee = clean_coffee()
@@ -151,6 +151,24 @@ def harmonize_data():
         harmonized[["lm_k2_wo_cyst_vw", "rm_k2_wo_cyst_vw"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_c_k2_wo_cyst_vw"] = \
         harmonized[["lc_k2_wo_cyst_vw", "rc_k2_wo_cyst_vw"]].apply(lambda x: x.mean(), axis=1)
+
+    # Average K1
+    harmonized["avg_c_k1"]= \
+        harmonized[["lc_k1", "rc_k1"]].apply(lambda x: x.mean(), axis=1)
+    harmonized["avg_m_k1"]= \
+        harmonized[["lm_k1", "rm_k1"]].apply(lambda x: x.mean(), axis=1)   
+    # Average k2
+    harmonized["avg_c_k2"]= \
+        harmonized[["lc_k2", "rc_k2"]].apply(lambda x: x.mean(), axis=1)
+    harmonized["avg_m_k2"]= \
+        harmonized[["lm_k2", "rm_k2"]].apply(lambda x: x.mean(), axis=1) 
+    # Average F
+    harmonized["avg_c_f"]= \
+        harmonized[["lc_f", "rc_f"]].apply(lambda x: x.mean(), axis=1)
+    harmonized["avg_m_k2"]= \
+        harmonized[["lm_f", "rm_f"]].apply(lambda x: x.mean(), axis=1)         
+        
+        
     # Calculate FSOC = bl_bold - pf_bold
     cols = [c for c in harmonized.columns if "_bl_" in c] + \
         [c for c in harmonized.columns if "_pf_" in c]
@@ -232,37 +250,39 @@ def harmonize_data():
         (0.09779 * harmonized.groupby("record_id")["hba1c"].transform("mean")) - 
         (0.00235 * harmonized.groupby("record_id")["triglycerides"].transform("mean")))))
     # Co-enroll IDs
-    casper_mrns = harmonized.loc[harmonized['study'] == 'CASPER', ['mrn', 'record_id']]
-    casper_id_map = dict(zip(casper_mrns['mrn'], casper_mrns['record_id']))
-    harmonized['casper_id'] = harmonized.apply(lambda row: casper_id_map[row['mrn']] if row['mrn'] in casper_id_map else '', axis=1)
-    coffee_mrns = harmonized.loc[harmonized['study'] == 'COFFEE', ['mrn', 'record_id']]
-    coffee_id_map = dict(zip(coffee_mrns['mrn'], coffee_mrns['record_id']))
-    harmonized['coffee_id'] = harmonized.apply(lambda row: coffee_id_map[row['mrn']] if row['mrn'] in coffee_id_map else '', axis=1)
-    croc_mrns = harmonized.loc[harmonized['study'] == 'CROCODILE', ['mrn', 'record_id']]
-    croc_id_map = dict(zip(croc_mrns['mrn'], croc_mrns['record_id']))
-    harmonized['croc_id'] = harmonized.apply(lambda row: croc_id_map[row['mrn']] if row['mrn'] in croc_id_map else '', axis=1)
-    improve_mrns = harmonized.loc[harmonized['study'] == 'IMPROVE', ['mrn', 'record_id']]
-    improve_id_map = dict(zip(improve_mrns['mrn'], improve_mrns['record_id']))
-    harmonized['improve_id'] = harmonized.apply(lambda row: improve_id_map[row['mrn']] if row['mrn'] in improve_id_map else '', axis=1)
-    penguin_mrns = harmonized.loc[harmonized['study'] == 'PENGUIN', ['mrn', 'record_id']]
-    penguin_id_map = dict(zip(penguin_mrns['mrn'], penguin_mrns['record_id']))
-    harmonized['penguin_id'] = harmonized.apply(lambda row: penguin_id_map[row['mrn']] if row['mrn'] in penguin_id_map else '', axis=1)
-    rh_mrns = harmonized.loc[harmonized['study'] == 'RENAL-HEIR', ['mrn', 'record_id']]
-    rh_id_map = dict(zip(rh_mrns['mrn'], rh_mrns['record_id']))
-    harmonized['rh_id'] = harmonized.apply(lambda row: rh_id_map[row['mrn']] if row['mrn'] in rh_id_map else '', axis=1)
-    rh2_mrns = harmonized.loc[harmonized['study'] == 'RENAL-HEIRitage', ['mrn', 'record_id']]
-    rh2_id_map = dict(zip(rh2_mrns['mrn'], rh2_mrns['record_id']))
-    harmonized['rh2_id'] = harmonized.apply(lambda row: rh2_id_map[row['mrn']] if row['mrn'] in rh2_id_map else '', axis=1)
-    panther_mrns = harmonized.loc[harmonized['study'] == 'PANTHER', ['mrn', 'record_id']]
-    panther_id_map = dict(zip(panther_mrns['mrn'], panther_mrns['record_id']))
-    harmonized['panther_id'] = harmonized.apply(lambda row: panther_id_map[row['mrn']] if row['mrn'] in panther_id_map else '', axis=1)
-    panda_mrns = harmonized.loc[harmonized['study'] == 'PANDA', ['mrn', 'record_id']]
-    panda_id_map = dict(zip(panda_mrns['mrn'], panda_mrns['record_id']))
-    harmonized['panda_id'] = harmonized.apply(lambda row: panda_id_map[row['mrn']] if row['mrn'] in panda_id_map else '', axis=1)
-    attempt_mrns = harmonized.loc[harmonized['study'] == 'ATTEMPT', ['mrn', 'record_id']]
-    attempt_id_map = dict(zip(attempt_mrns['mrn'], attempt_mrns['record_id']))
-    harmonized['attempt_id'] = harmonized.apply(lambda row: attempt_id_map[row['mrn']] if row['mrn'] in attempt_id_map else '', axis=1)
+    # casper_mrns = harmonized.loc[harmonized['study'] == 'CASPER', ['mrn', 'record_id']]
+    # casper_id_map = dict(zip(casper_mrns['mrn'], casper_mrns['record_id']))
+    # harmonized['casper_id'] = harmonized.apply(lambda row: casper_id_map[row['mrn']] if row['mrn'] in casper_id_map else '', axis=1)
+    # coffee_mrns = harmonized.loc[harmonized['study'] == 'COFFEE', ['mrn', 'record_id']]
+    # coffee_id_map = dict(zip(coffee_mrns['mrn'], coffee_mrns['record_id']))
+    # harmonized['coffee_id'] = harmonized.apply(lambda row: coffee_id_map[row['mrn']] if row['mrn'] in coffee_id_map else '', axis=1)
+    # croc_mrns = harmonized.loc[harmonized['study'] == 'CROCODILE', ['mrn', 'record_id']]
+    # croc_id_map = dict(zip(croc_mrns['mrn'], croc_mrns['record_id']))
+    # harmonized['croc_id'] = harmonized.apply(lambda row: croc_id_map[row['mrn']] if row['mrn'] in croc_id_map else '', axis=1)
+    # improve_mrns = harmonized.loc[harmonized['study'] == 'IMPROVE', ['mrn', 'record_id']]
+    # improve_id_map = dict(zip(improve_mrns['mrn'], improve_mrns['record_id']))
+    # harmonized['improve_id'] = harmonized.apply(lambda row: improve_id_map[row['mrn']] if row['mrn'] in improve_id_map else '', axis=1)
+    # penguin_mrns = harmonized.loc[harmonized['study'] == 'PENGUIN', ['mrn', 'record_id']]
+    # penguin_id_map = dict(zip(penguin_mrns['mrn'], penguin_mrns['record_id']))
+    # harmonized['penguin_id'] = harmonized.apply(lambda row: penguin_id_map[row['mrn']] if row['mrn'] in penguin_id_map else '', axis=1)
+    # rh_mrns = harmonized.loc[harmonized['study'] == 'RENAL-HEIR', ['mrn', 'record_id']]
+    # rh_id_map = dict(zip(rh_mrns['mrn'], rh_mrns['record_id']))
+    # harmonized['rh_id'] = harmonized.apply(lambda row: rh_id_map[row['mrn']] if row['mrn'] in rh_id_map else '', axis=1)
+    # rh2_mrns = harmonized.loc[harmonized['study'] == 'RENAL-HEIRitage', ['mrn', 'record_id']]
+    # rh2_id_map = dict(zip(rh2_mrns['mrn'], rh2_mrns['record_id']))
+    # harmonized['rh2_id'] = harmonized.apply(lambda row: rh2_id_map[row['mrn']] if row['mrn'] in rh2_id_map else '', axis=1)
+    # panther_mrns = harmonized.loc[harmonized['study'] == 'PANTHER', ['mrn', 'record_id']]
+    # panther_id_map = dict(zip(panther_mrns['mrn'], panther_mrns['record_id']))
+    # harmonized['panther_id'] = harmonized.apply(lambda row: panther_id_map[row['mrn']] if row['mrn'] in panther_id_map else '', axis=1)
+    # panda_mrns = harmonized.loc[harmonized['study'] == 'PANDA', ['mrn', 'record_id']]
+    # panda_id_map = dict(zip(panda_mrns['mrn'], panda_mrns['record_id']))
+    # harmonized['panda_id'] = harmonized.apply(lambda row: panda_id_map[row['mrn']] if row['mrn'] in panda_id_map else '', axis=1)
+    # attempt_mrns = harmonized.loc[harmonized['study'] == 'ATTEMPT', ['mrn', 'record_id']]
+    # attempt_id_map = dict(zip(attempt_mrns['mrn'], attempt_mrns['record_id']))
+    # harmonized['attempt_id'] = harmonized.apply(lambda row: attempt_id_map[row['mrn']] if row['mrn'] in attempt_id_map else '', axis=1)
     
+    create_study_id_columns(harmonized)
+
     # Sort columns
     id_cols = ["record_id", "casper_id", "coffee_id", "croc_id", "improve_id", 
                 "penguin_id", "rh_id", "rh2_id", "panther_id", "panda_id", "attempt_id",
