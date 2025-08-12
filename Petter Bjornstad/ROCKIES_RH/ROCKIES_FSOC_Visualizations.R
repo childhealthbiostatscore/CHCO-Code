@@ -58,7 +58,9 @@ table1::table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_glp1ra_1+epic_sgl
 
 tests <- c('fsoc_l_cortex', 'fsoc_r_cortex', 
            'fsoc_l_kidney', 'fsoc_r_kidney', 
-           'fsoc_l_medulla', 'fsoc_r_medulla')
+           'fsoc_l_medulla', 'fsoc_r_medulla', 
+           'fsoc_l_combined', 'fsoc_r_combined', 
+           'fsoc_full_combined')
 
 
 graphs <- list()
