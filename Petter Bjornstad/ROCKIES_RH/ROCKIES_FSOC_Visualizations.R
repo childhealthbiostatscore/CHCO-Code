@@ -66,11 +66,32 @@ tests <- c('fsoc_l_cortex', 'fsoc_r_cortex',
 graphs <- list()
 
 
-dat_results <- dat2 %>% mutate(fsoc_l_combined = mean(c(fsoc_l_cortex, fsoc_l_kidney_fsoc_l_medulla)),
-                               fsoc_r_combined = mean(c(fsoc_r_cortex, fsoc_r_kidney_fsoc_r_medulla)),
-                               fsoc_full_combined = mean(fsoc_l_cortex, fsoc_r_cortex,
-                                                         fsoc_l_kidney, fsoc_r_kidney, 
-                                                         fsoc_l_medulla, fsoc_r_medulla))
+dat_results <- dat2 %>% mutate(fsoc_l_combined = (fsoc_l_cortex +fsoc_l_kidney+ fsoc_l_medulla)/3,
+                               fsoc_r_combined = (fsoc_r_cortex +fsoc_r_kidney +fsoc_r_medulla)/3,
+                               fsoc_full_combined = (fsoc_l_cortex + fsoc_r_cortex +
+                                                         fsoc_l_kidney + fsoc_r_kidney + 
+                                                         fsoc_l_medulla + fsoc_r_medulla)/6)
+
+
+
+medications <- readxl::read_xlsx("C:/Users/netio/Documents/Harmonized_data/Biopsies_w_mrn_Oct3.xlsx")
+medications <- medications %>% dplyr::select(mrn, ends_with('_1'), -starts_with('ever_'))
+names(medications) <- str_replace(names(medications), pattern = '_1', replacement = '')
+
+
+
+
+
+
+
+
+
+
+
+number_part_df <- dat_results %>% filter(!is.na(fsoc_full_combined))
+
+
+
 
 
 
