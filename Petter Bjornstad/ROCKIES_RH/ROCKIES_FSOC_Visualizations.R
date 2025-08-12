@@ -84,16 +84,40 @@ need_med_infO <- dat_results %>% filter(group == 'Type 2 Diabetes') %>% filter(i
 
 med_small <- medications %>% filter(mrn %in% need_med_infO$mrn)
 
+for(i in c(1:nrow(med_small))){
+  if(med_small$sglti2[i] == 'No'){
+    dat_results$group2[which(dat_results$mrn == med_small$mrn[i])] <- 'T2D-No SGLTi2'
+  }else if(med_small$sglti2[i] == 'Yes'){
+    dat_results$group2[which(dat_results$mrn == med_small$mrn[i])] <- 'T2D-SGLTi2'    
+  }else{
+    next
+  }
+}
+
+apply(dat_results %>% dplyr::select(starts_with('fsoc')), 2, is.na) %>% 
+  colSums() %>% which.min()
 
 
 
+max_num_trait <- apply(dat_results %>% dplyr::select(starts_with('fsoc')), 2, is.na) %>% colSums() %>% which.min() %>% names()
 
+min_num_missing <- sum(is.na(dplyr::select(dat_results, starts_with('fsoc'))[,apply(dat_results %>% dplyr::select(starts_with('fsoc')), 2, is.na) %>% colSums() %>% which.min()]))
+
+
+max_num_lc <- dat_results %>% filter(group == 'Lean Control') %>% filter(!is.na(fsoc_r_cortex)) %>% 
+  nrow()
+max_num_nosglt2 <- dat_results %>% filter(group == 'T2D-No SGLTi2') %>% filter(!is.na(fsoc_r_cortex)) %>% 
+  nrow()
+max_num_sglt2 <- dat_results %>% filter(group == 'T2D-SGLTi2') %>% filter(!is.na(fsoc_r_cortex)) %>% 
+  nrow()
 
 
 
 number_part_df <- dat_results %>% filter(!is.na(fsoc_full_combined))
 
-
+min_num_lc <- number_part_df %>% filter(group2 == 'Lean Control')
+min_num_nosglt2 <- number_part_df %>% filter(group2 == 'T2D-No SGLTi2')
+min_num_sglt2 <- number_part_df %>% filter(group2 == 'T2D-SGLTi2')
 
 
 
