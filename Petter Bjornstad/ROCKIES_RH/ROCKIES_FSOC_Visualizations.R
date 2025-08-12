@@ -80,6 +80,9 @@ names(medications) <- str_replace(names(medications), pattern = '_1', replacemen
 
 
 
+need_med_infO <- dat_results %>% filter(group == 'Type 2 Diabetes') %>% filter(is.na(group2))
+
+med_small <- medications %>% filter(mrn %in% need_med_infO$mrn)
 
 
 
