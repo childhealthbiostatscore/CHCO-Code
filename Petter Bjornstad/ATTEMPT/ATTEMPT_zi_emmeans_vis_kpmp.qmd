@@ -41,6 +41,8 @@ library(Hmisc)
 library(ggrounded)
 library(circlize)
 library(tidyverse)
+library(openxlsx)
+library(biomaRt)
 ```
 
 ```{r echo = F, include = F}
@@ -73,6 +75,8 @@ celltype_groups <- list(
   EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
   IC = c("IC-A", "IC-B", "aIC"),
   Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
   VSMC_P_FIB = c("VSMC/P", "FIB"),
   POD = "POD"
 )
@@ -104,8 +108,10 @@ for (cell in names(celltype_groups))  {
     left_join(gene_info, by = "Gene")
 
   # Assign to variable dynamically
-  var_name <- paste0(tolower(cell), "hvg_kpmp")
+  var_name <- paste0(tolower(cell), "_hvg_kpmp")
   assign(var_name, annotated_df, envir = .GlobalEnv)
+  
+  write.csv(annotated_df, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/", tolower(cell), "_kpmp_hvg_res.csv"), row.names = F)
 }
 
 # Top 2000 HVG subtypes
@@ -119,22 +125,25 @@ for (cell in unlist(celltype_groups))  {
   
   processed <- process_nebula_results(cell_df)
   
-  # # Get gene symbols
-  # gene_symbols <- processed$results$Gene
-  # 
-  # # Query Ensembl
-  # gene_info <- getBM(
-  #   attributes = c("hgnc_symbol", "description", "gene_biotype"),
-  #   filters = "hgnc_symbol",
-  #   values = gene_symbols,
-  #   mart = mart
-  # ) %>%
-  #   dplyr::rename(Gene = hgnc_symbol)
-  # 
-  # # Join annotation
-  # annotated_df <- processed$results %>%
-  #   left_join(gene_info, by = "Gene")
-
+  # Check if processed results has 0 rows
+  if (nrow(processed$results) == 0) {
+    print(paste0("Skipping ", cell, " - no rows in processed results"))
+    next
+  }
+  
+  # Get gene symbols
+  gene_symbols <- processed$results$Gene
+  # Query Ensembl
+  gene_info <- getBM(
+    attributes = c("hgnc_symbol", "description", "gene_biotype"),
+    filters = "hgnc_symbol",
+    values = gene_symbols,
+    mart = mart
+  ) %>%
+    dplyr::rename(Gene = hgnc_symbol)
+  # Join annotation
+  annotated_df <- processed$results %>%
+    left_join(gene_info, by = "Gene")
   cell <- gsub("-", "_", cell)
   cell <- gsub("\\+\\s", "_", cell)
   lower_cell <- tolower(cell)
@@ -193,7 +202,7 @@ for (cell in names(celltype_groups))  {
 }
 
 # Save the workbook
-saveWorkbook(top50_wb, file = "//Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT//Results/top50_hvg_nebula_results_by_kpmp_celltype.xlsx", overwrite = TRUE)
+saveWorkbook(top50_wb, file = "//Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/top50_hvg_nebula_results_by_kpmp_celltype.xlsx", overwrite = TRUE)
 ```
 
 ### PT
@@ -1086,21 +1095,23 @@ write.csv(immune_myeloid_nebula_pooled_ipa_dapa, "/Users/choiyej/Library/CloudSt
 
 ```{r echo = F}
 immune_myeloid_plots <- create_gene_expression_plots(
-  main_results = immune_myeloid_hvg_kpmp,
+  main_results = immune_myeloidhvg_kpmp,
   subtype_results_list = list(
+    "MAC" = mac_hvg_kpmp,
     "MON" = mon_hvg_kpmp,
-    "MAC" = mac_hvg_kpmp
+    "cDC" = cdc_hvg_kpmp
+    # "pDC" = pdc_hvg_kpmp
   ),
-  cell_type_labels = c("MON", "MAC"),
   cell_type_prefix = "Immune Myeloid",
-  output_prefix = "Immune_Myeloid_hvg",
-  formula = "treatment * visit",
-  full_formula = T,
+  cell_type_labels = c("MAC", "MON", "cDC"),
+  output_prefix = "kpmp_Immune_Myeloid_hvg",
+  full_formula = TRUE,
   volcano_text_size = 15,
   volcano_caption_size = 12,
+  formula = "treatment * visit",
   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
 )
-immune_myeloid_plots
+
 ```
 
 
@@ -1253,21 +1264,23 @@ write.csv(immune_lymphoid_nebula_pooled_ipa_dapa, "/Users/choiyej/Library/CloudS
 
 ```{r echo = F}
 immune_lymphoid_plots <- create_gene_expression_plots(
-  main_results = immune_lymphoid_hvg_kpmp,
+  main_results = immune_lymphoidhvg_kpmp,
   subtype_results_list = list(
-    "T" = t_hvg_kpmp,
-    "NKT/NKC" = nkt_hvg_kpmp,
-    "B" = b_hvg_kpmp
+    "CD4+ T" = cd4_t_hvg_kpmp,
+    "CD8+ T" = cd8_t_hvg_kpmp,
+    "B" = b_hvg_kpmp,
+    "NK" = nk_hvg_kpmp
   ),
-  cell_type_labels = c("T", "B", "NKT/NKC"),
   cell_type_prefix = "Immune Lymphoid",
-  output_prefix = "Immune_Lymphoid_hvg",
-  formula = "treatment * visit",
-  full_formula = T,
+  cell_type_labels = c("CD4+ T", "CD8+ T", "B", "NK"),
+  output_prefix = "kpmp_Immune_Lymphoid_hvg",
+  full_formula = TRUE,
   volcano_text_size = 15,
   volcano_caption_size = 12,
+  formula = "treatment * visit",
   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
 )
+
 ```
 
 ### Immune (Lymphoid, Full)
