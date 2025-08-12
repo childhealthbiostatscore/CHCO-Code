@@ -138,7 +138,8 @@ df_plot <- bind_rows(dat_results, dat_results_combined) %>%
 
 df_plot <- df_plot %>% 
   dplyr::select(mrn, group, group2, fsoc_l_cortex, fsoc_r_cortex, 
-                fsoc_l_kidney, fsoc_r_kidney, fsoc_l_medulla, fsoc_r_medulla)
+                fsoc_l_kidney, fsoc_r_kidney, fsoc_l_medulla, fsoc_r_medulla,
+                fsoc_l_combined, fsoc_r_combined, fsoc_full_combined)
 
 
 df_plot <- df_plot %>% mutate(position = ifelse(group2 == 'T2D-No SGLTi2', 1.7, ifelse(group2 == 'T2D-SGLTi2', 2.0, NA)))
@@ -181,10 +182,11 @@ for(i in c(1:length(tests))){
 
 
 
-caption <- textGrob("This is the caption for the plots", gp = gpar(fontsize = 12, fontface = "italic"))
+#caption <- textGrob("This is the caption for the plots", gp = gpar(fontsize = 12, fontface = "italic"))
 
 # Arrange plots with caption
-grid.arrange(p1, p2, ncol = 2, bottom = caption)
+grid.arrange(p1, p2, ncol = 2) 
+             #bottom = caption)
 
 
 
