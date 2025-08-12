@@ -24,6 +24,43 @@ if (user == "choiyej") { # local version
 
 # ATTEMPT analysis related functions
 
+# ATTEMPT analysis related functions
+
+#----------------------------------------------------------#
+# make_subsets
+#----------------------------------------------------------#
+
+make_subsets <- function(so, groups, celltype_col = "celltype", prefix = "croc_so_") {
+  stopifnot(celltype_col %in% colnames(so@meta.data))
+  
+  objs <- lapply(names(groups), function(grp) {
+    types <- as.character(groups[[grp]])           # <- ensure character vector
+    cells <- rownames(so@meta.data)[so@meta.data[[celltype_col]] %in% types]
+    if (length(cells) == 0) return(NULL)
+    subset(so, cells = cells)
+  })
+  names(objs) <- names(groups)
+  
+  # Drop empty groups
+  objs <- objs[!vapply(objs, is.null, logical(1))]
+  
+  # Assign into env
+  for (nm in names(objs)) {
+    obj_name <- paste0(prefix, tolower(gsub("[^A-Za-z0-9]+", "_", nm)))
+    assign(obj_name, objs[[nm]], envir = .GlobalEnv)
+  }
+  
+  # Robust cell counts (always integer)
+  n_cells <- vapply(objs, function(o) as.integer(ncol(o)), integer(1))
+  
+  data.frame(
+    group   = names(objs),
+    n_cells = n_cells,
+    object  = paste0(prefix, tolower(gsub("[^A-Za-z0-9]+","_", names(objs)))),
+    row.names = NULL
+  )
+}
+
 # ---- Analysis Functions ----
 
 #----------------------------------------------------------#
@@ -40,7 +77,7 @@ run_nebula_for_clinvar <- function(
     n_hvgs = 2000,
     workers = 50,                    # parallel workers for foreach
     s3,                              # your S3 client object (e.g., `s3`)
-    s3_bucket,                       # e.g., "attempt"
+    s3_bucket = "attempt",                       # e.g., "attempt"
     s3_key_prefix = "associations/nebula",  # base path
     assay_layer = "counts",          # use "counts" layer (Seurat v5); change to slot="counts" if needed
     id_var = "subject_id",
@@ -232,6 +269,7 @@ run_nebula_by_groups <- function(
 }
 
 
+
 #----------------------------------------------------------#
 # run_ancova
 #----------------------------------------------------------#
@@ -379,7 +417,8 @@ run_nebula_parallel <- function(seurat_obj,
                                 covariance = TRUE,
                                 s3_bucket = "attempt",
                                 s3_key = NULL,
-                                verbose = TRUE) {
+                                verbose = TRUE, 
+                                group = T) {
   
   # Extract counts and gene list
   counts_mat <- round(GetAssayData(seurat_obj, layer = layer))
@@ -413,9 +452,15 @@ run_nebula_parallel <- function(seurat_obj,
                                      pred_gene <- model.matrix(formula, data = meta_gene)
                                      
                                      # Group cells
-                                     data_g_gene <- group_cell(count = count_gene, 
-                                                               id = meta_gene[[subject_id_col]], 
-                                                               pred = pred_gene)
+                                     if (group) {
+                                       data_g_gene <- group_cell(count = count_gene, 
+                                                                 id = meta_gene[[subject_id_col]], 
+                                                                 pred = pred_gene)
+                                     } else {
+                                       data_g_gene <- list(count = count_gene, 
+                                                           id = meta_gene[[subject_id_col]], 
+                                                           pred = pred_gene)
+                                     }
                                      
                                      # Run nebula with warning handling
                                      res <- withCallingHandlers({
@@ -536,6 +581,113 @@ process_nebula_results <- function(nebula_list,
     overdispersion  = overdisp_df
   ))
 }
+
+# ===========================================================================
+# Function: process_nebula_results_clin
+# ===========================================================================
+
+process_nebula_results_clin <- function(cell_type, clinical_var, cell_subtype,
+                                   bucket = "attempt", region = "",
+                                   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/") {
+  
+  # Construct file path
+  clean_subtype <- paste(
+    gsub("[/\\-]", "_",                      # replace / and - with _
+           gsub("\\+", "",                   # remove +
+                gsub("\\s+", "_", cell_subtype) # replace spaces with _
+         )
+    ),
+    collapse = "_"
+  )
+  
+  cat(clean_subtype)
+  file_path <- paste0('associations/nebula/', clinical_var, '/', clinical_var, '__', clean_subtype, '.rds')
+  
+  # Read in nebula results
+  nebula_res <- s3readRDS(file_path, bucket = bucket, region = region)
+  
+  # Check convergence
+  convergence_df <- map_dfr(
+    names(nebula_res),
+    function(gene_name) {
+      converged <- nebula_res[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  # Filter for converged genes
+  converged_genes <- convergence_df %>%
+    filter(Convergence_Code >= -10)
+  
+  # Combine results for converged genes
+  res_combined <- map_dfr(
+    names(nebula_res),
+    function(gene_name) {
+      df <- nebula_res[[gene_name]]$summary
+      df <- df %>% 
+        filter(gene_name %in% converged_genes$Gene) %>%
+        mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  
+  # Adjust for multiple testing
+  # Create dynamic column names based on clinical variable
+  p_col <- paste0("p_", clinical_var)
+  
+  res_combined <- res_combined %>%
+    ungroup() %>%
+    mutate(fdr_interaction = p.adjust(!!sym(p_col), method = "fdr"))
+  
+  # Extract overdispersion information
+  res_combined_disp <- map_dfr(
+    names(nebula_res),
+    function(gene_name) {
+      df <- nebula_res[[gene_name]]$overdispersion
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  
+  # Add treatment direction columns if the data contains treatment interaction terms
+  if ("p_treatmentDapagliflozin:visitPOST" %in% names(res_combined)) {
+    res_combined <- res_combined %>%
+      mutate(
+        treatment_direction = case_when(
+          `p_treatmentDapagliflozin:visitPOST` < 0.05 &
+            `logFC_treatmentDapagliflozin:visitPOST` > 0 ~ "Positive",
+          `p_treatmentDapagliflozin:visitPOST` < 0.05 &
+            `logFC_treatmentDapagliflozin:visitPOST` < 0 ~ "Negative",  # Fixed: should be < 0
+          TRUE ~ "NS"
+        ),
+        treatment_direction_fdr = case_when(
+          `fdr_interaction` < 0.05 & 
+            `logFC_treatmentDapagliflozin:visitPOST` > 0 ~ "Positive",
+          `fdr_interaction` < 0.05 & 
+            `logFC_treatmentDapagliflozin:visitPOST` < 0 ~ "Negative",  # Fixed: should be < 0
+          TRUE ~ "NS"
+        )
+      )
+  }
+  
+  # Save results
+  output_file <- file.path(output_dir, paste0(cell_type, "_", clinical_var, ".csv"))
+  write.csv(res_combined, output_file, row.names = FALSE)
+  
+  # Return a list with all results
+  return(list(
+    results_combined = res_combined,
+    convergence = convergence_df,
+    converged_genes = converged_genes,
+    overdispersion = res_combined_disp
+  ))
+}
+
+# Example usage:
+# pt_mgfr_jodal_results <- process_nebula_results(cell_type = "pt", clinical_var = "mgfr_jodal")
+# cd4_glucose_results <- process_nebula_results(cell_type = "cd4", clinical_var = "glucose_level")
 
 
 # ===========================================================================
@@ -670,7 +822,8 @@ plot_delta_by_category <- function(data,
                                                    "Dapagliflozin 5mg" = "#a7b298",
                                                    "DiD" = "#669bbc"),
                                    y_limits = NULL,
-                                   output_path = NULL) {
+                                   output_path = NULL,
+                                   top_padding = 0) {
   
   library(dplyr)
   library(ggplot2)
@@ -815,7 +968,8 @@ plot_delta_by_category <- function(data,
   }
   
   # Step 6: Plot
-  plot_df[[treatment_var]] <- factor(plot_df[[treatment_var]], levels = c("DiD", "Placebo", "Dapagliflozin 5mg"))
+  plot_df[[treatment_var]] <- factor(plot_df[[treatment_var]], 
+                                     levels = c("DiD", "Placebo", "Dapagliflozin 5mg"))
   p <- ggplot(plot_df, aes(x = .data[[bin_var_name]], y = mean_delta, fill = .data[[treatment_var]])) +
     geom_col(color = "black") +
     geom_quasirandom(
@@ -838,10 +992,18 @@ plot_delta_by_category <- function(data,
     labs(x = x_label, y = y_label) +
     scale_fill_manual(values = fill_colors)
   
-  if (!is.null(y_limits)) {
-    p <- p + ylim(y_limits[1], y_limits[2] + 0.3)
+  # Adjust y-limits for padding
+  if (is.null(y_limits)) {
+    y_min <- min(plot_df$ci_lower, na.rm = TRUE)
+    y_max <- max(plot_df$y_position, na.rm = TRUE)
+    extra_space <- ifelse(top_padding <= 1, y_max * top_padding, top_padding) # percent or fixed
+    p <- p + ylim(y_min, y_max + extra_space)
+  } else {
+    # if user also sets y_limits, just add padding to top
+    p <- p + ylim(y_limits[1], y_limits[2] + top_padding)
   }
   
+  # Output
   print(p)
   if (!is.null(output_path)) {
     ggsave(output_path, p, width = 7, height = 5)
@@ -864,6 +1026,10 @@ make_comp_plot <- function(attempt_df,
                            height       = 5,
                            caption      = NULL,
                            FC = "logFC_treatmentDapagliflozin:visitPOST") {
+  
+  library(ggplot2)
+  library(ggrounded)
+  library(ggtext)
   
   ## 1. Harmonize & flag significance ------------------------------------------
   df_attempt <- attempt_df %>%
@@ -998,7 +1164,7 @@ make_comp_plot <- function(attempt_df,
       ggsave(save_path, combined, width = width, height = height)
     }
     
-    return(invisible(combined))
+    return(combined)
   }
   
 }
