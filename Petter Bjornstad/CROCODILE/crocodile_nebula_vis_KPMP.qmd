@@ -1,0 +1,169 @@
+---
+title: "CROCODILE nebula vis (KPMP cell annotations)"
+author: "Ye Ji Choi"
+format: html
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r echo = F, include = F}
+library(dplyr)
+library(kableExtra)
+library(knitr)
+library(ggplot2)
+library(purrr)
+library(tidyr)
+library(stats)
+library(patchwork)
+library(UpSetR)
+library(readxl)
+library(fgsea)
+library(ReactomeGSA)
+library(GSEABase)
+library(enrichplot)
+library(enrichR)
+library(ggrepel)
+library(forcats)
+library(stringr)
+library(jsonlite)
+library(aws.s3)
+library(fgsea)
+library(reshape2)
+```
+
+```{r include = F}
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
+source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
+```
+
+# ATTEMPT results
+
+```{r echo = F}
+# REPLACE THIS TO ALL
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD"
+)
+
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+# Top 2000 HVG
+for (cell in names(celltype_groups))  {
+  input_path <- paste0("grouped/", cell, "/HVG/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+
+  processed <- process_nebula_results(cell_df)
+  
+  # Join annotation
+  annotated_df <- processed$results
+
+  # Assign to variable dynamically
+  var_name <- paste0(tolower(cell), "_hvg_kpmp")
+  assign(var_name, annotated_df, envir = .GlobalEnv)
+  
+}
+
+```
+
+# Untargeted
+
+```{r echo = F}
+# Top 2000 HVGs on CROCODILE (regardless of ATTEMPT significance)
+
+# Define paths (same for all cell types)
+input_path <- "CROCODILE comparison analysis"
+input_suffix <- "_kpmp_croc_hvg.rds"
+output_base_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/CROCODILE"
+output_prefix <- "kpmp_croc_"
+bg_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/GSEA"
+bucket <- "attempt"
+region <- ""
+plot_title <-  "Untargeted T1D vs. LC"
+
+for (cell in names(celltype_groups)) {
+  t1dhc_run_cell_type_analysis(toupper(cell), 
+                               input_path = input_path,
+                               input_suffix = input_suffix,
+                               output_prefix = output_prefix,
+                               output_base_path = output_base_path,
+                               plot_title = plot_title,
+                               bg_path = bg_path)
+  
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp_untargeted_res_croc")
+  file_path <- paste0(output_base_path, "/Results/NEBULA/", output_prefix, lower_cell, "_nebula_res.csv")
+  
+  df <- read.csv(file_path)
+  names(df) <- gsub("\\.", "", names(df))
+  
+  assign(var_name, df)
+}
+
+pod_kpmp_untargeted_res_croc %>%
+  filter(p_groupType_1_Diabetes < 0.05)
+pod_kpmp_untargeted_res_croc %>%
+  filter(fdr < 0.05)
+```
+
+```{r echo = F}
+make_comp_plot(attempt_df = pt_hvg_kpmp,
+               croc_df = pt_kpmp_untargeted_res_croc,
+               attempt_p_cut = 0.05, 
+               croc_p_cut = 0.05, 
+               FC = "logFC_treatmentDapagliflozin:visitPOST",
+               save_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/kpmp_pt_croc_attempt_dot.jpeg")
+```
+
+```{r echo = F}
+celltypes <-  c("pt", "tal", "pc", "immune", "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmcp", "pod")
+
+for (ct in names(celltype_groups)) {
+  ct <- tolower(ct)
+  attempt_df <- get(paste0(ct, "_hvg_kpmp"))
+  croc_df    <- get(paste0(ct, "_kpmp_untargeted_res_croc"))
+  
+  save_path <- file.path(
+    "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison",
+    paste0("kpmp_", ct, "_croc_attempt_dot.jpeg")
+  )
+  
+  csv_path <- file.path(
+    "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/CROCODILE comparison analysis/inconsistencies",
+    paste0("kpmp_", ct, "_croc_attempt_inconsistencies.csv")
+  )  
+  make_comp_plot(FC = "logFC_treatmentDapagliflozin:visitPOST",
+                 attempt_df    = attempt_df,
+                 croc_df       = croc_df,
+                 attempt_p_cut = 0.05,
+                 croc_p_cut    = 0.05,
+                 save_path     = save_path,
+                 caption = paste0("Cell type: ",toupper(ct)),
+                 csv_path = csv_path,
+                 width = 5, height = 12
+  )
+}
+```
+
