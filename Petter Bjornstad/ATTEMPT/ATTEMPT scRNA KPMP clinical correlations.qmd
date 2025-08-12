@@ -60,6 +60,7 @@ library(UpSetR)
 library(WriteXLS)
 library(parallel)
 library(doParallel)
+source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
 ```
 
 
@@ -100,7 +101,7 @@ celltype_groups <- list(
   IC = c("IC-A", "IC-B", "aIC"),
   Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
   Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
-  Immune_lymphoid = c("CD4+ T", "CD8+", "T", "B", "NK"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
   VSMC_P_FIB = c("VSMC/P", "FIB"),
   POD = "POD"
 )
@@ -108,26 +109,277 @@ celltype_groups <- list(
 clin_vars <- c("mgfr_jodal_delta", "mgfr_jodal_bsa_delta", "tir_delta", 
                "hba1c_delta", "weight_delta", "avg_c_r2_delta", "avg_k_r2_delta",
                "avg_ketones_delta")
+
+attempt_so_subsets <- make_subsets(attempt_so, celltype_groups, celltype_col = "KPMP_celltype", prefix = "attempt_so_")
 ```
 
+
+# PT
+
+```{r echo = F, eval = F}
+start_time <- Sys.time()
+
+for (vars in clin_vars) {
+  iter_start <- Sys.time()
+  message("[", format(iter_start, "%Y-%m-%d %H:%M:%S"), "] Processing: ", vars)
+
+  nb_results <- run_nebula_for_clinvar(
+    seurat_obj = attempt_so_pt,
+    clinical_var = vars,
+    celltype_var = "KPMP_celltype",
+    celltype_values = celltype_groups[["PT"]],
+    s3 = s3, s3_bucket = "attempt"
+  )
+
+  assign(paste0(vars, "_pt_res"), nb_results)
+
+  iter_end <- Sys.time()
+  message("    Finished: ", vars,
+          " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
+          " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
+}
+```
+
+# TAL
 
 ```{r echo = F}
-results_grid <- run_nebula_by_groups(
-  seurat_obj = attempt_so,
-  celltype_groups = celltype_groups,
-  celltype_var = "KPMP_celltype",
-  clin_vars = clin_vars,
-  suffix = "kpmp",
-  n_hvgs = 2000,
-  workers = 100,
-  s3 = s3,
-  s3_bucket = "attempt",
-  s3_key_prefix = "associations/nebula",
-  assay_layer = "counts",
-  id_var = "subject_id",
-  offset_var = "pooled_offset",
-  treatment_var = "treatment",
-  extra_covars = NULL
-)
+start_time <- Sys.time()
+
+for (vars in clin_vars) {
+  iter_start <- Sys.time()
+  message("[", format(iter_start, "%Y-%m-%d %H:%M:%S"), "] Processing: ", vars)
+
+  nb_results <- run_nebula_for_clinvar(
+    seurat_obj = attempt_so_tal,
+    clinical_var = vars,
+    celltype_var = "KPMP_celltype",
+    celltype_values = celltype_groups[["TAL"]],
+    s3 = s3, s3_bucket = "attempt"
+  )
+
+  assign(paste0(vars, "_tal_res"), nb_results)
+
+  iter_end <- Sys.time()
+  message("    Finished: ", vars,
+          " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
+          " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
+}
 ```
 
+
+# PC
+
+```{r echo = F}
+start_time <- Sys.time()
+
+for (vars in clin_vars) {
+  iter_start <- Sys.time()
+  message("[", format(iter_start, "%Y-%m-%d %H:%M:%S"), "] Processing: ", vars)
+
+  nb_results <- run_nebula_for_clinvar(
+    seurat_obj = attempt_so_pc,
+    clinical_var = vars,
+    celltype_var = "KPMP_celltype",
+    celltype_values = celltype_groups[["PC"]],
+    s3 = s3, s3_bucket = "attempt",
+    workers = 100
+  )
+
+  assign(paste0(vars, "_pc_res"), nb_results)
+
+  iter_end <- Sys.time()
+  message("    Finished: ", vars,
+          " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
+          " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
+}
+```
+
+# IC
+
+```{r echo = F}
+start_time <- Sys.time()
+
+for (vars in clin_vars) {
+  iter_start <- Sys.time()
+  message("[", format(iter_start, "%Y-%m-%d %H:%M:%S"), "] Processing: ", vars)
+
+  nb_results <- run_nebula_for_clinvar(
+    seurat_obj = attempt_so_ic,
+    clinical_var = vars,
+    celltype_var = "KPMP_celltype",
+    celltype_values = celltype_groups[["IC"]],
+    s3 = s3, s3_bucket = "attempt",
+    workers = 100
+  )
+
+  assign(paste0(vars, "_ic_res"), nb_results)
+
+  iter_end <- Sys.time()
+  message("    Finished: ", vars,
+          " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
+          " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
+}
+```
+
+# POD
+
+```{r echo = F}
+start_time <- Sys.time()
+
+for (vars in clin_vars) {
+  iter_start <- Sys.time()
+  message("[", format(iter_start, "%Y-%m-%d %H:%M:%S"), "] Processing: ", vars)
+
+  nb_results <- run_nebula_for_clinvar(
+    seurat_obj = attempt_so_pod,
+    clinical_var = vars,
+    celltype_var = "KPMP_celltype",
+    celltype_values = celltype_groups[["POD"]],
+    s3 = s3, s3_bucket = "attempt",
+    workers = 100
+  )
+
+  assign(paste0(vars, "_pod_res"), nb_results)
+
+  iter_end <- Sys.time()
+  message("    Finished: ", vars,
+          " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
+          " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
+}
+```
+
+
+# VSMC_P_FIB
+
+```{r echo = F}
+start_time <- Sys.time()
+
+for (vars in clin_vars) {
+  iter_start <- Sys.time()
+  message("[", format(iter_start, "%Y-%m-%d %H:%M:%S"), "] Processing: ", vars)
+
+  nb_results <- run_nebula_for_clinvar(
+    seurat_obj = attempt_so_vsmc_p_fib,
+    clinical_var = vars,
+    celltype_var = "KPMP_celltype",
+    celltype_values = celltype_groups[["VSMC_P_FIB"]],
+    s3 = s3, s3_bucket = "attempt",
+    workers = 100
+  )
+
+  assign(paste0(vars, "_vsmc_p_fib_res"), nb_results)
+
+  iter_end <- Sys.time()
+  message("    Finished: ", vars,
+          " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
+          " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
+}
+```
+
+# EC
+
+```{r echo = F}
+start_time <- Sys.time()
+
+for (vars in clin_vars) {
+  iter_start <- Sys.time()
+  message("[", format(iter_start, "%Y-%m-%d %H:%M:%S"), "] Processing: ", vars)
+
+  nb_results <- run_nebula_for_clinvar(
+    seurat_obj = attempt_so_ec,
+    clinical_var = vars,
+    celltype_var = "KPMP_celltype",
+    celltype_values = celltype_groups[["EC"]],
+    s3 = s3, s3_bucket = "attempt",
+    workers = 100
+  )
+
+  assign(paste0(vars, "_ec_res"), nb_results)
+
+  iter_end <- Sys.time()
+  message("    Finished: ", vars,
+          " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
+          " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
+}
+```
+
+# Immune
+
+```{r echo = F}
+start_time <- Sys.time()
+
+for (vars in clin_vars) {
+  iter_start <- Sys.time()
+  message("[", format(iter_start, "%Y-%m-%d %H:%M:%S"), "] Processing: ", vars)
+
+  nb_results <- run_nebula_for_clinvar(
+    seurat_obj = attempt_so_immune,
+    clinical_var = vars,
+    celltype_var = "KPMP_celltype",
+    celltype_values = celltype_groups[["Immune"]],
+    s3 = s3, s3_bucket = "attempt",
+    workers = 100
+  )
+
+  assign(paste0(vars, "_immune_res"), nb_results)
+
+  iter_end <- Sys.time()
+  message("    Finished: ", vars,
+          " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
+          " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
+}
+```
+
+# Immune myeloid
+
+```{r echo = F}
+start_time <- Sys.time()
+
+for (vars in clin_vars) {
+  iter_start <- Sys.time()
+  message("[", format(iter_start, "%Y-%m-%d %H:%M:%S"), "] Processing: ", vars)
+
+  nb_results <- run_nebula_for_clinvar(
+    seurat_obj = attempt_so_immune_myeloid,
+    clinical_var = vars,
+    celltype_var = "KPMP_celltype",
+    celltype_values = celltype_groups[["Immune_myeloid"]],
+    s3 = s3, s3_bucket = "attempt",
+    workers = 100
+  )
+
+  assign(paste0(vars, "_immune_myeloid_res"), nb_results)
+
+  iter_end <- Sys.time()
+  message("    Finished: ", vars,
+          " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
+          " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
+}
+```
+
+# Immune lymphoid
+
+```{r echo = F}
+start_time <- Sys.time()
+
+for (vars in clin_vars) {
+  iter_start <- Sys.time()
+  message("[", format(iter_start, "%Y-%m-%d %H:%M:%S"), "] Processing: ", vars)
+
+  nb_results <- run_nebula_for_clinvar(
+    seurat_obj = attempt_so_immune_lymphoid,
+    clinical_var = vars,
+    celltype_var = "KPMP_celltype",
+    celltype_values = celltype_groups[["Immune_lymphoid"]],
+    s3 = s3, s3_bucket = "attempt",
+    workers = 100
+  )
+
+  assign(paste0(vars, "_immune_lymphoid_res"), nb_results)
+
+  iter_end <- Sys.time()
+  message("    Finished: ", vars,
+          " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
+          " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
+}
+```

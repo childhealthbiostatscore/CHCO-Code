@@ -1,0 +1,183 @@
+---
+title: "CROCODILE nebula (KPMP)"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r libraries, message = F, warning=F}
+#| include: false
+source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
+
+library(arsenal)
+library(parallel)
+library(doParallel)
+library(Biobase)
+library(BiocGenerics)
+library(BiocParallel)
+library(broom.mixed)
+library(colorspace)
+library(cowplot)
+library(data.table)
+library(DirichletReg)
+library(dplyr)
+library(edgeR)
+library(emmeans)
+library(enrichR)
+library(foreach)
+library(future)
+library(future.apply)
+library(GSEABase)
+library(ggdendro)
+library(ggpubr)
+library(glmmTMB)
+library(harmony)
+library(jsonlite)
+library(kableExtra)
+library(limma)
+library(MAST)
+library(Matrix)
+library(msigdbr)
+library(muscat)
+library(NMF)
+library(nebula)
+library(patchwork)
+library(pheatmap)
+library(readxl)
+library(REDCapR)
+library(reshape2)
+library(rstatix)
+library(SAVER)
+library(scater)
+library(scran)
+library(Seurat)
+library(SingleCellExperiment)
+library(slingshot)
+library(tidyverse)
+library(UpSetR)
+library(WriteXLS)
+```
+
+# Data Pull & Clean
+
+```{r include = F}
+reticulate::use_python("/mmfs1/gscratch/togo/yejichoi/mypy/bin/python", required = T)
+reticulate::repl_python()
+reticulate::py_config()
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+## PB90 and CROCODILE files
+
+
+```{r echo = F}
+# Read in clean CROCODILE seurat object saved from attempt_CROC_analysis.qmd
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("scrna", 'data_clean/pb90_croc_subset.rds', temp_file)
+croc_so <- readRDS(temp_file)
+```
+
+```{r echo = F}
+# read clinical data file for CROC
+temp_file <- tempfile(fileext = ".csv")
+s3$download_file("harmonized.dataset", "harmonized_dataset.csv", temp_file)
+pb90_dat_raw <- read.csv(temp_file, na = "")
+croc_dat <- pb90_dat_raw %>%
+  filter(study == "CROCODILE") %>%
+  dplyr::summarise(dplyr::across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   dplyr::across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id))
+```
+
+# Analysis
+
+## Untargeted (CROC T1D vs. CROC HC)
+
+```{r echo = F}
+celltype_groups <- list(
+  # Proximal tubule
+  PT = c("aPT", "PT-S1/S2", "PT-S3"),
+  # Thick ascending limb
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  # Principal cells & connecting tubule
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC", "CNT", "dDCT"),
+  # Endothelial cells
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  # Intercalated cells
+  IC = c("IC-A", "IC-B", "aIC"),
+  # Immune (all)
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  # Immune subgroups
+  Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  # VSMC / Fibroblast
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  # Podocytes
+  POD = c("POD"))
+
+croc_so_subsets <- make_subsets(croc_so, celltype_groups, 
+                                celltype_col = "KPMP_celltype", prefix = "croc_so_")
+```
+
+```{r echo = F}
+# Initialize results list
+nebula_results <- list()
+hvg_lists <- list()
+
+# Loop through each cell type
+for (celltype in tolower(names(celltype_groups))) {
+  
+  # Get the pre-existing Seurat object
+  seurat_obj_name <- paste0("croc_so_", celltype)
+  croc_so_subset <- get(seurat_obj_name)
+  
+  # Find variable features
+  croc_so_subset <- FindVariableFeatures(croc_so_subset, 
+                                         selection.method = "vst", 
+                                         nfeatures = 2000)
+  
+  # Get and store HVGs
+  hvgs_subset <- VariableFeatures(croc_so_subset)
+  hvg_lists[[celltype]] <- hvgs_subset
+  
+  # Subset to only HVGs
+  croc_so_hvg_subset <- subset(croc_so_subset, features = hvgs_subset)
+  
+  # Run nebula analysis
+  s3_path <- paste0("CROCODILE comparison analysis/", 
+                    toupper(celltype), 
+                    "/nebula/", 
+                    celltype, 
+                    "_kpmp_croc_hvg.rds")
+  
+  nebula_results[[celltype]] <- run_nebula_parallel(
+    seurat_obj = croc_so_subset,
+    subject_id_col = "record_id",
+    formula = ~ group,
+    s3_key = s3_path,
+    group = F
+  )
+  
+  # Print progress
+  cat("Completed analysis for:", celltype, "\n")
+}
+```

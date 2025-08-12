@@ -1,0 +1,1044 @@
+---
+title: "ATTEMPT KPMP celltype proteomics integration"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r libraries, message = F, warning=F}
+#| include: false
+library(future)
+library(future.apply)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(msigdbr)
+library(kableExtra)
+# library(knitr)
+library(REDCapR)
+# library(data.table)
+library(emmeans)
+library(NMF)
+library(pheatmap)
+library(UpSetR)
+library(enrichR)
+library(WriteXLS)
+library(SAVER)
+library(readxl)
+library(limma)
+library(edgeR)
+library(BiocGenerics)
+library(GSEABase)
+library(slingshot)
+library(SingleCellExperiment)
+library(MAST)
+library(muscat)
+library(scater)
+library(Seurat)
+library(jsonlite)
+library(dplyr)
+library(glmmTMB)
+library(reshape2)
+library(broom.mixed) 
+library(foreach)
+library(doParallel)
+library(nebula)
+library(Matrix)
+library(scran)
+library(DirichletReg)
+library(BiocParallel)
+# library(scDC)
+library(DoubletFinder)
+library(scCustomize)
+source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
+```
+
+```{r include = F}
+reticulate::use_python("/mmfs1/gscratch/togo/yejichoi/mypy/bin/python", required = T)
+reticulate::repl_python()
+reticulate::py_config()
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+```{r echo = F, eval = T}
+# Read in clean seurat object saved from attempt_CROC_analysis.qmd
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("attempt", 'cleaned_data/attempt_clean_so.rds', temp_file)
+attempt_so <- readRDS(temp_file)
+```
+
+```{r echo = F}
+# Your mapping list
+celltype_groups <- list(
+  PT              = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL             = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC              = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC              = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC              = c("IC-A", "IC-B", "aIC"),
+  Immune          = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  # Immune_myeloid  = c("MAC", "MON", "cDC", "pDC"),
+  # Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB      = c("VSMC/P", "FIB"),
+  POD             = "POD"
+)
+
+# Create lookup (fine type -> broad group)
+lookup <- unlist(lapply(names(celltype_groups), function(group) {
+  setNames(rep(group, length(celltype_groups[[group]])),
+           celltype_groups[[group]])
+}))
+
+# Map to group; keep KPMP_celltype if not in mapping
+attempt_so$KPMP_celltype_general <- ifelse(
+  attempt_so$KPMP_celltype %in% names(lookup),
+  lookup[attempt_so$KPMP_celltype],
+  attempt_so$KPMP_celltype
+)
+
+# Check a few
+table(attempt_so$KPMP_celltype_general, useNA = "ifany")
+```
+# Obtain transcriptomics nebula results
+
+```{r echo = F}
+for (cell in names(celltype_groups))  {
+  
+  input_path <- paste0("grouped/", cell, "/HVG/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  
+  temp_file = tempfile(fileext = "rds")
+  s3$download_file("attempt", input_path, temp_file)
+  cell_df <- readRDS(temp_file)
+
+  processed <- process_nebula_results(cell_df)
+  # Join annotation
+  annotated_df <- processed$results
+
+  # Assign to variable dynamically
+  var_name <- paste0(tolower(cell), "_hvg_kpmp")
+  assign(var_name, annotated_df, envir = .GlobalEnv)
+}
+```
+
+
+# Aggregate by subject/visit/celltype
+
+```{r echo = F}
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(Matrix)
+})
+
+.aggregate_by_group <- function(mat, groups, fun = c("sum","mean","median")){
+  fun <- match.arg(fun); groups <- as.factor(groups)
+  if (requireNamespace("Matrix.utils", quietly = TRUE)) {
+    return(Matrix.utils::aggregate.Matrix(mat, groupings = groups, fun = fun))
+  }
+  if (fun == "sum") {
+    G <- sparse.model.matrix(~ groups - 1)
+    return(mat %*% G)
+  }
+  lev <- levels(groups)
+  out <- setNames(vector("list", length(lev)), lev)
+  for (k in seq_along(lev)) {
+    idx <- which(groups == lev[k]); sub <- mat[, idx, drop = FALSE]
+    out[[k]] <- if (fun == "mean") Matrix::rowMeans(sub) else apply(sub, 1, median)
+  }
+  out <- do.call(cbind, out); if (!inherits(out, "dgCMatrix")) out <- Matrix(out, sparse = TRUE)
+  out
+}
+
+aggregate_by_person_visit_celltype <- function(
+  seurat_obj,
+  assay = DefaultAssay(seurat_obj),
+  slot = c("data","counts"),
+  subject_id_col = "subject_id",
+  visit_col      = "visit",
+  celltype_col   = "celltype",
+  min_cells_per_group = 10,           # per (person, visit, celltype)
+  ct_keep   = NULL,                   # optional vector of cell types to keep
+  visit_keep = NULL,                  # optional vector of visits to keep
+  summarize_fun = NULL,               # NULL -> auto: mean for data, sum for counts
+  combine = c("none","equal","person_visit_prop","global_prop","custom"),
+  custom_weights = NULL,              # named numeric vector per cell type
+  link = c("log1p","identity")        # how to interpret 'data' slot
+){
+  slot <- match.arg(slot); link <- match.arg(link); combine <- match.arg(combine)
+  if (is.null(summarize_fun)) summarize_fun <- if (slot == "counts") "sum" else "mean"
+  stopifnot(summarize_fun %in% c("sum","mean","median"))
+
+  meta <- seurat_obj@meta.data
+  stopifnot(all(c(subject_id_col, visit_col, celltype_col) %in% colnames(meta)))
+
+  if (!is.null(ct_keep))   seurat_obj <- subset(seurat_obj, cells = rownames(meta)[meta[[celltype_col]] %in% ct_keep])
+  if (!is.null(visit_keep)) {
+    meta <- seurat_obj@meta.data
+    seurat_obj <- subset(seurat_obj, cells = rownames(meta)[meta[[visit_col]] %in% visit_keep])
+  }
+  meta <- seurat_obj@meta.data
+
+  X <- GetAssayData(seurat_obj, assay = assay, slot = slot)   # genes x cells
+
+  subj <- meta[[subject_id_col]]
+  visit <- meta[[visit_col]]
+  ctyp <- meta[[celltype_col]]
+
+  # key for person|visit|celltype; also a person-visit key
+  pv   <- paste(subj, visit, sep = "@")
+  grp  <- paste(pv, ctyp, sep = "|")
+
+  tab <- table(grp)
+  keep_grp <- names(tab)[tab >= min_cells_per_group]
+  keep_cells <- which(grp %in% keep_grp)
+  if (!length(keep_cells)) stop("No (person, visit, celltype) groups meet min_cells_per_group.")
+
+  X <- X[, keep_cells, drop = FALSE]
+  pv   <- pv[keep_cells]
+  ctyp <- ctyp[keep_cells]
+  grp  <- grp[keep_cells]
+
+  # aggregate cells -> (person|visit|celltype) columns
+  grp_levels <- levels(factor(grp))                # unique groups, in the same order used by aggregate
+  agg <- .aggregate_by_group(X, groups = grp, fun = summarize_fun)
+  stopifnot(ncol(agg) == length(grp_levels))
+  colnames(agg) <- grp_levels
+
+  # split into list per cell type; columns become person@visit
+  split_ct <- sub(".*\\|", "", grp_levels)
+  split_pv <- sub("\\|.*", "", grp_levels)
+
+  celltypes <- unique(split_ct)
+  celltype_mats <- setNames(vector("list", length(celltypes)), celltypes)
+
+  for (ct in celltypes) {
+    cols <- which(split_ct == ct)                 # positions in grp_levels / agg columns
+    mat_ct <- agg[, cols, drop = FALSE]
+    colnames(mat_ct) <- split_pv[cols]            # person@visit labels
+    if (any(duplicated(colnames(mat_ct)))) {
+      mat_ct <- .aggregate_by_group(mat_ct, groups = factor(colnames(mat_ct)), fun = summarize_fun)
+      colnames(mat_ct) <- levels(factor(colnames(mat_ct)))
+    }
+    celltype_mats[[ct]] <- mat_ct
+  }
+  
+  # optional combine: one matrix genes x (person@visit)
+  combined <- NULL
+  if (combine != "none") {
+    all_pv <- sort(unique(unlist(lapply(celltype_mats, colnames))))
+
+    # composition weights
+    if (combine %in% c("person_visit_prop","global_prop")) {
+      # table of cell counts by person@visit and celltype (from per-cell meta)
+      counts_by_ct_pv <- table(pv, ctyp)            # rows: person@visit; cols: celltype
+      pv_prop    <- prop.table(counts_by_ct_pv, margin = 1)  # per person@visit
+      global_prop <- prop.table(colSums(counts_by_ct_pv))    # cohort-level
+      # ensure all CTs present as columns
+      for (ct in setdiff(celltypes, colnames(counts_by_ct_pv))) {
+        counts_by_ct_pv <- cbind(counts_by_ct_pv, setNames(rep(0, nrow(counts_by_ct_pv)), ct))
+      }
+      pv_prop    <- pv_prop[, celltypes, drop = FALSE]
+      global_prop <- global_prop[celltypes]; global_prop[is.na(global_prop)] <- 0
+    }
+
+    if (combine == "custom") {
+      stopifnot(!is.null(custom_weights),
+                all(celltypes %in% names(custom_weights)),
+                all(custom_weights >= 0))
+      s <- sum(custom_weights[celltypes]); if (s == 0) stop("All custom weights are zero.")
+      custom_weights <- custom_weights[celltypes] / s
+    }
+
+    get_w <- function(pv_id){
+      w <- switch(combine,
+        "equal"             = rep(1, length(celltypes)),
+        "person_visit_prop" = as.numeric(pv_prop[pv_id, ]),
+        "global_prop"       = as.numeric(global_prop),
+        "custom"            = as.numeric(custom_weights)
+      )
+      names(w) <- celltypes
+      w[is.na(w)] <- 0
+      if (sum(w) > 0) w <- w / sum(w)
+      w
+    }
+
+    back_transform <- function(m){
+      if (slot == "data" && link == "log1p") return(expm1(as.matrix(m)))
+      as.matrix(m)
+    }
+    forward_transform <- function(m_lin){
+      if (slot == "data" && link == "log1p") return(log1p(m_lin))
+      m_lin
+    }
+
+    gene_names <- rownames(X)
+    combined_lin <- matrix(NA_real_, nrow = length(gene_names), ncol = length(all_pv),
+                           dimnames = list(gene_names, all_pv))
+    ct_lin <- lapply(celltype_mats, back_transform)
+
+    for (id in all_pv) {
+      w <- get_w(id)
+      acc <- NULL
+      for (ct in celltypes) {
+        mct <- ct_lin[[ct]]
+        if (!is.null(mct) && id %in% colnames(mct)) {
+          v <- mct[, id]
+          acc <- if (is.null(acc)) w[ct] * v else (acc + w[ct] * v)
+        }
+      }
+      if (!is.null(acc)) combined_lin[, id] <- acc
+    }
+    combined <- forward_transform(combined_lin)
+  }
+
+  list(
+    celltype_mats = celltype_mats,        # list: each genes x (person@visit)
+    combined_person_visit = combined,     # genes x (person@visit) or NULL
+    keys = list(person_visit_sep = "@", combo_sep = "|"),
+    params = list(
+      assay = assay, slot = slot, summarize_fun = summarize_fun,
+      min_cells_per_group = min_cells_per_group,
+      combine = combine, link = link, celltypes = celltypes
+    )
+  )
+}
+
+post_pre_delta_by_celltype <- function(
+  agg_res,
+  visits = c("PRE","POST"),
+  method = c("difference","log_fc","percent_change"),
+  pseudocount = 1
+){
+  method <- match.arg(method)
+  pre <- visits[1]; post <- visits[2]
+  sep <- if (!is.null(agg_res$keys$person_visit_sep)) agg_res$keys$person_visit_sep else "@"
+
+  compute_delta <- function(M){
+    ids <- colnames(M)
+    sp <- do.call(rbind, strsplit(ids, sep, fixed = TRUE))
+    subj <- sp[,1]; vis <- sp[,2]
+
+    # subjects present at both visits
+    subjects <- intersect(subj[vis == pre], subj[vis == post])
+    if (length(subjects) == 0) return(Matrix::Matrix(0, nrow = nrow(M), ncol = 0, sparse = TRUE))
+
+    pre_cols  <- match(paste(subjects, pre,  sep = sep), ids)
+    post_cols <- match(paste(subjects, post, sep = sep), ids)
+
+    pre_mat  <- as.matrix(M[, pre_cols,  drop = FALSE])
+    post_mat <- as.matrix(M[, post_cols, drop = FALSE])
+    colnames(pre_mat) <- colnames(post_mat) <- subjects
+
+    delta <- switch(method,
+      "difference"      = post_mat - pre_mat,
+      "log_fc"          = log(post_mat + pseudocount) - log(pre_mat + pseudocount),
+      "percent_change"  = (post_mat - pre_mat) / pmax(pre_mat, pseudocount)
+    )
+    # back to sparse if big
+    if (!inherits(delta, "dgCMatrix")) delta <- Matrix::Matrix(delta, sparse = TRUE)
+    delta
+  }
+
+  # 1) per-celltype deltas
+  deltas_by_ct <- lapply(agg_res$celltype_mats, compute_delta)
+
+  # 2) combined (if you asked for combine != "none")
+  combined_delta <- NULL
+  if (!is.null(agg_res$combined_person_visit)) {
+    combined_delta <- compute_delta(agg_res$combined_person_visit)
+  }
+
+  list(celltype = deltas_by_ct, combined = combined_delta,
+       method = method, visits = visits, pseudocount = pseudocount)
+}
+```
+
+```{r echo = F}
+agg_mat <- aggregate_by_person_visit_celltype(
+  seurat_obj = attempt_so,
+  assay = "RNA",
+  slot  = "counts",
+  subject_id_col = "subject_id",
+  visit_col      = "visit",
+  celltype_col   = "KPMP_celltype_general",
+  min_cells_per_group = 20,
+  visit_keep = c("PRE","POST"),   # optional
+  combine = "person_visit_prop",  # "none","equal","person_visit_prop","global_prop","custom"
+  link = "identity"
+)
+
+transcript_deltas <- post_pre_delta_by_celltype(
+  agg_res = agg_mat,
+  visits = c("PRE","POST"),
+  method = "difference",      # or "difference" / "percent_change"
+  pseudocount = 1
+)
+```
+
+# KPMP Cell types Nebula
+
+# Urine
+
+```{r echo = F}
+# urine with PT, TAL, DCT, CD; POD
+temp_file = tempfile(fileext = "RDS")
+s3$download_file("attempt", 'Proteomics/urine_cradj_proteomics_res.RDS', temp_file)
+urine_proteomics <- readRDS(temp_file)
+
+# urine delta
+temp_file = tempfile(fileext = "RDS")
+s3$download_file("attempt", 'Proteomics/urine_cradj_proteomics_delta.RDS', temp_file)
+urine_delta <- readRDS(temp_file)
+colnames(urine_delta) <- gsub("^delta_|_urine_cradj_POST$", "", colnames(urine_delta))
+urine_delta_long <- urine_delta %>%
+  dplyr::select(-treatment_arm) %>%
+  pivot_longer(
+    cols = -record_id, 
+    names_to = "AptName", 
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = record_id, 
+    values_from = value
+  )
+urine_delta_annotated <- urine_delta_long %>%
+  left_join(
+    urine_proteomics$results_annotated %>%
+      dplyr::select(AptName, EntrezGeneSymbol) %>%
+      mutate(AptName = gsub("_urine_cradj$", "", AptName)) %>%
+      filter(EntrezGeneSymbol != "")  %>%
+  group_by(EntrezGeneSymbol) %>%
+  mutate(
+    EntrezGeneSymbolUnique = ifelse(
+      row_number() == 1, 
+      EntrezGeneSymbol, 
+      paste0(EntrezGeneSymbol, "_", row_number())
+    )
+  ) %>%
+  ungroup()) %>%
+  filter(!is.na(EntrezGeneSymbol))
+```
+
+
+
+```{r echo = F}
+# mutliple genes have multiple aptamers. we need to check their correlations 
+# among each pair to see if we can take the avg. take avg if correlation > 0.8
+
+# ---- Function to compute pairwise aptamer correlations ----
+compute_aptamer_correlations <- function(data,
+                                         apt_col   = "AptName",
+                                         gene_col  = "EntrezGeneSymbol",
+                                         sample_cols = NULL,
+                                         method = c("pearson","spearman"),
+                                         high_thresh = 0.8) {
+  method <- match.arg(method)
+
+  stopifnot(is.data.frame(data))
+  stopifnot(all(c(apt_col, gene_col) %in% names(data)))
+
+  # pick sample columns (numeric) if not provided
+  if (is.null(sample_cols)) {
+    sample_cols <- names(data)[vapply(data, is.numeric, logical(1))]
+  }
+  sample_cols <- setdiff(sample_cols, c(apt_col, gene_col))
+  if (length(sample_cols) == 0) stop("No numeric sample columns found.")
+
+  # genes with >1 aptamer
+  genes_multi <- data %>%
+    dplyr::count(.data[[gene_col]]) %>%
+    dplyr::filter(.data[["n"]] > 1) %>%
+    dplyr::pull(.data[[gene_col]])
+
+  if (!length(genes_multi)) {
+    message("No genes with multiple aptamers.")
+    return(tibble())
+  }
+
+  cor_for_gene <- function(g) {
+    sub_df <- data %>% dplyr::filter(.data[[gene_col]] == g)
+
+    # transpose so columns = aptamers, rows = samples
+    mat <- t(as.matrix(sub_df[, sample_cols, drop = FALSE]))
+    colnames(mat) <- sub_df[[apt_col]]
+
+    # skip if only 1 aptamer after filtering
+    if (ncol(mat) < 2) return(NULL)
+
+    cor_mat <- stats::cor(mat, use = "pairwise.complete.obs", method = method)
+
+    # tidy upper triangle
+    ut <- upper.tri(cor_mat, diag = FALSE)
+    tibble(
+      Gene   = g,
+      Apt1   = rep(colnames(cor_mat), each = ncol(cor_mat))[ut],
+      Apt2   = rep(colnames(cor_mat), times = ncol(cor_mat))[ut],
+      Cor    = cor_mat[ut]
+    ) %>%
+      dplyr::mutate(Flag = dplyr::case_when(
+        is.na(Cor)         ~ "NA",
+        Cor >= high_thresh ~ "High",
+        TRUE               ~ "Low"
+      ))
+  }
+
+  purrr::map_dfr(genes_multi, cor_for_gene) %>%
+    dplyr::arrange(dplyr::desc(Cor))
+}
+
+# ---- Run correlation check on your dataframe ----
+cor_results <- compute_aptamer_correlations(
+  data = urine_delta_annotated,
+  apt_col  = "AptName",
+  gene_col = "EntrezGeneSymbol",
+  method = "pearson",
+  high_thresh = 0.8
+)
+
+# ---- Summarize per gene ----
+gene_summary <- cor_results %>%
+  group_by(Gene) %>%
+  summarise(
+    n_aptamers = n_distinct(c(Apt1, Apt2)),
+    n_pairs    = n(),
+    min_cor    = min(Cor, na.rm = TRUE),
+    median_cor = median(Cor, na.rm = TRUE),
+    max_cor    = max(Cor, na.rm = TRUE),
+    all_high   = all(Cor >= 0.8, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(all_high), desc(median_cor))
+
+# Genes safe to average
+genes_safe <- gene_summary %>% filter(all_high) %>% pull(Gene)
+
+# ---- Function to collapse high-correlation aptamers ----
+collapse_high_corr <- function(data, genes_to_avg,
+                               apt_col = "AptName", gene_col = "EntrezGeneSymbol") {
+  # numeric sample columns
+  num_cols <- names(data)[vapply(data, is.numeric, logical(1))]
+
+  # averaged rows for the genes you want to collapse
+  avg_part <- data %>%
+    filter(.data[[gene_col]] %in% genes_to_avg) %>%
+    group_by(.data[[gene_col]]) %>%
+    summarise(across(all_of(num_cols), ~ mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+    # set AptName to the gene name; keep EntrezGeneSymbol as the gene too
+    mutate(!!apt_col := .data[[gene_col]],
+           !!gene_col := .data[[gene_col]]) %>%
+    select(all_of(c(apt_col, gene_col)), all_of(num_cols))
+
+  # keep rows for genes you are NOT averaging
+  keep_part <- data %>%
+    filter(!.data[[gene_col]] %in% genes_to_avg)
+
+  bind_rows(keep_part, avg_part)
+}
+
+# ---- Collapse genes where all aptamers are highly correlated ----
+urine_delta_collapsed <- collapse_high_corr(
+  urine_delta_annotated, genes_safe,
+  apt_col = "AptName", gene_col = "EntrezGeneSymbol"
+)
+
+# ---- Peek at results ----
+head(cor_results)
+head(gene_summary)
+table(gene_summary$all_high)
+
+# Take avg of those with correlation > 0.8
+urine_delta_annotated <- collapse_high_corr(
+  urine_delta_annotated,
+  genes_to_avg = genes_safe,
+  apt_col  = "AptName",
+  gene_col = "EntrezGeneSymbol"
+) %>%
+  mutate(EntrezGeneSymbolUnique = coalesce(EntrezGeneSymbolUnique, EntrezGeneSymbol))
+```
+
+```{r echo = F}
+# reduce down to those with overlapping results in PT
+pt_urine_genes <- urine_proteomics$results_annotated %>%
+  mutate(Gene = EntrezGeneSymbol) %>%
+  full_join(pt_hvg_kpmp) %>%
+  filter(`p_treatmentDapagliflozin:visitPOST` < 0.05 & P.Value < 0.05) %>%
+  pull(Gene) %>%
+  unique()
+
+pt_urine_df <- as.data.frame(transcript_deltas$celltype$PT[pt_urine_genes,]) %>%
+  rownames_to_column("EntrezGeneSymbol") %>%
+  pivot_longer(
+    cols = -EntrezGeneSymbol,
+    names_to = "record_id",
+    values_to = "delta"
+  ) %>%
+  pivot_wider(
+    names_from = EntrezGeneSymbol,
+    values_from = delta
+  ) %>%
+  mutate(source = "scRNA")
+
+urine_df <- urine_delta_annotated %>%
+  filter(EntrezGeneSymbol %in% pt_urine_genes) %>%
+  dplyr::select(-AptName, -EntrezGeneSymbol) %>%
+  pivot_longer(
+    cols = -EntrezGeneSymbolUnique,
+    names_to = "record_id",
+    values_to = "delta"
+  ) %>%
+  pivot_wider(
+    names_from = EntrezGeneSymbolUnique,
+    values_from = delta
+  ) %>%
+  mutate(source = "urine") %>%
+  filter(record_id %in% pt_urine_df$record_id)
+
+df <- urine_df[colnames(urine_df) %in% colnames(pt_urine_df)] %>%
+  rbind(pt_urine_df)
+
+
+```
+
+```{r echo  = F}
+# Step 1: Pivot longer so gene names become a variable
+long_df <- df %>%
+  pivot_longer(
+    cols = -c(record_id, source),
+    names_to = "gene",
+    values_to = "value"
+  )
+
+# Step 2: Spread back so urine & scRNA are side-by-side
+wide_df <- long_df %>%
+  pivot_wider(
+    names_from = source,
+    values_from = value
+  )
+
+# Step 3: Correlation per gene
+cor_results <- wide_df %>%
+  group_by(gene) %>%
+  summarise(
+    cor = cor(urine, scRNA, use = "pairwise.complete.obs"),
+    p   = cor.test(urine, scRNA)$p.value,
+    .groups = "drop"
+  )
+
+cor_results %>%
+  filter(p<0.05) %>%
+  ggplot(aes(x = 1, y = gene, fill = cor)) +
+  geom_tile()
+
+```
+
+## Mixed model
+
+```{r echo = F}
+# add gene name to urine proteomics
+urine_soma_annotations <- urine_proteomics$results_annotated %>%
+  dplyr::select(AptName, EntrezGeneSymbol) %>%
+  filter(!is.na(EntrezGeneSymbol))
+
+# raw urine soma data
+temp_file = tempfile(fileext = ".csv")
+s3$download_file("harmonized.dataset", 'soma_harmonized_dataset.csv', temp_file)
+soma_harm <- read.csv(temp_file)
+
+urine_soma <- soma_harm %>% filter(study == "ATTEMPT") %>%
+  filter(grepl("^3", record_id)) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  filter(!is.na(seq.10000.28_urine_cradj)) %>%
+  dplyr::select(record_id, visit, starts_with("seq") & ends_with("cradj")) %>%
+  dplyr::rename(subject_id = record_id) %>%
+  mutate(visit = case_when(visit == "baseline" ~ "PRE",
+                           visit == "4_months_post" ~ "POST"),
+         subject_id = as.numeric(subject_id))
+
+```
+
+
+```{r echo = F}
+run_nebula_protein_parallel <- function(seurat_obj,
+                                        soma,
+                                        soma_annotations,
+                                        n_cores = 100,
+                                        layer = "counts",
+                                        subject_id_col = "subject_id",
+                                        offset_col = "pooled_offset",
+                                        formula_base = "~ protein + treatment",
+                                        model = "NBLMM",
+                                        reml = 1,
+                                        output_re = TRUE,
+                                        covariance = TRUE,
+                                        s3_bucket = "attempt",
+                                        s3_key = NULL,
+                                        verbose = TRUE) {
+  
+  # Load required libraries
+  require(foreach)
+  require(doParallel)
+  require(dplyr)
+  
+  # Extract counts and gene list
+  counts_mat <- round(GetAssayData(seurat_obj, layer = layer))
+  genes_list <- rownames(counts_mat)
+  
+  # Create gene-protein pairs for all matching combinations
+  gene_protein_pairs <- data.frame()
+  for (g in genes_list) {
+    protein_matches <- soma_annotations[soma_annotations$EntrezGeneSymbol == g,]$AptName
+    if (length(protein_matches) > 0) {
+      gene_protein_pairs <- rbind(gene_protein_pairs, 
+                                  data.frame(gene = g, 
+                                            protein = protein_matches,
+                                            stringsAsFactors = FALSE))
+    }
+  }
+  
+  if (verbose) {
+    cat(sprintf("Found %d gene-protein pairs from %d unique genes\n", 
+                nrow(gene_protein_pairs), length(unique(gene_protein_pairs$gene))))
+    
+    # Report genes with multiple proteins
+    multi_protein_genes <- gene_protein_pairs %>%
+      group_by(gene) %>%
+      summarise(n_proteins = n()) %>%
+      filter(n_proteins > 1)
+    
+    if (nrow(multi_protein_genes) > 0) {
+      cat(sprintf("%d genes have multiple protein matches\n", nrow(multi_protein_genes)))
+    }
+  }
+  
+  # Set up parallel backend
+  cl <- makeCluster(n_cores)
+  registerDoParallel(cl)
+  
+  # Ensure cleanup on exit
+  on.exit({
+    stopCluster(cl)
+  }, add = TRUE)
+  
+  start_time <- Sys.time()
+  
+  # Run nebula in parallel for each gene-protein pair
+  nebula_results_list <- foreach(i = 1:nrow(gene_protein_pairs), 
+                                 .packages = c("nebula", "Matrix", "dplyr", "Seurat"),
+                                 .errorhandling = "pass") %dopar% {
+                                   
+                                   g <- gene_protein_pairs$gene[i]
+                                   protein_name <- gene_protein_pairs$protein[i]
+                                   
+                                   warn <- NULL
+                                   err <- NULL
+                                   res <- NULL
+                                   
+                                   tryCatch({
+                                     # Subset data for single gene
+                                     count_gene <- counts_mat[g, , drop = FALSE]
+                                     meta_gene <- subset(seurat_obj, features = g)@meta.data
+                                     
+                                     # Get protein data from soma
+                                     if (!protein_name %in% colnames(soma)) {
+                                       return(list(gene = g, 
+                                                  protein = protein_name,
+                                                  result = NULL, 
+                                                  warning = paste("Protein", protein_name, "not found in soma"), 
+                                                  error = NULL))
+                                     }
+                                     
+                                     soma_subset <- soma[, c(subject_id_col, "visit", protein_name)]
+                                     names(soma_subset)[names(soma_subset) == protein_name] <- "protein"
+                                     
+                                     # Join protein data to metadata
+                                     meta_gene <- meta_gene %>%
+                                       left_join(soma_subset, by = c(subject_id_col, "visit"))
+                                     
+                                     # Check for missing protein values
+                                     if (sum(!is.na(meta_gene$protein)) == 0) {
+                                       return(list(gene = g, 
+                                                  protein = protein_name,
+                                                  result = NULL, 
+                                                  warning = "All protein values are NA after merge", 
+                                                  error = NULL))
+                                     }
+                                     
+                                     # Create model matrix with dynamic formula
+                                     formula_obj <- as.formula(formula_base)
+                                     pred_gene <- model.matrix(formula_obj, data = meta_gene)
+                                     
+                                     # Group cells
+                                     data_g_gene <- group_cell(count = count_gene, 
+                                                               id = meta_gene[[subject_id_col]], 
+                                                               pred = pred_gene)
+                                     
+                                     # Run nebula with warning handling
+                                     res <- withCallingHandlers({
+                                       nebula(count = data_g_gene$count, 
+                                              id = data_g_gene$id, 
+                                              pred = data_g_gene$pred,
+                                              ncore = 1, 
+                                              output_re = output_re, 
+                                              covariance = covariance, 
+                                              reml = reml, 
+                                              model = model, 
+                                              offset = meta_gene[[offset_col]])
+                                     }, warning = function(w) {
+                                       warn <<- conditionMessage(w)
+                                       invokeRestart("muffleWarning")
+                                     })
+                                     
+                                   }, error = function(e) {
+                                     err <<- conditionMessage(e)
+                                   })
+                                   
+                                   list(gene = g, 
+                                        protein = protein_name,
+                                        result = res, 
+                                        warning = warn, 
+                                        error = err)
+                                 }
+  
+  # Report warnings and errors if verbose
+  if (verbose) {
+    for (res in nebula_results_list) {
+      if (!is.null(res$warning)) {
+        cat(sprintf("Warning for gene %s (protein %s): %s\n", 
+                    res$gene, res$protein, res$warning))
+      }
+      if (!is.null(res$error)) {
+        cat(sprintf("Error for gene %s (protein %s): %s\n", 
+                    res$gene, res$protein, res$error))
+      }
+    }
+  }
+  
+  # Create results summary including gene and protein info
+  results_summary <- data.frame(
+    gene = sapply(nebula_results_list, function(x) x$gene),
+    protein = sapply(nebula_results_list, function(x) x$protein),
+    converged = sapply(nebula_results_list, function(x) !is.null(x$result)),
+    warning = sapply(nebula_results_list, function(x) ifelse(is.null(x$warning), "", x$warning)),
+    error = sapply(nebula_results_list, function(x) ifelse(is.null(x$error), "", x$error)),
+    stringsAsFactors = FALSE
+  )
+  
+  # Clean up results - store by gene-protein combination
+  nebula_results_clean <- list()
+  
+  for (i in seq_along(nebula_results_list)) {
+    if (!is.null(nebula_results_list[[i]]$result)) {
+      gene_name <- nebula_results_list[[i]]$gene
+      protein_name <- nebula_results_list[[i]]$protein
+      # Create unique identifier for gene-protein pair
+      pair_id <- paste(gene_name, protein_name, sep = "_")
+      nebula_results_clean[[pair_id]] <- nebula_results_list[[i]]$result
+    }
+  }
+  
+  # Calculate runtime and statistics
+  end_time <- Sys.time()
+  runtime <- difftime(end_time, start_time, units = "mins")
+  
+  n_pairs_tested <- nrow(gene_protein_pairs)
+  n_pairs_converged <- sum(results_summary$converged)
+  n_genes_skipped <- length(genes_list) - length(unique(gene_protein_pairs$gene))
+  n_unique_genes <- length(unique(gene_protein_pairs$gene))
+  nebula_nonconverged_percent <- (n_pairs_tested - n_pairs_converged) / n_pairs_tested
+  
+  if (verbose) {
+    cat(sprintf("\nRuntime: %.2f minutes\n", runtime))
+    cat(sprintf("Skipped %d genes without protein matches\n", n_genes_skipped))
+    cat(sprintf("Tested %d gene-protein pairs from %d unique genes\n", n_pairs_tested, n_unique_genes))
+    cat(sprintf("%.2f%% of gene-protein pairs failed to converge\n", 
+                nebula_nonconverged_percent * 100))
+  }
+  
+  # Prepare final results object
+  final_results <- list(
+    results = nebula_results_clean,
+    results_summary = results_summary,
+    gene_protein_pairs = gene_protein_pairs,
+    n_genes_total = length(genes_list),
+    n_genes_skipped = n_genes_skipped,
+    n_unique_genes_tested = n_unique_genes,
+    n_pairs_tested = n_pairs_tested,
+    n_pairs_converged = n_pairs_converged,
+    nonconverged_percent = nebula_nonconverged_percent,
+    runtime_minutes = as.numeric(runtime)
+  )
+  
+  # Save to S3 if requested
+  if (!is.null(s3_key) && !is.null(s3_bucket)) {
+    temp_file <- tempfile(fileext = ".rds")
+    saveRDS(final_results, temp_file)
+    s3$upload_file(temp_file, s3_bucket, s3_key)
+    unlink(temp_file)  # Clean up temp file
+    
+    if (verbose) {
+      cat(sprintf("Results uploaded to s3://%s/%s\n", s3_bucket, s3_key))
+    }
+  }
+  
+  return(final_results)
+}
+
+# Example usage:
+# results <- run_nebula_protein_parallel(
+#   seurat_obj = attempt_so_pt,
+#   urine_soma = urine_soma,
+#   urine_soma_annotations = urine_soma_annotations,
+#   n_cores = 50,
+#   formula_base = "~ protein + treatment",
+#   s3_key = "nebula_protein_results.rds"
+# )
+#
+# Access results for specific gene-protein combination:
+# results$results[["ARPC1B_seq.12689.56_urine_cradj"]]
+#
+# Get all results for a specific gene:
+# gene_results <- results$results_summary[results$results_summary$gene == "ARPC1B", ]
+#
+# View which proteins were tested for each gene:
+# View(results$gene_protein_pairs)
+```
+
+```{r echo = F}
+# urine with PT, TAL, DCT, CD; POD
+urine_celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),  # Proximal tubule
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),  # Thick ascending limb
+  DCT = c("DCT", "dDCT"),  # Distal convoluted tubule
+  CD = c("CCD-PC", "dCCD-PC", "CNT-PC", "tPC-IC", "MC", "aIC", "IC-A", "IC-B", "CNT"),  # Collecting duct & connecting tubule
+  POD = c("POD")  # Podocytes
+)
+
+# Now add combined group
+urine_celltype_groups$Combined <- c(
+  urine_celltype_groups$PT,
+  urine_celltype_groups$TAL,
+  urine_celltype_groups$DCT,
+  urine_celltype_groups$CD,
+  urine_celltype_groups$POD
+)
+
+urine_celltype_groups_custom <- c("CD", "POD", "Combined")
+
+for (cell in urine_celltype_groups_custom){
+  message("Processing: ", cell)
+  attempt_so_subset <- subset(
+    attempt_so,
+    subset = KPMP_celltype %in% urine_celltype_groups[[cell]]
+  )
+  
+  urine_nebula <- run_nebula_protein_parallel(
+    seurat_obj = attempt_so_subset,
+    soma = urine_soma,
+    soma_annotations = urine_soma_annotations,
+    n_cores = 100,
+    formula_base = "~ protein + treatment",
+    s3_key = paste0("Proteomics/", tolower(cell), "_nebula_urine_soma_res_kpmp.rds")
+  )
+  
+  var_name <- paste0(tolower(cell), "_nebula_urine_soma_res_kpmp")
+  assign(var_name, urine_nebula, envir = .GlobalEnv)
+
+}
+
+```
+
+
+# Plasma
+
+```{r echo = F}
+temp_file = tempfile(fileext = "RDS")
+s3$download_file("attempt", 'Proteomics/plasma_proteomics_res.RDS', temp_file)
+plasma_proteomics <- readRDS(temp_file)
+```
+
+
+## Mixed model
+
+```{r echo = F}
+# add gene name to plasma proteomics
+plasma_soma_annotations <- plasma_proteomics$results_annotated %>%
+  dplyr::select(AptName, EntrezGeneSymbol) %>%
+  filter(EntrezGeneSymbol!="")
+
+# raw plasma soma data
+plasma_soma <- soma_harm %>% filter(study == "ATTEMPT") %>%
+  filter(grepl("^3", record_id)) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  filter(!is.na(seq.10000.28)) %>%
+  dplyr::select(record_id, visit, matches("^seq.*\\d$")) %>%
+  dplyr::rename(subject_id = record_id) %>%
+  mutate(visit = case_when(visit == "baseline" ~ "PRE",
+                           visit == "4_months_post" ~ "POST"),
+         subject_id = as.numeric(subject_id))
+```
+
+```{r echo = F}
+# plasma with Endothelial cells, glomerular cells (podocytes, mesangial), VSMC
+plasma_celltype_groups <- list(
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC/VSMC", "EC-LYM"),
+  Glom  = c("POD", "MC", "M-PC"),
+  VSMC        = c("VSMC/P", "EC/VSMC"),
+  Immune      = c("CD4+ T", "CD8+ T", "B", "NK", "NKT/NKC", "MAC", "MON", "cDC", "pDC")
+)
+# Now add combined group
+plasma_celltype_groups$Combined <- c(
+  plasma_celltype_groups$EC,
+  plasma_celltype_groups$Glom,
+  plasma_celltype_groups$VSMC,
+  plasma_celltype_groups$Immune
+)
+
+for (cell in names(plasma_celltype_groups)){
+  message("Processing: ", cell)
+  attempt_so_subset <- subset(
+    attempt_so,
+    subset = KPMP_celltype %in% plasma_celltype_groups[[cell]]
+  )
+  
+  plasma_nebula <- run_nebula_protein_parallel(
+    seurat_obj = attempt_so_subset,
+    soma = plasma_soma,
+    soma_annotations = plasma_soma_annotations,
+    n_cores = 100,
+    formula_base = "~ protein + treatment",
+    s3_key = paste0("Proteomics/", tolower(cell), "_nebula_plasma_soma_res_kpmp.rds")
+  )
+  
+  var_name <- paste0(tolower(cell), "_nebula_plasma_soma_res_kpmp")
+  assign(var_name, plasma_nebula, envir = .GlobalEnv)
+
+}
+
+```

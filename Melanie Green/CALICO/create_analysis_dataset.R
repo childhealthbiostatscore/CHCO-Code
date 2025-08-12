@@ -1,6 +1,7 @@
 library(redcapAPI)
 library(tidyverse)
 library(Hmisc)
+library(cdcanthro)
 home_dir <- switch(Sys.info()["sysname"],
   "Darwin" = "/Users/tim/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
   "Linux" = "/home/tim/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO",
@@ -38,6 +39,11 @@ clinic <- clinic %>%
 # Merge
 df <- full_join(history, clinic, by = join_by(record_number)) %>%
   select(record_number, redcap_repeat_instance, everything())
+# BMI z scores
+bmi_df <- df %>% select(record_number, redcap_repeat_instance, cv_age, cv_weight, cv_height, cv_bmi)
+bmi_df$cv_age = bmi_df$cv_age*12
+bmi_df$sex <- "female"
+t <- cdcanthro(bmi_df, age = cv_age, wt = cv_weight, ht = cv_height, bmi = cv_bmi, all = FALSE)
 # Weight categories
 df <- df %>%
   mutate(
