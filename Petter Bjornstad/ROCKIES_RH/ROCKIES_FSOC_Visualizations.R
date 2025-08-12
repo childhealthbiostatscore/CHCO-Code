@@ -66,7 +66,11 @@ tests <- c('fsoc_l_cortex', 'fsoc_r_cortex',
 graphs <- list()
 
 
-dat_results <- dat2
+dat_results <- dat2 %>% mutate(fsoc_l_combined = mean(c(fsoc_l_cortex, fsoc_l_kidney_fsoc_l_medulla)),
+                               fsoc_r_combined = mean(c(fsoc_r_cortex, fsoc_r_kidney_fsoc_r_medulla)),
+                               fsoc_full_combined = mean(fsoc_l_cortex, fsoc_r_cortex,
+                                                         fsoc_l_kidney, fsoc_r_kidney, 
+                                                         fsoc_l_medulla, fsoc_r_medulla))
 
 
 
@@ -129,11 +133,20 @@ for(i in c(1:length(tests))){
 
 
 
+caption <- textGrob("This is the caption for the plots", gp = gpar(fontsize = 12, fontface = "italic"))
+
+# Arrange plots with caption
+grid.arrange(p1, p2, ncol = 2, bottom = caption)
+
+
+
 pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_FSOC.pdf', 
     width =20, height = 20)  
 gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
                         results_list[[3]], results_list[[4]], 
-                        results_list[[5]], results_list[[6]], ncol = 2)
+                        results_list[[5]], results_list[[6]], 
+                        results_list[[7]], results_list[[8]],
+                        results_list[[9]], ncol = 2)
 
 dev.off()
 
