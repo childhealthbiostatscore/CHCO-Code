@@ -181,13 +181,12 @@ for(i in c(1:length(tests))){
 }
 
 
+library(grid)
 
-#caption <- textGrob("This is the caption for the plots", gp = gpar(fontsize = 12, fontface = "italic"))
-
-# Arrange plots with caption
-grid.arrange(p1, p2, ncol = 2) 
-             #bottom = caption)
-
+caption <- grid::textGrob(paste0("Maximum Participants in ", max_num_trait, ": LC: ", max_num_lc, 
+                           ';T2D-noSGLT2: ', max_num_nosglt2, ';T2D-SGLT2: ', max_num_sglt2, 
+                           'Minimum Participants in Combined Traits: LC: ', min_num_lc, 
+                           ';T2D-noSGLT2: ', min_num_nosglt2, ';T2D-SGLT2: ', min_num_sglt2), gp = gpar(fontsize = 12, fontface = "italic"))
 
 
 pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_FSOC.pdf', 
@@ -196,7 +195,8 @@ gridExtra::grid.arrange(results_list[[1]], results_list[[2]],
                         results_list[[3]], results_list[[4]], 
                         results_list[[5]], results_list[[6]], 
                         results_list[[7]], results_list[[8]],
-                        results_list[[9]], ncol = 2)
+                        results_list[[9]], ncol = 2, 
+                        bottom = caption)
 
 dev.off()
 
