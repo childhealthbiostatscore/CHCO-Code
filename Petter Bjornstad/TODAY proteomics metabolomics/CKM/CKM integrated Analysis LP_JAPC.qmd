@@ -109,7 +109,7 @@ filename <- "/Clinical data/TODAY/ADDCBL.csv"
 full_path <- file.path(data_path, filename)
 addcbl_1 <- read.csv(full_path)
 addcbl_1$TIMEPOINT <- "1"
-# remove R visits
+# LP: remove R visits
 addcbl_1 <- addcbl_1 %>% filter(!mvisit == "R")
 
 #addcbl_2 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ADDCBL_TODAY2.csv")
@@ -130,6 +130,8 @@ full_path <- file.path(data_path, filename)
 pwv <- read.csv(full_path)
 
 # Quality of life questionnaires
+# LP: why are TODAY data not used and merged to echo timepoint?
+# LP: filenames don't match TODAY2 documentation - emailed Laure
 # CHANGE LOCAL DIRECTORY I was unable to access files directly from OneDrive, modify the path if needed 
 #pedsQL_A <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PEDSQLGA.csv")
 filename <- "/Clinical data/TODAY2/PEDSQLGA.csv"
@@ -624,10 +626,15 @@ echo_keep <- echo_keep %>%
   )
 
 # LP: doesn't this need to take timepoint into account?
+# echo_keep <- echo_keep %>%
+#   left_join(
+#     echo %>% select(RELEASEID, ladimen),
+#     by = "RELEASEID"
+#   )
 echo_keep <- echo_keep %>%
   left_join(
-    echo %>% select(RELEASEID, ladimen),
-    by = "RELEASEID"
+    echo %>% select(RELEASEID, TIMEPOINT, ladimen),
+    by = c("RELEASEID", "TIMEPOINT")
   )
 
 # Calculate LAVI estimation
@@ -653,6 +660,8 @@ echo_keep <- echo_keep %>%
 echo_keep$HFpEF_points <- 0
 
 # Get maximum BNP per participant
+# LP: this gets the max BNP and merges it to both echo time points 
+# would we want to use only BNP data up to the point of each echo?
 max_bnp_by_id <- aggregate(addcbl_1$bnp ~ addcbl_1$releaseid, data = addcbl_1, FUN = function(x) {
   if(all(is.na(x))) return(NA)
   return(max(x, na.rm = TRUE))
@@ -744,6 +753,8 @@ echo_hfpef2 <- echo_keep %>%
 # =============================================================================
 # QUALITY OF LIFE (PedsQL) PROCESSING
 # =============================================================================
+
+# LP: why not use TODAY data?
 
 # Define columns to keep from PedsQL
 cols_to_keep <- c("RELEASEID", "DAYS", "G01WALK", "G02RUN", "G03SPORT",
