@@ -1,5 +1,5 @@
 ---
-title: "ATTEMPT CROCODILE comparison nebula visualization"
+title: "ATTEMPT CROCODILE comparison nebula visualization (KPMP celltype)"
 author: "Ye Ji Choi"
 date: "`r lubridate::today()`"
 format: 
@@ -48,80 +48,32 @@ Sys.setenv(
 )
 ```
 
-#### Volcano plots
-
-```{r echo = F}
-# plot_volcano <- function(data, fc, p_col, title_suffix, x_axis, y_axis, file_suffix, p_thresh = 0.05) {
-#   top_pos <- data %>%
-#     dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
-#     dplyr::arrange(!!sym(p_col)) %>%
-#     slice_head(n=20)
-#   
-#   top_neg <- data %>%
-#     dplyr::filter(!!sym(fc) < 0 & !!sym(p_col) < p_thresh) %>%
-#     dplyr::arrange(!!sym(p_col)) %>%
-#     slice_head(n=20)
-#   
-#   data <- data %>%
-#     dplyr::mutate(top_color = case_when(Gene %in% top_pos$Gene ~ "#f28482",
-#                                         Gene %in% top_neg$Gene ~ "#457b9d",
-#                                         TRUE ~ "#ced4da"),
-#                   top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
-#                   top_lab  = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), Gene, ""))
-#   
-#   p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
-#     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
-#     geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
-#     geom_text_repel(aes(label = top_lab, color = top_color),
-#                     size = 3, max.overlaps = Inf,
-#                     force = 6, segment.alpha = 0.3, segment.size = 0.3) +
-#     labs(title = paste(title_suffix),
-#          x = paste(x_axis),
-#          y = paste(y_axis)) +
-#     scale_size_continuous(range = c(1, 1.3)) + 
-#     scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
-#     theme_minimal() +
-#     theme(legend.title = element_blank(),
-#           panel.grid = element_blank(),
-#           text = element_text(size = 15),
-#           title = element_text(size = 9)) +
-#     guides(color = "none", size = "none")
-#   
-#   ggsave(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Volcano Plots/", file_suffix, "_croc.jpeg"), plot = p, width = 7, height = 5)
-#   return(p)
-# }
-
-```
-
-# nebula
 
 ```{r echo = F}
 ## read mixed model results dataframe (rendered in Hyak)
 # process and read all results from CROCODILE (limited to significant results from ATTEMPT non-HVG model)
 
-celltypes <- c("PT", "TAL", "PC", "Immune_Myeloid", "Immune_Lymphoid", 
-               "Immune", "IC", "EC", "FIBVSMCP", "POD")
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD"
+)
 
 # Top 2000 HVG
-for (cell in celltypes)  {
-  input_path <- paste0("/CROCODILE comparison analysis/", cell, "/nebula/",tolower(cell),"_croc_targeted_t1dvhc.rds")
+for (cell in names(celltype_groups))  {
+  input_path <- paste0("/CROCODILE comparison analysis/", toupper(cell), "/nebula/", tolower(cell),"_kpmp_croc_hvg.rds")
   cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
   
   processed <- process_nebula_results(cell_df, pval_col = "p_groupType_1_Diabetes")
   lower_cell <- tolower(cell)
-  var_name <- paste0(lower_cell, "_croc_targeted_res_hvg")
-  
-  assign(var_name, processed$results)
-}
-
-# Full gene set
-for (cell in celltypes)  {
-  input_path <- paste0("/CROCODILE comparison analysis/", cell, "/nebula/",tolower(cell),"_croc_targeted_t1dvhc_full.rds")
-  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
-  head(cell_df)
-  processed <- process_nebula_results(cell_df, pval_col = "p_groupType_1_Diabetes")
-  lower_cell <- tolower(cell)
-  var_name <- paste0(lower_cell, "_croc_targeted_res")
+  var_name <- paste0(lower_cell, "_croc_untargeted_res_hvg")
   
   assign(var_name, processed$results)
 }
@@ -130,65 +82,76 @@ for (cell in celltypes)  {
 ```{r echo = F}
 ## read mixed model results dataframe (rendered in Hyak)
 # process and read all results from ATTEMPT
-
-celltypes <- c("PT", "TAL", "PC", "Immune_Myeloid", "Immune_Lymphoid", 
-               "Immune", "IC", "EC", "FIBVSMCP", "POD")
-
-# Top 2000 HVG
-for (cell in celltypes)  {
-  input_path <- paste0(cell,"/nebula/",tolower(cell),"_attempt_hvg_nebula_res_reml_pooled.rds")
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  # TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  # PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD"
+)
+for (cell in names(celltype_groups))  {
+  input_path <- paste0("grouped/", cell, "/ALL/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
   cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
-  
-  processed <- process_nebula_results(cell_df)
-  lower_cell <- tolower(cell)
-  var_name <- paste0(lower_cell, "_hvg_nebula_res_combined_reml_pooled")
-  
-  assign(var_name, processed$results)
-}
 
-# Full gene set
-for (cell in celltypes)  {
-  input_path <- paste0(cell,"/nebula/",tolower(cell),"_attempt_nebula_res_reml_pooled.rds")
-  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
-  head(cell_df)
   processed <- process_nebula_results(cell_df)
-  lower_cell <- tolower(cell)
-  var_name <- paste0(lower_cell, "_nebula_res_combined_reml_pooled")
   
-  assign(var_name, processed$results)
+  # Join annotation
+  annotated_df <- processed$results
+
+  # Assign to variable dynamically
+  var_name <- paste0(tolower(cell), "_kpmp")
+  assign(var_name, annotated_df, envir = .GlobalEnv)
+  
 }
 ```
 
-
-### PT
+#### Volcano plots
 
 ```{r echo = F}
-plot_croc_attempt_volcano(
-  attempt_df = pt_nebula_res_combined_reml_pooled,
-  croc_df = pt_croc_targeted_res,
-  cell_type = "PT",
-  top_n = 20,
-  save_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/pt_targeted_volcano_attempt_directions_labeled.jpeg"
-)
+for (cell in names(celltype_groups)) {
+  message("Processing: ", cell)
+  plot_croc_attempt_volcano(
+    attempt_df = get(paste0(tolower(cell), "_kpmp")),
+    croc_df = get(paste0(tolower(cell), "_croc_untargeted_res_hvg")),
+    cell_type = cell,
+    top_n = 20,
+    save_path = paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/kpmp_", tolower(cell), "_targeted_volcano_attempt_directions_labeled.jpeg")
+  )
+}
 ```
 
-
-```{r echo =F}
-plot_volcano(pt_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "p_groupType_1_Diabetes",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(p-value)",
-             "CROCODILE comparison analysis/pt_croc_pvalue_nebula_reml_offset")
-
-plot_volcano(pt_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "fdr",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(FDR adjusted p-value)",
-             "CROCODILE comparison analysis/pt_croc_fdr_nebula_reml_offset")
+```{r echo = F}
+for (cell in names(celltype_groups)) {
+  message("Processing: ", cell)
+  plot_volcano(
+    data = get(paste0(tolower(cell), "_croc_untargeted_res_hvg")),
+    fc = "logFC_groupType_1_Diabetes", 
+    p_col = "p_groupType_1_Diabetes",
+    title = NULL,
+    x_axis = "logFC group (Type 1 Diabetes)", 
+    y_axis = "-log10(p-value)",
+    file_suffix = paste0("CROCODILE comparison analysis/kpmp_", tolower(cell), "_croc_pvalue_nebula_reml_offset"), 
+    cell_type = cell
+  )
+  
+    plot_volcano(
+    data = get(paste0(tolower(cell), "_croc_untargeted_res_hvg")),
+    fc = "logFC_groupType_1_Diabetes", 
+    p_col = "fdr",
+    title = NULL,
+    x_axis = "logFC group (Type 1 Diabetes)", 
+    y_axis = "-log10(FDR adjusted p-value)",
+    file_suffix = paste0("CROCODILE comparison analysis/kpmp_", tolower(cell), "_croc_fdr_nebula_reml_offset"), 
+    cell_type = cell
+  )
+}
 ```
-
+### PT
 
 #### GSEA (fgsea)
 ```{r echo = F}
@@ -276,13 +239,13 @@ plot_fgsea_transpose <- function(fgsea_res,
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(croc_pt_croc_targeted_res$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(croc_pt_croc_targeted_res$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(croc_pt_croc_targeted_res$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(croc_pt_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(croc_pt_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(croc_pt_croc_untargeted_res_hvg$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_croc_pt_nebula_reml_offset <- croc_pt_croc_targeted_res$`logFC_groupType_1_Diabetes`
-names(rankings_croc_pt_nebula_reml_offset) <- croc_pt_croc_targeted_res$Gene
+rankings_croc_pt_nebula_reml_offset <- croc_pt_croc_untargeted_res_hvg$`logFC_groupType_1_Diabetes`
+names(rankings_croc_pt_nebula_reml_offset) <- croc_pt_croc_untargeted_res_hvg$Gene
 rankings_croc_pt_nebula_reml_offset <- sort(rankings_croc_pt_nebula_reml_offset, decreasing = TRUE)
 plot(rankings_croc_pt_nebula_reml_offset)
 min(rankings_croc_pt_nebula_reml_offset)
@@ -318,6 +281,7 @@ fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_croc_pt_nebula_reml_offs
 rownames(fgsea) <- c("adj.pval", "p.val")
 
 ```
+
 ##### KEGG Legacy
 ```{r echo = F}
 plot_fgsea_transpose(kegg_legacy_res_croc_pt_nebula_reml_offset, title = "PT nebula Top 30 KEGG (REML & Offset)", xmin = 1.2, xmax = 2.5)
@@ -344,32 +308,6 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 ### TAL
 
-```{r echo = F}
-plot_croc_attempt_volcano(
-  attempt_df = tal_nebula_res_combined_reml_pooled,
-  croc_df = tal_croc_targeted_res,
-  cell_type = "TAL",
-  top_n = 20,
-  save_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/tal_targeted_volcano_attempt_directions_labeled.jpeg"
-)
-```
-
-
-```{r echo =F}
-plot_volcano(tal_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "p_groupType_1_Diabetes",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(p-value)",
-             "CROCODILE comparison analysis/tal_croc_pvalue_nebula_reml_offset")
-
-plot_volcano(tal_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "fdr",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(FDR adjusted p-value)",
-             "CROCODILE comparison analysis/tal_croc_fdr_nebula_reml_offset")
-```
 ##### GSEA (fgsea)
 
 ```{r echo = F}
@@ -378,13 +316,13 @@ plot_volcano(tal_croc_targeted_res, "logFC_groupType_1_Diabetes",
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(tal_croc_targeted_res$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(tal_croc_targeted_res$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(tal_croc_targeted_res$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(tal_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(tal_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(tal_croc_untargeted_res_hvg$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_tal_nebula_reml_offset <- tal_croc_targeted_res$`logFC_groupType_1_Diabetes`
-names(rankings_tal_nebula_reml_offset) <- tal_croc_targeted_res$Gene
+rankings_tal_nebula_reml_offset <- tal_croc_untargeted_res_hvg$`logFC_groupType_1_Diabetes`
+names(rankings_tal_nebula_reml_offset) <- tal_croc_untargeted_res_hvg$Gene
 rankings_tal_nebula_reml_offset <- sort(rankings_tal_nebula_reml_offset, decreasing = TRUE)
 plot(rankings_tal_nebula_reml_offset)
 min(rankings_tal_nebula_reml_offset)
@@ -445,32 +383,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 ### PC
 
-```{r echo = F}
-plot_croc_attempt_volcano(
-  attempt_df = pc_nebula_res_combined_reml_pooled,
-  croc_df = pc_croc_targeted_res,
-  cell_type = "PC",
-  top_n = 20,
-  save_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/pc_targeted_volcano_attempt_directions_labeled.jpeg"
-)
-```
 
-
-```{r echo =F}
-plot_volcano(pc_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "p_groupType_1_Diabetes",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(p-value)",
-             "CROCODILE comparison analysis/pc_croc_pvalue_nebula_reml_offset")
-
-plot_volcano(pc_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "fdr",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(FDR adjusted p-value)",
-             "CROCODILE comparison analysis/pc_croc_fdr_nebula_reml_offset")
-```
 ##### GSEA (fgsea)
 
 ```{r echo = F}
@@ -479,13 +392,13 @@ plot_volcano(pc_croc_targeted_res, "logFC_groupType_1_Diabetes",
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(pc_croc_targeted_res$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(pc_croc_targeted_res$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(pc_croc_targeted_res$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(pc_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(pc_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(pc_croc_untargeted_res_hvg$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_pc_nebula_reml_offset <- pc_croc_targeted_res$`logFC_groupType_1_Diabetes`
-names(rankings_pc_nebula_reml_offset) <- pc_croc_targeted_res$Gene
+rankings_pc_nebula_reml_offset <- pc_croc_untargeted_res_hvg$`logFC_groupType_1_Diabetes`
+names(rankings_pc_nebula_reml_offset) <- pc_croc_untargeted_res_hvg$Gene
 rankings_pc_nebula_reml_offset <- sort(rankings_pc_nebula_reml_offset, decreasing = TRUE)
 plot(rankings_pc_nebula_reml_offset)
 min(rankings_pc_nebula_reml_offset)
@@ -547,33 +460,6 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 ### Immune (very few cells)
 
-
-```{r echo = F}
-plot_croc_attempt_volcano(
-  attempt_df = immune_nebula_res_combined_reml_pooled,
-  croc_df = immune_croc_targeted_res,
-  cell_type = "Immune",
-  top_n = 20,
-  save_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/immune_targeted_volcano_attempt_directions_labeled.jpeg"
-)
-```
-
-
-```{r echo =F}
-plot_volcano(immune_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "p_groupType_1_Diabetes",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(p-value)",
-             "CROCODILE comparison analysis/immune_croc_pvalue_nebula_reml_offset")
-
-plot_volcano(immune_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "fdr",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(FDR adjusted p-value)",
-             "CROCODILE comparison analysis/immune_croc_fdr_nebula_reml_offset")
-```
 ##### GSEA (fgsea)
 
 ```{r echo = F}
@@ -582,13 +468,13 @@ plot_volcano(immune_croc_targeted_res, "logFC_groupType_1_Diabetes",
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(immune_croc_targeted_res$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(immune_croc_targeted_res$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(immune_croc_targeted_res$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(immune_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(immune_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(immune_croc_untargeted_res_hvg$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_immune_nebula_reml_offset <- immune_croc_targeted_res$`logFC_groupType_1_Diabetes`
-names(rankings_immune_nebula_reml_offset) <- immune_croc_targeted_res$Gene
+rankings_immune_nebula_reml_offset <- immune_croc_untargeted_res_hvg$`logFC_groupType_1_Diabetes`
+names(rankings_immune_nebula_reml_offset) <- immune_croc_untargeted_res_hvg$Gene
 rankings_immune_nebula_reml_offset <- sort(rankings_immune_nebula_reml_offset, decreasing = TRUE)
 plot(rankings_immune_nebula_reml_offset)
 min(rankings_immune_nebula_reml_offset)
@@ -649,31 +535,8 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 ### IC
 
-```{r echo = F}
-plot_croc_attempt_volcano(
-  attempt_df = ic_nebula_res_combined_reml_pooled,
-  croc_df = ic_croc_targeted_res,
-  cell_type = "IC",
-  top_n = 20,
-  save_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/ic_targeted_volcano_attempt_directions_labeled.jpeg"
-)
-```
 
-```{r echo =F}
-plot_volcano(ic_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "p_groupType_1_Diabetes",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(p-value)",
-             "CROCODILE comparison analysis/ic_croc_pvalue_nebula_reml_offset")
 
-plot_volcano(ic_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "fdr",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(FDR adjusted p-value)",
-             "CROCODILE comparison analysis/ic_croc_fdr_nebula_reml_offset")
-```
 ##### GSEA (fgsea)
 
 ```{r echo = F}
@@ -682,13 +545,13 @@ plot_volcano(ic_croc_targeted_res, "logFC_groupType_1_Diabetes",
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(ic_croc_targeted_res$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(ic_croc_targeted_res$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(ic_croc_targeted_res$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(ic_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(ic_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(ic_croc_untargeted_res_hvg$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_ic_nebula_reml_offset <- ic_croc_targeted_res$`logFC_groupType_1_Diabetes`
-names(rankings_ic_nebula_reml_offset) <- ic_croc_targeted_res$Gene
+rankings_ic_nebula_reml_offset <- ic_croc_untargeted_res_hvg$`logFC_groupType_1_Diabetes`
+names(rankings_ic_nebula_reml_offset) <- ic_croc_untargeted_res_hvg$Gene
 rankings_ic_nebula_reml_offset <- sort(rankings_ic_nebula_reml_offset, decreasing = TRUE)
 plot(rankings_ic_nebula_reml_offset)
 min(rankings_ic_nebula_reml_offset)
@@ -749,32 +612,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 ### EC
 
-```{r echo = F}
-plot_croc_attempt_volcano(
-  attempt_df = ec_nebula_res_combined_reml_pooled,
-  croc_df = ec_croc_targeted_res,
-  cell_type = "EC",
-  top_n = 20,
-  save_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/ec_targeted_volcano_attempt_directions_labeled.jpeg"
-)
-```
 
-
-```{r echo =F}
-plot_volcano(ec_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "p_groupType_1_Diabetes",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(p-value)",
-             "CROCODILE comparison analysis/ec_croc_pvalue_nebula_reml_offset")
-
-plot_volcano(ec_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "fdr",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(FDR adjusted p-value)",
-             "CROCODILE comparison analysis/ec_croc_fdr_nebula_reml_offset")
-```
 ##### GSEA (fgsea)
 
 ```{r echo = F}
@@ -783,13 +621,13 @@ plot_volcano(ec_croc_targeted_res, "logFC_groupType_1_Diabetes",
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(ec_croc_targeted_res$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(ec_croc_targeted_res$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(ec_croc_targeted_res$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(ec_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(ec_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(ec_croc_untargeted_res_hvg$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_ec_nebula_reml_offset <- ec_croc_targeted_res$`logFC_groupType_1_Diabetes`
-names(rankings_ec_nebula_reml_offset) <- ec_croc_targeted_res$Gene
+rankings_ec_nebula_reml_offset <- ec_croc_untargeted_res_hvg$`logFC_groupType_1_Diabetes`
+names(rankings_ec_nebula_reml_offset) <- ec_croc_untargeted_res_hvg$Gene
 rankings_ec_nebula_reml_offset <- sort(rankings_ec_nebula_reml_offset, decreasing = TRUE)
 plot(rankings_ec_nebula_reml_offset)
 min(rankings_ec_nebula_reml_offset)
@@ -850,31 +688,6 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 ### FIB/VSMC/P
 
-```{r echo = F}
-plot_croc_attempt_volcano(
-  attempt_df = fibvsmcp_nebula_res_combined_reml_pooled,
-  croc_df = fibvsmcp_croc_targeted_res,
-  cell_type = "FIB, VSMC/P",
-  top_n = 20,
-  save_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/fibvsmcp_targeted_volcano_attempt_directions_labeled.jpeg"
-)
-```
-
-```{r echo =F}
-plot_volcano(fibvsmcp_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "p_groupType_1_Diabetes",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(p-value)",
-             "CROCODILE comparison analysis/fibvsmc_croc_pvalue_nebula_reml_offset")
-
-plot_volcano(fibvsmcp_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "fdr",
-             NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(FDR adjusted p-value)",
-             "CROCODILE comparison analysis/fibvsmc_croc_fdr_nebula_reml_offset")
-```
 ##### GSEA (fgsea)
 
 ```{r echo = F}
@@ -883,98 +696,73 @@ plot_volcano(fibvsmcp_croc_targeted_res, "logFC_groupType_1_Diabetes",
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(fibvsmc_croc_targeted_res$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(fibvsmc_croc_targeted_res$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(fibvsmc_croc_targeted_res$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(vsmc_p_fib_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(vsmc_p_fib_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(vsmc_p_fib_croc_untargeted_res_hvg$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_fibvsmc_nebula_reml_offset <- fibvsmc_croc_targeted_res$`logFC_groupType_1_Diabetes`
-names(rankings_fibvsmc_nebula_reml_offset) <- fibvsmc_croc_targeted_res$Gene
-rankings_fibvsmc_nebula_reml_offset <- sort(rankings_fibvsmc_nebula_reml_offset, decreasing = TRUE)
-plot(rankings_fibvsmc_nebula_reml_offset)
-min(rankings_fibvsmc_nebula_reml_offset)
-max(rankings_fibvsmc_nebula_reml_offset)
+rankings_vsmc_p_fib_nebula_reml_offset <- vsmc_p_fib_croc_untargeted_res_hvg$`logFC_groupType_1_Diabetes`
+names(rankings_vsmc_p_fib_nebula_reml_offset) <- vsmc_p_fib_croc_untargeted_res_hvg$Gene
+rankings_vsmc_p_fib_nebula_reml_offset <- sort(rankings_vsmc_p_fib_nebula_reml_offset, decreasing = TRUE)
+plot(rankings_vsmc_p_fib_nebula_reml_offset)
+min(rankings_vsmc_p_fib_nebula_reml_offset)
+max(rankings_vsmc_p_fib_nebula_reml_offset)
 ```
 
 ```{r echo = F}
 set.seed(1234)
 
-kegg_legacy_res_fibvsmc_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
-                                                    stats = rankings_fibvsmc_nebula_reml_offset,
+kegg_legacy_res_vsmc_p_fib_nebula_reml_offset <- fgsea(pathways = kegg_legacy,
+                                                    stats = rankings_vsmc_p_fib_nebula_reml_offset,
                                                     scoreType = 'std', 
                                                     minSize = 3,
                                                     maxSize = 500,
                                                     nproc = 1)
 
-reactome_res_fibvsmc_nebula_reml_offset <- fgsea(pathways = reactome,
-                                                 stats = rankings_fibvsmc_nebula_reml_offset,
+reactome_res_vsmc_p_fib_nebula_reml_offset <- fgsea(pathways = reactome,
+                                                 stats = rankings_vsmc_p_fib_nebula_reml_offset,
                                                  scoreType = 'std', 
                                                  minSize = 3,
                                                  maxSize = 500,
                                                  nproc = 1)
-go_res_fibvsmc_nebula_reml_offset <- fgsea(pathways = go,
-                                           stats = rankings_fibvsmc_nebula_reml_offset,
+go_res_vsmc_p_fib_nebula_reml_offset <- fgsea(pathways = go,
+                                           stats = rankings_vsmc_p_fib_nebula_reml_offset,
                                            scoreType = 'std', 
                                            minSize = 5,
                                            maxSize = 500,
                                            nproc = 1)
 
-fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_fibvsmc_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_fibvsmc_nebula_reml_offset[, pval < 0.05], na.rm = T)),
-                    "REACTOME"=c(sum(reactome_res_fibvsmc_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(reactome_res_fibvsmc_nebula_reml_offset[, pval < 0.05], na.rm = T)),
-                    "GO"=c(sum(go_res_fibvsmc_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(go_res_fibvsmc_nebula_reml_offset[, pval < 0.05], na.rm = T)))
+fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_vsmc_p_fib_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(kegg_legacy_res_vsmc_p_fib_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                    "REACTOME"=c(sum(reactome_res_vsmc_p_fib_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(reactome_res_vsmc_p_fib_nebula_reml_offset[, pval < 0.05], na.rm = T)),
+                    "GO"=c(sum(go_res_vsmc_p_fib_nebula_reml_offset[, padj < 0.05], na.rm = T), sum(go_res_vsmc_p_fib_nebula_reml_offset[, pval < 0.05], na.rm = T)))
 rownames(fgsea) <- c("adj.pval", "p.val")
 
 ```
 ###### KEGG Legacy
 ```{r echo = F}
-plot_fgsea_transpose(kegg_legacy_res_fibvsmc_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 KEGG (REML & Offset)", xmin = 1.1, xmax = 2.3)
+plot_fgsea_transpose(kegg_legacy_res_vsmc_p_fib_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 KEGG (REML & Offset)", xmin = 1.1, xmax = 2.3)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_kegg_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_nebula_top30_kegg_pathways_croc.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 
 ###### REACTOME
 ```{r echo = F}
-plot_fgsea_transpose(reactome_res_fibvsmc_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 REACTOME (REML & Offset)", xmin = 1.4, xmax = 2.1)
+plot_fgsea_transpose(reactome_res_vsmc_p_fib_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 REACTOME (REML & Offset)", xmin = 1.4, xmax = 2.1)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_reactome_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_nebula_top30_reactome_pathways_croc.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 ###### GO
 ```{r echo = F}
-plot_fgsea_transpose(go_res_fibvsmc_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 GO (REML & Offset)", xmin = 1.45, xmax = 2.5)
+plot_fgsea_transpose(go_res_vsmc_p_fib_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 GO (REML & Offset)", xmin = 1.45, xmax = 2.5)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmc_nebula_top30_go_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_nebula_top30_go_pathways_croc.jpeg",
        width = 27.5, height = 14, scale = 1)
 ```
 
 ### POD
 
-```{r echo = F}
-plot_croc_attempt_volcano(
-  attempt_df = pod_nebula_res_combined_reml_pooled,
-  croc_df = pod_croc_targeted_res,
-  cell_type = "POD",
-  top_n = 20,
-  save_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/pod_targeted_volcano_attempt_directions_labeled.jpeg"
-)
-```
-
-```{r echo =F}
-plot_volcano(pod_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "p_groupType_1_Diabetes",
-             title = NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(p-value)",
-             "CROCODILE comparison analysis/pod_croc_pvalue_nebula_reml_offset")
-
-plot_volcano(pod_croc_targeted_res, "logFC_groupType_1_Diabetes", 
-             "fdr",
-             title = NULL,
-             "logFC group (Type 1 Diabetes)", 
-             "-log10(FDR adjusted p-value)",
-             "CROCODILE comparison analysis/pod_croc_fdr_nebula_reml_offset")
-```
 ##### GSEA (fgsea)
 
 ```{r echo = F}
@@ -983,13 +771,13 @@ plot_volcano(pod_croc_targeted_res, "logFC_groupType_1_Diabetes",
 list.files(bg_path)
 gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
 gmt_files
-kegg_legacy <- prepare_gmt(gmt_files[1], unique(pod_croc_targeted_res$Gene), savefile = FALSE)
-reactome <- prepare_gmt(gmt_files[3], unique(pod_croc_targeted_res$Gene), savefile = FALSE)
-go <- prepare_gmt(gmt_files[4], unique(pod_croc_targeted_res$Gene), savefile = FALSE)
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(pod_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(pod_croc_untargeted_res_hvg$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(pod_croc_untargeted_res_hvg$Gene), savefile = FALSE)
 
 # rank genes by logFC
-rankings_pod_nebula_reml_offset <- pod_croc_targeted_res$`logFC_groupType_1_Diabetes`
-names(rankings_pod_nebula_reml_offset) <- pod_croc_targeted_res$Gene
+rankings_pod_nebula_reml_offset <- pod_croc_untargeted_res_hvg$`logFC_groupType_1_Diabetes`
+names(rankings_pod_nebula_reml_offset) <- pod_croc_untargeted_res_hvg$Gene
 rankings_pod_nebula_reml_offset <- sort(rankings_pod_nebula_reml_offset, decreasing = TRUE)
 plot(rankings_pod_nebula_reml_offset)
 min(rankings_pod_nebula_reml_offset)
@@ -2962,16 +2750,16 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ### FIB/VSMC/P
 
 ```{r echo = F}
-fibvsmcp_pathways_mod1 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/1 Nested visit and zero inflation/fibvsmcp_DiD_pathways.xls", skip = 1) 
-fibvsmcp_dapa_mod1 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/1 Nested visit and zero inflation/fibvsmcp_dapa_pathways.xls", skip = 1) 
-fibvsmcp_croc_mod1 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/1 Nested visit and zero inflation/fibvsmcp_croc_pathways.xls", skip = 1) 
+vsmc_p_fib_pathways_mod1 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/1 Nested visit and zero inflation/vsmc_p_fib_DiD_pathways.xls", skip = 1) 
+vsmc_p_fib_dapa_mod1 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/1 Nested visit and zero inflation/vsmc_p_fib_dapa_pathways.xls", skip = 1) 
+vsmc_p_fib_croc_mod1 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/1 Nested visit and zero inflation/vsmc_p_fib_croc_pathways.xls", skip = 1) 
 
-colnames(fibvsmcp_pathways_mod1) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
-colnames(fibvsmcp_dapa_mod1) <- c("pathway", "neg_log_p_dapa", "ratio_dapa", "z_dapa", "genes_dapa")
-colnames(fibvsmcp_croc_mod1) <- c("pathway", "neg_log_p_placebo", "ratio_placebo", "z_placebo", "genes_placebo")
+colnames(vsmc_p_fib_pathways_mod1) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
+colnames(vsmc_p_fib_dapa_mod1) <- c("pathway", "neg_log_p_dapa", "ratio_dapa", "z_dapa", "genes_dapa")
+colnames(vsmc_p_fib_croc_mod1) <- c("pathway", "neg_log_p_placebo", "ratio_placebo", "z_placebo", "genes_placebo")
 
-fibvsmcp_pathways_merged_mod1 <- fibvsmcp_pathways_mod1 %>%
-  full_join(fibvsmcp_dapa_mod1) %>% full_join(fibvsmcp_croc_mod1) %>%
+vsmc_p_fib_pathways_merged_mod1 <- vsmc_p_fib_pathways_mod1 %>%
+  full_join(vsmc_p_fib_dapa_mod1) %>% full_join(vsmc_p_fib_croc_mod1) %>%
   dplyr::select(pathway, neg_log_p, z, neg_log_p_dapa, z_dapa, neg_log_p_placebo, z_placebo) %>%
   mutate(scenario = case_when(
     z_dapa > 0 & z_placebo > 0 & z_placebo < z_dapa ~ "Activated in both, more in D",
@@ -2984,7 +2772,7 @@ fibvsmcp_pathways_merged_mod1 <- fibvsmcp_pathways_mod1 %>%
     (z_dapa == 0) & z_placebo < 0 ~ "Stable in D, inhibited in P",
     z_dapa < 0 & (z_placebo == 0) ~ "Stable in P, inhibited in D"))
 
-fibvsmcp_pathways_merged_mod1$scenario <- factor(fibvsmcp_pathways_merged_mod1$scenario,
+vsmc_p_fib_pathways_merged_mod1$scenario <- factor(vsmc_p_fib_pathways_merged_mod1$scenario,
                                                  levels = c("Activated in D, stable/inhibited in P","Activated in both, more in D",
                                                             "Stable in D, inhibited in P","Inhibited in both, less in D",
                                                             "Activated in P, stable/inhibited in D","Activated in both, less in D",
@@ -2993,13 +2781,13 @@ fibvsmcp_pathways_merged_mod1$scenario <- factor(fibvsmcp_pathways_merged_mod1$s
 
 #### Inhibited Pathways
 ```{r echo = F}
-fibvsmcp_pathways_inhibited_mod1 <- fibvsmcp_pathways_merged_mod1 %>%
+vsmc_p_fib_pathways_inhibited_mod1 <- vsmc_p_fib_pathways_merged_mod1 %>%
   filter(z < 0) %>%
   arrange(dplyr::desc(neg_log_p))
 
-fibvsmcp_pathways_inhibited_mod1$pathway <- reorder(fibvsmcp_pathways_inhibited_mod1$pathway, fibvsmcp_pathways_inhibited_mod1$neg_log_p)
+vsmc_p_fib_pathways_inhibited_mod1$pathway <- reorder(vsmc_p_fib_pathways_inhibited_mod1$pathway, vsmc_p_fib_pathways_inhibited_mod1$neg_log_p)
 
-fibvsmcp_top30_inhibited_mod1 <- fibvsmcp_pathways_inhibited_mod1[1:30,] %>%
+vsmc_p_fib_top30_inhibited_mod1 <- vsmc_p_fib_pathways_inhibited_mod1[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
   scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
@@ -3025,20 +2813,20 @@ fibvsmcp_top30_inhibited_mod1 <- fibvsmcp_pathways_inhibited_mod1[1:30,] %>%
   scale_x_continuous(limits = c(0, 3), expand = c(0, 0)) +
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(add = 1)) 
-n_fibvsmcp_pathways_inhibited_mod1 <- fibvsmcp_pathways_inhibited_mod1 %>%
+n_vsmc_p_fib_pathways_inhibited_mod1 <- vsmc_p_fib_pathways_inhibited_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/fibvsmcp_top30_inhibited_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top30_inhibited_pathways_mod1_croc.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
-fibvsmcp_pathways_inhibited_sig_mod1 <- fibvsmcp_pathways_inhibited_mod1 %>%
+vsmc_p_fib_pathways_inhibited_sig_mod1 <- vsmc_p_fib_pathways_inhibited_mod1 %>%
   filter(z < -2)
-fibvsmcp_top30_inhibited_2_mod1 <- fibvsmcp_pathways_inhibited_sig_mod1[1:30,] %>%
+vsmc_p_fib_top30_inhibited_2_mod1 <- vsmc_p_fib_pathways_inhibited_sig_mod1[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
-  scale_size_continuous(range = c(min(-fibvsmcp_pathways_inhibited_sig_mod1$z), max(-fibvsmcp_pathways_inhibited_sig_mod1$z)),
+  scale_size_continuous(range = c(min(-vsmc_p_fib_pathways_inhibited_sig_mod1$z), max(-vsmc_p_fib_pathways_inhibited_sig_mod1$z)),
                         labels = function(x) paste0("-", x)) +
   geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
   geom_text(aes(group = pathway, color = scenario), hjust = 0, size = text1, nudge_x = 0.01) +
@@ -3063,19 +2851,19 @@ fibvsmcp_top30_inhibited_2_mod1 <- fibvsmcp_pathways_inhibited_sig_mod1[1:30,] %
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.3, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/fibvsmcp_top_inhibited_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top_inhibited_pathways_2_croc.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
 #### Activated Pathways
 ```{r echo = F}
-fibvsmcp_pathways_activated_mod1 <- fibvsmcp_pathways_merged_mod1 %>%
+vsmc_p_fib_pathways_activated_mod1 <- vsmc_p_fib_pathways_merged_mod1 %>%
   filter(z > 0) %>%
   arrange(dplyr::desc(neg_log_p))
 
-fibvsmcp_pathways_activated_mod1$pathway <- reorder(fibvsmcp_pathways_activated_mod1$pathway, fibvsmcp_pathways_activated_mod1$neg_log_p)
+vsmc_p_fib_pathways_activated_mod1$pathway <- reorder(vsmc_p_fib_pathways_activated_mod1$pathway, vsmc_p_fib_pathways_activated_mod1$neg_log_p)
 
-fibvsmcp_top30_activated_mod1 <- fibvsmcp_pathways_activated_mod1[1:30,] %>%
+vsmc_p_fib_top30_activated_mod1 <- vsmc_p_fib_pathways_activated_mod1[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
   scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
@@ -3101,20 +2889,20 @@ fibvsmcp_top30_activated_mod1 <- fibvsmcp_pathways_activated_mod1[1:30,] %>%
   scale_x_continuous(limits = c(0, 3), expand = c(0, 0)) +
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(add = 1)) 
-n_fibvsmcp_pathways_activated_mod1 <- fibvsmcp_pathways_activated_mod1 %>%
+n_vsmc_p_fib_pathways_activated_mod1 <- vsmc_p_fib_pathways_activated_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/fibvsmcp_top30_activated_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top30_activated_pathways_mod1_croc.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
-fibvsmcp_pathways_activated_sig_mod1 <- fibvsmcp_pathways_activated_mod1 %>%
+vsmc_p_fib_pathways_activated_sig_mod1 <- vsmc_p_fib_pathways_activated_mod1 %>%
   filter(z > 2)
-fibvsmcp_top30_activated_2_mod1 <- fibvsmcp_pathways_activated_sig_mod1[1:30,] %>%
+vsmc_p_fib_top30_activated_2_mod1 <- vsmc_p_fib_pathways_activated_sig_mod1[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
-  scale_size_continuous(range = c(min(fibvsmcp_pathways_activated_sig_mod1$z), max(fibvsmcp_pathways_activated_sig_mod1$z))) +
+  scale_size_continuous(range = c(min(vsmc_p_fib_pathways_activated_sig_mod1$z), max(vsmc_p_fib_pathways_activated_sig_mod1$z))) +
   geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
   geom_text(aes(group = pathway, color = scenario), hjust = 0, size = text1, nudge_x = 0.02) +
   theme_bw() +
@@ -3138,14 +2926,14 @@ fibvsmcp_top30_activated_2_mod1 <- fibvsmcp_pathways_activated_sig_mod1[1:30,] %
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/fibvsmcp_top_activated_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top_activated_pathways_2_croc.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
 #### Z-Score Bar charts
 ```{r echo = F, warning = F}
 ## z-scores in bar charts
-fibvsmcp_neg_pathways_merged_long_mod1 <- fibvsmcp_pathways_merged_mod1 %>% 
+vsmc_p_fib_neg_pathways_merged_long_mod1 <- vsmc_p_fib_pathways_merged_mod1 %>% 
   filter(z < 0) %>%
   head(10) %>%
   pivot_longer(cols = c("z", "z_dapa", "z_placebo")) %>%
@@ -3158,9 +2946,9 @@ fibvsmcp_neg_pathways_merged_long_mod1 <- fibvsmcp_pathways_merged_mod1 %>%
          a = case_when(name == "DiD" ~ 0.7,
                        name == "Dapagliflozin" ~ 0.8,
                        name == "Placebo" ~ 0.8))
-fibvsmcp_neg_pathways_merged_long_mod1$name <- factor(fibvsmcp_neg_pathways_merged_long_mod1$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
+vsmc_p_fib_neg_pathways_merged_long_mod1$name <- factor(vsmc_p_fib_neg_pathways_merged_long_mod1$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
 
-fibvsmcp_neg_pathways_merged_long_mod1 %>%
+vsmc_p_fib_neg_pathways_merged_long_mod1 %>%
   mutate(pathway = factor(pathway, levels = unique(pathway))) %>%
   ggplot(aes(x = pathway, y = value, fill = name)) +
   geom_bar(stat = "identity", position = "identity",
@@ -3181,10 +2969,10 @@ fibvsmcp_neg_pathways_merged_long_mod1 %>%
        title = "FIB/VSMC/P Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/fibvsmcp_top10_inhibited_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/vsmc_p_fib_top10_inhibited_pathway_zscores_croc.jpeg",
        scale = 1.5)
 
-fibvsmcp_pos_pathways_merged_long_mod1 <- fibvsmcp_pathways_merged_mod1 %>% 
+vsmc_p_fib_pos_pathways_merged_long_mod1 <- vsmc_p_fib_pathways_merged_mod1 %>% 
   filter(z > 0) %>%
   head(10) %>%
   pivot_longer(cols = c("z", "z_dapa", "z_placebo")) %>%
@@ -3197,10 +2985,10 @@ fibvsmcp_pos_pathways_merged_long_mod1 <- fibvsmcp_pathways_merged_mod1 %>%
          a = case_when(name == "DiD" ~ 0.7,
                        name == "Dapagliflozin" ~ 0.8,
                        name == "Placebo" ~ 0.8))
-fibvsmcp_pos_pathways_merged_long_mod1$name <- factor(fibvsmcp_pos_pathways_merged_long_mod1$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
+vsmc_p_fib_pos_pathways_merged_long_mod1$name <- factor(vsmc_p_fib_pos_pathways_merged_long_mod1$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
 
-fibvsmcp_pos_pathways_merged_long_mod1
-fibvsmcp_pos_pathways_merged_long_mod1 %>%
+vsmc_p_fib_pos_pathways_merged_long_mod1
+vsmc_p_fib_pos_pathways_merged_long_mod1 %>%
   mutate(pathway = factor(pathway, levels = unique(pathway))) %>%
   ggplot(aes(x = pathway, y = value, fill = name)) +
   geom_bar(stat = "identity", position = "identity",
@@ -3222,7 +3010,7 @@ fibvsmcp_pos_pathways_merged_long_mod1 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/fibvsmcp_top10_activated_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/vsmc_p_fib_top10_activated_pathway_zscores_croc.jpeg",
        scale = 1.5)
 ```
 
@@ -5140,16 +4928,16 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ### FIB/VSMC/P
 
 ```{r echo = F}
-fibvsmcp_pathways_mod2 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/2 Zero inflation and no nested visit/fibvsmcp_DiD_pathways_2.xls", skip = 1) 
-fibvsmcp_dapa_mod2 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/2 Zero inflation and no nested visit/fibvsmcp_dapa_pathways_2.xls", skip = 1) 
-fibvsmcp_croc_mod2 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/2 Zero inflation and no nested visit/fibvsmcp_croc_pathways_2.xls", skip = 1) 
+vsmc_p_fib_pathways_mod2 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/2 Zero inflation and no nested visit/vsmc_p_fib_DiD_pathways_2.xls", skip = 1) 
+vsmc_p_fib_dapa_mod2 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/2 Zero inflation and no nested visit/vsmc_p_fib_dapa_pathways_2.xls", skip = 1) 
+vsmc_p_fib_croc_mod2 <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/2 Zero inflation and no nested visit/vsmc_p_fib_croc_pathways_2.xls", skip = 1) 
 
-colnames(fibvsmcp_pathways_mod2) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
-colnames(fibvsmcp_dapa_mod2) <- c("pathway", "neg_log_p_dapa", "ratio_dapa", "z_dapa", "genes_dapa")
-colnames(fibvsmcp_croc_mod2) <- c("pathway", "neg_log_p_placebo", "ratio_placebo", "z_placebo", "genes_placebo")
+colnames(vsmc_p_fib_pathways_mod2) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
+colnames(vsmc_p_fib_dapa_mod2) <- c("pathway", "neg_log_p_dapa", "ratio_dapa", "z_dapa", "genes_dapa")
+colnames(vsmc_p_fib_croc_mod2) <- c("pathway", "neg_log_p_placebo", "ratio_placebo", "z_placebo", "genes_placebo")
 
-fibvsmcp_pathways_merged_mod2 <- fibvsmcp_pathways_mod2 %>%
-  full_join(fibvsmcp_dapa_mod2) %>% full_join(fibvsmcp_croc_mod2) %>%
+vsmc_p_fib_pathways_merged_mod2 <- vsmc_p_fib_pathways_mod2 %>%
+  full_join(vsmc_p_fib_dapa_mod2) %>% full_join(vsmc_p_fib_croc_mod2) %>%
   dplyr::select(pathway, neg_log_p, z, neg_log_p_dapa, z_dapa, neg_log_p_placebo, z_placebo) %>%
   mutate(scenario = case_when(
     z_dapa > 0 & z_placebo > 0 & z_placebo < z_dapa ~ "Activated in both, more in D",
@@ -5162,7 +4950,7 @@ fibvsmcp_pathways_merged_mod2 <- fibvsmcp_pathways_mod2 %>%
     (z_dapa == 0) & z_placebo < 0 ~ "Stable in D, inhibited in P",
     z_dapa < 0 & (z_placebo == 0) ~ "Stable in P, inhibited in D"))
 
-fibvsmcp_pathways_merged_mod2$scenario <- factor(fibvsmcp_pathways_merged_mod2$scenario,
+vsmc_p_fib_pathways_merged_mod2$scenario <- factor(vsmc_p_fib_pathways_merged_mod2$scenario,
                                                  levels = c("Activated in D, stable/inhibited in P","Activated in both, more in D",
                                                             "Stable in D, inhibited in P","Inhibited in both, less in D",
                                                             "Activated in P, stable/inhibited in D","Activated in both, less in D",
@@ -5171,13 +4959,13 @@ fibvsmcp_pathways_merged_mod2$scenario <- factor(fibvsmcp_pathways_merged_mod2$s
 
 #### Inhibited Pathways
 ```{r echo = F}
-fibvsmcp_pathways_inhibited_mod2 <- fibvsmcp_pathways_merged_mod2 %>%
+vsmc_p_fib_pathways_inhibited_mod2 <- vsmc_p_fib_pathways_merged_mod2 %>%
   filter(z < 0) %>%
   arrange(dplyr::desc(neg_log_p))
 
-fibvsmcp_pathways_inhibited_mod2$pathway <- reorder(fibvsmcp_pathways_inhibited_mod2$pathway, fibvsmcp_pathways_inhibited_mod2$neg_log_p)
+vsmc_p_fib_pathways_inhibited_mod2$pathway <- reorder(vsmc_p_fib_pathways_inhibited_mod2$pathway, vsmc_p_fib_pathways_inhibited_mod2$neg_log_p)
 
-fibvsmcp_top30_inhibited_mod2 <- fibvsmcp_pathways_inhibited_mod2[1:30,] %>%
+vsmc_p_fib_top30_inhibited_mod2 <- vsmc_p_fib_pathways_inhibited_mod2[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
   scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
@@ -5203,20 +4991,20 @@ fibvsmcp_top30_inhibited_mod2 <- fibvsmcp_pathways_inhibited_mod2[1:30,] %>%
   scale_x_continuous(limits = c(0, 8), expand = c(0, 0)) +
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(add = 1)) 
-n_fibvsmcp_pathways_inhibited_mod2 <- fibvsmcp_pathways_inhibited_mod2 %>%
+n_vsmc_p_fib_pathways_inhibited_mod2 <- vsmc_p_fib_pathways_inhibited_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/fibvsmcp_top30_inhibited_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top30_inhibited_pathways_mod2_croc.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
-fibvsmcp_pathways_inhibited_sig_mod2 <- fibvsmcp_pathways_inhibited_mod2 %>%
+vsmc_p_fib_pathways_inhibited_sig_mod2 <- vsmc_p_fib_pathways_inhibited_mod2 %>%
   filter(z < -2)
-fibvsmcp_top30_inhibited_2_mod2 <- fibvsmcp_pathways_inhibited_sig_mod2[1:30,] %>%
+vsmc_p_fib_top30_inhibited_2_mod2 <- vsmc_p_fib_pathways_inhibited_sig_mod2[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
-  scale_size_continuous(range = c(min(-fibvsmcp_pathways_inhibited_sig_mod2$z), max(-fibvsmcp_pathways_inhibited_sig_mod2$z)),
+  scale_size_continuous(range = c(min(-vsmc_p_fib_pathways_inhibited_sig_mod2$z), max(-vsmc_p_fib_pathways_inhibited_sig_mod2$z)),
                         labels = function(x) paste0("-", x)) +
   geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
   geom_text(aes(group = pathway, color = scenario), hjust = 0, size = text1, nudge_x = 0.01) +
@@ -5241,19 +5029,19 @@ fibvsmcp_top30_inhibited_2_mod2 <- fibvsmcp_pathways_inhibited_sig_mod2[1:30,] %
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.3, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/fibvsmcp_top_inhibited_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top_inhibited_pathways_2_mod2_croc.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
 #### Activated Pathways
 ```{r echo = F}
-fibvsmcp_pathways_activated_mod2 <- fibvsmcp_pathways_merged_mod2 %>%
+vsmc_p_fib_pathways_activated_mod2 <- vsmc_p_fib_pathways_merged_mod2 %>%
   filter(z > 0) %>%
   arrange(dplyr::desc(neg_log_p))
 
-fibvsmcp_pathways_activated_mod2$pathway <- reorder(fibvsmcp_pathways_activated_mod2$pathway, fibvsmcp_pathways_activated_mod2$neg_log_p)
+vsmc_p_fib_pathways_activated_mod2$pathway <- reorder(vsmc_p_fib_pathways_activated_mod2$pathway, vsmc_p_fib_pathways_activated_mod2$neg_log_p)
 
-fibvsmcp_top30_activated_mod2 <- fibvsmcp_pathways_activated_mod2[1:30,] %>%
+vsmc_p_fib_top30_activated_mod2 <- vsmc_p_fib_pathways_activated_mod2[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
   scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
@@ -5279,20 +5067,20 @@ fibvsmcp_top30_activated_mod2 <- fibvsmcp_pathways_activated_mod2[1:30,] %>%
   scale_x_continuous(limits = c(0, 12), expand = c(0, 0)) +
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(add = 1)) 
-n_fibvsmcp_pathways_activated_mod2 <- fibvsmcp_pathways_activated_mod2 %>%
+n_vsmc_p_fib_pathways_activated_mod2 <- vsmc_p_fib_pathways_activated_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/fibvsmcp_top30_activated_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top30_activated_pathways_mod2_croc.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
-fibvsmcp_pathways_activated_sig_mod2 <- fibvsmcp_pathways_activated_mod2 %>%
+vsmc_p_fib_pathways_activated_sig_mod2 <- vsmc_p_fib_pathways_activated_mod2 %>%
   filter(z > 2)
-fibvsmcp_top30_activated_2_mod2 <- fibvsmcp_pathways_activated_sig_mod2[1:30,] %>%
+vsmc_p_fib_top30_activated_2_mod2 <- vsmc_p_fib_pathways_activated_sig_mod2[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
-  scale_size_continuous(range = c(min(fibvsmcp_pathways_activated_sig_mod2$z), max(fibvsmcp_pathways_activated_sig_mod2$z))) +
+  scale_size_continuous(range = c(min(vsmc_p_fib_pathways_activated_sig_mod2$z), max(vsmc_p_fib_pathways_activated_sig_mod2$z))) +
   geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
   geom_text(aes(group = pathway, color = scenario), hjust = 0, size = text1, nudge_x = 0.02) +
   theme_bw() +
@@ -5316,14 +5104,14 @@ fibvsmcp_top30_activated_2_mod2 <- fibvsmcp_pathways_activated_sig_mod2[1:30,] %
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/fibvsmcp_top_activated_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top_activated_pathways_2_mod2_croc.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
 #### Z-Score Bar charts
 ```{r echo = F, warning = F}
 ## z-scores in bar charts
-fibvsmcp_neg_pathways_merged_long_mod2 <- fibvsmcp_pathways_merged_mod2 %>% 
+vsmc_p_fib_neg_pathways_merged_long_mod2 <- vsmc_p_fib_pathways_merged_mod2 %>% 
   filter(z < 0) %>%
   head(10) %>%
   pivot_longer(cols = c("z", "z_dapa", "z_placebo")) %>%
@@ -5336,9 +5124,9 @@ fibvsmcp_neg_pathways_merged_long_mod2 <- fibvsmcp_pathways_merged_mod2 %>%
          a = case_when(name == "DiD" ~ 0.7,
                        name == "Dapagliflozin" ~ 0.8,
                        name == "Placebo" ~ 0.8))
-fibvsmcp_neg_pathways_merged_long_mod2$name <- factor(fibvsmcp_neg_pathways_merged_long_mod2$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
+vsmc_p_fib_neg_pathways_merged_long_mod2$name <- factor(vsmc_p_fib_neg_pathways_merged_long_mod2$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
 
-fibvsmcp_neg_pathways_merged_long_mod2 %>%
+vsmc_p_fib_neg_pathways_merged_long_mod2 %>%
   mutate(pathway = factor(pathway, levels = unique(pathway))) %>%
   ggplot(aes(x = pathway, y = value, fill = name)) +
   geom_bar(stat = "identity", position = "identity",
@@ -5359,10 +5147,10 @@ fibvsmcp_neg_pathways_merged_long_mod2 %>%
        title = "FIB/VSMC/P Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/fibvsmcp_top10_inhibited_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/vsmc_p_fib_top10_inhibited_pathway_zscores_mod2_croc.jpeg",
        scale = 1.5)
 
-fibvsmcp_pos_pathways_merged_long_mod2 <- fibvsmcp_pathways_merged_mod2 %>% 
+vsmc_p_fib_pos_pathways_merged_long_mod2 <- vsmc_p_fib_pathways_merged_mod2 %>% 
   filter(z > 0) %>%
   head(10) %>%
   pivot_longer(cols = c("z", "z_dapa", "z_placebo")) %>%
@@ -5375,10 +5163,10 @@ fibvsmcp_pos_pathways_merged_long_mod2 <- fibvsmcp_pathways_merged_mod2 %>%
          a = case_when(name == "DiD" ~ 0.7,
                        name == "Dapagliflozin" ~ 0.8,
                        name == "Placebo" ~ 0.8))
-fibvsmcp_pos_pathways_merged_long_mod2$name <- factor(fibvsmcp_pos_pathways_merged_long_mod2$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
+vsmc_p_fib_pos_pathways_merged_long_mod2$name <- factor(vsmc_p_fib_pos_pathways_merged_long_mod2$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
 
-fibvsmcp_pos_pathways_merged_long_mod2
-fibvsmcp_pos_pathways_merged_long_mod2 %>%
+vsmc_p_fib_pos_pathways_merged_long_mod2
+vsmc_p_fib_pos_pathways_merged_long_mod2 %>%
   mutate(pathway = factor(pathway, levels = unique(pathway))) %>%
   ggplot(aes(x = pathway, y = value, fill = name)) +
   geom_bar(stat = "identity", position = "identity",
@@ -5400,7 +5188,7 @@ fibvsmcp_pos_pathways_merged_long_mod2 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/fibvsmcp_top10_activated_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/vsmc_p_fib_top10_activated_pathway_zscores_mod2_croc.jpeg",
        scale = 1.5)
 ```
 
@@ -5450,21 +5238,21 @@ ec_nc <- c(ec_nonconverged_percentage_mod1,
 
 ```{r echo = F}
 ## FIB/VSMC/P
-fibvsmcp_nc <- c(fibvsmcp_nonconverged_percentage_mod1,
-                 fibvsmcp_nonconverged_percentage_mod2)
+vsmc_p_fib_nc <- c(vsmc_p_fib_nonconverged_percentage_mod1,
+                 vsmc_p_fib_nonconverged_percentage_mod2)
 ```
 
 
 ```{r echo = F}
 mods <- c("Model 1 (Nested Visit, ZINB)",
           "Model 2 (No nested visit, ZINB)")
-mods_df <- data.frame(mods, pt_nc, tal_nc, pc_nc, immune_nc, ic_nc, ec_nc, fibvsmcp_nc)
+mods_df <- data.frame(mods, pt_nc, tal_nc, pc_nc, immune_nc, ic_nc, ec_nc, vsmc_p_fib_nc)
 colnames(mods_df) <- c("Model", "PT", "TAL", "PC", "Immune", "IC", "EC", "FIB, VSMC/P")
 kable(mods_df, digits = 2)
 ```
 
 ```{r echo = F}
-prefixes <- c("pt", "tal", "pc", "ic", "ec", "fibvsmcp", "immune")
+prefixes <- c("pt", "tal", "pc", "ic", "ec", "vsmc_p_fib", "immune")
 mods <- paste0("mod", 1:2)
 
 base_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/model comparison/"
