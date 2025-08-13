@@ -33,6 +33,7 @@ library(openxlsx)
 library(SomaPlotr)
 library(lme4)
 library(lmerTest)
+library(fgsea)
 
 # specify user for paths
 user <- Sys.info()[["user"]]
@@ -428,7 +429,7 @@ urine_did_sig <- did_res_urine_mixed$results_annotated %>%
   filter(P.Value < 0.05)
 
 urine_delta <- soma %>%
-  select(record_id, visit, treatment_arm, starts_with("seq") & ends_with("cradj")) %>%
+  dplyr::select(record_id, visit, treatment_arm, starts_with("seq") & ends_with("cradj")) %>%
   pivot_wider(
     names_from = visit,
     values_from = starts_with("seq"),
@@ -437,15 +438,13 @@ urine_delta <- soma %>%
   mutate(across(ends_with("_POST"), 
                 ~ . - get(sub("_POST$", "_PRE", cur_column())),
                 .names = "delta_{.col}")) %>%
-  select(record_id, treatment_arm, starts_with("delta_"))
+  dplyr::select(record_id, treatment_arm, starts_with("delta_"))
 
 s3saveRDS(urine_delta, "Proteomics/urine_cradj_proteomics_delta.RDS", "attempt", region = "")
 ```
 
 ```{r echo = F}
 # create mapping table for each celltype
-
-
 walk(celltypes, function(ct) {
   
   # Dynamically get the nebula results object based on cell type
@@ -454,9 +453,9 @@ walk(celltypes, function(ct) {
   sig <- nebula_obj %>%
     filter(`p_treatmentDapagliflozin:visitPOST` < 0.05)
   
-  map <- analytes_info %>%
+  map <- analytes_attempt %>%
     filter(EntrezGeneSymbol %in% unique(sig$Gene[sig$Gene %in% urine_did_sig$EntrezGeneSymbol])) %>%
-    select(Target, TargetFullName, AptName, EntrezGeneSymbol)
+    dplyr::select(Target, TargetFullName, AptName, EntrezGeneSymbol)
   
   write.csv(map, 
             file.path(root_path, paste0("ATTEMPT/Results/Somascan/", ct, "_urine_proteomics_map.csv")), 
@@ -976,4 +975,90 @@ ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Co
 # writeData(wb,"Change in PWV",corr_delta_PWV_mat,rowNames = F)
 # 
 # saveWorkbook(wb,file.path(root_path, "ATTEMPT/Results/Somascan/Somascan_clinical_correlations.xlsx"),overwrite = TRUE)
+```
+
+# Integration with scRNA (results from Hyak)
+
+```{r echo = F}
+pt_urine_raw <- s3readRDS("Proteomics/pt_nebula_urine_soma_res_kpmp.rds", "attempt", region = "")
+pt_urine_raw$results$ISG15_seq.14148.2_urine_cradj
+pt_urine <- process_nebula_results(pt_urine_raw$results, pval_col = "p_protein")$results
+pt_urine <- pt_urine %>%
+  mutate(Gene = sub("_.*", "", Gene))
+```
+
+```{r echo = F}
+plot_volcano(pt_urine, fc = "logFC_protein", p_col = "p_protein", x_axis = "logFC protein", y_axis = "-log10(p.value)", file_suffix = "_kpmp_pt_urine",
+             formula = "protein + treatment", cell_type = "PT") + 
+  geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+
+```
+
+```{r echo = F}
+tal_urine_raw <- s3readRDS("Proteomics/tal_nebula_urine_soma_res_kpmp.rds", "attempt", region = "")
+tal_urine_raw$results$ISG15_seq.14148.2_urine_cradj
+tal_urine <- process_nebula_results(tal_urine_raw$results, pval_col = "p_protein")$results
+tal_urine <- tal_urine %>%
+  mutate(Gene = sub("_.*", "", Gene))
+```
+
+```{r echo = F}
+plot_volcano(tal_urine, fc = "logFC_protein", p_col = "p_protein", x_axis = "logFC protein", y_axis = "-log10(p.value)", file_suffix = "_kpmp_tal_urine",
+             formula = "protein + treatment", cell_type = "TAL") + 
+  geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+
+```
+
+```{r echo = F}
+dct_urine_raw <- s3readRDS("Proteomics/dct_nebula_urine_soma_res_kpmp.rds", "attempt", region = "")
+dct_urine_raw$results$ISG15_seq.14148.2_urine_cradj
+dct_urine <- process_nebula_results(dct_urine_raw$results, pval_col = "p_protein")$results
+dct_urine <- dct_urine %>%
+  mutate(Gene = sub("_.*", "", Gene))
+```
+
+```{r echo = F}
+plot_volcano(dct_urine, fc = "logFC_protein", p_col = "p_protein", x_axis = "logFC protein", y_axis = "-log10(p.value)", file_suffix = "_kpmp_dct_urine",
+             formula = "protein + treatment", cell_type = "DCT") + 
+  geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+```
+
+
+# Looking for overlap between treatment DiD & proteomics DiD
+
+```{r echo = F}
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  # TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  # PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  # DCT = c("DCT","dDCT"), 
+  POD = "POD"
+)
+
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+# Full gene set
+for (cell in names(celltype_groups))  {
+print(paste0("Processing: ", cell))
+  input_path <- paste0("grouped/", cell, "/ALL/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+
+  processed <- process_nebula_results(cell_df)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp")
+
+  assign(var_name, processed$results)
+}
+```
+
+```{r echo = F}
+all_results <- batch_concordance_analysis(
+  protein_data = did_res_urine_mixed$results_annotated,
+  transcript_data_list = list(PT = pt_kpmp, IC = ic_kpmp, POD = pod_kpmp),
+  protein_source = 'urine',
+  output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/enrichr"
+)
 ```
