@@ -109,7 +109,7 @@ filename <- "/Clinical data/TODAY/ADDCBL.csv"
 full_path <- file.path(data_path, filename)
 addcbl_1 <- read.csv(full_path)
 addcbl_1$TIMEPOINT <- "1"
-# remove R visits
+# LP: remove R visits
 addcbl_1 <- addcbl_1 %>% filter(!mvisit == "R")
 
 #addcbl_2 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ADDCBL_TODAY2.csv")
@@ -130,6 +130,8 @@ full_path <- file.path(data_path, filename)
 pwv <- read.csv(full_path)
 
 # Quality of life questionnaires
+# LP: why are TODAY data not used and merged to echo timepoint?
+# LP: filenames don't match TODAY2 documentation - emailed Laure
 # CHANGE LOCAL DIRECTORY I was unable to access files directly from OneDrive, modify the path if needed 
 #pedsQL_A <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PEDSQLGA.csv")
 filename <- "/Clinical data/TODAY2/PEDSQLGA.csv"
@@ -385,7 +387,7 @@ ame_summary$clin_cvd <- ifelse(
 
 # Merge with comorb data
 comorb_ckm <- merge(comorb, ame_summary, by = "RELEASEID", all.x = TRUE)
-# LP NOTE: comorb_ckm has NAs instead of 0s for comorbidities
+# LP NOTE: comorb_ckm has NAs 
 
 # Biomarker extraction for various markers
 bnp_vals <- extract_biomarker_values(addcbl_1, "bnp")
@@ -624,10 +626,15 @@ echo_keep <- echo_keep %>%
   )
 
 # LP: doesn't this need to take timepoint into account?
+# echo_keep <- echo_keep %>%
+#   left_join(
+#     echo %>% select(RELEASEID, ladimen),
+#     by = "RELEASEID"
+#   )
 echo_keep <- echo_keep %>%
   left_join(
-    echo %>% select(RELEASEID, ladimen),
-    by = "RELEASEID"
+    echo %>% select(RELEASEID, TIMEPOINT, ladimen),
+    by = c("RELEASEID", "TIMEPOINT")
   )
 
 # Calculate LAVI estimation
@@ -653,6 +660,8 @@ echo_keep <- echo_keep %>%
 echo_keep$HFpEF_points <- 0
 
 # Get maximum BNP per participant
+# LP: this gets the max BNP and merges it to both echo time points 
+# would we want to use only BNP data up to the point of each echo?
 max_bnp_by_id <- aggregate(addcbl_1$bnp ~ addcbl_1$releaseid, data = addcbl_1, FUN = function(x) {
   if(all(is.na(x))) return(NA)
   return(max(x, na.rm = TRUE))
@@ -745,6 +754,8 @@ echo_hfpef2 <- echo_keep %>%
 # QUALITY OF LIFE (PedsQL) PROCESSING
 # =============================================================================
 
+# LP: why not use TODAY data?
+
 # Define columns to keep from PedsQL
 cols_to_keep <- c("RELEASEID", "DAYS", "G01WALK", "G02RUN", "G03SPORT",
                   "G04LIFT", "G05BATH", "G06CHORE", "G07HURT", "G08ENERG")
@@ -798,8 +809,6 @@ baseline <- baseline %>%
 baserisk <- baserisk %>% 
   rename(RELEASEID = releaseid)  # or whatever the actual column name is
 
-# LP NOTE: need to check if comorb event missing values need to be replaced with 0
-
 # Create main analysis dataset
 comorb_ckm2 <- comorb_ckm %>%
   left_join(biom_ckm %>% select(RELEASEID, high_trop0, high_trop1, high_bnp0, high_bnp1), 
@@ -811,20 +820,21 @@ comorb_ckm2 <- comorb_ckm %>%
   left_join(baseline %>% select(RELEASEID, bmi, sbp, dbp, wastcirc), by = "RELEASEID") %>%
   left_join(baserisk %>% select(RELEASEID, sex, AGEBASE), by = "RELEASEID")
 
+# LP: we don't need both versions of merging biomarker data with comorb_ckm2
 # Add all biomarker data
-biomarker_vars <- c("adiponectin", "hmwa", "edol", "shbg", "testosterone", "ualb", "ualbcreat",
-                   "il6", "il1", "hscrp", "apob", "mcp1", "tnfa", "tnfr1", "tnfr2", "icam1",
-                   "vcam1", "eselectin", "vegf", "fgf23", "bnp", "eGFR_FAS", "ckd_gfr")
-
-for (var in biomarker_vars) {
-  if (paste0(var, "_vals") %in% ls()) {
-    biomarker_data <- get(paste0(var, "_vals"))
-    if ("RELEASEID" %in% names(biomarker_data)) {
-      comorb_ckm2 <- comorb_ckm2 %>%
-        left_join(biomarker_data, by = "RELEASEID")
-    }
-  }
-}
+# biomarker_vars <- c("adiponectin", "hmwa", "edol", "shbg", "testosterone", "ualb", "ualbcreat",
+#                    "il6", "il1", "hscrp", "apob", "mcp1", "tnfa", "tnfr1", "tnfr2", "icam1",
+#                    "vcam1", "eselectin", "vegf", "fgf23", "bnp", "eGFR_FAS", "ckd_gfr")
+# 
+# for (var in biomarker_vars) {
+#   if (paste0(var, "_vals") %in% ls()) {
+#     biomarker_data <- get(paste0(var, "_vals"))
+#     if ("RELEASEID" %in% names(biomarker_data)) {
+#       comorb_ckm2 <- comorb_ckm2 %>%
+#         left_join(biomarker_data, by = "RELEASEID")
+#     }
+#   }
+# }
 
 # Merge all biomarker datasets at once
 all_biomarkers <- biomarker_list %>%
@@ -835,6 +845,7 @@ comorb_ckm2 <- comorb_ckm2 %>%
   left_join(all_biomarkers, by = "RELEASEID")
 
 # CKM Staging - Main classification
+# LP: MAC0/MAC1 meets criteria for both stage 4 and stage 2 plus?
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
     CKM_syn = case_when(
@@ -860,6 +871,7 @@ comorb_ckm2 <- comorb_ckm2 %>%
   )
 
 # CKM Staging with BMI inclusion
+# LP: Everyone has a BMI >= 30
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
     CKM_syn2 = case_when(
@@ -931,6 +943,7 @@ comorb_ckm2$CKM_syn2 <- factor(comorb_ckm2$CKM_syn2, levels = c("Stage2", "Stage
  #                                             "Coronary heart failure", "Left ventricular #systolic dysfunction", "Myocardial infarction", "PAD/vascular insufficiency", "Deep vein #thrombosis", "Stroke", "TIA", "Chronic kidney disease", "ESKD", "Death"))
 
 # Distribution of CKM stages
+# LP: would be more reproducible to use arsenal or tableone 
 table(comorb_ckm2$CKM_syn, useNA = "ifany")
 table(comorb_ckm2$CKM_syn2, useNA = "ifany")
 table(comorb_ckm2$CKM_syn_base, useNA = "ifany")
@@ -964,6 +977,7 @@ combined_followup <- comorb_ckm2 %>%
 test_results <- list()
 
 # Hypertension outcomes
+# LP: contingency tables should be chi-square or Fisher's exact
 test_results$hyp0_kruskal <- kruskal.test(HYP0 ~ CKM_syn2, data = comorb_ckm2)
 test_results$hyp_kruskal <- kruskal.test(HYP ~ CKM_syn2, data = comorb_ckm2)
 test_results$hyp0_dunn <- dunnTest(HYP0 ~ CKM_syn2, data = comorb_ckm2, method = "holm")
@@ -1018,6 +1032,7 @@ mcnemar_results <- unique(comorb_ckm2$CKM_syn_collapsed) %>%
   set_names(unique(comorb_ckm2$CKM_syn_collapsed))
 
 # Logistic regression models
+# LP: HTN is part of the definition of the CKM syndrome
 model_hyp0 <- glm(HYP0 ~ CKM_syn, data = comorb_ckm2, family = binomial)
 model_hyp <- glm(HYP ~ CKM_syn, data = comorb_ckm2, family = binomial)
 ```
@@ -1128,6 +1143,7 @@ print(p12)
 ### Create progression variables for both BMI and non-BMI comparisons
 
 # Create progression variables for both BMI and non-BMI comparisons
+# LP: these should be moved to the data section
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
     # Convert stages to numeric (without BMI)
@@ -1213,6 +1229,7 @@ comorb_ckm2 <- comorb_ckm2 %>%
 comorb_ckm2$GLYC
 
 # Logistic regression for progression
+# LP: this doesn't work because there are AGEBASE.x and AGEBASE.y
 model1 <- glm(progress_CKM ~ AGEBASE + sex + bmi + bnp_baseline + ualbcreat_baseline, 
               data = comorb_ckm2, family = binomial)
 

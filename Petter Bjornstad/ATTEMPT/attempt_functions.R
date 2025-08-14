@@ -24,8 +24,6 @@ if (user == "choiyej") { # local version
 
 # ATTEMPT analysis related functions
 
-# ATTEMPT analysis related functions
-
 #----------------------------------------------------------#
 # make_subsets
 #----------------------------------------------------------#
@@ -1954,7 +1952,6 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
   return(p)
 }
 
-
 # ===========================================================================
 # Function: create_gene_expression_plots
 # ===========================================================================
@@ -2138,6 +2135,10 @@ BCD"
   ))
 }
 
+# ===========================================================================
+# Function: create_dot_plot
+# ===========================================================================
+
 #' Create dot plot for gene expression
 create_dot_plot <- function(plot_data, x_colors, n_genes_per_direction, text_size = 10) {
   plot_data$Gene <- factor(plot_data$Gene, levels = (names(x_colors)))
@@ -2184,6 +2185,10 @@ create_dot_plot <- function(plot_data, x_colors, n_genes_per_direction, text_siz
     labs(x = NULL, y = NULL, color = "Direction")
 }
 
+# ===========================================================================
+# Function: calculate_weighted_consistency_scores
+# ===========================================================================
+
 #' Calculate weighted consistency scores for genes based on logFC differences
 calculate_weighted_consistency_scores <- function(plot_data, main_logfc_values, neg_genes, pos_genes, cell_type_labels) {
   # Join with main logFC values
@@ -2227,6 +2232,10 @@ calculate_weighted_consistency_scores <- function(plot_data, main_logfc_values, 
   
   return(weighted_scores)
 }
+
+# ===========================================================================
+# Function: create_bar_plot
+# ===========================================================================
 
 # Create bar plot for consistency scores
 create_bar_plot <- function(scores_data) {
@@ -4415,4 +4424,450 @@ run_fgsea_analysis <- function(bg_path,
     reactome = reactome_res,
     go = go_res
   ))
+}
+
+# ===========================================================================
+# Function: process_enrichr_data
+# ===========================================================================
+
+# Function to process enrichr results
+process_enrichr_data <- function(enrichr_result, response_type, top_n = 20) {
+  # Extract the Reactome 2022 results (or whichever database you used)
+  data <- enrichr_result[["Reactome_Pathways_2024"]] # Adjust database name as needed
+  
+  # Clean and process data
+  data_clean <- data %>%
+    filter(Adjusted.P.value < 0.05) %>%  # Filter significant pathways
+    head(top_n) %>%
+    mutate(
+      neg_log_p = -log10(P.value),
+      neg_log_adj_p = -log10(Adjusted.P.value),
+      gene_count = as.numeric(str_extract(Overlap, "\\d+")),
+      response_type = response_type,
+      # Create simplified pathway names for plotting
+      pathway_short = str_trunc(Term, 40),
+      # Assign categories based on pathway names
+      category = case_when(
+        str_detect(Term, "Immune|Neutrophil|Cytokine|Interferon|Interleukin") ~ "Immune",
+        str_detect(Term, "Metabolism|Metabolic|Amino Acid|Fatty Acid|Glucose") ~ "Metabolism", 
+        str_detect(Term, "Signal|Signaling|Receptor|Tyrosine|Growth Factor") ~ "Signaling",
+        str_detect(Term, "Proteasome|Autophagy|Ubiquitin|Degradation|Quality") ~ "Quality Control",
+        str_detect(Term, "Stress|Oxidative|Response|NFE2L2|KEAP1") ~ "Stress Response",
+        str_detect(Term, "Mitochondrial|Respiratory|Electron|ATP") ~ "Mitochondrial",
+        str_detect(Term, "Apoptosis|Cell Death|Programmed") ~ "Cell Death",
+        str_detect(Term, "Transport|Trafficking|Vesicle|Membrane") ~ "Transport",
+        TRUE ~ "Other"
+      )
+    )
+  
+  return(data_clean)
+}
+
+# ===========================================================================
+# Function: prepare_pathway_data
+# ===========================================================================
+
+# Process enrichr results
+prepare_pathway_data <- function(negative_paths_df, positive_paths_df, discordant_paths_df) {
+  # Process each dataset
+  negative_paths <- process_enrichr_data(negative_paths_df, "Negative")
+  positive_paths <- process_enrichr_data(positive_paths_df, "Positive") 
+  discordant_paths <- process_enrichr_data(discordant_paths_df, "Discordant")
+  
+  return(list(
+    negative = negative_paths,
+    positive = positive_paths,
+    discordant = discordant_paths
+  ))
+}
+
+# ===========================================================================
+# Function: perform_concordance_analysis
+# ===========================================================================
+
+# Generalized Concordance Analysis Function
+# Works for any cell type and protein source (urine/plasma)
+
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(enrichR)
+library(stringr)
+
+# Main function to perform concordance analysis
+perform_concordance_analysis <- function(
+    protein_data,             # The actual protein dataframe (not wrapped in results_annotated)
+    transcript_data,          # Single-cell transcript data 
+    celltype_name,            # Name for labeling (e.g., "PT", "LOH", etc.)
+    protein_source = "urine", # "urine" or "plasma" 
+    fdr_cutoff = 0.05,        # FDR cutoff for transcript significance
+    adj_p_cutoff = 0.05,      # Adjusted p-value cutoff for proteins
+    logfc_col = "logFC",      # Column name for protein logFC
+    adj_p_col = "adj.P.Val",  # Column name for adjusted p-value
+    gene_col = "EntrezGeneSymbol", # Column name for gene symbols
+    transcript_logfc_col = "logFC_treatmentDapagliflozin:visitPOST", # Transcript logFC column
+    save_plots = TRUE,        # Whether to save plots
+    output_dir = ".",         # Output directory for plots
+    databases = c("Reactome_Pathways_2024"), # Enrichr databases
+    max_overlaps = Inf,       # Max overlaps for text labels
+    volcano_width = 7,          # Plot width for saving
+    volcano_height = 7,         # Plot height for saving
+    bubble_width = 15,          # Plot width for saving
+    bubble_height = 7,          # Plot height for saving
+    positive_text = "Positive with Dapagliflozin",
+    negative_text = "Negative with Dapagliflozin"
+) {
+  
+  # Validate inputs
+  if (!protein_source %in% c("urine", "plasma")) {
+    stop("protein_source must be either 'urine' or 'plasma'")
+  }
+  
+  # Check if required columns exist
+  required_protein_cols <- c(logfc_col, adj_p_col, gene_col)
+  missing_cols <- required_protein_cols[!required_protein_cols %in% colnames(protein_data)]
+  if (length(missing_cols) > 0) {
+    stop("Missing columns in protein data: ", paste(missing_cols, collapse = ", "))
+  }
+  
+  # Check transcript data columns
+  if (!transcript_logfc_col %in% colnames(transcript_data)) {
+    stop("Missing transcript logFC column: ", transcript_logfc_col)
+  }
+  
+  # Add concordance classification if not already present
+  if (!"conc_class" %in% colnames(protein_data)) {
+    protein_data <- protein_data %>%
+      mutate(
+        label = case_when(
+          !!sym(gene_col) %in% subset(transcript_data, fdr < fdr_cutoff)$Gene & 
+            !!sym(adj_p_col) < adj_p_cutoff ~ !!sym(gene_col),
+          TRUE ~ ""
+        ),
+        transcript_direction = case_when(
+          !!sym(gene_col) %in% subset(transcript_data, !!sym(transcript_logfc_col) > 0)$Gene ~ "+",
+          !!sym(gene_col) %in% subset(transcript_data, !!sym(transcript_logfc_col) < 0)$Gene ~ "-",
+          TRUE ~ "No transcript data"  # Changed from " " to "No transcript data"
+        ),
+        # concordance relative to protein logFC
+        conc_class = case_when(
+          !!sym(logfc_col) >  0 & transcript_direction == "+" ~ "Concordant (+/+)",
+          !!sym(logfc_col) <  0 & transcript_direction == "-" ~ "Concordant (-/-)",
+          !!sym(logfc_col) >  0 & transcript_direction == "-" ~ "Discordant (+/-)",
+          !!sym(logfc_col) <  0 & transcript_direction == "+" ~ "Discordant (-/+)",
+          TRUE ~ "No transcript call"
+        )
+      )
+  } else {
+    # If conc_class exists, make sure we have label for plotting
+    if (!"label" %in% colnames(protein_data)) {
+      protein_data <- protein_data %>%
+        mutate(
+          label = case_when(
+            !!sym(gene_col) %in% subset(transcript_data, fdr < fdr_cutoff)$Gene & 
+              !!sym(adj_p_col) < adj_p_cutoff ~ !!sym(gene_col),
+            TRUE ~ ""
+          )
+        )
+    }
+    
+    # Update transcript_direction if it exists but uses the old " " format
+    if ("transcript_direction" %in% colnames(protein_data)) {
+      protein_data <- protein_data %>%
+        mutate(
+          transcript_direction = case_when(
+            transcript_direction == " " ~ "No transcript data",
+            TRUE ~ transcript_direction
+          )
+        )
+    }
+  }
+  
+  # Calculate counts
+  counts <- protein_data %>%
+    summarise(
+      n_pos_conc = sum(conc_class == "Concordant (+/+)", na.rm = TRUE),
+      n_neg_conc = sum(conc_class == "Concordant (-/-)", na.rm = TRUE),
+      n_disconc  = sum(conc_class %in% c("Discordant (+/-)", "Discordant (-/+)"), na.rm = TRUE),
+      n_no_tx    = sum(conc_class == "No transcript call", na.rm = TRUE)
+    )
+  
+  # Create caption text
+  cap_txt <- sprintf(
+    "Cell type: %s | Protein source: %s\n+ Concordant: %d | - Concordant: %d\nDiscordant: %d | No transcript data: %d",
+    celltype_name, protein_source, counts$n_pos_conc, counts$n_neg_conc, 
+    counts$n_disconc, counts$n_no_tx
+  )
+  
+  # Create volcano plot with directional annotations
+  # Max and min for annotation arrows
+  max_fc <- max(protein_data[[logfc_col]], na.rm = TRUE)
+  min_fc <- min(protein_data[[logfc_col]], na.rm = TRUE)
+  
+  # Get y-axis max for dynamic scaling
+  y_max <- max(-log10(protein_data[[adj_p_col]]), na.rm = TRUE)
+  
+  # Annotation parameters
+  arrow_padding <- 0.05  # How far below x-axis to put arrows
+  arrow_text_padding <- 0.08  # How far below arrows to put text
+  
+  volcano_plot <- protein_data %>%
+    ggplot(aes(x = !!sym(logfc_col), y = -log10(!!sym(adj_p_col)), color = transcript_direction)) +
+    geom_hline(yintercept = -log10(adj_p_cutoff), linetype = "dashed", color = "darkgrey") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "darkgrey") +
+    geom_point(alpha = 0.4) +
+    geom_text_repel(
+      aes(label = label),
+      size = 3, max.overlaps = max_overlaps, force = 30,
+      segment.alpha = 0.5, segment.size = 0.4,
+      min.segment.length = 0, segment.color = "#ced4da",
+      seed = 1234, label.size = 0
+    ) +
+    annotate("segment", 
+             x = max_fc/8, 
+             xend = (max_fc*7)/8, 
+             y = -y_max * arrow_padding,
+             col = "darkgrey", arrow = arrow(length = unit(0.2, "cm"))) +
+    annotate("text", 
+             x = mean(c(max_fc/8, (max_fc*7)/8)), 
+             y = -y_max * arrow_text_padding, 
+             label = positive_text,
+             size = 3, color = "#343a40") +
+    annotate("segment", 
+             x = min_fc/8, 
+             xend = (min_fc*7)/8, 
+             y = -y_max * arrow_padding,
+             col = "darkgrey", arrow = arrow(length = unit(0.2, "cm"))) +
+    annotate("text", 
+             x = mean(c(min_fc/8, (min_fc*7)/8)), 
+             y = -y_max * arrow_text_padding, 
+             label = negative_text,
+             size = 3, color = "#343a40") +
+    theme_minimal() +
+    theme(
+      panel.grid = element_blank(),
+      text = element_text(size = 10),
+      title = element_text(size = 11),
+      legend.position = "top",
+      legend.direction = "horizontal",
+      legend.spacing.x = unit(0.05, 'cm'),
+      plot.margin = margin(t = 10, r = 20, b = 25, l = 20),
+      axis.title.x = element_text(margin = margin(t = 32)),
+      plot.caption = element_text(size = 8.5, hjust = 0.5, margin = margin(t = 15)),
+      legend.margin = margin(t = 5, b = 5),
+      legend.title = element_blank()
+    ) +
+    scale_color_manual(
+      values = c("+" = "#f28482", "-" = "#457b9d", "No transcript data" = "#edede9"),
+      labels = c("+" = "Transcript ↑", "-" = "Transcript ↓", "No transcript data" = "No transcript data")
+    ) +
+    labs(x = paste0("logFC (", protein_source, " proteins)"), 
+         y = "-log10(adj p-value)",
+         caption = cap_txt)
+  
+  # Extract gene lists for pathway analysis
+  protein_neg <- protein_data %>%
+    filter(!!sym(logfc_col) < 0) %>% pull(!!sym(gene_col))
+  protein_pos <- protein_data %>%
+    filter(!!sym(logfc_col) > 0) %>% pull(!!sym(gene_col))
+  
+  transcript_neg <- transcript_data %>%
+    filter(!!sym(transcript_logfc_col) < 0) %>% 
+    pull(Gene)
+  transcript_pos <- transcript_data %>%
+    filter(!!sym(transcript_logfc_col) > 0) %>% 
+    pull(Gene)
+  
+  # Create concordant and discordant gene lists
+  neg_concordant <- protein_neg[protein_neg %in% transcript_neg]
+  pos_concordant <- protein_pos[protein_pos %in% transcript_pos]
+  discordant <- c(
+    protein_neg[protein_neg %in% transcript_pos], 
+    protein_pos[protein_pos %in% transcript_neg]
+  )
+  
+  # Remove empty strings and NA values
+  neg_concordant <- neg_concordant[neg_concordant != "" & !is.na(neg_concordant)]
+  pos_concordant <- pos_concordant[pos_concordant != "" & !is.na(pos_concordant)]
+  discordant <- discordant[discordant != "" & !is.na(discordant)]
+  
+  # Perform pathway enrichment analysis
+  enrichment_results <- list()
+  
+  if (length(neg_concordant) > 2) {  # Need at least 3 genes for enrichment
+    cat("Running enrichment for", length(neg_concordant), "negative concordant genes...\n")
+    enrichment_results$negative <- enrichr(neg_concordant, databases)
+  }
+  if (length(pos_concordant) > 2) {
+    cat("Running enrichment for", length(pos_concordant), "positive concordant genes...\n")
+    enrichment_results$positive <- enrichr(pos_concordant, databases)
+  }
+  if (length(discordant) > 2) {
+    cat("Running enrichment for", length(discordant), "discordant genes...\n")
+    enrichment_results$discordant <- enrichr(discordant, databases)
+  }
+  
+  # Create bubble plot if we have enrichment results
+  bubble_plot <- NULL
+  if (length(enrichment_results) > 0) {
+    
+    tryCatch({
+      pathway_data <- prepare_pathway_data_generic(enrichment_results, databases[1])
+      
+      if (nrow(pathway_data) > 0) {
+        bubble_plot <- pathway_data %>%
+          ggplot(aes(x = Odds.Ratio, y = -log10(Adjusted.P.value), color = response_type)) +
+          geom_point(aes(size = gene_count), alpha = 0.6) +
+          geom_text_repel(
+            aes(label = pathway_short), 
+            max.overlaps = max_overlaps,
+            force = 15, 
+            segment.alpha = 0.3, 
+            segment.size = 0.3,
+            size = 3
+          ) +
+          theme_minimal() +
+          scale_size_continuous(range = c(2, 8), name = "Gene Count") +
+          theme(
+            text = element_text(size = 10),
+            panel.grid = element_blank(),
+            legend.position = "right"
+          ) +
+          scale_x_log10() +
+          scale_y_log10() +
+          scale_color_manual(values = c(
+            "Positive" = "#f28482",
+            "Negative" = "#457b9d",
+            "Discordant" = "#3a5a40"
+          )) +
+          labs(
+            color = "Concordance",
+            x = "Odds Ratio",
+            y = "-log10(Adjusted P-value)"
+          )
+      }
+    }, error = function(e) {
+      warning("Could not create bubble plot: ", e$message)
+    })
+  }
+  
+  # Save plots if requested
+  if (save_plots && !is.null(output_dir)) {
+    if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE)
+    }
+    
+    volcano_filename <- file.path(output_dir, paste0(tolower(celltype_name), "_", 
+                                                     protein_source, "_volcano.jpeg"))
+    ggsave(volcano_filename, volcano_plot, width = volcano_width, height = volcano_height)
+    cat("Volcano plot saved:", volcano_filename, "\n")
+    
+    if (!is.null(bubble_plot)) {
+      bubble_filename <- file.path(output_dir, paste0(tolower(celltype_name), "_", 
+                                                      protein_source, "_pathways.jpeg"))
+      ggsave(bubble_filename, bubble_plot, width = bubble_width, height = bubble_height)
+      cat("Pathway bubble plot saved:", bubble_filename, "\n")
+    }
+  }
+  
+  # Return results
+  results <- list(
+    counts = counts,
+    gene_lists = list(
+      negative_concordant = neg_concordant,
+      positive_concordant = pos_concordant,
+      discordant = discordant
+    ),
+    enrichment_results = enrichment_results,
+    annotated_data = protein_data,
+    plots = list(
+      volcano = volcano_plot,
+      bubble = bubble_plot
+    ),
+    summary = list(
+      celltype = celltype_name,
+      protein_source = protein_source,
+      total_proteins = nrow(protein_data),
+      significant_proteins = sum(protein_data[[adj_p_col]] < adj_p_cutoff, na.rm = TRUE),
+      overlapping_genes = length(neg_concordant) + length(pos_concordant) + length(discordant)
+    )
+  )
+  
+  return(results)
+}
+
+# ===========================================================================
+# Function: prepare_pathway_data_generic
+# ===========================================================================
+
+# Helper function to process pathway data generically
+prepare_pathway_data_generic <- function(enrichment_results, database_name) {
+  
+  pathway_list <- list()
+  
+  for (response_type in names(enrichment_results)) {
+    if (database_name %in% names(enrichment_results[[response_type]])) {
+      data <- enrichment_results[[response_type]][[database_name]]
+      
+      if (nrow(data) > 0) {
+        processed_data <- data %>%
+          filter(Adjusted.P.value < 0.05) %>%
+          head(20) %>%
+          mutate(
+            response_type = case_when(
+              response_type == "negative" ~ "Negative",
+              response_type == "positive" ~ "Positive", 
+              response_type == "discordant" ~ "Discordant"
+            ),
+            gene_count = as.numeric(stringr::str_extract(Overlap, "\\d+")),
+            pathway_short = stringr::str_trunc(Term, 40)
+          )
+        
+        pathway_list[[response_type]] <- processed_data
+      }
+    }
+  }
+  
+  if (length(pathway_list) > 0) {
+    return(do.call(rbind, pathway_list))
+  } else {
+    return(data.frame())
+  }
+}
+
+# ===========================================================================
+# Function: batch_concordance_analysis
+# ===========================================================================
+
+# Batch analysis function for multiple cell types with single protein dataset
+batch_concordance_analysis <- function(
+    protein_data,             # Single protein dataframe (same urine/plasma for all cell types)
+    transcript_data_list,     # Named list of transcript data (e.g., list(PT = pt_kpmp, LOH = loh_kpmp))
+    protein_source = "urine", # "urine" or "plasma"
+    output_dir = ".",         # Output directory
+    ...                       # Additional arguments passed to perform_concordance_analysis
+) {
+  
+  results_list <- list()
+  
+  for (celltype in names(transcript_data_list)) {
+    cat("Processing", celltype, "vs", protein_source, "proteomics...\n")
+    
+    # Create cell-type specific output directory
+    celltype_dir <- file.path(output_dir, celltype)
+    if (!dir.exists(celltype_dir)) {
+      dir.create(celltype_dir, recursive = TRUE)
+    }
+    
+    results_list[[celltype]] <- perform_concordance_analysis(
+      protein_data = protein_data,                          # Same protein data for all
+      transcript_data = transcript_data_list[[celltype]],   # Different transcript data
+      celltype_name = celltype,
+      protein_source = protein_source,
+      output_dir = celltype_dir,
+      ...
+    )
+  }
+  
+  return(results_list)
 }

@@ -11,8 +11,6 @@ format:
     embed-resources: true
 ---
 
-# ADD TCA cycle/oxphos genes
-
 
 ```{r echo = F, include = F}
 library(jsonlite)
@@ -111,7 +109,10 @@ for (cell in names(celltype_groups))  {
   var_name <- paste0(tolower(cell), "_hvg_kpmp")
   assign(var_name, annotated_df, envir = .GlobalEnv)
   
-  write.csv(annotated_df, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/", tolower(cell), "_kpmp_hvg_res.csv"), row.names = F)
+  var_name <- paste0(lower_cell, "_hvg_kpmp_cov")
+  assign(var_name, processed$overdispersion)
+  
+  # write.csv(annotated_df, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/", tolower(cell), "_kpmp_hvg_res.csv"), row.names = F)
 }
 
 # Top 2000 HVG subtypes
@@ -150,6 +151,9 @@ for (cell in unlist(celltype_groups))  {
   var_name <- paste0(lower_cell, "_hvg_kpmp")
   print(var_name)
   assign(var_name, processed$results)
+  
+  var_name <- paste0(lower_cell, "_hvg_kpmp_cov")
+  assign(var_name, processed$overdispersion)
 }
 
 # # Full gene set
@@ -183,7 +187,7 @@ for (cell in unlist(celltype_groups))  {
 ```
 
 
-```{r echo = F}
+```{r echo = F, eval = F}
 top50_wb <- createWorkbook()
 
 # Loop through and extract top 50 genes per cell type
@@ -201,42 +205,18 @@ for (cell in names(celltype_groups))  {
   writeData(top50_wb, sheet = cell, x = top_genes)
 }
 
-# Save the workbook
-saveWorkbook(top50_wb, file = "//Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/top50_hvg_nebula_results_by_kpmp_celltype.xlsx", overwrite = TRUE)
+# # Save the workbook
+# saveWorkbook(top50_wb, file = "//Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/top50_hvg_nebula_results_by_kpmp_celltype.xlsx", overwrite = TRUE)
+```
+
+# Volcanos
+
+```{r echo = F}
+
+
 ```
 
 ### PT
-
-#### DiD Treatment subset
-
-```{r echo = F}
-pt_hvg_kpmp_sig <- pt_hvg_kpmp[pt_hvg_kpmp$fdr < 0.05,]
-placebo_change <- pt_hvg_kpmp_sig$logFC_visitPOST
-dapa_change <- placebo_change + pt_hvg_kpmp_sig$`logFC_treatmentDapagliflozin:visitPOST`
-
-# Classify the response
-response_type <- case_when(
-  placebo_change > 0 & dapa_change > placebo_change ~ "Enhanced increase",
-  placebo_change > 0 & dapa_change <= 0 ~ "Reversed increase", 
-  placebo_change < 0 & dapa_change > 0 ~ "Reversed decrease",
-  placebo_change < 0 & dapa_change < placebo_change ~ "Enhanced decrease",
-  placebo_change < 0 & dapa_change > placebo_change ~ "Attenuated decrease",
-  placebo_change > 0 & dapa_change < placebo_change ~ "Attenuated increase"
-)
-
-pt_treatment_df <- data.frame(placebo_change = placebo_change,
-                              dapa_change = dapa_change,
-                              response_type = response_type,
-                              Gene = pt_hvg_kpmp_sig$Gene)
-```
-
-
-```{r echo = F}
-pt_hvg_kpmp_sig %>% left_join(pt_treatment_df) %>%
-  arrange(fdr) %>%
-  filter(`logFC_treatmentDapagliflozin:visitPOST`>0) %>%
-  head(20)
-```
 
 #### REML + pooled Offset
 
@@ -263,75 +243,13 @@ plot_volcano(pt_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST",
 #### IPA input save
 
 ```{r echo = F, eval = F}
-# pull covariance matrix for p-value calculations
-pt_hvg_kpmp <- pt_hvg_kpmp %>%
-  rowwise() %>%
-  mutate(
-    # Derived logFCs
-    placebo_pre = `logFC_(Intercept)`,
-    placebo_post = placebo_pre + logFC_visitPOST,
-    dapa_pre = placebo_pre + logFC_treatmentDapagliflozin,
-    dapa_post = dapa_pre + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-    placebo_post_pre = placebo_post - placebo_pre,
-    dapa_post_pre = dapa_post - dapa_pre,
-    DiD = dapa_post_pre - placebo_post_pre,
-    
-    # Extract coefficients and SEs
-    b2 = logFC_visitPOST,
-    b3 = `logFC_treatmentDapagliflozin:visitPOST`,
-    se2 = se_visitPOST,
-    se3 = `se_treatmentDapagliflozin:visitPOST`,
-    
-    # Extract scalar covariance value from index 9 (Cov[3,4]) of lower triangle
-    cov_b2_b3 = unlist(nebula_pt_results_list_reml_pooled[[Gene]]$covariance)[9],
-    
-    # Calculate SE for dapa_post_pre = b2 + b3
-    se_dapa_post_pre = sqrt(se2^2 + se3^2 + 2 * cov_b2_b3),
-    
-    # Z-scores and p-values
-    z_placebo_post_pre = b2 / se2,
-    z_dapa_post_pre = (b2 + b3) / se_dapa_post_pre,
-    z_DiD = b3 / se3,
-    
-    p_placebo_post_pre = 2 * pnorm(-abs(z_placebo_post_pre)),
-    p_dapa_post_pre = 2 * pnorm(-abs(z_dapa_post_pre)),
-    p_DiD = 2 * pnorm(-abs(z_DiD))
-  ) %>%
-  ungroup()
-
-# pt_hvg_kpmp
-pt_hvg_kpmp <- pt_hvg_kpmp %>%
-  mutate(placebo_pre = logFC_Intercept,
-         placebo_post = logFC_Intercept + logFC_visitPOST,
-         dapa_pre = logFC_Intercept + logFC_treatmentDapagliflozin,
-         dapa_post = logFC_Intercept + logFC_treatmentDapagliflozin + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-         placebo_post_pre = placebo_post - placebo_pre,
-         dapa_post_pre = dapa_post - dapa_pre,
-         DiD = dapa_post_pre - placebo_post_pre)
-
 # save input for IPA
 ## Interaction or DiD
 pt_nebula_pooled_ipa_DiD <- pt_hvg_kpmp %>%
   dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
 colnames(pt_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
 
-write.csv(pt_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/pt_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-
-## Placebo (or Visit)
-pt_nebula_pooled_ipa_placebo <- pt_hvg_kpmp %>%
-  dplyr::select(Gene, placebo_post_pre, p_placebo_post_pre) %>%
-  mutate(fdr_placebo_post_pre = p.adjust(p_placebo_post_pre, method = "fdr"))
-colnames(pt_nebula_pooled_ipa_placebo) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(pt_nebula_pooled_ipa_placebo, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/pt_nebula_pooled_ipa_input_placebo.csv", row.names = F)
-
-## Dapagliflozin
-pt_nebula_pooled_ipa_dapa <- pt_hvg_kpmp %>%
-  dplyr::select(Gene, dapa_post_pre, p_dapa_post_pre) %>%
-  mutate(fdr_dapa_post_pre = p.adjust(p_dapa_post_pre, method = "fdr"))
-colnames(pt_nebula_pooled_ipa_dapa) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(pt_nebula_pooled_ipa_dapa, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/pt_nebula_pooled_ipa_input_dapa.csv", row.names = F)
+write.csv(pt_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/pt_nebula_pooled_ipa_input_DiD.csv", row.names = F)
 ```
 
 
@@ -480,75 +398,13 @@ plot_volcano(tal_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST",
 #### IPA input save
 
 ```{r echo = F, eval = F}
-# pull covariance matrix for p-value calculations
-tal_hvg_kpmp <- tal_hvg_kpmp %>%
-  rowwise() %>%
-  mutate(
-    # Derived logFCs
-    placebo_pre = logFC_Intercept,
-    placebo_post = placebo_pre + logFC_visitPOST,
-    dapa_pre = placebo_pre + logFC_treatmentDapagliflozin,
-    dapa_post = dapa_pre + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-    placebo_post_pre = placebo_post - placebo_pre,
-    dapa_post_pre = dapa_post - dapa_pre,
-    DiD = dapa_post_pre - placebo_post_pre,
-    
-    # Extract coefficients and SEs
-    b2 = logFC_visitPOST,
-    b3 = `logFC_treatmentDapagliflozin:visitPOST`,
-    se2 = se_visitPOST,
-    se3 = `se_treatmentDapagliflozin:visitPOST`,
-    
-    # Extract scalar covariance value from index 9 (Cov[3,4]) of lower triangle
-    cov_b2_b3 = unlist(nebula_tal_results_list_reml_pooled[[Gene]]$covariance)[9],
-    
-    # Calculate SE for dapa_post_pre = b2 + b3
-    se_dapa_post_pre = sqrt(se2^2 + se3^2 + 2 * cov_b2_b3),
-    
-    # Z-scores and p-values
-    z_placebo_post_pre = b2 / se2,
-    z_dapa_post_pre = (b2 + b3) / se_dapa_post_pre,
-    z_DiD = b3 / se3,
-    
-    p_placebo_post_pre = 2 * pnorm(-abs(z_placebo_post_pre)),
-    p_dapa_post_pre = 2 * pnorm(-abs(z_dapa_post_pre)),
-    p_DiD = 2 * pnorm(-abs(z_DiD))
-  ) %>%
-  ungroup()
-
-# tal_hvg_kpmp
-tal_hvg_kpmp <- tal_hvg_kpmp %>%
-  mutate(placebo_pre = logFC_Intercept,
-         placebo_post = logFC_Intercept + logFC_visitPOST,
-         dapa_pre = logFC_Intercept + logFC_treatmentDapagliflozin,
-         dapa_post = logFC_Intercept + logFC_treatmentDapagliflozin + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-         placebo_post_pre = placebo_post - placebo_pre,
-         dapa_post_pre = dapa_post - dapa_pre,
-         DiD = dapa_post_pre - placebo_post_pre)
-
 # save input for IPA
 ## Interaction or DiD
 tal_nebula_pooled_ipa_DiD <- tal_hvg_kpmp %>%
   dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
 colnames(tal_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
 
-write.csv(tal_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/tal_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-
-## Placebo (or Visit)
-tal_nebula_pooled_ipa_placebo <- tal_hvg_kpmp %>%
-  dplyr::select(Gene, placebo_post_pre, p_placebo_post_pre) %>%
-  mutate(fdr_placebo_post_pre = p.adjust(p_placebo_post_pre, method = "fdr"))
-colnames(tal_nebula_pooled_ipa_placebo) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(tal_nebula_pooled_ipa_placebo, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/tal_nebula_pooled_ipa_input_placebo.csv", row.names = F)
-
-## Dapagliflozin
-tal_nebula_pooled_ipa_dapa <- tal_hvg_kpmp %>%
-  dplyr::select(Gene, dapa_post_pre, p_dapa_post_pre) %>%
-  mutate(fdr_dapa_post_pre = p.adjust(p_dapa_post_pre, method = "fdr"))
-colnames(tal_nebula_pooled_ipa_dapa) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(tal_nebula_pooled_ipa_dapa, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/tal_nebula_pooled_ipa_input_dapa.csv", row.names = F)
+write.csv(tal_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/tal_nebula_pooled_ipa_input_DiD.csv", row.names = F)
 ```
 
 
@@ -662,75 +518,13 @@ plot_volcano(pc_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST",
 #### IPA input save
 
 ```{r echo = F, eval = F}
-# pull covariance matrix for p-value calculations
-pc_hvg_kpmp <- pc_hvg_kpmp %>%
-  rowwise() %>%
-  mutate(
-    # Derived logFCs
-    placebo_pre = logFC_Intercept,
-    placebo_post = placebo_pre + logFC_visitPOST,
-    dapa_pre = placebo_pre + logFC_treatmentDapagliflozin,
-    dapa_post = dapa_pre + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-    placebo_post_pre = placebo_post - placebo_pre,
-    dapa_post_pre = dapa_post - dapa_pre,
-    DiD = dapa_post_pre - placebo_post_pre,
-    
-    # Extract coefficients and SEs
-    b2 = logFC_visitPOST,
-    b3 = `logFC_treatmentDapagliflozin:visitPOST`,
-    se2 = se_visitPOST,
-    se3 = `se_treatmentDapagliflozin:visitPOST`,
-    
-    # Extract scalar covariance value from index 9 (Cov[3,4]) of lower triangle
-    cov_b2_b3 = unlist(nebula_pc_results_list_reml_pooled[[Gene]]$covariance)[9],
-    
-    # Calculate SE for dapa_post_pre = b2 + b3
-    se_dapa_post_pre = sqrt(se2^2 + se3^2 + 2 * cov_b2_b3),
-    
-    # Z-scores and p-values
-    z_placebo_post_pre = b2 / se2,
-    z_dapa_post_pre = (b2 + b3) / se_dapa_post_pre,
-    z_DiD = b3 / se3,
-    
-    p_placebo_post_pre = 2 * pnorm(-abs(z_placebo_post_pre)),
-    p_dapa_post_pre = 2 * pnorm(-abs(z_dapa_post_pre)),
-    p_DiD = 2 * pnorm(-abs(z_DiD))
-  ) %>%
-  ungroup()
-
-# pc_hvg_kpmp
-pc_hvg_kpmp <- pc_hvg_kpmp %>%
-  mutate(placebo_pre = logFC_Intercept,
-         placebo_post = logFC_Intercept + logFC_visitPOST,
-         dapa_pre = logFC_Intercept + logFC_treatmentDapagliflozin,
-         dapa_post = logFC_Intercept + logFC_treatmentDapagliflozin + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-         placebo_post_pre = placebo_post - placebo_pre,
-         dapa_post_pre = dapa_post - dapa_pre,
-         DiD = dapa_post_pre - placebo_post_pre)
-
 # save input for IPA
 ## Interaction or DiD
 pc_nebula_pooled_ipa_DiD <- pc_hvg_kpmp %>%
   dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
 colnames(pc_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
 
-write.csv(pc_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/pc_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-
-## Placebo (or Visit)
-pc_nebula_pooled_ipa_placebo <- pc_hvg_kpmp %>%
-  dplyr::select(Gene, placebo_post_pre, p_placebo_post_pre) %>%
-  mutate(fdr_placebo_post_pre = p.adjust(p_placebo_post_pre, method = "fdr"))
-colnames(pc_nebula_pooled_ipa_placebo) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(pc_nebula_pooled_ipa_placebo, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/pc_nebula_pooled_ipa_input_placebo.csv", row.names = F)
-
-## Dapagliflozin
-pc_nebula_pooled_ipa_dapa <- pc_hvg_kpmp %>%
-  dplyr::select(Gene, dapa_post_pre, p_dapa_post_pre) %>%
-  mutate(fdr_dapa_post_pre = p.adjust(p_dapa_post_pre, method = "fdr"))
-colnames(pc_nebula_pooled_ipa_dapa) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(pc_nebula_pooled_ipa_dapa, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/pc_nebula_pooled_ipa_input_dapa.csv", row.names = F)
+write.csv(pc_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/pc_nebula_pooled_ipa_input_DiD.csv", row.names = F)
 ```
 
 #### PC Subtypes
@@ -844,75 +638,13 @@ plot_volcano(immune_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST",
 #### IPA input save
 
 ```{r echo = F, eval = F}
-# pull covariance matrix for p-value calculations
-immune_hvg_kpmp <- immune_hvg_kpmp %>%
-  rowwise() %>%
-  mutate(
-    # Derived logFCs
-    placebo_pre = logFC_Intercept,
-    placebo_post = placebo_pre + logFC_visitPOST,
-    dapa_pre = placebo_pre + logFC_treatmentDapagliflozin,
-    dapa_post = dapa_pre + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-    placebo_post_pre = placebo_post - placebo_pre,
-    dapa_post_pre = dapa_post - dapa_pre,
-    DiD = dapa_post_pre - placebo_post_pre,
-    
-    # Extract coefficients and SEs
-    b2 = logFC_visitPOST,
-    b3 = `logFC_treatmentDapagliflozin:visitPOST`,
-    se2 = se_visitPOST,
-    se3 = `se_treatmentDapagliflozin:visitPOST`,
-    
-    # Extract scalar covariance value from index 9 (Cov[3,4]) of lower triangle
-    cov_b2_b3 = unlist(nebula_immune_results_list_reml_pooled[[Gene]]$covariance)[9],
-    
-    # Calculate SE for dapa_post_pre = b2 + b3
-    se_dapa_post_pre = sqrt(se2^2 + se3^2 + 2 * cov_b2_b3),
-    
-    # Z-scores and p-values
-    z_placebo_post_pre = b2 / se2,
-    z_dapa_post_pre = (b2 + b3) / se_dapa_post_pre,
-    z_DiD = b3 / se3,
-    
-    p_placebo_post_pre = 2 * pnorm(-abs(z_placebo_post_pre)),
-    p_dapa_post_pre = 2 * pnorm(-abs(z_dapa_post_pre)),
-    p_DiD = 2 * pnorm(-abs(z_DiD))
-  ) %>%
-  ungroup()
-
-# immune_hvg_kpmp
-immune_hvg_kpmp <- immune_hvg_kpmp %>%
-  mutate(placebo_pre = logFC_Intercept,
-         placebo_post = logFC_Intercept + logFC_visitPOST,
-         dapa_pre = logFC_Intercept + logFC_treatmentDapagliflozin,
-         dapa_post = logFC_Intercept + logFC_treatmentDapagliflozin + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-         placebo_post_pre = placebo_post - placebo_pre,
-         dapa_post_pre = dapa_post - dapa_pre,
-         DiD = dapa_post_pre - placebo_post_pre)
-
 # save input for IPA
 ## Interaction or DiD
 immune_nebula_pooled_ipa_DiD <- immune_hvg_kpmp %>%
   dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
 colnames(immune_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
 
-write.csv(immune_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/immune_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-
-## Placebo (or Visit)
-immune_nebula_pooled_ipa_placebo <- immune_hvg_kpmp %>%
-  dplyr::select(Gene, placebo_post_pre, p_placebo_post_pre) %>%
-  mutate(fdr_placebo_post_pre = p.adjust(p_placebo_post_pre, method = "fdr"))
-colnames(immune_nebula_pooled_ipa_placebo) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(immune_nebula_pooled_ipa_placebo, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/immune_nebula_pooled_ipa_input_placebo.csv", row.names = F)
-
-## Dapagliflozin
-immune_nebula_pooled_ipa_dapa <- immune_hvg_kpmp %>%
-  dplyr::select(Gene, dapa_post_pre, p_dapa_post_pre) %>%
-  mutate(fdr_dapa_post_pre = p.adjust(p_dapa_post_pre, method = "fdr"))
-colnames(immune_nebula_pooled_ipa_dapa) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(immune_nebula_pooled_ipa_dapa, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/immune_nebula_pooled_ipa_input_dapa.csv", row.names = F)
+write.csv(immune_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/immune_nebula_pooled_ipa_input_DiD.csv", row.names = F)
 ```
 
 #### Immune Subtypes
@@ -1020,75 +752,13 @@ plot_volcano(immune_myeloid_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST",
 #### IPA input save
 
 ```{r echo = F, eval = F}
-# pull covariance matrix for p-value calculations
-immune_myeloid_hvg_kpmp <- immune_myeloid_hvg_kpmp %>%
-  rowwise() %>%
-  mutate(
-    # Derived logFCs
-    placebo_pre = logFC_Intercept,
-    placebo_post = placebo_pre + logFC_visitPOST,
-    dapa_pre = placebo_pre + logFC_treatmentDapagliflozin,
-    dapa_post = dapa_pre + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-    placebo_post_pre = placebo_post - placebo_pre,
-    dapa_post_pre = dapa_post - dapa_pre,
-    DiD = dapa_post_pre - placebo_post_pre,
-    
-    # Extract coefficients and SEs
-    b2 = logFC_visitPOST,
-    b3 = `logFC_treatmentDapagliflozin:visitPOST`,
-    se2 = se_visitPOST,
-    se3 = `se_treatmentDapagliflozin:visitPOST`,
-    
-    # Extract scalar covariance value from index 9 (Cov[3,4]) of lower triangle
-    cov_b2_b3 = unlist(nebula_immune_myeloid_results_list_reml_pooled[[Gene]]$covariance)[9],
-    
-    # Calculate SE for dapa_post_pre = b2 + b3
-    se_dapa_post_pre = sqrt(se2^2 + se3^2 + 2 * cov_b2_b3),
-    
-    # Z-scores and p-values
-    z_placebo_post_pre = b2 / se2,
-    z_dapa_post_pre = (b2 + b3) / se_dapa_post_pre,
-    z_DiD = b3 / se3,
-    
-    p_placebo_post_pre = 2 * pnorm(-abs(z_placebo_post_pre)),
-    p_dapa_post_pre = 2 * pnorm(-abs(z_dapa_post_pre)),
-    p_DiD = 2 * pnorm(-abs(z_DiD))
-  ) %>%
-  ungroup()
-
-# immune_myeloid_hvg_kpmp
-immune_myeloid_hvg_kpmp <- immune_myeloid_hvg_kpmp %>%
-  mutate(placebo_pre = logFC_Intercept,
-         placebo_post = logFC_Intercept + logFC_visitPOST,
-         dapa_pre = logFC_Intercept + logFC_treatmentDapagliflozin,
-         dapa_post = logFC_Intercept + logFC_treatmentDapagliflozin + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-         placebo_post_pre = placebo_post - placebo_pre,
-         dapa_post_pre = dapa_post - dapa_pre,
-         DiD = dapa_post_pre - placebo_post_pre)
-
 # save input for IPA
 ## Interaction or DiD
 immune_myeloid_nebula_pooled_ipa_DiD <- immune_myeloid_hvg_kpmp %>%
   dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
 colnames(immune_myeloid_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
 
-write.csv(immune_myeloid_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/immune_myeloid_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-
-## Placebo (or Visit)
-immune_myeloid_nebula_pooled_ipa_placebo <- immune_myeloid_hvg_kpmp %>%
-  dplyr::select(Gene, placebo_post_pre, p_placebo_post_pre) %>%
-  mutate(fdr_placebo_post_pre = p.adjust(p_placebo_post_pre, method = "fdr"))
-colnames(immune_myeloid_nebula_pooled_ipa_placebo) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(immune_myeloid_nebula_pooled_ipa_placebo, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/immune_myeloid_nebula_pooled_ipa_input_placebo.csv", row.names = F)
-
-## Dapagliflozin
-immune_myeloid_nebula_pooled_ipa_dapa <- immune_myeloid_hvg_kpmp %>%
-  dplyr::select(Gene, dapa_post_pre, p_dapa_post_pre) %>%
-  mutate(fdr_dapa_post_pre = p.adjust(p_dapa_post_pre, method = "fdr"))
-colnames(immune_myeloid_nebula_pooled_ipa_dapa) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(immune_myeloid_nebula_pooled_ipa_dapa, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/immune_myeloid_nebula_pooled_ipa_input_dapa.csv", row.names = F)
+write.csv(immune_myeloid_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/immune_myeloid_nebula_pooled_ipa_input_DiD.csv", row.names = F)
 ```
 
 #### Immune Subtypes (Myeloid)
@@ -1189,75 +859,13 @@ plot_volcano(immune_lymphoid_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST",
 #### IPA input save
 
 ```{r echo = F, eval = F}
-# pull covariance matrix for p-value calculations
-immune_lymphoid_hvg_kpmp <- immune_lymphoid_hvg_kpmp %>%
-  rowwise() %>%
-  mutate(
-    # Derived logFCs
-    placebo_pre = logFC_Intercept,
-    placebo_post = placebo_pre + logFC_visitPOST,
-    dapa_pre = placebo_pre + logFC_treatmentDapagliflozin,
-    dapa_post = dapa_pre + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-    placebo_post_pre = placebo_post - placebo_pre,
-    dapa_post_pre = dapa_post - dapa_pre,
-    DiD = dapa_post_pre - placebo_post_pre,
-    
-    # Extract coefficients and SEs
-    b2 = logFC_visitPOST,
-    b3 = `logFC_treatmentDapagliflozin:visitPOST`,
-    se2 = se_visitPOST,
-    se3 = `se_treatmentDapagliflozin:visitPOST`,
-    
-    # Extract scalar covariance value from index 9 (Cov[3,4]) of lower triangle
-    cov_b2_b3 = unlist(nebula_immune_lymphoid_results_list_reml_pooled[[Gene]]$covariance)[9],
-    
-    # Calculate SE for dapa_post_pre = b2 + b3
-    se_dapa_post_pre = sqrt(se2^2 + se3^2 + 2 * cov_b2_b3),
-    
-    # Z-scores and p-values
-    z_placebo_post_pre = b2 / se2,
-    z_dapa_post_pre = (b2 + b3) / se_dapa_post_pre,
-    z_DiD = b3 / se3,
-    
-    p_placebo_post_pre = 2 * pnorm(-abs(z_placebo_post_pre)),
-    p_dapa_post_pre = 2 * pnorm(-abs(z_dapa_post_pre)),
-    p_DiD = 2 * pnorm(-abs(z_DiD))
-  ) %>%
-  ungroup()
-
-# immune_lymphoid_hvg_kpmp
-immune_lymphoid_hvg_kpmp <- immune_lymphoid_hvg_kpmp %>%
-  mutate(placebo_pre = logFC_Intercept,
-         placebo_post = logFC_Intercept + logFC_visitPOST,
-         dapa_pre = logFC_Intercept + logFC_treatmentDapagliflozin,
-         dapa_post = logFC_Intercept + logFC_treatmentDapagliflozin + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-         placebo_post_pre = placebo_post - placebo_pre,
-         dapa_post_pre = dapa_post - dapa_pre,
-         DiD = dapa_post_pre - placebo_post_pre)
-
 # save input for IPA
 ## Interaction or DiD
 immune_lymphoid_nebula_pooled_ipa_DiD <- immune_lymphoid_hvg_kpmp %>%
   dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
 colnames(immune_lymphoid_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
 
-write.csv(immune_lymphoid_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/immune_lymphoid_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-
-## Placebo (or Visit)
-immune_lymphoid_nebula_pooled_ipa_placebo <- immune_lymphoid_hvg_kpmp %>%
-  dplyr::select(Gene, placebo_post_pre, p_placebo_post_pre) %>%
-  mutate(fdr_placebo_post_pre = p.adjust(p_placebo_post_pre, method = "fdr"))
-colnames(immune_lymphoid_nebula_pooled_ipa_placebo) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(immune_lymphoid_nebula_pooled_ipa_placebo, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/immune_lymphoid_nebula_pooled_ipa_input_placebo.csv", row.names = F)
-
-## Dapagliflozin
-immune_lymphoid_nebula_pooled_ipa_dapa <- immune_lymphoid_hvg_kpmp %>%
-  dplyr::select(Gene, dapa_post_pre, p_dapa_post_pre) %>%
-  mutate(fdr_dapa_post_pre = p.adjust(p_dapa_post_pre, method = "fdr"))
-colnames(immune_lymphoid_nebula_pooled_ipa_dapa) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(immune_lymphoid_nebula_pooled_ipa_dapa, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/immune_lymphoid_nebula_pooled_ipa_input_dapa.csv", row.names = F)
+write.csv(immune_lymphoid_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/immune_lymphoid_nebula_pooled_ipa_input_DiD.csv", row.names = F)
 ```
 
 #### Immune Subtypes (Lymphoid)
@@ -1356,75 +964,13 @@ plot_volcano(ic_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST",
 #### IPA input save
 
 ```{r echo = F, eval = F}
-# pull covariance matrix for p-value calculations
-ic_hvg_kpmp <- ic_hvg_kpmp %>%
-  rowwise() %>%
-  mutate(
-    # Derived logFCs
-    placebo_pre = logFC_Intercept,
-    placebo_post = placebo_pre + logFC_visitPOST,
-    dapa_pre = placebo_pre + logFC_treatmentDapagliflozin,
-    dapa_post = dapa_pre + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-    placebo_post_pre = placebo_post - placebo_pre,
-    dapa_post_pre = dapa_post - dapa_pre,
-    DiD = dapa_post_pre - placebo_post_pre,
-    
-    # Extract coefficients and SEs
-    b2 = logFC_visitPOST,
-    b3 = `logFC_treatmentDapagliflozin:visitPOST`,
-    se2 = se_visitPOST,
-    se3 = `se_treatmentDapagliflozin:visitPOST`,
-    
-    # Extract scalar covariance value from index 9 (Cov[3,4]) of lower triangle
-    cov_b2_b3 = unlist(nebula_ic_results_list_reml_pooled[[Gene]]$covariance)[9],
-    
-    # Calculate SE for dapa_post_pre = b2 + b3
-    se_dapa_post_pre = sqrt(se2^2 + se3^2 + 2 * cov_b2_b3),
-    
-    # Z-scores and p-values
-    z_placebo_post_pre = b2 / se2,
-    z_dapa_post_pre = (b2 + b3) / se_dapa_post_pre,
-    z_DiD = b3 / se3,
-    
-    p_placebo_post_pre = 2 * pnorm(-abs(z_placebo_post_pre)),
-    p_dapa_post_pre = 2 * pnorm(-abs(z_dapa_post_pre)),
-    p_DiD = 2 * pnorm(-abs(z_DiD))
-  ) %>%
-  ungroup()
-
-# ic_hvg_kpmp
-ic_hvg_kpmp <- ic_hvg_kpmp %>%
-  mutate(placebo_pre = logFC_Intercept,
-         placebo_post = logFC_Intercept + logFC_visitPOST,
-         dapa_pre = logFC_Intercept + logFC_treatmentDapagliflozin,
-         dapa_post = logFC_Intercept + logFC_treatmentDapagliflozin + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-         placebo_post_pre = placebo_post - placebo_pre,
-         dapa_post_pre = dapa_post - dapa_pre,
-         DiD = dapa_post_pre - placebo_post_pre)
-
 # save input for IPA
 ## Interaction or DiD
 ic_nebula_pooled_ipa_DiD <- ic_hvg_kpmp %>%
   dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
 colnames(ic_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
 
-write.csv(ic_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/ic_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-
-## Placebo (or Visit)
-ic_nebula_pooled_ipa_placebo <- ic_hvg_kpmp %>%
-  dplyr::select(Gene, placebo_post_pre, p_placebo_post_pre) %>%
-  mutate(fdr_placebo_post_pre = p.adjust(p_placebo_post_pre, method = "fdr"))
-colnames(ic_nebula_pooled_ipa_placebo) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(ic_nebula_pooled_ipa_placebo, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/ic_nebula_pooled_ipa_input_placebo.csv", row.names = F)
-
-## Dapagliflozin
-ic_nebula_pooled_ipa_dapa <- ic_hvg_kpmp %>%
-  dplyr::select(Gene, dapa_post_pre, p_dapa_post_pre) %>%
-  mutate(fdr_dapa_post_pre = p.adjust(p_dapa_post_pre, method = "fdr"))
-colnames(ic_nebula_pooled_ipa_dapa) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(ic_nebula_pooled_ipa_dapa, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/ic_nebula_pooled_ipa_input_dapa.csv", row.names = F)
+write.csv(ic_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/ic_nebula_pooled_ipa_input_DiD.csv", row.names = F)
 ```
 
 #### IC Subtypes
@@ -1529,75 +1075,13 @@ plot_volcano(ec_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST",
 #### IPA input save
 
 ```{r echo = F, eval = F}
-# pull covariance matrix for p-value calculations
-ec_hvg_kpmp <- ec_hvg_kpmp %>%
-  rowwise() %>%
-  mutate(
-    # Derived logFCs
-    placebo_pre = logFC_Intercept,
-    placebo_post = placebo_pre + logFC_visitPOST,
-    dapa_pre = placebo_pre + logFC_treatmentDapagliflozin,
-    dapa_post = dapa_pre + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-    placebo_post_pre = placebo_post - placebo_pre,
-    dapa_post_pre = dapa_post - dapa_pre,
-    DiD = dapa_post_pre - placebo_post_pre,
-    
-    # Extract coefficients and SEs
-    b2 = logFC_visitPOST,
-    b3 = `logFC_treatmentDapagliflozin:visitPOST`,
-    se2 = se_visitPOST,
-    se3 = `se_treatmentDapagliflozin:visitPOST`,
-    
-    # Extract scalar covariance value from index 9 (Cov[3,4]) of lower triangle
-    cov_b2_b3 = unlist(nebula_ec_results_list_reml_pooled[[Gene]]$covariance)[9],
-    
-    # Calculate SE for dapa_post_pre = b2 + b3
-    se_dapa_post_pre = sqrt(se2^2 + se3^2 + 2 * cov_b2_b3),
-    
-    # Z-scores and p-values
-    z_placebo_post_pre = b2 / se2,
-    z_dapa_post_pre = (b2 + b3) / se_dapa_post_pre,
-    z_DiD = b3 / se3,
-    
-    p_placebo_post_pre = 2 * pnorm(-abs(z_placebo_post_pre)),
-    p_dapa_post_pre = 2 * pnorm(-abs(z_dapa_post_pre)),
-    p_DiD = 2 * pnorm(-abs(z_DiD))
-  ) %>%
-  ungroup()
-
-# ec_hvg_kpmp
-ec_hvg_kpmp <- ec_hvg_kpmp %>%
-  mutate(placebo_pre = logFC_Intercept,
-         placebo_post = logFC_Intercept + logFC_visitPOST,
-         dapa_pre = logFC_Intercept + logFC_treatmentDapagliflozin,
-         dapa_post = logFC_Intercept + logFC_treatmentDapagliflozin + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-         placebo_post_pre = placebo_post - placebo_pre,
-         dapa_post_pre = dapa_post - dapa_pre,
-         DiD = dapa_post_pre - placebo_post_pre)
-
 # save input for IPA
 ## Interaction or DiD
 ec_nebula_pooled_ipa_DiD <- ec_hvg_kpmp %>%
   dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
 colnames(ec_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
 
-write.csv(ec_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/ec_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-
-## Placebo (or Visit)
-ec_nebula_pooled_ipa_placebo <- ec_hvg_kpmp %>%
-  dplyr::select(Gene, placebo_post_pre, p_placebo_post_pre) %>%
-  mutate(fdr_placebo_post_pre = p.adjust(p_placebo_post_pre, method = "fdr"))
-colnames(ec_nebula_pooled_ipa_placebo) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(ec_nebula_pooled_ipa_placebo, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/ec_nebula_pooled_ipa_input_placebo.csv", row.names = F)
-
-## Dapagliflozin
-ec_nebula_pooled_ipa_dapa <- ec_hvg_kpmp %>%
-  dplyr::select(Gene, dapa_post_pre, p_dapa_post_pre) %>%
-  mutate(fdr_dapa_post_pre = p.adjust(p_dapa_post_pre, method = "fdr"))
-colnames(ec_nebula_pooled_ipa_dapa) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(ec_nebula_pooled_ipa_dapa, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/ec_nebula_pooled_ipa_input_dapa.csv", row.names = F)
+write.csv(ec_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/ec_nebula_pooled_ipa_input_DiD.csv", row.names = F)
 ```
 
 #### EC Subtypes
@@ -1698,7 +1182,7 @@ plot_volcano(vsmc_p_fib_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST",
              NULL,
              "logFC Treatment(Dapagliflozin):Visit(POST)", 
              "-log10(p-value)",
-             "nebula/fibvsmc_hvg_kpmp_DiD",
+             "nebula/vsmc_p_fib_hvg_kpmp_DiD",
              formula = "treatment * visit",
              cell_type = "FIB, VSMC/P")
 
@@ -1707,7 +1191,7 @@ plot_volcano(vsmc_p_fib_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST",
              NULL,
              "logFC Treatment(Dapagliflozin):Visit(POST)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/fibvsmc_hvg_kpmp_DiD",
+             "nebula/vsmc_p_fib_hvg_kpmp_DiD",
              formula = "treatment * visit",
              cell_type = "FIB, VSMC/P")
 ```
@@ -1715,75 +1199,13 @@ plot_volcano(vsmc_p_fib_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST",
 #### IPA input save
 
 ```{r echo = F, eval = F}
-# pull covariance matrix for p-value calculations
-fibvsmcp_hvg_kpmp <- fibvsmcp_hvg_kpmp %>%
-  rowwise() %>%
-  mutate(
-    # Derived logFCs
-    placebo_pre = logFC_Intercept,
-    placebo_post = placebo_pre + logFC_visitPOST,
-    dapa_pre = placebo_pre + logFC_treatmentDapagliflozin,
-    dapa_post = dapa_pre + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-    placebo_post_pre = placebo_post - placebo_pre,
-    dapa_post_pre = dapa_post - dapa_pre,
-    DiD = dapa_post_pre - placebo_post_pre,
-    
-    # Extract coefficients and SEs
-    b2 = logFC_visitPOST,
-    b3 = `logFC_treatmentDapagliflozin:visitPOST`,
-    se2 = se_visitPOST,
-    se3 = `se_treatmentDapagliflozin:visitPOST`,
-    
-    # Extract scalar covariance value from index 9 (Cov[3,4]) of lower triangle
-    cov_b2_b3 = unlist(nebula_fibvsmc_results_list_reml_pooled[[Gene]]$covariance)[9],
-    
-    # Calculate SE for dapa_post_pre = b2 + b3
-    se_dapa_post_pre = sqrt(se2^2 + se3^2 + 2 * cov_b2_b3),
-    
-    # Z-scores and p-values
-    z_placebo_post_pre = b2 / se2,
-    z_dapa_post_pre = (b2 + b3) / se_dapa_post_pre,
-    z_DiD = b3 / se3,
-    
-    p_placebo_post_pre = 2 * pnorm(-abs(z_placebo_post_pre)),
-    p_dapa_post_pre = 2 * pnorm(-abs(z_dapa_post_pre)),
-    p_DiD = 2 * pnorm(-abs(z_DiD))
-  ) %>%
-  ungroup()
-
-# fibvsmcp_hvg_kpmp
-fibvsmcp_hvg_kpmp <- fibvsmcp_hvg_kpmp %>%
-  mutate(placebo_pre = logFC_Intercept,
-         placebo_post = logFC_Intercept + logFC_visitPOST,
-         dapa_pre = logFC_Intercept + logFC_treatmentDapagliflozin,
-         dapa_post = logFC_Intercept + logFC_treatmentDapagliflozin + logFC_visitPOST + `logFC_treatmentDapagliflozin:visitPOST`,
-         placebo_post_pre = placebo_post - placebo_pre,
-         dapa_post_pre = dapa_post - dapa_pre,
-         DiD = dapa_post_pre - placebo_post_pre)
-
 # save input for IPA
 ## Interaction or DiD
-fibvsmc_nebula_pooled_ipa_DiD <- fibvsmcp_hvg_kpmp %>%
+vsmc_p_fib_nebula_pooled_ipa_DiD <- vsmc_p_fib_hvg_kpmp %>%
   dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
-colnames(fibvsmc_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
+colnames(vsmc_p_fib_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
 
-write.csv(fibvsmc_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/fibvsmc_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-
-## Placebo (or Visit)
-fibvsmc_nebula_pooled_ipa_placebo <- fibvsmcp_hvg_kpmp %>%
-  dplyr::select(Gene, placebo_post_pre, p_placebo_post_pre) %>%
-  mutate(fdr_placebo_post_pre = p.adjust(p_placebo_post_pre, method = "fdr"))
-colnames(fibvsmc_nebula_pooled_ipa_placebo) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(fibvsmc_nebula_pooled_ipa_placebo, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/fibvsmc_nebula_pooled_ipa_input_placebo.csv", row.names = F)
-
-## Dapagliflozin
-fibvsmc_nebula_pooled_ipa_dapa <- fibvsmcp_hvg_kpmp %>%
-  dplyr::select(Gene, dapa_post_pre, p_dapa_post_pre) %>%
-  mutate(fdr_dapa_post_pre = p.adjust(p_dapa_post_pre, method = "fdr"))
-colnames(fibvsmc_nebula_pooled_ipa_dapa) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(fibvsmc_nebula_pooled_ipa_dapa, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/nebula/fibvsmc_nebula_pooled_ipa_input_dapa.csv", row.names = F)
+write.csv(vsmc_p_fib_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/vsmc_p_fib_nebula_pooled_ipa_input_DiD.csv", row.names = F)
 ```
 
 #### FIBVSMCP Subtypes
@@ -1812,21 +1234,21 @@ vsmc_p_fib_plots <- create_gene_expression_plots(
 #### REML + pooled pooled
 
 ```{r echo =F}
-plot_volcano(fibvsmcp_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
+plot_volcano(vsmc_p_fib_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
              "p_treatmentDapagliflozin:visitPOST",
              NULL,
              "logFC Treatment(Dapagliflozin):Visit(POST)", 
              "-log10(p-value)",
-             "nebula/fibvsmc_kpmp_DiD",
+             "nebula/vsmc_p_fib_kpmp_DiD",
              formula = "treatment * visit",
              cell_type = "FIB, VSMC/P")
 
-plot_volcano(fibvsmcp_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
+plot_volcano(vsmc_p_fib_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
              "fdr",
              NULL,
              "logFC Treatment(Dapagliflozin):Visit(POST)", 
              "-log10(FDR adjusted p-value)",
-             "nebula/fibvsmc_kpmp_DiD",
+             "nebula/vsmc_p_fib_kpmp_DiD",
              formula = "treatment * visit",
              cell_type = "FIB, VSMC/P")
 ```
@@ -1844,8 +1266,8 @@ p_kpmp <- p_nebula_processed$results
 ```
 
 ```{r echo = F}
-fibvsmcp_plots <- create_gene_expression_plots(
-  main_results = fibvsmcp_kpmp,
+vsmc_p_fib_plots <- create_gene_expression_plots(
+  main_results = vsmc_p_fib_kpmp,
   subtype_results_list = list(
     "FIB" = fib_kpmp,
     "VSMC/P" = p_kpmp
@@ -1901,6 +1323,21 @@ pod_plots <- create_gene_expression_plots(
   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
 )
 ```
+
+
+#### IPA input save
+
+```{r echo = F, eval = F}
+# save input for IPA
+## Interaction or DiD
+pod_nebula_pooled_ipa_DiD <- pod_hvg_kpmp %>%
+  dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
+colnames(pod_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
+
+write.csv(pod_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/pod_nebula_pooled_ipa_input_DiD.csv", row.names = F)
+```
+
+
 
 ### POD (Full)
 
@@ -1964,7 +1401,7 @@ combined_nebula_reml_pooled <-
           mutate(celltype = "IC"),
         ec_hvg_kpmp %>%
           mutate(celltype = "EC"),
-        fibvsmcp_hvg_kpmp %>%
+        vsmc_p_fib_hvg_kpmp %>%
           mutate(celltype = "FIB/VSMC/P")) %>%
   mutate(fdr_cat = case_when(fdr < 0.05 & 
                                `logFC_treatmentDapagliflozin:visitPOST` > 0 ~
@@ -2097,7 +1534,7 @@ combined_nebula_reml_pooled %>%
 
 ## Number of DEGs
 ```{r echo = F}
-celltype_list <- c("pt", "tal", "pc", "immune", "immune_myeloid", "immune_lymphoid", "ic", "ec", "fibvsmcp")
+celltype_list <- c("pt", "tal", "pc", "immune", "immune_myeloid", "immune_lymphoid", "ic", "ec", "vsmc_p_fib")
 names_hvg_kpmp <- paste0(celltype_list, "_hvg_kpmp")
 
 # Create a named list of data frames
@@ -2514,6 +1951,19 @@ scenario_colors = c("Activated in D, stable/inhibited in P" = "#81171b",
                     "Inhibited in both, more in D" = "#22aed1")
 ```
 
+```{r echo = F}
+# read in all the results by looping through cell types
+names(celltype_groups)
+
+for (cell in names(celltype_groups)){
+  ipa_res <- read_excel(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/kpmp/nebula/", tolower(cell), "_kpmp_DiD.xls"), skip = 1)
+  colnames(ipa_res) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
+  var_name = paste0(tolower(cell), "_kpmp_ipa")
+  assign(var_name, ipa_res, envir = .GlobalEnv)
+  
+}
+```
+
 ### PT
 
 ```{r echo = F}
@@ -2550,6 +2000,7 @@ pt_pathways_merged_nebula$scenario <- factor(pt_pathways_merged_nebula$scenario,
 ```
 
 #### Inhibited Pathways
+
 ```{r echo = F}
 pt_pathways_inhibited_nebula <- pt_pathways_merged_nebula %>%
   filter(z < 0) %>%
@@ -4412,16 +3863,16 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ### FIB/VSMC/P
 
 ```{r echo = F}
-fibvsmcp_pathways_nebula <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/nebula/fibvsmc_DiD_pathways_nebula.xls", skip = 1)
-fibvsmcp_dapa_nebula <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/nebula/fibvsmc_dapa_pathways_nebula.xls", skip = 1)
-fibvsmcp_placebo_nebula <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/nebula/fibvsmc_placebo_pathways_nebula.xls", skip = 1)
+vsmc_p_fib_pathways_nebula <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/nebula/vsmc_p_fib_DiD_pathways_nebula.xls", skip = 1)
+vsmc_p_fib_dapa_nebula <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/nebula/vsmc_p_fib_dapa_pathways_nebula.xls", skip = 1)
+vsmc_p_fib_placebo_nebula <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/nebula/vsmc_p_fib_placebo_pathways_nebula.xls", skip = 1)
 
-colnames(fibvsmcp_pathways_nebula) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
-colnames(fibvsmcp_dapa_nebula) <- c("pathway", "neg_log_p_dapa", "ratio_dapa", "z_dapa", "genes_dapa")
-colnames(fibvsmcp_placebo_nebula) <- c("pathway", "neg_log_p_placebo", "ratio_placebo", "z_placebo", "genes_placebo")
+colnames(vsmc_p_fib_pathways_nebula) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
+colnames(vsmc_p_fib_dapa_nebula) <- c("pathway", "neg_log_p_dapa", "ratio_dapa", "z_dapa", "genes_dapa")
+colnames(vsmc_p_fib_placebo_nebula) <- c("pathway", "neg_log_p_placebo", "ratio_placebo", "z_placebo", "genes_placebo")
 
-fibvsmcp_pathways_merged_nebula <- fibvsmcp_pathways_nebula %>%
-  full_join(fibvsmcp_dapa_nebula) %>% full_join(fibvsmcp_placebo_nebula) %>%
+vsmc_p_fib_pathways_merged_nebula <- vsmc_p_fib_pathways_nebula %>%
+  full_join(vsmc_p_fib_dapa_nebula) %>% full_join(vsmc_p_fib_placebo_nebula) %>%
   dplyr::select(pathway, neg_log_p, z, neg_log_p_dapa, z_dapa, neg_log_p_placebo, z_placebo) %>%
   mutate(scenario = case_when(
     z_dapa > 0 & z_placebo > 0 & z_placebo < z_dapa ~ "Activated in both, more in D",
@@ -4434,7 +3885,7 @@ fibvsmcp_pathways_merged_nebula <- fibvsmcp_pathways_nebula %>%
     (z_dapa == 0) & z_placebo < 0 ~ "Stable in D, inhibited in P",
     z_dapa < 0 & (z_placebo == 0) ~ "Stable in P, inhibited in D"))
 
-fibvsmcp_pathways_merged_nebula$scenario <- factor(fibvsmcp_pathways_merged_nebula$scenario,
+vsmc_p_fib_pathways_merged_nebula$scenario <- factor(vsmc_p_fib_pathways_merged_nebula$scenario,
                                                    levels = c("Activated in D, stable/inhibited in P","Activated in both, more in D",
                                                               "Stable in D, inhibited in P","Inhibited in both, less in D",
                                                               "Activated in P, stable/inhibited in D","Activated in both, less in D",
@@ -4443,13 +3894,13 @@ fibvsmcp_pathways_merged_nebula$scenario <- factor(fibvsmcp_pathways_merged_nebu
 
 #### Inhibited Pathways
 ```{r echo = F}
-fibvsmcp_pathways_inhibited_nebula <- fibvsmcp_pathways_merged_nebula %>%
+vsmc_p_fib_pathways_inhibited_nebula <- vsmc_p_fib_pathways_merged_nebula %>%
   filter(z < 0) %>%
   arrange(dplyr::desc(neg_log_p))
 
-fibvsmcp_pathways_inhibited_nebula$pathway <- reorder(fibvsmcp_pathways_inhibited_nebula$pathway, fibvsmcp_pathways_inhibited_nebula$neg_log_p)
+vsmc_p_fib_pathways_inhibited_nebula$pathway <- reorder(vsmc_p_fib_pathways_inhibited_nebula$pathway, vsmc_p_fib_pathways_inhibited_nebula$neg_log_p)
 
-fibvsmcp_top30_inhibited_nebula <- fibvsmcp_pathways_inhibited_nebula[1:30,] %>%
+vsmc_p_fib_top30_inhibited_nebula <- vsmc_p_fib_pathways_inhibited_nebula[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
   scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
@@ -4475,20 +3926,20 @@ fibvsmcp_top30_inhibited_nebula <- fibvsmcp_pathways_inhibited_nebula[1:30,] %>%
   scale_x_continuous(limits = c(0, 3), expand = c(0, 0)) +
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(add = 1)) 
-n_fibvsmcp_pathways_inhibited_nebula <- fibvsmcp_pathways_inhibited_nebula %>%
+n_vsmc_p_fib_pathways_inhibited_nebula <- vsmc_p_fib_pathways_inhibited_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmcp_top30_inhibited_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top30_inhibited_pathways_nebula.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
-fibvsmcp_pathways_inhibited_sig_nebula <- fibvsmcp_pathways_inhibited_nebula %>%
+vsmc_p_fib_pathways_inhibited_sig_nebula <- vsmc_p_fib_pathways_inhibited_nebula %>%
   filter(z < -2)
-fibvsmcp_top30_inhibited_2_nebula <- fibvsmcp_pathways_inhibited_sig_nebula[1:30,] %>%
+vsmc_p_fib_top30_inhibited_2_nebula <- vsmc_p_fib_pathways_inhibited_sig_nebula[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
-  scale_size_continuous(range = c(min(-fibvsmcp_pathways_inhibited_sig_nebula$z), max(-fibvsmcp_pathways_inhibited_sig_nebula$z)),
+  scale_size_continuous(range = c(min(-vsmc_p_fib_pathways_inhibited_sig_nebula$z), max(-vsmc_p_fib_pathways_inhibited_sig_nebula$z)),
                         labels = function(x) paste0("-", x)) +
   geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
   geom_text(aes(group = pathway, color = scenario), hjust = 0, size = text1, nudge_x = 0.01) +
@@ -4513,19 +3964,19 @@ fibvsmcp_top30_inhibited_2_nebula <- fibvsmcp_pathways_inhibited_sig_nebula[1:30
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.3, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmcp_top_inhibited_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top_inhibited_pathways_2.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
 #### Activated Pathways
 ```{r echo = F}
-fibvsmcp_pathways_activated_nebula <- fibvsmcp_pathways_merged_nebula %>%
+vsmc_p_fib_pathways_activated_nebula <- vsmc_p_fib_pathways_merged_nebula %>%
   filter(z > 0) %>%
   arrange(dplyr::desc(neg_log_p))
 
-fibvsmcp_pathways_activated_nebula$pathway <- reorder(fibvsmcp_pathways_activated_nebula$pathway, fibvsmcp_pathways_activated_nebula$neg_log_p)
+vsmc_p_fib_pathways_activated_nebula$pathway <- reorder(vsmc_p_fib_pathways_activated_nebula$pathway, vsmc_p_fib_pathways_activated_nebula$neg_log_p)
 
-fibvsmcp_top30_activated_nebula <- fibvsmcp_pathways_activated_nebula[1:30,] %>%
+vsmc_p_fib_top30_activated_nebula <- vsmc_p_fib_pathways_activated_nebula[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
   scale_size_continuous(range = c(0,10),labels = function(x) paste0("-", x)) +
@@ -4551,20 +4002,20 @@ fibvsmcp_top30_activated_nebula <- fibvsmcp_pathways_activated_nebula[1:30,] %>%
   scale_x_continuous(limits = c(0, 3), expand = c(0, 0)) +
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(add = 1)) 
-n_fibvsmcp_pathways_activated_nebula <- fibvsmcp_pathways_activated_nebula %>%
+n_vsmc_p_fib_pathways_activated_nebula <- vsmc_p_fib_pathways_activated_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmcp_top30_activated_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top30_activated_pathways_nebula.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
-fibvsmcp_pathways_activated_sig_nebula <- fibvsmcp_pathways_activated_nebula %>%
+vsmc_p_fib_pathways_activated_sig_nebula <- vsmc_p_fib_pathways_activated_nebula %>%
   filter(z > 2)
-fibvsmcp_top30_activated_2_nebula <- fibvsmcp_pathways_activated_sig_nebula[1:30,] %>%
+vsmc_p_fib_top30_activated_2_nebula <- vsmc_p_fib_pathways_activated_sig_nebula[1:30,] %>%
   ggplot(aes(x = neg_log_p, y = pathway, label = pathway)) +
   geom_point(aes(size = abs(z), color = scenario), alpha = 0.8) +
-  scale_size_continuous(range = c(min(fibvsmcp_pathways_activated_sig_nebula$z), max(fibvsmcp_pathways_activated_sig_nebula$z))) +
+  scale_size_continuous(range = c(min(vsmc_p_fib_pathways_activated_sig_nebula$z), max(vsmc_p_fib_pathways_activated_sig_nebula$z))) +
   geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
   geom_text(aes(group = pathway, color = scenario), hjust = 0, size = text1, nudge_x = 0.02) +
   theme_bw() +
@@ -4588,14 +4039,14 @@ fibvsmcp_top30_activated_2_nebula <- fibvsmcp_pathways_activated_sig_nebula[1:30
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/fibvsmcp_top_activated_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top_activated_pathways_2.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
 #### Z-Score Bar charts
 ```{r echo = F, warning = F}
 ## z-scores in bar charts
-fibvsmcp_neg_pathways_merged_long_nebula <- fibvsmcp_pathways_merged_nebula %>% 
+vsmc_p_fib_neg_pathways_merged_long_nebula <- vsmc_p_fib_pathways_merged_nebula %>% 
   filter(z < 0) %>%
   head(10) %>%
   pivot_longer(cols = c("z", "z_dapa", "z_placebo")) %>%
@@ -4608,9 +4059,9 @@ fibvsmcp_neg_pathways_merged_long_nebula <- fibvsmcp_pathways_merged_nebula %>%
          a = case_when(name == "DiD" ~ 0.7,
                        name == "Dapagliflozin" ~ 0.8,
                        name == "Placebo" ~ 0.8))
-fibvsmcp_neg_pathways_merged_long_nebula$name <- factor(fibvsmcp_neg_pathways_merged_long_nebula$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
+vsmc_p_fib_neg_pathways_merged_long_nebula$name <- factor(vsmc_p_fib_neg_pathways_merged_long_nebula$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
 
-fibvsmcp_neg_pathways_merged_long_nebula %>%
+vsmc_p_fib_neg_pathways_merged_long_nebula %>%
   mutate(pathway = factor(pathway, levels = unique(pathway))) %>%
   ggplot(aes(x = pathway, y = value, fill = name)) +
   geom_bar(stat = "identity", position = "identity",
@@ -4631,10 +4082,10 @@ fibvsmcp_neg_pathways_merged_long_nebula %>%
        title = "FIB/VSMC/P Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/fibvsmcp_top10_inhibited_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/vsmc_p_fib_top10_inhibited_pathway_zscores.jpeg",
        scale = 1.5)
 
-fibvsmcp_pos_pathways_merged_long_nebula <- fibvsmcp_pathways_merged_nebula %>% 
+vsmc_p_fib_pos_pathways_merged_long_nebula <- vsmc_p_fib_pathways_merged_nebula %>% 
   filter(z > 0) %>%
   head(10) %>%
   pivot_longer(cols = c("z", "z_dapa", "z_placebo")) %>%
@@ -4647,10 +4098,10 @@ fibvsmcp_pos_pathways_merged_long_nebula <- fibvsmcp_pathways_merged_nebula %>%
          a = case_when(name == "DiD" ~ 0.7,
                        name == "Dapagliflozin" ~ 0.8,
                        name == "Placebo" ~ 0.8))
-fibvsmcp_pos_pathways_merged_long_nebula$name <- factor(fibvsmcp_pos_pathways_merged_long_nebula$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
+vsmc_p_fib_pos_pathways_merged_long_nebula$name <- factor(vsmc_p_fib_pos_pathways_merged_long_nebula$name, levels = c("DiD", "Placebo", "Dapagliflozin"))
 
-fibvsmcp_pos_pathways_merged_long_nebula
-fibvsmcp_pos_pathways_merged_long_nebula %>%
+vsmc_p_fib_pos_pathways_merged_long_nebula
+vsmc_p_fib_pos_pathways_merged_long_nebula %>%
   mutate(pathway = factor(pathway, levels = unique(pathway))) %>%
   ggplot(aes(x = pathway, y = value, fill = name)) +
   geom_bar(stat = "identity", position = "identity",
@@ -4672,7 +4123,7 @@ fibvsmcp_pos_pathways_merged_long_nebula %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/fibvsmcp_top10_activated_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/vsmc_p_fib_top10_activated_pathway_zscores.jpeg",
        scale = 1.5)
 ```
 
@@ -4723,21 +4174,21 @@ ec_nc <- c(ec_nonconverged_percentage_mod1,
 
 ```{r echo = F}
 ## FIB/VSMC/P
-fibvsmcp_nc <- c(fibvsmcp_nonconverged_percentage_mod1,
-                 fibvsmcp_nonconverged_percentage_mod2)
+vsmc_p_fib_nc <- c(vsmc_p_fib_nonconverged_percentage_mod1,
+                 vsmc_p_fib_nonconverged_percentage_mod2)
 ```
 
 
 ```{r echo = F}
 mods <- c("Model 1 (Nested Visit, ZINB)",
           "Model 2 (No nested visit, ZINB)")
-mods_df <- data.frame(mods, pt_nc, tal_nc, pc_nc, immune_nc, ic_nc, ec_nc, fibvsmcp_nc)
+mods_df <- data.frame(mods, pt_nc, tal_nc, pc_nc, immune_nc, ic_nc, ec_nc, vsmc_p_fib_nc)
 colnames(mods_df) <- c("Model", "PT", "TAL", "PC", "Immune", "IC", "EC", "FIB, VSMC/P")
 kable(mods_df, digits = 2)
 ```
 
 ```{r echo = F}
-prefixes <- c("pt", "tal", "pc", "ic", "ec", "fibvsmcp", "immune")
+prefixes <- c("pt", "tal", "pc", "ic", "ec", "vsmc_p_fib", "immune")
 mods <- paste0("mod", 1:2)
 
 base_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/model comparison/"
@@ -4795,7 +4246,7 @@ write_xlsx(sheet_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibra
 
 ```{r echo = F}
 vars <- c("mgfr_jodal", "mgfr_jodal_bsa", "hba1c", "weight")
-celltype_list <- c("pt", "tal", "pc", "ic", "fibvsmcp")
+celltype_list <- c("pt", "tal", "pc", "ic", "vsmc_p_fib")
 
 # Create fallback mapping
 var_fallback_map <- list(
@@ -4899,7 +4350,7 @@ croc_res_select_vars$tal_mgfr_jodal
 # ATTEMPT BL
 
 vars <- c("mgfr_jodal", "mgfr_jodal_bsa", "hba1c", "weight")
-celltype_list <- c("pt", "tal", "pc", "ic", "fibvsmcp")
+celltype_list <- c("pt", "tal", "pc", "ic", "vsmc_p_fib")
 
 # Create fallback mapping
 var_fallback_map <- list(
