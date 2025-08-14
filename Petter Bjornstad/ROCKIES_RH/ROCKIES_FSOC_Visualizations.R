@@ -94,6 +94,17 @@ for(i in c(1:nrow(med_small))){
   }
 }
 
+need_med_info <- need_med_info %>% anti_join(med_small, by='mrn')
+
+RH <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RENALHEIR-SGLT2.csv')
+RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-SGLT2Use.csv')
+
+for(i in c(1:nrow(need_med_infO))){
+  
+}
+
+
+
 apply(dat_results %>% dplyr::select(starts_with('fsoc')), 2, is.na) %>% 
   colSums() %>% which.min()
 
