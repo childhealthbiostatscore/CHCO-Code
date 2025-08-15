@@ -25,7 +25,6 @@ library(arsenal)
 library(gtsummary)
 library(sjPlot)
 library(ggpubr)
-library(ggradar)
 library(pROC)
 library(gt)
 home_dir <- switch(Sys.info()["sysname"],
@@ -594,15 +593,6 @@ ggplot(
         axis.title.x = element_blank(),
         plot.title = element_text(hjust = 0.5)
     )
-# Spider graph
-plot_df %>%
-    filter(name == "cv_a1c") %>%
-    pivot_wider(
-        names_from = value,
-        values_from = perc,
-        id_cols = weight_cat
-    ) %>%
-    ggradar()
 ```
 
 # ROC Analysis
@@ -1137,4 +1127,127 @@ m <- lm(cv_alt ~ cv_acanthosisneck * combined_race, data = cv1)
 m %>%
     tbl_regression() %>%
     add_n(location = "level")
+```
+
+# Association of Clinical and Biochemical Markers with Mental Health Disorders
+
+No participants were excluded based on medication for these analyses.
+
+```{r}
+# New dataset for clinic visit 1, including whether or not they were diagnosed within 1 year
+cv1 <- df %>%
+    group_by(record_number) %>%
+    filter(cv_monthssincepcosdx <= 12) %>%
+    mutate(
+        anxiety = factor(
+            any(anxiety == "Yes"),
+            levels = c(F, T),
+            labels = c("Anxiety-", "Anxiety+")
+        ),
+        depression = factor(
+            any(depression == "Yes"),
+            levels = c(F, T),
+            labels = c("Depression-", "Depression+")
+        ),
+        adhd = factor(
+            any(adhd == "Yes"),
+            levels = c(F, T),
+            labels = c("ADHD-", "ADHD+")
+        ),
+        bed = factor(
+            any(bed == "Yes"),
+            levels = c(F, T),
+            labels = c("BED-", "BED+")
+        ),
+        red = factor(
+            any(red == "Yes"),
+            levels = c(F, T),
+            labels = c("RED-", "RED+")
+        )
+    ) %>%
+    filter(cv_monthssincepcosdx == 0) %>%
+    distinct() %>%
+    ungroup()
+# New list of variables
+mental_health_vars <- c(
+    "cv_bmi_z",
+    "weight_cat",
+    "overweight_perc",
+    "weight_raw",
+    "overweight_raw",
+    "pcosdx_pmh___7",
+    "cv_a1c",
+    "cv_ft_perc",
+    "cv_tt_perc",
+    "cv_shbg",
+    "cv_medications___17",
+    "cv_medications___18",
+    "cv_medications___19",
+    "mental_health_screening",
+    "weight_loss",
+    "ec",
+    "cv_hirsutism_cat",
+    "cv_hirsutism_num",
+    "cv_acneface",
+    "cv_acneother___1",
+    "cv_acneother___2",
+    "cv_acneother___0",
+    "cv_acanthosisneck",
+    "cv_hydradinitis",
+    "cv_alopecia",
+    "cv_alt",
+    "cv_osa_sx",
+    "cv_newmeds___20",
+    "cv_medications___20",
+    "cv_referrals___6",
+    "cv_referrals___7",
+    "cv_referrals___11"
+)
+# Base formula
+f <- as.formula(paste0("~", paste0(mental_health_vars, collapse = "+")))
+```
+
+## Anxiety
+
+There were a total of `r sum(df$anxiety[df$cv_monthssincepcosdx == 0&df$record_number %in% cv1$record_number]=="Yes",na.rm=T)` people with anxiety at their baseline visit.
+
+```{r results="asis"}
+tbl <- tableby(update(f, anxiety ~ .), data = cv1, control = mycontrols)
+summary(tbl, labelTranslations = labels(df), pfootnote = T)
+```
+
+## Depression
+
+There were a total of `r sum(df$depression[df$cv_monthssincepcosdx == 0&df$record_number %in% cv1$record_number]=="Yes",na.rm=T)` people with depression at their baseline visit. Of these, `r sum(df$mental_health_screening[df$cv_monthssincepcosdx == 0&df$record_number %in% cv1$record_number]=="Yes",na.rm=T)` had a depression screening score available. Of those diagnosed within 1 year, `r sum(df$mental_health_screening[df$cv_monthssincepcosdx > 0&df$cv_monthssincepcosdx <= 12&df$record_number %in% cv1$record_number]=="Yes",na.rm=T)`. Additionally, there were `r length(unique(cv1$record_number[cv1$depression == "Depression-" & cv1$mental_health_screening == "Yes"]))`
+
+```{r results="asis"}
+tbl <- tableby(update(f, depression ~ .), data = cv1, control = mycontrols)
+summary(tbl, labelTranslations = labels(df), pfootnote = T)
+```
+
+## ADHD
+
+There were a total of `r sum(df$adhd[df$cv_monthssincepcosdx == 0&df$record_number %in% cv1$record_number]=="Yes",na.rm=T)` people with ADHD at their baseline visit.
+
+```{r results="asis"}
+tbl <- tableby(update(f, adhd ~ .), data = cv1, control = mycontrols)
+summary(tbl, labelTranslations = labels(df), pfootnote = T)
+```
+
+## Binge eating disorder (including bulemia)
+
+There were a total of `r sum(df$bed[df$cv_monthssincepcosdx == 0&df$record_number %in% cv1$record_number]=="Yes",na.rm=T)` people with BED at their baseline visit.
+
+```{r results="asis"}
+tbl <- tableby(update(f, bed ~ .), data = cv1, control = mycontrols)
+summary(tbl, labelTranslations = labels(df), pfootnote = T)
+```
+
+## Restricting eating disorder (including anorexia)
+
+There were a total of `r sum(df$red[df$cv_monthssincepcosdx == 0&df$record_number %in% cv1$record_number]=="Yes",na.rm=T)` people with RED at their baseline visit.
+
+```{r results="asis"}
+tbl <- tableby(update(f, red ~ .), data = cv1, control = mycontrols)
+summary(tbl, labelTranslations = labels(df), pfootnote = T)
 ```
