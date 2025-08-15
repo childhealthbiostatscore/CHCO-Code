@@ -52,9 +52,6 @@ dat2 <- dat %>% filter(visit == 'baseline') %>%
   dplyr::select(mrn, record_id, visit, group, group2, starts_with('fsoc'), bmi, 
                 epic_sglti2_1, age, sex, epic_mfm_1, epic_insulin_1, epic_glp1ra_1)
 
-table1::table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_glp1ra_1+epic_sglti2_1 | group2,data=dat2 %>% 
-                 filter(!is.na(group2)))
-
 
 tests <- c('fsoc_l_cortex', 'fsoc_r_cortex', 
            'fsoc_l_kidney', 'fsoc_r_kidney', 
@@ -66,12 +63,6 @@ tests <- c('fsoc_l_cortex', 'fsoc_r_cortex',
 graphs <- list()
 
 
-dat_results <- dat2 %>% mutate(fsoc_l_combined = (fsoc_l_cortex +fsoc_l_kidney+ fsoc_l_medulla)/3,
-                               fsoc_r_combined = (fsoc_r_cortex +fsoc_r_kidney +fsoc_r_medulla)/3,
-                               fsoc_full_combined = (fsoc_l_cortex + fsoc_r_cortex +
-                                                         fsoc_l_kidney + fsoc_r_kidney + 
-                                                         fsoc_l_medulla + fsoc_r_medulla)/6)
-
 
 
 medications <- readxl::read_xlsx("C:/Users/netio/Documents/Harmonized_data/Biopsies_w_mrn_Oct3.xlsx")
@@ -80,15 +71,15 @@ names(medications) <- str_replace(names(medications), pattern = '_1', replacemen
 
 
 
-need_med_info <- dat_results %>% filter(group == 'Type 2 Diabetes') %>% filter(is.na(group2))
+need_med_info <- dat2 %>% filter(group == 'Type 2 Diabetes') %>% filter(is.na(group2))
 
 med_small <- medications %>% filter(mrn %in% need_med_info$mrn)
 
 for(i in c(1:nrow(med_small))){
   if(med_small$sglti2[i] == 'No'){
-    dat_results$group2[which(dat_results$mrn == med_small$mrn[i])] <- 'T2D-No SGLTi2'
+    dat2$group2[which(dat2$mrn == med_small$mrn[i])] <- 'T2D-No SGLTi2'
   }else if(med_small$sglti2[i] == 'Yes'){
-    dat_results$group2[which(dat_results$mrn == med_small$mrn[i])] <- 'T2D-SGLTi2'    
+    dat2$group2[which(dat2$mrn == med_small$mrn[i])] <- 'T2D-SGLTi2'    
   }else{
     next
   }
@@ -109,9 +100,9 @@ RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
 
 for(i in c(1:nrow(RH_small))){
   if(RH_small$SGLT2[i] == 'No'){
-    dat_results$group2[which(dat_results$record_id == RH_small$Subject[i])] <- 'T2D-No SGLTi2'
+    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-No SGLTi2'
   }else if(RH_small$SGLT2[i] == 'Yes'){
-    dat_results$group2[which(dat_results$record_id == RH_small$Subject[i])] <- 'T2D-SGLTi2'    
+    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-SGLTi2'    
   }else{
     next
   }
@@ -120,15 +111,24 @@ for(i in c(1:nrow(RH_small))){
 
 for(i in c(1:nrow(RH2_small))){
   if(RH2_small$SGLT2[i] == 'No'){
-    dat_results$group2[which(dat_results$mrn == RH2_small$mrn[i])] <- 'T2D-No SGLTi2'
+    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-No SGLTi2'
   }else if(RH2_small$SGLT2[i] == 'Yes'){
-    dat_results$group2[which(dat_results$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2'    
+    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2'    
   }else{
     next
   }
   
 }
 
+
+table1::table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_glp1ra_1+epic_sglti2_1 | group2,data=dat2 %>% 
+                 filter(!is.na(group2)))
+
+dat_results <- dat2 %>% mutate(fsoc_l_combined = (fsoc_l_cortex +fsoc_l_kidney+ fsoc_l_medulla)/3,
+                               fsoc_r_combined = (fsoc_r_cortex +fsoc_r_kidney +fsoc_r_medulla)/3,
+                               fsoc_full_combined = (fsoc_l_cortex + fsoc_r_cortex +
+                                                       fsoc_l_kidney + fsoc_r_kidney + 
+                                                       fsoc_l_medulla + fsoc_r_medulla)/6)
 
 
 
