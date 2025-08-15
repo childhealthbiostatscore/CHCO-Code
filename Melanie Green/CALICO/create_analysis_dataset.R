@@ -2,14 +2,16 @@ library(redcapAPI)
 library(tidyverse)
 library(Hmisc)
 library(cdcanthro)
-home_dir <- switch(Sys.info()["sysname"],
+home_dir <- switch(
+  Sys.info()["sysname"],
   "Darwin" = "/Users/tim/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
   "Linux" = "/home/tim/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO",
   "Windows" = "C:/Users/Tim/OneDrive - The University of Colorado Denver/Vigers/BDC/Janet Snell-Bergeon/CALICO"
 )
 setwd(home_dir)
 # Open REDCap
-unlockREDCap(c(rcon = "CALICO"),
+unlockREDCap(
+  c(rcon = "CALICO"),
   keyring = "API_KEYs",
   envir = 1,
   url = "https://redcap.ucdenver.edu/api/"
@@ -19,12 +21,16 @@ isMissingSpecial <- function(x, ...) {
   is.na(x) | x == "" | x == "UNK" | x == "OTH" | x == "NA" | x == "PM"
 }
 # Import history and clinic visits separately for cleanliness
-history <- exportReportsTyped(rcon,
-  report_id = 131532, warn_zero_coded = F,
+history <- exportReportsTyped(
+  rcon,
+  report_id = 131532,
+  warn_zero_coded = F,
   na = list(number = isMissingSpecial, radio = isMissingSpecial)
 )
-clinic <- exportReportsTyped(rcon,
-  report_id = 131533, warn_zero_coded = F,
+clinic <- exportReportsTyped(
+  rcon,
+  report_id = 131533,
+  warn_zero_coded = F,
   na = list(number = isMissingSpecial, radio = isMissingSpecial)
 )
 # Diagnostic visits are 0 months since diagnosis
@@ -40,32 +46,53 @@ clinic <- clinic %>%
 df <- full_join(history, clinic, by = join_by(record_number)) %>%
   select(record_number, redcap_repeat_instance, everything())
 # BMI z scores
-bmi_df <- df %>% select(record_number, redcap_repeat_instance, cv_age, cv_weight, cv_height, cv_bmi)
-bmi_df$cv_age = bmi_df$cv_age*12
+bmi_df <- df %>%
+  select(
+    record_number,
+    redcap_repeat_instance,
+    cv_age,
+    cv_weight,
+    cv_height,
+    cv_bmi
+  )
+bmi_df$cv_age = bmi_df$cv_age * 12
 bmi_df$sex <- "female"
-t <- cdcanthro(bmi_df, age = cv_age, wt = cv_weight, ht = cv_height, bmi = cv_bmi, all = FALSE)
+t <- cdcanthro(
+  bmi_df,
+  age = cv_age,
+  wt = cv_weight,
+  ht = cv_height,
+  bmi = cv_bmi,
+  all = FALSE
+)
 # Weight categories
 df <- df %>%
   mutate(
     weight_perc = case_when(
       !is.na(cv_bmi_percentile) & cv_bmi_percentile < 85 ~ "Normal weight",
-      !is.na(cv_bmi_percentile) & cv_bmi_percentile >= 85 &
-        cv_bmi_percentile < 95 ~ "Overweight",
+      !is.na(cv_bmi_percentile) &
+        cv_bmi_percentile >= 85 &
+        cv_bmi_percentile < 95 ~
+        "Overweight",
       !is.na(cv_bmi_percentile) & cv_bmi_percentile >= 95 ~ "Obese",
       !is.na(cv_bmi) & cv_bmi < 25 ~ "Normal weight",
       !is.na(cv_bmi) & cv_bmi >= 25 & cv_bmi < 30 ~ "Overweight",
       !is.na(cv_bmi) & cv_bmi >= 30 ~ "Obese",
       .default = NA
     ),
-    weight_raw = cut(cv_bmi,
-      breaks = c(-Inf, 25, 30, Inf), right = F,
+    weight_raw = cut(
+      cv_bmi,
+      breaks = c(-Inf, 25, 30, Inf),
+      right = F,
       labels = c("Normal weight", "Overweight", "Obese")
     )
   )
-df$weight_perc <- factor(df$weight_perc,
+df$weight_perc <- factor(
+  df$weight_perc,
   levels = c("Normal weight", "Overweight", "Obese")
 )
-df$weight_raw <- factor(df$weight_raw,
+df$weight_raw <- factor(
+  df$weight_raw,
   levels = c("Normal weight", "Overweight", "Obese")
 )
 # Combined weight category
@@ -86,12 +113,20 @@ df$overweight_perc <- factor(df$overweight_perc, levels = c("No", "Yes"))
 df$overweight_raw <- factor(df$overweight_raw, levels = c("No", "Yes"))
 # Combined race column
 races <- c(
-  "Caucasian", "African American", "Asian", "Pacific Islander",
-  "American Indian or Alaska Native", "Other", "Unknown/Not recorded",
-  "Not applicable", "Other", "Premenarchal"
+  "Caucasian",
+  "African American",
+  "Asian",
+  "Pacific Islander",
+  "American Indian or Alaska Native",
+  "Other",
+  "Unknown/Not recorded",
+  "Not applicable",
+  "Other",
+  "Premenarchal"
 )
 df$combined_race <- apply(
-  df[, paste0("race___", c(1:5, 60, "unk"))], 1,
+  df[, paste0("race___", c(1:5, 60, "unk"))],
+  1,
   function(r) {
     w <- which(r == "Checked")
     if (length(w) == 0) {
@@ -108,14 +143,20 @@ df$combined_race <- factor(df$combined_race)
 # match up
 hist_labels <- sub(
   "Non-parent family history \\(include all history, not only from the diagnostic visit\\)\\. Including siblings, first cousins, aunts, uncles, and grandparents. \\(choice\\=",
-  "", as.character(label(df[, grep("pcosdx_famhx___", colnames(df))]))
+  "",
+  as.character(label(df[, grep("pcosdx_famhx___", colnames(df))]))
 )
 hist_labels <- sub("\\)", "", hist_labels)
 hist_labels <- sub(" \\{pcosdx_famhx_family_otherdx\\}", "", hist_labels)
 hist_labels <- paste0("Any family history of ", hist_labels, "?")
-hist_vars <- sub("pcosdx_famhx___", "", colnames(df[, grep(
-  "pcosdx_famhx___", colnames(df)
-)]))
+hist_vars <- sub(
+  "pcosdx_famhx___",
+  "",
+  colnames(df[, grep(
+    "pcosdx_famhx___",
+    colnames(df)
+  )])
+)
 any_hist <- data.frame(lapply(hist_vars, function(v) {
   parent <- df[, paste0("pcosdx_famhx_parent___", v)]
   nonparent <- df[, paste0("pcosdx_famhx___", v)]
@@ -128,37 +169,49 @@ df <- cbind(df, any_hist)
 # Mental health screening
 df$mental_health_screening <-
   rowSums(!is.na(df[, c("cv_phq2", "cv_phq8", "cv_phq9", "cv_cesd20")]))
-df$mental_health_screening <- factor(df$mental_health_screening,
-  levels = 0:4, labels = c("No", "Yes", "Yes", "Yes", "Yes")
+df$mental_health_screening <- factor(
+  df$mental_health_screening,
+  levels = 0:4,
+  labels = c("No", "Yes", "Yes", "Yes", "Yes")
 )
 # Mental health diagnosis variables
 # Convert to numeric
-df$cv_phq9[df$cv_phq9 %in%
-  c("performed, score not included", "performed, results not listed")] <- NA
+df$cv_phq9[
+  df$cv_phq9 %in%
+    c("performed, score not included", "performed, results not listed")
+] <- NA
 df$cv_phq9[df$cv_phq9 == "negative"] <- 0
 df$cv_cesd20[df$cv_cesd20 == "AN"] <- NA
 df$cv_phq9 <- as.numeric(df$cv_phq9)
 df$cv_cesd20 <- as.numeric(df$cv_cesd20)
 df <- df %>%
   mutate(
-    depression = cv_newdx___16 == "Checked" | pcosdx_pmh___16 == "Checked" |
-      cv_phq2 >= 3 | cv_phq8 >= 10 | cv_phq9 >= 10 | cv_cesd20 >= 16,
-    anxiety =
-      factor(cv_newdx___15 == "Checked" | pcosdx_pmh___15 == "Checked",
-        levels = c(F, T), labels = c("No", "Yes")
-      ),
-    bed =
-      factor(cv_newdx___17 == "Checked" | pcosdx_pmh___17 == "Checked",
-        levels = c(F, T), labels = c("No", "Yes")
-      ),
-    red =
-      factor(cv_newdx___18 == "Checked" | pcosdx_pmh___18 == "Checked",
-        levels = c(F, T), labels = c("No", "Yes")
-      ),
-    adhd =
-      factor(cv_newdx___19 == "Checked" | pcosdx_pmh___19 == "Checked",
-        levels = c(F, T), labels = c("No", "Yes")
-      )
+    depression = cv_newdx___16 == "Checked" |
+      pcosdx_pmh___16 == "Checked" |
+      cv_phq2 >= 3 |
+      cv_phq8 >= 10 |
+      cv_phq9 >= 10 |
+      cv_cesd20 >= 16,
+    anxiety = factor(
+      cv_newdx___15 == "Checked" | pcosdx_pmh___15 == "Checked",
+      levels = c(F, T),
+      labels = c("No", "Yes")
+    ),
+    bed = factor(
+      cv_newdx___17 == "Checked" | pcosdx_pmh___17 == "Checked",
+      levels = c(F, T),
+      labels = c("No", "Yes")
+    ),
+    red = factor(
+      cv_newdx___18 == "Checked" | pcosdx_pmh___18 == "Checked",
+      levels = c(F, T),
+      labels = c("No", "Yes")
+    ),
+    adhd = factor(
+      cv_newdx___19 == "Checked" | pcosdx_pmh___19 == "Checked",
+      levels = c(F, T),
+      labels = c("No", "Yes")
+    )
   )
 df$depression[is.na(df$depression)] <- F
 df$depression <-
@@ -167,7 +220,8 @@ df$depression <-
 df$pcosdx_any_mentalhealthcounseling <-
   rowSums(df[, c(paste0("pcosdx_mentalhealthcounseling___", 1:3))] == "Checked")
 df$pcosdx_any_mentalhealthcounseling <-
-  factor(df$pcosdx_any_mentalhealthcounseling,
+  factor(
+    df$pcosdx_any_mentalhealthcounseling,
     levels = 0:3,
     labels = c("No", "Yes", "Yes", "Yes")
   )
@@ -187,7 +241,8 @@ df$larc <- df$cv_medications___10 == "Checked" |
 df$larc <- factor(df$larc, levels = c(F, T), labels = c("No", "Yes"))
 # Same as LARC, but for estrogen-containing medications (EC)
 df$ec <- df$cv_medications___5 == "Checked" |
-  df$cv_medications___6 == "Checked" | df$cv_medications___7 == "Checked"
+  df$cv_medications___6 == "Checked" |
+  df$cv_medications___7 == "Checked"
 df$ec <- factor(df$ec, levels = c(F, T), labels = c("No", "Yes"))
 # Metformin
 df$metformin <- df$cv_medications___1 == "Checked"
@@ -197,20 +252,27 @@ df$lifestyle <- df$metformin == "No" & df$ec == "No"
 df$lifestyle <- factor(df$lifestyle, levels = c(F, T), labels = c("No", "Yes"))
 # Weight loss medication
 df$weight_loss <-
-  df$cv_medications___25 == "Checked" | df$cv_medications___26 == "Checked" |
-    df$cv_medications___27 == "Checked" | df$cv_medications___28 == "Checked" |
-    df$cv_medications___29 == "Checked"
+  df$cv_medications___25 == "Checked" |
+  df$cv_medications___26 == "Checked" |
+  df$cv_medications___27 == "Checked" |
+  df$cv_medications___28 == "Checked" |
+  df$cv_medications___29 == "Checked"
 df$weight_loss <-
   factor(df$weight_loss, levels = c(F, T), labels = c("No", "Yes"))
 # Progesterone containing medication
 df$progesterone <-
-  df$cv_medications___9 == "Checked" | df$cv_medications___10 == "Checked" |
-    df$cv_medications___11 == "Checked" | df$cv_medications___12 == "Checked"
+  df$cv_medications___9 == "Checked" |
+  df$cv_medications___10 == "Checked" |
+  df$cv_medications___11 == "Checked" |
+  df$cv_medications___12 == "Checked"
 df$progesterone <-
   factor(df$progesterone, levels = c(F, T), labels = c("No", "Yes"))
 # Age group at diagnosis
-df$age_group <- cut(df$pcosdx_age, c(-Inf, 15, Inf),
-  right = F, labels = c("< 15 years", ">= 15 years")
+df$age_group <- cut(
+  df$pcosdx_age,
+  c(-Inf, 15, Inf),
+  right = F,
+  labels = c("< 15 years", ">= 15 years")
 )
 # Convert columns to numeric
 df$cv_a1c <- suppressWarnings(as.numeric(df$cv_a1c))
@@ -240,7 +302,8 @@ label(df$mental_health_screening) <-
   "PHQ-2, PHQ-8, PHQ-9 or CED-S Score Available?"
 label(df[, grep("___unk", colnames(df))]) <-
   as.list(sub(
-    "choice=NA", "choice=Unknown/Not recorded",
+    "choice=NA",
+    "choice=Unknown/Not recorded",
     label(df[, grep("___unk", colnames(df))])
   ))
 label(df$cv_age) <- "Age at Clinic Visit"
