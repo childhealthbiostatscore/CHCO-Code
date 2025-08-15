@@ -80,9 +80,9 @@ names(medications) <- str_replace(names(medications), pattern = '_1', replacemen
 
 
 
-need_med_infO <- dat_results %>% filter(group == 'Type 2 Diabetes') %>% filter(is.na(group2))
+need_med_info <- dat_results %>% filter(group == 'Type 2 Diabetes') %>% filter(is.na(group2))
 
-med_small <- medications %>% filter(mrn %in% need_med_infO$mrn)
+med_small <- medications %>% filter(mrn %in% need_med_info$mrn)
 
 for(i in c(1:nrow(med_small))){
   if(med_small$sglti2[i] == 'No'){
@@ -94,14 +94,42 @@ for(i in c(1:nrow(med_small))){
   }
 }
 
+med_small$mrn <- as.numeric(med_small$mrn)
 need_med_info <- need_med_info %>% anti_join(med_small, by='mrn')
 
 RH <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RENALHEIR-SGLT2.csv')
-RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-SGLT2Use.csv')
+names(RH) <- c('Subject', 'rep_instr', 'rep_inst', 'SGLT2')
 
-for(i in c(1:nrow(need_med_infO))){
+RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-SGLT2Use.csv')
+names(RH2) <- c('Subject', 'event', 'rep_instr', 'rep_inst', 'mrn', 'SGLT2', 'SGLT2_ever')
+RH2 <- RH2 %>% filter(!is.na(mrn))
+
+RH_small <- RH %>% filter(Subject %in% need_med_info$record_id)
+RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
+
+for(i in c(1:nrow(RH_small))){
+  if(RH_small$SGLT2[i] == 'No'){
+    dat_results$group2[which(dat_results$record_id == RH_small$Subject[i])] <- 'T2D-No SGLTi2'
+  }else if(RH_small$SGLT2[i] == 'Yes'){
+    dat_results$group2[which(dat_results$record_id == RH_small$Subject[i])] <- 'T2D-SGLTi2'    
+  }else{
+    next
+  }
   
 }
+
+for(i in c(1:nrow(RH2_small))){
+  if(RH2_small$SGLT2[i] == 'No'){
+    dat_results$group2[which(dat_results$mrn == RH2_small$mrn[i])] <- 'T2D-No SGLTi2'
+  }else if(RH2_small$SGLT2[i] == 'Yes'){
+    dat_results$group2[which(dat_results$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2'    
+  }else{
+    next
+  }
+  
+}
+
+
 
 
 
