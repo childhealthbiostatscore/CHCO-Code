@@ -27,65 +27,73 @@ library(ggeffects)
 library(gtsummary)
 library(gt)
 home_dir <- switch(Sys.info()["sysname"],
-  "Darwin" = "/Users/tim/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
-  "Windows" = "C:/Users/Tim/OneDrive - The University of Colorado Denver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
-  "Linux" = "/home/timvigers/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO"
+    "Darwin" = "/Users/tim/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
+    "Windows" = "C:/Users/Tim/OneDrive - The University of Colorado Denver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
+    "Linux" = "/home/timvigers/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO"
 )
 knitr::opts_knit$set(root.dir = home_dir)
 ```
 
 ```{r functions}
 # Write a function to determine which visits to include
-visits_exclude <- function(data = d, column, value = "Yes", remove_all_after = F) {
-  # To dataframe
-  data <- as.data.frame(data)
-  # Yes and no run lengths, and the length of time between
-  r <- rle(as.character(data[, column]))
-  r <- data.frame(value = r$values, length = r$lengths)
-  # Get the end
-  r$end <- cumsum(r$length)
-  # Get the start
-  r$start <- r$end - r$length + 1
-  # Length of time between start and end
-  r$months <- as.numeric(data$cv_monthssincepcosdx[r$end] -
-    data$cv_monthssincepcosdx[r$start])
-  # If they only have one unique value, don't remove anything
-  if (nrow(r) == 1) {
-    data$remove <- NA
-  } else if (r$value[1] == value) {
-    # If they start as "Yes" remove everything after first "No"
-    data$remove[r$start[2]:nrow(data)] <- "Remove"
-  } else if (r$value[1] == "No") {
-    # If they start a medication after diagnosis, check that they are on it
-    # for at least 3 months
-    first_yes <- which(r$value == value & r$months > 3)[1]
-    if (is.na(first_yes) & any(r$value == value & (r$end > r$start))) {
-      # If there is no 3 month stretch, but there are consecutive visits, remove
-      # everything after the first "Yes"
-      data$remove[r$start[2]:nrow(data)] <- "Remove"
-    } else if (is.na(first_yes) & !any(r$value == value & (r$end > r$start))) {
-      data$remove <- NA
-    } else if (r$end[first_yes] == nrow(data)) {
-      # If the first stretch of "yes" values doesn't end, don't exclude anything
-      data$remove <- NA
-    } else {
-      # Otherwise remove anything after the end of the first "Yes" stretch
-      data$remove[(r$end[first_yes] + 1):nrow(data)] <- "Remove"
+visits_exclude <- function(
+    data = d,
+    column,
+    value = "Yes",
+    remove_all_after = F) {
+    # To dataframe
+    data <- as.data.frame(data)
+    # Yes and no run lengths, and the length of time between
+    r <- rle(as.character(data[, column]))
+    r <- data.frame(value = r$values, length = r$lengths)
+    # Get the end
+    r$end <- cumsum(r$length)
+    # Get the start
+    r$start <- r$end - r$length + 1
+    # Length of time between start and end
+    r$months <- as.numeric(
+        data$cv_monthssincepcosdx[r$end] -
+            data$cv_monthssincepcosdx[r$start]
+    )
+    # If they only have one unique value, don't remove anything
+    if (nrow(r) == 1) {
+        data$remove <- NA
+    } else if (r$value[1] == value) {
+        # If they start as "Yes" remove everything after first "No"
+        data$remove[r$start[2]:nrow(data)] <- "Remove"
+    } else if (r$value[1] == "No") {
+        # If they start a medication after diagnosis, check that they are on it
+        # for at least 3 months
+        first_yes <- which(r$value == value & r$months > 3)[1]
+        if (is.na(first_yes) & any(r$value == value & (r$end > r$start))) {
+            # If there is no 3 month stretch, but there are consecutive visits, remove
+            # everything after the first "Yes"
+            data$remove[r$start[2]:nrow(data)] <- "Remove"
+        } else if (
+            is.na(first_yes) & !any(r$value == value & (r$end > r$start))
+        ) {
+            data$remove <- NA
+        } else if (r$end[first_yes] == nrow(data)) {
+            # If the first stretch of "yes" values doesn't end, don't exclude anything
+            data$remove <- NA
+        } else {
+            # Otherwise remove anything after the end of the first "Yes" stretch
+            data$remove[(r$end[first_yes] + 1):nrow(data)] <- "Remove"
+        }
+        # Remove any visits with a "Yes" singleton
+        data$remove[r[r$value == value & r$length == 1, "start"]] <- "Remove"
     }
-    # Remove any visits with a "Yes" singleton
-    data$remove[r[r$value == value & r$length == 1, "start"]] <- "Remove"
-  }
-  # Some meds, like progesterone, need to be removed completely after the first
-  # yes
-  if (remove_all_after) {
-    data$remove <- NA
-    if (value %in% r$value) {
-      first_yes <- which(r$value == value)[1]
-      data$remove[r$start[first_yes]:nrow(data)] <- "Remove"
+    # Some meds, like progesterone, need to be removed completely after the first
+    # yes
+    if (remove_all_after) {
+        data$remove <- NA
+        if (value %in% r$value) {
+            first_yes <- which(r$value == value)[1]
+            data$remove[r$start[first_yes]:nrow(data)] <- "Remove"
+        }
     }
-  }
-  # Return
-  return(data$remove)
+    # Return
+    return(data$remove)
 }
 ```
 
@@ -94,47 +102,72 @@ visits_exclude <- function(data = d, column, value = "Yes", remove_all_after = F
 load("./Data_Clean/analysis_data_2025_06_26.RData")
 # Combine factor levels
 levels(df$insur_type) <- c(
-  "Public", "Private", "Military", "Other/None", "Other/None"
+    "Public",
+    "Private",
+    "Military",
+    "Other/None",
+    "Other/None"
 )
 df$insur_type <- relevel(df$insur_type, ref = "Private")
 levels(df$combined_race) <- c(
-  "African American", "Other", "Asian", "Caucasian", "More than one", "Other",
-  "Other"
+    "African American",
+    "Other",
+    "Asian",
+    "Caucasian",
+    "More than one",
+    "Other",
+    "Other"
 )
 df$combined_race <- relevel(df$combined_race, ref = "Caucasian")
 # This is probably not the most elegant approach, but it seems to work.
 dfs <- split(data.frame(df), df$record_number)
 dfs <- lapply(dfs, function(d) {
-  # Get removal vector for each med
-  d$ec_remove <- visits_exclude(d, "ec")
-  d$metformin_remove <- visits_exclude(d, "metformin")
-  d$lifestyle_remove <- visits_exclude(d, "lifestyle")
-  d$progesterone_remove <- visits_exclude(d, "progesterone", remove_all_after = T)
-  d$weight_loss_remove <- visits_exclude(d, "weight_loss", remove_all_after = T)
-  d$atypical_remove <- visits_exclude(d, "cv_medications___17", remove_all_after = T)
-  d$bariatric_surg_remove <- visits_exclude(d,
-    "cv_surghx___3",
-    value = "Checked", remove_all_after = T
-  )
-  # Return new dataframe for combining later
-  return(d)
+    # Get removal vector for each med
+    d$ec_remove <- visits_exclude(d, "ec")
+    d$metformin_remove <- visits_exclude(d, "metformin")
+    d$lifestyle_remove <- visits_exclude(d, "lifestyle")
+    d$progesterone_remove <- visits_exclude(
+        d,
+        "progesterone",
+        remove_all_after = T
+    )
+    d$weight_loss_remove <- visits_exclude(
+        d,
+        "weight_loss",
+        remove_all_after = T
+    )
+    d$atypical_remove <- visits_exclude(
+        d,
+        "cv_medications___17",
+        remove_all_after = T
+    )
+    d$bariatric_surg_remove <- visits_exclude(
+        d,
+        "cv_surghx___3",
+        value = "Checked",
+        remove_all_after = T
+    )
+    # Return new dataframe for combining later
+    return(d)
 })
 df <- do.call(rbind, dfs)
 # Get baseline weight and BMI
 df <- df %>%
-  arrange(record_number, cv_monthssincepcosdx) %>%
-  group_by(record_number) %>%
-  mutate(
-    baseline_weight = first(cv_weight, na_rm = T),
-    baseline_bmi = first(cv_bmi, na_rm = T)
-  )
+    arrange(record_number, cv_monthssincepcosdx) %>%
+    group_by(record_number) %>%
+    mutate(
+        baseline_weight = first(cv_weight, na_rm = T),
+        baseline_bmi = first(cv_bmi, na_rm = T)
+    )
 # For weight loss medication and progesterone, remove all visits after
 # they first start
 df <- df %>%
-  filter(
-    is.na(weight_loss_remove), is.na(progesterone_remove),
-    is.na(atypical_remove), is.na(bariatric_surg_remove)
-  )
+    filter(
+        is.na(weight_loss_remove),
+        is.na(progesterone_remove),
+        is.na(atypical_remove),
+        is.na(bariatric_surg_remove)
+    )
 # Additional labels
 label(df$combined_race) <- "Race"
 label(df$ethnicity) <- "Ethnicity"
@@ -171,29 +204,46 @@ Participants were considered to be on estrogen-containing (EC) medications when 
 ```{r}
 # Create the EC dataset
 ec_df <- df %>%
-  filter(is.na(ec_remove)) %>%
-  mutate(
-    time_of_first_ec = first(cv_monthssincepcosdx[ec == "Yes"], na_rm = T),
-    time_from_first_ec = cv_monthssincepcosdx - time_of_first_ec
-  ) %>%
-  select(
-    record_number, combined_race, ethnicity, insur_type, baseline_weight,
-    baseline_bmi, cv_age, cv_monthssincepcosdx, time_from_first_ec, ec,
-    metformin, cv_medications___16, cv_weight, cv_bmi, cv_a1c, cv_tg, cv_hdl,
-    cv_alt, cv_sbp, weight_cat
-  )
+    filter(is.na(ec_remove)) %>%
+    mutate(
+        time_of_first_ec = first(cv_monthssincepcosdx[ec == "Yes"], na_rm = T),
+        time_from_first_ec = cv_monthssincepcosdx - time_of_first_ec
+    ) %>%
+    select(
+        record_number,
+        combined_race,
+        ethnicity,
+        insur_type,
+        baseline_weight,
+        baseline_bmi,
+        cv_age,
+        cv_monthssincepcosdx,
+        time_from_first_ec,
+        ec,
+        metformin,
+        cv_medications___16,
+        cv_weight,
+        cv_bmi,
+        cv_a1c,
+        cv_tg,
+        cv_hdl,
+        cv_alt,
+        cv_sbp,
+        weight_cat
+    )
 # Create a spline model dataset
 ec_12_month_spline <- ec_df %>%
-  filter(time_from_first_ec >= -12) %>%
-  mutate(x = (time_from_first_ec > 0) * time_from_first_ec)
+    filter(time_from_first_ec >= -12) %>%
+    mutate(x = (time_from_first_ec > 0) * time_from_first_ec)
 label(ec_df$time_from_first_ec) <- "Months from First Visit on EC"
 label(ec_12_month_spline$x) <- "Change in Slope After EC Start"
 # Write for Melanie and Grayson to check
-write.csv(ec_df,
-  file = "./Data_Clean/ec_data.csv", row.names = F, na = ""
-)
-write.csv(ec_12_month_spline,
-  file = "./Data_Clean/ec_12_month_spline.csv", row.names = F, na = ""
+write.csv(ec_df, file = "./Data_Clean/ec_data.csv", row.names = F, na = "")
+write.csv(
+    ec_12_month_spline,
+    file = "./Data_Clean/ec_12_month_spline.csv",
+    row.names = F,
+    na = ""
 )
 ```
 
@@ -203,17 +253,29 @@ write.csv(ec_12_month_spline,
 
 ```{r results='asis'}
 t1_df <- ec_df %>%
-  group_by(record_number) %>%
-  mutate(ec_ever = any(ec == "Yes")) %>%
-  filter(cv_monthssincepcosdx == 0)
-t1_df$ec_ever <- factor(t1_df$ec_ever,
-  levels = c(F, T),
-  labels = c("Never on EC", "Ever on EC")
+    group_by(record_number) %>%
+    mutate(ec_ever = any(ec == "Yes")) %>%
+    filter(cv_monthssincepcosdx == 0)
+t1_df$ec_ever <- factor(
+    t1_df$ec_ever,
+    levels = c(F, T),
+    labels = c("Never on EC", "Ever on EC")
 )
 t1 <- tableby(
-  ec_ever ~ cv_age + combined_race + ethnicity + fe(insur_type) + cv_weight +
-    cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt + cv_sbp + cv_monthssincepcosdx,
-  data = t1_df
+    ec_ever ~
+        cv_age +
+        combined_race +
+        ethnicity +
+        fe(insur_type) +
+        cv_weight +
+        cv_bmi +
+        cv_a1c +
+        cv_tg +
+        cv_hdl +
+        cv_alt +
+        cv_sbp +
+        cv_monthssincepcosdx,
+    data = t1_df
 )
 summary(t1, pfootnote = T)
 ```
@@ -222,9 +284,20 @@ summary(t1, pfootnote = T)
 
 ```{r results='asis'}
 t1 <- tableby(
-  weight_cat ~ cv_age + combined_race + ethnicity + fe(insur_type) + cv_weight +
-    cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt + cv_sbp + cv_monthssincepcosdx,
-  data = t1_df
+    weight_cat ~
+        cv_age +
+        combined_race +
+        ethnicity +
+        fe(insur_type) +
+        cv_weight +
+        cv_bmi +
+        cv_a1c +
+        cv_tg +
+        cv_hdl +
+        cv_alt +
+        cv_sbp +
+        cv_monthssincepcosdx,
+    data = t1_df
 )
 summary(t1, pfootnote = T)
 ```
@@ -236,19 +309,27 @@ summary(t1, pfootnote = T)
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_weight ~ cv_monthssincepcosdx * ec + cv_age + baseline_weight +
-    combined_race + insur_type + metformin + cv_medications___16 +
-    (1 | record_number),
-  data = ec_df
+    cv_weight ~
+        cv_monthssincepcosdx *
+        ec +
+        cv_age +
+        baseline_weight +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "ec")))
 p + theme_bw(base_size = 15) + labs(color = "On EC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "ec", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -260,9 +341,19 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_weight ~ time_from_first_ec + x + baseline_weight +
-  cv_age + combined_race + insur_type + metformin + cv_medications___16 +
-  (1 | record_number), data = ec_12_month_spline)
+change_mod <- lmer(
+    cv_weight ~
+        time_from_first_ec +
+        x +
+        baseline_weight +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -277,19 +368,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_ec)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("Weight (kg)") +
-  xlab("Months From EC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("Weight (kg)") +
+    xlab("Months From EC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First EC" is the slope prior to starting medication, and the "Slope Change After EC" row shows the average change in slope after starting the medication.
@@ -301,19 +396,27 @@ In the above table, the row labeled "Months From First EC" is the slope prior to
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_bmi ~ cv_monthssincepcosdx * ec + cv_age + baseline_bmi +
-    combined_race + insur_type + metformin + cv_medications___16 +
-    (1 | record_number),
-  data = ec_df
+    cv_bmi ~
+        cv_monthssincepcosdx *
+        ec +
+        cv_age +
+        baseline_bmi +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "ec")))
 p + theme_bw(base_size = 15) + labs(color = "On EC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "ec", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -325,9 +428,19 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_bmi ~ time_from_first_ec + x + baseline_bmi +
-  cv_age + combined_race + insur_type + metformin + cv_medications___16 +
-  (1 | record_number), data = ec_12_month_spline)
+change_mod <- lmer(
+    cv_bmi ~
+        time_from_first_ec +
+        x +
+        baseline_bmi +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -342,19 +455,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_ec)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("BMI (kg/m2)") +
-  xlab("Months From EC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("BMI (kg/m2)") +
+    xlab("Months From EC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First EC" is the slope prior to starting medication, and the "Slope Change After EC" row shows the average change in slope after starting the medication.
@@ -366,19 +483,26 @@ In the above table, the row labeled "Months From First EC" is the slope prior to
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_a1c ~ cv_monthssincepcosdx * ec + cv_age +
-    combined_race + insur_type + metformin + cv_medications___16 +
-    (1 | record_number),
-  data = ec_df
+    cv_a1c ~
+        cv_monthssincepcosdx *
+        ec +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "ec")))
 p + theme_bw(base_size = 15) + labs(color = "On EC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "ec", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -390,9 +514,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_a1c ~ time_from_first_ec + x +
-  cv_age + combined_race + insur_type + metformin + cv_medications___16 +
-  (1 | record_number), data = ec_12_month_spline)
+change_mod <- lmer(
+    cv_a1c ~
+        time_from_first_ec +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -406,19 +539,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_ec)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("HbA1c (%)") +
-  xlab("Months From EC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("HbA1c (%)") +
+    xlab("Months From EC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First EC" is the slope prior to starting medication, and the "Slope Change After EC" row shows the average change in slope after starting the medication.
@@ -430,19 +567,26 @@ In the above table, the row labeled "Months From First EC" is the slope prior to
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_tg ~ cv_monthssincepcosdx * ec + cv_age +
-    combined_race + insur_type + metformin + cv_medications___16 +
-    (1 | record_number),
-  data = ec_df
+    cv_tg ~
+        cv_monthssincepcosdx *
+        ec +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "ec")))
 p + theme_bw(base_size = 15) + labs(color = "On EC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "ec", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -454,9 +598,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_tg ~ time_from_first_ec + x +
-  cv_age + combined_race + insur_type + metformin + cv_medications___16 +
-  (1 | record_number), data = ec_12_month_spline)
+change_mod <- lmer(
+    cv_tg ~
+        time_from_first_ec +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -470,19 +623,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_ec)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("TG (mg/dL)") +
-  xlab("Months From EC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("TG (mg/dL)") +
+    xlab("Months From EC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First EC" is the slope prior to starting medication, and the "Slope Change After EC" row shows the average change in slope after starting the medication.
@@ -494,19 +651,26 @@ In the above table, the row labeled "Months From First EC" is the slope prior to
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_hdl ~ cv_monthssincepcosdx * ec + cv_age +
-    combined_race + insur_type + metformin + cv_medications___16 +
-    (1 | record_number),
-  data = ec_df
+    cv_hdl ~
+        cv_monthssincepcosdx *
+        ec +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "ec")))
 p + theme_bw(base_size = 15) + labs(color = "On EC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "ec", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -518,9 +682,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_hdl ~ time_from_first_ec + x +
-  cv_age + combined_race + insur_type + metformin + cv_medications___16 +
-  (1 | record_number), data = ec_12_month_spline)
+change_mod <- lmer(
+    cv_hdl ~
+        time_from_first_ec +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -534,19 +707,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_ec)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("HDL (mg/dL)") +
-  xlab("Months From EC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("HDL (mg/dL)") +
+    xlab("Months From EC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First EC" is the slope prior to starting medication, and the "Slope Change After EC" row shows the average change in slope after starting the medication.
@@ -558,19 +735,26 @@ In the above table, the row labeled "Months From First EC" is the slope prior to
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_alt ~ cv_monthssincepcosdx * ec + cv_age +
-    combined_race + insur_type + metformin + cv_medications___16 +
-    (1 | record_number),
-  data = ec_df
+    cv_alt ~
+        cv_monthssincepcosdx *
+        ec +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "ec")))
 p + theme_bw(base_size = 15) + labs(color = "On EC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "ec", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -582,9 +766,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_alt ~ time_from_first_ec + x +
-  cv_age + combined_race + insur_type + metformin + cv_medications___16 +
-  (1 | record_number), data = ec_12_month_spline)
+change_mod <- lmer(
+    cv_alt ~
+        time_from_first_ec +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -598,19 +791,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_ec)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("ALT (IU/L)") +
-  xlab("Months From EC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("ALT (IU/L)") +
+    xlab("Months From EC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First EC" is the slope prior to starting medication, and the "Slope Change After EC" row shows the average change in slope after starting the medication.
@@ -622,19 +819,26 @@ In the above table, the row labeled "Months From First EC" is the slope prior to
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_sbp ~ cv_monthssincepcosdx * ec + cv_age +
-    combined_race + insur_type + metformin + cv_medications___16 +
-    (1 | record_number),
-  data = ec_df
+    cv_sbp ~
+        cv_monthssincepcosdx *
+        ec +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "ec")))
 p + theme_bw(base_size = 15) + labs(color = "On EC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "ec", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -646,9 +850,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_sbp ~ time_from_first_ec + x +
-  cv_age + combined_race + insur_type + metformin + cv_medications___16 +
-  (1 | record_number), data = ec_12_month_spline)
+change_mod <- lmer(
+    cv_sbp ~
+        time_from_first_ec +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        metformin +
+        cv_medications___16 +
+        (1 | record_number),
+    data = ec_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -662,19 +875,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_ec)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("SBP (mmHg)") +
-  xlab("Months From EC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("SBP (mmHg)") +
+    xlab("Months From EC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First EC" is the slope prior to starting medication, and the "Slope Change After EC" row shows the average change in slope after starting the medication.
@@ -684,29 +901,57 @@ In the above table, the row labeled "Months From First EC" is the slope prior to
 ```{r}
 # Create the Metformin dataset
 metformin_df <- df %>%
-  filter(is.na(metformin_remove)) %>%
-  mutate(
-    time_of_first_metformin = first(cv_monthssincepcosdx[metformin == "Yes"], na_rm = T),
-    time_from_first_metformin = cv_monthssincepcosdx - time_of_first_metformin
-  ) %>%
-  select(
-    record_number, combined_race, ethnicity, insur_type, baseline_weight,
-    baseline_bmi, cv_age, cv_monthssincepcosdx, time_from_first_metformin, metformin,
-    ec, cv_medications___16, cv_weight, cv_bmi, cv_a1c, cv_tg, cv_hdl,
-    cv_alt, cv_sbp, weight_cat
-  )
+    filter(is.na(metformin_remove)) %>%
+    mutate(
+        time_of_first_metformin = first(
+            cv_monthssincepcosdx[metformin == "Yes"],
+            na_rm = T
+        ),
+        time_from_first_metformin = cv_monthssincepcosdx -
+            time_of_first_metformin
+    ) %>%
+    select(
+        record_number,
+        combined_race,
+        ethnicity,
+        insur_type,
+        baseline_weight,
+        baseline_bmi,
+        cv_age,
+        cv_monthssincepcosdx,
+        time_from_first_metformin,
+        metformin,
+        ec,
+        cv_medications___16,
+        cv_weight,
+        cv_bmi,
+        cv_a1c,
+        cv_tg,
+        cv_hdl,
+        cv_alt,
+        cv_sbp,
+        weight_cat
+    )
 # Create a spline model dataset
 metformin_12_month_spline <- metformin_df %>%
-  filter(time_from_first_metformin >= -12) %>%
-  mutate(x = (time_from_first_metformin > 0) * time_from_first_metformin)
-label(metformin_df$time_from_first_metformin) <- "Months from First Visit on Metformin"
+    filter(time_from_first_metformin >= -12) %>%
+    mutate(x = (time_from_first_metformin > 0) * time_from_first_metformin)
+label(
+    metformin_df$time_from_first_metformin
+) <- "Months from First Visit on Metformin"
 label(metformin_12_month_spline$x) <- "Change in Slope After Metformin Start"
 # Write for Melanie and Grayson to check
-write.csv(metformin_df,
-  file = "./Data_Clean/metformin_data.csv", row.names = F, na = ""
+write.csv(
+    metformin_df,
+    file = "./Data_Clean/metformin_data.csv",
+    row.names = F,
+    na = ""
 )
-write.csv(metformin_12_month_spline,
-  file = "./Data_Clean/metformin_12_month_spline.csv", row.names = F, na = ""
+write.csv(
+    metformin_12_month_spline,
+    file = "./Data_Clean/metformin_12_month_spline.csv",
+    row.names = F,
+    na = ""
 )
 ```
 
@@ -716,17 +961,29 @@ write.csv(metformin_12_month_spline,
 
 ```{r results='asis'}
 t1_df <- metformin_df %>%
-  group_by(record_number) %>%
-  mutate(metformin_ever = any(metformin == "Yes")) %>%
-  filter(cv_monthssincepcosdx == 0)
-t1_df$metformin_ever <- factor(t1_df$metformin_ever,
-  levels = c(F, T),
-  labels = c("Never on Metformin", "Ever on Metformin")
+    group_by(record_number) %>%
+    mutate(metformin_ever = any(metformin == "Yes")) %>%
+    filter(cv_monthssincepcosdx == 0)
+t1_df$metformin_ever <- factor(
+    t1_df$metformin_ever,
+    levels = c(F, T),
+    labels = c("Never on Metformin", "Ever on Metformin")
 )
 t1 <- tableby(
-  metformin_ever ~ cv_age + combined_race + ethnicity + fe(insur_type) + cv_weight +
-    cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt + cv_sbp + cv_monthssincepcosdx,
-  data = t1_df
+    metformin_ever ~
+        cv_age +
+        combined_race +
+        ethnicity +
+        fe(insur_type) +
+        cv_weight +
+        cv_bmi +
+        cv_a1c +
+        cv_tg +
+        cv_hdl +
+        cv_alt +
+        cv_sbp +
+        cv_monthssincepcosdx,
+    data = t1_df
 )
 summary(t1, pfootnote = T)
 ```
@@ -735,9 +992,20 @@ summary(t1, pfootnote = T)
 
 ```{r results='asis'}
 t1 <- tableby(
-  weight_cat ~ cv_age + combined_race + ethnicity + fe(insur_type) + cv_weight +
-    cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt + cv_sbp + cv_monthssincepcosdx,
-  data = t1_df
+    weight_cat ~
+        cv_age +
+        combined_race +
+        ethnicity +
+        fe(insur_type) +
+        cv_weight +
+        cv_bmi +
+        cv_a1c +
+        cv_tg +
+        cv_hdl +
+        cv_alt +
+        cv_sbp +
+        cv_monthssincepcosdx,
+    data = t1_df
 )
 summary(t1, pfootnote = T)
 ```
@@ -749,21 +1017,34 @@ summary(t1, pfootnote = T)
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_weight ~ cv_monthssincepcosdx * metformin + cv_age + baseline_weight +
-    combined_race + insur_type + ec + cv_medications___16 +
-    (1 | record_number),
-  data = metformin_df
+    cv_weight ~
+        cv_monthssincepcosdx *
+        metformin +
+        cv_age +
+        baseline_weight +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "metformin")))
 p + theme_bw(base_size = 15) + labs(color = "On Metformin?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "metformin", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "metformin",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -773,9 +1054,19 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_weight ~ time_from_first_metformin + x + baseline_weight +
-  cv_age + combined_race + insur_type + ec + cv_medications___16 +
-  (1 | record_number), data = metformin_12_month_spline)
+change_mod <- lmer(
+    cv_weight ~
+        time_from_first_metformin +
+        x +
+        baseline_weight +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -790,19 +1081,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_metformin)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("Weight (kg)") +
-  xlab("Months From Metformin Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("Weight (kg)") +
+    xlab("Months From Metformin Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Metformin" is the slope prior to starting medication, and the "Slope Change After Metformin" row shows the average change in slope after starting the medication.
@@ -814,21 +1109,34 @@ In the above table, the row labeled "Months From First Metformin" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_bmi ~ cv_monthssincepcosdx * metformin + cv_age + baseline_bmi +
-    combined_race + insur_type + ec + cv_medications___16 +
-    (1 | record_number),
-  data = metformin_df
+    cv_bmi ~
+        cv_monthssincepcosdx *
+        metformin +
+        cv_age +
+        baseline_bmi +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "metformin")))
 p + theme_bw(base_size = 15) + labs(color = "On Metformin?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "metformin", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "metformin",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -838,9 +1146,19 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_bmi ~ time_from_first_metformin + x + baseline_bmi +
-  cv_age + combined_race + insur_type + ec + cv_medications___16 +
-  (1 | record_number), data = metformin_12_month_spline)
+change_mod <- lmer(
+    cv_bmi ~
+        time_from_first_metformin +
+        x +
+        baseline_bmi +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -855,19 +1173,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_metformin)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("BMI (kg/m2)") +
-  xlab("Months From Metformin Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("BMI (kg/m2)") +
+    xlab("Months From Metformin Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Metformin" is the slope prior to starting medication, and the "Slope Change After Metformin" row shows the average change in slope after starting the medication.
@@ -879,21 +1201,33 @@ In the above table, the row labeled "Months From First Metformin" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_a1c ~ cv_monthssincepcosdx * metformin + cv_age +
-    combined_race + insur_type + ec + cv_medications___16 +
-    (1 | record_number),
-  data = metformin_df
+    cv_a1c ~
+        cv_monthssincepcosdx *
+        metformin +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "metformin")))
 p + theme_bw(base_size = 15) + labs(color = "On Metformin?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "metformin", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "metformin",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -903,9 +1237,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_a1c ~ time_from_first_metformin + x +
-  cv_age + combined_race + insur_type + ec + cv_medications___16 +
-  (1 | record_number), data = metformin_12_month_spline)
+change_mod <- lmer(
+    cv_a1c ~
+        time_from_first_metformin +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -919,19 +1262,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_metformin)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("HbA1c (%)") +
-  xlab("Months From Metformin Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("HbA1c (%)") +
+    xlab("Months From Metformin Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Metformin" is the slope prior to starting medication, and the "Slope Change After Metformin" row shows the average change in slope after starting the medication.
@@ -943,21 +1290,33 @@ In the above table, the row labeled "Months From First Metformin" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_tg ~ cv_monthssincepcosdx * metformin + cv_age +
-    combined_race + insur_type + ec + cv_medications___16 +
-    (1 | record_number),
-  data = metformin_df
+    cv_tg ~
+        cv_monthssincepcosdx *
+        metformin +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "metformin")))
 p + theme_bw(base_size = 15) + labs(color = "On Metformin?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "metformin", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "metformin",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -967,9 +1326,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_tg ~ time_from_first_metformin + x +
-  cv_age + combined_race + insur_type + ec + cv_medications___16 +
-  (1 | record_number), data = metformin_12_month_spline)
+change_mod <- lmer(
+    cv_tg ~
+        time_from_first_metformin +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -983,19 +1351,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_metformin)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("TG (mg/dL)") +
-  xlab("Months From Metformin Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("TG (mg/dL)") +
+    xlab("Months From Metformin Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Metformin" is the slope prior to starting medication, and the "Slope Change After Metformin" row shows the average change in slope after starting the medication.
@@ -1007,21 +1379,33 @@ In the above table, the row labeled "Months From First Metformin" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_hdl ~ cv_monthssincepcosdx * metformin + cv_age +
-    combined_race + insur_type + ec + cv_medications___16 +
-    (1 | record_number),
-  data = metformin_df
+    cv_hdl ~
+        cv_monthssincepcosdx *
+        metformin +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "metformin")))
 p + theme_bw(base_size = 15) + labs(color = "On Metformin?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "metformin", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "metformin",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -1031,9 +1415,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_hdl ~ time_from_first_metformin + x +
-  cv_age + combined_race + insur_type + ec + cv_medications___16 +
-  (1 | record_number), data = metformin_12_month_spline)
+change_mod <- lmer(
+    cv_hdl ~
+        time_from_first_metformin +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1047,19 +1440,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_metformin)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("HDL (mg/dL)") +
-  xlab("Months From Metformin Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("HDL (mg/dL)") +
+    xlab("Months From Metformin Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Metformin" is the slope prior to starting medication, and the "Slope Change After Metformin" row shows the average change in slope after starting the medication.
@@ -1071,21 +1468,33 @@ In the above table, the row labeled "Months From First Metformin" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_alt ~ cv_monthssincepcosdx * metformin + cv_age +
-    combined_race + insur_type + ec + cv_medications___16 +
-    (1 | record_number),
-  data = metformin_df
+    cv_alt ~
+        cv_monthssincepcosdx *
+        metformin +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "metformin")))
 p + theme_bw(base_size = 15) + labs(color = "On Metformin?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "metformin", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "metformin",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -1095,9 +1504,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_alt ~ time_from_first_metformin + x +
-  cv_age + combined_race + insur_type + ec + cv_medications___16 +
-  (1 | record_number), data = metformin_12_month_spline)
+change_mod <- lmer(
+    cv_alt ~
+        time_from_first_metformin +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1111,19 +1529,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_metformin)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("ALT (IU/L)") +
-  xlab("Months From Metformin Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("ALT (IU/L)") +
+    xlab("Months From Metformin Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Metformin" is the slope prior to starting medication, and the "Slope Change After Metformin" row shows the average change in slope after starting the medication.
@@ -1135,21 +1557,33 @@ In the above table, the row labeled "Months From First Metformin" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_sbp ~ cv_monthssincepcosdx * metformin + cv_age +
-    combined_race + insur_type + ec + cv_medications___16 +
-    (1 | record_number),
-  data = metformin_df
+    cv_sbp ~
+        cv_monthssincepcosdx *
+        metformin +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "metformin")))
 p + theme_bw(base_size = 15) + labs(color = "On Metformin?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "metformin", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "metformin",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -1159,9 +1593,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_sbp ~ time_from_first_metformin + x +
-  cv_age + combined_race + insur_type + ec + cv_medications___16 +
-  (1 | record_number), data = metformin_12_month_spline)
+change_mod <- lmer(
+    cv_sbp ~
+        time_from_first_metformin +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        ec +
+        cv_medications___16 +
+        (1 | record_number),
+    data = metformin_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1175,19 +1618,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_metformin)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("SBP (mmHg)") +
-  xlab("Months From Metformin Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("SBP (mmHg)") +
+    xlab("Months From Metformin Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Metformin" is the slope prior to starting medication, and the "Slope Change After Metformin" row shows the average change in slope after starting the medication.
@@ -1197,29 +1644,57 @@ In the above table, the row labeled "Months From First Metformin" is the slope p
 ```{r}
 # Create the Lifestyle dataset
 lifestyle_df <- df %>%
-  filter(is.na(lifestyle_remove)) %>%
-  mutate(
-    time_of_first_lifestyle = first(cv_monthssincepcosdx[lifestyle == "Yes"], na_rm = T),
-    time_from_first_lifestyle = cv_monthssincepcosdx - time_of_first_lifestyle
-  ) %>%
-  select(
-    record_number, combined_race, ethnicity, insur_type, baseline_weight,
-    baseline_bmi, cv_age, cv_monthssincepcosdx, time_from_first_lifestyle, lifestyle,
-    ec, cv_medications___16, cv_weight, cv_bmi, cv_a1c, cv_tg, cv_hdl,
-    cv_alt, cv_sbp, weight_cat
-  )
+    filter(is.na(lifestyle_remove)) %>%
+    mutate(
+        time_of_first_lifestyle = first(
+            cv_monthssincepcosdx[lifestyle == "Yes"],
+            na_rm = T
+        ),
+        time_from_first_lifestyle = cv_monthssincepcosdx -
+            time_of_first_lifestyle
+    ) %>%
+    select(
+        record_number,
+        combined_race,
+        ethnicity,
+        insur_type,
+        baseline_weight,
+        baseline_bmi,
+        cv_age,
+        cv_monthssincepcosdx,
+        time_from_first_lifestyle,
+        lifestyle,
+        ec,
+        cv_medications___16,
+        cv_weight,
+        cv_bmi,
+        cv_a1c,
+        cv_tg,
+        cv_hdl,
+        cv_alt,
+        cv_sbp,
+        weight_cat
+    )
 # Create a spline model dataset
 lifestyle_12_month_spline <- lifestyle_df %>%
-  filter(time_from_first_lifestyle >= -12) %>%
-  mutate(x = (time_from_first_lifestyle > 0) * time_from_first_lifestyle)
-label(lifestyle_df$time_from_first_lifestyle) <- "Months from First Visit on Lifestyle"
+    filter(time_from_first_lifestyle >= -12) %>%
+    mutate(x = (time_from_first_lifestyle > 0) * time_from_first_lifestyle)
+label(
+    lifestyle_df$time_from_first_lifestyle
+) <- "Months from First Visit on Lifestyle"
 label(lifestyle_12_month_spline$x) <- "Change in Slope After Lifestyle Start"
 # Write for Melanie and Grayson to check
-write.csv(lifestyle_df,
-  file = "./Data_Clean/lifestyle_data.csv", row.names = F, na = ""
+write.csv(
+    lifestyle_df,
+    file = "./Data_Clean/lifestyle_data.csv",
+    row.names = F,
+    na = ""
 )
-write.csv(lifestyle_12_month_spline,
-  file = "./Data_Clean/lifestyle_12_month_spline.csv", row.names = F, na = ""
+write.csv(
+    lifestyle_12_month_spline,
+    file = "./Data_Clean/lifestyle_12_month_spline.csv",
+    row.names = F,
+    na = ""
 )
 ```
 
@@ -1229,17 +1704,29 @@ write.csv(lifestyle_12_month_spline,
 
 ```{r results='asis'}
 t1_df <- lifestyle_df %>%
-  group_by(record_number) %>%
-  mutate(lifestyle_ever = any(lifestyle == "Yes")) %>%
-  filter(cv_monthssincepcosdx == 0)
-t1_df$lifestyle_ever <- factor(t1_df$lifestyle_ever,
-  levels = c(F, T),
-  labels = c("Never on Lifestyle", "Ever on Lifestyle")
+    group_by(record_number) %>%
+    mutate(lifestyle_ever = any(lifestyle == "Yes")) %>%
+    filter(cv_monthssincepcosdx == 0)
+t1_df$lifestyle_ever <- factor(
+    t1_df$lifestyle_ever,
+    levels = c(F, T),
+    labels = c("Never on Lifestyle", "Ever on Lifestyle")
 )
 t1 <- tableby(
-  lifestyle_ever ~ cv_age + combined_race + ethnicity + fe(insur_type) + cv_weight +
-    cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt + cv_sbp + cv_monthssincepcosdx,
-  data = t1_df
+    lifestyle_ever ~
+        cv_age +
+        combined_race +
+        ethnicity +
+        fe(insur_type) +
+        cv_weight +
+        cv_bmi +
+        cv_a1c +
+        cv_tg +
+        cv_hdl +
+        cv_alt +
+        cv_sbp +
+        cv_monthssincepcosdx,
+    data = t1_df
 )
 summary(t1, pfootnote = T)
 ```
@@ -1248,9 +1735,20 @@ summary(t1, pfootnote = T)
 
 ```{r results='asis'}
 t1 <- tableby(
-  weight_cat ~ cv_age + combined_race + ethnicity + fe(insur_type) + cv_weight +
-    cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt + cv_sbp + cv_monthssincepcosdx,
-  data = t1_df
+    weight_cat ~
+        cv_age +
+        combined_race +
+        ethnicity +
+        fe(insur_type) +
+        cv_weight +
+        cv_bmi +
+        cv_a1c +
+        cv_tg +
+        cv_hdl +
+        cv_alt +
+        cv_sbp +
+        cv_monthssincepcosdx,
+    data = t1_df
 )
 summary(t1, pfootnote = T)
 ```
@@ -1262,21 +1760,33 @@ summary(t1, pfootnote = T)
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_weight ~ cv_monthssincepcosdx * lifestyle + cv_age + baseline_weight +
-    combined_race + insur_type + cv_medications___16 +
-    (1 | record_number),
-  data = lifestyle_df
+    cv_weight ~
+        cv_monthssincepcosdx *
+        lifestyle +
+        cv_age +
+        baseline_weight +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "lifestyle")))
 p + theme_bw(base_size = 15) + labs(color = "On Lifestyle?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "lifestyle", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "lifestyle",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -1286,9 +1796,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_weight ~ time_from_first_lifestyle + x + baseline_weight +
-  cv_age + combined_race + insur_type + cv_medications___16 +
-  (1 | record_number), data = lifestyle_12_month_spline)
+change_mod <- lmer(
+    cv_weight ~
+        time_from_first_lifestyle +
+        x +
+        baseline_weight +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1302,19 +1821,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_lifestyle)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("Weight (kg)") +
-  xlab("Months From Lifestyle Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("Weight (kg)") +
+    xlab("Months From Lifestyle Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Lifestyle" is the slope prior to starting medication, and the "Slope Change After Lifestyle" row shows the average change in slope after starting the medication.
@@ -1326,21 +1849,33 @@ In the above table, the row labeled "Months From First Lifestyle" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_bmi ~ cv_monthssincepcosdx * lifestyle + cv_age + baseline_bmi +
-    combined_race + insur_type + cv_medications___16 +
-    (1 | record_number),
-  data = lifestyle_df
+    cv_bmi ~
+        cv_monthssincepcosdx *
+        lifestyle +
+        cv_age +
+        baseline_bmi +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "lifestyle")))
 p + theme_bw(base_size = 15) + labs(color = "On Lifestyle?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "lifestyle", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "lifestyle",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -1350,9 +1885,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_bmi ~ time_from_first_lifestyle + x + baseline_bmi +
-  cv_age + combined_race + insur_type + cv_medications___16 +
-  (1 | record_number), data = lifestyle_12_month_spline)
+change_mod <- lmer(
+    cv_bmi ~
+        time_from_first_lifestyle +
+        x +
+        baseline_bmi +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1366,19 +1910,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_lifestyle)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("BMI (kg/m2)") +
-  xlab("Months From Lifestyle Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("BMI (kg/m2)") +
+    xlab("Months From Lifestyle Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Lifestyle" is the slope prior to starting medication, and the "Slope Change After Lifestyle" row shows the average change in slope after starting the medication.
@@ -1390,21 +1938,32 @@ In the above table, the row labeled "Months From First Lifestyle" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_a1c ~ cv_monthssincepcosdx * lifestyle + cv_age +
-    combined_race + insur_type + cv_medications___16 +
-    (1 | record_number),
-  data = lifestyle_df
+    cv_a1c ~
+        cv_monthssincepcosdx *
+        lifestyle +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "lifestyle")))
 p + theme_bw(base_size = 15) + labs(color = "On Lifestyle?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "lifestyle", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "lifestyle",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -1414,9 +1973,17 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_a1c ~ time_from_first_lifestyle + x +
-  cv_age + combined_race + insur_type + cv_medications___16 +
-  (1 | record_number), data = lifestyle_12_month_spline)
+change_mod <- lmer(
+    cv_a1c ~
+        time_from_first_lifestyle +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1429,19 +1996,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_lifestyle)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("HbA1c (%)") +
-  xlab("Months From Lifestyle Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("HbA1c (%)") +
+    xlab("Months From Lifestyle Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Lifestyle" is the slope prior to starting medication, and the "Slope Change After Lifestyle" row shows the average change in slope after starting the medication.
@@ -1453,21 +2024,32 @@ In the above table, the row labeled "Months From First Lifestyle" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_tg ~ cv_monthssincepcosdx * lifestyle + cv_age +
-    combined_race + insur_type + cv_medications___16 +
-    (1 | record_number),
-  data = lifestyle_df
+    cv_tg ~
+        cv_monthssincepcosdx *
+        lifestyle +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "lifestyle")))
 p + theme_bw(base_size = 15) + labs(color = "On Lifestyle?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "lifestyle", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "lifestyle",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -1477,9 +2059,17 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_tg ~ time_from_first_lifestyle + x +
-  cv_age + combined_race + insur_type + cv_medications___16 +
-  (1 | record_number), data = lifestyle_12_month_spline)
+change_mod <- lmer(
+    cv_tg ~
+        time_from_first_lifestyle +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1492,19 +2082,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_lifestyle)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("TG (mg/dL)") +
-  xlab("Months From Lifestyle Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("TG (mg/dL)") +
+    xlab("Months From Lifestyle Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Lifestyle" is the slope prior to starting medication, and the "Slope Change After Lifestyle" row shows the average change in slope after starting the medication.
@@ -1516,21 +2110,32 @@ In the above table, the row labeled "Months From First Lifestyle" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_hdl ~ cv_monthssincepcosdx * lifestyle + cv_age +
-    combined_race + insur_type + cv_medications___16 +
-    (1 | record_number),
-  data = lifestyle_df
+    cv_hdl ~
+        cv_monthssincepcosdx *
+        lifestyle +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "lifestyle")))
 p + theme_bw(base_size = 15) + labs(color = "On Lifestyle?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "lifestyle", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "lifestyle",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -1540,9 +2145,17 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_hdl ~ time_from_first_lifestyle + x +
-  cv_age + combined_race + insur_type + cv_medications___16 +
-  (1 | record_number), data = lifestyle_12_month_spline)
+change_mod <- lmer(
+    cv_hdl ~
+        time_from_first_lifestyle +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1555,19 +2168,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_lifestyle)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("HDL (mg/dL)") +
-  xlab("Months From Lifestyle Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("HDL (mg/dL)") +
+    xlab("Months From Lifestyle Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Lifestyle" is the slope prior to starting medication, and the "Slope Change After Lifestyle" row shows the average change in slope after starting the medication.
@@ -1579,21 +2196,32 @@ In the above table, the row labeled "Months From First Lifestyle" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_alt ~ cv_monthssincepcosdx * lifestyle + cv_age +
-    combined_race + insur_type + cv_medications___16 +
-    (1 | record_number),
-  data = lifestyle_df
+    cv_alt ~
+        cv_monthssincepcosdx *
+        lifestyle +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "lifestyle")))
 p + theme_bw(base_size = 15) + labs(color = "On Lifestyle?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "lifestyle", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "lifestyle",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -1603,9 +2231,17 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_alt ~ time_from_first_lifestyle + x +
-  cv_age + combined_race + insur_type + cv_medications___16 +
-  (1 | record_number), data = lifestyle_12_month_spline)
+change_mod <- lmer(
+    cv_alt ~
+        time_from_first_lifestyle +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1618,19 +2254,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_lifestyle)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("ALT (IU/L)") +
-  xlab("Months From Lifestyle Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("ALT (IU/L)") +
+    xlab("Months From Lifestyle Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Lifestyle" is the slope prior to starting medication, and the "Slope Change After Lifestyle" row shows the average change in slope after starting the medication.
@@ -1642,21 +2282,32 @@ In the above table, the row labeled "Months From First Lifestyle" is the slope p
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_sbp ~ cv_monthssincepcosdx * lifestyle + cv_age +
-    combined_race + insur_type + cv_medications___16 +
-    (1 | record_number),
-  data = lifestyle_df
+    cv_sbp ~
+        cv_monthssincepcosdx *
+        lifestyle +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "lifestyle")))
 p + theme_bw(base_size = 15) + labs(color = "On Lifestyle?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
-emt <- emtrends(mod, "lifestyle", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
+emt <- emtrends(
+    mod,
+    "lifestyle",
+    var = "cv_monthssincepcosdx",
+    pbkrtest.limit = 1e6
+)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
 ```
 
@@ -1666,9 +2317,17 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_sbp ~ time_from_first_lifestyle + x +
-  cv_age + combined_race + insur_type + cv_medications___16 +
-  (1 | record_number), data = lifestyle_12_month_spline)
+change_mod <- lmer(
+    cv_sbp ~
+        time_from_first_lifestyle +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        (1 | record_number),
+    data = lifestyle_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1681,19 +2340,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_lifestyle)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("SBP (mmHg)") +
-  xlab("Months From Lifestyle Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("SBP (mmHg)") +
+    xlab("Months From Lifestyle Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First Lifestyle" is the slope prior to starting medication, and the "Slope Change After Lifestyle" row shows the average change in slope after starting the medication.
@@ -1707,43 +2370,59 @@ In the above table, the row labeled "Months From First Lifestyle" is the slope p
 load("./Data_Clean/analysis_data.RData")
 # Combine factor levels
 levels(df$insur_type) <- c(
-  "Public", "Private", "Military", "Other/None", "Other/None"
+    "Public",
+    "Private",
+    "Military",
+    "Other/None",
+    "Other/None"
 )
 df$insur_type <- relevel(df$insur_type, ref = "Private")
 levels(df$combined_race) <- c(
-  "African American", "Other", "Asian", "Caucasian", "More than one", "Other",
-  "Other"
+    "African American",
+    "Other",
+    "Asian",
+    "Caucasian",
+    "More than one",
+    "Other",
+    "Other"
 )
 df$combined_race <- relevel(df$combined_race, ref = "Caucasian")
 # This is probably not the most elegant approach, but it seems to work.
 dfs <- split(data.frame(df), df$record_number)
 dfs <- lapply(dfs, function(d) {
-  # Get removal vector for each med
-  d$larc_remove <- visits_exclude(d, "larc")
-  d$weight_loss_remove <- visits_exclude(d, "weight_loss", remove_all_after = T)
-  d$atypical_remove <- visits_exclude(d, "cv_medications___17", remove_all_after = T)
-  d$bariatric_surg_remove <- visits_exclude(d,
-    "cv_surghx___3",
-    value = "Checked", remove_all_after = T
-  )
-  # Return new dataframe for combining later
-  return(d)
+    # Get removal vector for each med
+    d$larc_remove <- visits_exclude(d, "larc")
+    d$weight_loss_remove <- visits_exclude(
+        d,
+        "weight_loss",
+        remove_all_after = T
+    )
+    d$atypical_remove <- visits_exclude(
+        d,
+        "cv_medications___17",
+        remove_all_after = T
+    )
+    d$bariatric_surg_remove <- visits_exclude(
+        d,
+        "cv_surghx___3",
+        value = "Checked",
+        remove_all_after = T
+    )
+    # Return new dataframe for combining later
+    return(d)
 })
 df <- do.call(rbind, dfs)
 # Get baseline weight and BMI, ever LARC, and age at first LARC
 df <- df %>%
-  arrange(record_number, cv_monthssincepcosdx) %>%
-  group_by(record_number) %>%
-  mutate(
-    baseline_weight = first(cv_weight, na_rm = T),
-    baseline_bmi = first(cv_bmi, na_rm = T),
-    larc_ever = any(larc == "Yes"),
-    age_first_larc = first(cv_age[larc == "Yes"])
-  )
-df$larc_ever <- factor(df$larc_ever,
-  levels = c(F, T),
-  labels = c("No", "Yes")
-)
+    arrange(record_number, cv_monthssincepcosdx) %>%
+    group_by(record_number) %>%
+    mutate(
+        baseline_weight = first(cv_weight, na_rm = T),
+        baseline_bmi = first(cv_bmi, na_rm = T),
+        larc_ever = any(larc == "Yes"),
+        age_first_larc = first(cv_age[larc == "Yes"])
+    )
+df$larc_ever <- factor(df$larc_ever, levels = c(F, T), labels = c("No", "Yes"))
 # Additional labels
 label(df$combined_race) <- "Race"
 label(df$ethnicity) <- "Ethnicity"
@@ -1759,34 +2438,59 @@ label(df$age_first_larc) <- "Age at First LARC"
 # df <- df %>% filter(weight_cat == "Obese")
 # Create the LARC dataset
 larc_df <- df %>%
-  # Remove visits after weight loss or atypical antipsychotic start, and those
-  # visits where we're not really sure if they're on LARC or not.
-  filter(
-    is.na(larc_remove), is.na(weight_loss_remove), is.na(atypical_remove),
-    is.na(bariatric_surg_remove)
-  ) %>%
-  mutate(
-    time_of_first_larc = first(cv_monthssincepcosdx[larc == "Yes"], na_rm = T),
-    time_from_first_larc = cv_monthssincepcosdx - time_of_first_larc
-  ) %>%
-  select(
-    record_number, combined_race, ethnicity, insur_type, baseline_weight,
-    baseline_bmi, cv_age, cv_monthssincepcosdx, time_from_first_larc, larc,
-    metformin, cv_medications___16, cv_weight, cv_bmi, cv_a1c, cv_tg, cv_hdl,
-    cv_alt, cv_sbp, weight_cat, pcosdx_age, age_first_larc, larc_ever
-  )
+    # Remove visits after weight loss or atypical antipsychotic start, and those
+    # visits where we're not really sure if they're on LARC or not.
+    filter(
+        is.na(larc_remove),
+        is.na(weight_loss_remove),
+        is.na(atypical_remove),
+        is.na(bariatric_surg_remove)
+    ) %>%
+    mutate(
+        time_of_first_larc = first(
+            cv_monthssincepcosdx[larc == "Yes"],
+            na_rm = T
+        ),
+        time_from_first_larc = cv_monthssincepcosdx - time_of_first_larc
+    ) %>%
+    select(
+        record_number,
+        combined_race,
+        ethnicity,
+        insur_type,
+        baseline_weight,
+        baseline_bmi,
+        cv_age,
+        cv_monthssincepcosdx,
+        time_from_first_larc,
+        larc,
+        metformin,
+        cv_medications___16,
+        cv_weight,
+        cv_bmi,
+        cv_a1c,
+        cv_tg,
+        cv_hdl,
+        cv_alt,
+        cv_sbp,
+        weight_cat,
+        pcosdx_age,
+        age_first_larc,
+        larc_ever
+    )
 # Create a spline model dataset
 larc_12_month_spline <- larc_df %>%
-  filter(time_from_first_larc >= -12) %>%
-  mutate(x = (time_from_first_larc > 0) * time_from_first_larc)
+    filter(time_from_first_larc >= -12) %>%
+    mutate(x = (time_from_first_larc > 0) * time_from_first_larc)
 label(larc_df$time_from_first_larc) <- "Months from First Visit on LARC"
 label(larc_12_month_spline$x) <- "Change in Slope After LARC Start"
 # Write for Melanie and Grayson to check
-write.csv(larc_df,
-  file = "./Data_Clean/larc_data.csv", row.names = F, na = ""
-)
-write.csv(larc_12_month_spline,
-  file = "./Data_Clean/larc_12_month_spline.csv", row.names = F, na = ""
+write.csv(larc_df, file = "./Data_Clean/larc_data.csv", row.names = F, na = "")
+write.csv(
+    larc_12_month_spline,
+    file = "./Data_Clean/larc_12_month_spline.csv",
+    row.names = F,
+    na = ""
 )
 ```
 
@@ -1796,17 +2500,29 @@ write.csv(larc_12_month_spline,
 
 ```{r results='asis'}
 t1_df <- larc_df %>%
-  group_by(record_number) %>%
-  filter(cv_monthssincepcosdx == 0)
+    group_by(record_number) %>%
+    filter(cv_monthssincepcosdx == 0)
 t1 <- tableby(
-  larc_ever ~ pcosdx_age + age_first_larc + combined_race + ethnicity +
-    fe(insur_type) + cv_weight + cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt +
-    cv_sbp + cv_monthssincepcosdx,
-  data = t1_df
+    larc_ever ~
+        pcosdx_age +
+        age_first_larc +
+        combined_race +
+        ethnicity +
+        fe(insur_type) +
+        cv_weight +
+        cv_bmi +
+        cv_a1c +
+        cv_tg +
+        cv_hdl +
+        cv_alt +
+        cv_sbp +
+        cv_monthssincepcosdx,
+    data = t1_df
 )
-summary(t1,
-  pfootnote = T,
-  labelTranslations = list(age_first_larc = "Age at first LARC")
+summary(
+    t1,
+    pfootnote = T,
+    labelTranslations = list(age_first_larc = "Age at first LARC")
 )
 ```
 
@@ -1814,10 +2530,21 @@ summary(t1,
 
 ```{r results='asis'}
 t1 <- tableby(
-  weight_cat ~ pcosdx_age + age_first_larc + larc_ever + ethnicity +
-    fe(insur_type) + cv_weight + cv_bmi + cv_a1c + cv_tg + cv_hdl + cv_alt +
-    cv_sbp + cv_monthssincepcosdx,
-  data = t1_df
+    weight_cat ~
+        pcosdx_age +
+        age_first_larc +
+        larc_ever +
+        ethnicity +
+        fe(insur_type) +
+        cv_weight +
+        cv_bmi +
+        cv_a1c +
+        cv_tg +
+        cv_hdl +
+        cv_alt +
+        cv_sbp +
+        cv_monthssincepcosdx,
+    data = t1_df
 )
 summary(t1, pfootnote = T)
 ```
@@ -1829,19 +2556,27 @@ summary(t1, pfootnote = T)
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_weight ~ cv_monthssincepcosdx * larc + cv_age + baseline_weight +
-    combined_race + insur_type + cv_medications___16 + metformin +
-    (1 | record_number),
-  data = larc_df
+    cv_weight ~
+        cv_monthssincepcosdx *
+        larc +
+        cv_age +
+        baseline_weight +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "larc")))
 p + theme_bw(base_size = 15) + labs(color = "On LARC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "larc", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -1853,9 +2588,19 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_weight ~ time_from_first_larc + x + baseline_weight +
-  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
-  (1 | record_number), data = larc_12_month_spline)
+change_mod <- lmer(
+    cv_weight ~
+        time_from_first_larc +
+        x +
+        baseline_weight +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1869,19 +2614,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_larc)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("Weight (kg)") +
-  xlab("Months From LARC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("Weight (kg)") +
+    xlab("Months From LARC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First LARC" is the slope prior to starting medication, and the "Slope Change After LARC" row shows the average change in slope after starting the medication.
@@ -1893,19 +2642,27 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_bmi ~ cv_monthssincepcosdx * larc + cv_age + baseline_bmi +
-    combined_race + insur_type + cv_medications___16 + metformin +
-    (1 | record_number),
-  data = larc_df
+    cv_bmi ~
+        cv_monthssincepcosdx *
+        larc +
+        cv_age +
+        baseline_bmi +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "larc")))
 p + theme_bw(base_size = 15) + labs(color = "On LARC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "larc", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -1917,9 +2674,19 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_bmi ~ time_from_first_larc + x + baseline_bmi +
-  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
-  (1 | record_number), data = larc_12_month_spline)
+change_mod <- lmer(
+    cv_bmi ~
+        time_from_first_larc +
+        x +
+        baseline_bmi +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1933,19 +2700,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_larc)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("BMI (kg/m2)") +
-  xlab("Months From LARC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("BMI (kg/m2)") +
+    xlab("Months From LARC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First LARC" is the slope prior to starting medication, and the "Slope Change After LARC" row shows the average change in slope after starting the medication.
@@ -1957,19 +2728,26 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_a1c ~ cv_monthssincepcosdx * larc + cv_age +
-    combined_race + insur_type + cv_medications___16 + metformin +
-    (1 | record_number),
-  data = larc_df
+    cv_a1c ~
+        cv_monthssincepcosdx *
+        larc +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "larc")))
 p + theme_bw(base_size = 15) + labs(color = "On LARC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "larc", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -1981,9 +2759,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_a1c ~ time_from_first_larc + x +
-  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
-  (1 | record_number), data = larc_12_month_spline)
+change_mod <- lmer(
+    cv_a1c ~
+        time_from_first_larc +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -1996,19 +2783,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_larc)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("HbA1c (%)") +
-  xlab("Months From LARC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("HbA1c (%)") +
+    xlab("Months From LARC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First LARC" is the slope prior to starting medication, and the "Slope Change After LARC" row shows the average change in slope after starting the medication.
@@ -2020,19 +2811,26 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_tg ~ cv_monthssincepcosdx * larc + cv_age +
-    combined_race + insur_type + cv_medications___16 + metformin +
-    (1 | record_number),
-  data = larc_df
+    cv_tg ~
+        cv_monthssincepcosdx *
+        larc +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "larc")))
 p + theme_bw(base_size = 15) + labs(color = "On LARC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "larc", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -2044,9 +2842,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_tg ~ time_from_first_larc + x +
-  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
-  (1 | record_number), data = larc_12_month_spline)
+change_mod <- lmer(
+    cv_tg ~
+        time_from_first_larc +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -2059,19 +2866,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_larc)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("TG (mg/dL)") +
-  xlab("Months From LARC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("TG (mg/dL)") +
+    xlab("Months From LARC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First LARC" is the slope prior to starting medication, and the "Slope Change After LARC" row shows the average change in slope after starting the medication.
@@ -2083,19 +2894,26 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_hdl ~ cv_monthssincepcosdx * larc + cv_age +
-    combined_race + insur_type + cv_medications___16 + metformin +
-    (1 | record_number),
-  data = larc_df
+    cv_hdl ~
+        cv_monthssincepcosdx *
+        larc +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "larc")))
 p + theme_bw(base_size = 15) + labs(color = "On LARC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "larc", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -2107,9 +2925,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_hdl ~ time_from_first_larc + x +
-  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
-  (1 | record_number), data = larc_12_month_spline)
+change_mod <- lmer(
+    cv_hdl ~
+        time_from_first_larc +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -2122,19 +2949,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_larc)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("HDL (mg/dL)") +
-  xlab("Months From LARC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("HDL (mg/dL)") +
+    xlab("Months From LARC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First LARC" is the slope prior to starting medication, and the "Slope Change After LARC" row shows the average change in slope after starting the medication.
@@ -2146,19 +2977,26 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_alt ~ cv_monthssincepcosdx * larc + cv_age +
-    combined_race + insur_type + cv_medications___16 + metformin +
-    (1 | record_number),
-  data = larc_df
+    cv_alt ~
+        cv_monthssincepcosdx *
+        larc +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "larc")))
 p + theme_bw(base_size = 15) + labs(color = "On LARC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "larc", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -2170,9 +3008,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_alt ~ time_from_first_larc + x +
-  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
-  (1 | record_number), data = larc_12_month_spline)
+change_mod <- lmer(
+    cv_alt ~
+        time_from_first_larc +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -2185,19 +3032,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_larc)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("ALT (IU/L)") +
-  xlab("Months From LARC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("ALT (IU/L)") +
+    xlab("Months From LARC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First LARC" is the slope prior to starting medication, and the "Slope Change After LARC" row shows the average change in slope after starting the medication.
@@ -2209,19 +3060,26 @@ In the above table, the row labeled "Months From First LARC" is the slope prior 
 ```{r}
 # Fit mixed model
 mod <- lmer(
-  cv_sbp ~ cv_monthssincepcosdx * larc + cv_age +
-    combined_race + insur_type + cv_medications___16 + metformin +
-    (1 | record_number),
-  data = larc_df
+    cv_sbp ~
+        cv_monthssincepcosdx *
+        larc +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_df
 )
 # Model plot
 p <- plot(predict_response(mod, c("cv_monthssincepcosdx", "larc")))
 p + theme_bw(base_size = 15) + labs(color = "On LARC?")
 # Model summary
-mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 # EMMs
 emt <- emtrends(mod, "larc", var = "cv_monthssincepcosdx", pbkrtest.limit = 1e6)
 gt(as.data.frame(emt)) %>% fmt_number(decimals = 4)
@@ -2233,9 +3091,18 @@ In the first table, the row labelled "Months since PCOS diagnosis" indicates the
 
 ```{r}
 # Fit mixed model with change point
-change_mod <- lmer(cv_sbp ~ time_from_first_larc + x +
-  cv_age + combined_race + insur_type + cv_medications___16 + metformin +
-  (1 | record_number), data = larc_12_month_spline)
+change_mod <- lmer(
+    cv_sbp ~
+        time_from_first_larc +
+        x +
+        cv_age +
+        combined_race +
+        insur_type +
+        cv_medications___16 +
+        metformin +
+        (1 | record_number),
+    data = larc_12_month_spline
+)
 # Model plot
 mod_df <- change_mod@frame
 mod_df$cv_age <- mean(mod_df$cv_age)
@@ -2248,19 +3115,23 @@ mod_df$pop_pred <- pred$fit
 mod_df$pop_pred_ll <- pred$fit - 1.96 * pred$se.fit
 mod_df$pop_pred_ul <- pred$fit + 1.96 * pred$se.fit
 p <- ggplot(mod_df, aes(x = time_from_first_larc)) +
-  geom_ribbon(aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
-    colour = "lightgrey", fill = "lightgrey", alpha = 0.5
-  ) +
-  geom_line(aes(y = pop_pred)) +
-  ylab("SBP (mmHg)") +
-  xlab("Months From LARC Start") +
-  theme_bw()
+    geom_ribbon(
+        aes(ymin = pop_pred_ll, ymax = pop_pred_ul),
+        colour = "lightgrey",
+        fill = "lightgrey",
+        alpha = 0.5
+    ) +
+    geom_line(aes(y = pop_pred)) +
+    ylab("SBP (mmHg)") +
+    xlab("Months From LARC Start") +
+    theme_bw()
 p
 # Model summary
-change_mod %>% tbl_regression(
-  pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
-  estimate_fun = ~ style_number(.x, digits = 4)
-)
+change_mod %>%
+    tbl_regression(
+        pvalue_fun = ~ format.pval(.x, digits = 4, eps = 0.0001),
+        estimate_fun = ~ style_number(.x, digits = 4)
+    )
 ```
 
 In the above table, the row labeled "Months From First LARC" is the slope prior to starting medication, and the "Slope Change After LARC" row shows the average change in slope after starting the medication.

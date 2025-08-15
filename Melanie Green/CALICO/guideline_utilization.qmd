@@ -24,8 +24,8 @@ library(gtsummary)
 library(gt)
 library(plotly)
 home_dir <- switch(Sys.info()["sysname"],
-  "Darwin" = "/Users/timvigers/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
-  "Linux" = "/home/timvigers/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO"
+    "Darwin" = "/Users/timvigers/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Vigers/BDC/Janet Snell-Bergeon/CALICO",
+    "Linux" = "/home/timvigers/OneDrive/Vigers/BDC/Janet Snell-Bergeon/CALICO"
 )
 knitr::opts_knit$set(root.dir = home_dir)
 ```
@@ -36,138 +36,174 @@ knitr::opts_knit$set(root.dir = home_dir)
 load("./Data_Clean/analysis_data.RData")
 # Provider specialty levels
 levels(df$pcosdx_specialty) <- c(
-  "Endocrinology", "Primary Care (Pediatrics or Family Medicine)", "Gynecology",
-  "Other", "Adolescent Medicine", "Other"
+    "Endocrinology",
+    "Primary Care (Pediatrics or Family Medicine)",
+    "Gynecology",
+    "Other",
+    "Adolescent Medicine",
+    "Other"
 )
 # Insurance as public, private, none/other
-levels(df$insur_type) <- c("Public", "Private", "Military/None/Other", "Military/None/Other", "Military/None/Other")
+levels(df$insur_type) <- c(
+    "Public",
+    "Private",
+    "Military/None/Other",
+    "Military/None/Other",
+    "Military/None/Other"
+)
 # Recode specialty
-df$pcosdx_specialty_combined <- fct_recode(df$pcosdx_specialty,
-  "Primary Care (Pediatrics or Family Medicine)/Other" =
-    "Primary Care (Pediatrics or Family Medicine)",
-  "Primary Care (Pediatrics or Family Medicine)/Other" = "Other",
-  "Gynecology/Adolescent Medicine" = "Gynecology",
-  "Gynecology/Adolescent Medicine" = "Adolescent Medicine"
+df$pcosdx_specialty_combined <- fct_recode(
+    df$pcosdx_specialty,
+    "Primary Care (Pediatrics or Family Medicine)/Other" = "Primary Care (Pediatrics or Family Medicine)",
+    "Primary Care (Pediatrics or Family Medicine)/Other" = "Other",
+    "Gynecology/Adolescent Medicine" = "Gynecology",
+    "Gynecology/Adolescent Medicine" = "Adolescent Medicine"
 )
 # Year of diagnosis
 df$dx_year <- year(df$pcosdx_date)
 # Lists of variables
 diagnostic <- c(
-  "cv_17ohp", "cv_ft", "cv_tt", "cv_tsh", "cv_ast",
-  "cv_alt", "cv_liverimaging_results", "cv_hirsutism_num", "cv_hirsutism_cat",
-  "cv_acneface", "cv_alopecia", "cv_osa_sx","cv_upt_result"
+    "cv_17ohp",
+    "cv_ft",
+    "cv_tt",
+    "cv_tsh",
+    "cv_ast",
+    "cv_alt",
+    "cv_liverimaging_results",
+    "cv_hirsutism_num",
+    "cv_hirsutism_cat",
+    "cv_acneface",
+    "cv_alopecia",
+    "cv_osa_sx",
+    "cv_upt_result"
 )
 diagnostic_check <- c(
-  "labs_this_visit___4", "labs_this_visit___5", "labs_this_visit___10",
-  "labs_this_visit___11", "labs_this_visit___12", "labs_this_visit___33",
-  "cv_acneother___0", "cv_acneother___1", "cv_acneother___2",
-  paste0("cv_referrals___", c(1:9, 11, 12)),
-  paste0("cv_newmeds___", 1:31)
+    "labs_this_visit___4",
+    "labs_this_visit___5",
+    "labs_this_visit___10",
+    "labs_this_visit___11",
+    "labs_this_visit___12",
+    "labs_this_visit___33",
+    "cv_acneother___0",
+    "cv_acneother___1",
+    "cv_acneother___2",
+    paste0("cv_referrals___", c(1:9, 11, 12)),
+    paste0("cv_newmeds___", 1:31)
 )
 demo_vars <- c(
-  "site", "pcosdx_age", "combined_race", "ethnicity", "insur_type",
-  "weight_cat", "pcosdx_specialty", "pcosdx_specialty_combined"
+    "site",
+    "pcosdx_age",
+    "combined_race",
+    "ethnicity",
+    "insur_type",
+    "weight_cat",
+    "pcosdx_specialty",
+    "pcosdx_specialty_combined"
 )
 interact_tests <- c("cv_newmeds___1")
 # Make 1 year dataset
 one_year <- df %>%
-  group_by(record_number) %>%
-  filter(cv_monthssincepcosdx <= 12) %>%
-  summarise(
-    across(all_of(demo_vars), ~ first(.x, na_rm = F)),
-    across(all_of(diagnostic_check), ~ any(.x == "Checked")),
-    across(all_of(diagnostic), ~ any(!is.na(.x))),
-    cv_mood =
-      any(cv_mood %in% c("Yes", "Yes, asked by clinician, but no scale used.")),
-    `Any glycemia measure` =
-      any(!is.na(cv_a1c) | !is.na(cv_fbg) | !is.na(cv_2hrglucoseogtt)),
-    cv_a1c = any(!is.na(cv_a1c)),
-    cv_fbg = any(!is.na(cv_fbg)),
-    cv_2hrglucoseogtt = any(!is.na(cv_2hrglucoseogtt)),
-    `Any lipid measure` =
-      any(!is.na(cv_hdl) | !is.na(cv_ldl) | !is.na(cv_tg)),
-    cv_hdl = any(!is.na(cv_hdl)),
-    cv_ldl = any(!is.na(cv_ldl)),
-    cv_tg = any(!is.na(cv_tg)),
-    cv_dietarycounseling =
-      any(cv_dietarycounseling %in% c("Yes", "No, but referred to a dietitian")),
-    cv_exerciseplan =
-      any(cv_exerciseplan %in%
-        c("Yes", "No, but referred to a exercise specialist")),
-    EC = any(cv_medications___5 == "Checked") |
-      any(cv_medications___6 == "Checked") |
-      any(cv_medications___7 == "Checked"),
-    cv_medications___8 = any(cv_medications___8 == "Checked"),
-    `Any other progesterone` =
-      any(cv_medications___9 == "Checked") |
-        any(cv_medications___10 == "Checked") |
-        any(cv_medications___11 == "Checked") |
-        any(cv_medications___12 == "Checked"),
-    `Weight loss medication` =
-      any(cv_medications___25 == "Checked") |
-        any(cv_medications___26 == "Checked") |
-        any(cv_medications___27 == "Checked") |
-        any(cv_medications___28 == "Checked") |
-        any(cv_medications___29 == "Checked"),
-    `Acne medication` =
-      any(cv_medications___13 == "Checked") |
-        any(cv_medications___14 == "Checked") |
-        any(cv_medications___15 == "Checked"),
-    cv_medications___16 = any(cv_medications___16 == "Checked"),
-    `Mood medication` =
-      any(cv_medications___18 == "Checked") |
-        any(cv_medications___19 == "Checked"),
-    cv_medications___19 = any(cv_medications___19 == "Checked")
-  )
+    group_by(record_number) %>%
+    filter(cv_monthssincepcosdx <= 12) %>%
+    summarise(
+        across(all_of(demo_vars), ~ first(.x, na_rm = F)),
+        across(all_of(diagnostic_check), ~ any(.x == "Checked")),
+        across(all_of(diagnostic), ~ any(!is.na(.x))),
+        cv_mood = any(
+            cv_mood %in% c("Yes", "Yes, asked by clinician, but no scale used.")
+        ),
+        `Any glycemia measure` = any(
+            !is.na(cv_a1c) | !is.na(cv_fbg) | !is.na(cv_2hrglucoseogtt)
+        ),
+        cv_a1c = any(!is.na(cv_a1c)),
+        cv_fbg = any(!is.na(cv_fbg)),
+        cv_2hrglucoseogtt = any(!is.na(cv_2hrglucoseogtt)),
+        `Any lipid measure` = any(
+            !is.na(cv_hdl) | !is.na(cv_ldl) | !is.na(cv_tg)
+        ),
+        cv_hdl = any(!is.na(cv_hdl)),
+        cv_ldl = any(!is.na(cv_ldl)),
+        cv_tg = any(!is.na(cv_tg)),
+        cv_dietarycounseling = any(
+            cv_dietarycounseling %in%
+                c("Yes", "No, but referred to a dietitian")
+        ),
+        cv_exerciseplan = any(
+            cv_exerciseplan %in%
+                c("Yes", "No, but referred to a exercise specialist")
+        ),
+        EC = any(cv_medications___5 == "Checked") |
+            any(cv_medications___6 == "Checked") |
+            any(cv_medications___7 == "Checked"),
+        cv_medications___8 = any(cv_medications___8 == "Checked"),
+        `Any other progesterone` = any(cv_medications___9 == "Checked") |
+            any(cv_medications___10 == "Checked") |
+            any(cv_medications___11 == "Checked") |
+            any(cv_medications___12 == "Checked"),
+        `Weight loss medication` = any(cv_medications___25 == "Checked") |
+            any(cv_medications___26 == "Checked") |
+            any(cv_medications___27 == "Checked") |
+            any(cv_medications___28 == "Checked") |
+            any(cv_medications___29 == "Checked"),
+        `Acne medication` = any(cv_medications___13 == "Checked") |
+            any(cv_medications___14 == "Checked") |
+            any(cv_medications___15 == "Checked"),
+        cv_medications___16 = any(cv_medications___16 == "Checked"),
+        `Mood medication` = any(cv_medications___18 == "Checked") |
+            any(cv_medications___19 == "Checked"),
+        cv_medications___19 = any(cv_medications___19 == "Checked")
+    )
 # Ever vs. never
 ever_never <- df %>%
-  group_by(record_number) %>%
-  summarise(
-    across(all_of(demo_vars), ~ first(.x, na_rm = F)),
-    across(all_of(diagnostic_check), ~ any(.x == "Checked")),
-    across(all_of(diagnostic), ~ any(!is.na(.x))),
-    cv_mood =
-      any(cv_mood %in% c("Yes", "Yes, asked by clinician, but no scale used.")),
-    `Any glycemia measure` =
-      any(!is.na(cv_a1c) | !is.na(cv_fbg) | !is.na(cv_2hrglucoseogtt)),
-    cv_a1c = any(!is.na(cv_a1c)),
-    cv_fbg = any(!is.na(cv_fbg)),
-    cv_2hrglucoseogtt = any(!is.na(cv_2hrglucoseogtt)),
-    `Any lipid measure` =
-      any(!is.na(cv_hdl) | !is.na(cv_ldl) | !is.na(cv_tg)),
-    cv_hdl = any(!is.na(cv_hdl)),
-    cv_ldl = any(!is.na(cv_ldl)),
-    cv_tg = any(!is.na(cv_tg)),
-    cv_dietarycounseling =
-      any(cv_dietarycounseling %in% c("Yes", "No, but referred to a dietitian")),
-    cv_exerciseplan =
-      any(cv_exerciseplan %in%
-        c("Yes", "No, but referred to a exercise specialist")),
-    EC = any(cv_medications___5 == "Checked") |
-      any(cv_medications___6 == "Checked") |
-      any(cv_medications___7 == "Checked"),
-    cv_medications___8 = any(cv_medications___8 == "Checked"),
-    `Any other progesterone` =
-      any(cv_medications___9 == "Checked") |
-        any(cv_medications___10 == "Checked") |
-        any(cv_medications___11 == "Checked") |
-        any(cv_medications___12 == "Checked"),
-    `Weight loss medication` =
-      any(cv_medications___25 == "Checked") |
-        any(cv_medications___26 == "Checked") |
-        any(cv_medications___27 == "Checked") |
-        any(cv_medications___28 == "Checked") |
-        any(cv_medications___29 == "Checked"),
-    `Acne medication` =
-      any(cv_medications___13 == "Checked") |
-        any(cv_medications___14 == "Checked") |
-        any(cv_medications___15 == "Checked"),
-    cv_medications___16 = any(cv_medications___16 == "Checked"),
-    `Mood medication` =
-      any(cv_medications___18 == "Checked") |
-        any(cv_medications___19 == "Checked"),
-    cv_medications___19 = any(cv_medications___19 == "Checked")
-  )
+    group_by(record_number) %>%
+    summarise(
+        across(all_of(demo_vars), ~ first(.x, na_rm = F)),
+        across(all_of(diagnostic_check), ~ any(.x == "Checked")),
+        across(all_of(diagnostic), ~ any(!is.na(.x))),
+        cv_mood = any(
+            cv_mood %in% c("Yes", "Yes, asked by clinician, but no scale used.")
+        ),
+        `Any glycemia measure` = any(
+            !is.na(cv_a1c) | !is.na(cv_fbg) | !is.na(cv_2hrglucoseogtt)
+        ),
+        cv_a1c = any(!is.na(cv_a1c)),
+        cv_fbg = any(!is.na(cv_fbg)),
+        cv_2hrglucoseogtt = any(!is.na(cv_2hrglucoseogtt)),
+        `Any lipid measure` = any(
+            !is.na(cv_hdl) | !is.na(cv_ldl) | !is.na(cv_tg)
+        ),
+        cv_hdl = any(!is.na(cv_hdl)),
+        cv_ldl = any(!is.na(cv_ldl)),
+        cv_tg = any(!is.na(cv_tg)),
+        cv_dietarycounseling = any(
+            cv_dietarycounseling %in%
+                c("Yes", "No, but referred to a dietitian")
+        ),
+        cv_exerciseplan = any(
+            cv_exerciseplan %in%
+                c("Yes", "No, but referred to a exercise specialist")
+        ),
+        EC = any(cv_medications___5 == "Checked") |
+            any(cv_medications___6 == "Checked") |
+            any(cv_medications___7 == "Checked"),
+        cv_medications___8 = any(cv_medications___8 == "Checked"),
+        `Any other progesterone` = any(cv_medications___9 == "Checked") |
+            any(cv_medications___10 == "Checked") |
+            any(cv_medications___11 == "Checked") |
+            any(cv_medications___12 == "Checked"),
+        `Weight loss medication` = any(cv_medications___25 == "Checked") |
+            any(cv_medications___26 == "Checked") |
+            any(cv_medications___27 == "Checked") |
+            any(cv_medications___28 == "Checked") |
+            any(cv_medications___29 == "Checked"),
+        `Acne medication` = any(cv_medications___13 == "Checked") |
+            any(cv_medications___14 == "Checked") |
+            any(cv_medications___15 == "Checked"),
+        cv_medications___16 = any(cv_medications___16 == "Checked"),
+        `Mood medication` = any(cv_medications___18 == "Checked") |
+            any(cv_medications___19 == "Checked"),
+        cv_medications___19 = any(cv_medications___19 == "Checked")
+    )
 ```
 
 # Data cleaning and methods
@@ -192,40 +228,44 @@ ever_never <- df %>%
 
 ```{r}
 one_year %>%
-  select(-record_number, -site, -weight_cat) %>%
-  tbl_summary(label = as.list(label(df))) %>%
-  modify_footnote(everything() ~ NA)
+    select(-record_number, -site, -weight_cat) %>%
+    tbl_summary(label = as.list(label(df))) %>%
+    modify_footnote(everything() ~ NA)
 ```
 
 ## By specialty type at diagnosis
 
 ```{r}
 one_year %>%
-  select(-record_number, -site, -weight_cat, -pcosdx_specialty_combined) %>%
-  tbl_summary(by = pcosdx_specialty, label = as.list(label(df))) %>%
-  add_overall() %>%
-  add_p(
-    test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
-  ) %>%
-  separate_p_footnotes() %>%
-  add_q() %>%
-  modify_footnote(everything() ~ NA)
+    select(-record_number, -site, -weight_cat, -pcosdx_specialty_combined) %>%
+    tbl_summary(by = pcosdx_specialty, label = as.list(label(df))) %>%
+    add_overall() %>%
+    add_p(
+        test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
+    ) %>%
+    separate_p_footnotes() %>%
+    add_q() %>%
+    modify_footnote(everything() ~ NA)
 ```
 
 ```{r}
 p <- one_year %>%
-  group_by(pcosdx_specialty) %>%
-  summarise(across(all_of(c(diagnostic, diagnostic_check)), ~ mean(.x, na.rm = T))) %>%
-  filter(!is.na(pcosdx_specialty)) %>%
-  pivot_longer(all_of(c(diagnostic, diagnostic_check))) %>%
-  ggplot(., aes(x = reorder(name, -value), y = value)) +
-  geom_bar(stat = "identity") +
-  facet_wrap(~pcosdx_specialty) +
-  theme_bw() +
-  theme(
-    axis.title.x = element_blank(), axis.text.x = element_blank(),
-    axis.title.y = element_blank()
-  )
+    group_by(pcosdx_specialty) %>%
+    summarise(across(
+        all_of(c(diagnostic, diagnostic_check)),
+        ~ mean(.x, na.rm = T)
+    )) %>%
+    filter(!is.na(pcosdx_specialty)) %>%
+    pivot_longer(all_of(c(diagnostic, diagnostic_check))) %>%
+    ggplot(., aes(x = reorder(name, -value), y = value)) +
+    geom_bar(stat = "identity") +
+    facet_wrap(~pcosdx_specialty) +
+    theme_bw() +
+    theme(
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.y = element_blank()
+    )
 ggplotly(p)
 ```
 
@@ -233,15 +273,15 @@ ggplotly(p)
 
 ```{r}
 one_year %>%
-  select(-record_number, -site, -pcosdx_specialty) %>%
-  tbl_summary(by = weight_cat, label = as.list(label(df))) %>%
-  add_overall() %>%
-  add_p(
-    test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
-  ) %>%
-  separate_p_footnotes() %>%
-  add_q() %>%
-  modify_footnote(everything() ~ NA)
+    select(-record_number, -site, -pcosdx_specialty) %>%
+    tbl_summary(by = weight_cat, label = as.list(label(df))) %>%
+    add_overall() %>%
+    add_p(
+        test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
+    ) %>%
+    separate_p_footnotes() %>%
+    add_q() %>%
+    modify_footnote(everything() ~ NA)
 ```
 
 ## Interaction between specialty type and weight category at diagnosis
@@ -249,12 +289,14 @@ one_year %>%
 ### Metformin
 
 ```{r results='asis'}
-m <- glm(cv_newmeds___1 ~ pcosdx_specialty_combined * weight_cat,
-  data = one_year[
-    !(one_year$pcosdx_specialty_combined == "Gynecology/Adolescent Medicine" &
-      one_year$weight_cat == "Overweight"),
-  ],
-  family = "binomial"
+m <- glm(
+    cv_newmeds___1 ~ pcosdx_specialty_combined * weight_cat,
+    data = one_year[
+        !(one_year$pcosdx_specialty_combined ==
+            "Gynecology/Adolescent Medicine" &
+            one_year$weight_cat == "Overweight"),
+    ],
+    family = "binomial"
 )
 m %>% tbl_regression(., exponentiate = T)
 ```
@@ -264,9 +306,10 @@ The initial `cv_newmeds___1~pcosdx_specialty_combined * weight_cat` model is pro
 ### Estrogen-containing medication
 
 ```{r}
-m <- glm(EC ~ pcosdx_specialty_combined * weight_cat,
-  data = one_year,
-  family = "binomial"
+m <- glm(
+    EC ~ pcosdx_specialty_combined * weight_cat,
+    data = one_year,
+    family = "binomial"
 )
 m %>% tbl_regression(., exponentiate = T)
 ```
@@ -276,9 +319,10 @@ There was not a significant interaction between specialty and weight category fo
 ### ALT
 
 ```{r}
-m <- glm(cv_alt ~ pcosdx_specialty_combined * weight_cat,
-  data = one_year,
-  family = "binomial"
+m <- glm(
+    cv_alt ~ pcosdx_specialty_combined * weight_cat,
+    data = one_year,
+    family = "binomial"
 )
 m %>% tbl_regression(., exponentiate = T)
 ```
@@ -288,9 +332,10 @@ There was not a significant interaction between specialty and weight category fo
 ### Any glycemia measure
 
 ```{r}
-m <- glm(`Any glycemia measure` ~ pcosdx_specialty_combined * weight_cat,
-  data = one_year,
-  family = "binomial"
+m <- glm(
+    `Any glycemia measure` ~ pcosdx_specialty_combined * weight_cat,
+    data = one_year,
+    family = "binomial"
 )
 m %>% tbl_regression(., exponentiate = T)
 ```
@@ -300,9 +345,10 @@ There was not a significant interaction between specialty and weight category fo
 ### Any lipid measure
 
 ```{r}
-m <- glm(`Any lipid measure` ~ pcosdx_specialty_combined * weight_cat,
-  data = one_year,
-  family = "binomial"
+m <- glm(
+    `Any lipid measure` ~ pcosdx_specialty_combined * weight_cat,
+    data = one_year,
+    family = "binomial"
 )
 m %>% tbl_regression(., exponentiate = T)
 ```
@@ -313,15 +359,15 @@ There was not a significant interaction between specialty and weight category fo
 
 ```{r}
 one_year %>%
-  select(-record_number, -site, -pcosdx_specialty) %>%
-  tbl_summary(by = insur_type, label = as.list(label(df))) %>%
-  add_overall() %>%
-  add_p(
-    test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
-  ) %>%
-  separate_p_footnotes() %>%
-  add_q() %>%
-  modify_footnote(everything() ~ NA)
+    select(-record_number, -site, -pcosdx_specialty) %>%
+    tbl_summary(by = insur_type, label = as.list(label(df))) %>%
+    add_overall() %>%
+    add_p(
+        test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
+    ) %>%
+    separate_p_footnotes() %>%
+    add_q() %>%
+    modify_footnote(everything() ~ NA)
 ```
 
 # Ever vs. never
@@ -330,40 +376,44 @@ one_year %>%
 
 ```{r}
 ever_never %>%
-  select(-record_number, -site, -weight_cat) %>%
-  tbl_summary(label = as.list(label(df))) %>%
-  modify_footnote(everything() ~ NA)
+    select(-record_number, -site, -weight_cat) %>%
+    tbl_summary(label = as.list(label(df))) %>%
+    modify_footnote(everything() ~ NA)
 ```
 
 ## By specialty type at diagnosis
 
 ```{r}
 ever_never %>%
-  select(-record_number, -site, -weight_cat) %>%
-  tbl_summary(by = pcosdx_specialty, label = as.list(label(df))) %>%
-  add_overall() %>%
-  add_p(
-    test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
-  ) %>%
-  separate_p_footnotes() %>%
-  add_q() %>%
-  modify_footnote(everything() ~ NA)
+    select(-record_number, -site, -weight_cat) %>%
+    tbl_summary(by = pcosdx_specialty, label = as.list(label(df))) %>%
+    add_overall() %>%
+    add_p(
+        test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
+    ) %>%
+    separate_p_footnotes() %>%
+    add_q() %>%
+    modify_footnote(everything() ~ NA)
 ```
 
 ```{r}
 p <- ever_never %>%
-  group_by(pcosdx_specialty) %>%
-  summarise(across(all_of(c(diagnostic, diagnostic_check)), ~ mean(.x, na.rm = T))) %>%
-  filter(!is.na(pcosdx_specialty)) %>%
-  pivot_longer(all_of(c(diagnostic, diagnostic_check))) %>%
-  ggplot(., aes(x = reorder(name, -value), y = value)) +
-  geom_bar(stat = "identity") +
-  facet_wrap(~pcosdx_specialty) +
-  theme_bw() +
-  theme(
-    axis.title.x = element_blank(), axis.text.x = element_blank(),
-    axis.title.y = element_blank()
-  )
+    group_by(pcosdx_specialty) %>%
+    summarise(across(
+        all_of(c(diagnostic, diagnostic_check)),
+        ~ mean(.x, na.rm = T)
+    )) %>%
+    filter(!is.na(pcosdx_specialty)) %>%
+    pivot_longer(all_of(c(diagnostic, diagnostic_check))) %>%
+    ggplot(., aes(x = reorder(name, -value), y = value)) +
+    geom_bar(stat = "identity") +
+    facet_wrap(~pcosdx_specialty) +
+    theme_bw() +
+    theme(
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.title.y = element_blank()
+    )
 ggplotly(p)
 ```
 
@@ -371,15 +421,15 @@ ggplotly(p)
 
 ```{r}
 ever_never %>%
-  select(-record_number, -site, -pcosdx_specialty) %>%
-  tbl_summary(by = weight_cat, label = as.list(label(df))) %>%
-  add_overall() %>%
-  add_p(
-    test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
-  ) %>%
-  separate_p_footnotes() %>%
-  add_q() %>%
-  modify_footnote(everything() ~ NA)
+    select(-record_number, -site, -pcosdx_specialty) %>%
+    tbl_summary(by = weight_cat, label = as.list(label(df))) %>%
+    add_overall() %>%
+    add_p(
+        test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
+    ) %>%
+    separate_p_footnotes() %>%
+    add_q() %>%
+    modify_footnote(everything() ~ NA)
 ```
 
 ## Interaction between specialty type and weight category at diagnosis
@@ -387,12 +437,14 @@ ever_never %>%
 ### Metformin
 
 ```{r results='asis'}
-m <- glm(cv_newmeds___1 ~ pcosdx_specialty_combined * weight_cat,
-  data = ever_never[
-    !(ever_never$pcosdx_specialty_combined == "Gynecology/Adolescent Medicine" &
-      ever_never$weight_cat == "Overweight"),
-  ],
-  family = "binomial"
+m <- glm(
+    cv_newmeds___1 ~ pcosdx_specialty_combined * weight_cat,
+    data = ever_never[
+        !(ever_never$pcosdx_specialty_combined ==
+            "Gynecology/Adolescent Medicine" &
+            ever_never$weight_cat == "Overweight"),
+    ],
+    family = "binomial"
 )
 m %>% tbl_regression(., exponentiate = T)
 ```
@@ -402,9 +454,10 @@ The initial `cv_newmeds___1~pcosdx_specialty_combined * weight_cat` model is pro
 ### Estrogen-containing medication
 
 ```{r}
-m <- glm(EC ~ pcosdx_specialty_combined * weight_cat,
-  data = ever_never,
-  family = "binomial"
+m <- glm(
+    EC ~ pcosdx_specialty_combined * weight_cat,
+    data = ever_never,
+    family = "binomial"
 )
 m %>% tbl_regression(., exponentiate = T)
 ```
@@ -414,9 +467,10 @@ There was not a significant interaction between specialty and weight category fo
 ### ALT
 
 ```{r}
-m <- glm(cv_alt ~ pcosdx_specialty_combined * weight_cat,
-  data = ever_never,
-  family = "binomial"
+m <- glm(
+    cv_alt ~ pcosdx_specialty_combined * weight_cat,
+    data = ever_never,
+    family = "binomial"
 )
 m %>% tbl_regression(., exponentiate = T)
 ```
@@ -426,9 +480,10 @@ There was not a significant interaction between specialty and weight category fo
 ### Any glycemia measure
 
 ```{r}
-m <- glm(`Any glycemia measure` ~ pcosdx_specialty_combined * weight_cat,
-  data = ever_never,
-  family = "binomial"
+m <- glm(
+    `Any glycemia measure` ~ pcosdx_specialty_combined * weight_cat,
+    data = ever_never,
+    family = "binomial"
 )
 m %>% tbl_regression(., exponentiate = T)
 ```
@@ -438,9 +493,10 @@ There was not a significant interaction between specialty and weight category fo
 ### Any lipid measure
 
 ```{r}
-m <- glm(`Any lipid measure` ~ pcosdx_specialty_combined * weight_cat,
-  data = ever_never,
-  family = "binomial"
+m <- glm(
+    `Any lipid measure` ~ pcosdx_specialty_combined * weight_cat,
+    data = ever_never,
+    family = "binomial"
 )
 m %>% tbl_regression(., exponentiate = T)
 ```
@@ -451,13 +507,13 @@ There was not a significant interaction between specialty and weight category fo
 
 ```{r}
 ever_never %>%
-  select(-record_number, -site, -pcosdx_specialty) %>%
-  tbl_summary(by = insur_type, label = as.list(label(df))) %>%
-  add_overall() %>%
-  add_p(
-    test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
-  ) %>%
-  separate_p_footnotes() %>%
-  add_q() %>%
-  modify_footnote(everything() ~ NA)
+    select(-record_number, -site, -pcosdx_specialty) %>%
+    tbl_summary(by = insur_type, label = as.list(label(df))) %>%
+    add_overall() %>%
+    add_p(
+        test.args = all_tests("fisher.test") ~ list(simulate.p.value = TRUE)
+    ) %>%
+    separate_p_footnotes() %>%
+    add_q() %>%
+    modify_footnote(everything() ~ NA)
 ```
