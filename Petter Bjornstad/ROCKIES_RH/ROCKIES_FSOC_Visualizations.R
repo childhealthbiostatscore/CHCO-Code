@@ -47,10 +47,12 @@ library(nebula)
 load('C:/Users/netio/Documents/UofW/Rockies/Line438_Boxplots_NoMed.RData')
 
 dat2 <- dat %>% filter(visit == 'baseline') %>% 
-  filter(study %in% c('RENAL-HEIR', 'RENAL-HEIRitage') | record_id == 'IT_19') %>%
+  filter(study %in% c('RENAL-HEIR', 'RENAL-HEIRitage', 'CROCODILE') | record_id == 'IT_19') %>%
   filter(group != 'Obese Control') %>% 
-  dplyr::select(mrn, record_id, visit, group, group2, starts_with('fsoc'), bmi, 
+  dplyr::select(mrn, record_id, study, visit, group, group2, starts_with('fsoc'), bmi, 
                 epic_sglti2_1, age, sex, epic_mfm_1, epic_insulin_1, epic_glp1ra_1)
+
+dat2 <- dat2[-which(dat2$study == 'CROCODILE' & dat2$group == 'Type 1 Diabetes'),]
 
 
 tests <- c('fsoc_l_cortex', 'fsoc_r_cortex', 
@@ -78,8 +80,10 @@ med_small <- medications %>% filter(mrn %in% need_med_info$mrn)
 for(i in c(1:nrow(med_small))){
   if(med_small$sglti2[i] == 'No'){
     dat2$group2[which(dat2$mrn == med_small$mrn[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$mrn == med_small$mrn[i])] <- 'No'
   }else if(med_small$sglti2[i] == 'Yes'){
-    dat2$group2[which(dat2$mrn == med_small$mrn[i])] <- 'T2D-SGLTi2'    
+    dat2$group2[which(dat2$mrn == med_small$mrn[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$mrn == med_small$mrn[i])] <- 'No'
   }else{
     next
   }
@@ -101,8 +105,10 @@ RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
 for(i in c(1:nrow(RH_small))){
   if(RH_small$SGLT2[i] == 'No'){
     dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'No'
   }else if(RH_small$SGLT2[i] == 'Yes'){
-    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-SGLTi2'    
+    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-SGLTi2' 
+    dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'Yes'
   }else{
     next
   }
@@ -112,17 +118,23 @@ for(i in c(1:nrow(RH_small))){
 for(i in c(1:nrow(RH2_small))){
   if(RH2_small$SGLT2[i] == 'No'){
     dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'No'
   }else if(RH2_small$SGLT2[i] == 'Yes'){
-    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2'    
+    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2' 
+    dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'Yes'
   }else{
     next
   }
   
 }
 
+dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
 
-table1::table1(~age + sex + bmi+epic_mfm_1+epic_insulin_1+epic_glp1ra_1+epic_sglti2_1 | group2,data=dat2 %>% 
+
+table1::table1(~age + sex + bmi+study + epic_mfm_1+epic_insulin_1+epic_glp1ra_1+epic_sglti2_1 | group2,data=dat2 %>% 
                  filter(!is.na(group2)))
+
+
 
 dat_results <- dat2 %>% mutate(fsoc_l_combined = (fsoc_l_cortex +fsoc_l_kidney+ fsoc_l_medulla)/3,
                                fsoc_r_combined = (fsoc_r_cortex +fsoc_r_kidney +fsoc_r_medulla)/3,
