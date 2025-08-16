@@ -131,8 +131,19 @@ pwv <- read.csv(full_path)
 
 # Quality of life questionnaires
 # LP: why are TODAY data not used and merged to echo timepoint?
+# TODAY
+filename <- "/Clinical data/TODAY/PEDSQLGC.csv"
+full_path <- file.path(data_path, filename)
+pedsQL_C_today <- read.csv(full_path)
+names(pedsQL_C_today) <- toupper(names(pedsQL_C_today))
+
+filename <- "/Clinical data/TODAY/PEDSQLGT.csv"
+full_path <- file.path(data_path, filename)
+pedsQL_T_today <- read.csv(full_path)
+names(pedsQL_T_today) <- toupper(names(pedsQL_T_today))
+
+# TODAY2
 # LP: filenames don't match TODAY2 documentation - emailed Laure
-# CHANGE LOCAL DIRECTORY I was unable to access files directly from OneDrive, modify the path if needed 
 #pedsQL_A <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PEDSQLGA.csv")
 filename <- "/Clinical data/TODAY2/PEDSQLGA.csv"
 full_path <- file.path(data_path, filename)
@@ -780,7 +791,9 @@ cols_to_keep <- c("RELEASEID", "DAYS", "G01WALK", "G02RUN", "G03SPORT",
 pedsQL_all <- bind_rows(
   pedsQL_Y %>% select(all_of(cols_to_keep)),
   pedsQL_T %>% select(all_of(cols_to_keep)),
-  pedsQL_A %>% select(all_of(cols_to_keep))
+  pedsQL_A %>% select(all_of(cols_to_keep)),
+  pedsQL_C_today %>% select(all_of(cols_to_keep)),
+  pedsQL_T_today %>% select(all_of(cols_to_keep))
 )
 
 # Define PedsQL items
@@ -797,7 +810,7 @@ pedsQL_all <- pedsQL_all %>%
 pedsQL_all <- pedsQL_all %>%
   mutate(DAYS = as.numeric(DAYS))
 
-# Get baseline, latest, and highest scores per participant
+# Get baseline, latest, lowest and highest scores per participant
 pedsQL_summary <- pedsQL_all %>%
   group_by(RELEASEID) %>%
   summarise(
@@ -807,6 +820,8 @@ pedsQL_summary <- pedsQL_all %>%
     days_last = DAYS[which.max(DAYS)],
     pedsql_highest = max(physical_total, na.rm = TRUE),
     days_highest = DAYS[which.max(physical_total)],
+    pedsql_lowest = min(physical_total, na.rm = TRUE),
+    days_lowest = DAYS[which.min(physical_total)],
     .groups = "drop"
   )
 ```
@@ -1075,40 +1090,34 @@ p2 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = eGFR_FAS_baseline)) +
   theme_minimal()
 
 # Biomarker visualizations
-p3 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = ualb_baseline)) +
+p3 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = UAlbCreat_baseline)) +
   geom_boxplot(fill = "lightblue", outlier.shape = NA) +
   geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
-  labs(title = "UALB by CKM Stage", x = "CKM Stage", y = "UALB (mg/dL)") +
+  labs(title = "Baseline UALB by CKM Stage", x = "CKM Stage", y = "UALB (mg/dL)") +
   theme_minimal()
 
-p4 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = ualbcreat_baseline)) +
+p5 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = IL6_highest)) +
   geom_boxplot(fill = "lightgreen", outlier.shape = NA) +
   geom_jitter(width = 0.2, alpha = 0.5, color = "darkgreen") +
-  labs(title = "UACR by CKM Stage", x = "CKM Stage", y = "UACR (mg/g)") +
+  labs(title = "Highest IL-6 by CKM Stage", x = "CKM Stage", y = "IL-6") +
   theme_minimal()
 
-p5 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = il6_highest)) +
-  geom_boxplot(fill = "lightgreen", outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5, color = "darkgreen") +
-  labs(title = "IL-6 by CKM Stage", x = "CKM Stage", y = "IL-6") +
-  theme_minimal()
-
-p6 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = hscrp_highest)) +
+p6 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = hsCRP_highest)) +
   geom_boxplot(fill = "lightblue", outlier.shape = NA) +
   geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
-  labs(title = "hs-CRP by CKM Stage", x = "CKM Stage", y = "hs-CRP") +
+  labs(title = "Highest hs-CRP by CKM Stage", x = "CKM Stage", y = "hs-CRP") +
   theme_minimal()
 
 p7 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = bmi)) +
   geom_boxplot(fill = "lightblue", outlier.shape = NA) +
   geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
-  labs(title = "BMI by CKM Stage", x = "CKM Stage", y = "BMI (kg/m²)") +
+  labs(title = "Baseline BMI by CKM Stage", x = "CKM Stage", y = "BMI (kg/m²)") +
   theme_minimal()
 
 p8 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = sbp)) +
   geom_boxplot(fill = "pink", outlier.shape = NA) +
   geom_jitter(width = 0.2, alpha = 0.5, color = "darkred") +
-  labs(title = "SBP by CKM Stage", x = "CKM Stage", y = "SBP (mmHg)") +
+  labs(title = "Baseline SBP by CKM Stage", x = "CKM Stage", y = "SBP (mmHg)") +
   theme_minimal()
 
 p9 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn), y = bnp_highest)) +
@@ -1120,7 +1129,13 @@ p9 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn), y = bnp_highest)) +
 p10 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = pedsql_highest)) +
   geom_boxplot(fill = "orange", outlier.shape = NA) +
   geom_jitter(width = 0.2, alpha = 0.5, color = "darkorange3") +
-  labs(title = "PedsQL by CKM Stage", x = "CKM Stage", y = "PedsQL") +
+  labs(title = "Highest PedsQL by CKM Stage", x = "CKM Stage", y = "PedsQL") +
+  theme_minimal()
+
+p10a <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = pedsql_lowest)) +
+  geom_boxplot(fill = "orange", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "darkorange3") +
+  labs(title = "Lowest PedsQL by CKM Stage", x = "CKM Stage", y = "PedsQL") +
   theme_minimal()
 
 # Sankey diagram for CKM transitions
@@ -1152,6 +1167,14 @@ p12 <- ggplot(df_alluvial2, aes(axis1 = CKM_syn_base2, axis2 = CKM_syn2)) +
 # Display key plots
 print(p1)
 print(p2)
+print(p3)
+print(p5)
+print(p6)
+print(p7)
+print(p8)
+print(p9)
+print(p10)
+print(p10a)
 print(p11)
 print(p12)
 
@@ -1229,7 +1252,7 @@ comorb_ckm2 <- comorb_ckm2 %>%
 # Join variables from baserisk and baseline into comorb_ckm2
 comorb_ckm2 <- comorb_ckm2 %>%
   left_join(
-    baserisk %>% select(RELEASEID, HbA1c, log_trig, uacid, HDL, ALT, AST, dxtime, AGEBASE),
+    baserisk %>% select(RELEASEID, HbA1c, log_trig, uacid, HDL, ALT, AST, dxtime, sex),
     by = "RELEASEID"
   ) %>%
   left_join(
@@ -1240,24 +1263,6 @@ comorb_ckm2 <- comorb_ckm2 %>%
 comorb_ckm2 <- comorb_ckm2 %>%
   left_join(
     baserisk %>% select(RELEASEID, sex, sex_char), by = "RELEASEID")
-
-comorb_ckm2$GLYC
-
-# Logistic regression for progression
-# LP: this doesn't work because there are AGEBASE.x and AGEBASE.y
-model1 <- glm(progress_CKM ~ AGEBASE + sex + bmi + bnp_baseline + ualbcreat_baseline, 
-              data = comorb_ckm2, family = binomial)
-
-model1 <- glm(progress_CKM ~ bmipct + HbA1c + ualbcreat_baseline + HYP0 + sbp, 
-              data = comorb_ckm2, family = binomial)
-
-model1 <- glm(progress_CKM ~ ualbcreat_baseline + high_trop0 +high_bnp0, 
-              data = comorb_ckm2, family = binomial)
-
-model2 <- glm(progress_CKM ~ ualbcreat_baseline +tnfa_baseline + GLYC, 
-              data = comorb_ckm2, family = binomial)
-
-summary(model2)
 
 # McNemar's test for paired progression
 mcnemar.test(table(comorb_ckm2$CKM_syn_base, comorb_ckm2$CKM_syn))
