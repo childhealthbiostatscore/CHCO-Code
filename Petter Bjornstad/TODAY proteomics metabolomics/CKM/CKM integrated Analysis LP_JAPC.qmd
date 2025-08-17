@@ -400,6 +400,53 @@ ame_summary$clin_cvd <- ifelse(
 comorb_ckm <- merge(comorb, ame_summary, by = "RELEASEID", all.x = TRUE)
 # LP NOTE: comorb_ckm has NAs, need to set events to 0 and days to event to total follow up time
 
+replace_missing_events <- function(data) {
+  # Check if fup_time column exists
+  if (!"fup_time" %in% names(data)) {
+    stop("Column 'fup_time' not found in the data")
+  }
+   # Define the event pairs
+  event_pairs <- list(
+    c("ARRHYTHMIA", "DAYSTOARRHYTHMIA"),
+    c("CAD", "DAYSTOCAD"),
+    c("CHF", "DAYSTOCHF"),
+    c("LVSD", "DAYSTOLVSD"),
+    c("MI", "DAYSTOMI"),
+    c("PAD", "DAYSTOPAD"),
+    c("DVT", "DAYSTODVT"),
+    c("STROKE", "DAYSTOSTROKE"),
+    c("TIA", "DAYSTOTIA"),
+    c("PANCREATITIS", "DAYSTOPANCREATITIS"),
+    c("GALLBLADDER", "DAYSTOGALLBLADDER"),
+    c("PNEURO", "DAYSTOPNEURO"),
+    c("ANEURO", "DAYSTOANEURO"),
+    c("MONONEURO", "DAYSTOMONONEURO"),
+    c("CKD", "DAYSTOCKD"),
+    c("ESKD", "DAYSTOESKD"),
+    c("NPDR", "DAYSTONPDR"),
+    c("PDR", "DAYSTOPDR"),
+    c("ME", "DAYSTOME"),
+    c("VH", "DAYSTOVH"),
+    c("BLINDNESS", "DAYSTOBLINDNESS"),
+    c("CATARACTS", "DAYSTOCATARACTS"),
+    c("GLAUCOMA", "DAYSTOGLAUCOMA"),
+    c("DEATH", "DAYSTODEATH")
+  )
+  # Loop through each event pair
+  for (pair in event_pairs) {
+    event_var <- pair[1]
+    days_var <- pair[2]
+    # Step 1: Set missing event values to 0
+    data[[event_var]][is.na(data[[event_var]])] <- 0
+    # Step 2: Now set any missing DAYSTO values to fup_time
+    # (including those that were missing because the event was missing/0)
+    missing_days_rows <- is.na(data[[days_var]])
+    data[[days_var]][missing_days_rows] <- data$fup_time[missing_days_rows]
+  }
+  return(data)
+}
+
+comorb_ckm <- replace_missing_events(comorb_ckm)
 
 # Biomarker extraction for various markers
 bnp_vals <- extract_biomarker_values(addcbl_1, "bnp")
@@ -589,17 +636,23 @@ long_clean <- long %>%
 echo_keep <- echo_keep %>%
   left_join(echo %>% select(RELEASEID, TIMEPOINT, days), by = c("RELEASEID", "TIMEPOINT"))
 
-# weight addition based on closest day
-# LP: I am not sure this is working correctly
-# see example of 65-10111, no weight value in long_clean is >100 but echo_keep weight is 103.4
+# weight addition based on closest day before echo
 echo_keep <- echo_keep %>%
   rowwise() %>%
   mutate(
     weight = {
-      weights <- long_clean %>% filter(RELEASEID == RELEASEID, !is.na(weight))
+      current_id <- RELEASEID
+      weights <- long_clean %>% 
+        filter(RELEASEID == current_id, 
+               !is.na(weight),
+               visit_days < days)  # Filter here
+      
       if(nrow(weights) > 0) {
-        weights$weight[which.min(abs(weights$visit_days - days))]
-      } else NA_real_
+        # Since all weights are before 'days', get the one with max visit_days (closest)
+        weights$weight[which.max(weights$visit_days)]
+      } else {
+        NA_real_
+      }
     }
   ) %>%
   ungroup()
@@ -636,22 +689,19 @@ echo_keep <- echo_keep %>%
 #       TRUE ~ NA_real_
 #     )
 #   )
-# LP: I think this should be:
-# want to double check this is working correctly
 echo_keep <- echo_keep %>%
   mutate(
     lvmi = ifelse(!is.na(lvmass) & !is.na(BSA_dubois), lvmass / BSA_dubois, NA_real_),
     lvmi_score = case_when(
-      sex == 2 & lvmi >= 149 ~ 2,
-      sex == 1 & lvmi >= 122 ~ 2,
-      sex == 2 ~ 0,
-      sex == 2 & lvmi >= 115 ~ 1,
-      sex == 1 & lvmi >= 95  ~ 1,
-      sex == 1 ~ 0,
+      sex == 2 & lvmi >= 149 ~ 2,  # Male severe
+      sex == 2 & lvmi >= 116 ~ 1,  # Male mild (using 116 as threshold for abnormal)
+      sex == 2 ~ 0,                 # Male normal
+      sex == 1 & lvmi >= 122 ~ 2,  # Female severe  
+      sex == 1 & lvmi >= 96  ~ 1,  # Female mild (using 96 as threshold for abnormal)
+      sex == 1 ~ 0,                 # Female normal
       TRUE ~ NA_real_
     )
   )
-
 
 # LP: doesn't this need to take timepoint into account?
 # echo_keep <- echo_keep %>%
