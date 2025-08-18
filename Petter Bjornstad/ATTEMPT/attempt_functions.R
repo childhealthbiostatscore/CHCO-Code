@@ -1002,9 +1002,9 @@ plot_delta_by_category <- function(data,
   }
   
   # Output
-  print(p)
   if (!is.null(output_path)) {
     ggsave(output_path, p, width = 7, height = 5)
+    return(p)
   } else {
     return(p)
   }
@@ -1286,7 +1286,7 @@ plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axi
           axis.title.x = element_text(margin = margin(t = x_title_padding_t)),
           plot.caption = element_text(size = caption_size, hjust = 0.5, margin = margin(t = caption_padding)),
           legend.margin = margin(t = 5, b = 5))
-  ggsave(paste0(output_base_path, file_suffix, ".jpeg"), plot = p, width = 7, height = 5)
+  ggsave(paste0(output_base_path, file_suffix, ".png"), plot = p, width = 7, height = 5)
   
   return(p)
 }
@@ -1412,7 +1412,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
           legend.margin = margin(t = 5, b = 5))
   
   if (!is.null(output_base_path)) {
-    ggsave(paste0(output_base_path, file_suffix, ".jpeg"), plot = p, width = 7, height = 5)
+    ggsave(paste0(output_base_path, file_suffix, ".png"), plot = p, width = 7, height = 5)
   }
   return(p)
 }
@@ -1576,7 +1576,7 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix,
     guides(shape = "none")
   
   # Save
-  ggsave(paste0(file.path(root_path, "ATTEMPT/Results/Figures/Volcano Plots/"), file_suffix, ".jpeg"), plot = p, width = 7, height = 5)
+  ggsave(paste0(file.path(root_path, "ATTEMPT/Results/Figures/Volcano Plots/"), file_suffix, ".png"), plot = p, width = 7, height = 5)
   
   return(p)
 }
@@ -1817,7 +1817,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
     guides(shape = "none")
   
   # Save
-  ggsave(paste0(file.path(root_path, "ATTEMPT/Results/Figures/Volcano Plots/"), file_suffix, "_concordance.jpeg"), plot = p, width = 7, height = 5)
+  ggsave(paste0(file.path(root_path, "ATTEMPT/Results/Figures/Volcano Plots/"), file_suffix, "_concordance.png"), plot = p, width = 7, height = 5)
   
   return(p)
 }
@@ -1940,10 +1940,12 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
     scale_color_manual(values = c("Placebo" = "#f8ae9d", "Dapagliflozin 5mg" = "#a7b298")) +
     scale_x_discrete(expand = expansion(mult = c(0.3, 0.3))) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+    theme_minimal(base_size = 15) +
     theme(panel.background = element_blank(),
           legend.position = legend_position,
           legend.justification = c(1, 1),
-          legend.background = element_blank()) +
+          legend.background = element_blank(),
+          panel.grid = element_blank()) +
     labs(x = "Visit", 
          y = y_axis_title,
          color = NULL, shape = NULL) +
@@ -2109,7 +2111,7 @@ BCD"
                                                                                      heights = c(0.25, 1, 0.5))
     
     if (save_plots) {
-      output_path <- file.path(output_dir, paste0(output_prefix, "_subtypes_nebula_scores_volcano_heat.jpeg"))
+      output_path <- file.path(output_dir, paste0(output_prefix, "_subtypes_nebula_scores_volcano_heat.png"))
       ggsave(output_path, width = 20, height = 10, plot = combined_plot)
     }
   }
@@ -2117,7 +2119,7 @@ BCD"
   
   # Save individual plots if requested
   if (save_plots) {
-    ggsave(file.path(output_dir, paste0(output_prefix, "_subtypes_nebula.jpeg")), 
+    ggsave(file.path(output_dir, paste0(output_prefix, "_subtypes_nebula.png")), 
            width = 7, height = 5, plot = dot_plot)
   }
   
@@ -2718,7 +2720,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
                        xmin = 1, xmax = 3)
   
   ggsave(file.path(output_base_path, "Results", "Figures", "Pathways", "nebula",
-                   paste0(output_prefix, cell_type_lower, "_res_top30_kegg_pathways.jpeg")),
+                   paste0(output_prefix, cell_type_lower, "_res_top30_kegg_pathways.png")),
          width = 27.5, height = 14, scale = 1)
   
   # REACTOME
@@ -2727,7 +2729,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
                        xmin = 1.45, xmax = 2.6)
   
   ggsave(file.path(output_base_path, "Results", "Figures", "Pathways", "nebula",
-                   paste0(output_prefix, cell_type_lower, "_res_top30_reactome_pathways.jpeg")),
+                   paste0(output_prefix, cell_type_lower, "_res_top30_reactome_pathways.png")),
          width = 27.5, height = 14, scale = 1)
   
   # GO
@@ -2736,7 +2738,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
                        xmin = 1.4, xmax = 5)
   
   ggsave(file.path(output_base_path, "Results", "Figures", "Pathways", "nebula",
-                   paste0(output_prefix, cell_type_lower, "_res_top30_go_pathways.jpeg")),
+                   paste0(output_prefix, cell_type_lower, "_res_top30_go_pathways.png")),
          width = 27.5, height = 14, scale = 1)
   
   # Return results
@@ -2879,9 +2881,9 @@ plot_slingshot_trajectory <- function(sce_sl,
   
   # Save if bucket is provided
   if (!is.null(bucket)) {
-    temp_file <- tempfile(fileext = ".jpeg")
+    temp_file <- tempfile(fileext = ".png")
     ggsave(filename = temp_file, plot = p, width = 7, height = 5)
-    s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_pca_", tolower(celltype_suffix), "_slingshot.jpeg"))
+    s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_pca_", tolower(celltype_suffix), "_slingshot.png"))
   }
   
   return(list(
@@ -2954,9 +2956,9 @@ plot_pseudotime_violin <- function(df, s3_folder = "slingshot",
           axis.text.x = element_text(angle = 30, hjust = 1))
   
   # Save and upload to S3
-  temp_file <- tempfile(fileext = ".jpeg")
+  temp_file <- tempfile(fileext = ".png")
   ggsave(filename = temp_file, plot = p, width = 7, height = 5)
-  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0(tolower(celltype_suffix), "_attempt_slingshot_violin.jpeg")))
+  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0(tolower(celltype_suffix), "_attempt_slingshot_violin.png")))
   return(p)
 }
 
@@ -3034,9 +3036,9 @@ plot_and_test_pseudotime_distribution <- function(df,
     scale_color_manual(values = group_colors)
   
   # Save and upload
-  temp_file <- tempfile(fileext = ".jpeg")
+  temp_file <- tempfile(fileext = ".png")
   ggsave(filename = temp_file, plot = p, width = 7, height = 5)
-  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", filename_suffix, "_slingshot_density_trtvisit.jpeg")))
+  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", filename_suffix, "_slingshot_density_trtvisit.png")))
   
   # Run progressionTest
   test_result <- progressionTest(sce_object, conditions = df[[visit_treatment_var]])
@@ -3093,9 +3095,9 @@ plot_pseudotime_density_faceted_by_treatment <- function(df,
     scale_color_manual(values = fill_colors)
   
   # Save and upload
-  temp_file <- tempfile(fileext = ".jpeg")
+  temp_file <- tempfile(fileext = ".png")
   ggsave(filename = temp_file, plot = p, width = 7, height = 5)
-  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", filename_suffix, "_slingshot_density_trt.jpeg")))
+  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", filename_suffix, "_slingshot_density_trt.png")))
   
   return(p)
 }
@@ -3142,9 +3144,9 @@ plot_delta_percentile_heatmap <- function(df,
     )
   
   # Save and upload
-  temp_file <- tempfile(fileext = ".jpeg")
+  temp_file <- tempfile(fileext = ".png")
   ggsave(filename = temp_file, plot = p, width = width, height = height)
-  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", filename_suffix, "_slingshot_percentile_heatmap.jpeg")))
+  s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", filename_suffix, "_slingshot_percentile_heatmap.png")))
   
   return(p)
 }
@@ -3236,12 +3238,12 @@ analyze_pseudotime_by_clinvar <- function(df,
     }
   
   if (!is.null(bucket)) {
-    temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+    temp_file <- tempfile(fileext = ".png") # need to create a temporary file
     ggsave(filename = temp_file, width = 7, height = 5)
     s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_density_", 
                                              tolower(celltype_suffix), "_", clinical_var, 
                                              filesuffix,
-                                             "_slingshot.jpeg"))
+                                             "_slingshot.png"))
   }
   
   print(p)
@@ -3645,10 +3647,10 @@ plot_clinvar_pseudotime_arrows <- function(df,
     theme(panel.grid = element_blank())
   
   if (!is.null(bucket)) {
-    temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+    temp_file <- tempfile(fileext = ".png") # need to create a temporary file
     ggsave(filename = temp_file, width = 7, height = 5)
     s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_arrow_scatter", 
-                                             tolower(celltype_suffix), "_", clinical_var, "_slingshot.jpeg"))
+                                             tolower(celltype_suffix), "_", clinical_var, "_slingshot.png"))
   }
   return(p)
 }
@@ -3753,10 +3755,10 @@ plot_clinvar_pseudotime_arrows_delta <- function(df,
     theme(panel.grid = element_blank())
   
   if (!is.null(bucket)) {
-    temp_file <- tempfile(fileext = ".jpeg") # need to create a temporary file
+    temp_file <- tempfile(fileext = ".png") # need to create a temporary file
     ggsave(filename = temp_file, width = 7, height = 5)
     s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_arrow_scatter", 
-                                             tolower(celltype_suffix), "_", clinical_var, "_slingshot.jpeg"))
+                                             tolower(celltype_suffix), "_", clinical_var, "_slingshot.png"))
   }
   
   return(p)
@@ -4484,7 +4486,6 @@ prepare_pathway_data <- function(negative_paths_df, positive_paths_df, discordan
 # ===========================================================================
 # Function: perform_concordance_analysis
 # ===========================================================================
-
 # Generalized Concordance Analysis Function
 # Works for any cell type and protein source (urine/plasma)
 
@@ -4511,11 +4512,9 @@ perform_concordance_analysis <- function(
     databases = c("Reactome_Pathways_2024"), # Enrichr databases
     max_overlaps = Inf,       # Max overlaps for text labels
     volcano_width = 7,          # Plot width for saving
-    volcano_height = 7,         # Plot height for saving
-    bubble_width = 15,          # Plot width for saving
-    bubble_height = 7,          # Plot height for saving
-    positive_text = "Positive with Dapagliflozin",
-    negative_text = "Negative with Dapagliflozin"
+    volcano_height = 7,          # Plot height for saving
+    bubble_width = 15,
+    bubble_height = 7
 ) {
   
   # Validate inputs
@@ -4532,11 +4531,17 @@ perform_concordance_analysis <- function(
   
   # Check transcript data columns
   if (!transcript_logfc_col %in% colnames(transcript_data)) {
+    cat("Available columns in transcript data:", paste(colnames(transcript_data), collapse = ", "), "\n")
     stop("Missing transcript logFC column: ", transcript_logfc_col)
   }
   
   # Add concordance classification if not already present
   if (!"conc_class" %in% colnames(protein_data)) {
+    
+    # Get significant transcript genes with direction
+    sig_transcript_up <- subset(transcript_data, fdr < fdr_cutoff & transcript_data[transcript_logfc_col] > 0)$Gene
+    sig_transcript_down <- subset(transcript_data, fdr < fdr_cutoff & transcript_data[transcript_logfc_col] < 0)$Gene
+    
     protein_data <- protein_data %>%
       mutate(
         label = case_when(
@@ -4545,9 +4550,9 @@ perform_concordance_analysis <- function(
           TRUE ~ ""
         ),
         transcript_direction = case_when(
-          !!sym(gene_col) %in% subset(transcript_data, !!sym(transcript_logfc_col) > 0)$Gene ~ "+",
-          !!sym(gene_col) %in% subset(transcript_data, !!sym(transcript_logfc_col) < 0)$Gene ~ "-",
-          TRUE ~ "No transcript data"  # Changed from " " to "No transcript data"
+          !!sym(gene_col) %in% sig_transcript_up ~ "+",    # Only significant UP genes
+          !!sym(gene_col) %in% sig_transcript_down ~ "-",  # Only significant DOWN genes  
+          TRUE ~ "No transcript data"  # No significant transcript data
         ),
         # concordance relative to protein logFC
         conc_class = case_when(
@@ -4571,13 +4576,27 @@ perform_concordance_analysis <- function(
         )
     }
     
-    # Update transcript_direction if it exists but uses the old " " format
+    # Update transcript_direction if it exists but uses the old " " format or wrong logic
     if ("transcript_direction" %in% colnames(protein_data)) {
+      
+      # Get significant transcript genes with direction  
+      sig_transcript_up <- subset(transcript_data, fdr < fdr_cutoff & transcript_data[transcript_logfc_col] > 0)$Gene
+      sig_transcript_down <- subset(transcript_data, fdr < fdr_cutoff & transcript_data[transcript_logfc_col] < 0)$Gene
+      
       protein_data <- protein_data %>%
         mutate(
           transcript_direction = case_when(
-            transcript_direction == " " ~ "No transcript data",
-            TRUE ~ transcript_direction
+            !!sym(gene_col) %in% sig_transcript_up ~ "+",
+            !!sym(gene_col) %in% sig_transcript_down ~ "-", 
+            TRUE ~ "No transcript data"
+          ),
+          # Recalculate concordance with corrected transcript direction
+          conc_class = case_when(
+            !!sym(logfc_col) >  0 & transcript_direction == "+" ~ "Concordant (+/+)",
+            !!sym(logfc_col) <  0 & transcript_direction == "-" ~ "Concordant (-/-)",
+            !!sym(logfc_col) >  0 & transcript_direction == "-" ~ "Discordant (+/-)",
+            !!sym(logfc_col) <  0 & transcript_direction == "+" ~ "Discordant (-/+)",
+            TRUE ~ "No transcript call"
           )
         )
     }
@@ -4594,7 +4613,7 @@ perform_concordance_analysis <- function(
   
   # Create caption text
   cap_txt <- sprintf(
-    "Cell type: %s | Protein source: %s\n+ Concordant: %d | - Concordant: %d\nDiscordant: %d | No transcript data: %d",
+    "Cell type: %s | Protein source: %s\n+ concordant: %d | - concordant: %d\ndiscordant: %d | no transcript call: %d",
     celltype_name, protein_source, counts$n_pos_conc, counts$n_neg_conc, 
     counts$n_disconc, counts$n_no_tx
   )
@@ -4610,6 +4629,8 @@ perform_concordance_analysis <- function(
   # Annotation parameters
   arrow_padding <- 0.05  # How far below x-axis to put arrows
   arrow_text_padding <- 0.08  # How far below arrows to put text
+  positive_text <- paste0("Higher in ", protein_source, " after SGLT2i")
+  negative_text <- paste0("Lower in ", protein_source, " after SGLT2i")
   
   volcano_plot <- protein_data %>%
     ggplot(aes(x = !!sym(logfc_col), y = -log10(!!sym(adj_p_col)), color = transcript_direction)) +
@@ -4665,46 +4686,49 @@ perform_concordance_analysis <- function(
          y = "-log10(adj p-value)",
          caption = cap_txt)
   
-  # Extract gene lists for pathway analysis
-  protein_neg <- protein_data %>%
+  # Create concordant and discordant gene lists (STRATIFIED)
+  neg_concordant <- protein_data %>%
     filter(!!sym(logfc_col) < 0) %>% pull(!!sym(gene_col))
-  protein_pos <- protein_data %>%
+  pos_concordant <- protein_data %>%
     filter(!!sym(logfc_col) > 0) %>% pull(!!sym(gene_col))
   
   transcript_neg <- transcript_data %>%
-    filter(!!sym(transcript_logfc_col) < 0) %>% 
+    filter(transcript_data[transcript_logfc_col] < 0) %>% 
     pull(Gene)
   transcript_pos <- transcript_data %>%
-    filter(!!sym(transcript_logfc_col) > 0) %>% 
+    filter(transcript_data[transcript_logfc_col] > 0) %>% 
     pull(Gene)
   
-  # Create concordant and discordant gene lists
-  neg_concordant <- protein_neg[protein_neg %in% transcript_neg]
-  pos_concordant <- protein_pos[protein_pos %in% transcript_pos]
-  discordant <- c(
-    protein_neg[protein_neg %in% transcript_pos], 
-    protein_pos[protein_pos %in% transcript_neg]
-  )
+  # Create stratified concordant and discordant gene lists
+  neg_concordant_genes <- neg_concordant[neg_concordant %in% transcript_neg]
+  pos_concordant_genes <- pos_concordant[pos_concordant %in% transcript_pos]
+  discordant_pos_neg <- pos_concordant[pos_concordant %in% transcript_neg]  # Protein ↑, Transcript ↓
+  discordant_neg_pos <- neg_concordant[neg_concordant %in% transcript_pos]  # Protein ↓, Transcript ↑
   
   # Remove empty strings and NA values
-  neg_concordant <- neg_concordant[neg_concordant != "" & !is.na(neg_concordant)]
-  pos_concordant <- pos_concordant[pos_concordant != "" & !is.na(pos_concordant)]
-  discordant <- discordant[discordant != "" & !is.na(discordant)]
+  neg_concordant_genes <- neg_concordant_genes[neg_concordant_genes != "" & !is.na(neg_concordant_genes)]
+  pos_concordant_genes <- pos_concordant_genes[pos_concordant_genes != "" & !is.na(pos_concordant_genes)]
+  discordant_pos_neg <- discordant_pos_neg[discordant_pos_neg != "" & !is.na(discordant_pos_neg)]
+  discordant_neg_pos <- discordant_neg_pos[discordant_neg_pos != "" & !is.na(discordant_neg_pos)]
   
-  # Perform pathway enrichment analysis
+  # Perform pathway enrichment analysis (STRATIFIED)
   enrichment_results <- list()
   
-  if (length(neg_concordant) > 2) {  # Need at least 3 genes for enrichment
-    cat("Running enrichment for", length(neg_concordant), "negative concordant genes...\n")
-    enrichment_results$negative <- enrichr(neg_concordant, databases)
+  if (length(neg_concordant_genes) > 2) {
+    cat("Running enrichment for", length(neg_concordant_genes), "negative concordant genes...\n")
+    enrichment_results$negative <- enrichr(neg_concordant_genes, databases)
   }
-  if (length(pos_concordant) > 2) {
-    cat("Running enrichment for", length(pos_concordant), "positive concordant genes...\n")
-    enrichment_results$positive <- enrichr(pos_concordant, databases)
+  if (length(pos_concordant_genes) > 2) {
+    cat("Running enrichment for", length(pos_concordant_genes), "positive concordant genes...\n")
+    enrichment_results$positive <- enrichr(pos_concordant_genes, databases)
   }
-  if (length(discordant) > 2) {
-    cat("Running enrichment for", length(discordant), "discordant genes...\n")
-    enrichment_results$discordant <- enrichr(discordant, databases)
+  if (length(discordant_pos_neg) > 2) {
+    cat("Running enrichment for", length(discordant_pos_neg), "discordant (+/-) genes...\n")
+    enrichment_results$discordant_damage <- enrichr(discordant_pos_neg, databases)
+  }
+  if (length(discordant_neg_pos) > 2) {
+    cat("Running enrichment for", length(discordant_neg_pos), "discordant (-/+) genes...\n")
+    enrichment_results$discordant_protective <- enrichr(discordant_neg_pos, databases)
   }
   
   # Create bubble plot if we have enrichment results
@@ -4738,12 +4762,15 @@ perform_concordance_analysis <- function(
           scale_color_manual(values = c(
             "Positive" = "#f28482",
             "Negative" = "#457b9d",
-            "Discordant" = "#3a5a40"
+            "Discordant (+/-)" = "#adc178",     # Orange-red for damage
+            "Discordant (-/+)" = "#3a5a40",     # Teal for protection
+            "Discordant" = "#3a5a40"            # Keep old green for compatibility
           )) +
           labs(
             color = "Concordance",
             x = "Odds Ratio",
-            y = "-log10(Adjusted P-value)"
+            y = "-log10(Adjusted P-value)",
+            caption = cap_txt
           )
       }
     }, error = function(e) {
@@ -4758,13 +4785,13 @@ perform_concordance_analysis <- function(
     }
     
     volcano_filename <- file.path(output_dir, paste0(tolower(celltype_name), "_", 
-                                                     protein_source, "_volcano.jpeg"))
+                                                     protein_source, "_volcano.png"))
     ggsave(volcano_filename, volcano_plot, width = volcano_width, height = volcano_height)
     cat("Volcano plot saved:", volcano_filename, "\n")
     
     if (!is.null(bubble_plot)) {
       bubble_filename <- file.path(output_dir, paste0(tolower(celltype_name), "_", 
-                                                      protein_source, "_pathways.jpeg"))
+                                                      protein_source, "_pathways.png"))
       ggsave(bubble_filename, bubble_plot, width = bubble_width, height = bubble_height)
       cat("Pathway bubble plot saved:", bubble_filename, "\n")
     }
@@ -4774,9 +4801,10 @@ perform_concordance_analysis <- function(
   results <- list(
     counts = counts,
     gene_lists = list(
-      negative_concordant = neg_concordant,
-      positive_concordant = pos_concordant,
-      discordant = discordant
+      negative_concordant = neg_concordant_genes,
+      positive_concordant = pos_concordant_genes,
+      discordant_damage = discordant_pos_neg,      # Protein ↑, Transcript ↓
+      discordant_protective = discordant_neg_pos   # Protein ↓, Transcript ↑
     ),
     enrichment_results = enrichment_results,
     annotated_data = protein_data,
@@ -4789,18 +4817,15 @@ perform_concordance_analysis <- function(
       protein_source = protein_source,
       total_proteins = nrow(protein_data),
       significant_proteins = sum(protein_data[[adj_p_col]] < adj_p_cutoff, na.rm = TRUE),
-      overlapping_genes = length(neg_concordant) + length(pos_concordant) + length(discordant)
+      overlapping_genes = length(neg_concordant_genes) + length(pos_concordant_genes) + 
+        length(discordant_pos_neg) + length(discordant_neg_pos)
     )
   )
   
   return(results)
 }
 
-# ===========================================================================
-# Function: prepare_pathway_data_generic
-# ===========================================================================
-
-# Helper function to process pathway data generically
+# Helper function to process pathway data generically (UPDATED FOR STRATIFIED DISCORDANCE)
 prepare_pathway_data_generic <- function(enrichment_results, database_name) {
   
   pathway_list <- list()
@@ -4817,7 +4842,9 @@ prepare_pathway_data_generic <- function(enrichment_results, database_name) {
             response_type = case_when(
               response_type == "negative" ~ "Negative",
               response_type == "positive" ~ "Positive", 
-              response_type == "discordant" ~ "Discordant"
+              response_type == "discordant_damage" ~ "Discordant (+/-)",
+              response_type == "discordant_protective" ~ "Discordant (-/+)",
+              response_type == "discordant" ~ "Discordant"  # Keep old version for compatibility
             ),
             gene_count = as.numeric(stringr::str_extract(Overlap, "\\d+")),
             pathway_short = stringr::str_trunc(Term, 40)
@@ -4834,10 +4861,6 @@ prepare_pathway_data_generic <- function(enrichment_results, database_name) {
     return(data.frame())
   }
 }
-
-# ===========================================================================
-# Function: batch_concordance_analysis
-# ===========================================================================
 
 # Batch analysis function for multiple cell types with single protein dataset
 batch_concordance_analysis <- function(
@@ -4871,3 +4894,348 @@ batch_concordance_analysis <- function(
   
   return(results_list)
 }
+
+# ===========================================================================
+# Function: vertical_upset
+# ===========================================================================
+
+# install.packages(c("dplyr","tidyr","purrr","ggplot2","cowplot"))
+# install.packages(c("dplyr","tidyr","purrr","ggplot2","cowplot"))
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+library(cowplot)
+
+vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
+                           order_sets = sets,
+                           bar_fill = "grey60",
+                           show_set_sizes = TRUE,
+                           set_bar_fill = "grey50",
+                           connect_lines = TRUE,
+                           line_color = "grey60",
+                           line_width = 0.6,
+                           scale_type = "linear",  # "linear", "log10", "sqrt", or "break"
+                           break_point = NULL,     # For scale_type = "break"
+                           break_ratio = 0.5,      # Proportion of plot for lower range
+                           set_colors = NULL,      # Custom colors for each set
+                           multi_bar_fill = "#7A9A9F",  # Color for bars with 3+ intersections
+                           multi_threshold = 3) {  # Threshold for coloring bars
+  stopifnot(all(sets %in% names(df)))
+  
+  # Define muted color palette if not provided
+  if (is.null(set_colors)) {
+    # Color palette from the provided image
+    muted_palette <- c(
+      "#3B5A5B",  # Dark teal/grey
+      "#5A8A80",  # Medium teal
+      "#7ABAA2",  # Light teal
+      "#A8B88A",  # Sage green
+      "#E6C86E",  # Golden yellow
+      "#E89B5C",  # Light orange
+      "#D16558"   # Coral red
+    )
+    set_colors <- setNames(muted_palette[1:length(sets)], sets)
+  } else {
+    # Ensure all sets have colors
+    if (!all(sets %in% names(set_colors))) {
+      stop("set_colors must include all sets")
+    }
+  }
+  
+  # Ensure 0/1 membership matrix
+  m <- df %>%
+    dplyr::select(all_of(sets)) %>%
+    mutate(across(everything(), ~ as.integer(.x > 0)))
+  
+  # Map each row to a combination string (e.g., "A & C"), drop rows with no set membership
+  row_combos <- m %>%
+    mutate(.row = dplyr::row_number()) %>%
+    tidyr::pivot_longer(all_of(sets), names_to = "set", values_to = "present") %>%
+    dplyr::group_by(.row) %>%
+    dplyr::summarise(
+      members = list(set[present == 1]), 
+      n_members = sum(present == 1),
+      .groups = "drop"
+    ) %>%
+    dplyr::filter(n_members > 1) %>%  # Filter out single-set memberships BEFORE creating combinations
+    dplyr::mutate(
+      combination = purrr::map_chr(
+        members,
+        ~ paste(.x, collapse = " & ")
+      )
+    )
+  
+  # Intersection sizes (counts of identical combinations)
+  combos <- row_combos %>%
+    dplyr::count(combination, name = "size", sort = TRUE) %>%
+    dplyr::filter(size >= min_size)
+  
+  if (!is.finite(top_n)) top_n <- nrow(combos)
+  combos <- combos %>% dplyr::slice_head(n = top_n)
+  
+  # IMPORTANT: Ensure we only keep combinations with size > 0
+  combos <- combos %>% dplyr::filter(size > 0)
+  
+  # Keep only rows belonging to the kept combinations (for consistent set sizes)
+  rows_kept <- row_combos %>%
+    dplyr::filter(combination %in% combos$combination) %>%
+    dplyr::pull(.row)
+  m_kept <- m[rows_kept, , drop = FALSE]
+  
+  # Set sizes among the kept rows (so top bars match the currently displayed intersections)
+  set_sizes <- tibble::tibble(
+    set = factor(sets, levels = order_sets),
+    size = colSums(m_kept[, sets, drop = FALSE] > 0)
+  )
+  
+  # Dot-matrix long form for kept combinations only
+  mat_long <- tibble::tibble(combination = combos$combination) %>%
+    tidyr::crossing(set = sets) %>%
+    dplyr::left_join(
+      combos %>%
+        dplyr::mutate(members = strsplit(combination, " & ", fixed = TRUE)) %>%
+        dplyr::select(combination, members),
+      by = "combination"
+    ) %>%
+    dplyr::mutate(present = purrr::map2_lgl(members, set, ~ .y %in% .x)) %>%
+    dplyr::select(-members)
+  
+  # Factor orders - REVERSED for highest on top
+  comb_levels <- rev(combos$combination)  # Reverse order for highest first
+  
+  # Add number of intersections to combos
+  combos <- combos %>%
+    dplyr::mutate(
+      n_intersections = stringr::str_count(combination, " & ") + 1,
+      bar_color = ifelse(n_intersections >= multi_threshold, multi_bar_fill, bar_fill)
+    )
+  
+  # Filter mat_long to only include combinations that exist in combos
+  mat_long <- mat_long %>%
+    dplyr::filter(combination %in% combos$combination) %>%
+    dplyr::mutate(
+      combination = factor(combination, levels = comb_levels),
+      set         = factor(set, levels = order_sets)
+    )
+  
+  combos <- combos %>%
+    dplyr::mutate(combination = factor(combination, levels = comb_levels))
+  
+  # Optional lines connecting dots: compute numeric coords AFTER factoring
+  lines_df <- NULL
+  if (connect_lines) {
+    lines_df <- mat_long %>%
+      dplyr::filter(present) %>%
+      dplyr::mutate(
+        xn = as.integer(set),            # column index (set position)
+        yn = as.integer(combination)     # row index (combination order)
+      ) %>%
+      dplyr::arrange(combination, xn)
+  }
+  
+  # --- Panels ---
+  
+  # Top set-size bars (aligned with sets) - now with matching colors
+  p_setsizes <-
+    ggplot(set_sizes, aes(x = set, y = size, fill = set)) +
+    geom_col(width = 0.7) +
+    scale_fill_manual(values = set_colors, guide = "none") +
+    scale_x_discrete(position = "top", drop = FALSE) +
+    labs(x = NULL, y = "Set size") +
+    theme_minimal(base_size = 11) +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      plot.margin = margin(2, 5, 0, 5)  # Reduced top margin
+    )
+  
+  # Left: dot matrix with colored dots
+  p_dots <-
+    ggplot(mat_long, aes(x = set, y = combination)) +
+    # faint grid dots for alignment
+    geom_point(shape = 16, size = 1.8, color = "grey90") +
+    # connecting lines behind filled dots
+    { if (!is.null(lines_df))
+      geom_path(
+        data = lines_df,
+        aes(x = xn, y = yn, group = combination),
+        inherit.aes = FALSE, linewidth = line_width,
+        color = line_color, lineend = "round"
+      )
+      else NULL } +
+    # filled dots where present - now colored by set
+    geom_point(data = dplyr::filter(mat_long, present), 
+               aes(color = set), shape = 16, size = 2.8) +
+    scale_color_manual(values = set_colors, guide = "none") +
+    scale_x_discrete(position = "top", drop = FALSE) +
+    scale_y_discrete(limits = comb_levels, drop = FALSE,
+                     expand = expansion(mult = c(0.02, 0.02))) +  # Small expansion for visual padding
+    labs(x = NULL, y = NULL) +
+    theme_minimal(base_size = 11) +
+    theme(
+      panel.grid = element_blank(),
+      axis.text.y = element_blank(),
+      axis.text.x = element_text(size = 9, angle = 60, hjust = 0,
+                                 color = set_colors[order_sets],
+                                 face = "bold"),  # Color labels to match
+      plot.margin = margin(0, 5, 5, 5)  # Adjusted margin
+    )
+  
+  # Right: horizontal bars
+  # Double-check we have no zeros
+  if(any(combos$size == 0)) {
+    warning("Found combinations with size 0 that should have been filtered")
+    combos <- combos %>% dplyr::filter(size > 0)
+  }
+  
+  p_bars <- ggplot(combos, aes(y = combination, x = size, fill = bar_color)) +
+    geom_col(width = 0.7) +
+    scale_fill_identity() +  # Use the actual color values
+    scale_y_discrete(limits = comb_levels, drop = FALSE,
+                     expand = expansion(mult = c(0.02, 0.02))) +  # Same expansion as dot plot
+    scale_x_continuous(position = "top") +  # Move x-axis to top
+    labs(x = "Intersection size", y = NULL) +
+    theme_minimal(base_size = 11) +
+    theme(
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      plot.margin = margin(2, 5, 5, 0)  # Reduced top margin
+    )
+  
+  # Apply scale transformations based on scale_type
+  if (scale_type == "log10") {
+    # Log scale (adding 1 to handle zeros)
+    p_bars <- p_bars + 
+      scale_x_continuous(
+        trans = scales::pseudo_log_trans(base = 10),
+        breaks = c(0, 1, 10, 100, 1000),
+        labels = scales::comma,
+        position = "top"  # Keep position on top
+      )
+  } else if (scale_type == "sqrt") {
+    # Square root scale
+    p_bars <- p_bars + 
+      scale_x_continuous(
+        trans = "sqrt",
+        breaks = scales::pretty_breaks(n = 5),
+        labels = scales::comma,
+        position = "top"  # Keep position on top
+      )
+  } else if (scale_type == "break" && !is.null(break_point)) {
+    # Custom broken axis
+    # This is more complex - we'll use a transformation that compresses the upper range
+    compress_trans <- function(break_point, break_ratio) {
+      trans <- function(x) {
+        ifelse(x <= break_point, 
+               x * break_ratio / break_point,
+               break_ratio + (x - break_point) * (1 - break_ratio) / (max(x) - break_point))
+      }
+      
+      inv <- function(x) {
+        max_val <- max(combos$size)
+        ifelse(x <= break_ratio,
+               x * break_point / break_ratio,
+               break_point + (x - break_ratio) * (max_val - break_point) / (1 - break_ratio))
+      }
+      
+      scales::trans_new("compress", trans, inv)
+    }
+    
+    p_bars <- p_bars + 
+      scale_x_continuous(
+        trans = compress_trans(break_point, break_ratio),
+        breaks = c(0, break_point/2, break_point, 
+                   break_point + (max(combos$size) - break_point)/2, 
+                   max(combos$size)),
+        labels = scales::comma,
+        position = "top"  # Keep position on top
+      ) +
+      # Add visual indicator of break
+      annotate("segment", 
+               x = break_point, xend = break_point,
+               y = 0.5, yend = length(comb_levels) + 0.5,
+               linetype = "dashed", color = "grey70", size = 0.5)
+  } else {
+    # Default linear scale with optimized limits
+    p_bars <- p_bars + 
+      scale_x_continuous(
+        limits = c(0, max(combos$size) * 1.05),  # 5% padding
+        expand = c(0, 0),
+        labels = scales::comma,
+        position = "top"  # Keep position on top
+      )
+  }
+  
+  # Create empty plot for alignment if showing set sizes
+  if (show_set_sizes) {
+    # Try patchwork instead of cowplot for better control
+    if (requireNamespace("patchwork", quietly = TRUE)) {
+      library(patchwork)
+      
+      p_empty <- ggplot() + theme_void()
+      
+      final <- (p_setsizes | p_empty) / (p_dots | p_bars) +
+        plot_layout(widths = c(1, 1.6), heights = c(1, 5))
+    } else {
+      # Fallback to cowplot with adjusted parameters
+      p_empty <- ggplot() + theme_void()
+      
+      # Try assembling without align parameter first
+      top_row <- cowplot::plot_grid(p_setsizes, p_empty, ncol = 2, rel_widths = c(1, 1.6))
+      bottom_row <- cowplot::plot_grid(p_dots, p_bars, ncol = 2, rel_widths = c(1, 1.6), align = "h")
+      
+      final <- cowplot::plot_grid(
+        top_row, bottom_row,
+        ncol = 1,
+        rel_heights = c(1, 5)  # Much smaller top section
+      )
+    }
+  } else {
+    # Without set sizes, just align the two main plots
+    final <- cowplot::plot_grid(
+      p_dots, p_bars,
+      ncol = 2, 
+      rel_widths = c(1, 1.6), 
+      align = "h", 
+      axis = "tb"
+    )
+  }
+  
+  return(final)
+}
+
+# Example usage with your data:
+# vertical_upset(
+#   upset_combined_dat,
+#   sets = c("PT", "TAL", "EC", "IC", "IMMUNE", "VSMC_P_FIB", "POD"),
+#   show_set_sizes = TRUE,
+#   connect_lines  = TRUE, 
+#   min_size = 3
+# )
+
+# Example with custom colors and multi-intersection highlighting:
+# my_colors <- c(
+#   "PT" = "#8B7D6B",
+#   "TAL" = "#6B8E9F", 
+#   "EC" = "#8FA68E",
+#   "IC" = "#B8A9C9",
+#   "IMMUNE" = "#D4A76A",
+#   "VSMC_P_FIB" = "#9B6B6B",
+#   "POD" = "#7A9A9F"
+# )
+# 
+# vertical_upset(
+#   upset_combined_dat,
+#   sets = c("PT", "TAL", "EC", "IC", "IMMUNE", "VSMC_P_FIB", "POD"),
+#   show_set_sizes = TRUE,
+#   connect_lines  = TRUE, 
+#   min_size = 3,
+#   set_colors = my_colors,
+#   multi_bar_fill = "#4A90A4",  # Color for 3+ intersections
+#   multi_threshold = 3          # Highlight bars with 3 or more cell types
+# )
