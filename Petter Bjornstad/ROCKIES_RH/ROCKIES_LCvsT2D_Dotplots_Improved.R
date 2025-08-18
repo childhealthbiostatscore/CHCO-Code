@@ -4075,7 +4075,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_OX_PHOS_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
   names(full_results)[6] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")

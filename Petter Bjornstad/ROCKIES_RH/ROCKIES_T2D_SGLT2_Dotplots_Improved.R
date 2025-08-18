@@ -210,7 +210,7 @@ full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10)) 
 write.csv(full_results,fs::path(dir.results,"NEBULA_TCA_cycle_ALL_cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.csv"))
 
 
-names(full_results)[6] <- 'pvalue' 
+names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
 full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
 full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
 
@@ -430,7 +430,7 @@ full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10)) 
 
 write.csv(full_results,fs::path(dir.results,"NEBULA_Ox_Phos_cycle_ALL_cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.csv"))
 
-names(full_results)[6] <- 'pvalue' 
+names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
 full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
 full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
 
@@ -500,7 +500,7 @@ write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(
 
 
 #pvalue
-names(full_results)[6] <- 'pvalue' 
+names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
 dot_plot <- ggplot(full_results, aes(
   y = factor(gene, levels = order$gene),
   x = `logFC_epic_sglti2_1Yes`,
@@ -656,7 +656,7 @@ full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10)) 
 
 write.csv(full_results,fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.csv"))
 
-names(full_results)[6] <- 'pvalue' 
+names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
 full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
 full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
 
@@ -725,7 +725,7 @@ write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(
 
 
 #pvalue
-names(full_results)[6] <- 'pvalue' 
+names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
 dot_plot <- ggplot(full_results, aes(
   y = factor(gene, levels = order$gene),
   x = `logFC_epic_sglti2_1Yes`,
@@ -875,7 +875,7 @@ full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10)) 
 
 write.csv(full_results,fs::path(dir.results,"NEBULA_OX_PHOS_cycle_PT_cells_T2D_SGLT2_unadjusted_pooled_offset.csv"))
 
-names(full_results)[6] <- 'pvalue' 
+names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
 full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
 full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
 
@@ -942,7 +942,7 @@ write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(
 
 
 
-names(full_results)[6] <- 'pvalue' 
+names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
 dot_plot <- ggplot(full_results, aes(
   y = factor(gene, levels = order$gene),
   x = `logFC_epic_sglti2_1Yes`,
@@ -1098,7 +1098,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -1159,7 +1159,7 @@ for (celltype in celltypes) {
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -1279,7 +1279,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_OX_PHOS_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -1338,7 +1338,7 @@ for (celltype in celltypes) {
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -1513,7 +1513,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -1574,7 +1574,7 @@ for (celltype in celltypes) {
   
   
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -1697,7 +1697,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -1757,7 +1757,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -1930,7 +1930,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -1990,7 +1990,7 @@ for (celltype in celltypes) {
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -2112,7 +2112,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -2172,7 +2172,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -2347,7 +2347,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -2407,7 +2407,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -2530,7 +2530,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -2590,7 +2590,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -2766,7 +2766,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -2826,7 +2826,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -2948,7 +2948,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -3008,7 +3008,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -3185,7 +3185,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -3245,7 +3245,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -3366,7 +3366,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -3426,7 +3426,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -3601,7 +3601,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -3661,7 +3661,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -3783,7 +3783,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -3843,7 +3843,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -4019,7 +4019,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -4079,7 +4079,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -4199,9 +4199,9 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_OxPhos_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -4261,7 +4261,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -4448,7 +4448,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -4508,7 +4508,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_tca_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
@@ -4630,7 +4630,7 @@ for (celltype in celltypes) {
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
   full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
   
@@ -4690,7 +4690,7 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  names(full_results)[6] <- 'pvalue' 
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   dot_plot_ox_phos_2 <- ggplot(full_results, aes(
     y = factor(gene, levels = order$gene),
     x = `logFC_epic_sglti2_1Yes`,
