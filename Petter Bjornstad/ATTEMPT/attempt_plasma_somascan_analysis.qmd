@@ -310,6 +310,7 @@ did_res_plasma_mixed <- run_limma_proteomics(data = soma,
                                              model_type = "interaction_random")
 # 6 out of 7289 singularity warning (0.1%)
 s3saveRDS(did_res_plasma_mixed, "Proteomics/plasma_proteomics_res.RDS", "attempt", region = "")
+
 ```
 
 ```{r echo = F}
@@ -698,4 +699,50 @@ plot_volcano(ec_plasma, fc = "logFC_protein", p_col = "p_protein", x_axis = "log
              file_suffix = "_kpmp_ec_plasma",
              formula = "protein + treatment", cell_type = "EC") + 
   geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+```
+
+# Looking for overlap between treatment DiD & proteomics DiD
+
+```{r echo = F}
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+celltype_groups <- list(
+  # PC              = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC              = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  Immune          = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  Immune_myeloid  = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB      = c("VSMC/P", "FIB"),
+  POD = c("POD")
+)
+
+
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+# Full gene set
+for (cell in names(celltype_groups))  {
+print(paste0("Processing: ", cell))
+  input_path <- paste0("grouped/", cell, "/ALL/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+
+  processed <- process_nebula_results(cell_df)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp")
+
+  assign(var_name, processed$results)
+}
+
+did_res_plasma_mixed <- s3readRDS("Proteomics/plasma_proteomics_res.RDS", "attempt", region = "")
+```
+
+```{r echo = F}
+plasma_res <- batch_concordance_analysis(
+  protein_data = did_res_plasma_mixed$results_annotated,  # This is correct
+  transcript_data_list = list(EC = pt_kpmp, Immune = immune_kpmp, 
+                              Immune_myeloid = immune_myeloid_kpmp,
+                              Immune_lymphoid = immune_lymphoid_kpmp, 
+                              VSMC_P_FIB = vsmc_p_fib_kpmp, POD = pod_kpmp),
+  protein_source = 'plasma',
+  output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/enrichr"
+)
 ```
