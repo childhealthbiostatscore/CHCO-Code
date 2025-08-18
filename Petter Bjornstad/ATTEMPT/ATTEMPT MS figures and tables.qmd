@@ -1,0 +1,506 @@
+---
+title: "ATTEMPT MS figures and tables"
+author: "Ye Ji Choi"
+format:
+  docx:
+    reference-doc: custom-reference.docx
+    fig-cap-location: top
+    tbl-cap-location: top
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r echo = F}
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(patchwork)
+library(magick)
+library(ggplot2)
+library(purrr)
+library(Hmisc)
+library(jsonlite)
+library(aws.s3)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+library(lmerTest)
+library(emmeans)
+library(broom)
+library(ggbeeswarm)
+library(lemon)
+library(quantreg)
+library(arsenal)
+library(ggpubr)
+library(magick)
+```
+
+```{r include = F}
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+
+```{r echo = F}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+base_path <- paste0(root_path, "/ATTEMPT/Results/Figures")
+source(file.path(git_path, "Resources/YC/R Functions/correlation_function.R"))
+source(file.path(git_path, "ATTEMPT/attempt_functions.R"))
+```
+
+
+```{r echo = F}
+attempt_dat <- s3readRDS(object = "cleaned_data/attempt_dat.rds", bucket = "attempt", region = "")
+
+delta_df <- s3readRDS(object = "cleaned_data/attempt_delta_df.rds", bucket = "attempt", region = "")
+
+table_labs <- list(
+  age = "Age (years)",
+  sex = "Sex",
+  weight = "Weight (kg)",
+  height = "Height (cm)",
+  bmi = "BMI (kg/m²)",
+  hba1c = "HbA1c (%)",
+  emu_urine_acr_mean = "Urine ACR (mg/g)",
+  creatinine_s = "Serum creatinine (mg/dL)",
+  cystatin_c_s = "Serum cystatin C (mg/L)",
+  albumin_serum_gl = "Serum albumin (g/L)",
+  cgm_tir = "CGM time in range (%)",
+  diabetes_dx_duration = "Diabetes duration (years)",
+  sbp = "Systolic BP (mmHg)",
+  dbp = "Diastolic BP (mmHg)",
+  cholesterol_serum_mmoll = "Total cholesterol (mmol/L)",
+  triglycerides_serum_mmoll = "Triglycerides (mmol/L)",
+  pulse = "Pulse (bpm)",
+  ldl_serum_mmoll = "LDL cholesterol (mmol/L)",
+  hdl_serum_mmoll = "HDL cholesterol (mmol/L)",
+  mgfr_jodal_bsa = "mGFR BSA-adjusted (mL/min/1.73m²)",
+  mgfr_jodal = "mGFR (mL/min)",
+  mri_r2_cortex_l = "MRI R2* left cortex",
+  mri_r2_cortex_r = "MRI R2* right cortex",
+  avg_c_r2 = "Cortical R2*",
+  mri_r2_kidney_l = "MRI R2* left kidney",
+  mri_r2_kidney_r = "MRI R2* right kidney",
+  avg_k_r2 = "Kidney R2*"
+)
+
+# Apply labels to your data
+for(var in names(table_labs)) {
+  if(var %in% names(attempt_dat)) {
+    label(attempt_dat[[var]]) <- table_labs[[var]]
+  }
+}
+
+table_controls <-tableby.control(
+  total = FALSE,
+  numeric.stats = c("meansd"),
+  cat.stats = c("countpct"),
+  digits = 1, 
+  numeric.simplify = T
+)
+
+# List of variables to copy
+vars_to_copy <- c('mgfr_jodal_bsa', 'mgfr_jodal', 'mri_r2_cortex_l', 
+                  'mri_r2_cortex_r', 'avg_c_r2', 'mri_r2_kidney_l', 
+                  'mri_r2_kidney_r', 'avg_k_r2')
+
+# Get values from visit -4
+visit_minus4_values <- attempt_dat[attempt_dat$visit == -4, c('subject_id', vars_to_copy)]
+
+# For each subject, copy their visit -4 values to visit 0
+for(subject in unique(visit_minus4_values$subject_id)) {
+  # Get the values for this subject at visit -4
+  patient_values <- visit_minus4_values[visit_minus4_values$subject_id == subject, vars_to_copy]
+  
+  # Update visit 0 for this subject
+  for(var in vars_to_copy) {
+    attempt_dat[attempt_dat$subject_id == subject & attempt_dat$visit == 0, var] <- patient_values[[var]]
+  }
+}
+```
+
+# Tables
+
+## Section 2A
+
+```{r echo = F}
+#| label: tbl-full-baseline
+#| tbl-cap: "Participant characteristics at baseline."
+
+kable(summary(arsenal::tableby(
+  treatment ~ 
+    age + 
+    sex + 
+    weight + 
+    height + 
+    bmi + 
+    hba1c + 
+    kwt(emu_urine_acr_mean, "medianq1q3") + 
+    creatinine_s + 
+    cystatin_c_s + 
+    albumin_serum_gl + 
+    cgm_tir + 
+    diabetes_dx_duration + 
+    sbp + 
+    dbp + 
+    cholesterol_serum_mmoll + 
+    triglycerides_serum_mmoll + 
+    pulse + 
+    ldl_serum_mmoll + 
+    hdl_serum_mmoll +
+     mgfr_jodal_bsa + mgfr_jodal + avg_c_r2 + avg_k_r2, 
+  data = subset(attempt_dat, visit == 0),
+  control = table_controls
+)), digits = 1)
+
+```
+
+```{r echo = F}
+#| label: tbl-co-baseline
+#| tbl-cap: "Participant characteristics at baseline in CO"
+
+kable(summary(arsenal::tableby(
+  treatment ~ 
+    age + 
+    sex + 
+    weight + 
+    height + 
+    bmi + 
+    hba1c + 
+    kwt(emu_urine_acr_mean, "medianq1q3") + 
+    creatinine_s + 
+    cystatin_c_s + 
+    albumin_serum_gl + 
+    cgm_tir + 
+    diabetes_dx_duration + 
+    sbp + 
+    dbp + 
+    cholesterol_serum_mmoll + 
+    triglycerides_serum_mmoll + 
+    pulse + 
+    ldl_serum_mmoll + 
+    hdl_serum_mmoll +
+     mgfr_jodal_bsa + mgfr_jodal + avg_c_r2 + avg_k_r2, 
+  data = subset(attempt_dat, visit == 0 & site == "Denver"),
+  control = table_controls
+)), digits = 1)
+```
+
+## Section 2D
+
+```{r}
+#| label: tbl-histology
+#| tbl-cap: "Qualitative histology assessment of baseline kidney biopsies. Data provided by Jeff - placeholder for final analysis"
+
+# Minimal placeholder
+placeholder_df <- data.frame(
+  Placeholder = "[Table to be inserted]"
+)
+
+kable(placeholder_df, 
+      col.names = NULL,
+      align = "c")
+```
+
+# Figures
+
+## Section 2A
+
+```{r}
+#| label: fig-consort
+#| fig-cap: "CONSORT flow diagram showing participant enrollment, allocation, follow-up, and analysis"
+
+knitr::include_graphics(file.path(base_path, "ATTEMPT_FU_Consort_diagram.png"))
+```
+
+## Section 2B
+
+```{r, include = F}
+# create panels
+# (A) Change in mGFR by baseline mGFR
+mgfr_jodal_bsa_category_bars <- plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  value_var = "mgfr_jodal_bsa",
+  visit_var = "visit",
+  visit_baseline = -4,
+  visit_pre = -4,
+  visit_post = 16,
+  bin_by_tertiles = F,
+  bin_breaks = c(-Inf, 90, 110, Inf),
+  bin_labels = c("<90", "90-110", "\u2265110"),
+  proper_name =  "mGFR (BSA)"
+) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+# (B)
+delta_mgfr_jodal_bsa_denver <- plot_mean_ci_stars(subset(delta_df, visit %in% c(-4,16) & site == "Denver"),
+                   y_var = mgfr_jodal_bsa, 
+                   y_axis_title = "\u0394 mGFR (BSA)",
+                   legend_position = c(0.3,0.2),
+                   visits_to_plot = c(-4, 16),
+                   baseline_visit = -4,
+                   covariates = "site")
+
+# (C)
+delta_hba1c_overtime_2_denver <- plot_mean_ci_stars(data = subset(delta_df, site == "Denver"), y_var = hba1c, 
+                   y_axis_title = "\u0394 HbA1c (%)",
+                  legend_position = c(0.3,0.2),
+                  visits_to_plot = c(0, 4, 16)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
+
+# (D)
+delta_tir_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df, visit %in% c(0,16) & site == "Denver", test_method = "ancova"), 
+                   y_var = tir, y_axis_title = "\u0394 Time in Range (%)",
+                   legend_position = c(0.3,0.8),
+                    visits_to_plot = c(0, 16)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
+
+ggarrange(mgfr_jodal_bsa_category_bars, delta_mgfr_jodal_bsa_denver, delta_hba1c_overtime_2_denver, delta_tir_overtime_denver, ncol=2, nrow=2, common.legend = TRUE, legend="bottom", labels = "AUTO")
+
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Panels/mgfr_hba1c_tir_overtime.png", width = 10, height = 7, dpi = 300)
+```
+
+
+```{r, out.width="100%"}
+#| label: fig-mgfr-tertiles-panel
+#| fig-cap: "(A) Change in mGFR by baseline mGFR in full cohort, (B) Change in mGFR over time in Colorado cohort, (C) Change in HbA1c over time in Colorado cohort, (D) Change in TIR over time in Colorado cohort"
+
+knitr::include_graphics(file.path(base_path, "Panels/mgfr_hba1c_tir_overtime.png")) 
+```
+
+## Section 2C
+
+```{r, include = F}
+# create panels
+# (A) Change in mGFR by baseline mGFR
+delta_avg_k_r2_overtime <- plot_mean_ci_stars(data = delta_df, 
+                   visits_to_plot = c(-4, 16), baseline_visit = -4,
+                   y_var = avg_k_r2, y_axis_title = "\u0394 Kidney R2*",
+                   legend_position = c(0.3,0.8)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
+
+# (B)
+avg_k_r2_category_bars <- plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  value_var = "avg_k_r2",
+  visit_var = "visit",
+  visit_baseline = -4,
+  visit_pre = -4,
+  visit_post = 16,
+  bin_by_tertiles = T,
+  top_padding = 0.5,
+  proper_name =  "Kidney R2*",
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_category_bars.png"
+)
+
+# (C)
+avg_k_r2_by_mgfr_category_bars <- plot_delta_by_category(
+  data = attempt_dat,
+  id_var = "subject_id",
+  treatment_var = "treatment",
+  x_var = "mgfr_jodal_bsa",
+  value_var = "avg_k_r2",
+  visit_var = "visit",
+  visit_baseline = -4,
+  visit_pre = -4,
+  visit_post = 16,
+  bin_by_tertiles = F,
+  proper_name =  "Kidney R2*",
+  x_label = "\nBaseline mGFR (BSA)",
+  bin_breaks = c(-Inf, 90, 110, Inf),
+  bin_labels = c("<90", "90-110", "\u2265110"),
+  output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_by_mgfr_category_bars.png"
+) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+# (D) Change in mGFR by baseline mGFR
+delta_avg_k_r2_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df, 
+                                                                   site == "Denver"), 
+                   visits_to_plot = c(-4, 16),
+                   y_var = avg_k_r2, y_axis_title = "\u0394 Kidney R2*",
+                   legend_position = c(0.3,0.8)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
+
+# (E)
+delta_avg_c_r2_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df, 
+                                                                   site == "Denver"), 
+                   visits_to_plot = c(-4, 16),
+                   y_var = avg_c_r2, y_axis_title = "\u0394 Cortical R2*",
+                   legend_position = c(0.3,0.8)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
+
+ggarrange(delta_avg_k_r2_overtime, NULL, avg_k_r2_category_bars, avg_k_r2_by_mgfr_category_bars,
+          delta_avg_k_r2_overtime_denver, delta_avg_c_r2_overtime_denver, ncol=2, nrow=3, common.legend = TRUE, legend="bottom", labels = c("A", "", "B", "C", "D", "E"))
+
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Panels/avg_k_r2_panel.png", width = 10, height = 10, dpi = 300)
+```
+
+
+```{r, out.width="100%"}
+#| label: fig-r2star-timeline
+#| fig-cap: "(A) Longitudinal changes in full cohort kidney R2* measurements over the study period, (B) Change in kidney R2* with baseline kidney R2* in full cohort. (C) Change in kidney R2* with baseline mGFR in full cohort. (D) Longitudinal changes in Colorado cohort kidney R2* measurements over the study period, and (E) cortical R2* measurements over the study period."
+
+knitr::include_graphics(file.path(base_path, "Panels/avg_k_r2_panel.png"))
+```
+
+## Section 2E
+
+```{r, out.width="100%", out.height = NULL}
+#| label: fig-umap
+#| fig-cap: "UMAP dimensionality reduction of single-cell RNA sequencing data from kidney biopsies"
+
+knitr::include_graphics(file.path(base_path, "UMAP/attempt_umap_kpmpcelltype.png"))
+```
+
+```{r, out.width="100%"}
+#| label: fig-upset
+#| fig-cap: "UpSet plot showing intersections of differentially expressed genes across cell types and treatment conditions"
+knitr::include_graphics(file.path(base_path, "Cell type comparison/celltype_deg_upset_kpmp.png"))
+```
+
+```{r, out.width="100%"}
+#| label: fig-segment-phoom
+#| fig-cap: "Segmental distribution of kidney cell populations (Placeholder)"
+#| fig-dpi: 300
+knitr::include_graphics(file.path(base_path, "Pathways and transcripts in ATTEMPT-2.png"))
+```
+
+### Section 2E: PT cells
+
+```{r, out.width="100%"}
+#| label: fig-pt-panel
+#| fig-cap: "Proximal tubule gene expression analysis. Comprehensive panel showing dot plot, volcano plot, and heatmap of differentially expressed genes"
+
+knitr::include_graphics(file.path(base_path, "Dot Plots/kpmp_PT_hvg_subtypes_nebula_scores_volcano_heat.png"))
+```
+
+```{r, out.width="100%"}
+#| label: fig-pt-correlations
+#| fig-cap: "Proximal tubule gene expression correlations with clinical outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
+
+# Read images
+img1 <- image_read(file.path(base_path, "Volcano Plots/nebula/kpmp_pt_mgfr_jodal_bsa_trtcolors_concordance.png"))
+img2 <- image_read(file.path(base_path, "Volcano Plots/nebula/kpmp_pt_hba1c_trtcolors_concordance.png"))
+img3 <- image_read(file.path(base_path, "Volcano Plots/nebula/kpmp_pt_tir_trtcolors_concordance.png"))
+img4 <- image_read(file.path(base_path, "Volcano Plots/nebula/kpmp_pt_avg_k_r2_trtcolors_concordance.png"))
+
+# Convert to ggplot objects
+p1 <- image_ggplot(img1)
+p2 <- image_ggplot(img2)
+p3 <- image_ggplot(img3)
+p4 <- image_ggplot(img4)
+
+(p1 + p2) / (p3 + p4) + 
+  plot_annotation(tag_levels = 'A')
+
+```
+
+```{r, out.width="100%"}
+#| label: fig-pt-subclusters
+#| fig-cap: "Proximal tubule subpopulation analysis. We identified several PT subclusters (five finer clusters or three segmental groups: S1/2, S3, and an 'injured' aPT population). Dapagliflozin induced similar protective gene changes across these subtypes (Placeholder)"
+
+```
+
+```{r, out.width="100%"}
+#| label: fig-pt-pseudotime
+#| fig-cap: "Proximal tubule pseudotime trajectory analysis. (A) PCA plot with inferred lineage trajectory. (B) Cell density distribution along pseudotime"
+
+# Read images
+img1 <- image_read(file.path(base_path, "Slingshot/attempt_pca_pt_kpmp_slingshot.png"))
+img2 <- image_read(file.path(base_path, "Slingshot/attempt_pt_kpmp_slingshot_density_trtvisit.png"))
+
+# Convert to ggplot objects
+p1 <- image_ggplot(img1)
+p2 <- image_ggplot(img2)
+
+(p1 + p2)  + 
+  plot_annotation(tag_levels = 'A')
+
+```
+
+```{r, out.width="100%"}
+#| label: fig-pt-pseudotime-clinical
+#| fig-cap: "Clinical parameter changes along proximal tubule pseudotime. Correlation of pseudotime progression with change in mGFR and change in HbA1c"
+
+knitr::include_graphics(file.path(base_path, "Slingshot/attempt_density_pt_hba1c_deltadelta_slingshot.png"))
+```
+
+### Section 2E: Other cell types
+
+```{r, out.width="100%"}
+#| label: fig-pod-pc-panel
+#| fig-cap: "Combined analysis of podocyte and principal cell populations. Multi-panel figure showing gene expression patterns and treatment responses"
+
+# Read images
+img1 <- image_read(file.path(base_path, "Dot Plots/kpmp_POD_hvg_subtypes_nebula_scores_volcano_heat.png"))
+img2 <- image_read(file.path(base_path, "Dot Plots/kpmp_PC_hvg_subtypes_nebula_scores_volcano_heat.png"))
+img3 <- image_read(file.path(base_path,  "Dot Plots/kpmp_Immune_hvg_subtypes_nebula_scores_volcano_heat.png"))
+img4 <- image_read(file.path(base_path,  "Dot Plots/kpmp_VSMC_P_FIB_hvg_subtypes_nebula_scores_volcano_heat.png"))
+
+# Convert to ggplot objects
+p1 <- image_ggplot(img1)
+p2 <- image_ggplot(img2)
+p3 <- image_ggplot(img3)
+p4 <- image_ggplot(img4)
+
+(p1 + p2) / (p3 + p4) + 
+  plot_annotation(tag_levels = 'A')
+```
+
+## Section 2F
+
+```{r, out.width="100%"}
+#| label: fig-urine-proteins
+#| fig-cap: "Differential abundance of urinary proteins. Volcano plot showing significantly changed proteins in urine samples following treatment"
+
+knitr::include_graphics(file.path(base_path, "Proteomics/Volcano Plots/Volcano_DiD_urine_proteomics_adjp_mixed.png"))
+```
+
+## Section 2G
+
+```{r, out.width="100%", out.height = NULL}
+#| label: fig-croc-reversals
+#| fig-cap: "[Current version needs to be updated. This is of non-KPMP cell groupings] CROCODILE reversal analysis. Volcano plot displaying gene expression changes associated with improved renal outcomes"
+
+# Read images
+img1 <- image_read(file.path(root_path, "CROCODILE/Results/Figures/Volcano/nebula/croc_targeted_t1dvhc_pt_deg.png"))
+img2 <- image_read(file.path(root_path, "CROCODILE/Results/Figures/Volcano/nebula/croc_targeted_t1dvhc_tal_deg.png"))
+img3 <- image_read(file.path(root_path,  "CROCODILE/Results/Figures/Volcano/nebula/croc_targeted_t1dvhc_ec_deg.png"))
+img4 <- image_read(file.path(root_path,  "CROCODILE/Results/Figures/Volcano/nebula/croc_targeted_t1dvhc_ic_deg.png"))
+
+# Convert to ggplot objects
+p1 <- image_ggplot(img1)
+p2 <- image_ggplot(img2)
+p3 <- image_ggplot(img3)
+p4 <- image_ggplot(img4)
+
+(p1 + p2) / (p3 + p4) + 
+  plot_annotation(tag_levels = 'A')
+```

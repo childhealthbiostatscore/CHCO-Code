@@ -79,6 +79,19 @@ celltype_groups <- list(
   POD = "POD"
 )
 
+celltype_groups_nonkpmp <- list(
+  PT               = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"),
+  TAL              = c("TAL-1", "TAL-2", "TAL-3"),
+  PC               = c("tPC-IC", "PC-1", "PC-2"),
+  IC               = c("IC-A", "IC-B"),
+  EC               = c("EC-PTC", "EC-GC", "EC-AEA", "EC-LYM"),
+  Immune           = c("MAC", "MON", "NKT/NKC", "T", "B"),
+  Immune_myeloid   = c("MAC", "MON"),
+  Immune_lymphoid  = c("NKT/NKC", "T", "B"),
+  FIBVSMCP         = c("VSMC/P", "FIB"),
+  POD              = "POD"
+)
+
 ## read mixed model results dataframe (rendered in Hyak)
 # process and read all results from ATTEMPT
 mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl") # to join full name description
@@ -112,7 +125,7 @@ for (cell in names(celltype_groups))  {
   var_name <- paste0(lower_cell, "_hvg_kpmp_cov")
   assign(var_name, processed$overdispersion)
   
-  # write.csv(annotated_df, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/", tolower(cell), "_kpmp_hvg_res.csv"), row.names = F)
+  write.csv(annotated_df, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/", tolower(cell), "_kpmp_hvg_res.csv"), row.names = F)
 }
 
 # Top 2000 HVG subtypes
@@ -156,38 +169,39 @@ for (cell in unlist(celltype_groups))  {
   assign(var_name, processed$overdispersion)
 }
 
-# # Full gene set
-# for (cell in names(celltype_groups))  {
-# print(paste0("Processing: ", cell))
-#   input_path <- paste0("kpmp_grouped/", cell, "/ALL/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
-#   cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
-#   
-#   processed <- process_nebula_results(cell_df)
-#   lower_cell <- tolower(cell)
-#   var_name <- paste0(lower_cell, "_kpmp")
-#   
-#   assign(var_name, processed$results)
-# }
+# Full gene set
+for (cell in names(celltype_groups))  {
+print(paste0("Processing: ", cell))
+  input_path <- paste0("grouped/", cell, "/ALL/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
 
-# # Full gene set subtypes
-# for (cell in names(celltype_groups))  {
-# print(paste0("Processing: ", cell))
-#   input_path <- paste0("kpmp_individual/", cell, "/ALL/nebula/kpmp_individual_", 
-#                        tolower(cell),
-#                        "_kpmp_attempt_nebula_res_reml_pooled.rds")
-#   cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
-#   
-#   processed <- process_nebula_results(cell_df)
-#   cell <- gsub("-", "_", cell)
-#   lower_cell <- tolower(cell)
-#   var_name <- paste0(lower_cell, "_kpmp")
-#   
-#   assign(var_name, processed$results)
-# }
+  processed <- process_nebula_results(cell_df)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp")
+
+  assign(var_name, processed$results)
+}
+
+# Full gene set subtypes
+for (cell in unlist(celltype_groups))  {
+print(paste0("Processing: ", cell))
+  cell <- gsub("/", "_", cell)
+  input_path <- paste0("individual/", cell, "/ALL/nebula/individual_",
+                       tolower(cell),
+                       "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+
+  processed <- process_nebula_results(cell_df)
+  cell <- gsub("-", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp")
+
+  assign(var_name, processed$results)
+}
 ```
 
-
 ```{r echo = F, eval = F}
+# save all as one excel spreadsheet with full gene names
 top50_wb <- createWorkbook()
 
 # Loop through and extract top 50 genes per cell type
@@ -206,207 +220,142 @@ for (cell in names(celltype_groups))  {
 }
 
 # # Save the workbook
-# saveWorkbook(top50_wb, file = "//Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/top50_hvg_nebula_results_by_kpmp_celltype.xlsx", overwrite = TRUE)
+saveWorkbook(top50_wb, file = "//Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/top50_hvg_nebula_results_by_kpmp_celltype.xlsx", overwrite = TRUE)
+```
+
+#### IPA input save
+
+```{r echo = F, eval = F}
+# save input for IPA
+for (cell in names(celltype_groups)){
+  ## HVG
+  hvg_df <- get(paste0(tolower(cell), "_hvg_kpmp"))
+  hvg_ipa_DiD <- hvg_df %>%
+    dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
+  colnames(hvg_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
+  
+  write.csv(hvg_ipa_DiD, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/", 
+                            tolower(cell), "_nebula_pooled_ipa_input_DiD.csv"), row.names = F)
+  
+    ## FULL
+  df <- get(paste0(tolower(cell), "_kpmp"))
+  ipa_DiD <- df %>%
+    dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
+  colnames(ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
+  
+  write.csv(ipa_DiD, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/", 
+                            tolower(cell), "_nebula_pooled_ipa_input_DiD_full.csv"), row.names = F)
+  
+}
 ```
 
 # Volcanos
 
 ```{r echo = F}
+# HVG
+for (cell in names(celltype_groups)) {
+  lower_cell <- tolower(cell)
+  df_name <- paste0(lower_cell, "_hvg_kpmp")
+  df <- get(df_name)
+  
+  plot_volcano(df, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             NULL,
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             paste0("nebula/", df_name, "_kpmp_DiD"),
+             formula = "treatment * visit",
+             cell_type = cell)
+
+plot_volcano(df, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr",
+             NULL,
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             paste0("nebula/", df_name, "_kpmp_DiD"),
+             formula = "treatment * visit",
+             cell_type = cell)
+  
+}
+
+# ALL
+for (cell in names(celltype_groups)) {
+  lower_cell <- tolower(cell)
+  df_name <- paste0(lower_cell, "_kpmp")
+  df <- get(df_name)
+  
+  plot_volcano(df, "logFC_treatmentDapagliflozin:visitPOST", 
+             "p_treatmentDapagliflozin:visitPOST",
+             NULL,
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(p-value)",
+             paste0("nebula/", df_name, "_kpmp_DiD"),
+             formula = "treatment * visit",
+             cell_type = cell)
+
+plot_volcano(df, "logFC_treatmentDapagliflozin:visitPOST", 
+             "fdr",
+             NULL,
+             "logFC Treatment(Dapagliflozin):Visit(POST)", 
+             "-log10(FDR adjusted p-value)",
+             paste0("nebula/", df_name, "_kpmp_DiD"),
+             formula = "treatment * visit",
+             cell_type = cell)
+}
 
 
+# cell = "EC_GC"
+#   lower_cell <- tolower(cell)
+#   df_name <- paste0(lower_cell, "_hvg_kpmp")
+#   df <- get(df_name)
+#   
+#   plot_volcano(df, "logFC_treatmentDapagliflozin:visitPOST", 
+#              "p_treatmentDapagliflozin:visitPOST",
+#              NULL,
+#              "logFC Treatment(Dapagliflozin):Visit(POST)", 
+#              "-log10(p-value)",
+#              paste0("nebula/", df_name, "_kpmp_DiD"),
+#              formula = "treatment * visit",
+#              cell_type = cell)
+# 
+# plot_volcano(df, "logFC_treatmentDapagliflozin:visitPOST", 
+#              "fdr",
+#              NULL,
+#              "logFC Treatment(Dapagliflozin):Visit(POST)", 
+#              "-log10(FDR adjusted p-value)",
+#              paste0("nebula/", df_name, "_kpmp_DiD"),
+#              formula = "treatment * visit",
+#              cell_type = cell)
 ```
 
 ### PT
 
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(pt_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/pt_hvg_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "PT")
-
-plot_volcano(pt_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/pt_hvg_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "PT")
-```
-
-#### IPA input save
-
-```{r echo = F, eval = F}
-# save input for IPA
-## Interaction or DiD
-pt_nebula_pooled_ipa_DiD <- pt_hvg_kpmp %>%
-  dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
-colnames(pt_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(pt_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/pt_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-```
-
-
 #### PT Subtypes
 
 ```{r echo = F}
-pt_plots <- create_gene_expression_plots(
-  main_results = pt_hvg_kpmp,
-  subtype_results_list = list(
-    "PT-S1/S2" = pt_s1_s2_hvg_kpmp,
-    "PT-S3" = pt_s3_hvg_kpmp,
-    "aPT" = apt_hvg_kpmp
-  ),
-  cell_type_prefix = "PT",
-  cell_type_labels = c("PT-S1/S2", "PT-S3", "aPT"),
-  output_prefix = "kpmp_PT_hvg",
-  full_formula = T,
-  volcano_text_size = 15,
-  volcano_caption_size = 12,
-  formula = "treatment * visit",
-  output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
-)
-pt_plots
-```
+for (type in c("kpmp", "hvg_kpmp")){
 
-### PT (Full)
-
-#### DiD Treatment subset
-
-```{r echo = F}
-pt_kpmp_sig <- pt_kpmp[pt_kpmp$fdr < 0.05,]
-placebo_change <- pt_kpmp_sig$logFC_visitPOST
-dapa_change <- placebo_change + pt_kpmp_sig$`logFC_treatmentDapagliflozin:visitPOST`
-
-# Classify the response
-response_type <- case_when(
-  placebo_change > 0 & dapa_change > placebo_change ~ "Enhanced increase",
-  placebo_change > 0 & dapa_change <= 0 ~ "Reversed increase", 
-  placebo_change < 0 & dapa_change > 0 ~ "Reversed decrease",
-  placebo_change < 0 & dapa_change < placebo_change ~ "Enhanced decrease",
-  placebo_change < 0 & dapa_change > placebo_change ~ "Attenuated decrease",
-  placebo_change > 0 & dapa_change < placebo_change ~ "Attenuated increase"
-)
-
-pt_treatment_df <- data.frame(placebo_change = placebo_change,
-                              dapa_change = dapa_change,
-                              response_type = response_type,
-                              Gene = pt_kpmp_sig$Gene)
-```
-
-
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(pt_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/pt_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "PT")
-
-plot_volcano(pt_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/pt_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "PT")
-```
-
-#### PT Subtypes
-
-```{r echo = F}
-pt1 <- s3readRDS('PT/PT-1/nebula/PT-1_nebula_res_reml_pooled_full.rds', bucket = "attempt", region = "")
-pt1_nebula_processed <- process_nebula_results(pt1)
-pt1_kpmp <- pt1_nebula_processed$results
-
-pt2 <- s3readRDS('PT/PT-2/nebula/PT-2_nebula_res_reml_pooled_full.rds', bucket = "attempt", region = "")
-pt2_nebula_processed <- process_nebula_results(pt2)
-pt2_kpmp <- pt2_nebula_processed$results
-
-pt3 <- s3readRDS('PT/PT-3/nebula/PT-3_nebula_res_reml_pooled_full.rds', bucket = "attempt", region = "")
-pt3_nebula_processed <- process_nebula_results(pt3)
-pt3_kpmp <- pt3_nebula_processed$results
-
-pt4 <- s3readRDS('PT/PT-4/nebula/PT-4_nebula_res_reml_pooled_full.rds', bucket = "attempt", region = "")
-pt4_nebula_processed <- process_nebula_results(pt4)
-pt4_kpmp <- pt4_nebula_processed$results
-
-pt5 <- s3readRDS('PT/PT-5/nebula/PT-5_nebula_res_reml_pooled_full.rds', bucket = "attempt", region = "")
-pt5_nebula_processed <- process_nebula_results(pt5)
-pt5_kpmp <- pt5_nebula_processed$results
-```
-
-```{r echo = F}
-pt_plots <- create_gene_expression_plots(
-  main_results = pt_kpmp,
-  subtype_results_list = list(
-    "1" = pt1_kpmp,
-    "2" = pt2_kpmp,
-    "3" = pt3_kpmp,
-    "4" = pt4_kpmp,
-    "5" = pt5_kpmp
-  ),
-  cell_type_prefix = "PT",
-  cell_type_labels = c("PT-1", "PT-2", "PT-3", "PT-4", "PT-5"),
-  output_prefix = "PT",
-  full_formula = T,
-  volcano_text_size = 15,
-  volcano_caption_size = 12,
-  output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
-)
-pt_plots
+  pt_plots <- create_gene_expression_plots(
+    main_results = get(paste0(pt_hvg_kpmp)),
+    subtype_results_list = list(
+      "PT-S1/S2" = pt_s1_s2_hvg_kpmp,
+      "PT-S3" = pt_s3_hvg_kpmp,
+      "aPT" = apt_hvg_kpmp
+    ),
+    cell_type_prefix = "PT",
+    cell_type_labels = c("PT-S1/S2", "PT-S3", "aPT"),
+    output_prefix = "kpmp_PT_hvg",
+    full_formula = T,
+    volcano_text_size = 15,
+    volcano_caption_size = 12,
+    formula = "treatment * visit",
+    output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
+  )
+}
 ```
 
 
 ### TAL
-
-
-#### REML + pooled Offset
-
-
-```{r echo =F}
-plot_volcano(tal_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/tal_hvg_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "TAL")
-
-plot_volcano(tal_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/tal_hvg_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "TAL")
-```
-
-#### IPA input save
-
-```{r echo = F, eval = F}
-# save input for IPA
-## Interaction or DiD
-tal_nebula_pooled_ipa_DiD <- tal_hvg_kpmp %>%
-  dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
-colnames(tal_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(tal_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/tal_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-```
-
 
 #### TAL Subtypes
 
@@ -432,30 +381,6 @@ tal_plots <- create_gene_expression_plots(
 
 
 ### TAL (Full)
-
-
-#### REML + pooled Offset
-
-
-```{r echo =F}
-plot_volcano(tal_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/tal_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "TAL")
-
-plot_volcano(tal_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/tal_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "TAL")
-```
 
 #### TAL Subtypes
 
@@ -493,40 +418,6 @@ tal_plots <- create_gene_expression_plots(
 
 ### PC
 
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(pc_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/pc_hvg_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "PC")
-
-plot_volcano(pc_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/pc_hvg_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "PC")
-```
-
-#### IPA input save
-
-```{r echo = F, eval = F}
-# save input for IPA
-## Interaction or DiD
-pc_nebula_pooled_ipa_DiD <- pc_hvg_kpmp %>%
-  dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
-colnames(pc_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(pc_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/pc_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-```
-
 #### PC Subtypes
 
 ```{r echo = F}
@@ -553,27 +444,6 @@ pc_plots <- create_gene_expression_plots(
 
 ### PC (Full)
 
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(pc_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/pc_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "PC")
-
-plot_volcano(pc_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/pc_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "PC")
-```
 
 #### PC Subtypes
 
@@ -612,41 +482,6 @@ pc_plots <- create_gene_expression_plots(
 
 ### Immune (very few cells)
 
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(immune_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/immune_hvg_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune")
-
-plot_volcano(immune_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/immune_hvg_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune")
-```
-
-
-#### IPA input save
-
-```{r echo = F, eval = F}
-# save input for IPA
-## Interaction or DiD
-immune_nebula_pooled_ipa_DiD <- immune_hvg_kpmp %>%
-  dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
-colnames(immune_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(immune_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/immune_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-```
-
 #### Immune Subtypes
 
 ```{r echo = F}
@@ -676,28 +511,6 @@ immune_plots <- create_gene_expression_plots(
 
 ### Immune (Full)
 
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(immune_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/immune_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune")
-
-plot_volcano(immune_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL, 
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/immune_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune")
-```
-
 #### Immune Subtypes
 
 ```{r echo = F}
@@ -726,41 +539,6 @@ immune_plots <- create_gene_expression_plots(
 
 ### Immune (Myeloid)
 
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(immune_myeloid_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/immune_myeloid_hvg_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune (Myeloid)")
-
-plot_volcano(immune_myeloid_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/immune_myeloid_hvg_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune (Myeloid)")
-```
-
-
-#### IPA input save
-
-```{r echo = F, eval = F}
-# save input for IPA
-## Interaction or DiD
-immune_myeloid_nebula_pooled_ipa_DiD <- immune_myeloid_hvg_kpmp %>%
-  dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
-colnames(immune_myeloid_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(immune_myeloid_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/immune_myeloid_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-```
-
 #### Immune Subtypes (Myeloid)
 
 ```{r echo = F}
@@ -787,28 +565,6 @@ immune_myeloid_plots <- create_gene_expression_plots(
 
 ### Immune (Myeloid, Full)
 
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(immune_myeloid_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/immune_myeloid_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune (Myeloid)")
-
-plot_volcano(immune_myeloid_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/immune_myeloid_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune (Myeloid)")
-```
-
 #### Immune Subtypes (Myeloid)
 
 ```{r echo = F}
@@ -832,41 +588,6 @@ immune_myeloid_plots
 
 
 ### Immune (Lymphoid)
-
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(immune_lymphoid_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/immune_lymphoid_hvg_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune (Lymphoid)")
-
-plot_volcano(immune_lymphoid_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/immune_lymphoid_hvg_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune (Lymphoid)")
-```
-
-
-#### IPA input save
-
-```{r echo = F, eval = F}
-# save input for IPA
-## Interaction or DiD
-immune_lymphoid_nebula_pooled_ipa_DiD <- immune_lymphoid_hvg_kpmp %>%
-  dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
-colnames(immune_lymphoid_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(immune_lymphoid_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/immune_lymphoid_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-```
 
 #### Immune Subtypes (Lymphoid)
 
@@ -893,29 +614,6 @@ immune_lymphoid_plots <- create_gene_expression_plots(
 
 ### Immune (Lymphoid, Full)
 
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(immune_lymphoid_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/immune_lymphoid_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune (Lymphoid)")
-
-plot_volcano(immune_lymphoid_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/immune_lymphoid_kpmp_DiD",
-             formula = "treatment * visit", 
-             cell_type = "Immune (Lymphoid)")
-```
-
-
 #### Immune Subtypes (Lymphoid)
 
 ```{r echo = F}
@@ -939,40 +637,6 @@ immune_lymphoid_plots <- create_gene_expression_plots(
 
 ### IC
 
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(ic_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/ic_hvg_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "IC")
-
-plot_volcano(ic_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/ic_hvg_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "IC")
-```
-
-#### IPA input save
-
-```{r echo = F, eval = F}
-# save input for IPA
-## Interaction or DiD
-ic_nebula_pooled_ipa_DiD <- ic_hvg_kpmp %>%
-  dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
-colnames(ic_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(ic_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/ic_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-```
-
 #### IC Subtypes
 
 ```{r echo = F}
@@ -995,29 +659,6 @@ ic_plots <- create_gene_expression_plots(
 ```
 
 ### IC (Full)
-
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(ic_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/ic_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "IC")
-
-plot_volcano(ic_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/ic_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "IC")
-```
-
 
 #### IC Subtypes
 
@@ -1050,40 +691,6 @@ ic_plots <- create_gene_expression_plots(
 
 ### EC
 
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(ec_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/ec_hvg_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "EC")
-
-plot_volcano(ec_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/ec_hvg_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "EC")
-```
-
-#### IPA input save
-
-```{r echo = F, eval = F}
-# save input for IPA
-## Interaction or DiD
-ec_nebula_pooled_ipa_DiD <- ec_hvg_kpmp %>%
-  dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
-colnames(ec_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(ec_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/ec_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-```
-
 #### EC Subtypes
 
 ```{r echo = F}
@@ -1109,28 +716,6 @@ ec_plots <- create_gene_expression_plots(
 ```
 
 ### EC (Full)
-
-#### REML + pooled Offset
-
-```{r echo =F}
-plot_volcano(ec_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/ec_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "EC")
-
-plot_volcano(ec_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/ec_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "EC")
-```
 
 #### EC Subtypes
 
@@ -1174,40 +759,6 @@ ec_plots <- create_gene_expression_plots(
 
 ### FIB/VSMC/P
 
-#### REML + pooled pooled
-
-```{r echo =F}
-plot_volcano(vsmc_p_fib_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/vsmc_p_fib_hvg_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "FIB, VSMC/P")
-
-plot_volcano(vsmc_p_fib_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/vsmc_p_fib_hvg_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "FIB, VSMC/P")
-```
-
-#### IPA input save
-
-```{r echo = F, eval = F}
-# save input for IPA
-## Interaction or DiD
-vsmc_p_fib_nebula_pooled_ipa_DiD <- vsmc_p_fib_hvg_kpmp %>%
-  dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
-colnames(vsmc_p_fib_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(vsmc_p_fib_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/vsmc_p_fib_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-```
-
 #### FIBVSMCP Subtypes
 
 ```{r echo = F}
@@ -1231,27 +782,6 @@ vsmc_p_fib_plots <- create_gene_expression_plots(
 
 ### FIB/VSMC/P (Full)
 
-#### REML + pooled pooled
-
-```{r echo =F}
-plot_volcano(vsmc_p_fib_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/vsmc_p_fib_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "FIB, VSMC/P")
-
-plot_volcano(vsmc_p_fib_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/vsmc_p_fib_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "FIB, VSMC/P")
-```
 
 #### FIBVSMCP Subtypes
 
@@ -1286,81 +816,20 @@ vsmc_p_fib_plots <- create_gene_expression_plots(
 
 ### POD
 
-#### REML + pooled Offset
-
-```{r podho =F}
-plot_volcano(pod_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/pod_hvg_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "POD")
-
-plot_volcano(pod_hvg_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/pod_hvg_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "POD")
-```
-
 ```{r echo = F}
-pod_plots <- create_gene_expression_plots(
+pod_hvg_plots <- create_gene_expression_plots(
   main_results = pod_hvg_kpmp,
   subtype_results_list = list(
     "POD" = pod_hvg_kpmp),
   cell_type_labels = c("POD"),
   cell_type_prefix = "POD",
   formula = "treatment * visit",
-  output_prefix = "kpmp_pod_hvg",
+  output_prefix = "pod_hvg",
   full_formula = T,
   volcano_text_size = 15,
   volcano_caption_size = 12,
   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
 )
-```
-
-
-#### IPA input save
-
-```{r echo = F, eval = F}
-# save input for IPA
-## Interaction or DiD
-pod_nebula_pooled_ipa_DiD <- pod_hvg_kpmp %>%
-  dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`, `p_treatmentDapagliflozin:visitPOST`, fdr)
-colnames(pod_nebula_pooled_ipa_DiD) <- c("Gene", "Log Fold Change", "Expr p-value", "Expr False Discovery Rate")
-
-write.csv(pod_nebula_pooled_ipa_DiD, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/emmeans/kpmp/nebula/pod_nebula_pooled_ipa_input_DiD.csv", row.names = F)
-```
-
-
-
-### POD (Full)
-
-#### REML + pooled Offset
-
-```{r podho =F}
-plot_volcano(pod_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "p_treatmentDapagliflozin:visitPOST",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(p-value)",
-             "nebula/pod_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "POD")
-
-plot_volcano(pod_kpmp, "logFC_treatmentDapagliflozin:visitPOST", 
-             "fdr",
-             NULL,
-             "logFC Treatment(Dapagliflozin):Visit(POST)", 
-             "-log10(FDR adjusted p-value)",
-             "nebula/pod_kpmp_DiD",
-             formula = "treatment * visit",
-             cell_type = "POD")
 ```
 
 ```{r echo = F}
@@ -1378,6 +847,7 @@ pod_plots <- create_gene_expression_plots(
   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
 )
 ```
+
 ## Combined volcano
 
 ```{r echo = F}
@@ -1402,7 +872,10 @@ combined_nebula_reml_pooled <-
         ec_hvg_kpmp %>%
           mutate(celltype = "EC"),
         vsmc_p_fib_hvg_kpmp %>%
-          mutate(celltype = "FIB/VSMC/P")) %>%
+          mutate(celltype = "VSMC_P_FIB"),
+        pod_hvg_kpmp %>%
+          filter(`logFC_treatmentDapagliflozin:visitPOST` > -10) %>%
+          mutate(celltype = "POD")) %>%
   mutate(fdr_cat = case_when(fdr < 0.05 & 
                                `logFC_treatmentDapagliflozin:visitPOST` > 0 ~
                                "Positive & P < 0.05",
@@ -1411,21 +884,25 @@ combined_nebula_reml_pooled <-
                                "Negative & P < 0.05",
                              T ~ "P > 0.05"))
 
-
+combined_nebula_reml_pooled$celltype <- factor(combined_nebula_reml_pooled$celltype, levels = c("PT", "TAL","IC", "EC", "PC",
+                                                                "VSMC_P_FIB","POD", "Immune", 
+                                                                "IMMUNE_MYELOID", "IMMUNE_LYMPHOID"))
 # volcano plot with no label
 combined_nebula_reml_pooled %>%
   filter(`logFC_treatmentDapagliflozin:visitPOST` < 10) %>%
   ggplot(aes(x = celltype, 
              y = `logFC_treatmentDapagliflozin:visitPOST`, 
              color = fdr_cat)) +
-  geom_jitter(alpha = 0.3) +
+  geom_jitter(alpha = 0.3, size = 2) +
   geom_hline(yintercept = 0, linetype = "dashed") +
   theme(panel.grid = element_blank(),
         panel.background = element_blank(),
-        legend.position = "none") +
+        legend.position = "none",
+        text = element_text(size = 15)) +
   labs(x = NULL, 
-       y = "Interaction logFC") +
+       y = "DiD") +
   scale_color_manual(values = c("#457b9d", "#ced4da", "#f28482"))
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Cell type comparison/celltype_deg_combined_kpmp.jpeg", dpi = 600)
 
 
 # find genes that are significant in more than one celltype
@@ -1533,8 +1010,9 @@ combined_nebula_reml_pooled %>%
 ```
 
 ## Number of DEGs
+
 ```{r echo = F}
-celltype_list <- c("pt", "tal", "pc", "immune", "immune_myeloid", "immune_lymphoid", "ic", "ec", "vsmc_p_fib")
+celltype_list <- tolower(names(celltype_groups))
 names_hvg_kpmp <- paste0(celltype_list, "_hvg_kpmp")
 
 # Create a named list of data frames
@@ -1554,8 +1032,8 @@ deg_summary <- combined %>%
   dplyr::select(direction_fdr, celltype) %>%
   table() %>%
   as.data.frame()
-deg_summary$celltype <- factor(deg_summary$celltype, levels = c("PT", "TAL", "PC", "IC", "EC", 
-                                                                "FIBVSMCP", "IMMUNE",
+deg_summary$celltype <- factor(deg_summary$celltype, levels = c("PT", "TAL","IC", "EC", "PC",
+                                                                "VSMC_P_FIB","POD", "IMMUNE", 
                                                                 "IMMUNE_MYELOID", "IMMUNE_LYMPHOID"))
 # Create the summary table
 deg_summary_wide <- combined %>%
@@ -1568,7 +1046,7 @@ deg_summary_wide <- combined %>%
   pivot_wider(names_from = celltype, values_from = n, values_fill = 0) %>%
   as.data.frame()
 
-save(deg_summary_wide, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/model comparison/celltype_deg_comparison.RData")
+save(deg_summary_wide, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/model comparison/celltype_deg_comparison_kpmp.RData")
 
 deg_summary %>%
   mutate(Freq = case_when(direction_fdr == "-" ~ -Freq, T ~ Freq)) %>%
@@ -1585,7 +1063,7 @@ deg_summary %>%
   labs(fill = "DiD Direction", 
        x = NULL)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Cell type comparison/celltype_deg_stacked_barplot.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Cell type comparison/celltype_deg_stacked_barplot_kpmp.jpeg",
        width = 5, height = 4)
 
 ```
@@ -1595,139 +1073,32 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F}
 # upset plot
 # combined
-# upset_combined_dat <- combined %>%
-#   filter(fdr < 0.05) %>%
-#   mutate(direction_fdr = case_when(`logFC_treatmentDapagliflozin:visitPOST` > 0 & fdr < 0.05 ~ "+",
-#                                    `logFC_treatmentDapagliflozin:visitPOST` < 0 & fdr < 0.05 ~ "-")) %>%
-#   dplyr::select(celltype, Gene) %>%
-#   mutate(present = 1) %>%
-#   distinct() %>%
-#   pivot_wider(names_from = celltype, values_from = present, values_fill = 0) %>%
-#   as.data.frame()
-
-
-# UpSetR::upset(upset_combined_dat)
-
-
-upset_combined_df <- combined %>%
-  filter(celltype %nin% c("IMMUNE_MYELOID", "IMMUNE_LYMPHOID")) %>%
+upset_combined_dat <- combined %>%
   filter(fdr < 0.05) %>%
-  dplyr::select(celltype, Gene, `logFC_treatmentDapagliflozin:visitPOST`, fdr) %>%
-  group_by(Gene) %>%
-  dplyr::summarize(
-    celltype = list(unique(celltype))
-  ) %>%
-  arrange(lengths(celltype))
-set_sizes <- upset_combined_df %>%
-  unnest(celltype) %>%
-  dplyr::count(celltype, name = "size") %>%
-  arrange(desc(size))
+  mutate(direction_fdr = case_when(`logFC_treatmentDapagliflozin:visitPOST` > 0 & fdr < 0.05 ~ "+",
+                                   `logFC_treatmentDapagliflozin:visitPOST` < 0 & fdr < 0.05 ~ "-")) %>%
+  dplyr::select(celltype, Gene) %>%
+  mutate(present = 1) %>%
+  distinct() %>%
+  pivot_wider(names_from = celltype, values_from = present, values_fill = 0) %>%
+  as.data.frame()
 
-ordered <- set_sizes$celltype           # vector of cell types in the desired order
-combo_ordered <- data.frame(combo_strings = map_chr(unique(upset_combined_df$celltype), ~ str_c(sort(.x), collapse = "-")),
-                            combo_ranks = map(unique(upset_combined_df$celltype), ~ match(.x, ordered)) %>%
-                              map(~ .x[!is.na(.x)]) %>%
-                              map_chr(~ str_c(sprintf("%02d", .x), collapse = "-"))) %>%
-  mutate(combo_size = str_count(combo_ranks, "-") + 1,
-         combo_first = as.numeric(map_chr(combo_ranks, ~ {
-           nums <- as.integer(str_split(.x, "-", simplify = TRUE))
-           sprintf("%02d", min(nums, na.rm = TRUE))
-         }))) %>%  # count number of ranks
-  arrange(combo_first, combo_size)
+vertical_upset(
+  upset_combined_dat,
+  sets = c("PT", "TAL", "EC", "IC", "IMMUNE", "VSMC_P_FIB", "POD"),
+  show_set_sizes = TRUE,
+  connect_lines  = TRUE, 
+  min_size = 3,
+  bar_fill = "#d5d5d5",
+  multi_bar_fill = "#588b8b"
+)
 
-upset_plot <- upset_combined_df %>%
-  mutate(overlap_category = case_when(lengths(celltype) > 2 ~ "2+",
-                                      T ~ "1-2")) %>%
-  ggplot(aes(x = celltype)) +
-  geom_bar_rounded(aes(fill = overlap_category)) +
-  scale_x_mergelist(sep = "-", position = "bottom",
-                    limits = combo_ordered$combo_strings) +
-  axis_combmatrix(sep = "-", levels = ordered,
-                  override_plotting_function = function(df){
-                    print(class(df))
-                    print(df)
-                    df %>%
-                      mutate(celltype_lengths = case_when(
-                        ! observed ~ "Not observed",
-                        T ~ as.character(lengths(labels_split)))) %>%
-                      ggplot(aes(x= at, y= single_label)) +
-                      geom_rect(aes(fill= index %% 2 == 0), ymin=df$index-0.5, ymax=df$index+0.5, xmin=0, xmax=1) +
-                      geom_point(aes(color= celltype_lengths), size = 4) +
-                      geom_line(data= function(dat) dat[dat$observed, ,drop=FALSE], aes(group = labels, color= celltype_lengths), linewidth= 0.5) +
-                      ylab("") + xlab("") +
-                      scale_x_continuous(limits = c(0, 1), expand = c(0, 0)) +
-                      scale_fill_manual(values= c(`TRUE` = "white", `FALSE` = "white")) +
-                      scale_color_manual(values= c("1" = "#bbc7dc",
-                                                   "2" = "#bbc7dc",
-                                                   "3" = "#6d90b9",
-                                                   "4" = "#6d90b9",
-                                                   "5" = "#6d90b9",
-                                                   "6" = "#6d90b9",
-                                                   "7" = "#6d90b9",
-                                                   "Not observed" = "#F7F7F7")) +
-                      guides(color="none", fill="none") +
-                      theme(
-                        panel.background = element_blank(),
-                        axis.text.x = element_blank(),
-                        axis.ticks.y = element_blank(),
-                        axis.ticks.length = unit(0, "pt"),
-                        axis.title.y = element_blank(),
-                        axis.title.x = element_blank(),
-                        axis.line = element_blank(),
-                        panel.border = element_blank(),
-                        text = element_text(size = 20)
-                      )
-                  }) +
-  scale_fill_manual(values= c("1-2" = "#bbc7dc",
-                              "2+" = "#6d90b9")) +
-  geom_text(stat='count', aes(label=after_stat(count), 
-                              color = overlap_category),
-            vjust=0.5, hjust = -0.2, angle = 90, size = 6) +
-  scale_color_manual(values= c("1-2" = "#bbc7dc",
-                               "2+" = "#6d90b9")) +
-  theme_bw() +
-  labs(x = NULL, y = "Count", fill = "# of overlaps") +
-  theme(panel.grid = element_blank(),
-        text = element_text(size = 25),
-        legend.position = c(0.92,0.9),
-        legend.key.size = unit(60, "pt")) +
-  guides(color = "none")
-
-p_side <- ggplot(set_sizes, aes(x = -size, y = fct_rev(factor(celltype, levels = c(ordered))))) +
-  geom_col(width = 0.6, color = "#385674") +
-  labs(x = NULL, y = NULL) +
-  scale_x_continuous(labels = abs) + 
-  theme_minimal(base_size = 25) +
-  theme(
-    panel.grid = element_blank(),
-    axis.title.y = element_blank(),
-    axis.ticks.y = element_blank(),
-    axis.text.y = element_blank(), 
-    text = element_text(size = 25)) +
-  coord_cartesian(expand = FALSE)
-
-library(cowplot)
-
-ggdraw() +
-  draw_plot(
-    cowplot::plot_grid(
-      cowplot::plot_grid(
-        NULL,
-        p_side + theme(plot.margin = unit(c(1, -3, -15, 10), "pt")),
-        ncol = 1, rel_heights = c(5.5, 1)
-      ),
-      upset_plot,
-      nrow = 1,
-      rel_widths = c(0.3, 3)
-    ),
-    x = 0.05, y = 0.05, width = 0.95, height = 0.95  # shrink to add outer padding
-  )
-ggsave(filename = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Upset/celltype_deg_upset.jpeg",
-       width = 30, height = 15)
+ggsave(filename = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Cell type comparison/celltype_deg_upset_kpmp.png",
+       width = 5, height = 8, dpi = 300)
 
 ```
-```{r echo = F}
 
+```{r echo = F}
 combined_sig <- combined %>%
   filter(fdr < 0.05) %>%
   dplyr::select(Gene, celltype) %>%
@@ -2061,7 +1432,7 @@ n_pt_pathways_inhibited_nebula <- pt_pathways_inhibited_nebula %>%
 ##                                left = 0.45, bottom = 0.01,
 ##                                right = 0.8, top = 0.6)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_top30_inhibited_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_top30_inhibited_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -2098,7 +1469,7 @@ pt_top30_inhibited_2_nebula <- pt_pathways_inhibited_sig_nebula[1:30,] %>%
 ## top30_inhibited_nebula + inset_element(inhibited_scenarios, 
 ##                                left = 0.45, bottom = 0.01,
 ##                                right = 0.80, top = 0.6)
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_top_inhibited_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_top_inhibited_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2140,7 +1511,7 @@ n_pt_pathways_activated_nebula <- pt_pathways_activated_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_top30_activated_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_top30_activated_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -2173,7 +1544,7 @@ pt_top30_activated_2_nebula <- pt_pathways_activated_sig_nebula[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.125, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_top_activated_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pt_top_activated_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2216,7 +1587,7 @@ pt_neg_pathways_merged_long_nebula %>%
        title = "PT Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/pt_top10_inhibited_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/pt_top10_inhibited_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 
 pt_pos_pathways_merged_long_nebula <- pt_pathways_merged_nebula %>% 
@@ -2257,7 +1628,7 @@ pt_pos_pathways_merged_long_nebula %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/pt_top10_activated_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/pt_top10_activated_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 ```
 
@@ -2332,7 +1703,7 @@ n_tal_pathways_inhibited_nebula <- tal_pathways_inhibited_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_top30_inhibited_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_top30_inhibited_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -2366,7 +1737,7 @@ tal_top30_inhibited_2_nebula <- tal_pathways_inhibited_sig_nebula[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.5, 0.01))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_top_inhibited_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_top_inhibited_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2408,7 +1779,7 @@ n_tal_pathways_activated_nebula <- tal_pathways_activated_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_top30_activated_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_top30_activated_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -2441,7 +1812,7 @@ tal_top30_activated_2_nebula <- tal_pathways_activated_sig_nebula[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_top_activated_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_top_activated_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -2483,7 +1854,7 @@ tal_neg_pathways_merged_long_nebula %>%
        title = "TAL Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/tal_top10_inhibited_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/tal_top10_inhibited_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 
 tal_pos_pathways_merged_long_nebula <- tal_pathways_merged_nebula %>% 
@@ -2524,7 +1895,7 @@ tal_pos_pathways_merged_long_nebula %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/tal_top10_activated_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/tal_top10_activated_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 ```
 
@@ -2598,7 +1969,7 @@ n_pc_pathways_inhibited_nebula <- pc_pathways_inhibited_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_top30_inhibited_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_top30_inhibited_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -2632,7 +2003,7 @@ pc_top30_inhibited_2_nebula <- pc_pathways_inhibited_sig_nebula[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_top_inhibited_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_top_inhibited_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2674,7 +2045,7 @@ n_pc_pathways_activated_nebula <- pc_pathways_activated_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_top30_activated_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_top30_activated_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -2707,7 +2078,7 @@ pc_top30_activated_2_nebula <- pc_pathways_activated_sig_nebula[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.4, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_top_activated_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_top_activated_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -2749,7 +2120,7 @@ pc_neg_pathways_merged_long_nebula %>%
        title = "PC Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/pc_top10_inhibited_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/pc_top10_inhibited_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 
 pc_pos_pathways_merged_long_nebula <- pc_pathways_merged_nebula %>% 
@@ -2790,7 +2161,7 @@ pc_pos_pathways_merged_long_nebula %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/pc_top10_activated_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/pc_top10_activated_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 ```
 
@@ -2864,7 +2235,7 @@ n_immune_pathways_inhibited_nebula <- immune_pathways_inhibited_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_top30_inhibited_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_top30_inhibited_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -2898,7 +2269,7 @@ immune_top30_inhibited_2_nebula <- immune_pathways_inhibited_sig_nebula[1:30,] %
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.2, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_top_inhibited_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_top_inhibited_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2940,7 +2311,7 @@ n_immune_pathways_activated_nebula <- immune_pathways_activated_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_top30_activated_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_top30_activated_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -2973,7 +2344,7 @@ immune_top30_activated_2_nebula <- immune_pathways_activated_sig_nebula[1:30,] %
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_top_activated_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_top_activated_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -3015,7 +2386,7 @@ immune_neg_pathways_merged_long_nebula %>%
        title = "Immune Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/immune_top10_inhibited_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/immune_top10_inhibited_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 
 immune_pos_pathways_merged_long_nebula <- immune_pathways_merged_nebula %>% 
@@ -3056,7 +2427,7 @@ immune_pos_pathways_merged_long_nebula %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/immune_top10_activated_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/immune_top10_activated_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 ```
 
@@ -3130,7 +2501,7 @@ n_ic_pathways_inhibited_nebula <- ic_pathways_inhibited_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_top30_inhibited_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_top30_inhibited_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -3164,7 +2535,7 @@ ic_top30_inhibited_2_nebula <- ic_pathways_inhibited_sig_nebula[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.2, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_top_inhibited_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_top_inhibited_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -3206,7 +2577,7 @@ n_ic_pathways_activated_nebula <- ic_pathways_activated_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_top30_activated_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_top30_activated_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -3239,7 +2610,7 @@ ic_top30_activated_2_nebula <- ic_pathways_activated_sig_nebula[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_top_activated_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_top_activated_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -3282,7 +2653,7 @@ ic_neg_pathways_merged_long_nebula %>%
        title = "IC Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/ic_top10_inhibited_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/ic_top10_inhibited_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 
 ic_pos_pathways_merged_long_nebula <- ic_pathways_merged_nebula %>% 
@@ -3323,7 +2694,7 @@ ic_pos_pathways_merged_long_nebula %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/ic_top10_activated_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/ic_top10_activated_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 ```
 
@@ -3397,7 +2768,7 @@ n_ec_pathways_inhibited_nebula <- ec_pathways_inhibited_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_top30_inhibited_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_top30_inhibited_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -3431,7 +2802,7 @@ ec_top30_inhibited_2_nebula <- ec_pathways_inhibited_sig_nebula[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.2, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_top_inhibited_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_top_inhibited_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -3473,7 +2844,7 @@ n_ec_pathways_activated_nebula <- ec_pathways_activated_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_top30_activated_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_top30_activated_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -3506,7 +2877,7 @@ ec_top30_activated_2_nebula <- ec_pathways_activated_sig_nebula[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(1, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_top_activated_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_top_activated_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -3548,7 +2919,7 @@ ec_neg_pathways_merged_long_nebula %>%
        title = "EC Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/ec_top10_inhibited_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/ec_top10_inhibited_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 
 ec_pos_pathways_merged_long_nebula <- ec_pathways_merged_nebula %>% 
@@ -3589,7 +2960,7 @@ ec_pos_pathways_merged_long_nebula %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/ec_top10_activated_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/ec_top10_activated_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 ```
 
@@ -3663,7 +3034,7 @@ n_dtl_pathways_inhibited_nebula <- dtl_pathways_inhibited_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/dtl_top30_inhibited_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/dtl_top30_inhibited_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2 (none significant)
@@ -3697,7 +3068,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ##   scale_color_manual(values = scenario_colors)  +
 ##   scale_y_discrete(expand = expansion(mult = c(0.5, 0.01))) 
 ## 
-## ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/dtl_top_inhibited_pathways_2.jpeg",
+## ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/dtl_top_inhibited_pathways_2_kpmp.jpeg",
 ##        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -3739,7 +3110,7 @@ n_dtl_pathways_activated_nebula <- dtl_pathways_activated_nebula %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/dtl_top30_activated_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/dtl_top30_activated_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -3772,7 +3143,7 @@ dtl_top30_activated_2_nebula <- dtl_pathways_activated_sig_nebula[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.05, 0.05))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/dtl_top_activated_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/dtl_top_activated_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -3815,7 +3186,7 @@ dtl_neg_pathways_merged_long_nebula %>%
        title = "DTL Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/dtl_top10_inhibited_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/dtl_top10_inhibited_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 
 dtl_pos_pathways_merged_long_nebula <- dtl_pathways_merged_nebula %>% 
@@ -3856,7 +3227,7 @@ dtl_pos_pathways_merged_long_nebula %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/dtl_top10_activated_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/dtl_top10_activated_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 ```
 
@@ -3930,7 +3301,7 @@ n_vsmc_p_fib_pathways_inhibited_nebula <- vsmc_p_fib_pathways_inhibited_nebula %
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top30_inhibited_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top30_inhibited_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -3964,7 +3335,7 @@ vsmc_p_fib_top30_inhibited_2_nebula <- vsmc_p_fib_pathways_inhibited_sig_nebula[
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.3, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top_inhibited_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top_inhibited_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -4006,7 +3377,7 @@ n_vsmc_p_fib_pathways_activated_nebula <- vsmc_p_fib_pathways_activated_nebula %
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top30_activated_pathways_nebula.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top30_activated_pathways_nebula_kpmp.jpeg",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -4039,7 +3410,7 @@ vsmc_p_fib_top30_activated_2_nebula <- vsmc_p_fib_pathways_activated_sig_nebula[
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top_activated_pathways_2.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_top_activated_pathways_2_kpmp.jpeg",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -4082,7 +3453,7 @@ vsmc_p_fib_neg_pathways_merged_long_nebula %>%
        title = "FIB/VSMC/P Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/vsmc_p_fib_top10_inhibited_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/vsmc_p_fib_top10_inhibited_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 
 vsmc_p_fib_pos_pathways_merged_long_nebula <- vsmc_p_fib_pathways_merged_nebula %>% 
@@ -4123,7 +3494,7 @@ vsmc_p_fib_pos_pathways_merged_long_nebula %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/vsmc_p_fib_top10_activated_pathway_zscores.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/nebula/vsmc_p_fib_top10_activated_pathway_zscores_kpmp.jpeg",
        scale = 1.5)
 ```
 

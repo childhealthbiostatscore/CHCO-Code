@@ -8,7 +8,7 @@ warning: FALSE
 toc: TRUE
 ---
 
-```{r setup}
+```{r include = F}
 # =============================================================================
 # LIBRARIES
 # =============================================================================
@@ -22,6 +22,7 @@ library(FSA)
 library(fuzzyjoin)
 library(purrr)
 library(stringr)
+library(arsenal)
 
 # Working directory setup
 getwd()
@@ -39,11 +40,7 @@ if (user == "laurapyle") {
 
 ```
 
-------------------------------------------------------------------------
-
-## Reading files and variables
-
-```{r data-loading}
+```{r include = F}
 # =============================================================================
 # DATA LOADING AND BASIC VARIABLES
 # =============================================================================
@@ -168,9 +165,7 @@ pedsQL_T <- read.csv(full_path)
 #pwv <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward//Clinical data/TODAY2/pwv.csv")
 ```
 
-## Data preparation and processing
-
-```{r data preparation}
+```{r include = F}
 # =============================================================================
 # DATA PREPARATION AND PROCESSING
 # =============================================================================
@@ -398,7 +393,55 @@ ame_summary$clin_cvd <- ifelse(
 
 # Merge with comorb data
 comorb_ckm <- merge(comorb, ame_summary, by = "RELEASEID", all.x = TRUE)
-# LP NOTE: comorb_ckm has NAs 
+# LP NOTE: comorb_ckm has NAs, need to set events to 0 and days to event to total follow up time
+
+replace_missing_events <- function(data) {
+  # Check if fup_time column exists
+  if (!"fup_time" %in% names(data)) {
+    stop("Column 'fup_time' not found in the data")
+  }
+   # Define the event pairs
+  event_pairs <- list(
+    c("ARRHYTHMIA", "DAYSTOARRHYTHMIA"),
+    c("CAD", "DAYSTOCAD"),
+    c("CHF", "DAYSTOCHF"),
+    c("LVSD", "DAYSTOLVSD"),
+    c("MI", "DAYSTOMI"),
+    c("PAD", "DAYSTOPAD"),
+    c("DVT", "DAYSTODVT"),
+    c("STROKE", "DAYSTOSTROKE"),
+    c("TIA", "DAYSTOTIA"),
+    c("PANCREATITIS", "DAYSTOPANCREATITIS"),
+    c("GALLBLADDER", "DAYSTOGALLBLADDER"),
+    c("PNEURO", "DAYSTOPNEURO"),
+    c("ANEURO", "DAYSTOANEURO"),
+    c("MONONEURO", "DAYSTOMONONEURO"),
+    c("CKD", "DAYSTOCKD"),
+    c("ESKD", "DAYSTOESKD"),
+    c("NPDR", "DAYSTONPDR"),
+    c("PDR", "DAYSTOPDR"),
+    c("ME", "DAYSTOME"),
+    c("VH", "DAYSTOVH"),
+    c("BLINDNESS", "DAYSTOBLINDNESS"),
+    c("CATARACTS", "DAYSTOCATARACTS"),
+    c("GLAUCOMA", "DAYSTOGLAUCOMA"),
+    c("DEATH", "DAYSTODEATH")
+  )
+  # Loop through each event pair
+  for (pair in event_pairs) {
+    event_var <- pair[1]
+    days_var <- pair[2]
+    # Step 1: Set missing event values to 0
+    data[[event_var]][is.na(data[[event_var]])] <- 0
+    # Step 2: Now set any missing DAYSTO values to fup_time
+    # (including those that were missing because the event was missing/0)
+    missing_days_rows <- is.na(data[[days_var]])
+    data[[days_var]][missing_days_rows] <- data$fup_time[missing_days_rows]
+  }
+  return(data)
+}
+
+comorb_ckm <- replace_missing_events(comorb_ckm)
 
 # Biomarker extraction for various markers
 bnp_vals <- extract_biomarker_values(addcbl_1, "bnp")
@@ -485,9 +528,7 @@ biom_ckm <- biom_ckm %>%
   )
 ```
 
-## Echocardiogram and PWV data processing
-
-```{r echo pwv processing}
+```{r include = F}
 # =============================================================================
 # ECHO AND PWV DATA PROCESSING
 # =============================================================================
@@ -588,17 +629,23 @@ long_clean <- long %>%
 echo_keep <- echo_keep %>%
   left_join(echo %>% select(RELEASEID, TIMEPOINT, days), by = c("RELEASEID", "TIMEPOINT"))
 
-# weight addition based on closest day
-# LP: I am not sure this is working correctly
-# see example of 65-10111, no weight value in long_clean is >100 but echo_keep weight is 103.4
+# weight addition based on closest day before echo
 echo_keep <- echo_keep %>%
   rowwise() %>%
   mutate(
     weight = {
-      weights <- long_clean %>% filter(RELEASEID == RELEASEID, !is.na(weight))
+      current_id <- RELEASEID
+      weights <- long_clean %>% 
+        filter(RELEASEID == current_id, 
+               !is.na(weight),
+               visit_days < days)  # Filter here
+      
       if(nrow(weights) > 0) {
-        weights$weight[which.min(abs(weights$visit_days - days))]
-      } else NA_real_
+        # Since all weights are before 'days', get the one with max visit_days (closest)
+        weights$weight[which.max(weights$visit_days)]
+      } else {
+        NA_real_
+      }
     }
   ) %>%
   ungroup()
@@ -635,22 +682,19 @@ echo_keep <- echo_keep %>%
 #       TRUE ~ NA_real_
 #     )
 #   )
-# LP: I think this should be:
-# want to double check this is working correctly
 echo_keep <- echo_keep %>%
   mutate(
     lvmi = ifelse(!is.na(lvmass) & !is.na(BSA_dubois), lvmass / BSA_dubois, NA_real_),
     lvmi_score = case_when(
-      sex == 2 & lvmi >= 149 ~ 2,
-      sex == 1 & lvmi >= 122 ~ 2,
-      sex == 2 ~ 0,
-      sex == 2 & lvmi >= 115 ~ 1,
-      sex == 1 & lvmi >= 95  ~ 1,
-      sex == 1 ~ 0,
+      sex == 2 & lvmi >= 149 ~ 2,  # Male severe
+      sex == 2 & lvmi >= 116 ~ 1,  # Male mild (using 116 as threshold for abnormal)
+      sex == 2 ~ 0,                 # Male normal
+      sex == 1 & lvmi >= 122 ~ 2,  # Female severe  
+      sex == 1 & lvmi >= 96  ~ 1,  # Female mild (using 96 as threshold for abnormal)
+      sex == 1 ~ 0,                 # Female normal
       TRUE ~ NA_real_
     )
   )
-
 
 # LP: doesn't this need to take timepoint into account?
 # echo_keep <- echo_keep %>%
@@ -676,9 +720,7 @@ echo_keep <- echo_keep %>%
   )
 ```
 
-## HFpEF scoring system
-
-```{r hfpef scoring}
+```{r include = F}
 # =============================================================================
 # HFpEF SCORING SYSTEM
 # =============================================================================
@@ -689,14 +731,31 @@ echo_keep$HFpEF_points <- 0
 # Get maximum BNP per participant
 # LP: this gets the max BNP and merges it to both echo time points 
 # would we want to use only BNP data up to the point of each echo?
-max_bnp_by_id <- aggregate(addcbl_1$bnp ~ addcbl_1$releaseid, data = addcbl_1, FUN = function(x) {
-  if(all(is.na(x))) return(NA)
-  return(max(x, na.rm = TRUE))
-})
-colnames(max_bnp_by_id) <- c("RELEASEID", "bnp")
+# max_bnp_by_id <- aggregate(addcbl_1$bnp ~ addcbl_1$releaseid, data = addcbl_1, FUN = function(x) {
+#   if(all(is.na(x))) return(NA)
+#   return(max(x, na.rm = TRUE))
+# })
+# colnames(max_bnp_by_id) <- c("RELEASEID", "bnp")
 
-# Merge BNP data
-echo_keep <- merge(echo_keep, max_bnp_by_id, by = "RELEASEID", all.x = TRUE)
+# Get maximum BNP up to each echo time point
+# This ensures we're not using future BNP data
+echo_keep_with_bnp <- echo_keep  # Create a copy to preserve original
+# Initialize BNP column
+echo_keep_with_bnp$bnp <- NA
+# Loop through each row in echo_keep to find max BNP up to that time point
+for(i in 1:nrow(echo_keep_with_bnp)) {
+  current_id <- echo_keep_with_bnp$RELEASEID[i]
+  current_days <- echo_keep_with_bnp$days[i]
+  # Get all BNP values for this participant up to current echo time
+  bnp_subset <- addcbl_1$bnp[addcbl_1$releaseid == current_id & 
+                              addcbl_1$days <= current_days]
+  # Calculate max BNP if there are any non-NA values
+  if(length(bnp_subset) > 0 && !all(is.na(bnp_subset))) {
+    echo_keep_with_bnp$bnp[i] <- max(bnp_subset, na.rm = TRUE)
+  }
+}
+# Replace original echo_keep with the updated version
+echo_keep <- echo_keep_with_bnp
 
 # HFpEF scoring algorithm
 for (i in 1:nrow(echo_keep)) {
@@ -774,14 +833,10 @@ echo_hfpef2 <- echo_keep %>%
   distinct(RELEASEID, .keep_all = TRUE)
 ```
 
-## QUALITY OF LIFE (PedsQL) PROCESSING
-
-```{r pedsql processing}
+```{r include = F}
 # =============================================================================
 # QUALITY OF LIFE (PedsQL) PROCESSING
 # =============================================================================
-
-# LP: why not use TODAY data?
 
 # Define columns to keep from PedsQL
 cols_to_keep <- c("RELEASEID", "DAYS", "G01WALK", "G02RUN", "G03SPORT",
@@ -826,9 +881,7 @@ pedsQL_summary <- pedsQL_all %>%
   )
 ```
 
-## Data Integration and CKM staging
-
-```{r data integration}
+```{r include = F}
 # =============================================================================
 # DATA INTEGRATION AND CKM STAGING
 # =============================================================================
@@ -876,7 +929,7 @@ comorb_ckm2 <- comorb_ckm2 %>%
   left_join(all_biomarkers, by = "RELEASEID")
 
 # CKM Staging - Main classification
-# LP: MAC0/MAC1 meets criteria for both stage 4 and stage 2 plus?
+# LP: MAC0/MAC1 meets criteria for all stages
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
     CKM_syn = case_when(
@@ -960,120 +1013,206 @@ comorb_ckm2 <- comorb_ckm2 %>%
 comorb_ckm2$CKM_syn <- factor(comorb_ckm2$CKM_syn, levels = c("Stage2", "Stage2_plus", "Stage3", "Stage4"))
 comorb_ckm2$CKM_syn2 <- factor(comorb_ckm2$CKM_syn2, levels = c("Stage2", "Stage2_plus", "Stage3", "Stage4"))
 
+### Create progression variables for both BMI and non-BMI comparisons
+
+# Create progression variables for both BMI and non-BMI comparisons
+# LP: these should be moved to the data section
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    # Convert stages to numeric (without BMI)
+    baseline_numeric = case_when(
+      CKM_syn_base == "Stage2" ~ 1,
+      CKM_syn_base == "Stage2_plus" ~ 2,
+      CKM_syn_base == "Stage3" ~ 3,
+      CKM_syn_base == "Stage4" ~ 4
+    ),
+    followup_numeric = case_when(
+      CKM_syn == "Stage2" ~ 1,
+      CKM_syn == "Stage2_plus" ~ 2,
+      CKM_syn == "Stage3" ~ 3,
+      CKM_syn == "Stage4" ~ 4
+    ),
+    
+    # Convert stages to numeric (with BMI)
+    baseline_numeric2 = case_when(
+      CKM_syn_base2 == "Stage2" ~ 1,
+      CKM_syn_base2 == "Stage2_plus" ~ 2,
+      CKM_syn_base2 == "Stage3" ~ 3,
+      CKM_syn_base2 == "Stage4" ~ 4
+    ),
+    followup_numeric2 = case_when(
+      CKM_syn2 == "Stage2" ~ 1,
+      CKM_syn2 == "Stage2_plus" ~ 2,
+      CKM_syn2 == "Stage3" ~ 3,
+      CKM_syn2 == "Stage4" ~ 4
+    ),
+    
+    # Progression variables (without BMI)
+    progress_CKM = case_when(
+      baseline_numeric == 4 ~ NA_real_,  # Already at highest stage
+      followup_numeric > baseline_numeric ~ 1,  # Progressed
+      followup_numeric <= baseline_numeric ~ 0  # Stayed same
+    ),
+    progress_CKM2 = case_when(
+      baseline_numeric == 4 ~ NA_real_,  # Already at highest stage
+      TRUE ~ pmax(0, followup_numeric - baseline_numeric)  # Steps progressed (0 if stayed same)
+    ),
+    
+    # Progression variables (with BMI)
+    progress_CKM_bmi = case_when(
+      baseline_numeric2 == 4 ~ NA_real_,
+      followup_numeric2 > baseline_numeric2 ~ 1,
+      followup_numeric2 <= baseline_numeric2 ~ 0
+    ),
+    progress_CKM2_bmi = case_when(
+      baseline_numeric2 == 4 ~ NA_real_,
+      TRUE ~ pmax(0, followup_numeric2 - baseline_numeric2)
+    ),
+    
+    # CV progression classification (without BMI)
+    CV_progress = case_when(
+      CKM_syn_base %in% c("Stage3", "Stage4") ~ "already_advanced",
+      CKM_syn %in% c("Stage3", "Stage4") & !CKM_syn_base %in% c("Stage3", "Stage4") ~ "CV_progressor",
+      TRUE ~ "non_progressor"
+    ),
+    
+    # CV progression classification (with BMI)
+    CV_progress_bmi = case_when(
+      CKM_syn_base2 %in% c("Stage3", "Stage4") ~ "already_advanced",
+      CKM_syn2 %in% c("Stage3", "Stage4") & !CKM_syn_base2 %in% c("Stage3", "Stage4") ~ "CV_progressor",
+      TRUE ~ "non_progressor"
+    )
+  )
+
+# Join variables from baserisk and baseline into comorb_ckm2
+comorb_ckm2 <- comorb_ckm2 %>%
+  left_join(
+    baserisk %>% select(RELEASEID, HbA1c, log_trig, uacid, HDL, ALT, AST, dxtime, sex),
+    by = "RELEASEID"
+  ) %>%
+  left_join(
+    baseline %>% select(RELEASEID, bmipct),
+    by = "RELEASEID"
+  )
+
+comorb_ckm2 <- comorb_ckm2 %>%
+  left_join(
+    baserisk %>% select(RELEASEID, sex, sex_char), by = "RELEASEID")
+
+# convert to factors
+cols_to_convert <- c("HTN0", "HTN", "ANYDLP0", "ANYDLP", "MIC0", "MIC", "MAC0", "MAC", "high_pwv0", "high_pwv1", "hfpef1",
+                     "hfpef2", "high_trop0", "high_trop1")
+comorb_ckm2[cols_to_convert] <- lapply(comorb_ckm2[cols_to_convert], as.factor)
 ```
 
-## Results and Statistical Analysis
+# Results and Statistical Analysis
 
-```{r results analysis}
-# =============================================================================
-# RESULTS AND STATISTICAL ANALYSIS
-# =============================================================================
+## Tabulation of CKM stages
 
-# AME event labeling
-#ame$AMENAME <- factor(ame$AMENAME, labels = c("Arrhythmia", "Coronary artery disease", 
- #                                             "Coronary heart failure", "Left ventricular #systolic dysfunction", "Myocardial infarction", "PAD/vascular insufficiency", "Deep vein #thrombosis", "Stroke", "TIA", "Chronic kidney disease", "ESKD", "Death"))
+### CKM_syn variable
 
-# Distribution of CKM stages
-# LP: would be more reproducible to use arsenal or tableone 
-table(comorb_ckm2$CKM_syn, useNA = "ifany")
-table(comorb_ckm2$CKM_syn2, useNA = "ifany")
-table(comorb_ckm2$CKM_syn_base, useNA = "ifany")
-table(comorb_ckm2$CKM_syn_base2, useNA = "ifany")
-
-# Baseline vs Follow-up stage percentages
-baseline_pct <- comorb_ckm2 %>%
-  group_by(CKM_syn_base) %>%
-  summarise(count = n()) %>%
-  mutate(total = sum(count), percent = round(100 * count / total, 1), timepoint = "Baseline")
-
-followup_pct <- comorb_ckm2 %>%
-  group_by(CKM_syn) %>%
-  summarise(count = n()) %>%
-  mutate(total = sum(count), percent = round(100 * count / total, 1), timepoint = "Follow-up")
-
-# Combined advanced stages (Stage 3 + 4)
-combined_baseline <- comorb_ckm2 %>%
-  filter(CKM_syn_base %in% c("Stage3", "Stage4")) %>%
-  summarise(count = n(), total = nrow(comorb_ckm2), 
-            percent = round(100 * count / total, 1)) %>%
-  mutate(timepoint = "Baseline")
-
-combined_followup <- comorb_ckm2 %>%
-  filter(CKM_syn %in% c("Stage3", "Stage4")) %>%
-  summarise(count = n(), total = nrow(comorb_ckm2), 
-            percent = round(100 * count / total, 1)) %>%
-  mutate(timepoint = "Follow-up")
-
-# Statistical tests for outcomes by CKM stage
-test_results <- list()
-
-# Hypertension outcomes
-# LP: contingency tables should be chi-square or Fisher's exact
-test_results$hyp0_kruskal <- kruskal.test(HYP0 ~ CKM_syn2, data = comorb_ckm2)
-test_results$hyp_kruskal <- kruskal.test(HYP ~ CKM_syn2, data = comorb_ckm2)
-test_results$hyp0_dunn <- dunnTest(HYP0 ~ CKM_syn2, data = comorb_ckm2, method = "holm")
-test_results$hyp_dunn <- dunnTest(HYP ~ CKM_syn2, data = comorb_ckm2, method = "holm")
-
-# Nephropathy outcomes
-test_results$mic0_kruskal <- kruskal.test(MIC0 ~ CKM_syn2, data = comorb_ckm2)
-test_results$mic_kruskal <- kruskal.test(MIC ~ CKM_syn2, data = comorb_ckm2)
-test_results$mic0_dunn <- dunnTest(MIC0 ~ CKM_syn2, data = comorb_ckm2, method = "holm")
-test_results$mic_dunn <- dunnTest(MIC ~ CKM_syn2, data = comorb_ckm2, method = "holm")
-
-# eGFR outcomes
-test_results$egfr_base_kruskal <- kruskal.test(eGFR_FAS_baseline ~ CKM_syn2, data = comorb_ckm2)
-test_results$egfr_base_dunn <- dunnTest(eGFR_FAS_baseline ~ CKM_syn2, data = comorb_ckm2, method = "holm")
-
-# Biomarker outcomes
-biomarker_tests <- c("ualb_baseline", "ualbcreat_baseline", "il6_highest", "hscrp_highest", 
-                    "apob_highest", "mcp1_highest", "tnfa_highest", "bnp_baseline", "bnp_highest")
-
-for (biomarker in biomarker_tests) {
-  if (biomarker %in% names(comorb_ckm2)) {
-    test_results[[paste0(biomarker, "_kruskal")]] <- kruskal.test(get(biomarker) ~ CKM_syn2, data = comorb_ckm2)
-    test_results[[paste0(biomarker, "_dunn")]] <- dunnTest(get(biomarker) ~ CKM_syn2, data = comorb_ckm2, method = "holm")
-  }
-}
-
-# Contingency table analyses
-table_hyp0 <- table(comorb_ckm2$CKM_syn_collapsed, comorb_ckm2$HYP0)
-table_hyp <- table(comorb_ckm2$CKM_syn_collapsed, comorb_ckm2$HYP)
-
-test_results$hyp0_chisq <- chisq.test(table_hyp0)
-test_results$hyp_chisq <- chisq.test(table_hyp)
-test_results$hyp0_fisher <- fisher.test(table_hyp0)
-test_results$hyp_fisher <- fisher.test(table_hyp)
-
-# McNemar's tests for paired outcomes
-run_mcnemar <- function(stage) {
-  tab <- comorb_ckm2 %>%
-    filter(CKM_syn_collapsed == stage) %>%
-    select(HYP0, HYP) %>%
-    table(useNA = "no")
-  
-  if (all(dim(tab) == c(2, 2))) {
-    return(mcnemar.test(tab))
-  } else {
-    return(NULL)
-  }
-}
-
-mcnemar_results <- unique(comorb_ckm2$CKM_syn_collapsed) %>%
-  map(run_mcnemar) %>%
-  set_names(unique(comorb_ckm2$CKM_syn_collapsed))
-
-# Logistic regression models
-model_hyp0 <- glm(HYP0 ~ CKM_syn, data = comorb_ckm2, family = binomial)
-model_hyp <- glm(HYP ~ CKM_syn, data = comorb_ckm2, family = binomial)
+```{r include=F}
+t2a <- tableby(CKM_syn ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
+              + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
+                STROKE + TIA + CKD + DEATH, 
+              data = comorb_ckm2, total = F)
 ```
 
-## Visualizations
+```{r results='asis'}
+summary(t2a,  pfootnote = F)
+```
+
+### CKM_syn2 variable
+
+```{r include=F}
+t2b <- tableby(CKM_syn2 ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
+              + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
+                STROKE + TIA + CKD + DEATH, 
+              data = comorb_ckm2, total = F)
+```
+
+```{r results='asis'}
+summary(t2b,  pfootnote = F)
+```
+
+### CKM_syn_base variable
+
+```{r include=F}
+t2c <- tableby(CKM_syn_base ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
+              + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
+                STROKE + TIA + CKD + DEATH, 
+              data = comorb_ckm2, total = F)
+```
+
+```{r results='asis'}
+summary(t2c,  pfootnote = F)
+```
+
+### CKM_syn_base2 variable
+
+```{r include=F}
+t2d <- tableby(CKM_syn_base2 ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
+              + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
+                STROKE + TIA + CKD + DEATH, 
+              data = comorb_ckm2, total = F)
+```
+
+```{r results='asis'}
+summary(t2d,  pfootnote = F)
+```
+
+## CKM stages by baseline hyperfiltration
+
+```{r include=F}
+t3 <- tableby(HYP0 ~ CKM_syn + CKM_syn2 + CKM_syn_base + CKM_syn_base2, 
+              data = comorb_ckm2, total = F)
+```
+
+```{r results='asis'}
+summary(t3,  pfootnote = F)
+```
+
+## Biomarkers by CKM stage
+
+### CKM_syn
+
+```{r include=F}
+t4a <- tableby(CKM_syn ~  eGFR_FAS_baseline + eGFR_FAS_highest + kwt(UAlbCreat_baseline, "Nmiss","medianq1q3", "range") +  
+                 kwt(UAlbCreat_highest, "Nmiss","medianq1q3", "range") + kwt(IL6_baseline, "Nmiss","medianq1q3", "range")  + 
+                 kwt(IL6_highest, "Nmiss","medianq1q3", "range") +
+                 kwt(hsCRP_baseline, "Nmiss","medianq1q3", "range")  + kwt(hsCRP_highest, "Nmiss","medianq1q3", "range") +
+                    kwt(mcp1_baseline, "Nmiss","medianq1q3", "range")  + kwt(mcp1_highest, "Nmiss","medianq1q3", "range") +
+                    kwt(tnfa_baseline, "Nmiss","medianq1q3", "range")  + kwt(tnfa_highest, "Nmiss","medianq1q3", "range") +
+                    kwt(bnp_baseline, "Nmiss","medianq1q3", "range")  + kwt(bnp_highest, "Nmiss","medianq1q3", "range") +
+                    ApoB_baseline + ApoB_highest, 
+              data = comorb_ckm2, total = F)
+```
+
+```{r results='asis'}
+summary(t4a,  pfootnote = F)
+```
+
+### CKM_syn2
+
+```{r include=F}
+t4b <- tableby(CKM_syn2 ~ eGFR_FAS_baseline + eGFR_FAS_highest + kwt(UAlbCreat_baseline, "Nmiss","medianq1q3", "range") +  
+                 kwt(UAlbCreat_highest, "Nmiss","medianq1q3", "range") + kwt(IL6_baseline, "Nmiss","medianq1q3", "range")  + 
+                 kwt(IL6_highest, "Nmiss","medianq1q3", "range") +
+                 kwt(hsCRP_baseline, "Nmiss","medianq1q3", "range")  + kwt(hsCRP_highest, "Nmiss","medianq1q3", "range") +
+                    kwt(mcp1_baseline, "Nmiss","medianq1q3", "range")  + kwt(mcp1_highest, "Nmiss","medianq1q3", "range") +
+                    kwt(tnfa_baseline, "Nmiss","medianq1q3", "range")  + kwt(tnfa_highest, "Nmiss","medianq1q3", "range") +
+                    kwt(bnp_baseline, "Nmiss","medianq1q3", "range")  + kwt(bnp_highest, "Nmiss","medianq1q3", "range") +
+                    ApoB_baseline + ApoB_highest, 
+              data = comorb_ckm2, total = F)
+```
+
+```{r results='asis'}
+summary(t4b,  pfootnote = F)
+```
+
+# Visualizations
 
 ```{r visualizations}
-# =============================================================================
-# VISUALIZATIONS
-# =============================================================================
-
 # Distribution of CKM stages
 p1 <- ggplot(comorb_ckm2, aes(x = CKM_syn)) +
   geom_bar(fill = "steelblue") +
@@ -1177,135 +1316,5 @@ print(p10)
 print(p10a)
 print(p11)
 print(p12)
-
-### Create progression variables for both BMI and non-BMI comparisons
-
-# Create progression variables for both BMI and non-BMI comparisons
-# LP: these should be moved to the data section
-comorb_ckm2 <- comorb_ckm2 %>%
-  mutate(
-    # Convert stages to numeric (without BMI)
-    baseline_numeric = case_when(
-      CKM_syn_base == "Stage2" ~ 1,
-      CKM_syn_base == "Stage2_plus" ~ 2,
-      CKM_syn_base == "Stage3" ~ 3,
-      CKM_syn_base == "Stage4" ~ 4
-    ),
-    followup_numeric = case_when(
-      CKM_syn == "Stage2" ~ 1,
-      CKM_syn == "Stage2_plus" ~ 2,
-      CKM_syn == "Stage3" ~ 3,
-      CKM_syn == "Stage4" ~ 4
-    ),
-    
-    # Convert stages to numeric (with BMI)
-    baseline_numeric2 = case_when(
-      CKM_syn_base2 == "Stage2" ~ 1,
-      CKM_syn_base2 == "Stage2_plus" ~ 2,
-      CKM_syn_base2 == "Stage3" ~ 3,
-      CKM_syn_base2 == "Stage4" ~ 4
-    ),
-    followup_numeric2 = case_when(
-      CKM_syn2 == "Stage2" ~ 1,
-      CKM_syn2 == "Stage2_plus" ~ 2,
-      CKM_syn2 == "Stage3" ~ 3,
-      CKM_syn2 == "Stage4" ~ 4
-    ),
-    
-    # Progression variables (without BMI)
-    progress_CKM = case_when(
-      baseline_numeric == 4 ~ NA_real_,  # Already at highest stage
-      followup_numeric > baseline_numeric ~ 1,  # Progressed
-      followup_numeric <= baseline_numeric ~ 0  # Stayed same
-    ),
-    progress_CKM2 = case_when(
-      baseline_numeric == 4 ~ NA_real_,  # Already at highest stage
-      TRUE ~ pmax(0, followup_numeric - baseline_numeric)  # Steps progressed (0 if stayed same)
-    ),
-    
-    # Progression variables (with BMI)
-    progress_CKM_bmi = case_when(
-      baseline_numeric2 == 4 ~ NA_real_,
-      followup_numeric2 > baseline_numeric2 ~ 1,
-      followup_numeric2 <= baseline_numeric2 ~ 0
-    ),
-    progress_CKM2_bmi = case_when(
-      baseline_numeric2 == 4 ~ NA_real_,
-      TRUE ~ pmax(0, followup_numeric2 - baseline_numeric2)
-    ),
-    
-    # CV progression classification (without BMI)
-    CV_progress = case_when(
-      CKM_syn_base %in% c("Stage3", "Stage4") ~ "already_advanced",
-      CKM_syn %in% c("Stage3", "Stage4") & !CKM_syn_base %in% c("Stage3", "Stage4") ~ "CV_progressor",
-      TRUE ~ "non_progressor"
-    ),
-    
-    # CV progression classification (with BMI)
-    CV_progress_bmi = case_when(
-      CKM_syn_base2 %in% c("Stage3", "Stage4") ~ "already_advanced",
-      CKM_syn2 %in% c("Stage3", "Stage4") & !CKM_syn_base2 %in% c("Stage3", "Stage4") ~ "CV_progressor",
-      TRUE ~ "non_progressor"
-    )
-  )
-
-# Join variables from baserisk and baseline into comorb_ckm2
-comorb_ckm2 <- comorb_ckm2 %>%
-  left_join(
-    baserisk %>% select(RELEASEID, HbA1c, log_trig, uacid, HDL, ALT, AST, dxtime, sex),
-    by = "RELEASEID"
-  ) %>%
-  left_join(
-    baseline %>% select(RELEASEID, bmipct),
-    by = "RELEASEID"
-  )
-
-comorb_ckm2 <- comorb_ckm2 %>%
-  left_join(
-    baserisk %>% select(RELEASEID, sex, sex_char), by = "RELEASEID")
-
-# McNemar's test for paired progression
-mcnemar.test(table(comorb_ckm2$CKM_syn_base, comorb_ckm2$CKM_syn))
-
-
-
 ```
 
-## Summary Tables
-
-```{r summary-tables}
-# =============================================================================
-# SUMMARY TABLES
-# =============================================================================
-
-# Count of events (can be multiple events per person)
-#event_table <- tableby(data = ame, ~ as.factor(AMENAME))
-#summary(event_table)
-
-# Count of people with each type of event
-#person_table <- tableby(data = ame_summary, ~ ARRHYTHMIA + CAD + CHF + LVSD + MI + PAD + 
-   #                    DVT + STROKE + TIA + PANCREATITIS + GALLBLADDER + PNEURO + ANEURO + 
-    #                   MONONEURO + CKD + ESKD + NPDR + PDR + ME + VH + BLINDNESS + CATARACTS + 
-     #                  GLAUCOMA + DEATH)
-#summary(person_table)
-
-# Outcome proportions by CKM stage
-outcome_summary <- comorb_ckm2 %>%
-  group_by(CKM_syn_collapsed) %>%
-  summarise(
-    n = n(),
-    prop_HYP0 = mean(HYP0 == 1, na.rm = TRUE),
-    prop_HYP = mean(HYP == 1, na.rm = TRUE),
-    prop_MIC0 = mean(MIC0 == 1, na.rm = TRUE),
-    prop_MIC = mean(MIC == 1, na.rm = TRUE),
-    prop_DNE = mean(DNE == 1, na.rm = TRUE),
-    prop_CKD = mean(CKD == 1, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-print(outcome_summary)
-
-# Write output files
-write.csv(comorb_ckm2, file = "comorb_ckm2_final.csv", row.names = FALSE)
-
-```

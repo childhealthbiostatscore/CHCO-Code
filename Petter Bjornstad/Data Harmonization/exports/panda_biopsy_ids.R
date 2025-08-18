@@ -103,7 +103,6 @@ write.csv(combined_panda, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLi
 
 # crocodile Kit IDs
 
-
 croc <- harm_dat %>% filter(record_id %in% combined_panda$croc_id[!is.na(combined_panda$croc_id)]) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
@@ -118,3 +117,49 @@ croc_unique_bx <- croc |>
 croc_panda_combined <- left_join(combined_panda, croc_unique_bx)
 
 write.csv(croc_panda_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANDA/Data_Cleaned/panda_unique_biopsy_ids.csv", row.names = F, na = "")
+
+# more details for consort pptx
+# CROCODILE coenrolled/not coenrolled into PANDA
+croc_full_t1d <- harm_dat %>% filter(study == "CROCODILE") %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  arrange(mrn) %>%
+  filter(!is.na(kit_id)) %>%
+  filter(group == "Type 1 Diabetes")
+
+table(!is.na(croc_full_t1d$panda_id), !is.na(croc_full_t1d$cryostor_id))
+
+
+# ATTEMPT with kidney biopsies
+library(jsonlite)
+library(aws.s3)
+
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
+attempt_clean_so_metadata <- s3readRDS("cleaned_data/attempt_clean_so_metadata.rds", "attempt", region = "")
+attempt_biopsy_yn <- attempt_clean_so_metadata %>%
+  dplyr::select(subject_id, visit) %>%
+  distinct(subject_id, visit, .keep_all = T) %>%
+  mutate(visit = case_when(visit == "PRE" ~ 0,
+                           visit == "POST" ~ 16),
+         biopsy_yn = "Yes")
+
+
+attempt_full <- harm_dat %>% filter(study == "ATTEMPT") %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  arrange(mrn) %>%
+  filter(visit == "baseline") %>%
+  filter(record_id %in% attempt_biopsy_yn$subject_id | !is.na(kit_id))
+table(!is.na(attempt_full$panda_id))
+table(!is.na(attempt_full$panda_id), !is.na(attempt_full$cryostor_id))
