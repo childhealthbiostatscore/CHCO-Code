@@ -77,6 +77,18 @@ for (cell in names(celltype_groups))  {
   
   assign(var_name, processed$results)
 }
+
+# Targeted
+for (cell in names(celltype_groups))  {
+  input_path <- paste0("/CROCODILE comparison analysis/", toupper(cell), "/nebula/", tolower(cell),"_kpmp_croc_attempt_targeted.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+  
+  processed <- process_nebula_results(cell_df, pval_col = "p_groupType_1_Diabetes")
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_croc_targeted_res")
+  
+  assign(var_name, processed$results)
+}
 ```
 
 ```{r echo = F}
@@ -84,8 +96,8 @@ for (cell in names(celltype_groups))  {
 # process and read all results from ATTEMPT
 celltype_groups <- list(
   PT = c("PT-S1/S2", "PT-S3", "aPT"),
-  # TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
-  # PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
   EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
   IC = c("IC-A", "IC-B", "aIC"),
   Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
@@ -110,7 +122,51 @@ for (cell in names(celltype_groups))  {
 }
 ```
 
-#### Volcano plots
+## Volcano plots
+
+### Targeted
+
+```{r echo = F}
+for (cell in names(celltype_groups)) {
+  message("Processing: ", cell)
+  plot_croc_attempt_volcano(
+    attempt_df = get(paste0(tolower(cell), "_kpmp")),
+    croc_df = get(paste0(tolower(cell), "_croc_targeted_res")),
+    cell_type = cell,
+    top_n = 20,
+    save_path = paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/kpmp_", tolower(cell), "_targeted_volcano_attempt_directions_labeled.png")
+  )
+}
+```
+
+```{r echo = F}
+for (cell in names(celltype_groups)) {
+  message("Processing: ", cell)
+  plot_volcano(
+    data = get(paste0(tolower(cell), "_croc_targeted_res")),
+    fc = "logFC_groupType_1_Diabetes", 
+    p_col = "p_groupType_1_Diabetes",
+    title = NULL,
+    x_axis = "logFC group (Type 1 Diabetes)", 
+    y_axis = "-log10(p-value)",
+    file_suffix = paste0("CROCODILE comparison analysis/kpmp_", tolower(cell), "_croc_pvalue_nebula_reml_offset"), 
+    cell_type = cell
+  )
+  
+    plot_volcano(
+    data = get(paste0(tolower(cell), "_croc_targeted_res")),
+    fc = "logFC_groupType_1_Diabetes", 
+    p_col = "fdr",
+    title = NULL,
+    x_axis = "logFC group (Type 1 Diabetes)", 
+    y_axis = "-log10(FDR adjusted p-value)",
+    file_suffix = paste0("CROCODILE comparison analysis/kpmp_", tolower(cell), "_croc_fdr_nebula_reml_offset"), 
+    cell_type = cell
+  )
+}
+```
+
+### Untargeted
 
 ```{r echo = F}
 for (cell in names(celltype_groups)) {
@@ -120,7 +176,7 @@ for (cell in names(celltype_groups)) {
     croc_df = get(paste0(tolower(cell), "_croc_untargeted_res_hvg")),
     cell_type = cell,
     top_n = 20,
-    save_path = paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/kpmp_", tolower(cell), "_targeted_volcano_attempt_directions_labeled.jpeg")
+    save_path = paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/CROCODILE comparison/Volcano Plots/kpmp_", tolower(cell), "_untargeted_volcano_attempt_directions_labeled.png")
   )
 }
 ```
@@ -151,6 +207,9 @@ for (cell in names(celltype_groups)) {
   )
 }
 ```
+
+
+
 ### PT
 
 #### GSEA (fgsea)
@@ -286,7 +345,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```{r echo = F}
 plot_fgsea_transpose(kegg_legacy_res_croc_pt_nebula_reml_offset, title = "PT nebula Top 30 KEGG (REML & Offset)", xmin = 1.2, xmax = 2.5)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/croc_pt_nebula_top30_kegg_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/croc_pt_nebula_top30_kegg_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -294,14 +353,14 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F}
 plot_fgsea_transpose(reactome_res_croc_pt_nebula_reml_offset, title = "PT nebula Top 30 REACTOME (REML & Offset)", xmin = 1.5, xmax = 3.5)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/croc_pt_nebula_top30_reactome_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/croc_pt_nebula_top30_reactome_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 ##### GO
 ```{r echo = F}
 plot_fgsea_transpose(go_res_croc_pt_nebula_reml_offset, title = "PT nebula Top 30 GO (REML & Offset)", xmin = 1.4, xmax = 5)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/croc_pt_nebula_top30_go_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/croc_pt_nebula_top30_go_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -362,7 +421,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```{r echo = F}
 plot_fgsea_transpose(kegg_legacy_res_tal_nebula_reml_offset, title = "TAL nebula Top 30 KEGG (REML & Offset)", xmin = 1.3, xmax = 3.1)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_kegg_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_kegg_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -370,14 +429,14 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F}
 plot_fgsea_transpose(reactome_res_tal_nebula_reml_offset, title = "TAL nebula Top 30 REACTOME (REML & Offset)", xmin = 1.5, xmax = 4)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_reactome_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_reactome_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 ###### GO
 ```{r echo = F}
 plot_fgsea_transpose(go_res_tal_nebula_reml_offset, title = "TAL nebula Top 30 GO (REML & Offset)", xmin = 1.5, xmax = 3.5)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_go_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/tal_nebula_top30_go_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -438,7 +497,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```{r echo = F}
 plot_fgsea_transpose(kegg_legacy_res_pc_nebula_reml_offset, title = "PC nebula Top 30 KEGG (REML & Offset)", xmin = 1.2, xmax = 2.2)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_kegg_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_kegg_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -446,14 +505,14 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F}
 plot_fgsea_transpose(reactome_res_pc_nebula_reml_offset, title = "PC nebula Top 30 REACTOME (REML & Offset)", xmin = 1.4, xmax = 2.4)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_reactome_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_reactome_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 ###### GO
 ```{r echo = F}
 plot_fgsea_transpose(go_res_pc_nebula_reml_offset, title = "PC nebula Top 30 GO (REML & Offset)", xmin = 1.5, xmax = 2.2)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_go_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pc_nebula_top30_go_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -514,7 +573,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```{r echo = F}
 plot_fgsea_transpose(kegg_legacy_res_immune_nebula_reml_offset, title = "Immune nebula Top 30 KEGG (REML & Offset)", xmin = 1.1, xmax = 2.5)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_kegg_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_kegg_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -522,14 +581,14 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F}
 plot_fgsea_transpose(reactome_res_immune_nebula_reml_offset, title = "Immune nebula Top 30 REACTOME (REML & Offset)", xmin = 1.2, xmax = 2.8)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_reactome_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_reactome_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 ###### GO
 ```{r echo = F}
 plot_fgsea_transpose(go_res_immune_nebula_reml_offset, title = "Immune nebula Top 30 GO (REML & Offset)", xmin = 1.5, xmax = 2.3)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_go_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/immune_nebula_top30_go_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -591,7 +650,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```{r echo = F}
 plot_fgsea_transpose(kegg_legacy_res_ic_nebula_reml_offset, title = "IC nebula Top 30 KEGG (REML & Offset)", xmin = 1, xmax = 2.2)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_kegg_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_kegg_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -599,14 +658,14 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F}
 plot_fgsea_transpose(reactome_res_ic_nebula_reml_offset, title = "IC nebula Top 30 REACTOME (REML & Offset)", xmin = 1.2, xmax = 2.1)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_reactome_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_reactome_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 ###### GO
 ```{r echo = F}
 plot_fgsea_transpose(go_res_ic_nebula_reml_offset, title = "IC nebula Top 30 GO (REML & Offset)", xmin = 1.4, xmax = 2.2)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_go_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ic_nebula_top30_go_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -667,7 +726,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```{r echo = F}
 plot_fgsea_transpose(kegg_legacy_res_ec_nebula_reml_offset, title = "EC nebula Top 30 KEGG (REML & Offset)", xmin = 1.1, xmax = 2)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_kegg_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_kegg_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -675,14 +734,14 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F}
 plot_fgsea_transpose(reactome_res_ec_nebula_reml_offset, title = "EC nebula Top 30 REACTOME (REML & Offset)", xmin = 1.3, xmax = 1.8)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_reactome_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_reactome_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 ###### GO
 ```{r echo = F}
 plot_fgsea_transpose(go_res_ec_nebula_reml_offset, title = "EC nebula Top 30 GO (REML & Offset)", xmin = 1.3, xmax = 2.6)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_go_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/ec_nebula_top30_go_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -742,7 +801,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```{r echo = F}
 plot_fgsea_transpose(kegg_legacy_res_vsmc_p_fib_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 KEGG (REML & Offset)", xmin = 1.1, xmax = 2.3)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_nebula_top30_kegg_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_nebula_top30_kegg_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -750,14 +809,14 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F}
 plot_fgsea_transpose(reactome_res_vsmc_p_fib_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 REACTOME (REML & Offset)", xmin = 1.4, xmax = 2.1)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_nebula_top30_reactome_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_nebula_top30_reactome_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 ###### GO
 ```{r echo = F}
 plot_fgsea_transpose(go_res_vsmc_p_fib_nebula_reml_offset, title = "FIB/VSMC/P nebula Top 30 GO (REML & Offset)", xmin = 1.45, xmax = 2.5)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_nebula_top30_go_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/vsmc_p_fib_nebula_top30_go_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -817,7 +876,7 @@ rownames(fgsea) <- c("adj.pval", "p.val")
 ```{r echo = F}
 plot_fgsea_transpose(kegg_legacy_res_pod_nebula_reml_offset, title = "POD nebula Top 30 KEGG (REML & Offset)", xmin = 1.1, xmax = 2.3)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pod_nebula_top30_kegg_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pod_nebula_top30_kegg_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -825,14 +884,14 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ```{r echo = F}
 plot_fgsea_transpose(reactome_res_pod_nebula_reml_offset, title = "POD nebula Top 30 REACTOME (REML & Offset)", xmin = 1.4, xmax = 2.1)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pod_nebula_top30_reactome_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pod_nebula_top30_reactome_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 ###### GO
 ```{r echo = F}
 plot_fgsea_transpose(go_res_pod_nebula_reml_offset, title = "POD nebula Top 30 GO (REML & Offset)", xmin = 1.45, xmax = 2.5)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pod_nebula_top30_go_pathways_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/pod_nebula_top30_go_pathways_croc.png",
        width = 27.5, height = 14, scale = 1)
 ```
 
@@ -948,7 +1007,7 @@ n_pt_pathways_inhibited_mod1 <- pt_pathways_inhibited_mod1 %>%
 ##                                left = 0.45, bottom = 0.01,
 ##                                right = 0.8, top = 0.6)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pt_top30_inhibited_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pt_top30_inhibited_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -985,7 +1044,7 @@ pt_top30_inhibited_2_mod1 <- pt_pathways_inhibited_sig_mod1[1:30,] %>%
 ## top30_inhibited_mod1 + inset_element(inhibited_scenarios, 
 ##                                left = 0.45, bottom = 0.01,
 ##                                right = 0.80, top = 0.6)
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pt_top_inhibited_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pt_top_inhibited_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -1027,7 +1086,7 @@ n_pt_pathways_activated_mod1 <- pt_pathways_activated_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pt_top30_activated_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pt_top30_activated_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -1060,7 +1119,7 @@ pt_top30_activated_2_mod1 <- pt_pathways_activated_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.125, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pt_top_activated_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pt_top_activated_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -1103,7 +1162,7 @@ pt_neg_pathways_merged_long_mod1 %>%
        title = "PT Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/pt_top10_inhibited_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/pt_top10_inhibited_pathway_zscores_croc.png",
        scale = 1.5)
 
 pt_pos_pathways_merged_long_mod1 <- pt_pathways_merged_mod1 %>% 
@@ -1144,7 +1203,7 @@ pt_pos_pathways_merged_long_mod1 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/pt_top10_activated_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/pt_top10_activated_pathway_zscores_croc.png",
        scale = 1.5)
 ```
 
@@ -1219,7 +1278,7 @@ n_tal_pathways_inhibited_mod1 <- tal_pathways_inhibited_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/tal_top30_inhibited_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/tal_top30_inhibited_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -1253,7 +1312,7 @@ tal_top30_inhibited_2_mod1 <- tal_pathways_inhibited_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.5, 0.01))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/tal_top_inhibited_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/tal_top_inhibited_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -1295,7 +1354,7 @@ n_tal_pathways_activated_mod1 <- tal_pathways_activated_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/tal_top30_activated_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/tal_top30_activated_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -1328,7 +1387,7 @@ tal_top30_activated_2_mod1 <- tal_pathways_activated_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/tal_top_activated_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/tal_top_activated_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -1370,7 +1429,7 @@ tal_neg_pathways_merged_long_mod1 %>%
        title = "TAL Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/tal_top10_inhibited_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/tal_top10_inhibited_pathway_zscores_croc.png",
        scale = 1.5)
 
 tal_pos_pathways_merged_long_mod1 <- tal_pathways_merged_mod1 %>% 
@@ -1411,7 +1470,7 @@ tal_pos_pathways_merged_long_mod1 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/tal_top10_activated_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/tal_top10_activated_pathway_zscores_croc.png",
        scale = 1.5)
 ```
 
@@ -1485,7 +1544,7 @@ n_pc_pathways_inhibited_mod1 <- pc_pathways_inhibited_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pc_top30_inhibited_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pc_top30_inhibited_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -1519,7 +1578,7 @@ pc_top30_inhibited_2_mod1 <- pc_pathways_inhibited_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pc_top_inhibited_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pc_top_inhibited_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -1561,7 +1620,7 @@ n_pc_pathways_activated_mod1 <- pc_pathways_activated_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pc_top30_activated_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pc_top30_activated_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -1594,7 +1653,7 @@ pc_top30_activated_2_mod1 <- pc_pathways_activated_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.4, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pc_top_activated_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/pc_top_activated_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -1636,7 +1695,7 @@ pc_neg_pathways_merged_long_mod1 %>%
        title = "PC Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/pc_top10_inhibited_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/pc_top10_inhibited_pathway_zscores_croc.png",
        scale = 1.5)
 
 pc_pos_pathways_merged_long_mod1 <- pc_pathways_merged_mod1 %>% 
@@ -1677,7 +1736,7 @@ pc_pos_pathways_merged_long_mod1 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/pc_top10_activated_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/pc_top10_activated_pathway_zscores_croc.png",
        scale = 1.5)
 ```
 
@@ -1751,7 +1810,7 @@ n_immune_pathways_inhibited_mod1 <- immune_pathways_inhibited_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/immune_top30_inhibited_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/immune_top30_inhibited_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -1785,7 +1844,7 @@ immune_top30_inhibited_2_mod1 <- immune_pathways_inhibited_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.2, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/immune_top_inhibited_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/immune_top_inhibited_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -1827,7 +1886,7 @@ n_immune_pathways_activated_mod1 <- immune_pathways_activated_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/immune_top30_activated_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/immune_top30_activated_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -1860,7 +1919,7 @@ immune_top30_activated_2_mod1 <- immune_pathways_activated_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/immune_top_activated_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/immune_top_activated_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -1902,7 +1961,7 @@ immune_neg_pathways_merged_long_mod1 %>%
        title = "Immune Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/immune_top10_inhibited_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/immune_top10_inhibited_pathway_zscores_croc.png",
        scale = 1.5)
 
 immune_pos_pathways_merged_long_mod1 <- immune_pathways_merged_mod1 %>% 
@@ -1943,7 +2002,7 @@ immune_pos_pathways_merged_long_mod1 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/immune_top10_activated_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/immune_top10_activated_pathway_zscores_croc.png",
        scale = 1.5)
 ```
 
@@ -2017,7 +2076,7 @@ n_ic_pathways_inhibited_mod1 <- ic_pathways_inhibited_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ic_top30_inhibited_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ic_top30_inhibited_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -2051,7 +2110,7 @@ ic_top30_inhibited_2_mod1 <- ic_pathways_inhibited_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.2, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ic_top_inhibited_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ic_top_inhibited_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2093,7 +2152,7 @@ n_ic_pathways_activated_mod1 <- ic_pathways_activated_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ic_top30_activated_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ic_top30_activated_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -2126,7 +2185,7 @@ ic_top30_activated_2_mod1 <- ic_pathways_activated_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ic_top_activated_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ic_top_activated_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2169,7 +2228,7 @@ ic_neg_pathways_merged_long_mod1 %>%
        title = "IC Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/ic_top10_inhibited_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/ic_top10_inhibited_pathway_zscores_croc.png",
        scale = 1.5)
 
 ic_pos_pathways_merged_long_mod1 <- ic_pathways_merged_mod1 %>% 
@@ -2210,7 +2269,7 @@ ic_pos_pathways_merged_long_mod1 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/ic_top10_activated_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/ic_top10_activated_pathway_zscores_croc.png",
        scale = 1.5)
 ```
 
@@ -2284,7 +2343,7 @@ n_ec_pathways_inhibited_mod1 <- ec_pathways_inhibited_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ec_top30_inhibited_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ec_top30_inhibited_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -2318,7 +2377,7 @@ ec_top30_inhibited_2_mod1 <- ec_pathways_inhibited_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.2, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ec_top_inhibited_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ec_top_inhibited_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2360,7 +2419,7 @@ n_ec_pathways_activated_mod1 <- ec_pathways_activated_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ec_top30_activated_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ec_top30_activated_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -2393,7 +2452,7 @@ ec_top30_activated_2_mod1 <- ec_pathways_activated_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(1, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ec_top_activated_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/ec_top_activated_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -2435,7 +2494,7 @@ ec_neg_pathways_merged_long_mod1 %>%
        title = "EC Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/ec_top10_inhibited_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/ec_top10_inhibited_pathway_zscores_croc.png",
        scale = 1.5)
 
 ec_pos_pathways_merged_long_mod1 <- ec_pathways_merged_mod1 %>% 
@@ -2476,7 +2535,7 @@ ec_pos_pathways_merged_long_mod1 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/ec_top10_activated_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/ec_top10_activated_pathway_zscores_croc.png",
        scale = 1.5)
 ```
 
@@ -2550,7 +2609,7 @@ n_dtl_pathways_inhibited_mod1 <- dtl_pathways_inhibited_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/dtl_top30_inhibited_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/dtl_top30_inhibited_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2 (none significant)
@@ -2584,7 +2643,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ##   scale_color_manual(values = scenario_colors)  +
 ##   scale_y_discrete(expand = expansion(mult = c(0.5, 0.01))) 
 ## 
-## ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/dtl_top_inhibited_pathways_2_croc.jpeg",
+## ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/dtl_top_inhibited_pathways_2_croc.png",
 ##        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2626,7 +2685,7 @@ n_dtl_pathways_activated_mod1 <- dtl_pathways_activated_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/dtl_top30_activated_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/dtl_top30_activated_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -2659,7 +2718,7 @@ dtl_top30_activated_2_mod1 <- dtl_pathways_activated_sig_mod1[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.05, 0.05))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/dtl_top_activated_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/dtl_top_activated_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2702,7 +2761,7 @@ dtl_neg_pathways_merged_long_mod1 %>%
        title = "DTL Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/dtl_top10_inhibited_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/dtl_top10_inhibited_pathway_zscores_croc.png",
        scale = 1.5)
 
 dtl_pos_pathways_merged_long_mod1 <- dtl_pathways_merged_mod1 %>% 
@@ -2743,7 +2802,7 @@ dtl_pos_pathways_merged_long_mod1 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/dtl_top10_activated_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/dtl_top10_activated_pathway_zscores_croc.png",
        scale = 1.5)
 ```
 
@@ -2817,7 +2876,7 @@ n_vsmc_p_fib_pathways_inhibited_mod1 <- vsmc_p_fib_pathways_inhibited_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top30_inhibited_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top30_inhibited_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -2851,7 +2910,7 @@ vsmc_p_fib_top30_inhibited_2_mod1 <- vsmc_p_fib_pathways_inhibited_sig_mod1[1:30
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.3, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top_inhibited_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top_inhibited_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2893,7 +2952,7 @@ n_vsmc_p_fib_pathways_activated_mod1 <- vsmc_p_fib_pathways_activated_mod1 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top30_activated_pathways_mod1_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top30_activated_pathways_mod1_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -2926,7 +2985,7 @@ vsmc_p_fib_top30_activated_2_mod1 <- vsmc_p_fib_pathways_activated_sig_mod1[1:30
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top_activated_pathways_2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/1 Nested visit and zero inflation/vsmc_p_fib_top_activated_pathways_2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -2969,7 +3028,7 @@ vsmc_p_fib_neg_pathways_merged_long_mod1 %>%
        title = "FIB/VSMC/P Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/vsmc_p_fib_top10_inhibited_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/vsmc_p_fib_top10_inhibited_pathway_zscores_croc.png",
        scale = 1.5)
 
 vsmc_p_fib_pos_pathways_merged_long_mod1 <- vsmc_p_fib_pathways_merged_mod1 %>% 
@@ -3010,7 +3069,7 @@ vsmc_p_fib_pos_pathways_merged_long_mod1 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/vsmc_p_fib_top10_activated_pathway_zscores_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/1 Nested visit and zero inflation/vsmc_p_fib_top10_activated_pathway_zscores_croc.png",
        scale = 1.5)
 ```
 
@@ -3126,7 +3185,7 @@ n_pt_pathways_inhibited_mod2 <- pt_pathways_inhibited_mod2 %>%
 ##                                left = 0.45, bottom = 0.01,
 ##                                right = 0.8, top = 0.6)
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pt_top30_inhibited_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pt_top30_inhibited_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -3163,7 +3222,7 @@ pt_top30_inhibited_2_mod2 <- pt_pathways_inhibited_sig_mod2[1:30,] %>%
 ## top30_inhibited_mod2 + inset_element(inhibited_scenarios, 
 ##                                left = 0.45, bottom = 0.01,
 ##                                right = 0.80, top = 0.6)
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pt_top_inhibited_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pt_top_inhibited_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -3205,7 +3264,7 @@ n_pt_pathways_activated_mod2 <- pt_pathways_activated_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pt_top30_activated_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pt_top30_activated_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -3238,7 +3297,7 @@ pt_top30_activated_2_mod2 <- pt_pathways_activated_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.125, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pt_top_activated_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pt_top_activated_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -3281,7 +3340,7 @@ pt_neg_pathways_merged_long_mod2 %>%
        title = "PT Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/pt_top10_inhibited_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/pt_top10_inhibited_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 
 pt_pos_pathways_merged_long_mod2 <- pt_pathways_merged_mod2 %>% 
@@ -3322,7 +3381,7 @@ pt_pos_pathways_merged_long_mod2 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/pt_top10_activated_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/pt_top10_activated_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 ```
 
@@ -3397,7 +3456,7 @@ n_tal_pathways_inhibited_mod2 <- tal_pathways_inhibited_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/tal_top30_inhibited_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/tal_top30_inhibited_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -3431,7 +3490,7 @@ tal_top30_inhibited_2_mod2 <- tal_pathways_inhibited_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.5, 0.01))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/tal_top_inhibited_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/tal_top_inhibited_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -3473,7 +3532,7 @@ n_tal_pathways_activated_mod2 <- tal_pathways_activated_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/tal_top30_activated_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/tal_top30_activated_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -3506,7 +3565,7 @@ tal_top30_activated_2_mod2 <- tal_pathways_activated_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/tal_top_activated_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/tal_top_activated_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -3548,7 +3607,7 @@ tal_neg_pathways_merged_long_mod2 %>%
        title = "TAL Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/tal_top10_inhibited_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/tal_top10_inhibited_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 
 tal_pos_pathways_merged_long_mod2 <- tal_pathways_merged_mod2 %>% 
@@ -3589,7 +3648,7 @@ tal_pos_pathways_merged_long_mod2 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/tal_top10_activated_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/tal_top10_activated_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 ```
 
@@ -3663,7 +3722,7 @@ n_pc_pathways_inhibited_mod2 <- pc_pathways_inhibited_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pc_top30_inhibited_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pc_top30_inhibited_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -3697,7 +3756,7 @@ pc_top30_inhibited_2_mod2 <- pc_pathways_inhibited_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pc_top_inhibited_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pc_top_inhibited_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -3739,7 +3798,7 @@ n_pc_pathways_activated_mod2 <- pc_pathways_activated_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pc_top30_activated_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pc_top30_activated_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -3772,7 +3831,7 @@ pc_top30_activated_2_mod2 <- pc_pathways_activated_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.4, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pc_top_activated_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/pc_top_activated_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -3814,7 +3873,7 @@ pc_neg_pathways_merged_long_mod2 %>%
        title = "PC Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/pc_top10_inhibited_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/pc_top10_inhibited_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 
 pc_pos_pathways_merged_long_mod2 <- pc_pathways_merged_mod2 %>% 
@@ -3855,7 +3914,7 @@ pc_pos_pathways_merged_long_mod2 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/pc_top10_activated_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/pc_top10_activated_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 ```
 
@@ -3929,7 +3988,7 @@ n_immune_pathways_inhibited_mod2 <- immune_pathways_inhibited_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/immune_top30_inhibited_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/immune_top30_inhibited_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -3963,7 +4022,7 @@ immune_top30_inhibited_2_mod2 <- immune_pathways_inhibited_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.2, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/immune_top_inhibited_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/immune_top_inhibited_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -4005,7 +4064,7 @@ n_immune_pathways_activated_mod2 <- immune_pathways_activated_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/immune_top30_activated_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/immune_top30_activated_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -4038,7 +4097,7 @@ immune_top30_activated_2_mod2 <- immune_pathways_activated_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/immune_top_activated_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/immune_top_activated_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -4080,7 +4139,7 @@ immune_neg_pathways_merged_long_mod2 %>%
        title = "Immune Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/immune_top10_inhibited_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/immune_top10_inhibited_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 
 immune_pos_pathways_merged_long_mod2 <- immune_pathways_merged_mod2 %>% 
@@ -4121,7 +4180,7 @@ immune_pos_pathways_merged_long_mod2 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/immune_top10_activated_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/immune_top10_activated_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 ```
 
@@ -4195,7 +4254,7 @@ n_ic_pathways_inhibited_mod2 <- ic_pathways_inhibited_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ic_top30_inhibited_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ic_top30_inhibited_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -4229,7 +4288,7 @@ ic_top30_inhibited_2_mod2 <- ic_pathways_inhibited_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.2, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ic_top_inhibited_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ic_top_inhibited_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -4271,7 +4330,7 @@ n_ic_pathways_activated_mod2 <- ic_pathways_activated_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ic_top30_activated_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ic_top30_activated_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -4304,7 +4363,7 @@ ic_top30_activated_2_mod2 <- ic_pathways_activated_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ic_top_activated_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ic_top_activated_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -4347,7 +4406,7 @@ ic_neg_pathways_merged_long_mod2 %>%
        title = "IC Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/ic_top10_inhibited_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/ic_top10_inhibited_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 
 ic_pos_pathways_merged_long_mod2 <- ic_pathways_merged_mod2 %>% 
@@ -4388,7 +4447,7 @@ ic_pos_pathways_merged_long_mod2 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/ic_top10_activated_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/ic_top10_activated_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 ```
 
@@ -4462,7 +4521,7 @@ n_ec_pathways_inhibited_mod2 <- ec_pathways_inhibited_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ec_top30_inhibited_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ec_top30_inhibited_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -4496,7 +4555,7 @@ ec_top30_inhibited_2_mod2 <- ec_pathways_inhibited_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.2, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ec_top_inhibited_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ec_top_inhibited_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -4538,7 +4597,7 @@ n_ec_pathways_activated_mod2 <- ec_pathways_activated_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ec_top30_activated_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ec_top30_activated_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -4571,7 +4630,7 @@ ec_top30_activated_2_mod2 <- ec_pathways_activated_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(1, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ec_top_activated_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/ec_top_activated_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 #### Z-Score Bar charts
@@ -4613,7 +4672,7 @@ ec_neg_pathways_merged_long_mod2 %>%
        title = "EC Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/ec_top10_inhibited_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/ec_top10_inhibited_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 
 ec_pos_pathways_merged_long_mod2 <- ec_pathways_merged_mod2 %>% 
@@ -4654,7 +4713,7 @@ ec_pos_pathways_merged_long_mod2 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/ec_top10_activated_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/ec_top10_activated_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 ```
 
@@ -4728,7 +4787,7 @@ n_dtl_pathways_inhibited_mod2 <- dtl_pathways_inhibited_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/dtl_top30_inhibited_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/dtl_top30_inhibited_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2 (none significant)
@@ -4762,7 +4821,7 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ##   scale_color_manual(values = scenario_colors)  +
 ##   scale_y_discrete(expand = expansion(mult = c(0.5, 0.01))) 
 ## 
-## ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/dtl_top_inhibited_pathways_2_mod2_croc.jpeg",
+## ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/dtl_top_inhibited_pathways_2_mod2_croc.png",
 ##        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -4804,7 +4863,7 @@ n_dtl_pathways_activated_mod2 <- dtl_pathways_activated_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/dtl_top30_activated_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/dtl_top30_activated_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -4837,7 +4896,7 @@ dtl_top30_activated_2_mod2 <- dtl_pathways_activated_sig_mod2[1:30,] %>%
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.05, 0.05))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/dtl_top_activated_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/dtl_top_activated_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -4880,7 +4939,7 @@ dtl_neg_pathways_merged_long_mod2 %>%
        title = "DTL Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/dtl_top10_inhibited_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/dtl_top10_inhibited_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 
 dtl_pos_pathways_merged_long_mod2 <- dtl_pathways_merged_mod2 %>% 
@@ -4921,7 +4980,7 @@ dtl_pos_pathways_merged_long_mod2 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/dtl_top10_activated_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/dtl_top10_activated_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 ```
 
@@ -4995,7 +5054,7 @@ n_vsmc_p_fib_pathways_inhibited_mod2 <- vsmc_p_fib_pathways_inhibited_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top30_inhibited_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top30_inhibited_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z < -2
@@ -5029,7 +5088,7 @@ vsmc_p_fib_top30_inhibited_2_mod2 <- vsmc_p_fib_pathways_inhibited_sig_mod2[1:30
   scale_color_manual(values = scenario_colors)  +
   scale_y_discrete(expand = expansion(mult = c(0.3, 0))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top_inhibited_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top_inhibited_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -5071,7 +5130,7 @@ n_vsmc_p_fib_pathways_activated_mod2 <- vsmc_p_fib_pathways_activated_mod2 %>%
   filter(neg_log_p > -log10(0.05)) %>%
   nrow()
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top30_activated_pathways_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top30_activated_pathways_mod2_croc.png",
        width = 27.5, height = 14, scale = 1)
 
 ########### Limited to z > 2
@@ -5104,7 +5163,7 @@ vsmc_p_fib_top30_activated_2_mod2 <- vsmc_p_fib_pathways_activated_sig_mod2[1:30
   scale_color_manual(values = scenario_colors) +
   scale_y_discrete(expand = expansion(mult = c(0.1, 0.025))) 
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top_activated_pathways_2_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/2 Zero inflation and no nested visit/vsmc_p_fib_top_activated_pathways_2_mod2_croc.png",
        width = 27.5, height = 10, scale = 1)
 ```
 
@@ -5147,7 +5206,7 @@ vsmc_p_fib_neg_pathways_merged_long_mod2 %>%
        title = "FIB/VSMC/P Top 10 Inhibited Pathways") +
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/vsmc_p_fib_top10_inhibited_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/vsmc_p_fib_top10_inhibited_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 
 vsmc_p_fib_pos_pathways_merged_long_mod2 <- vsmc_p_fib_pathways_merged_mod2 %>% 
@@ -5188,7 +5247,7 @@ vsmc_p_fib_pos_pathways_merged_long_mod2 %>%
   guides(alpha = "none") +
   geom_hline(yintercept = 0, linetype = "dashed", color = "darkgray")
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/vsmc_p_fib_top10_activated_pathway_zscores_mod2_croc.jpeg",
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Z score bar plots/2 Zero inflation and no nested visit/vsmc_p_fib_top10_activated_pathway_zscores_mod2_croc.png",
        scale = 1.5)
 ```
 
