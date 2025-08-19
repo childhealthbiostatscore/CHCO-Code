@@ -36,6 +36,7 @@ library(quantreg)
 library(arsenal)
 library(ggpubr)
 library(magick)
+library(ggrounded)
 ```
 
 ```{r include = F}
@@ -144,6 +145,140 @@ for(subject in unique(visit_minus4_values$subject_id)) {
 }
 ```
 
+```{r include = F}
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD"
+)
+
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+
+# Top 2000 HVG
+for (cell in names(celltype_groups))  {
+  input_path <- paste0("grouped/", cell, "/HVG/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+
+  processed <- process_nebula_results(cell_df)
+
+    # Join annotation
+  annotated_df <- processed$results
+
+  # Assign to variable dynamically
+  var_name <- paste0(tolower(cell), "_hvg_kpmp")
+  assign(var_name, annotated_df, envir = .GlobalEnv)
+  
+  write.csv(annotated_df, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/", tolower(cell), "_kpmp_hvg_res.csv"), row.names = F)
+}
+
+# Top 2000 HVG subtypes
+for (cell in unlist(celltype_groups))  {
+  print(paste0("Processing: ", cell))
+  cell <- gsub("/", "_", cell)
+  input_path <- paste0("individual/", cell, "/HVG/nebula/individual_", 
+                       tolower(cell),
+                       "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+  
+  processed <- process_nebula_results(cell_df)
+  
+  # Check if processed results has 0 rows
+  if (nrow(processed$results) == 0) {
+    print(paste0("Skipping ", cell, " - no rows in processed results"))
+    next
+  }
+  
+  annotated_df <- processed$results 
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_hvg_kpmp")
+  print(var_name)
+  assign(var_name, processed$results)
+  
+  var_name <- paste0(lower_cell, "_hvg_kpmp_cov")
+  assign(var_name, processed$overdispersion)
+}
+
+# Full gene set
+for (cell in names(celltype_groups))  {
+print(paste0("Processing: ", cell))
+  input_path <- paste0("grouped/", cell, "/ALL/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+
+  processed <- process_nebula_results(cell_df)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp")
+
+  assign(var_name, processed$results)
+}
+
+# Full gene set subtypes
+for (cell in unlist(celltype_groups))  {
+print(paste0("Processing: ", cell))
+  cell <- gsub("/", "_", cell)
+  input_path <- paste0("individual/", cell, "/ALL/nebula/individual_",
+                       tolower(cell),
+                       "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+
+  processed <- process_nebula_results(cell_df)
+  cell <- gsub("-", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp")
+
+  assign(var_name, processed$results)
+}
+
+clin_vars <- c("mgfr_jodal_delta", "mgfr_jodal_bsa_delta", "tir_delta", 
+               "hba1c_delta", "weight_delta", "avg_c_r2_delta", "avg_k_r2_delta",
+               "avg_ketones_delta")
+
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+# mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl") # to join full name description
+
+# Top 2000 HVG
+for (cell in names(celltype_groups))  {
+  for(var in clin_vars) {
+    print(paste0("Processing: ", cell, " - ", var))
+    processed <- process_nebula_results_clin(cell_type = cell, clinical_var = var, 
+                                             cell_subtype = celltype_groups[[cell]])
+    # Get gene symbols
+    # gene_symbols <- processed$results$Gene
+    # 
+    # # Query Ensembl
+    # gene_info <- getBM(
+    #   attributes = c("hgnc_symbol", "description", "gene_biotype"),
+    #   filters = "hgnc_symbol",
+    #   values = gene_symbols,
+    #   mart = mart
+    # ) %>%
+    #   dplyr::rename(Gene = hgnc_symbol)
+    
+    # Join annotation
+    annotated_df <- processed$results 
+    # %>%
+    #   left_join(gene_info, by = "Gene")
+    
+    # Assign to variable dynamically
+    var_name <- paste0(tolower(cell), "_", var, "_hvg_kpmp")
+    assign(var_name, annotated_df, envir = .GlobalEnv)
+  }
+}
+
+clinical_directions <- data.frame(variable = c("mgfr_jodal", "mgfr_jodal_bsa", "tir", "hba1c", "weight", "avg_c_r2", "avg_k_r2", "avg_ketones"),
+                                  direction = c("-", "-", "+", "-", "-", "+","+", "+"))
+```
+
 # Tables
 
 ## Section 2A
@@ -226,6 +361,21 @@ kable(placeholder_df,
       col.names = NULL,
       align = "c")
 ```
+
+
+Table: Cell type groupings. {#tbl-cell-type-groupings}
+
+| General type        | KPMP Sub type                                  |
+|---------------------|------------------------------------------------|
+| PT                  | PT-S1/S2, PT-S3, aPT                           |
+| TAL                 | C-TAL-1, C-TAL-2, aTAL, dTAL                   |
+| PC                  | CCD-PC, CNT-PC, dCCD-PC, M-PC, tPC-IC          |
+| IC                  | IC-A, IC-B, aIC                                |
+| EC                  | EC-AVR, EC-GC, EC-PTC, EC-AEA, EC-LYM, EC/VSMC |
+| Immune (Myeloid)    | MAC, MON, cDC, pDC                             |
+| Immune (Lymphoid)   | CD4+ T, CD8+ T, B, NK                          |
+| VSMC/P, FIB         | VSMC/P, FIB                                    |
+| POD                 | POD                                            |
 
 # Figures
 
@@ -381,8 +531,21 @@ knitr::include_graphics(file.path(base_path, "UMAP/attempt_umap_kpmpcelltype.png
 
 ```{r, out.width="100%"}
 #| label: fig-upset
-#| fig-cap: "UpSet plot showing intersections of differentially expressed genes across cell types and treatment conditions"
-knitr::include_graphics(file.path(base_path, "Cell type comparison/celltype_deg_upset_kpmp.png"))
+#| fig-cap: "(A) UpSet plot showing the overlap of differentially expressed genes across kidney cell types. Only intersections with size > 3 are displayed. Intersections corresponding to genes unique to a single cell type are omitted for clarity. Bars representing overlaps across ≥ 3 cell types are highlighted in blue. (B) Bar plot showing the frequency of differentially expressed genes by cell type, separated by direction of effect (DiD > 0 in red, DiD < 0 in blue). (C) Scatter plot of DiD values for each gene, grouped by cell type. Points above zero indicate positive DiD, and points below zero indicate negative DiD."
+#| fig-dpi: 300
+
+# Read images
+img1 <- image_read(file.path(base_path, "Cell type comparison/celltype_deg_upset_kpmp.png"))
+img2 <- image_read(file.path(base_path, "Cell type comparison/celltype_deg_stacked_barplot_kpmp.png"))
+img3 <- image_read(file.path(base_path, "Cell type comparison/celltype_deg_combined_kpmp.png"))
+
+# Convert to ggplot objects
+p1 <- image_ggplot(img1)
+p2 <- image_ggplot(img2)
+p3 <- image_ggplot(img3)
+
+(p1) + (p2 / p3) +
+  plot_annotation(tag_levels = 'A')
 ```
 
 ```{r, out.width="100%"}
@@ -393,33 +556,106 @@ knitr::include_graphics(file.path(base_path, "Pathways and transcripts in ATTEMP
 ```
 
 ### Section 2E: PT cells
+```{r}
+pt_plots <- create_gene_expression_plots(
+  main_results = pt_hvg_kpmp,
+  subtype_results_list = list(
+    "PT-S1/S2" = pt_s1_s2_hvg_kpmp,
+    "PT-S3" = pt_s3_hvg_kpmp,
+    "aPT" = apt_hvg_kpmp
+  ),
+  cell_type_prefix = "PT",
+  cell_type_labels = c("PT-S1/S2", "PT-S3", "aPT"),
+  output_prefix = "kpmp_PT_hvg",
+  full_formula = T,
+  volcano_text_size = 15,
+  volcano_caption_size = 12,
+  formula = "treatment * visit",
+  output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
+)
+pt_main_plot <- pt_plots$combined_plot
 
-```{r, out.width="100%"}
-#| label: fig-pt-panel
-#| fig-cap: "Proximal tubule gene expression analysis. Comprehensive panel showing dot plot, volcano plot, and heatmap of differentially expressed genes"
+# clinical associations figures
+pt_mgfr <- plot_volcano_concordance(pt_mgfr_jodal_bsa_delta_hvg_kpmp, 
+                         "logFC_mgfr_jodal_bsa_delta", 
+                         "p_mgfr_jodal_bsa_delta",
+                         "logFC \u0394 mGFR (BSA)", 
+                         "-log10(p-value)",
+                         "nebula/kpmp_pt_mgfr_jodal_bsa_trtcolors",
+                         treatment_results = pt_hvg_kpmp,
+                         treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                         formula = "\u0394 mGFR (BSA) + treatment",
+                         positive_text = "Positively associated with \n\u0394 mGFR (BSA)",
+                         negative_text = "Negatively associated with \n\u0394 mGFR (BSA)",
+                         clinical_direction = 
+                           clinical_directions[clinical_directions$variable == "mgfr_jodal_bsa",]$direction, 
+                         cell_type = "PT",
+                         arrow_label = "mGFR\n-8.2",
+                         top_n = 20)
 
-knitr::include_graphics(file.path(base_path, "Dot Plots/kpmp_PT_hvg_subtypes_nebula_scores_volcano_heat.png"))
+# clinical associations figures
+pt_hba1c <- plot_volcano_concordance(pt_hba1c_delta_hvg_kpmp, 
+                          "logFC_hba1c_delta", 
+                          "p_hba1c_delta",
+                          "logFC \u0394 HbA1c", 
+                          "-log10(p-value)",
+                          "nebula/kpmp_pt_hba1c_trtcolors",
+                          treatment_results = pt_hvg_kpmp,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 HbA1c + treatment",
+                          positive_text = "Positively associated with \n\u0394 HbA1c",
+                          negative_text = "Negatively associated with \n\u0394 HbA1c",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "hba1c",]$direction, 
+                          cell_type = "PT",
+                         arrow_label = "HbA1c\n-0.47", top_n = 20)
+
+# clinical associations figures
+pt_tir <- plot_volcano_concordance(pt_tir_delta_hvg_kpmp, 
+                          "logFC_tir_delta", 
+                          "p_tir_delta",
+                          "logFC \u0394 TIR", 
+                          "-log10(p-value)",
+                          "nebula/kpmp_pt_tir_trtcolors",
+                          treatment_results = pt_hvg_kpmp,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 TIR + treatment",
+                          positive_text = "Positively associated with \n\u0394 TIR",
+                          negative_text = "Negatively associated with \n\u0394 TIR",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "tir",]$direction, 
+                          cell_type = "PT",
+                         arrow_label = "TIR\n+9.3", top_n = 20)
+
+# clinical associations figures
+pt_avg_k_r2 <- plot_volcano_concordance(pt_avg_k_r2_delta_hvg_kpmp, 
+                          "logFC_avg_k_r2_delta", 
+                          "p_avg_k_r2_delta",
+                          "logFC \u0394 avg kidney R2*", 
+                          "-log10(p-value)",
+                          "nebula/kpmp_pt_avg_k_r2_trtcolors",
+                          treatment_results = pt_hvg_kpmp,
+                          treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+                          formula = "\u0394 avg kidney R2* + treatment",
+                          positive_text = "Positively associated with \n\u0394 avg kidney R2*",
+                          negative_text = "Negatively associated with \n\u0394 avg kidney R2*",
+                          clinical_direction = clinical_directions[clinical_directions$variable == "avg_k_r2",]$direction, 
+                          cell_type = "PT",
+                         arrow_label = "Kidney R2*\n+0.50", top_n = 20)
 ```
 
 ```{r, out.width="100%"}
-#| label: fig-pt-correlations
-#| fig-cap: "Proximal tubule gene expression correlations with clinical outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
-
-# Read images
-img1 <- image_read(file.path(base_path, "Volcano Plots/nebula/kpmp_pt_mgfr_jodal_bsa_trtcolors_concordance.png"))
-img2 <- image_read(file.path(base_path, "Volcano Plots/nebula/kpmp_pt_hba1c_trtcolors_concordance.png"))
-img3 <- image_read(file.path(base_path, "Volcano Plots/nebula/kpmp_pt_tir_trtcolors_concordance.png"))
-img4 <- image_read(file.path(base_path, "Volcano Plots/nebula/kpmp_pt_avg_k_r2_trtcolors_concordance.png"))
+#| label: fig-pt-panel
+#| fig-cap: "Proximal tubule gene expression analysis. (A) Comprehensive panel showing dot plot, volcano plot, and heatmap of differentially expressed genes. (B-E) Proximal tubule gene expression correlations with clinical outcomes. Volcano plots showing gene expression changes correlated with (B) change in mGFR, (C) change in HbA1c, (D) change in time in range, and (E) change in kidney R2*"
+#| fig-dpi: 300
 
 # Convert to ggplot objects
-p1 <- image_ggplot(img1)
-p2 <- image_ggplot(img2)
-p3 <- image_ggplot(img3)
-p4 <- image_ggplot(img4)
+p1 <- pt_main_plot
+p2 <- pt_mgfr
+p3 <- pt_hba1c
+p4 <- pt_tir
+p5 <- pt_avg_k_r2
 
-(p1 + p2) / (p3 + p4) + 
+p1 / (p2 + p3) / (p4 + p5)  + 
   plot_annotation(tag_levels = 'A')
-
 ```
 
 ```{r, out.width="100%"}
@@ -431,6 +667,7 @@ p4 <- image_ggplot(img4)
 ```{r, out.width="100%"}
 #| label: fig-pt-pseudotime
 #| fig-cap: "Proximal tubule pseudotime trajectory analysis. (A) PCA plot with inferred lineage trajectory. (B) Cell density distribution along pseudotime"
+#| fig-dpi: 300
 
 # Read images
 img1 <- image_read(file.path(base_path, "Slingshot/attempt_pca_pt_kpmp_slingshot.png"))
@@ -442,14 +679,14 @@ p2 <- image_ggplot(img2)
 
 (p1 + p2)  + 
   plot_annotation(tag_levels = 'A')
-
 ```
 
 ```{r, out.width="100%"}
 #| label: fig-pt-pseudotime-clinical
 #| fig-cap: "Clinical parameter changes along proximal tubule pseudotime. Correlation of pseudotime progression with change in mGFR and change in HbA1c"
+#| fig-dpi: 300
 
-knitr::include_graphics(file.path(base_path, "Slingshot/attempt_density_pt_hba1c_deltadelta_slingshot.png"))
+knitr::include_graphics(file.path(base_path, "Slingshot/attempt_density_pt_kpmp_hba1c_deltadelta_slingshot.png"))
 ```
 
 ### Section 2E: Other cell types
@@ -457,9 +694,10 @@ knitr::include_graphics(file.path(base_path, "Slingshot/attempt_density_pt_hba1c
 ```{r, out.width="100%"}
 #| label: fig-pod-pc-panel
 #| fig-cap: "Combined analysis of podocyte and principal cell populations. Multi-panel figure showing gene expression patterns and treatment responses"
+#| fig-dpi: 300
 
 # Read images
-img1 <- image_read(file.path(base_path, "Dot Plots/kpmp_POD_hvg_subtypes_nebula_scores_volcano_heat.png"))
+img1 <- image_read(file.path(base_path, "Dot Plots/kpmp_pod_hvg_subtypes_nebula_scores_volcano_heat.png"))
 img2 <- image_read(file.path(base_path, "Dot Plots/kpmp_PC_hvg_subtypes_nebula_scores_volcano_heat.png"))
 img3 <- image_read(file.path(base_path,  "Dot Plots/kpmp_Immune_hvg_subtypes_nebula_scores_volcano_heat.png"))
 img4 <- image_read(file.path(base_path,  "Dot Plots/kpmp_VSMC_P_FIB_hvg_subtypes_nebula_scores_volcano_heat.png"))
@@ -479,6 +717,7 @@ p4 <- image_ggplot(img4)
 ```{r, out.width="100%"}
 #| label: fig-urine-proteins
 #| fig-cap: "Differential abundance of urinary proteins. Volcano plot showing significantly changed proteins in urine samples following treatment"
+#| fig-dpi: 300
 
 knitr::include_graphics(file.path(base_path, "Proteomics/Volcano Plots/Volcano_DiD_urine_proteomics_adjp_mixed.png"))
 ```
@@ -487,13 +726,14 @@ knitr::include_graphics(file.path(base_path, "Proteomics/Volcano Plots/Volcano_D
 
 ```{r, out.width="100%", out.height = NULL}
 #| label: fig-croc-reversals
-#| fig-cap: "[Current version needs to be updated. This is of non-KPMP cell groupings] CROCODILE reversal analysis. Volcano plot displaying gene expression changes associated with improved renal outcomes"
+#| fig-cap: "CROCODILE reversal analysis. Volcano plot displaying gene expression changes associated with improved renal outcomes"
+#| fig-dpi: 300
 
 # Read images
-img1 <- image_read(file.path(root_path, "CROCODILE/Results/Figures/Volcano/nebula/croc_targeted_t1dvhc_pt_deg.png"))
-img2 <- image_read(file.path(root_path, "CROCODILE/Results/Figures/Volcano/nebula/croc_targeted_t1dvhc_tal_deg.png"))
-img3 <- image_read(file.path(root_path,  "CROCODILE/Results/Figures/Volcano/nebula/croc_targeted_t1dvhc_ec_deg.png"))
-img4 <- image_read(file.path(root_path,  "CROCODILE/Results/Figures/Volcano/nebula/croc_targeted_t1dvhc_ic_deg.png"))
+img1 <- image_read(file.path(base_path, "CROCODILE comparison/Volcano Plots/kpmp_pt_targeted_volcano_attempt_directions_labeled.png"))
+img2 <- image_read(file.path(base_path, "CROCODILE comparison/Volcano Plots/kpmp_tal_targeted_volcano_attempt_directions_labeled.png"))
+img3 <- image_read(file.path(base_path, "CROCODILE comparison/Volcano Plots/kpmp_ec_targeted_volcano_attempt_directions_labeled.png"))
+img4 <- image_read(file.path(base_path, "CROCODILE comparison/Volcano Plots/kpmp_ic_targeted_volcano_attempt_directions_labeled.png"))
 
 # Convert to ggplot objects
 p1 <- image_ggplot(img1)
