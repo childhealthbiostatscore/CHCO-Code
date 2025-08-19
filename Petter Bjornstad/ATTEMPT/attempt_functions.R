@@ -4933,7 +4933,8 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
       "#A8B88A",  # Sage green
       "#E6C86E",  # Golden yellow
       "#E89B5C",  # Light orange
-      "#D16558"   # Coral red
+      "#D16558",  # Coral red
+      "#8C6BB1"   # Muted plum
     )
     set_colors <- setNames(muted_palette[1:length(sets)], sets)
   } else {
