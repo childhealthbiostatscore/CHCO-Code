@@ -82,12 +82,18 @@ test$fsoc_r_medulla <- NULL
 find_fsoc_averages <- function(data){
   tmp_data <- data %>% dplyr::select(starts_with('fsoc'))
   fsoc_full_combined <- rowMeans(tmp_data, na.rm=T)
+  
   tmp_data <- data %>% dplyr::select(starts_with('fsoc_l_'))
   fsoc_l_combined <- tmp_data %>% rowMeans(na.rm=T)
+  
   tmp_data <- data %>% dplyr::select(starts_with('fsoc_r_'))
   fsoc_r_combined <- tmp_data %>% rowMeans(na.rm=T)
   
-  tmp_df <- cbind(fsoc_l_combined, fsoc_r_combined, fsoc_full_combined)
+  fsoc_medulla <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_medulla)
+  fsoc_cortex <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_cortex)
+  fsoc_kidney <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_kidney)
+  
+  tmp_df <- cbind(fsoc_l_combined, fsoc_r_combined, fsoc_medulla, fsoc_cortex, fsoc_kidney, fsoc_full_combined)
   return(tmp_df)
   
 }
@@ -109,6 +115,10 @@ so_subset@meta.data$fsoc_r_medulla <- test$fsoc_r_medulla
 so_subset@meta.data$fsoc_l_combined <- test$fsoc_l_combined
 so_subset@meta.data$fsoc_r_combined <- test$fsoc_r_combined
 so_subset@meta.data$fsoc_full_combined <- test$fsoc_full_combined
+so_subset@meta.data$fsoc_medulla <- test$fsoc_medulla
+so_subset@meta.data$fsoc_cortex <- test$fsoc_cortex
+so_subset@meta.data$fsoc_kidney <- test$fsoc_kidney
+
 
 
 
@@ -161,7 +171,7 @@ so_subset$DCT_celltype <- ifelse((so_subset$KPMP_celltype=="DCT" |
 #filter data to only TAL cells 
 
 
-so_subset <- subset(so_subset, )
+so_subset <- subset(so_subset, celltype2 == 'TAL')
 
 
 

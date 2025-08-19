@@ -137,11 +137,31 @@ table1::table1(~age + sex + bmi+study + epic_mfm_1+epic_insulin_1+epic_glp1ra_1+
 
 tmp_df <- dat2 %>% dplyr::select(starts_with('fsoc'))
 
-dat_results <- dat2 %>% mutate(fsoc_l_combined = (fsoc_l_cortex +fsoc_l_kidney+ fsoc_l_medulla)/3,
-                               fsoc_r_combined = (fsoc_r_cortex +fsoc_r_kidney +fsoc_r_medulla)/3,
-                               fsoc_full_combined = (fsoc_l_cortex + fsoc_r_cortex +
-                                                       fsoc_l_kidney + fsoc_r_kidney + 
-                                                       fsoc_l_medulla + fsoc_r_medulla)/6)
+
+
+find_fsoc_averages <- function(data){
+  tmp_data <- data %>% dplyr::select(starts_with('fsoc'))
+  fsoc_full_combined <- rowMeans(tmp_data, na.rm=T)
+  
+  tmp_data <- data %>% dplyr::select(starts_with('fsoc_l_'))
+  fsoc_l_combined <- tmp_data %>% rowMeans(na.rm=T)
+  
+  tmp_data <- data %>% dplyr::select(starts_with('fsoc_r_'))
+  fsoc_r_combined <- tmp_data %>% rowMeans(na.rm=T)
+  
+  fsoc_medulla <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_medulla)
+  fsoc_cortex <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_cortex)
+  fsoc_kidney <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_kidney)
+  
+  tmp_df <- cbind(fsoc_l_combined, fsoc_r_combined, fsoc_medulla, fsoc_cortex, fsoc_kidney, fsoc_full_combined)
+  return(tmp_df)
+  
+}
+
+tmp_results <- find_fsoc_averages(dat)
+
+
+
 
 
 
