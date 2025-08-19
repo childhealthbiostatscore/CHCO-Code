@@ -135,6 +135,7 @@ table1::table1(~age + sex + bmi+study + epic_mfm_1+epic_insulin_1+epic_glp1ra_1+
                  filter(!is.na(group2)))
 
 
+tmp_df <- dat2 %>% dplyr::select(starts_with('fsoc'))
 
 dat_results <- dat2 %>% mutate(fsoc_l_combined = (fsoc_l_cortex +fsoc_l_kidney+ fsoc_l_medulla)/3,
                                fsoc_r_combined = (fsoc_r_cortex +fsoc_r_kidney +fsoc_r_medulla)/3,
