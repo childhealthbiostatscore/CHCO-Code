@@ -3084,7 +3084,7 @@ plot_pseudotime_density_faceted_by_treatment <- function(df,
     facet_wrap(vars(.data[[treatment_col]]), strip.position = "bottom") +
     geom_vline(data = raw_summary, aes(xintercept = p25, color = visit_treatment), linetype = "dashed") +
     geom_vline(data = raw_summary, aes(xintercept = p50, color = visit_treatment), linetype = "dashed") +
-    geom_vline(data = raw_summary, aes(xintercept = p70, color = visit_treatment), linetype = "dashed") +
+    geom_vline(data = raw_summary, aes(xintercept = p75, color = visit_treatment), linetype = "dashed") +
     theme_minimal() +
     labs(x = "Pseudotime", y = "Density", color = NULL, fill = NULL) +
     theme(panel.grid = element_blank(),
