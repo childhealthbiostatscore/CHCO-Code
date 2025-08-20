@@ -198,6 +198,58 @@ boxplot_function <- function(data, variable, label){
     theme(axis.text.x = element_blank(),
           text = element_text(size = 20))
   
+  
+  model <- aov(Variable ~ group2, data = data)
+  model_results <- TukeyHSD(model, conf.level = 0.95)$group2 %>% 
+    as.data.frame()
+  
+  model_results <- model_results %>% 
+    mutate(pvalue = ifelse(`p adj` < 0.001, '< 0.001', 
+                           paste0('p = ', round(`p adj`, 2))))
+  
+  pval_T2D_noslgt2_control <- model_results$pvalue[which(rownames(model_results) == 'T2D-No SGLTi2-Control')] %>%
+    as.character()
+  pval_T2D_total_control <- model_results$pvalue[which(rownames(model_results) == 'T2D Combined-Control')] %>% 
+    as.character()
+  pval_T2D_comparison <- model_results$pvalue[which(rownames(model_results) == 'T2D-SGLTi2-T2D-No SGLTi2')] %>% 
+    as.character()
+  
+  y_max <- max(data$Variable, na.rm = TRUE)
+  y_range <- diff(range(data$Variable, na.rm = TRUE))
+  
+  
+  plot <- plot + 
+    geom_segment(aes(x = 1, xend = 2, y = y_max + 0.15 * y_range, yend = y_max + 0.15 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 1, xend = 1, y = y_max + 0.13 * y_range, yend = y_max + 0.15 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 2, xend = 2, y = y_max + 0.13 * y_range, yend = y_max + 0.15 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    annotate("text", x = 1.5, y = y_max + 0.19 * y_range, label = pval_T2D_total_control, size = 4.5) +
+    
+    geom_segment(aes(x = 1, xend = 1.7, y = y_max + 0.09 * y_range, yend = y_max + 0.09 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 1, xend = 1, y = y_max + 0.07 * y_range, yend = y_max + 0.09 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 1.7, xend = 1.7, y = y_max + 0.07 * y_range, yend = y_max + 0.09 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    annotate("text", x = 1.35, y = y_max + 0.13 * y_range, label = pval_T2D_noslgt2_control, size = 4.5) +
+    
+    geom_segment(aes(x = 1.7, xend = 2.0, y = y_max + 0.03 * y_range, yend = y_max + 0.03 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 1.7, xend = 1.7, y = y_max + 0.01 * y_range, yend = y_max + 0.03 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 2.0, xend = 2.0, y = y_max + 0.01 * y_range, yend = y_max + 0.03 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    annotate("text", x = 1.85, y = y_max + 0.07 * y_range, label = pval_T2D_comparison, size = 4.5) +
+    
+    expand_limits(y = y_max + 0.28 * y_range)
+  
+  print(plot)
+  
+  
+  
+  
 }
 
 
