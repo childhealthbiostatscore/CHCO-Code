@@ -130,9 +130,13 @@ for(i in c(1:nrow(RH2_small))){
 
 dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
 
+dat2$group2[which(dat2$group == 'Obese Control')] <- 'Obese Control' 
+
 
 table1::table1(~age + sex + bmi+study + epic_mfm_1+epic_insulin_1+epic_glp1ra_1+epic_sglti2_1 | group2,data=dat2 %>% 
                  filter(!is.na(group2)))
+
+dat2$group2[which(dat2$group %in% c('Obese Control', 'Lean Control'))] <- 'Control'
 
 
 tmp_df <- dat2 %>% dplyr::select(starts_with('fsoc'))
@@ -202,7 +206,7 @@ dat_results_combined <- dat_results %>%
   mutate(group2 = 'T2D Combined')
 
 df_plot <- bind_rows(dat_results, dat_results_combined) %>% 
-  mutate(group2 = factor(group2, levels = c('Lean Control', 
+  mutate(group2 = factor(group2, levels = c('Control', 
                                             'T2D-No SGLTi2', 
                                             'T2D-SGLTi2',
                                             'T2D Combined')))
@@ -227,7 +231,7 @@ boxplot_function <- function(data, variable, label){
   data <- data %>% mutate(position = ifelse(group2 == 'T2D-No SGLTi2', 1.7, ifelse(group2 == 'T2D-SGLTi2', 2.0, NA)))
   
   
-  ggplot(data %>% dplyr::filter(group2 %in% c('Lean Control', 'T2D Combined')), aes(x = group2, y = Variable, fill = group2))  +
+  ggplot(data %>% dplyr::filter(group2 %in% c('Control', 'T2D Combined')), aes(x = group2, y = Variable, fill = group2))  +
     geom_boxplot(width = 1.3, size = 1)+
     scale_fill_manual(values = c("#c2dfe3", "#fff9ec", "#fcb1a6", "#fb6376")) +
     geom_boxplot(data = data %>%
