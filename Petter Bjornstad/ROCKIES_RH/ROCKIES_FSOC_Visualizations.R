@@ -48,7 +48,7 @@ load('C:/Users/netio/Documents/UofW/Rockies/Line438_Boxplots_NoMed.RData')
 
 dat2 <- dat %>% filter(visit == 'baseline') %>% 
   filter(study %in% c('RENAL-HEIR', 'RENAL-HEIRitage', 'CROCODILE') | record_id == 'IT_19') %>%
-  filter(group != 'Obese Control') %>% 
+#  filter(group != 'Obese Control') %>% 
   dplyr::select(mrn, record_id, study, visit, group, group2, starts_with('fsoc'), bmi, 
                 epic_sglti2_1, age, sex, epic_mfm_1, epic_insulin_1, epic_glp1ra_1)
 

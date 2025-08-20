@@ -48,9 +48,13 @@ load('C:/Users/netio/Documents/UofW/Rockies/Line438_Boxplots_NoMed.RData')
 
 harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
 
+#harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+#date_of_screen
+#screen_date
 
 dat <- harmonized_data %>% dplyr::select(-dob) %>% 
-  arrange(screen_date) %>% 
+  arrange(date_of_screen) %>% 
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(record_id, visit))
@@ -88,23 +92,56 @@ PET_avg <- function(data){
 tmp_results <- PET_avg(dat)
 
 
-dat_results <- dat %>% dplyr::select(-avg_c_k2, -avg_m_k2, -avg_c_f)
+dat_results <- dat
+
+#if(OneDrive == T){
+#  dat_results$avg_c_k2 <- NULL
+#  dat_results$avg_c_f <- NULL
+#  dat_results$avg_m_k2 <- NULL
+#}
 
 dat_results <- dat_results %>% bind_cols(tmp_results)
 
+
 dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 
-table1::table1(~age + sex + bmi + study + group + epic_sglti2_1 + 
-                 avg_c_k2 + avg_c_f + avg_m_k2 + avg_m_f + avg_c_k2_f + avg_m_k2_f | group, data = dat_results)
+table1::table1(~age + sex + bmi + study + group + epic_sglti2_1 + avg_c_k2 + avg_c_f + avg_m_k2 + avg_c_k2_f + avg_m_k2_f| group, 
+               data = dat_results)
 
 
+dat_results <- dat_results %>% mutate(group2 = ifelse(group == 'Lean Control', 'Lean Control', 
+                                      ifelse(epic_sglti2_1 == 'Yes', 'T2D-SGLTi2', 'T2D-No SGLTi2')))
+
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+
+dat_results$epic_sglti2_1[which(dat_results$group == 'Lean Control')] <- 'No'
 
 
+RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-SGLT2Use.csv')
+names(RH2) <- c('Subject', 'event', 'rep_instr', 'rep_inst', 'mrn', 'SGLT2', 'SGLT2_ever')
+RH2 <- RH2 %>% filter(!is.na(mrn))
+
+need_med_info <- dat_results %>% filter(is.na(group2))
+RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
 
 
+for(i in c(1:nrow(RH2_small))){
+  if(RH2_small$SGLT2[i] == 'No'){
+    dat_results$group2[which(dat_results$mrn == RH2_small$mrn[i])] <- 'T2D-No SGLTi2'
+    dat_results$epic_sglti2_1[which(dat_results$mrn == RH2_small$mrn[i])] <- 'No'
+  }else if(RH2_small$SGLT2[i] == 'Yes'){
+    dat_results$group2[which(dat_results$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2' 
+    dat_results$epic_sglti2_1[which(dat_results$mrn == RH2_small$mrn[i])] <- 'Yes'
+  }else{
+    next
+  }
+  
+}
 
 
+dat_results$epic_sglti2_1[which(dat_results$group2 == 'T2D-SGLTi2')] <- 'Yes'
 
+table1::table1(~ age + sex + bmi + study + group + epic_sglti2_1+ epic_glp1ra_1 + epic_insulin_1 | group2, data = dat_results)
 
 tests <- c('avg_c_k2', 'avg_c_f', 
            'avg_m_k2', 'avg_m_f', 
