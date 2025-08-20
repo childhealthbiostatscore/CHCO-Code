@@ -60,6 +60,7 @@ library(UpSetR)
 library(WriteXLS)
 library(parallel)
 library(doParallel)
+library(quantreg)
 source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
 ```
 
@@ -279,6 +280,8 @@ for (vars in clin_vars) {
 # EC
 
 ```{r echo = F}
+clin_vars <- c("mgfr_jodal_delta", "mgfr_jodal_bsa_delta")
+
 start_time <- Sys.time()
 
 for (vars in clin_vars) {
@@ -301,6 +304,34 @@ for (vars in clin_vars) {
           " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
           " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
 }
+```
+
+```{r echo = F}
+# EC-GC
+attempt_so_ec_gc <- subset(attempt_so, KPMP_celltype == "EC-GC")
+start_time <- Sys.time()
+
+for (vars in clin_vars) {
+  iter_start <- Sys.time()
+  message("[", format(iter_start, "%Y-%m-%d %H:%M:%S"), "] Processing: ", vars)
+
+  nb_results <- run_nebula_for_clinvar(
+    seurat_obj = attempt_so_ec_gc,
+    clinical_var = vars,
+    celltype_var = "KPMP_celltype",
+    celltype_values = "EC-GC",
+    s3 = s3, s3_bucket = "attempt",
+    workers = 100
+  )
+
+  assign(paste0(vars, "_ec_gc_res"), nb_results)
+  
+  iter_end <- Sys.time()
+  message("    Finished: ", vars,
+          " | Elapsed: ", round(as.numeric(difftime(iter_end, iter_start, units = "mins")), 2), " min",
+          " | Total runtime: ", round(as.numeric(difftime(iter_end, start_time, units = "mins")), 2), " min")
+}
+
 ```
 
 # Immune

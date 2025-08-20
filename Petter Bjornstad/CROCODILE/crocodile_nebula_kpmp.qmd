@@ -170,7 +170,7 @@ for (celltype in tolower(names(celltype_groups))) {
                     "_kpmp_croc_hvg.rds")
   
   nebula_results[[celltype]] <- run_nebula_parallel(
-    seurat_obj = croc_so_subset,
+    seurat_obj = croc_so_hvg_subset,
     subject_id_col = "record_id",
     formula = ~ group,
     s3_key = s3_path,
@@ -181,3 +181,82 @@ for (celltype in tolower(names(celltype_groups))) {
   cat("Completed analysis for:", celltype, "\n")
 }
 ```
+
+## Targeted (CROC T1D vs. CROC HC) (Genes from ATTEMPT full run p < 0.05)
+
+```{r echo = F}
+library(aws.s3)
+## Create an S3 client
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
+# ATTEMPT results
+# Full gene set
+for (cell in names(celltype_groups))  {
+print(paste0("Processing: ", cell))
+  input_path <- paste0("grouped/", cell, "/ALL/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+
+  processed <- process_nebula_results(cell_df)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp")
+
+  assign(var_name, processed$results)
+}
+```
+
+```{r echo = F}
+# filter to genes with p_treatmentDapagliflozin:visitPOST < 0.05
+for (celltype in tolower(names(celltype_groups))) {
+  
+  sig_genes <- get(paste0(celltype, "_kpmp")) %>%
+    filter(`p_treatmentDapagliflozin:visitPOST` < 0.05) %>%
+    pull(Gene)
+  
+  assign(paste0(celltype, "_attempt_sig"), sig_genes)
+  
+  message(paste("N in", celltype, ":", length(sig_genes)))
+}
+
+```
+
+```{r echo = F}
+# Initialize results list
+targeted_results <- list()
+
+# Loop through each cell type
+for (celltype in tolower(names(celltype_groups))) {
+  
+  # Get the pre-existing Seurat object
+  seurat_obj_name <- paste0("croc_so_", celltype)
+  croc_so_subset <- get(seurat_obj_name)
+  sig_genes <- get(paste0(celltype, "_attempt_sig"))
+  
+  # Subset to only significant genes from ATTEMPT (p < 0.05)
+  croc_so_sig_subset <- subset(croc_so_subset, features = sig_genes)
+  
+  # Run nebula analysis
+  s3_path <- paste0("CROCODILE comparison analysis/", 
+                    toupper(celltype), 
+                    "/nebula/", 
+                    celltype, 
+                    "_kpmp_croc_attempt_targeted.rds")
+  
+  targeted_results[[celltype]] <- run_nebula_parallel(
+    seurat_obj = croc_so_sig_subset,
+    subject_id_col = "record_id",
+    formula = ~ group,
+    s3_key = s3_path,
+    group = F
+  )
+  
+  # Print progress
+  cat("Completed analysis for:", celltype, "\n")
+}
+```
+

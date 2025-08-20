@@ -3041,6 +3041,7 @@ plot_and_test_pseudotime_distribution <- function(df,
   s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", filename_suffix, "_slingshot_density_trtvisit.png")))
   
   # Run progressionTest
+  registerDoSEQ()
   test_result <- progressionTest(sce_object, conditions = df[[visit_treatment_var]])
   print(test_result)
   return(p)
@@ -3064,8 +3065,8 @@ plot_pseudotime_density_faceted_by_treatment <- function(df,
     group_by(.data[[treatment_col]], .data[[visit_col]]) %>%
     summarise(
       p25 = quantile(.data[[pseudotime_var]], probs = 0.25, na.rm = TRUE),
-      p65 = quantile(.data[[pseudotime_var]], probs = 0.65, na.rm = TRUE),
-      p85 = quantile(.data[[pseudotime_var]], probs = 0.85, na.rm = TRUE),
+      p50 = quantile(.data[[pseudotime_var]], probs = 0.5, na.rm = TRUE),
+      p75 = quantile(.data[[pseudotime_var]], probs = 0.75, na.rm = TRUE),
       n = n(),
       .groups = "drop"
     ) %>%
@@ -3082,8 +3083,8 @@ plot_pseudotime_density_faceted_by_treatment <- function(df,
     geom_density(alpha = 0.5, aes(color = .data[[visit_treatment_col]])) +
     facet_wrap(vars(.data[[treatment_col]]), strip.position = "bottom") +
     geom_vline(data = raw_summary, aes(xintercept = p25, color = visit_treatment), linetype = "dashed") +
-    geom_vline(data = raw_summary, aes(xintercept = p65, color = visit_treatment), linetype = "dashed") +
-    geom_vline(data = raw_summary, aes(xintercept = p85, color = visit_treatment), linetype = "dashed") +
+    geom_vline(data = raw_summary, aes(xintercept = p50, color = visit_treatment), linetype = "dashed") +
+    geom_vline(data = raw_summary, aes(xintercept = p75, color = visit_treatment), linetype = "dashed") +
     theme_minimal() +
     labs(x = "Pseudotime", y = "Density", color = NULL, fill = NULL) +
     theme(panel.grid = element_blank(),
@@ -3107,7 +3108,7 @@ plot_pseudotime_density_faceted_by_treatment <- function(df,
 # ===========================================================================
 
 plot_delta_percentile_heatmap <- function(df,
-                                          percentile_prefix = "rq",
+                                          percentile_prefix = "rq_tau_",
                                           visit_col = "visit",
                                           treatment_col = "treatment",
                                           s3_folder = "slingshot",
@@ -3281,7 +3282,7 @@ analyze_pseudotime_by_celltype <- function(so,
                                            custom_colors,   
                                            suffix, 
                                            n_pcs = 10, 
-                                           tau = c(0.25, 0.65, 0.85),
+                                           tau = c(0.25, 0.5, 0.75),
                                            aws_s3,
                                            s3_key) {
   
@@ -4933,7 +4934,8 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
       "#A8B88A",  # Sage green
       "#E6C86E",  # Golden yellow
       "#E89B5C",  # Light orange
-      "#D16558"   # Coral red
+      "#D16558",  # Coral red
+      "#8C6BB1"   # Muted plum
     )
     set_colors <- setNames(muted_palette[1:length(sets)], sets)
   } else {

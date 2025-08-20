@@ -211,6 +211,7 @@ attempt_so <- readRDS(temp_file)
 ```
 
 
+
 ```{r echo = F}
 # remove cells with ambient RNA (indicated with high expression of PT biomarkers)
 pt_markers <- c("MIOX", "GLYAT", "ALDOB", "GATM", "FABP1", "HPD", "GPX3")
@@ -292,24 +293,56 @@ attempt_so$treatment <- factor(attempt_so$treatment, levels = c("Placebo", "Dapa
 
 ```{r echo = F}
 DimPlot(attempt_so, reduction = "umap.harmony", group.by = "visit", raster = F, alpha = 0.2)
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_umap_visit.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_umap_visit.png") 
 
 DimPlot(attempt_so, reduction = "umap.harmony", group.by = "treatment", raster = F, alpha = 0.2)
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_umap_treat.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_umap_treat.png") 
 
 DimPlot(attempt_so, reduction = "umap.harmony", group.by = "celltype", raster = F, alpha = 0.2, label = T)
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_umap_celltype.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_umap_celltype.png") 
 
 DimPlot(attempt_so, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_umap_kpmpcelltype.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_umap_kpmpcelltype.png") 
+
+# custom UMAP
+library(ggrepel)
+library(RColorBrewer)
+library(ggtrace)
+my_colors <- colorRampPalette(brewer.pal(12, "Set3"))(43)
+umap_df <- as.data.frame(attempt_so@reductions$umap.harmony@cell.embeddings)
+umap_df$KPMP_celltype <- attempt_so@meta.data$KPMP_celltype
+
+centers <- umap_df %>%
+  group_by(KPMP_celltype) %>%
+  summarise(x = median(umapharmony_1),
+            y = median(umapharmony_2), .groups = "drop")
+
+ggplot(umap_df,
+       aes(x = umapharmony_1, y = umapharmony_2, color = KPMP_celltype)) +
+  geom_point(alpha = 0.2) +
+  geom_text_repel(data = centers,
+                  aes(x = x, y = y, label = KPMP_celltype),
+                  inherit.aes = FALSE,
+                  size = 4, fontface = "bold", color = "black",
+                  family = "arial") +
+  scale_color_manual(values = my_colors) +
+  theme_minimal() + 
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        axis.title.x = element_text(hjust = 0),   # move x label to left
+        axis.title.y = element_text(hjust = 0))  + # push y label down to bottom) 
+  labs(x = "UMAP1", y = "UMAP2")
+temp_file <- tempfile(fileext = ".png")
+ggsave(temp_file, width = 7, height = 7, dpi = 300)
+s3$upload_file(temp_file, "attempt", "Figures/attempt_umap_kpmpcelltype.png") 
 
 ```
 
@@ -329,7 +362,21 @@ attempt_so$celltype_general <- case_when(
   attempt_so$celltype %in% c("IC-A", "IC-B") ~ "IC",
   attempt_so$celltype %in% c("EC-PTC", "EC-GC", "EC-AEA", "EC-LYM") ~ "EC",
   attempt_so$celltype %in% c("FIB", "VSMC/P") ~ "FIB/VSMC/P",
-  TRUE ~ "Other - ATL, CNT, DCT, DTL, MC, PEC, POD, lowQ")
+  attempt_so$celltype %in% c("POD") ~ "POD",
+  TRUE ~ "Other - ATL, CNT, DCT, DTL, MC, PEC, lowQ")
+
+attempt_so$KPMP_celltype_general <- case_when(
+  attempt_so$KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT") ~ "PT",
+  attempt_so$KPMP_celltype %in% c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL") ~ "TAL",
+  attempt_so$KPMP_celltype %in% c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC") ~ "PC",
+  attempt_so$KPMP_celltype %in% c("IC-A", "IC-B", "aIC") ~ "IC",
+  attempt_so$KPMP_celltype %in% c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC") ~ "EC",
+  attempt_so$KPMP_celltype %in% c("MAC", "MON", "cDC", "pDC") ~ "Immune (M)",
+  attempt_so$KPMP_celltype %in% c("CD4+ T", "CD8+ T", "B", "NK") ~ "Immune (L)",
+  attempt_so$KPMP_celltype %in% c("VSMC/P", "FIB") ~ "VSMC/P, FIB",
+  attempt_so$KPMP_celltype %in% c("POD") ~ "POD",
+  TRUE ~ "Other"
+)
 
 attempt_meta <- attempt_so@meta.data %>%
   mutate(visit_treatment = paste0(visit, " ", treatment))
@@ -369,19 +416,32 @@ attempt_meta$KPMP_celltype <- factor(attempt_meta$KPMP_celltype,
                                           "aIC", "SchwannCells", "non-specific"))
 
 
-attempt_meta$celltype_general <- factor(attempt_meta$celltype_general,
+attempt_meta$KPMP_celltype_general <- factor(attempt_meta$KPMP_celltype_general,
                                 levels = c("PT", 
                                            "TAL", 
-                                           "PC", 
-                                           "IC", 
-                                           "EC", 
-                                           "FIB/VSMC/P", 
-                                           "Immune_Myeloid",
-                                           "Immune_Lymphoid",
-                                           "Other - ATL, CNT, DCT, DTL, MC, PEC, POD, lowQ"))
+                                           "EC",
+                                           "IC",
+                                           "POD",
+                                           "PC",
+                                           "VSMC/P, FIB", 
+                                           "Immune (L)",
+                                           "Immune (M)",
+                                           "Other"))
 
 # Check counts
 table(attempt_so$celltype_general)
+# Check counts
+table(attempt_so$KPMP_celltype_general)
+length(unique(attempt_so$KPMP_celltype))
+# count the number of cells in the analyzed celltypes
+focus_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC")
+)
+
+sum(attempt_so$KPMP_celltype %in% unlist(focus_groups)) / ncol(attempt_so)
 ```
 
 ```{r echo = F}
@@ -393,14 +453,17 @@ attempt_meta %>%
   labs(x = NULL,
        y = "Cell count",
        fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
   ggtitle("Cell type distribution") +
   scale_fill_manual(values = c("#fbc4ab", "#f4978e",
                                "#aaae8e", "#828e82"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_cellcounts_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_cellcounts_plot.png") 
 
 attempt_meta %>%
   filter(!grepl("_", celltype)) %>%
@@ -410,15 +473,17 @@ attempt_meta %>%
   labs(x = NULL,
        y = "Proportion",
        fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
+  
   scale_fill_manual(values = c("#fbc4ab", "#f4978e",
                                "#aaae8e", "#828e82"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 15)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_cellcounts_proportions_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_cellcounts_proportions_plot.png") 
 
 attempt_meta %>% 
   filter(!grepl("_", KPMP_celltype)) %>%
@@ -428,14 +493,17 @@ attempt_meta %>%
   labs(x = NULL,
        y = "Cell count",
        fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
   ggtitle("Cell type distribution") +
   scale_fill_manual(values = c("#fbc4ab", "#f4978e",
                                "#aaae8e", "#828e82"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_cellcounts_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_cellcounts_plot.png") 
 
 attempt_meta %>%
   filter(!grepl("_", KPMP_celltype)) %>%
@@ -445,16 +513,17 @@ attempt_meta %>%
   labs(x = NULL,
        y = "Proportion",
        fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
+  
   scale_fill_manual(values = c("#fbc4ab", "#f4978e",
                                "#aaae8e", "#828e82"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 15)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_cellcounts_proportions_plot.jpeg") 
-
+s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_cellcounts_proportions_plot.png") 
 
 attempt_meta %>% 
   ggplot(aes(celltype_general, fill = visit_treatment)) + 
@@ -463,14 +532,17 @@ attempt_meta %>%
   labs(x = NULL,
        y = "Cell count",
        fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
   ggtitle("General cell type distribution") +
   scale_fill_manual(values = c("#fbc4ab", "#f4978e",
                                "#aaae8e", "#828e82"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_general_cellcounts_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_general_cellcounts_plot.png") 
 
 attempt_meta %>%
   ggplot(aes(celltype_general, fill = visit_treatment)) +
@@ -479,19 +551,27 @@ attempt_meta %>%
   labs(x = NULL,
        y = "Proportion",
        fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
+  
   scale_fill_manual(values = c("#fbc4ab", "#f4978e",
                                "#aaae8e", "#828e82"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_general_cellcounts_proportions_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_general_cellcounts_proportions_plot.png") 
 
 celltype_counts <- attempt_meta %>%
   filter(!grepl("Other", as.character(celltype_general))) %>%
   group_by(celltype_general) %>%
+  summarise(n = n()) %>%
+  ungroup()
+
+kpmp_celltype_counts <- attempt_meta %>%
+  filter(!grepl("Other", as.character(KPMP_celltype_general))) %>%
+  group_by(KPMP_celltype_general) %>%
   summarise(n = n()) %>%
   ungroup()
 
@@ -505,14 +585,15 @@ attempt_meta %>%
   labs(x = NULL,
        y = "Cell count",
        fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold")) +
-  ggtitle("General cell type distribution") +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
   scale_fill_manual(values = c("#fbc4ab", "#f4978e",
                                "#aaae8e", "#828e82"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_general_cellcounts_plot_clean.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_general_cellcounts_plot_clean.png") 
 
 attempt_meta %>%
   filter(!grepl("Other", celltype_general)) %>%
@@ -522,15 +603,58 @@ attempt_meta %>%
   labs(x = NULL,
        y = "Proportion",
        fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
   scale_fill_manual(values = c("#fbc4ab", "#f4978e",
                                "#aaae8e", "#828e82"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_general_cellcounts_proportions_plot_clean.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_general_cellcounts_proportions_plot_clean.png") 
+
+
+attempt_meta %>% 
+  filter(!grepl("Other", KPMP_celltype_general)) %>%
+  ggplot(aes(KPMP_celltype_general, fill = visit_treatment)) + 
+  geom_bar(stat = "count") +
+  geom_text(data = kpmp_celltype_counts, aes(x = KPMP_celltype_general, y = n, label = n), 
+            vjust = -0.5, size = 4, inherit.aes = FALSE) +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Cell count",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
+  scale_fill_manual(values = c("#fbc4ab", "#f4978e",
+                               "#aaae8e", "#828e82"))+
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)))
+temp_file <- tempfile(fileext = ".png")
+ggsave(temp_file)
+s3$upload_file(temp_file, "attempt", "Figures/attempt_general_kpmp_cellcounts_plot_clean.png") 
+
+attempt_meta %>%
+  filter(!grepl("Other", KPMP_celltype_general)) %>%
+  ggplot(aes(KPMP_celltype_general, fill = visit_treatment)) +
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
+  scale_fill_manual(values = c("#fbc4ab", "#f4978e",
+                               "#aaae8e", "#828e82"))
+temp_file <- tempfile(fileext = ".png")
+ggsave(temp_file)
+s3$upload_file(temp_file, "attempt", "Figures/attempt_general_kpmp_cellcounts_proportions_plot_clean.png") 
 
 attempt_meta %>%
   filter(KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT")) %>%
@@ -540,15 +664,16 @@ attempt_meta %>%
   labs(x = NULL,
        y = "Proportion",
        fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
   scale_fill_manual(values = c("PRE Placebo" = "#fbc4ab", "POST Placebo" ="#f4978e",
                                "PRE Dapagliflozin"= "#aaae8e", "POST Dapagliflozin" ="#828e82"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_pt_proportions_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_pt_proportions_plot.png") 
 
 attempt_meta$kpmp_tal <- case_when(grepl("TAL", attempt_so$KPMP_celltype) ~ attempt_so$KPMP_celltype)
 attempt_meta$kpmp_tal <- factor(attempt_meta$kpmp_tal,
@@ -561,15 +686,20 @@ attempt_meta %>%
   labs(x = NULL,
        y = "Proportion",
        fill = "Cell type") +
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
-  theme(plot.title = element_text(hjust=0.5, face="bold"),
-        text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20),
+        legend.position = "bottom") +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE)) +
   scale_fill_manual(values = c("PRE Placebo" = "#fbc4ab", "POST Placebo" ="#f4978e",
                                "PRE Dapagliflozin"= "#aaae8e", "POST Dapagliflozin" ="#828e82"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file)
-s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_tal_proportions_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/attempt_kpmp_tal_proportions_plot.png") 
+
+temp_file <- tempfile(fileext = ".Rdata")
+save(attempt_meta, file = temp_file)
+s3$upload_file(temp_file, "attempt", "cleaned_data/attempt_meta_proportions.Rdata")
 ```
 
 
@@ -632,11 +762,10 @@ attempt_pt_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_visit_proportions_plot.png")
 
 attempt_pt_meta %>%
   filter(celltype != "PT_lowQuality") %>%
@@ -649,11 +778,10 @@ attempt_pt_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_treatment_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_treatment_proportions_plot.png")
 
 
 attempt_pt_meta %>%
@@ -667,11 +795,10 @@ attempt_pt_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_treatment_visit_proportions_plot.png")
 
 attempt_meta %>%
   filter(KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT")) %>%
@@ -684,11 +811,10 @@ attempt_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_visit_proportions_plot_kpmp.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_visit_proportions_plot_kpmp.png")
 
 attempt_meta %>%
   filter(KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT")) %>%
@@ -701,11 +827,10 @@ attempt_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_visit_treatment_proportions_plot_kpmp.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pt_visit_treatment_proportions_plot_kpmp.png")
 ```
 
 ```{r echo = F, eval = F}
@@ -1559,11 +1684,10 @@ attempt_tal_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#e9c46a", "#f4a261"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_treatment_visit_proportions_plot.png")
 
 attempt_tal_meta %>%
   filter(celltype != "tal_lowQuality") %>%
@@ -1576,11 +1700,10 @@ attempt_tal_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#e9c46a", "#f4a261"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_treatment_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_treatment_proportions_plot.png")
 
 attempt_tal_meta %>%
   filter(celltype != "tal_lowQuality") %>%
@@ -1593,11 +1716,10 @@ attempt_tal_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#e9c46a", "#f4a261"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_treatment_visit_proportions_plot.png")
 
 attempt_meta %>%
   filter(grepl("TAL", KPMP_celltype)) %>%
@@ -1610,11 +1732,10 @@ attempt_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_visit_proportions_plot_kpmp.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_visit_proportions_plot_kpmp.png")
 
 attempt_meta %>%
   filter(grepl("TAL", KPMP_celltype)) %>%
@@ -1627,11 +1748,10 @@ attempt_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_treatment_proportions_plot_kpmp.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_treatment_proportions_plot_kpmp.png")
 
 attempt_meta %>%
   filter(grepl("TAL", KPMP_celltype)) %>%
@@ -1644,11 +1764,10 @@ attempt_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_visit_treatment_proportions_plot_kpmp.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_tal_visit_treatment_proportions_plot_kpmp.png")
 ```
 
 #### Mixed model (hurdle, nested random effect)
@@ -2030,11 +2149,10 @@ attempt_immune_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_immune_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_immune_treatment_visit_proportions_plot.png")
 
 attempt_immune_meta %>%
   ggplot(aes(treatment, fill = celltype)) +
@@ -2046,11 +2164,10 @@ attempt_immune_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_immune_treatment_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_immune_treatment_proportions_plot.png")
 
 attempt_immune_meta %>%
   ggplot(aes(visit_treatment, fill = celltype)) +
@@ -2062,11 +2179,10 @@ attempt_immune_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_immune_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_immune_treatment_visit_proportions_plot.png")
 ```
 
 #### Mixed model (hurdle, nested random effect)
@@ -2926,11 +3042,10 @@ attempt_pc_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
   theme(plot.title = element_text(hjust=0.5, face="bold"), 
         text = element_text(size = 20)) + 
-  ggtitle("Proportion of cells") + 
   scale_fill_manual(values = c("#264653", "#e9c46a", "#f4a261")) 
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pc_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pc_treatment_visit_proportions_plot.png")
 
 attempt_pc_meta %>% 
   ggplot(aes(treatment, fill = celltype)) + 
@@ -2942,11 +3057,10 @@ attempt_pc_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
   theme(plot.title = element_text(hjust=0.5, face="bold"), 
         text = element_text(size = 20)) + 
-  ggtitle("Proportion of cells") + 
   scale_fill_manual(values = c("#264653", "#e9c46a", "#f4a261")) 
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pc_treatment_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pc_treatment_proportions_plot.png")
 
 
 attempt_pc_meta %>% 
@@ -2959,11 +3073,11 @@ attempt_pc_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) + 
   theme(plot.title = element_text(hjust=0.5, face="bold"), 
         text = element_text(size = 20)) + 
-  ggtitle("Proportion of cells") + 
+   
   scale_fill_manual(values = c("#264653", "#e9c46a", "#f4a261")) 
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pc_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pc_treatment_visit_proportions_plot.png")
 ``` 
 
 #### Mixed model (hurdle, nested random effect) 
@@ -3309,11 +3423,11 @@ attempt_ic_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ic_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ic_treatment_visit_proportions_plot.png")
 
 attempt_ic_meta %>%
   ggplot(aes(treatment, fill = celltype)) +
@@ -3325,11 +3439,11 @@ attempt_ic_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ic_treatment_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ic_treatment_proportions_plot.png")
 
 attempt_ic_meta %>%
   ggplot(aes(visit_treatment, fill = celltype)) +
@@ -3341,11 +3455,11 @@ attempt_ic_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ic_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ic_treatment_visit_proportions_plot.png")
 ```
 
 #### Mixed model (hurdle, nested random effect)
@@ -3685,11 +3799,11 @@ attempt_ec_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ec_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ec_treatment_visit_proportions_plot.png")
 
 attempt_ec_meta %>%
   ggplot(aes(treatment, fill = celltype)) +
@@ -3701,11 +3815,11 @@ attempt_ec_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ec_treatment_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ec_treatment_proportions_plot.png")
 
 attempt_ec_meta %>%
   ggplot(aes(visit_treatment, fill = celltype)) +
@@ -3717,11 +3831,11 @@ attempt_ec_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ec_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_ec_treatment_visit_proportions_plot.png")
 ```
 
 #### Mixed model (hurdle, nested random effect)
@@ -4063,11 +4177,11 @@ attempt_fibvsmc_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_fibvsmc_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_fibvsmc_treatment_visit_proportions_plot.png")
 
 attempt_fibvsmc_meta %>%
   ggplot(aes(treatment, fill = celltype)) +
@@ -4079,11 +4193,11 @@ attempt_fibvsmc_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_fibvsmc_treatment_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_fibvsmc_treatment_proportions_plot.png")
 
 attempt_fibvsmc_meta %>%
   ggplot(aes(visit_treatment, fill = celltype)) +
@@ -4095,11 +4209,11 @@ attempt_fibvsmc_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_fibvsmc_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_fibvsmc_treatment_visit_proportions_plot.png")
 ```
 
 #### Mixed model (hurdle, nested random effect)
@@ -4442,11 +4556,11 @@ attempt_pod_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pod_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pod_treatment_visit_proportions_plot.png")
 
 attempt_pod_meta %>%
   ggplot(aes(treatment, fill = celltype)) +
@@ -4458,11 +4572,11 @@ attempt_pod_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pod_treatment_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pod_treatment_proportions_plot.png")
 
 attempt_pod_meta %>%
   ggplot(aes(visit_treatment, fill = celltype)) +
@@ -4474,11 +4588,11 @@ attempt_pod_meta %>%
   theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
   theme(plot.title = element_text(hjust=0.5, face="bold"),
         text = element_text(size = 20)) +
-  ggtitle("Proportion of cells") +
+  
   scale_fill_manual(values = c("#264653", "#2a9d8f"))
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, height = 10, width = 8)
-s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pod_treatment_visit_proportions_plot.jpeg")
+s3$upload_file(temp_file, "attempt", "Figures/Proportions/attempt_pod_treatment_visit_proportions_plot.png")
 ```
 
 #### Mixed model (hurdle, nested random effect)
@@ -4622,23 +4736,19 @@ s3$upload_file(temp_file, "attempt", 'POD/nebula/pod_attempt_nebula_res_reml_poo
 
 ```{r echo = F}
 source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
-# Get unique cell types
-celltypes <- unique(Idents(attempt_so))
-
 # --- cell type groups
 celltype_groups <- list(
   # PT = c("PT-S1/S2", "PT-S3", "aPT"),
   TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
   PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
-  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
-  IC = c("IC-A", "IC-B", "aIC"),
-  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  # EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  # IC = c("IC-A", "IC-B", "aIC"),
+  # Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
   # Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
   # Immune_lymphoid = c("CD4+ T", "CD8+", "T", "B", "NK"),
-  VSMC_P_FIB = c("VSMC/P", "FIB"),
-  POD = "POD"
+  # VSMC_P_FIB = c("VSMC/P", "FIB"),
+  # POD = "POD"
 )
-
 
 all_listed_celltypes <- unique(unlist(celltype_groups))
 
@@ -4664,7 +4774,7 @@ run_for_subset <- function(so_subset, label) {
   # --- ALL run
   res_all <- run_nebula_parallel(
     seurat_obj = so_subset,
-    n_cores = 100,
+    n_cores = 50,
     s3_bucket = "attempt",
     s3_key = paste0(label, "/ALL/nebula/", gsub("/", "_", tolower(label)),
                     "_kpmp_attempt_nebula_res_reml_pooled.rds")
@@ -4675,16 +4785,69 @@ run_for_subset <- function(so_subset, label) {
        ALL = res_all)
 }
 
-celltype_groups  <- list(
-  # PT = c("PT-S1/S2", "PT-S3", "aPT"),
-  # TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
-  # PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
-  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
-  IC = c("IC-A", "IC-B", "aIC"),
-  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
-  VSMC_P_FIB = c("VSMC/P", "FIB"),
-  POD = "POD"
+# --- Loop through each cell type group
+for (grp_name in names(celltype_groups)) {
+  message("Processing group: ", grp_name)
+
+  so_subset <- subset(attempt_so, idents = celltype_groups[[grp_name]])
+  res_list <- run_for_subset(so_subset, paste0("grouped/", grp_name))
+
+  nebula_kpmp_results_list_reml_pooled[[paste0(grp_name, "_group")]] <- res_list
+}
+
+# # --- Loop through each individual cell type
+# for (ct in all_listed_celltypes) {
+#   message("Processing individual cell type: ", ct)
+#   
+#   so_subset <- subset(attempt_so, idents = ct)
+#   res_list <- run_for_subset(so_subset, paste0("individual/", ct))
+#   
+#   nebula_kpmp_results_list_reml_pooled[[paste0(ct, "_individual")]] <- res_list
+# }
+```
+
+```{r echo = F}
+# --- cell type groups
+celltype_groups <- list(
+  EPI_combined = c("PT-S1/S2", "PT-S3", "aPT", "ATL", "DTL", "aDTL", "dTAL", "aTAL", "C-TAL-1", "C-TAL-2", "DCT", "dDCT", "CNT", "CNT-PC", "CCD-PC", "dCCD-PC", "M-PC", "IC-A", "IC-B", "aIC", "tPC-IC", "POD", "PEC", "MC"),
+  ENDO_GLOM_VSMC_combined = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "POD", "MC", "VSMC/P")
 )
+
+all_listed_celltypes <- unique(unlist(celltype_groups))
+
+# --- Initialize result list
+nebula_kpmp_results_list_reml_pooled <- list()
+
+# --- Helper function to run HVG + ALL analysis
+run_for_subset <- function(so_subset, label) {
+  # --- HVG selection for this subset
+  so_hvg <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
+  hvgs <- VariableFeatures(so_hvg)
+  so_hvg <- subset(so_subset, features = hvgs)
+
+  # --- HVG run
+  res_hvg <- run_nebula_parallel(
+    seurat_obj = so_hvg,
+    n_cores = 50,
+    s3_bucket = "attempt",
+    s3_key = paste0(label, "/HVG/nebula/", gsub("/", "_", tolower(label)),
+                    "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  )
+
+  # --- ALL run
+  res_all <- run_nebula_parallel(
+    seurat_obj = so_subset,
+    n_cores = 50,
+    s3_bucket = "attempt",
+    s3_key = paste0(label, "/ALL/nebula/", gsub("/", "_", tolower(label)),
+                    "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  )
+
+  list(
+    # HVG = res_hvg, 
+       ALL = res_all)
+}
+
 # --- Loop through each cell type group
 for (grp_name in names(celltype_groups)) {
   message("Processing group: ", grp_name)
@@ -4698,14 +4861,13 @@ for (grp_name in names(celltype_groups)) {
 # --- Loop through each individual cell type
 for (ct in all_listed_celltypes) {
   message("Processing individual cell type: ", ct)
-  
+
   so_subset <- subset(attempt_so, idents = ct)
   res_list <- run_for_subset(so_subset, paste0("individual/", ct))
-  
+
   nebula_kpmp_results_list_reml_pooled[[paste0(ct, "_individual")]] <- res_list
 }
 ```
-
 
 # Expression
 
@@ -4775,9 +4937,9 @@ ggplot(pt_nonconverged_df, aes(x = model, y = expression, color = model)) +
   scale_fill_manual(values = c("#7BA179", "#76A0A9", 
                                 "#FAB889", "#EB8B7E"))
 
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/nonconverged/pt_nonconverged_expression_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/nonconverged/pt_nonconverged_expression_plot.png") 
 ```
 
 ### TAL
@@ -4832,9 +4994,9 @@ ggplot(tal_nonconverged_df, aes(x = model, y = expression, color = model)) +
   scale_fill_manual(values = c("#7BA179", "#76A0A9", 
                                 "#FAB889", "#EB8B7E"))
 
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/nonconverged/tal_nonconverged_expression_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/nonconverged/tal_nonconverged_expression_plot.png") 
 ```
 ### immune
 ```{r echo = F}
@@ -4888,9 +5050,9 @@ ggplot(immune_nonconverged_df, aes(x = model, y = expression, color = model)) +
   scale_fill_manual(values = c("#7BA179", "#76A0A9", 
                                 "#FAB889", "#EB8B7E"))
 
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/nonconverged/immune_nonconverged_expression_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/nonconverged/immune_nonconverged_expression_plot.png") 
 ```
 ### PC
 ```{r echo = F}
@@ -4946,9 +5108,9 @@ ggplot(pc_nonconverged_df, aes(x = model, y = expression, color = model)) +
   scale_fill_manual(values = c("#7BA179", "#76A0A9", 
                                 "#FAB889", "#EB8B7E"))
 
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/nonconverged/pc_nonconverged_expression_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/nonconverged/pc_nonconverged_expression_plot.png") 
 ```
 
 ### IC
@@ -5005,9 +5167,9 @@ ggplot(ic_nonconverged_df, aes(x = model, y = expression, color = model)) +
   scale_fill_manual(values = c("#7BA179", "#76A0A9", 
                                 "#FAB889", "#EB8B7E"))
 
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/nonconverged/ic_nonconverged_expression_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/nonconverged/ic_nonconverged_expression_plot.png") 
 ```
 ### EC
 ```{r echo = F}
@@ -5063,9 +5225,9 @@ ggplot(ec_nonconverged_df, aes(x = model, y = expression, color = model)) +
   scale_fill_manual(values = c("#7BA179", "#76A0A9", 
                                 "#FAB889", "#EB8B7E"))
 
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/nonconverged/ec_nonconverged_expression_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/nonconverged/ec_nonconverged_expression_plot.png") 
 ```
 ### FIB, VSMC/P
 ```{r echo = F}
@@ -5121,9 +5283,9 @@ ggplot(fibvsmcp_nonconverged_df, aes(x = model, y = expression, color = model)) 
   scale_fill_manual(values = c("#7BA179", "#76A0A9", 
                                 "#FAB889", "#EB8B7E"))
 
-temp_file <- tempfile(fileext = ".jpeg")
+temp_file <- tempfile(fileext = ".png")
 ggsave(temp_file, width = 10)
-s3$upload_file(temp_file, "attempt", "Figures/nonconverged/fibvsmcp_nonconverged_expression_plot.jpeg") 
+s3$upload_file(temp_file, "attempt", "Figures/nonconverged/fibvsmcp_nonconverged_expression_plot.png") 
 ```
 
 # HVGs (union)
