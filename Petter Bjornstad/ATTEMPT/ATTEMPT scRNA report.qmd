@@ -29,6 +29,7 @@ library(broom)
 library(ggbeeswarm)
 library(lemon)
 library(quantreg)
+library(readxl)
 
 source("~/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
@@ -137,10 +138,6 @@ attempt_dat <- left_join(attempt_dat, attempt_redcap_denver) %>%
   ungroup()
 attempt_dat$treatment <- factor(attempt_dat$treatment, levels = c("Placebo", "Dapagliflozin 5mg"))
 
-s3saveRDS(attempt_dat, bucket = "attempt", 
-          object = "cleaned_data/attempt_dat.rds",
-          region = "")
-
 attempt_dat %>%
   filter(biopsy_yn == "Yes") %>%
   filter(visit %in% c(0)) %>%
@@ -163,7 +160,48 @@ attempt_dat %>%
   write.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Clean/ATTEMPT_4M_LN2.csv", na = "",
             row.names = F)
 ```
+```{r echo = F}
+# morphometric report
+morph_report <- read_excel(file.path(root_path, "ATTEMPT/Results/Morphometry_qualitative-Aug20-2025.xlsx")) %>%
+  filter(!is.na(Average)) %>%
+  dplyr::select(-Average) %>%  
+  pivot_longer(
+    cols = starts_with("SU-"),
+    names_to = "Pathology_report_ID",
+    values_to = "value"
+  ) %>%
+  pivot_wider(
+    names_from = IDs,
+    values_from = value
+  ) %>%
+  dplyr::mutate(across(3:ncol(.), ~ case_when(
+    . == 0 ~ "No",
+    . == 1 ~ "Yes"
+  )))
 
+biopsy_master <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/Biopsy master tracker.xlsx", skip = 2) 
+colnames(biopsy_master) <- gsub(" ", "_", colnames(biopsy_master))  # Replace spaces with underscores
+colnames(biopsy_master) <- gsub("/", "_", colnames(biopsy_master))  # Replace slashes with underscores
+colnames(biopsy_master) <- gsub("\\(", "_", colnames(biopsy_master))  # Replace opening parentheses with underscores
+colnames(biopsy_master) <- gsub("\\)", "", colnames(biopsy_master))  # Remove closing parentheses
+morph_report_merged <- biopsy_master %>%
+  right_join(morph_report) %>%
+  dplyr::mutate(visit = case_when(Visit_ID == "BL" ~ 0,
+                                  Visit_ID == "4M" ~ 16),
+                subject_id = case_when(Study == "PANDA" ~ Coenroll_ID__Same_visit_only, 
+                                       T ~ Study_ID),
+                subject_id = as.numeric(subject_id),
+                kit_id = Kit_ID) %>%
+  dplyr::select(subject_id, visit, Pathology_report_ID, 32:43)
+
+attempt_dat <- attempt_dat %>% left_join(morph_report_merged)
+
+# subset(attempt_dat, biopsy_yn == "Yes" & is.na(Pathology_report_ID) & visit %in% c(0, 16))
+
+s3saveRDS(attempt_dat, bucket = "attempt", 
+          object = "cleaned_data/attempt_dat.rds",
+          region = "")
+```
 
 ## Baseline Table (Full cohort, Dapa vs. Placebo)
 

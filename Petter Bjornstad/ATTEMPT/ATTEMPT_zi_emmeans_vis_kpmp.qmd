@@ -167,6 +167,9 @@ for (cell in unlist(celltype_groups))  {
   
   var_name <- paste0(lower_cell, "_hvg_kpmp_cov")
   assign(var_name, processed$overdispersion)
+  
+  write.csv(annotated_df, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/", tolower(cell), "_kpmp_hvg_res.csv"), row.names = F)
+
 }
 
 # Full gene set
@@ -349,6 +352,7 @@ pt_plots <- create_gene_expression_plots(
   formula = "treatment * visit",
   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
 )
+pt_plots$combined_plot
 ```
 
 
@@ -374,6 +378,7 @@ tal_plots <- create_gene_expression_plots(
   formula = "treatment * visit",
   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
 )
+tal_plots$combined_plot
 ```
 
 ### PC
@@ -570,6 +575,7 @@ pod_hvg_plots <- create_gene_expression_plots(
   volcano_caption_size = 12,
   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
 )
+pod_hvg_plots$combined_plot
 ```
 
 ```{r echo = F}
@@ -1103,15 +1109,94 @@ scenario_colors = c("Activated in D, stable/inhibited in P" = "#81171b",
 names(celltype_groups)
 
 for (cell in names(celltype_groups)){
-  ipa_res <- read_excel(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/kpmp/nebula/", tolower(cell), "_kpmp_DiD.xls"), skip = 1)
+  ipa_res <- read_excel(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/kpmp/nebula/full ", tolower(cell), "_kpmp_DiD.xls"), skip = 1)
   colnames(ipa_res) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
   var_name = paste0(tolower(cell), "_kpmp_ipa")
   assign(var_name, ipa_res, envir = .GlobalEnv)
-  
 }
 ```
 
 ### PT
+
+```{r echo = F}
+library(ggbreak)
+pt_kpmp_ipa_top <- pt_kpmp_ipa %>%
+  arrange(desc(neg_log_p)) %>%
+  filter(!is.na(z)) %>%
+  head(20) %>%
+  mutate(pathway_wrapped = sapply(pathway, function(x) {
+    # Find all space positions
+    space_positions <- gregexpr(" ", x)[[1]]
+    
+    # If less than 3 spaces, return original
+    if(length(space_positions) < 3 || space_positions[1] == -1) return(x)
+    
+    # Convert to character vector
+    chars <- strsplit(x, "")[[1]]
+    
+    # Replace every 3rd space with newline
+    space_count <- 0
+    for(i in 1:length(chars)) {
+      if(chars[i] == " ") {
+        space_count <- space_count + 1
+        if(space_count %% 4 == 0) {
+          chars[i] <- "\n"
+        }
+      }
+    }
+    
+    # Rejoin characters
+    paste(chars, collapse = "")
+  }))
+pt_kpmp_ipa_top$pathway_wrapped <- factor(pt_kpmp_ipa_top$pathway_wrapped, 
+                                          levels = (pt_kpmp_ipa_top$pathway_wrapped))
+pt_kpmp_ipa_top$pathway <- factor(pt_kpmp_ipa_top$pathway, 
+                                          levels = (pt_kpmp_ipa_top$pathway))
+break_point <- min(pt_kpmp_ipa_top$neg_log_p) - 0.2
+pt_kpmp_ipa_top %>%
+  ggplot(aes(y = pathway, x = z, fill = z)) +
+  geom_col(width = 0.5) + 
+  geom_text(label = pt_kpmp_ipa_top$pathway, 
+            x = 0,
+            # hjust = ifelse(pt_kpmp_ipa_top$z < 0, -0.05, 1.05),
+            # color = ifelse(pt_kpmp_ipa_top$z < 0, "#89c2d9", "#ee7674")
+            ) +
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(), legend.position = "top",
+        axis.text.y = element_blank())  +
+  labs(y = NULL, x = "-log(p-value)", fill = "Z-score") +
+  scale_x_continuous(
+    expand = expansion(mult = c(0.5, 0.5)))
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/kpmp/full_pt_ipa.png")
+
+# pt_kpmp_ipa_top %>%
+#   ggplot(aes(x = pathway, y = neg_log_p, fill = z)) +
+#   geom_col_rounded(width = 0.5) + 
+#   geom_text_repel(label = (pt_kpmp_ipa_top$pathway),
+#             nudge_y = seq(from = 20, to = 5, length.out = nrow(pt_kpmp_ipa_top)),
+#             force = 10,
+#             xlim = c(-Inf, Inf),
+#             direction = "y",
+#             vjust = "outward",
+#             max.overlaps = Inf,
+#             color = ifelse(pt_kpmp_ipa_top$z<0, 
+#                                    fill_alpha("#1E5A8A", 1), fill_alpha("#CC4C4A", 1)),
+#             segment.color = ifelse(pt_kpmp_ipa_top$z<0, 
+#                                    fill_alpha("#89c2d9", 0.2), fill_alpha("#ee7674", 0.2))) +
+#   scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+#   theme_minimal() +
+#   theme(panel.grid = element_blank(), legend.position = "bottom",
+#         axis.text.x = element_blank(),
+#         text = element_text(size = 15, family = "Arial"))  +
+#   scale_x_discrete(
+#     expand = expansion(mult = c(0.5, 0.5)))  +
+#     scale_y_continuous(
+#     expand = expansion(mult = c(0, 0.2)))  +
+#   labs(x = NULL, y = "-log(p-value)", fill = "Z-score")
+# ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/nebula/kpmp/full_pt_ipa.png")
+
+```
 
 ```{r echo = F}
 pt_pathways_nebula <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/nebula/pt_DiD_pathways_nebula.xls", skip = 1)
