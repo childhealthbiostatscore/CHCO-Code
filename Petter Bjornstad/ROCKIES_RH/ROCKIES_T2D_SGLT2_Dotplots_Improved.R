@@ -65,7 +65,7 @@ harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - B
 
 
 dat <- harmonized_data %>%
-  arrange(screen_date) %>% 
+  arrange(date_of_screen) %>% 
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(record_id, visit))
@@ -114,7 +114,16 @@ so_subset$DCT_celltype <- ifelse((so_subset$KPMP_celltype=="DCT" |
 
 
 
+counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
 
+sce <- SingleCellExperiment(assays = list(counts = counts_path))
+# sce <- computeSumFactors(sce)
+sce <- computeSumFactors(sce)
+# View size factors
+# sizeFactors(sce)
+# STEP 3: Calculate offset → log(size factors)
+pooled_offset <- sizeFactors(sce)
+so_subset@meta.data$pooled_offset <- pooled_offset
 
 
 
