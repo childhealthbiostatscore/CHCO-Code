@@ -270,6 +270,23 @@ panther_uacr <- (subset(panther, select = c(record_id, group, u24_mab, acr_u, cr
   arrange(desc(u24_mab))
 write.csv(panther_uacr, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_uacr.csv", row.names = F)
 
+panther_uacr_2 <- harm_dat %>% filter(study == "PANTHER") %>%
+  mutate(mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
+  filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(mrn, visit)) %>%
+  dplyr::select(record_id, visit, group, u24_mab, acr_u, creatinine_u, microalbumin_u, creatinine_s)
+
+panther_uacr_wide <- panther_uacr_2 %>%
+  pivot_wider(
+    id_cols = c(record_id, group),  # person ID and group (adjust if needed)
+    names_from = 2,     # visit variable (baseline, year_1, year_2)
+    values_from = 4:8   # the numeric columns
+  ) %>%
+  dplyr::select(where(~ !all(is.na(.x))))
+write.csv(panther_uacr_wide, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_uacr_allvisits.csv", row.names = F, na = "")
+
 # summary(tableby(group_risk ~ kwt(mm_di, "Nmiss", "medianq1q3", "range"), data = subset(panther, mm_di < 10000), total = T, test = F))
 # summary(tableby(group_risk ~ kwt(mm_si, "Nmiss", "medianq1q3", "range"), data = subset(panther, mm_si < 100), total = T, test = F))
 
