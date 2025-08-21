@@ -175,7 +175,7 @@ df_plot <- df_plot %>% mutate(position = ifelse(group2 == 'T2D-No SGLTi2', 1.7, 
 
 
 
-boxplot_function <- function(data, variable, label){
+boxplot_function <- function(data, variable, label, method){
   
   var_index <- which(names(data) == variable)
   data <- data %>% dplyr::select(group2, var_index)
@@ -195,7 +195,7 @@ boxplot_function <- function(data, variable, label){
     theme(axis.text.x = element_blank(),
           text = element_text(size = 20))
   
-  
+  if(method == 'ANOVA'){
   model <- aov(Variable ~ group2, data = data)
   model_results <- TukeyHSD(model, conf.level = 0.95)$group2 %>% 
     as.data.frame()
@@ -210,6 +210,26 @@ boxplot_function <- function(data, variable, label){
     as.character()
   pval_T2D_comparison <- model_results$pvalue[which(rownames(model_results) == 'T2D-SGLTi2-T2D-No SGLTi2')] %>% 
     as.character()
+  }else if(method == 't-test'){
+    
+    
+    tmp <- data %>% filter(group2 %in% c('T2D-No SGLTi2', 'Lean Control'))
+    model1 <- t.test(Variable ~ group2, data = tmp)
+    pval_T2D_noslgt2_control <- ifelse(model1$p.value < 0.001, '< 0.001',
+                                       paste0('p = ', round(model1$p.value, 3)))
+    
+    tmp <- data %>% filter(group2 %in% c('T2D Combined', 'Lean Control'))
+    model1 <- t.test(Variable ~ group2, data = tmp)
+    pval_T2D_total_control <- ifelse(model1$p.value < 0.001, '< 0.001',
+                                     paste0('p = ', round(model1$p.value, 3)))
+    
+    tmp <- data %>% filter(group2 %in% c('T2D-No SGLTi2', 'T2D-SGLTi2'))
+    model1 <- t.test(Variable ~ group2, data = tmp)
+    pval_T2D_comparison <- ifelse(model1$p.value < 0.001, '< 0.001',
+                                  paste0('p = ', round(model1$p.value, 3)))
+
+    
+  }
   
   y_max <- max(data$Variable, na.rm = TRUE)
   y_range <- diff(range(data$Variable, na.rm = TRUE))
@@ -258,7 +278,7 @@ for(i in c(1:length(tests))){
   if(i == 1){
     results_list <- list()
   }
-  results_list[[i]]<- boxplot_function(df_plot, tests[i], tests[i])
+  results_list[[i]]<- boxplot_function(df_plot, tests[i], tests[i], method='ANOVA')
 }
   
   
@@ -281,6 +301,51 @@ gridExtra::grid.arrange(results_list[[1]], results_list[[2]],
                         ncol = 2)
 
 dev.off()
+
+
+
+
+#T-tests 
+for(i in c(1:length(tests))){
+  if(i == 1){
+    results_list <- list()
+  }
+  results_list[[i]]<- boxplot_function(df_plot, tests[i], tests[i], method='t-test')
+}
+
+
+
+pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_KidneyImaging_ttest.pdf', 
+    width =20, height = 20)  
+gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+                        results_list[[3]], results_list[[4]], 
+                        results_list[[5]], results_list[[6]], ncol = 2)
+
+dev.off()
+
+
+
+png('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_KidneyImaging_ttest.png', 
+    width =1200, height = 1600)  
+gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+                        results_list[[3]], results_list[[4]], 
+                        results_list[[5]], results_list[[6]], 
+                        ncol = 2)
+
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -362,7 +427,7 @@ tests <- c('avg_c_k2', 'avg_c_f',
 
 
 
-boxplot_function <- function(data, variable, label){
+boxplot_function <- function(data, variable, label, method){
   
   var_index <- which(names(data) == variable)
   data <- data %>% dplyr::select(group, var_index)
@@ -375,14 +440,14 @@ boxplot_function <- function(data, variable, label){
   available_levels <- desired_order[desired_order %in% unique(data$group)]
   data$group <- factor(data$group, levels = available_levels)
   
-  
+  if(method == 'ANOVA'){
   model <- aov(Variable ~ group, data = data)
   model_results <- TukeyHSD(model, conf.level = 0.95)$group %>% 
     as.data.frame()
   
   model_results <- model_results %>% 
     mutate(pvalue = ifelse(`p adj` < 0.001, '< 0.001', 
-                           paste0('p = ', round(`p adj`, 2))))
+                           paste0('p = ', round(`p adj`, 3))))
   
   pval_1 <- model_results$pvalue[which(rownames(model_results) == 'Type 2 Diabetes-Obese Control')] %>%
     as.character()
@@ -392,6 +457,30 @@ boxplot_function <- function(data, variable, label){
     as.character()
   pval_4 <- model_results$pvalue[which(rownames(model_results) == 'PKD-Type 2 Diabetes')] %>% 
     as.character()
+  }else if(method == 't-test'){
+    
+    tmp_df <- data %>% filter(group %in% c('Type 2 Diabetes', 'Obese Control'))
+    model1 <- t.test(Variable ~ group, data = tmp_df)
+    pval_1 <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                     paste0('p = ', round(model1$p.value, 3)))
+    
+    tmp_df <- data %>% filter(group %in% c('Type 2 Diabetes', 'Lean Control'))
+    model1 <- t.test(Variable ~ group, data = tmp_df)
+    pval_2 <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                     paste0('p = ', round(model1$p.value, 3)))
+    
+    tmp_df <- data %>% filter(group %in% c('Type 2 Diabetes', 'Type 1 Diabetes'))
+    model1 <- t.test(Variable ~ group, data = tmp_df)
+    pval_3 <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                     paste0('p = ', round(model1$p.value, 3)))
+    
+    tmp_df <- data %>% filter(group %in% c('Type 2 Diabetes', 'PKD'))
+    model1 <- t.test(Variable ~ group, data = tmp_df)
+    pval_4 <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                     paste0('p = ', round(model1$p.value, 3)))
+    
+    
+  }
   
   y_max <- max(data$Variable, na.rm = TRUE)
   y_range <- diff(range(data$Variable, na.rm = TRUE))
@@ -501,7 +590,7 @@ for(i in c(1:length(tests))){
   if(i == 1){
     results_list <- list()
   }
-  results_list[[i]]<- boxplot_function(dat_results, tests[i], tests[i])
+  results_list[[i]]<- boxplot_function(dat_results, tests[i], tests[i], method='ANOVA')
 }
 
 png('C:/Users/netio/Documents/UofW/Rockies/AllComparisonGroups_KidneyImaging.png', 
@@ -513,6 +602,23 @@ gridExtra::grid.arrange(results_list[[1]], results_list[[2]],
 
 dev.off()
 
+
+
+for(i in c(1:length(tests))){
+  if(i == 1){
+    results_list <- list()
+  }
+  results_list[[i]]<- boxplot_function(dat_results, tests[i], tests[i], method='t-test')
+}
+
+png('C:/Users/netio/Documents/UofW/Rockies/AllComparisonGroups_KidneyImaging_ttest.png', 
+    width =1200, height = 1600)  
+gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+                        results_list[[3]], results_list[[4]], 
+                        results_list[[5]], results_list[[6]],
+                        ncol = 2)
+
+dev.off()
 
 
 
