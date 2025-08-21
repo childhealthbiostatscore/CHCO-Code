@@ -281,7 +281,7 @@ run_ancova <- function(data, outcome_var, baseline_var, visit_week) {
   
   ancova_results <- data_filtered %>%
     nest_by(visit) %>%
-    mutate(
+   dplyr::mutate(
       model = list(lm(!!outcome_sym ~ treatment + !!baseline_sym, data = data_filtered)),
       tidy_results = list(broom::tidy(model)),
       glance_results = list(broom::glance(model)),
@@ -554,13 +554,13 @@ process_nebula_results <- function(nebula_list,
   # Combine model summary results
   summary_df <- purrr::map_dfr(converged_genes, function(gene_name) {
     nebula_list[[gene_name]]$summary %>%
-      mutate(Gene = gene_name)
+     dplyr::mutate(Gene = gene_name)
   })
   
   # Add FDR adjustment
   if (pval_col %in% names(summary_df)) {
     summary_df <- summary_df %>%
-      mutate(fdr = p.adjust(.data[[pval_col]], method = "fdr"))
+     dplyr::mutate(fdr = p.adjust(.data[[pval_col]], method = "fdr"))
   } else {
     warning(paste("Column", pval_col, "not found in summary data. FDR not computed."))
     summary_df$fdr <- NA
@@ -626,7 +626,7 @@ process_nebula_results_clin <- function(cell_type, clinical_var, cell_subtype,
       df <- nebula_res[[gene_name]]$summary
       df <- df %>% 
         filter(gene_name %in% converged_genes$Gene) %>%
-        mutate(Gene = gene_name)
+       dplyr::mutate(Gene = gene_name)
       return(df)
     }
   )
@@ -637,14 +637,14 @@ process_nebula_results_clin <- function(cell_type, clinical_var, cell_subtype,
   
   res_combined <- res_combined %>%
     ungroup() %>%
-    mutate(fdr_interaction = p.adjust(!!sym(p_col), method = "fdr"))
+   dplyr::mutate(fdr_interaction = p.adjust(!!sym(p_col), method = "fdr"))
   
   # Extract overdispersion information
   res_combined_disp <- map_dfr(
     names(nebula_res),
     function(gene_name) {
       df <- nebula_res[[gene_name]]$overdispersion
-      df <- df %>% mutate(Gene = gene_name)
+      df <- df %>%dplyr::mutate(Gene = gene_name)
       return(df)
     }
   )
@@ -652,7 +652,7 @@ process_nebula_results_clin <- function(cell_type, clinical_var, cell_subtype,
   # Add treatment direction columns if the data contains treatment interaction terms
   if ("p_treatmentDapagliflozin:visitPOST" %in% names(res_combined)) {
     res_combined <- res_combined %>%
-      mutate(
+     dplyr::mutate(
         treatment_direction = case_when(
           `p_treatmentDapagliflozin:visitPOST` < 0.05 &
             `logFC_treatmentDapagliflozin:visitPOST` > 0 ~ "Positive",
@@ -816,6 +816,7 @@ plot_delta_by_category <- function(data,
                                    proper_name = "Value",
                                    y_label = NULL,
                                    x_label = NULL,
+                                   treatment_levels = c("Dapagliflozin 5mg", "Placebo"),
                                    fill_colors = c("Placebo" = "#f8ae9d", 
                                                    "Dapagliflozin 5mg" = "#a7b298",
                                                    "DiD" = "#669bbc"),
@@ -837,7 +838,7 @@ plot_delta_by_category <- function(data,
   # Step 1: Prepare raw data
   summary_df <- data %>%
     group_by(.data[[id_var]]) %>%
-    mutate(
+   dplyr::mutate(
       baseline_value = .data[[value_var]][.data[[visit_var]] == visit_baseline],
       baseline_x_value = .data[[as_string(x_sym)]][.data[[visit_var]] == visit_baseline],
       pre_value = .data[[value_var]][.data[[visit_var]] == visit_pre],
@@ -875,12 +876,12 @@ plot_delta_by_category <- function(data,
   # Step 3: Summary for bars
   plot_df <- summary_df %>%
     group_by(.data[[bin_var_name]], .data[[treatment_var]]) %>%
-    summarise(
+   dplyr::summarise(
       mean_delta = mean(delta_value, na.rm = TRUE),
       se = sd(delta_value, na.rm = TRUE) / sqrt(n()),
       .groups = "drop"
     ) %>%
-    mutate(
+   dplyr::mutate(
       ci_lower = mean_delta - 1.96 * se,
       ci_upper = mean_delta + 1.96 * se
     )
@@ -889,11 +890,11 @@ plot_delta_by_category <- function(data,
   # Step 4: Paired t-test per bin × treatment
   sig_df <- summary_df %>%
     group_by(.data[[bin_var_name]], .data[[treatment_var]]) %>%
-    summarise(
+   dplyr::summarise(
       p_val = tryCatch(t.test(post_value, pre_value, paired = TRUE)$p.value, error = function(e) NA_real_),
       .groups = "drop"
     ) %>%
-    mutate(
+   dplyr::mutate(
       stars = case_when(
         is.na(p_val) ~ "",
         p_val < 0.001 ~ "***",
@@ -905,12 +906,11 @@ plot_delta_by_category <- function(data,
   
   plot_df <- plot_df %>%
     left_join(sig_df, by = c(bin_var_name, treatment_var)) %>%
-    mutate(y_position = ifelse(ci_upper > 0, ci_upper + 0.5, 0.5)) 
+   dplyr::mutate(y_position = ifelse(ci_upper > 0, ci_upper + 0.5, 0.5)) 
   
   # Adding DiD bars
   # Ensure treatment factor levels (matches function's colors)
-  summary_df[[treatment_var]] <- factor(summary_df[[treatment_var]], 
-                                        levels = c("Dapagliflozin 5mg", "Placebo"))
+  summary_df[[treatment_var]] <- factor(summary_df[[treatment_var]], levels = treatment_levels)
   
   # Model and pairwise contrasts by bin
   # Dynamically build formula
@@ -928,7 +928,7 @@ plot_delta_by_category <- function(data,
   
   # Convert to dataframe and add CI + stars
   bin_contrasts_df <- as.data.frame(bin_contrasts) %>%
-    mutate(
+   dplyr::mutate(
       ci_lower = estimate - 1.96 * SE,
       ci_upper = estimate + 1.96 * SE,
       stars = case_when(
@@ -966,8 +966,14 @@ plot_delta_by_category <- function(data,
   }
   
   # Step 6: Plot
+  # Combine: DiD first, then treatment_levels
+  
+  final_levels <- c("DiD", rev(treatment_levels))
+  
+  # Apply the factor
   plot_df[[treatment_var]] <- factor(plot_df[[treatment_var]], 
-                                     levels = c("DiD", "Placebo", "Dapagliflozin 5mg"))
+                                     levels = final_levels)
+  
   p <- ggplot(plot_df, aes(x = .data[[bin_var_name]], y = mean_delta, fill = .data[[treatment_var]])) +
     geom_col(color = "black") +
     geom_quasirandom(
@@ -1033,7 +1039,7 @@ make_comp_plot <- function(attempt_df,
   df_attempt <- attempt_df %>%
     dplyr::rename(p_fdr = fdr,
                   FC    = FC) %>%
-    mutate(direction = case_when(p_fdr < attempt_p_cut & FC < 0 ~ "-",
+   dplyr::mutate(direction = case_when(p_fdr < attempt_p_cut & FC < 0 ~ "-",
                                  p_fdr < attempt_p_cut & FC > 0 ~ "+"),
            source = "ATTEMPT") %>%
     dplyr::select(Gene, direction, p_fdr, source, FC)
@@ -1041,7 +1047,7 @@ make_comp_plot <- function(attempt_df,
   df_croc <- croc_df %>%
     dplyr::rename(p_fdr = p_groupType_1_Diabetes,
                   FC    = logFC_groupType_1_Diabetes) %>%
-    mutate(direction = case_when(p_fdr < croc_p_cut & FC < 0 ~ "-",
+   dplyr::mutate(direction = case_when(p_fdr < croc_p_cut & FC < 0 ~ "-",
                                  p_fdr < croc_p_cut & FC > 0 ~ "+"),
            source = "CROCODILE") %>%
     dplyr::select(Gene, direction, p_fdr, source, FC)
@@ -1055,13 +1061,13 @@ make_comp_plot <- function(attempt_df,
     pivot_wider(names_from  = source,
                 values_from = direction) %>%
     filter(!is.na(ATTEMPT) & !is.na(CROCODILE)) %>%
-    mutate(effect = case_when(
+   dplyr::mutate(effect = case_when(
       (ATTEMPT == "+" & CROCODILE == "+") | 
         (ATTEMPT == "-" & CROCODILE == "-") ~ "Inconsistent",
       ATTEMPT == "+" & CROCODILE == "-" ~ "Reversed towards +\n(T1D depleted)",
       ATTEMPT == "-" & CROCODILE == "+" ~ "Reversed towards -\n(T1D elevated)"
     )) %>%
-    mutate(effect = factor(effect,
+   dplyr::mutate(effect = factor(effect,
                            levels = c("Inconsistent",
                                       "Reversed towards +\n(T1D depleted)",
                                       "Reversed towards -\n(T1D elevated)")))
@@ -1074,11 +1080,11 @@ make_comp_plot <- function(attempt_df,
   if (!is.null(csv_path)) {
     inconsistent_genes <- pt_comp_df_wide %>%
       filter(effect == "Inconsistent") %>%
-      mutate(consistency_type = case_when(
+     dplyr::mutate(consistency_type = case_when(
         ATTEMPT == "+" & CROCODILE == "+" ~ "Both_upregulated",
         ATTEMPT == "-" & CROCODILE == "-" ~ "Both_downregulated"
       )) %>%
-      arrange(Gene)
+      dplyr::arrange(Gene)
     
     write.csv(inconsistent_genes, csv_path, row.names = FALSE)
   }
@@ -1123,7 +1129,7 @@ make_comp_plot <- function(attempt_df,
   
   pt_gene_color_df <- pt_comp_df_wide %>%
     filter(str_detect(effect, "Reversed")) %>%
-    mutate(Gene_label = ifelse(
+   dplyr::mutate(Gene_label = ifelse(
       str_detect(effect, "depleted"),
       paste0("<span style='color:", reversed_cols[1], "'>", Gene, "</span>"),
       paste0("<span style='color:", reversed_cols[2], "'>", Gene, "</span>")
@@ -1135,7 +1141,7 @@ make_comp_plot <- function(attempt_df,
     pt_comp_dot <- pt_comp_df %>%
       left_join(pt_gene_color_df, by = "Gene") %>%
       filter(Gene %in% pt_gene_color_df$Gene) %>%
-      mutate(group = ifelse(source == "ATTEMPT",
+     dplyr::mutate(group = ifelse(source == "ATTEMPT",
                             "Dapa vs. Placebo", "T1D vs. HC"),
              Gene_label = dplyr::coalesce(Gene_label, Gene)) %>%
       ggplot(aes(x = group, y = Gene_label,
@@ -1177,7 +1183,7 @@ make_plot_df <- function(res_df, celltype_label, pos_genes, neg_genes) {
                   logFC = `logFC_treatmentDapagliflozin:visitPOST`, 
                   pval = `p_treatmentDapagliflozin:visitPOST`, 
                   fdr = fdr) %>%
-    mutate(celltype = celltype_label,
+   dplyr::mutate(celltype = celltype_label,
            direction = case_when(
              logFC > 0 ~ "+",
              logFC < 0 ~ "-"
@@ -1222,7 +1228,7 @@ plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axi
     slice_head(n=top_n)
   
   data <- data %>%
-    mutate(top_color = case_when(data$AptName %in% top_pos$AptName ~ "#f28482",
+   dplyr::mutate(top_color = case_when(data$AptName %in% top_pos$AptName ~ "#f28482",
                                  data$AptName %in% top_neg$AptName ~ "#457b9d",
                                  TRUE ~ "#ced4da"),
            top_size = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), 1.3, 1),
@@ -1276,8 +1282,8 @@ plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axi
     coord_cartesian(ylim = c(0, y_max), clip="off") +
     theme(legend.title = element_blank(),
           panel.grid = element_blank(),
-          text = element_text(size = text_size, family = "arial"),
-          title = element_text(size = legend_text_size, family = "arial"),
+          text = element_text(size = text_size, family = "Arial"),
+          title = element_text(size = legend_text_size, family = "Arial"),
           legend.position = legend_position,
           legend.justification = if(is.character(legend_position) && legend_position == "bottom") c(0.5, 0) else c(1, 1),
           legend.direction = "horizontal",
@@ -1308,7 +1314,9 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
                          arrow_text_padding = 0.14,
                          legend_text_size = 9,
                          caption_padding = 15,
-                         x_title_padding_t = 32) {
+                         x_title_padding_t = 32,
+                         genes_to_label= NULL) {
+  
   set.seed(1)
   top_pos <- data %>%
     dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
@@ -1317,6 +1325,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   n_pos <- nrow(top_pos)
   
   top_pos <- top_pos %>%
+    filter(Gene %in% genes_to_label) %>%
     slice_head(n=20)
   
   top_neg <- data %>%
@@ -1326,6 +1335,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   n_neg <- nrow(top_neg)
   
   top_neg <- top_neg %>%
+    filter(Gene %in% genes_to_label) %>%
     slice_head(n=20)
   
   data <- data %>%
@@ -1342,8 +1352,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   
   # Get y-axis max for dynamic scaling
   y_max <- max(-log10(data[[p_col]]), na.rm = TRUE) * 1.1
-  
-  
+
   p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
     geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
@@ -1353,9 +1362,9 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
     labs(title = paste(title),
          x = paste(x_axis),
          y = paste(y_axis),
-         caption = if (!is.null(cell_type) & !full_formula) {
+         caption = if (!is.null(cell_type) & !full_formula & !is.null(formula)) {
            paste0("Formula: ~ ", formula, " + (1|subject)", 
-                  "\n\n Cell type: ", 
+                  "\n\nCell type: ", 
                   cell_type, if(cell_type != "") " | " else "", 
                   "Positive n = ", n_pos, " | Negative n = ", n_neg)
          } else if(!is.null(cell_type) & full_formula) {
@@ -1371,7 +1380,11 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
                  "Negative n =" ~ .(n_neg)
              )
            )
-         } else NULL) +
+         } else {
+           paste0("\nCell type: ", 
+                  cell_type, if(cell_type != "") " | " else "", 
+                  "Positive n = ", n_pos, " | Negative n = ", n_neg)
+         }) +
     scale_size_continuous(range = c(1, 1.3)) + 
     scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
     theme_minimal() +
@@ -1400,8 +1413,8 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
     coord_cartesian(ylim = c(0, y_max), clip="off") +
     theme(legend.title = element_blank(),
           panel.grid = element_blank(),
-          text = element_text(size = text_size, family = "arial"),
-          title = element_text(size = legend_text_size, family = "arial"),
+          text = element_text(size = text_size, family = "Arial"),
+          title = element_text(size = legend_text_size, family = "Arial"),
           legend.position = legend_position,
           legend.justification = if(is.character(legend_position) && legend_position == "bottom") c(0.5, 0) else c(1, 1),
           legend.direction = "horizontal",
@@ -1431,7 +1444,7 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix,
   
   # Add treatment effect directions
   treatment_results <- treatment_results %>%
-    mutate(treatment_direction = case_when(`p_treatmentDapagliflozin:visitPOST` < 0.05 &
+   dplyr::mutate(treatment_direction = case_when(`p_treatmentDapagliflozin:visitPOST` < 0.05 &
                                              `logFC_treatmentDapagliflozin:visitPOST` > 0 ~ "Up w/ Dapagliflozin",
                                            `p_treatmentDapagliflozin:visitPOST` < 0.05 &
                                              `logFC_treatmentDapagliflozin:visitPOST` < 0 ~ "Down w/ Dapagliflozin",
@@ -1454,7 +1467,7 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix,
     left_join(treatment_results %>% 
                 dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`), by = "Gene") %>%
     filter(`logFC_treatmentDapagliflozin:visitPOST` > 0) %>%
-    arrange(!!sym(p_col)) %>%
+    dplyr::arrange(!!sym(p_col)) %>%
     slice_head(n = 5) %>%
     pull(Gene)
   
@@ -1463,7 +1476,7 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix,
     left_join(treatment_results %>% 
                 dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`), by = "Gene") %>%
     filter(`logFC_treatmentDapagliflozin:visitPOST` < 0) %>%
-    arrange(!!sym(p_col)) %>%
+    dplyr::arrange(!!sym(p_col)) %>%
     slice_head(n = 5) %>%
     pull(Gene)
   
@@ -1472,7 +1485,7 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix,
     left_join(treatment_results %>% 
                 dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`), by = "Gene") %>%
     filter(`logFC_treatmentDapagliflozin:visitPOST` > 0) %>%
-    arrange(!!sym(p_col)) %>%
+    dplyr::arrange(!!sym(p_col)) %>%
     slice_head(n = 5) %>%
     pull(Gene)
   
@@ -1481,7 +1494,7 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix,
     left_join(treatment_results %>% 
                 dplyr::select(Gene, `logFC_treatmentDapagliflozin:visitPOST`), by = "Gene") %>%
     filter(`logFC_treatmentDapagliflozin:visitPOST` < 0) %>%
-    arrange(!!sym(p_col)) %>%
+    dplyr::arrange(!!sym(p_col)) %>%
     slice_head(n = 5) %>%
     pull(Gene)
   
@@ -1492,7 +1505,7 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix,
   message("Number of labeled genes: ", length(top_label_genes))
   
   clin_results <- clin_results %>%
-    mutate(shape_var_plot = case_when(
+   dplyr::mutate(shape_var_plot = case_when(
       Gene %in% sig_both_genes & !!sym(fc) < 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Up w/ Dapagliflozin" ~ "Left_Pos",
       Gene %in% sig_both_genes & !!sym(fc) < 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Down w/ Dapagliflozin" ~ "Left_Neg",
       Gene %in% sig_both_genes & !!sym(fc) > 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Up w/ Dapagliflozin" ~ "Right_Pos",
@@ -1590,7 +1603,8 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                                      positive_text = "Positive with Dapagliflozin", 
                                      negative_text = "Negative with Dapagliflozin",
                                      arrow_label = "",
-                                     formula = "\u0394 treatment", color_by = "treatment_direction",
+                                     formula = "\u0394 treatment", 
+                                     color_by = "treatment_direction",
                                      legend_position = "top",
                                      clinical_direction = NULL,
                                      caption_text = paste0("Point position reflects association with clinical variable; point color indicates treatment effect direction.\nPoints are colored if concordant with clinical variable direction after treatment. \nUp to top ", top_n, " from each direction are labeled."),
@@ -1598,16 +1612,31 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                                      seed = 1, 
                                      force = 50,
                                      box.padding = 0.6,
-                                     point.padding = 0.4) {
+                                     point.padding = 0.4, 
+                                     text_size = 3,
+                                     title_size = 9,
+                                     arrow_padding = 0.09,
+                                     arrow_text_padding = 0.18,
+                                     x_axis_padding = 38,
+                                     # New size parameters
+                                     label_size = 3,           # Size for gene labels (default same as text_size)
+                                     arrow_symbol_size = 6,    # Size for up/down arrow symbols
+                                     main_arrow_size = 10,     # Size for the central arrow
+                                     axis_title_size = 9,      # Size for axis titles (default same as title_size)
+                                     axis_text_size = 9,       # Size for axis tick labels
+                                     legend_text_size = 9,     # Size for legend text
+                                     caption_size = 9,         # Size for caption text
+                                     annotation_text_size = 3, # Size for annotation text (positive/negative text)
+                                     save = T) {
   
   set.seed(seed)
   # Add treatment effect directions
   treatment_results <- treatment_results %>%
-    mutate(treatment_direction = case_when(`p_treatmentDapagliflozin:visitPOST` < 0.05 &
-                                             `logFC_treatmentDapagliflozin:visitPOST` > 0 ~ "Up w/ Dapagliflozin",
-                                           `p_treatmentDapagliflozin:visitPOST` < 0.05 &
-                                             `logFC_treatmentDapagliflozin:visitPOST` < 0 ~ "Down w/ Dapagliflozin",
-                                           TRUE ~ "NS/NC"))
+    dplyr::mutate(treatment_direction = case_when(`p_treatmentDapagliflozin:visitPOST` < 0.05 &
+                                                    `logFC_treatmentDapagliflozin:visitPOST` > 0 ~ "Up w/ Dapagliflozin",
+                                                  `p_treatmentDapagliflozin:visitPOST` < 0.05 &
+                                                    `logFC_treatmentDapagliflozin:visitPOST` < 0 ~ "Down w/ Dapagliflozin",
+                                                  TRUE ~ "NS/NC"))
   
   # Calculate concordant genes based on clinical direction
   concordant_genes <- c()
@@ -1645,13 +1674,13 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
   # Label top 50 concordant genes on each side
   top_50_left <- clin_results %>%
     filter(Gene %in% concordant_genes, !!sym(fc) < 0) %>%
-    arrange(!!sym(p_col)) %>%
+    dplyr::arrange(!!sym(p_col)) %>%
     slice_head(n = top_n) %>%
     pull(Gene)
   
   top_50_right <- clin_results %>%
     filter(Gene %in% concordant_genes, !!sym(fc) > 0) %>%
-    arrange(!!sym(p_col)) %>%
+    dplyr::arrange(!!sym(p_col)) %>%
     slice_head(n = top_n) %>%
     pull(Gene)
   
@@ -1663,7 +1692,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
   message("Number of labeled genes: ", length(top_label_genes))
   
   clin_results <- clin_results %>%
-    mutate(
+    dplyr::mutate(
       color_var_plot = case_when(
         Gene %in% concordant_genes ~ treatment_results$treatment_direction[match(Gene, treatment_results$Gene)],
         TRUE ~ "NS/NC"
@@ -1707,7 +1736,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                                 shape = shape_var_plot), size = 2) +
     geom_text(aes(label = arrow_symbol, color = color_var_plot,
                   vjust = ifelse(arrow_symbol == "\u2193", 1, -0.5)),
-              size = 6, family = "Arial", alpha = 0.3) +
+              size = arrow_symbol_size, family = "Arial", alpha = 0.3) +
     scale_shape_manual(values = c("Left_Pos" = 22, "Left_Neg" = 22, "Right_Pos" = 22, "Right_Neg" = 22, "NS/NC" = 22),
                        labels = c("Left_Pos" = "Left Pos", "Left_Neg" = "Left Neg", 
                                   "Right_Pos" = "Right Pos", "Right_Neg" = "Right Neg", "NS/NC" = "NS/NC")) +
@@ -1722,14 +1751,15 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
              x = 0, xend = 0,
              y = if(!is.null(clinical_direction) && clinical_direction == "+") y_max * 0.4 else y_max * 0.9, 
              yend = if(!is.null(clinical_direction) && clinical_direction == "+") y_max * 0.9 else y_max * 0.4,
-             size = 10, linejoin = "mitre",
+             size = main_arrow_size, linejoin = "mitre",
              color = if(!is.null(clinical_direction) && clinical_direction == "+") "#f7c1bf" else "#a9c9dd", 
              arrow = arrow(type = "closed")) +
     geom_vline(xintercept = 0, color = "darkgrey", linetype = "dashed") +
     annotate("text", x = 0, y = ((y_max*0.9 + y_max*0.4)/2),
              label = arrow_label,
              fontface = "bold",
-             color = if(!is.null(clinical_direction) && clinical_direction == "+") "#f28482" else "#457b9d") +
+             color = if(!is.null(clinical_direction) && clinical_direction == "+") "#f28482" else "#457b9d",
+             size = text_size) +
     
     # Split geom_text_repel for positive logFC (right side)
     geom_text_repel(data = clin_results[clin_results[[fc]] > 0 & clin_results$top_lab != "", ],
@@ -1742,7 +1772,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                     segment.color = "darkgrey",
                     segment.alpha = 0.3,
                     hjust = 0,
-                    size = 3,
+                    size = label_size,
                     max.overlaps = Inf,
                     force = force,
                     box.padding = box.padding,
@@ -1761,7 +1791,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                     segment.color = "darkgrey",
                     segment.alpha = 0.3,
                     hjust = 1,
-                    size = 3,
+                    size = label_size,
                     max.overlaps = Inf,
                     force = force,
                     box.padding = box.padding,
@@ -1772,57 +1802,66 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
     labs(title = NULL,
          x = paste(x_axis),
          y = paste(y_axis),
-         caption = if (!is.null(clinical_direction)) {
+         caption = if (!is.null(clinical_direction) & !is.null(formula)) {
            paste0("Formula: ~ ", formula, " + (1|subject)", 
-                  "\n\n Cell type: ", 
+                  "\n\nCell type: ", 
                   cell_type, if(cell_type != "") " | " else "", 
                   "Concordant genes: n = ", n_concordant,
                   "\n\n", caption_text)
+         } else if (!is.null(clinical_direction) & is.null(formula) & is.null(caption_text)) {
+           paste0("Cell type: ", 
+                  cell_type, if(cell_type != "") " | " else "", 
+                  "Concordant genes: n = ", n_concordant)
          } else NULL) +
     theme_minimal() +
     annotate("segment", 
              x=max_fc/10, 
              xend=(max_fc*9)/10, 
-             y=-y_max * 0.09,
+             y=-y_max * arrow_padding,
              col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
     annotate("text", 
              x=mean(c(max_fc/10, (max_fc*9)/10)), 
-             y=-y_max * 0.18, 
+             y=-y_max * arrow_text_padding, 
              label=positive_text,
-             size=3, color="#343a40") +
+             size=annotation_text_size, color="#343a40") +
     annotate("segment", 
              x=min_fc/10, 
              xend=(min_fc*9)/10, 
-             y=-y_max * 0.09,
+             y=-y_max * arrow_padding,
              col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
     annotate("text", 
              x=mean(c(min_fc/10, (min_fc*9)/10)), 
-             y=-y_max * 0.18, 
+             y=-y_max * arrow_text_padding, 
              label=negative_text,
-             size=3, color="#343a40") +
+             size=annotation_text_size, color="#343a40") +
     scale_y_continuous(expand=c(0,0)) +
     scale_x_continuous(expand = expansion(mult = c(0.25, 0.25))) + 
     coord_cartesian(ylim = c(0, y_max), clip="off") +
     theme(legend.title = element_blank(),
           panel.grid = element_blank(),
-          text = element_text(size = 9, family = "Arial"),
+          text = element_text(size = title_size, family = "Arial"),
           legend.position = legend_position,
           legend.justification = if(is.character(legend_position) && legend_position == "bottom") c(0.5, 0) else c(1, 1),
           legend.direction = "horizontal",
           legend.spacing.x = unit(0.3, 'cm'),
           plot.margin = margin(t = 10, r = 20, b = 10, l = 20),
-          axis.title.x = element_text(margin = margin(t = 38)),
-          plot.caption = element_text(size = 8.5, hjust = 0.5, margin = margin(t = 8), family = "Arial"),
+          axis.title.x = element_text(margin = margin(t = x_axis_padding), size = axis_title_size),
+          axis.title.y = element_text(size = axis_title_size),
+          axis.text.x = element_text(size = axis_text_size),
+          axis.text.y = element_text(size = axis_text_size),
+          legend.text = element_text(size = legend_text_size),
+          plot.caption = element_text(size = caption_size, hjust = 0.5, margin = margin(t = 8), family = "Arial"),
           legend.margin = margin(t = 5, b = 5)) + 
     guides(shape = "none")
   
   # Save
-  ggsave(paste0(file.path(root_path, "ATTEMPT/Results/Figures/Volcano Plots/"), file_suffix, "_concordance.png"), plot = p, width = 7, height = 5)
-  
-  return(p)
+  if (save) {
+    ggsave(paste0(file.path(root_path, "ATTEMPT/Results/Figures/Volcano Plots/"), file_suffix, "_concordance.png"), plot = p, width = 7, height = 5)
+    
+    return(p)
+    
+  } else return(p)
 }
-
-
 # ===========================================================================
 # Function: plot_mean_ci_stars
 # ===========================================================================
@@ -1851,7 +1890,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
   # --- Mean ± 95% CI ---
   mean_dat <- data %>%
     group_by(treatment, visit) %>%
-    summarise(
+   dplyr::summarise(
       n = sum(!is.na(!!y_sym)),
       mean_y = mean(!!y_sym, na.rm = TRUE),
       sd_y = sd(!!y_sym, na.rm = TRUE),
@@ -1868,7 +1907,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
         ancova <- run_ancova(data, outcome_var = y_name, baseline_var = baseline_var, visit_week = v)
         ancova$contrasts %>%
           filter(contrast == "Placebo - Dapagliflozin 5mg") %>%
-          mutate(visit = v)
+         dplyr::mutate(visit = v)
         
       } else if (test_method == "lmer_covars") {
         model <- lmer(
@@ -1879,7 +1918,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
         contrast(emm, method = "revpairwise", by = "visit", adjust = "bonferroni") %>%
           as_tibble() %>% 
           filter(visit == v) %>% 
-          mutate(contrast = contrast, estimate = estimate, p.value = p.value)
+         dplyr::mutate(contrast = contrast, estimate = estimate, p.value = p.value)
         
       } else if (test_method == "lmer") {
         model <- lmer(
@@ -1890,7 +1929,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
         contrast(emm, method = "revpairwise", by = "visit", adjust = "bonferroni") %>%
           as_tibble() %>% 
           filter(visit == v) %>% 
-          mutate(contrast = contrast, estimate = estimate, p.value = p.value)
+         dplyr::mutate(contrast = contrast, estimate = estimate, p.value = p.value)
       }
     }, error = function(e) {
       message(glue::glue("Significance test failed for visit {v}: {e$message}"))
@@ -1898,7 +1937,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
              conf.low = NA, conf.high = NA, contrast = NA)
     })
   }) %>%
-    mutate(
+   dplyr::mutate(
       stars = case_when(
         p.value < 0.001 ~ "***",
         p.value < 0.01  ~ "**",
@@ -1912,10 +1951,10 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
     left_join(
       mean_dat %>% 
         group_by(visit) %>%
-        summarise(max_upper = max(upper, na.rm = TRUE), .groups = "drop"),
+       dplyr::summarise(max_upper = max(upper, na.rm = TRUE), .groups = "drop"),
       by = "visit"
     ) %>%
-    mutate(y_position = max_upper + 0.05 * max_upper)
+   dplyr::mutate(y_position = max_upper + 0.05 * max_upper)
   
   # --- Plot ---
   p <- data %>%
@@ -1974,7 +2013,14 @@ create_gene_expression_plots <- function(main_results,
                                          fdr_col = "fdr",
                                          volcano_pval_col = "fdr",
                                          formula = "",
-                                         full_formula = F) {
+                                         full_formula = F,
+                                         fdr_threshold = 0.05,
+                                         heatmap_caption = T, 
+                                         arrow_padding = 0.05,
+                                         arrow_text_padding = 0.08,
+                                         caption_padding = 10, 
+                                         x_title_padding_t = 0,
+                                         geom_text_size = 5) { 
   
   # Load required libraries
   require(tidyverse)
@@ -1984,49 +2030,51 @@ create_gene_expression_plots <- function(main_results,
   main_results <- main_results %>%
     filter(abs(!!sym(logfc_col)) < 10)
   
-  # Determine cell type labels
+  subtype_results_list <- lapply(subtype_results_list, function(df) {
+    df %>% filter(abs(!!sym(logfc_col)) < 10)
+  })
+  
+  # Determine cell type labels and mapping (keep existing code)
   if (is.null(cell_type_labels)) {
-    # Use automatic labeling with prefix
     cell_type_labels <- paste0(cell_type_prefix, "-", names(subtype_results_list))
   } else {
-    # Validate that the number of labels matches the number of subtypes
     if (length(cell_type_labels) != length(subtype_results_list)) {
       stop("Length of cell_type_labels must match length of subtype_results_list")
     }
   }
   
-  # Create a mapping between list names and labels
   label_mapping <- setNames(cell_type_labels, names(subtype_results_list))
   
-  # Determine cell type order
   if (is.null(cell_type_order)) {
-    # Use reverse order of labels (for bottom to top display)
     cell_type_order <- rev(cell_type_labels)
   } else {
-    # Validate that all labels are included in the order
     if (!all(cell_type_labels %in% cell_type_order) || !all(cell_type_order %in% cell_type_labels)) {
       stop("cell_type_order must contain exactly the same labels as cell_type_labels")
     }
   }
   
-  # Determine output prefix
   if (is.null(output_prefix)) {
     output_prefix <- ifelse(is.null(cell_type_labels), cell_type_prefix, "celltypes")
   }
   
-  # Select top positive genes
+  # MODIFIED: Select top positive genes (up to 20, but only if significant)
   top_pos_genes <- main_results %>%
-    arrange(!!sym(fdr_col)) %>%
+    filter(!!sym(fdr_col) < fdr_threshold) %>%  # Only significant genes
     filter(!!sym(logfc_col) > 0) %>%
+    dplyr::arrange(!!sym(fdr_col)) %>%
     head(n_top_genes) %>%
     pull(Gene)
   
-  # Select top negative genes
+  # MODIFIED: Select top negative genes (up to 20, but only if significant)
   top_neg_genes <- main_results %>%
-    arrange((!!sym(fdr_col))) %>%
+    filter(!!sym(fdr_col) < fdr_threshold) %>%  # Only significant genes
     filter(!!sym(logfc_col) < 0) %>%
+    dplyr::arrange(!!sym(fdr_col)) %>%
     head(n_top_genes) %>%
     pull(Gene)
+  
+  # All selected genes will be labeled in volcano
+  volcano_genes <- c(top_neg_genes, top_pos_genes)
   
   # Create combined plot data
   combined_plot_dat <- purrr::imap_dfr(subtype_results_list, function(res_df, subtype_key) {
@@ -2037,25 +2085,34 @@ create_gene_expression_plots <- function(main_results,
   # Set factor levels for ordering
   combined_plot_dat$celltype <- factor(combined_plot_dat$celltype, levels = cell_type_order)
   combined_plot_dat$Gene <- factor(combined_plot_dat$Gene, levels = c(top_neg_genes, top_pos_genes))
-  if (length(unique(combined_plot_dat$Gene)) < (n_top_genes*2)) {
-    missing_df <- data.frame(Gene = rep(c(top_pos_genes, top_neg_genes)[c(top_pos_genes, top_neg_genes) %nin% combined_plot_dat$Gene], each = length(cell_type_order)),
-                             celltype = cell_type_order,
-                             direction = "+")
-    combined_plot_dat <- dplyr::bind_rows(combined_plot_dat, missing_df)
+  
+  # Handle missing genes
+  if (length(unique(combined_plot_dat$Gene)) < length(volcano_genes)) {
+    missing_genes <- volcano_genes[!(volcano_genes %in% combined_plot_dat$Gene)]
+    if (length(missing_genes) > 0) {
+      missing_df <- data.frame(
+        Gene = rep(missing_genes, each = length(cell_type_order)),
+        celltype = rep(cell_type_order, length(missing_genes)),
+        direction = "+"
+      )
+      combined_plot_dat <- dplyr::bind_rows(combined_plot_dat, missing_df)
+    }
   }
+  
   # Create color vector for x-axis labels
   gene_levels <- c(top_neg_genes, top_pos_genes)
   x_colors <- setNames(
-    c(rep("#457b9d", n_top_genes), rep("#f28482", n_top_genes)),
+    c(rep("#457b9d", length(top_neg_genes)), 
+      rep("#f28482", length(top_pos_genes))),
     gene_levels
   )
   
   # Create dot plot
-  dot_plot <- create_dot_plot(combined_plot_dat, x_colors, n_top_genes, text_size = dot_text_size)
+  dot_plot <- create_dot_plot(combined_plot_dat, x_colors, text_size = dot_text_size)
   
   # Get main logFC values for the selected genes
   main_logfc_values <- main_results %>%
-    filter(Gene %in% c(top_neg_genes, top_pos_genes)) %>%
+    filter(Gene %in% volcano_genes) %>%
     dplyr::select(Gene, main_logFC = !!sym(logfc_col))
   
   # Create consistency score data with weighted scores
@@ -2070,7 +2127,7 @@ create_gene_expression_plots <- function(main_results,
   # Create bar plot
   bar_plot <- create_bar_plot(consistency_scores)
   
-  # Create volcano plot if requested
+  # Create volcano plot
   volcano_plot <- NULL
   if (!is.null(volcano_pval_col)) {
     volcano_plot <- plot_volcano(
@@ -2086,36 +2143,38 @@ create_gene_expression_plots <- function(main_results,
       full_formula = full_formula,
       output_base_path = NULL,
       cell_type = cell_type_prefix,
-      geom_text_size = 5,
-      arrow_padding = 0.05,
-      arrow_text_padding = 0.08,
+      geom_text_size = geom_text_size,
+      arrow_padding = arrow_padding,
+      arrow_text_padding = arrow_text_padding,
       legend_text_size = volcano_text_size,
-      caption_padding = 10,
-      x_title_padding_t = 0
+      caption_padding = caption_padding,
+      x_title_padding_t = x_title_padding_t,
+      genes_to_label = volcano_genes  # All selected significant genes
     )
   }
   
-  # Create heatmap
+  # Create heatmap with only significant genes
   heatmap_plot <- plot_treatment_heatmap(
     data = main_results,
-    top_n = n_top_genes
+    heatmap_caption = heatmap_caption,
+    genes_to_show = volcano_genes  # Only show significant genes
   )
   
-  # Combine plots
+  # Combine plots (rest of the code remains the same)
   if (!is.null(volcano_plot)) {
     design <- "
 ACD
 BCD"
-    combined_plot <- bar_plot + dot_plot + volcano_plot + heatmap_plot + plot_layout(design = design,
-                                                                                     widths  = c(1, 1,  0.1),
-                                                                                     heights = c(0.25, 1, 0.5))
+    combined_plot <- bar_plot + dot_plot + volcano_plot + heatmap_plot + 
+      plot_layout(design = design,
+                  widths  = c(1, 1,  0.1),
+                  heights = c(0.25, 1, 0.5))
     
     if (save_plots) {
       output_path <- file.path(output_dir, paste0(output_prefix, "_subtypes_nebula_scores_volcano_heat.png"))
       ggsave(output_path, width = 20, height = 10, plot = combined_plot)
     }
   }
-  
   
   # Save individual plots if requested
   if (save_plots) {
@@ -2133,28 +2192,33 @@ BCD"
     top_pos_genes = top_pos_genes,
     top_neg_genes = top_neg_genes,
     consistency_scores = consistency_scores,
-    combined_plot_data = combined_plot_dat
+    combined_plot_data = combined_plot_dat,
+    volcano_genes = volcano_genes  # Also return the genes that were labeled
   ))
 }
-
 # ===========================================================================
 # Function: create_dot_plot
 # ===========================================================================
 
 #' Create dot plot for gene expression
-create_dot_plot <- function(plot_data, x_colors, n_genes_per_direction, text_size = 10) {
+#' Create dot plot for gene expression
+create_dot_plot <- function(plot_data, x_colors, text_size = 10) {
   plot_data$Gene <- factor(plot_data$Gene, levels = (names(x_colors)))
+  
+  # Add this line to count negative genes
+  n_neg_genes <- sum(x_colors == "#457b9d")
+  
   plot_data %>%
     ggplot(aes(x = Gene, y = celltype, size = abs(logFC), color = direction)) +
     annotate("rect", 
              xmin = -Inf, 
-             xmax = 0.5 + length(unique(plot_data$Gene)) / 2, 
+             xmax = 0.5 + n_neg_genes,  # Changed this line
              ymin = -Inf, 
              ymax = Inf, 
              fill = "#dceef5", 
              alpha = 0.5) +  
     annotate("rect", 
-             xmin = 0.5 + length(unique(plot_data$Gene)) / 2, 
+             xmin = 0.5 + n_neg_genes,  # Changed this line
              xmax = Inf, 
              ymin = -Inf, 
              ymax = Inf, 
@@ -2186,7 +2250,6 @@ create_dot_plot <- function(plot_data, x_colors, n_genes_per_direction, text_siz
     ) +
     labs(x = NULL, y = NULL, color = "Direction")
 }
-
 # ===========================================================================
 # Function: calculate_weighted_consistency_scores
 # ===========================================================================
@@ -2225,12 +2288,12 @@ calculate_weighted_consistency_scores <- function(plot_data, main_logfc_values, 
       },
       .groups = "drop"
     ) %>%
-    mutate(
+   dplyr::mutate(
       direction = case_when(main_logFC < 0 ~ "-", main_logFC > 0 ~ "+"),
       bar_color = ifelse(has_mismatch, "gray", direction),
       Gene = factor(Gene, levels = c(neg_genes, pos_genes))
     ) %>%
-    arrange(Gene)
+    dplyr::arrange(Gene)
   
   return(weighted_scores)
 }
@@ -2426,9 +2489,9 @@ plot_fgsea_transpose <- function(fgsea_res,
                                  text3 = 20) {
   
   fgsea_res <- fgsea_res %>%
-    arrange(pval) %>%
+    dplyr::arrange(pval) %>%
     head(top_n) %>%
-    mutate(
+   dplyr::mutate(
       direction = case_when((NES < 0 & pval <= 0.05 ~ "Negative"), 
                             (NES > 0 & pval <= 0.05 ~ "Positive"),
                             (NES < 0 & pval > 0.05 ~ "Negative p > 0.05"), 
@@ -2453,7 +2516,7 @@ plot_fgsea_transpose <- function(fgsea_res,
       pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
       pathway_clean = paste0(pathway_clean, " (", size, ")")
     ) %>%
-    arrange(pval)
+    dplyr::arrange(pval)
   
   fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, -abs(fgsea_res$NES))
   
@@ -2541,7 +2604,7 @@ trt_run_cell_type_analysis <- function(cell_type,
       df <- res[[gene_name]]$summary
       df <- df %>% 
         filter(gene_name %in% res_converged$Gene) %>%
-        mutate(Gene = gene_name)
+       dplyr::mutate(Gene = gene_name)
       return(df)
     }
   )
@@ -2549,7 +2612,7 @@ trt_run_cell_type_analysis <- function(cell_type,
   # Calculate FDR
   res_combined <- res_combined %>%
     ungroup() %>%
-    mutate(fdr = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+   dplyr::mutate(fdr = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
   
   res_combined <- subset(res_combined, abs(`logFC_treatmentDapagliflozin:visitPOST`) < 10)
   
@@ -2607,7 +2670,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
       df <- res[[gene_name]]$summary
       df <- df %>% 
         filter(gene_name %in% res_converged$Gene) %>%
-        mutate(Gene = gene_name)
+       dplyr::mutate(Gene = gene_name)
       return(df)
     }
   )
@@ -2615,7 +2678,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
   # Calculate FDR
   res_combined <- res_combined %>%
     ungroup() %>%
-    mutate(fdr = p.adjust(p_groupType_1_Diabetes, method = "fdr"))
+   dplyr::mutate(fdr = p.adjust(p_groupType_1_Diabetes, method = "fdr"))
   
   res_combined <- subset(res_combined, abs(logFC_groupType_1_Diabetes) < 10)
   # Save results
@@ -2626,7 +2689,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
   
   # Add direction columns for visualization
   res_combined <- res_combined %>%
-    mutate(group_direction = case_when(
+   dplyr::mutate(group_direction = case_when(
       p_groupType_1_Diabetes < 0.05 & logFC_groupType_1_Diabetes > 0 ~ "Positive",
       p_groupType_1_Diabetes < 0.05 & logFC_groupType_1_Diabetes < 0 ~ "Negative",
       TRUE ~ "NS"
@@ -2931,7 +2994,7 @@ plot_pseudotime_violin <- function(df, s3_folder = "slingshot",
   # Calculate medians
   median_df <- pseudotime_df %>%
     group_by(visit_treatment) %>%
-    summarise(median_pt = median(pseudotime, na.rm = TRUE), .groups = "drop")
+   dplyr::summarise(median_pt = median(pseudotime, na.rm = TRUE), .groups = "drop")
   
   # Define colors
   fill_colors <- c("PRE Placebo" = "#fbc4ab", "POST Placebo" = "#f4978e",
@@ -3063,14 +3126,14 @@ plot_pseudotime_density_faceted_by_treatment <- function(df,
   raw_summary <- df %>%
     as.data.frame() %>%
     group_by(.data[[treatment_col]], .data[[visit_col]]) %>%
-    summarise(
+   dplyr::summarise(
       p25 = quantile(.data[[pseudotime_var]], probs = 0.25, na.rm = TRUE),
       p50 = quantile(.data[[pseudotime_var]], probs = 0.5, na.rm = TRUE),
       p75 = quantile(.data[[pseudotime_var]], probs = 0.75, na.rm = TRUE),
       n = n(),
       .groups = "drop"
     ) %>%
-    mutate(visit_treatment = paste(.data[[visit_col]], .data[[treatment_col]]))
+   dplyr::mutate(visit_treatment = paste(.data[[visit_col]], .data[[treatment_col]]))
   
   # Color palette
   fill_colors <- c("PRE Placebo" = "#fbc4ab", 
@@ -3126,7 +3189,7 @@ plot_delta_percentile_heatmap <- function(df,
                  names_prefix = percentile_prefix,
                  values_to = "value") %>%
     pivot_wider(names_from = .data[[visit_col]], values_from = value) %>%
-    mutate(delta = POST - PRE)
+   dplyr::mutate(delta = POST - PRE)
   
   # Plot
   p <- ggplot(heatmap_df, aes(x = .data[[treatment_col]], y = q, fill = delta)) +
@@ -3180,7 +3243,7 @@ analyze_pseudotime_by_clinvar <- function(df,
   # Step 1: Calculate subject-level delta of the clinical variable
   delta_df <- df %>%
     group_by(.data[[subject_id]]) %>%
-    summarise(
+   dplyr::summarise(
       delta_value = mean(.data[[clinical_var_chr]][.data[[visit_col]] == post_label], na.rm = TRUE) -
         mean(.data[[clinical_var_chr]][.data[[visit_col]] == pre_label], na.rm = TRUE),
       .groups = "drop"
@@ -3193,15 +3256,15 @@ analyze_pseudotime_by_clinvar <- function(df,
   # Step 3: Bin the clinical variable by quantiles
   df_binned <- if (identical(bin_probs, "direction")) {
     df %>%
-      mutate(clinical_bin = case_when(
+     dplyr::mutate(clinical_bin = case_when(
         .data[[clinical_var_chr]] > 0 ~ "+",
         .data[[clinical_var_chr]] < 0 ~ "-",
         .data[[clinical_var_chr]] == 0 ~  "No Change"
       )) %>%
-      mutate(clinical_bin = factor(clinical_bin, levels = c("-", "No Change", "+")))
+     dplyr::mutate(clinical_bin = factor(clinical_bin, levels = c("-", "No Change", "+")))
   } else {
     df %>%
-      mutate(clinical_bin = cut(.data[[clinical_var_chr]],
+     dplyr::mutate(clinical_bin = cut(.data[[clinical_var_chr]],
                                 breaks = quantile(.data[[clinical_var_chr]], 
                                                   probs = seq(0, 1, 1/bin_probs), na.rm = TRUE),
                                 include.lowest = TRUE)) %>%
@@ -3337,7 +3400,7 @@ analyze_pseudotime_by_celltype <- function(so,
   log_step("Step 9: Preparing data for quantile regression...")
   no_s4 <- setdiff(names(colData(sce_sl)), "slingshot")
   sce_df <- as.data.frame(colData(sce_sl)[, no_s4]) %>%
-    mutate(visit_treatment = factor(paste(visit, treatment), 
+   dplyr::mutate(visit_treatment = factor(paste(visit, treatment), 
                                     levels = c("PRE Placebo", "POST Placebo",
                                                "PRE Dapagliflozin", "POST Dapagliflozin")))
   
@@ -3455,49 +3518,55 @@ plot_treatment_heatmap <- function(data,
                                    p_col = "p_treatmentDapagliflozin:visitPOST",
                                    logfc_col = "logFC_treatmentDapagliflozin:visitPOST",
                                    fdr_col = "fdr",
+                                   heatmap_caption = T,
                                    gene_col = "Gene",
-                                   logfc_visit = "logFC_visitPOST") {
+                                   logfc_visit = "logFC_visitPOST",
+                                   genes_to_show = NULL) {
   library(dplyr)
   library(tidyr)
   library(ggplot2)
   
+  if (!is.null(genes_to_show)) {
+    data <- data %>% filter(Gene %in% genes_to_show)
+  }
+  
   data <- data %>%
-    filter(abs(.data[[logfc_col]]) < 10)
+    filter(abs(!!sym(logfc_col)) < 10)
   
   # Identify top positive and negative genes
   top_pos <- data %>%
-    arrange(.data[[fdr_col]]) %>%
-    filter(.data[[logfc_col]] > 0) %>%
+    dplyr::arrange(!!sym(fdr_col)) %>%
+    filter(!!sym(logfc_col) > 0) %>%
     head(top_n) %>%
-    pull(.data[[gene_col]])
+    pull(!!sym(gene_col))
   
   top_neg <- data %>%
-    arrange(.data[[fdr_col]]) %>%
-    filter(.data[[logfc_col]] < 0) %>%
+    dplyr::arrange(!!sym(fdr_col)) %>%
+    filter(!!sym(logfc_col) < 0) %>%
     head(top_n) %>%
-    pull(.data[[gene_col]])
+    pull(!!sym(gene_col))
   
   # Prepare long-form data
   heatmap_df <- data %>%
-    mutate(
-      Placebo = .data[[logfc_visit]],
-      Dapagliflozin = .data[[logfc_visit]] + .data[[logfc_col]],
-      DiD = .data[[logfc_col]]
+    dplyr::mutate(
+      Placebo = !!sym(logfc_visit),
+      Dapagliflozin = !!sym(logfc_visit) + !!sym(logfc_col),
+      DiD = !!sym(logfc_col)
     ) %>%
-    dplyr::select(.data[[gene_col]], Placebo, Dapagliflozin, DiD) %>%
+    dplyr::select(!!sym(gene_col), Placebo, Dapagliflozin, DiD) %>%
     pivot_longer(cols = c(Placebo, Dapagliflozin, DiD),
                  names_to = "group",
                  values_to = "Slope") %>%
-    mutate(group = factor(group, levels = c("DiD", "Placebo", "Dapagliflozin")))
+    dplyr::mutate(group = factor(group, levels = c("DiD", "Placebo", "Dapagliflozin")))
   
   # Order genes by DiD slope
   plot_df <- heatmap_df %>%
-    filter(.data[[gene_col]] %in% c(top_pos, top_neg)) %>%
-    group_by(.data[[gene_col]]) %>%
-    mutate(DiD_value = Slope[group == "DiD"]) %>%
+    filter(!!sym(gene_col) %in% c(top_pos, top_neg)) %>%
+    group_by(!!sym(gene_col)) %>%
+    dplyr::mutate(DiD_value = Slope[group == "DiD"]) %>%
     ungroup() %>%
-    arrange(desc(DiD_value)) %>%
-    mutate(!!gene_col := reorder(.data[[gene_col]], -DiD_value)) %>%
+    dplyr::arrange(desc(DiD_value)) %>%
+    dplyr::mutate(!!gene_col := reorder(!!sym(gene_col), -DiD_value)) %>%
     dplyr::select(-DiD_value)
   
   abs_max <- max(abs(plot_df$Slope)) * 1.1
@@ -3527,25 +3596,28 @@ plot_treatment_heatmap <- function(data,
       panel.grid = element_blank(),
       text = element_text(size = 15),
       legend.title.position = "top",
-      legend.text.position = "left",
+      # legend.text.position = "left",
       legend.title = element_text(hjust = 0.5, size = 10),
-      legend.position = "left",
-      axis.text.x = element_text(angle = 70, hjust = 1), 
+      # legend.position = "left",
+      axis.text.x = element_text(angle = 60, hjust = 1), 
       axis.text.y = element_markdown(),
       plot.caption = element_text(size = 18, hjust = 0.5)
     ) +
     labs(
       x = NULL, y = NULL,
-      caption = expression(
-        atop(
-          atop("", "Difference-in-Differences: " * beta[3]),
+      caption = if(heatmap_caption) {
+        expression(
           atop(
-            "Placebo slope: (" * beta[0] + beta[1] * ") - " * beta[0] * " = " * beta[1],
-            "Dapagliflozin slope: (" * beta[0] + beta[1] + beta[2] + beta[3] *
-              ") - (" * beta[0] + beta[2] * ") = " * beta[1] + beta[3]
+            atop("", "Difference-in-Differences: " * beta[3]),
+            atop(
+              "Placebo slope: (" * beta[0] + beta[1] * ") - " * beta[0] * " = " * beta[1],
+              "Dapagliflozin slope: (" * beta[0] + beta[1] + beta[2] + beta[3] *
+                ") - (" * beta[0] + beta[2] * ") = " * beta[1] + beta[3]
+            )
           )
         )
-      )
+      }
+      else NULL
     )
 }
 
@@ -3588,7 +3660,7 @@ plot_clinvar_pseudotime_arrows <- function(df,
   # Step 1: Pseudotime percentiles
   med <- df %>%
     group_by(.data[[subject_col]], .data[[visit_col]]) %>%
-    summarise(across(
+   dplyr::summarise(across(
       .data[[pseudotime_var_chr]],
       list("25" = ~quantile(., 0.25, na.rm = TRUE),
            "50" = ~quantile(., 0.50, na.rm = TRUE),
@@ -3608,14 +3680,14 @@ plot_clinvar_pseudotime_arrows <- function(df,
       names_prefix = "pseudotime_",
       values_to = "pseudotime"
     ) %>%
-    mutate(percentile = as.numeric(percentile))
+   dplyr::mutate(percentile = as.numeric(percentile))
   
   # Step 3: Format wide for arrow plot
   arrow_df <- plot_df %>%
     dplyr::select(all_of(c(subject_col, treatment_col, clinical_var_chr, "percentile", visit_col, "pseudotime", visit_treatment_col))) %>%
     pivot_wider(names_from = .data[[visit_col]],
                 values_from = c(pseudotime, !!clinical_var, !!visit_treatment_col)) %>%
-    mutate(expectations = case_when(
+   dplyr::mutate(expectations = case_when(
       pseudotime_POST - pseudotime_PRE > 0 & !!sym(paste0(clinical_var_chr, "_POST")) - !!sym(paste0(clinical_var_chr, "_PRE")) > 0 ~ "Consistent",
       pseudotime_POST - pseudotime_PRE < 0 & !!sym(paste0(clinical_var_chr, "_POST")) - !!sym(paste0(clinical_var_chr, "_PRE")) < 0 ~ "Consistent",
       TRUE ~ "Inconsistent"
@@ -3694,7 +3766,7 @@ plot_clinvar_pseudotime_arrows_delta <- function(df,
   # Step 1: Pseudotime percentiles
   med <- df %>%
     group_by(.data[[subject_col]], .data[[visit_col]]) %>%
-    summarise(across(
+   dplyr::summarise(across(
       .data[[pseudotime_var_chr]],
       list("25" = ~quantile(., 0.25, na.rm = TRUE),
            "50" = ~quantile(., 0.50, na.rm = TRUE),
@@ -3714,14 +3786,14 @@ plot_clinvar_pseudotime_arrows_delta <- function(df,
       names_prefix = "pseudotime_",
       values_to = "pseudotime"
     ) %>%
-    mutate(percentile = as.numeric(percentile))
+   dplyr::mutate(percentile = as.numeric(percentile))
   
   # Step 3: Format wide for arrow plot
   arrow_df <- plot_df %>%
     dplyr::select(all_of(c(subject_col, treatment_col, clinical_var_chr, "percentile", visit_col, "pseudotime", visit_treatment_col))) %>%
     pivot_wider(names_from = .data[[visit_col]],
                 values_from = c(pseudotime, !!clinical_var, !!visit_treatment_col)) %>%
-    mutate(expectations = case_when(
+   dplyr::mutate(expectations = case_when(
       pseudotime_POST - pseudotime_PRE < 0 ~ "Healthy state",
       TRUE ~ "Injured state"
     ))
@@ -3801,11 +3873,11 @@ plot_croc_attempt_volcano <- function(attempt_df,
   all_neg_match <- croc_neg %>% filter(Gene %in% attempt_neg$Gene)
   
   # Top genes for labeling
-  top_pos <- croc_pos %>% arrange(.data[[p_croc]]) %>% slice_head(n = top_n)
-  top_neg <- croc_neg %>% arrange(.data[[p_croc]]) %>% slice_head(n = top_n)
+  top_pos <- croc_pos %>% dplyr::arrange(.data[[p_croc]]) %>% slice_head(n = top_n)
+  top_neg <- croc_neg %>% dplyr::arrange(.data[[p_croc]]) %>% slice_head(n = top_n)
   
   top_merged <- rbind(top_pos, top_neg) %>%
-    mutate(attempt_direction = case_when(Gene %in% attempt_neg$Gene ~ "-",
+   dplyr::mutate(attempt_direction = case_when(Gene %in% attempt_neg$Gene ~ "-",
                                          Gene %in% attempt_pos$Gene ~ "+",
                                          T ~ "NA"),
            croc_direction = case_when(Gene %in% croc_neg$Gene ~ "-",
@@ -3835,7 +3907,7 @@ plot_croc_attempt_volcano <- function(attempt_df,
   y_max <- max(-log10(croc_df[[p_croc]]), na.rm = TRUE) * 1.1
   
   croc_df <- croc_df %>%
-    mutate(top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
+   dplyr::mutate(top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
                                  Gene %in% croc_neg$Gene ~ "#457b9d",
                                  TRUE ~ "#ced4da"))
   # Create plot
@@ -3989,10 +4061,10 @@ soma_corr <- function(
   
   corr_mat <- corr_mat %>%
     left_join(analytes_info %>% 
-                mutate(AptName = paste0(AptName, feature_suffix)), by = "AptName") %>%
-    mutate(Target_apt = paste0(Target, " (", AptName, ")")) %>%
+               dplyr::mutate(AptName = paste0(AptName, feature_suffix)), by = "AptName") %>%
+   dplyr::mutate(Target_apt = paste0(Target, " (", AptName, ")")) %>%
     column_to_rownames("Target_apt") %>%
-    arrange(p.value)
+    dplyr::arrange(p.value)
   
   # ---- subset for DiD up/down ----
   corr_did_up <- corr_mat %>% filter(AptName %in% did_up$AptName)
@@ -4134,7 +4206,7 @@ soma_plot_corr_volcano <- function (data,
           plot.caption = element_text(hjust = 0.5, size = 10)) + 
     geom_point(alpha = 0.5, size = pt.size) + 
     geom_label_repel(data = plot_df %>% 
-                       arrange(p.value) %>%
+                       dplyr::arrange(p.value) %>%
                        head(top_n) %>%
                        dplyr::filter(is_significant | DiD_status == "DiD"), 
                      aes(label = !!.label_sym,
@@ -4197,7 +4269,7 @@ run_limma_proteomics <- function(
                      interaction      = data,
                      interaction_random = data
   ) %>%
-    arrange(record_id)
+    dplyr::arrange(record_id)
   
   # --- Check if creatinine variable exists when specified ---
   if (!is.null(creatinine) && !creatinine %in% names(data_sub)) {
@@ -4300,7 +4372,7 @@ run_limma_proteomics <- function(
         dplyr::select(record_id, all_of(visit_var), all_of(treatment_var), all_of(feat), 
                       if (!is.null(creatinine)) all_of(creatinine) else NULL) %>%
         dplyr::rename(y = !!feat) %>%
-        mutate(y = log2(y))
+       dplyr::mutate(y = log2(y))
       
       # Build formula with or without creatinine
       if (!is.null(creatinine)) {
@@ -4328,7 +4400,7 @@ run_limma_proteomics <- function(
     res <- dplyr::bind_rows(results_list) %>%
       dplyr::rename(logFC = estimate, P.Value = p.value) %>%
       dplyr::arrange(P.Value) %>%
-      mutate(adj.P.Val = p.adjust(P.Value, method = "fdr"))
+     dplyr::mutate(adj.P.Val = p.adjust(P.Value, method = "fdr"))
     
     # Output singular count
     message("Number of singular fits: ", singular_count, " out of ", ncol(features),
@@ -4442,7 +4514,7 @@ process_enrichr_data <- function(enrichr_result, response_type, top_n = 20) {
   data_clean <- data %>%
     filter(Adjusted.P.value < 0.05) %>%  # Filter significant pathways
     head(top_n) %>%
-    mutate(
+   dplyr::mutate(
       neg_log_p = -log10(P.value),
       neg_log_adj_p = -log10(Adjusted.P.value),
       gene_count = as.numeric(str_extract(Overlap, "\\d+")),
@@ -4544,7 +4616,7 @@ perform_concordance_analysis <- function(
     sig_transcript_down <- subset(transcript_data, fdr < fdr_cutoff & transcript_data[transcript_logfc_col] < 0)$Gene
     
     protein_data <- protein_data %>%
-      mutate(
+     dplyr::mutate(
         label = case_when(
           !!sym(gene_col) %in% subset(transcript_data, fdr < fdr_cutoff)$Gene & 
             !!sym(adj_p_col) < adj_p_cutoff ~ !!sym(gene_col),
@@ -4568,7 +4640,7 @@ perform_concordance_analysis <- function(
     # If conc_class exists, make sure we have label for plotting
     if (!"label" %in% colnames(protein_data)) {
       protein_data <- protein_data %>%
-        mutate(
+       dplyr::mutate(
           label = case_when(
             !!sym(gene_col) %in% subset(transcript_data, fdr < fdr_cutoff)$Gene & 
               !!sym(adj_p_col) < adj_p_cutoff ~ !!sym(gene_col),
@@ -4585,7 +4657,7 @@ perform_concordance_analysis <- function(
       sig_transcript_down <- subset(transcript_data, fdr < fdr_cutoff & transcript_data[transcript_logfc_col] < 0)$Gene
       
       protein_data <- protein_data %>%
-        mutate(
+       dplyr::mutate(
           transcript_direction = case_when(
             !!sym(gene_col) %in% sig_transcript_up ~ "+",
             !!sym(gene_col) %in% sig_transcript_down ~ "-", 
@@ -4605,7 +4677,7 @@ perform_concordance_analysis <- function(
   
   # Calculate counts
   counts <- protein_data %>%
-    summarise(
+   dplyr::summarise(
       n_pos_conc = sum(conc_class == "Concordant (+/+)", na.rm = TRUE),
       n_neg_conc = sum(conc_class == "Concordant (-/-)", na.rm = TRUE),
       n_disconc  = sum(conc_class %in% c("Discordant (+/-)", "Discordant (-/+)"), na.rm = TRUE),
@@ -4839,7 +4911,7 @@ prepare_pathway_data_generic <- function(enrichment_results, database_name) {
         processed_data <- data %>%
           filter(Adjusted.P.value < 0.05) %>%
           head(20) %>%
-          mutate(
+         dplyr::mutate(
             response_type = case_when(
               response_type == "negative" ~ "Negative",
               response_type == "positive" ~ "Positive", 
@@ -4948,11 +5020,11 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
   # Ensure 0/1 membership matrix
   m <- df %>%
     dplyr::select(all_of(sets)) %>%
-    mutate(across(everything(), ~ as.integer(.x > 0)))
+   dplyr::mutate(across(everything(), ~ as.integer(.x > 0)))
   
   # Map each row to a combination string (e.g., "A & C"), drop rows with no set membership
   row_combos <- m %>%
-    mutate(.row = dplyr::row_number()) %>%
+   dplyr::mutate(.row = dplyr::row_number()) %>%
     tidyr::pivot_longer(all_of(sets), names_to = "set", values_to = "present") %>%
     dplyr::group_by(.row) %>%
     dplyr::summarise(
