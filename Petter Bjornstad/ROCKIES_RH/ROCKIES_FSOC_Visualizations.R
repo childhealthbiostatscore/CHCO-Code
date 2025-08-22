@@ -52,7 +52,7 @@ dat2 <- dat %>% filter(visit == 'baseline') %>%
   dplyr::select(mrn, record_id, study, visit, group, group2, starts_with('fsoc'), bmi, 
                 epic_sglti2_1, age, sex, epic_mfm_1, epic_insulin_1, epic_glp1ra_1)
 
-dat2 <- dat2[-which(dat2$study == 'CROCODILE' & dat2$group == 'Type 1 Diabetes'),]
+dat2 <- dat2[-which(dat2$group == 'Type 1 Diabetes'),]
 
 
 tests <- c('fsoc_l_cortex', 'fsoc_r_cortex', 
@@ -232,6 +232,10 @@ df_plot <- df_plot %>% mutate(position = ifelse(group2 == 'T2D-No SGLTi2', 1.7, 
 
 
 
+table1::table1(~age + sex + bmi+study + epic_mfm_1+epic_insulin_1+epic_glp1ra_1+epic_sglti2_1 + fsoc_l_cortex | group2,data=dat_results %>% 
+                 filter(!is.na(fsoc_l_cortex)))
+
+
 
 boxplot_function <- function(data, variable, label, method){
   
@@ -267,7 +271,7 @@ boxplot_function <- function(data, variable, label, method){
     pval_T2D_total_control <- ifelse(model1$p.value < 0.001, '< 0.001', 
                                        paste0('p = ', round(model1$p.value, 3)))
     
-    tmp_df <- data %>% filter(group2 %in% c('T2D Combined', 'Control'))
+    tmp_df <- data %>% filter(group2 %in% c('T2D-No SGLTi2', 'T2D-SGLTi2'))
     model1 <- t.test(Variable ~ group2, data = tmp_df)
     pval_T2D_comparison <- ifelse(model1$p.value < 0.001, '< 0.001', 
                                      paste0('p = ', round(model1$p.value, 3)))
