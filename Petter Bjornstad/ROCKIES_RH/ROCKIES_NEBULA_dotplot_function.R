@@ -65,14 +65,15 @@ library(doParallel)
 
 NEBULA_LC_T2D_dotplots <- function(so_subset, celltype, dir.results){
   
-  
-  if(celltype %in% c('TAL', 'EC', 'POD', 'PT')){
+  if(celltype == 'All'){
+   so_celltype <- so_subset 
+  }else if(celltype %in% c('TAL', 'EC', 'POD', 'PT')){
+    so_celltype <- subset(so_subset,celltype2==celltype)
+    DefaultAssay(so_celltype) <- "RNA" 
+  }else if(celltype != 'DCTall'){
     so_celltype <- subset(so_subset,KPMP_celltype==celltype)
     DefaultAssay(so_celltype) <- "RNA" 
-  }else if(celltype != 'DCT'){
-    so_celltype <- subset(so_subset,KPMP_celltype==celltype)
-    DefaultAssay(so_celltype) <- "RNA" 
-  }else if(celltype == 'DCT'){
+  }else if(celltype == 'DCTall'){
     so_celltype <- subset(so_subset, DCT_celltype==celltype)
   }
   
@@ -466,7 +467,7 @@ NEBULA_LC_T2D_dotplots <- function(so_subset, celltype, dir.results){
 NEBULA_T2D_SGLT2_dotplots <- function(data, celltype, dir.results){
   
   if(celltype %in% c('TAL', 'EC', 'POD', 'PT')){
-    so_celltype <- subset(so_subset,KPMP_celltype==celltype)
+    so_celltype <- subset(so_subset,celltype2==celltype)
     DefaultAssay(so_celltype) <- "RNA" 
   }else if(celltype != 'DCT'){
     so_celltype <- subset(so_subset,KPMP_celltype==celltype)
@@ -480,6 +481,120 @@ NEBULA_T2D_SGLT2_dotplots <- function(data, celltype, dir.results){
   
   
 }
+
+
+
+
+
+
+
+
+
+
+####Lean control analysis
+library(scran)
+library(future)
+library(future.apply)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(msigdbr)
+library(kableExtra)
+library(knitr)
+library(REDCapR)
+library(data.table)
+library(emmeans)
+library(NMF)
+library(pheatmap)
+library(UpSetR)
+library(enrichR)
+library(WriteXLS)
+library(SAVER)
+library(readxl)
+library(limma)
+library(edgeR)
+library(BiocGenerics)
+library(GSEABase)
+library(slingshot)
+library(SingleCellExperiment)
+library(MAST)
+library(muscat)
+library(scater)
+library(Seurat)
+library(jsonlite)
+library(dplyr)
+library(glmmTMB)
+library(reshape2)
+library(broom.mixed)
+library(nebula)
+library(doParallel)
+
+
+load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
+
+remove(so_kpmp_sc)
+
+#dat_groups <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_GroupAssignments.txt')
+#dat_groups <- dat_groups %>% filter(group2 %in% c('Lean Control', 'T2D-No SGLTi2'))
+
+#so_subset <- subset(so_subset, record_id == dat_groups$record_id)
+test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
+
+#load('C:/Users/netio/Downloads/TCA_genes.txt')
+#load('C:/Users/netio/Downloads/OxPhos_genes.txt')
+
+
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/'
+
+
+
+
+
+#Make sure exposure/independent/x variable or group variable is a factor variable
+so_subset$group <- factor(so_subset$group)
+#Make sure to set reference level
+so_subset$group  <- relevel(so_subset$group ,ref="Lean_Control")
+
+counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
+
+
+
+
+cell_vector <- c('All', 
+                 'PT', "PT-S1/S2","PT-S3","aPT", 
+                 'TAL', "C-TAL-1","C-TAL-2","aTAL","dTAL", 
+                 'DCTall', "DCT","dDCT", 
+                 'EC', "EC/VSMC","EC-AVR","EC-PTC","EC-AEA","EC-LYM","EC-GC",
+                 'POD',"cDC","cycT","CD4+ T", "CD8+ T","NK","B","MON", "MAC","MC")
+
+
+for(i in c(2:length(cell_vector))){
+  NEBULA_LC_T2D_dotplots(so_subset, celltype = cell_vector[i], dir.results = dir.results)
+  print(cell_vector[i])
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### T2D analysis 
+
+
 
 
 
