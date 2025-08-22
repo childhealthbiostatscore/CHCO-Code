@@ -199,9 +199,7 @@ dot_plot <- ggplot(full_results, aes(
     caption = paste0(
       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
       "; Genes = ", Genes,
-      ", Cells = ", Cell,
-      ", Non-Convergence Rate: ", Nonconvergence_Rate,
-      ", Genes Filtered out for Low Expression: ", low_exp
+      ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -409,9 +407,7 @@ dot_plot <- ggplot(full_results, aes(
     y = "Gene",
     caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
                      "; Genes = ", Genes,
-                     ", Cells = ", Cell,
-                     ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                     ", Genes Filtered out for Low Expression: ", low_exp
+                     ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -455,9 +451,7 @@ dot_plot <- ggplot(full_results, aes(
     caption = paste0(
       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
       "; Genes = ", Genes,
-      ", Cells = ", Cell,
-      ", Non-Convergence Rate: ", Nonconvergence_Rate,
-      ", Genes Filtered out for Low Expression: ", low_exp
+      ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -628,9 +622,7 @@ dot_plot <- ggplot(full_results, aes(
     y = "Gene",
     caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
                      "; Genes = ", Genes,
-                     ", Cells = ", Cell,
-                     ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                     ", Genes Filtered out for Low Expression: ", low_exp
+                     ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -674,9 +666,7 @@ dot_plot <- ggplot(full_results, aes(
     caption = paste0(
       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
       "; Genes = ", Genes,
-      ", Cells = ", Cell,
-      ", Non-Convergence Rate: ", Nonconvergence_Rate,
-      ", Genes Filtered out for Low Expression: ", low_exp
+      ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -841,9 +831,7 @@ dot_plot <- ggplot(full_results, aes(
     y = "Gene",
     caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
                      "; Genes = ", Genes,
-                     ", Cells = ", Cell,
-                     ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                     ", Genes Filtered out for Low Expression: ", low_exp
+                     ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -887,9 +875,7 @@ dot_plot <- ggplot(full_results, aes(
     caption = paste0(
       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
       "; Genes = ", Genes,
-      ", Cells = ", Cell,
-      ", Non-Convergence Rate: ", Nonconvergence_Rate,
-      ", Genes Filtered out for Low Expression: ", low_exp
+      ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -1061,9 +1047,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1099,9 +1083,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1234,9 +1216,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1272,9 +1252,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1465,9 +1443,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1504,9 +1480,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1648,9 +1622,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1685,9 +1657,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1877,9 +1847,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1914,9 +1882,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2057,9 +2023,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2094,9 +2058,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2288,9 +2250,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2325,9 +2285,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2469,9 +2427,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2701,9 +2657,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2738,9 +2692,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2918,9 +2870,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -3114,9 +3064,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -3151,9 +3099,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -3294,9 +3240,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -3331,9 +3275,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = "
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -3525,9 +3467,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = "
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -3705,9 +3645,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -3742,9 +3680,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -3937,9 +3873,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -3974,9 +3908,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = "
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -4117,9 +4049,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = "
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -4154,9 +4084,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -4360,9 +4288,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -4397,9 +4323,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -4540,9 +4464,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -4577,9 +4499,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 

@@ -144,9 +144,9 @@ test <- test[-which(duplicated(test)),]
 
 test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
 sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-sglt2_count <- length(unique(sglt2_count$mrn))
+sglt2_count <- length(unique(sglt2_count$record_id))
 nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-nosglt2_count <- length(unique(nosglt2_count))
+nosglt2_count <- length(unique(nosglt2_count$record_id))
 
 start_time <- Sys.time()
 
@@ -360,9 +360,9 @@ test <- test[-which(duplicated(test)),]
 
 
 sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-sglt2_count <- length(unique(sglt2_count$mrn))
+sglt2_count <- length(unique(sglt2_count$record_id))
 nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-nosglt2_count <- length(unique(nosglt2_count))
+nosglt2_count <- length(unique(nosglt2_count$record_id))
 
 
 start_time <- Sys.time()
@@ -584,9 +584,9 @@ registerDoParallel(cl)
 
 test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
 sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-sglt2_count <- length(unique(sglt2_count$mrn))
+sglt2_count <- length(unique(sglt2_count$record_id))
 nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-nosglt2_count <- length(unique(nosglt2_count))
+nosglt2_count <- length(unique(nosglt2_count$record_id))
 
 
 start_time <- Sys.time()
@@ -801,9 +801,9 @@ cl <- makeCluster(1)
 registerDoParallel(cl)
 test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
 sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-sglt2_count <- length(unique(sglt2_count$mrn))
+sglt2_count <- length(unique(sglt2_count$record_id))
 nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-nosglt2_count <- length(unique(nosglt2_count))
+nosglt2_count <- length(unique(nosglt2_count$record_id))
 
 
 start_time <- Sys.time()
@@ -1022,9 +1022,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -1201,9 +1201,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -1433,9 +1433,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -1615,9 +1615,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -1848,9 +1848,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -2028,9 +2028,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -2261,9 +2261,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -2442,9 +2442,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -2678,9 +2678,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -2858,9 +2858,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -3093,9 +3093,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -3273,9 +3273,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   start_time <- Sys.time()
   
@@ -3505,9 +3505,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   start_time <- Sys.time()
   
@@ -3685,9 +3685,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -3919,9 +3919,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -4099,9 +4099,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -4344,9 +4344,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
@@ -4524,9 +4524,9 @@ for (celltype in celltypes) {
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
-  sglt2_count <- length(unique(sglt2_count$mrn))
+  sglt2_count <- length(unique(sglt2_count$record_id))
   nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
-  nosglt2_count <- length(unique(nosglt2_count))
+  nosglt2_count <- length(unique(nosglt2_count$record_id))
   
   
   start_time <- Sys.time()
