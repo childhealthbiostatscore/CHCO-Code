@@ -23,7 +23,6 @@ library(fuzzyjoin)
 library(purrr)
 library(stringr)
 library(arsenal)
-library(Hmisc)
 
 # Working directory setup
 getwd()
@@ -33,17 +32,18 @@ getwd()
 user <- Sys.info()[["user"]]
 if (user == "laurapyle") {
   data_path <- "/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
-  github_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
 } else if (user == "lpyle") {
   data_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
-  github_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
 
-filename <- "/TODAY proteomics metabolomics/CKM/CKM functions.R"
-full_path <- file.path(github_path, filename)
-source(full_path)
+
+
+
+
+
+
 ```
 
 ```{r include = F}
@@ -197,6 +197,105 @@ comorb$fup_time <- ifelse(comorb$HTN == 0, comorb$DAYSTOHTN,
 
 # Fix missing follow-up time for one participant
 comorb$fup_time <- ifelse(comorb$RELEASEID == "65-44824", 4425, comorb$fup_time)
+
+# Function to extract biomarker values
+# LP modified the function below to only use M00, not first available if M00 missing
+# extract_biomarker_values <- function(df, var) {
+#   df %>%
+#     arrange(releaseid, days) %>%
+#     group_by(releaseid) %>%
+#     summarise(
+#       # Baseline: specifically M00 visit if available, otherwise first value
+#       baseline = {
+#         if("mvisit" %in% names(df)) {
+#           m00_row <- which(mvisit == "M00" & !is.na(.data[[var]]))
+#           if(length(m00_row) > 0) .data[[var]][m00_row[1]] else first(.data[[var]])
+#         } else {
+#           first(.data[[var]])
+#         }
+#       },
+#       highest = max(.data[[var]], na.rm = TRUE),
+#       .groups = "drop"
+#     ) %>%
+#     # Clean up infinite values
+#     mutate(across(where(is.numeric), ~ifelse(is.infinite(.), NA_real_, .))) %>%
+#     rename_with(~ paste0(var, "_", .), -releaseid)
+# }
+# extract_biomarker_values <- function(df, var) {
+#   df %>%
+#     arrange(releaseid, days) %>%
+#     group_by(releaseid) %>%
+#     summarise(
+#       # Baseline: only M00 visit, NA if not present
+#       baseline = {
+#         if("mvisit" %in% names(df)) {
+#           m00_row <- which(mvisit == "M00" & !is.na(.data[[var]]))
+#           if(length(m00_row) > 0) {
+#             .data[[var]][m00_row[1]] 
+#           } else {
+#             NA_real_  # Return NA if M00 not found
+#           }
+#         } else {
+#           NA_real_  # Return NA if mvisit column doesn't exist
+#         }
+#       },
+#       highest = max(.data[[var]], na.rm = TRUE),
+#       .groups = "drop"
+#     ) %>%
+#     # Clean up infinite values
+#     mutate(across(where(is.numeric), ~ifelse(is.infinite(.), NA_real_, .))) %>%
+#     rename_with(~ paste0(var, "_", .), -releaseid)
+# }
+# Need to modify function to extract data across both TODAY and TODAY2
+extract_biomarker_values <- function(df_list, var) {
+ # If a single dataframe is passed, convert to list
+ if(is.data.frame(df_list)) {
+   df_list <- list(df_list)
+ }
+ # Combine all dataframes that contain the variable
+ combined_df <- NULL
+ for(df in df_list) {
+   if(var %in% names(df)) {
+     # Select only the columns we need
+     temp_df <- df %>%
+       select(releaseid, days, all_of(var), any_of(c("mvisit", "pvisit")))
+     if(is.null(combined_df)) {
+       combined_df <- temp_df
+     } else {
+       combined_df <- bind_rows(combined_df, temp_df)
+     }
+   }
+ }
+ # If variable not found in any dataset, return empty dataframe
+ if(is.null(combined_df)) {
+   warning(paste("Variable", var, "not found in any of the provided datasets"))
+   return(data.frame())
+ }
+ combined_df %>%
+   arrange(releaseid, days) %>%
+   group_by(releaseid) %>%
+   summarise(
+     # Baseline: only M00 visit, NA if not present (unchanged)
+     baseline = {
+       if("mvisit" %in% names(combined_df)) {
+         m00_row <- which(mvisit == "M00" & !is.na(.data[[var]]))
+         if(length(m00_row) > 0) {
+           .data[[var]][m00_row[1]] 
+         } else {
+           NA_real_
+         }
+       } else {
+         NA_real_
+       }
+     },
+     # Highest now looks across all combined data
+     highest = max(.data[[var]], na.rm = TRUE),
+     .groups = "drop"
+   ) %>%
+   # Clean up infinite values
+   mutate(across(where(is.numeric), ~ifelse(is.infinite(.), NA_real_, .))) %>%
+   rename_with(~ paste0(var, "_", .), -releaseid)
+}
 
 # AME data processing - create individual event datasets
 arrhythmia <- ame %>% filter(AMENAME == 1) %>% select(releaseid, DAYSTOAME)
@@ -360,6 +459,52 @@ ame_summary$clin_cvd <- ifelse(
 comorb_ckm <- merge(comorb, ame_summary, by = "RELEASEID", all.x = TRUE)
 # LP NOTE: comorb_ckm has NAs, need to set events to 0 and days to event to total follow up time
 
+replace_missing_events <- function(data) {
+  # Check if fup_time column exists
+  if (!"fup_time" %in% names(data)) {
+    stop("Column 'fup_time' not found in the data")
+  }
+   # Define the event pairs
+  event_pairs <- list(
+    c("ARRHYTHMIA", "DAYSTOARRHYTHMIA"),
+    c("CAD", "DAYSTOCAD"),
+    c("CHF", "DAYSTOCHF"),
+    c("LVSD", "DAYSTOLVSD"),
+    c("MI", "DAYSTOMI"),
+    c("PAD", "DAYSTOPAD"),
+    c("DVT", "DAYSTODVT"),
+    c("STROKE", "DAYSTOSTROKE"),
+    c("TIA", "DAYSTOTIA"),
+    c("PANCREATITIS", "DAYSTOPANCREATITIS"),
+    c("GALLBLADDER", "DAYSTOGALLBLADDER"),
+    c("PNEURO", "DAYSTOPNEURO"),
+    c("ANEURO", "DAYSTOANEURO"),
+    c("MONONEURO", "DAYSTOMONONEURO"),
+    c("CKD", "DAYSTOCKD"),
+    c("ESKD", "DAYSTOESKD"),
+    c("NPDR", "DAYSTONPDR"),
+    c("PDR", "DAYSTOPDR"),
+    c("ME", "DAYSTOME"),
+    c("VH", "DAYSTOVH"),
+    c("BLINDNESS", "DAYSTOBLINDNESS"),
+    c("CATARACTS", "DAYSTOCATARACTS"),
+    c("GLAUCOMA", "DAYSTOGLAUCOMA"),
+    c("DEATH", "DAYSTODEATH")
+  )
+  # Loop through each event pair
+  for (pair in event_pairs) {
+    event_var <- pair[1]
+    days_var <- pair[2]
+    # Step 1: Set missing event values to 0
+    data[[event_var]][is.na(data[[event_var]])] <- 0
+    # Step 2: Now set any missing DAYSTO values to fup_time
+    # (including those that were missing because the event was missing/0)
+    missing_days_rows <- is.na(data[[days_var]])
+    data[[days_var]][missing_days_rows] <- data$fup_time[missing_days_rows]
+  }
+  return(data)
+}
+
 comorb_ckm <- replace_missing_events(comorb_ckm)
 
 # Biomarker extraction for various markers
@@ -407,7 +552,7 @@ clean_infinite <- function(df) {
 
 # Apply cleaning to all biomarker datasets
 biomarker_list <- list(bnp_vals, troponin_vals, adiponectin_vals, hmwa_vals, edol_vals, 
-                      shbg_vals, test_vals, gfr_vals, fas_vals, uacr_vals, 
+                      shbg_vals, test_vals, gfr_vals, fas_vals, uacr_vals,
                       il6_vals, il1_vals, hscrp_vals, apob_vals, mcp1_vals, tnfa_vals,
                       tnfr1_vals, tnfr2_vals, icam1_vals, vcam1_vals, eselectin_vals,
                       vegf_vals, fgf23_vals)
@@ -1005,18 +1150,6 @@ comorb_ckm2 <- comorb_ckm2 %>%
     )
   )
 
-comorb_ckm2 <- comorb_ckm2 %>%
-  mutate(
-    progress_CKM_gt1 = case_when(
-      progress_CKM2 > 1 ~ 1,
-      TRUE ~ 0
-    ),
-    progress_CKM_bmi_gt1 = case_when(
-      progress_CKM2_bmi > 1 ~ 1,
-      TRUE ~ 0
-    )
-  )
-
 # Join variables from baserisk and baseline into comorb_ckm2
 comorb_ckm2 <- comorb_ckm2 %>%
   left_join(
@@ -1034,24 +1167,8 @@ comorb_ckm2 <- comorb_ckm2 %>%
 
 # convert to factors
 cols_to_convert <- c("HTN0", "HTN", "ANYDLP0", "ANYDLP", "MIC0", "MIC", "MAC0", "MAC", "high_pwv0", "high_pwv1", "hfpef1",
-                     "hfpef2", "high_trop0", "high_trop1", "baseline_numeric", "followup_numeric", "baseline_numeric2", "followup_numeric2",
-                     "progress_CKM", "progress_CKM2", "progress_CKM_bmi", "progress_CKM2_bmi", "progress_CKM_gt1", "progress_CKM_bmi_gt1")
+                     "hfpef2", "high_trop0", "high_trop1")
 comorb_ckm2[cols_to_convert] <- lapply(comorb_ckm2[cols_to_convert], as.factor)
-
-# Apply labels to the created variables
-label(comorb_ckm2$baseline_numeric) <- "CKM syndrome stage at baseline (numeric, without BMI)"
-label(comorb_ckm2$followup_numeric) <- "CKM syndrome stage at follow-up (numeric, without BMI)"
-label(comorb_ckm2$baseline_numeric2) <- "CKM syndrome stage at baseline (numeric, with BMI)"
-label(comorb_ckm2$followup_numeric2) <- "CKM syndrome stage at follow-up (numeric, with BMI)"
-
-label(comorb_ckm2$progress_CKM) <- "CKM syndrome progression (binary: 0=no progression, 1=progressed, without BMI)"
-label(comorb_ckm2$progress_CKM2) <- "CKM syndrome progression magnitude (number of stages progressed, without BMI)"
-label(comorb_ckm2$progress_CKM_bmi) <- "CKM syndrome progression (binary: 0=no progression, 1=progressed, with BMI)"
-label(comorb_ckm2$progress_CKM2_bmi) <- "CKM syndrome progression magnitude (number of stages progressed, with BMI)"
-
-label(comorb_ckm2$progress_CKM_gt1) <- "CKM syndrome progression >1 stage (binary, without BMI)"
-label(comorb_ckm2$progress_CKM_bmi_gt1) <- "CKM syndrome progression >1 stage (binary, with BMI)"
-
 ```
 
 # Results and Statistical Analysis
@@ -1063,9 +1180,8 @@ label(comorb_ckm2$progress_CKM_bmi_gt1) <- "CKM syndrome progression >1 stage (b
 ```{r include=F}
 t2a <- tableby(CKM_syn ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + CKD + DEATH + progress_CKM + progress_CKM2 + progress_CKM_bmi + progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
+                STROKE + TIA + CKD + DEATH, 
               data = comorb_ckm2, total = F)
-
 ```
 
 ```{r results='asis'}
@@ -1077,7 +1193,7 @@ summary(t2a,  pfootnote = F)
 ```{r include=F}
 t2b <- tableby(CKM_syn2 ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + CKD + DEATH + progress_CKM + progress_CKM2 + progress_CKM_bmi + progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
+                STROKE + TIA + CKD + DEATH, 
               data = comorb_ckm2, total = F)
 ```
 
@@ -1090,7 +1206,7 @@ summary(t2b,  pfootnote = F)
 ```{r include=F}
 t2c <- tableby(CKM_syn_base ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + CKD + DEATH + progress_CKM + progress_CKM2 + progress_CKM_bmi + progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
+                STROKE + TIA + CKD + DEATH, 
               data = comorb_ckm2, total = F)
 ```
 
@@ -1103,7 +1219,7 @@ summary(t2c,  pfootnote = F)
 ```{r include=F}
 t2d <- tableby(CKM_syn_base2 ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + CKD + DEATH + progress_CKM + progress_CKM2 + progress_CKM_bmi + progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
+                STROKE + TIA + CKD + DEATH, 
               data = comorb_ckm2, total = F)
 ```
 
@@ -1136,6 +1252,8 @@ t4a <- tableby(CKM_syn ~  eGFR_FAS_baseline + eGFR_FAS_highest + kwt(UAlbCreat_b
                     kwt(bnp_baseline, "Nmiss","medianq1q3", "range")  + kwt(bnp_highest, "Nmiss","medianq1q3", "range") +
                     ApoB_baseline + ApoB_highest,  
               data = comorb_ckm2, total = F)
+
+
 ```
 
 ```{r results='asis'}
