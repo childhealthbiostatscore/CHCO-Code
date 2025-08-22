@@ -63,6 +63,36 @@ library(doParallel)
 
 
 
-NEBULA_dotplots <- function(data, celltype, comparison, dir.results){
+NEBULA_LC_T2D_dotplots <- function(data, celltype, dir.results){
+  
+  
   
 }
+
+
+
+
+
+
+
+
+
+NEBULA_T2D_SGLT2_dotplots <- function(data, celltype, dir.results){
+  
+  
+  
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
