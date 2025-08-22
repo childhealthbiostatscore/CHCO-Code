@@ -23,6 +23,7 @@ library(fuzzyjoin)
 library(purrr)
 library(stringr)
 library(arsenal)
+library(Hmisc)
 
 # Working directory setup
 getwd()
@@ -999,6 +1000,18 @@ comorb_ckm2 <- comorb_ckm2 %>%
     )
   )
 
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    progress_CKM_gt1 = case_when(
+      progress_CKM2 > 1 ~ 1,
+      TRUE ~ 0
+    ),
+    progress_CKM_bmi_gt1 = case_when(
+      progress_CKM2_bmi > 1 ~ 1,
+      TRUE ~ 0
+    )
+  )
+
 # Join variables from baserisk and baseline into comorb_ckm2
 comorb_ckm2 <- comorb_ckm2 %>%
   left_join(
@@ -1016,11 +1029,23 @@ comorb_ckm2 <- comorb_ckm2 %>%
 
 # convert to factors
 cols_to_convert <- c("HTN0", "HTN", "ANYDLP0", "ANYDLP", "MIC0", "MIC", "MAC0", "MAC", "high_pwv0", "high_pwv1", "hfpef1",
-                     "hfpef2", "high_trop0", "high_trop1")
+                     "hfpef2", "high_trop0", "high_trop1", "baseline_numeric", "followup_numeric", "baseline_numeric2", "followup_numeric2",
+                     "progress_CKM", "progress_CKM2", "progress_CKM_bmi", "progress_CKM2_bmi", "progress_CKM_gt1", "progress_CKM_bmi_gt1")
 comorb_ckm2[cols_to_convert] <- lapply(comorb_ckm2[cols_to_convert], as.factor)
 
-# create flags to indicate progression and more than 1 stage progression
+# Apply labels to the created variables
+label(comorb_ckm2$baseline_numeric) <- "CKM syndrome stage at baseline (numeric, without BMI)"
+label(comorb_ckm2$followup_numeric) <- "CKM syndrome stage at follow-up (numeric, without BMI)"
+label(comorb_ckm2$baseline_numeric2) <- "CKM syndrome stage at baseline (numeric, with BMI)"
+label(comorb_ckm2$followup_numeric2) <- "CKM syndrome stage at follow-up (numeric, with BMI)"
 
+label(comorb_ckm2$progress_CKM) <- "CKM syndrome progression (binary: 0=no progression, 1=progressed, without BMI)"
+label(comorb_ckm2$progress_CKM2) <- "CKM syndrome progression magnitude (number of stages progressed, without BMI)"
+label(comorb_ckm2$progress_CKM_bmi) <- "CKM syndrome progression (binary: 0=no progression, 1=progressed, with BMI)"
+label(comorb_ckm2$progress_CKM2_bmi) <- "CKM syndrome progression magnitude (number of stages progressed, with BMI)"
+
+label(comorb_ckm2$progress_CKM_gt1) <- "CKM syndrome progression >1 stage (binary, without BMI)"
+label(comorb_ckm2$progress_CKM_bmi_gt1) <- "CKM syndrome progression >1 stage (binary, with BMI)"
 
 ```
 
@@ -1033,8 +1058,9 @@ comorb_ckm2[cols_to_convert] <- lapply(comorb_ckm2[cols_to_convert], as.factor)
 ```{r include=F}
 t2a <- tableby(CKM_syn ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + CKD + DEATH, 
+                STROKE + TIA + CKD + DEATH + progress_CKM + progress_CKM2 + progress_CKM_bmi + progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
               data = comorb_ckm2, total = F)
+
 ```
 
 ```{r results='asis'}
