@@ -143,8 +143,10 @@ test <- test[-which(duplicated(test)),]
 
 
 test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+sglt2_count <- length(unique(sglt2_count$mrn))
+nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+nosglt2_count <- length(unique(nosglt2_count))
 
 start_time <- Sys.time()
 
@@ -261,10 +263,7 @@ dot_plot <- ggplot(full_results, aes(
     y = "Gene",
     caption = paste0(
       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-      "; Genes = ", Genes,
-      ", Cells = ", Cell,
-      ", Non-Convergence Rate: ", Nonconvergence_Rate,
-      ", Genes Filtered out for Low Expression: ", low_exp
+      ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -306,9 +305,7 @@ dot_plot <- ggplot(full_results, aes(
     caption = paste0(
       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
       "; Genes = ", Genes,
-      ", Cells = ", Cell,
-      ", Non-Convergence Rate: ", Nonconvergence_Rate,
-      ", Genes Filtered out for Low Expression: ", low_exp
+      ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -362,9 +359,10 @@ test <- so_subset@meta.data %>% dplyr::select(record_id, group, epic_sglti2_1)
 test <- test[-which(duplicated(test)),]
 
 
-test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+sglt2_count <- length(unique(sglt2_count$mrn))
+nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+nosglt2_count <- length(unique(nosglt2_count))
 
 
 start_time <- Sys.time()
@@ -483,9 +481,7 @@ dot_plot <- ggplot(full_results, aes(
     y = "Gene",
     caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                      "; Genes = ", Genes,
-                     ", Cells = ", Cell,
-                     ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                     ", Genes Filtered out for Low Expression: ", low_exp
+                     ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -529,9 +525,7 @@ dot_plot <- ggplot(full_results, aes(
     caption = paste0(
       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
       "; Genes = ", Genes,
-      ", Cells = ", Cell,
-      ", Non-Convergence Rate: ", Nonconvergence_Rate,
-      ", Genes Filtered out for Low Expression: ", low_exp
+      ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -589,8 +583,10 @@ registerDoParallel(cl)
 
 
 test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+sglt2_count <- length(unique(sglt2_count$mrn))
+nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+nosglt2_count <- length(unique(nosglt2_count))
 
 
 start_time <- Sys.time()
@@ -708,9 +704,7 @@ dot_plot <- ggplot(full_results, aes(
     y = "Gene",
     caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                      "; Genes = ", Genes,
-                     ", Cells = ", Cell,
-                     ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                     ", Genes Filtered out for Low Expression: ", low_exp
+                     ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -754,9 +748,7 @@ dot_plot <- ggplot(full_results, aes(
     caption = paste0(
       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
       "; Genes = ", Genes,
-      ", Cells = ", Cell,
-      ", Non-Convergence Rate: ", Nonconvergence_Rate,
-      ", Genes Filtered out for Low Expression: ", low_exp
+      ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -808,8 +800,10 @@ genes_list <- ox_phos_genes
 cl <- makeCluster(1)
 registerDoParallel(cl)
 test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+sglt2_count <- length(unique(sglt2_count$mrn))
+nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+nosglt2_count <- length(unique(nosglt2_count))
 
 
 start_time <- Sys.time()
@@ -925,9 +919,7 @@ dot_plot <- ggplot(full_results, aes(
     y = "Gene",
     caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                      "; Genes = ", Genes,
-                     ", Cells = ", Cell,
-                     ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                     ", Genes Filtered out for Low Expression: ", low_exp
+                     ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -971,9 +963,7 @@ dot_plot <- ggplot(full_results, aes(
     caption = paste0(
       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
       "; Genes = ", Genes,
-      ", Cells = ", Cell,
-      ", Non-Convergence Rate: ", Nonconvergence_Rate,
-      ", Genes Filtered out for Low Expression: ", low_exp
+      ", Cells = ", Cell
     )
   ) +
   theme(plot.caption = element_text(size = 8), 
@@ -1031,8 +1021,10 @@ for (celltype in celltypes) {
   cl <- makeCluster(1)
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
   
   
   start_time <- Sys.time()
@@ -1149,9 +1141,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1187,9 +1177,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1212,8 +1200,10 @@ for (celltype in celltypes) {
   cl <- makeCluster(1)
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
   
   
   start_time <- Sys.time()
@@ -1328,9 +1318,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1366,9 +1354,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1446,8 +1432,10 @@ for (celltype in celltypes) {
   cl <- makeCluster(1)
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
   
   
   start_time <- Sys.time()
@@ -1563,9 +1551,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1602,9 +1588,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1630,8 +1614,10 @@ for (celltype in celltypes) {
   cl <- makeCluster(1)
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
   
   
   start_time <- Sys.time()
@@ -1748,9 +1734,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -1863,8 +1847,10 @@ for (celltype in celltypes) {
   cl <- makeCluster(1)
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
   
   
   start_time <- Sys.time()
@@ -1981,9 +1967,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2018,9 +2002,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2045,8 +2027,10 @@ for (celltype in celltypes) {
   cl <- makeCluster(1)
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
   
   
   start_time <- Sys.time()
@@ -2119,7 +2103,7 @@ for (celltype in celltypes) {
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_OxPhos_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
   full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
@@ -2163,9 +2147,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2200,9 +2182,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2280,8 +2260,10 @@ for (celltype in celltypes) {
   cl <- makeCluster(1)
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
   
   
   start_time <- Sys.time()
@@ -2398,9 +2380,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2435,9 +2415,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -2463,1679 +2441,10 @@ for (celltype in celltypes) {
   cl <- makeCluster(1)
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
-  
-  
-  start_time <- Sys.time()
-  
-  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_path[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
-      # library <- meta_gene$library_size
-      library <- meta_gene$pooled_offset
-      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-      
-      if (is.null(data_g_gene)) {
-        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-      }
-      
-      #With offset
-      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
-      
-      list(gene = g, result = result)  # return both gene name and result
-      
-    }, error = function(e) {
-      NULL
-    })
-  }
-  
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  # set the names of results based on gene names
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-  
-  PT_nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      df <- data.frame(Gene = gene_name,
-                       Convergence_Code = converged)
-      return(df)
-    }
-  )
-  
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-  
-  #Make dataframe of final results
-  full_results <- as.data.frame(nebula_summaries)
-  #Calculate number of genes filtered out for low expression 
-  low_exp <- length(ox_phos_genes)-length(full_results$gene)
-  #Filter out non-converging genes
-  full_results <- full_results %>% 
-    filter(!gene %in%  nonconverge_genes)
-  #Calculate nonconvergence rate
-  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
-  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
-  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-  full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
-  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
-  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
-  
-  # Identify significant points (fdr < 0.05)
-  significant_df <- full_results[full_results$fdr < 0.05, ]
-  
-  Genes <- length(unique(full_results$gene))
-  Cell <- ncol(so_celltype)
-  Nonconvergence_Rate <- nebula_nonconverged_percent
-  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
-  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
-  # 
-  # # Identify significant points (fdr < 0.05)
-  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-  
-  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
-  # max <- 3.1
-  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
-  
-  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
-                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
-    arrange(`logFC_groupType_2_Diabetes`)
-  
-  dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color1,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
-                              "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color2,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  
-  
-  comb_plot <- dot_plot_tca + dot_plot_ox_phos
-  comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
-  # dot_plot
-  # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_tca)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_tca_2)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_ox_phos)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_ox_phos_2)
-  dev.off()
-  
-  
-  
-  
-}
-
-
-### ii. DCT Subtypes
-
-celltypes <- c("DCT","dDCT")
-for (celltype in celltypes) {
-  #Filter to PT Cells
-  so_celltype <- subset(so_subset,KPMP_celltype==celltype)
-  DefaultAssay(so_celltype) <- "RNA" 
-  
-  nrow(so_celltype) #34 genes
-  ncol(so_celltype) #13534 PT cells
-  
-  celltype2 <- str_replace_all(celltype,"/","_")
-  celltype2 <- str_replace_all(celltype2,"-","_")
-  
-  #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
-  #Make sure to set reference level
-  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
-  
-  
-  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-  
-  # With parallelization
-  #TCA Cycle
-  # List of genes
-  genes_list <- tca_genes
-  
-  cl <- makeCluster(1)
-  registerDoParallel(cl)
-  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
-  
-  
-  start_time <- Sys.time()
-  
-  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_path[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
-      # library <- meta_gene$library_size
-      library <- meta_gene$pooled_offset
-      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-      
-      if (is.null(data_g_gene)) {
-        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-      }
-      
-      #With offset
-      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
-      
-      list(gene = g, result = result)  # return both gene name and result
-      
-    }, error = function(e) {
-      NULL
-    })
-  }
-  
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  # set the names of results based on gene names
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-  
-  PT_nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      df <- data.frame(Gene = gene_name,
-                       Convergence_Code = converged)
-      return(df)
-    }
-  )
-  
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-  
-  #Make dataframe of final results
-  full_results <- as.data.frame(nebula_summaries)
-  #Calculate number of genes filtered out for low expression 
-  low_exp <- length(ox_phos_genes)-length(full_results$gene)
-  #Filter out non-converging genes
-  full_results <- full_results %>% 
-    filter(!gene %in%  nonconverge_genes)
-  #Calculate nonconvergence rate
-  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
-  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
-  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-  full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
-  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
-  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
-  
-  # Identify significant points (fdr < 0.05)
-  significant_df <- full_results[full_results$fdr < 0.05, ]
-  
-  Genes <- length(unique(full_results$gene))
-  Cell <- ncol(so_celltype)
-  Nonconvergence_Rate <- nebula_nonconverged_percent
-  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
-  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
-  # 
-  # # Identify significant points (fdr < 0.05)
-  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-  
-  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
-  # max <- 3.1
-  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
-  
-  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
-                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
-    arrange(`logFC_groupType_2_Diabetes`)
-  
-  dot_plot_tca <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color1,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color2,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  
-  genes_list <- ox_phos_genes
-  
-  cl <- makeCluster(1)
-  registerDoParallel(cl)
-  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
-  
-  
-  start_time <- Sys.time()
-  
-  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_path[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
-      # library <- meta_gene$library_size
-      library <- meta_gene$pooled_offset
-      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-      
-      if (is.null(data_g_gene)) {
-        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-      }
-      
-      #With offset
-      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
-      
-      list(gene = g, result = result)  # return both gene name and result
-      
-    }, error = function(e) {
-      NULL
-    })
-  }
-  
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  # set the names of results based on gene names
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-  
-  PT_nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      df <- data.frame(Gene = gene_name,
-                       Convergence_Code = converged)
-      return(df)
-    }
-  )
-  
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-  
-  #Make dataframe of final results
-  full_results <- as.data.frame(nebula_summaries)
-  #Calculate number of genes filtered out for low expression 
-  low_exp <- length(ox_phos_genes)-length(full_results$gene)
-  #Filter out non-converging genes
-  full_results <- full_results %>% 
-    filter(!gene %in%  nonconverge_genes)
-  #Calculate nonconvergence rate
-  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
-  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
-  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-  full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
-  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
-  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
-  
-  # Identify significant points (fdr < 0.05)
-  significant_df <- full_results[full_results$fdr < 0.05, ]
-  
-  Genes <- length(unique(full_results$gene))
-  Cell <- ncol(so_celltype)
-  Nonconvergence_Rate <- nebula_nonconverged_percent
-  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
-  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
-  # 
-  # # Identify significant points (fdr < 0.05)
-  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-  
-  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
-  # max <- 3.1
-  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
-  
-  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
-                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
-    arrange(`logFC_groupType_2_Diabetes`)
-  
-  dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color1,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
-                              "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color2,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  
-  
-  
-  comb_plot <- dot_plot_tca + dot_plot_ox_phos
-  comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
-  # dot_plot
-  # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_tca)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_tca_2)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_ox_phos)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_ox_phos_2)
-  dev.off()
-  
-  
-  
-  
-}
-
-
-### i. EC Cells
-
-celltypes <- c("EC")
-#Filter to PT Cells
-for (celltype in celltypes) {
-  #Filter to PT Cells
-  so_celltype <- subset(so_subset,celltype2==celltype)
-  DefaultAssay(so_celltype) <- "RNA" 
-  
-  nrow(so_celltype) #34 genes
-  ncol(so_celltype) #13534 PT cells
-  
-  celltype2 <- str_replace_all(celltype,"/","_")
-  celltype2 <- str_replace_all(celltype2,"-","_")
-  
-  #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
-  #Make sure to set reference level
-  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
-  
-  
-  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-  
-  # With parallelization
-  #TCA Cycle
-  # List of genes
-  genes_list <- tca_genes
-  
-  cl <- makeCluster(1)
-  registerDoParallel(cl)
-  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
-  
-  
-  start_time <- Sys.time()
-  
-  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_path[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
-      # library <- meta_gene$library_size
-      library <- meta_gene$pooled_offset
-      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-      
-      if (is.null(data_g_gene)) {
-        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-      }
-      
-      #With offset
-      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
-      
-      list(gene = g, result = result)  # return both gene name and result
-      
-    }, error = function(e) {
-      NULL
-    })
-  }
-  
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  # set the names of results based on gene names
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-  
-  PT_nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      df <- data.frame(Gene = gene_name,
-                       Convergence_Code = converged)
-      return(df)
-    }
-  )
-  
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-  
-  #Make dataframe of final results
-  full_results <- as.data.frame(nebula_summaries)
-  #Calculate number of genes filtered out for low expression 
-  low_exp <- length(ox_phos_genes)-length(full_results$gene)
-  #Filter out non-converging genes
-  full_results <- full_results %>% 
-    filter(!gene %in%  nonconverge_genes)
-  #Calculate nonconvergence rate
-  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
-  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
-  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-  full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
-  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
-  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
-  
-  # Identify significant points (fdr < 0.05)
-  significant_df <- full_results[full_results$fdr < 0.05, ]
-  
-  Genes <- length(unique(full_results$gene))
-  Cell <- ncol(so_celltype)
-  Nonconvergence_Rate <- nebula_nonconverged_percent
-  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
-  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
-  # 
-  # # Identify significant points (fdr < 0.05)
-  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-  
-  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
-  # max <- 3.1
-  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
-  
-  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
-                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
-    arrange(`logFC_groupType_2_Diabetes`)
-  
-  dot_plot_tca <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color1,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color2,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  
-  
-  genes_list <- ox_phos_genes
-  
-  cl <- makeCluster(1)
-  registerDoParallel(cl)
-  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
-  
-  start_time <- Sys.time()
-  
-  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_path[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
-      # library <- meta_gene$library_size
-      library <- meta_gene$pooled_offset
-      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-      
-      if (is.null(data_g_gene)) {
-        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-      }
-      
-      #With offset
-      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
-      
-      list(gene = g, result = result)  # return both gene name and result
-      
-    }, error = function(e) {
-      NULL
-    })
-  }
-  
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  # set the names of results based on gene names
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-  
-  PT_nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      df <- data.frame(Gene = gene_name,
-                       Convergence_Code = converged)
-      return(df)
-    }
-  )
-  
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-  
-  #Make dataframe of final results
-  full_results <- as.data.frame(nebula_summaries)
-  #Calculate number of genes filtered out for low expression 
-  low_exp <- length(ox_phos_genes)-length(full_results$gene)
-  #Filter out non-converging genes
-  full_results <- full_results %>% 
-    filter(!gene %in%  nonconverge_genes)
-  #Calculate nonconvergence rate
-  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
-  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
-  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-  full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
-  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
-  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
-  
-  # Identify significant points (fdr < 0.05)
-  significant_df <- full_results[full_results$fdr < 0.05, ]
-  
-  Genes <- length(unique(full_results$gene))
-  Cell <- ncol(so_celltype)
-  Nonconvergence_Rate <- nebula_nonconverged_percent
-  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
-  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
-  # 
-  # # Identify significant points (fdr < 0.05)
-  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-  
-  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
-  # max <- 3.1
-  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
-  
-  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
-                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
-    arrange(`logFC_groupType_2_Diabetes`)
-  
-  dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color1,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
-                              "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color2,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  
-  
-  
-  comb_plot <- dot_plot_tca + dot_plot_ox_phos
-  comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
-  # dot_plot
-  # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_tca)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_tca_2)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_ox_phos)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_ox_phos_2)
-  dev.off()
-  
-  
-  
-}
-
-
-### ii. EC Subtypes
-
-celltypes <- c("EC/VSMC","EC-AVR","EC-PTC","EC-AEA","EC-LYM","EC-GC")
-for (celltype in celltypes) {
-  #Filter to PT Cells
-  so_celltype <- subset(so_subset,KPMP_celltype==celltype)
-  DefaultAssay(so_celltype) <- "RNA" 
-  
-  nrow(so_celltype) #34 genes
-  ncol(so_celltype) #13534 PT cells
-  
-  celltype2 <- str_replace_all(celltype,"/","_")
-  celltype2 <- str_replace_all(celltype2,"-","_")
-  
-  #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
-  #Make sure to set reference level
-  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
-  
-  
-  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-  
-  # With parallelization
-  #TCA Cycle
-  # List of genes
-  genes_list <- tca_genes
-  
-  cl <- makeCluster(1)
-  registerDoParallel(cl)
-  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
-  
-  
-  start_time <- Sys.time()
-  
-  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_path[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
-      # library <- meta_gene$library_size
-      library <- meta_gene$pooled_offset
-      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-      
-      if (is.null(data_g_gene)) {
-        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-      }
-      
-      #With offset
-      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
-      
-      list(gene = g, result = result)  # return both gene name and result
-      
-    }, error = function(e) {
-      NULL
-    })
-  }
-  
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  # set the names of results based on gene names
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-  
-  PT_nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      df <- data.frame(Gene = gene_name,
-                       Convergence_Code = converged)
-      return(df)
-    }
-  )
-  
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-  
-  #Make dataframe of final results
-  full_results <- as.data.frame(nebula_summaries)
-  #Calculate number of genes filtered out for low expression 
-  low_exp <- length(ox_phos_genes)-length(full_results$gene)
-  #Filter out non-converging genes
-  full_results <- full_results %>% 
-    filter(!gene %in%  nonconverge_genes)
-  #Calculate nonconvergence rate
-  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
-  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
-  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-  full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
-  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
-  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
-  
-  # Identify significant points (fdr < 0.05)
-  significant_df <- full_results[full_results$fdr < 0.05, ]
-  
-  Genes <- length(unique(full_results$gene))
-  Cell <- ncol(so_celltype)
-  Nonconvergence_Rate <- nebula_nonconverged_percent
-  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
-  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
-  # 
-  # # Identify significant points (fdr < 0.05)
-  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-  
-  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
-  # max <- 3.1
-  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
-  
-  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
-                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
-    arrange(`logFC_groupType_2_Diabetes`)
-  
-  dot_plot_tca <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color1,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color2,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  
-  
-  genes_list <- ox_phos_genes
-  
-  cl <- makeCluster(1)
-  registerDoParallel(cl)
-  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
-  
-  
-  start_time <- Sys.time()
-  
-  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_path[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
-      # library <- meta_gene$library_size
-      library <- meta_gene$pooled_offset
-      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-      
-      if (is.null(data_g_gene)) {
-        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-      }
-      
-      #With offset
-      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
-      
-      list(gene = g, result = result)  # return both gene name and result
-      
-    }, error = function(e) {
-      NULL
-    })
-  }
-  
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  # set the names of results based on gene names
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-  
-  PT_nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      df <- data.frame(Gene = gene_name,
-                       Convergence_Code = converged)
-      return(df)
-    }
-  )
-  
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-  
-  #Make dataframe of final results
-  full_results <- as.data.frame(nebula_summaries)
-  #Calculate number of genes filtered out for low expression 
-  low_exp <- length(ox_phos_genes)-length(full_results$gene)
-  #Filter out non-converging genes
-  full_results <- full_results %>% 
-    filter(!gene %in%  nonconverge_genes)
-  #Calculate nonconvergence rate
-  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
-  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
-  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-  full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
-  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
-  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
-  
-  # Identify significant points (fdr < 0.05)
-  significant_df <- full_results[full_results$fdr < 0.05, ]
-  
-  Genes <- length(unique(full_results$gene))
-  Cell <- ncol(so_celltype)
-  Nonconvergence_Rate <- nebula_nonconverged_percent
-  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
-  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
-  # 
-  # # Identify significant points (fdr < 0.05)
-  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-  
-  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
-  # max <- 3.1
-  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
-  
-  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
-                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
-    arrange(`logFC_groupType_2_Diabetes`)
-  
-  dot_plot_ox_phos <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color1,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
-                              "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  dot_plot_ox_phos_2 <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color2,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  
-  
-  
-  comb_plot <- dot_plot_tca + dot_plot_ox_phos
-  comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
-  # dot_plot
-  # 
-  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_tca)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_tca_2)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_ox_phos)
-  dev.off()
-  
-  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
-      width = 5000, height = 2000, res = 300)
-  print(dot_plot_ox_phos_2)
-  dev.off()
-  
-  
-  
-}
-
-
-
-### i. Podocytes
-
-celltypes <- c("POD")
-for (celltype in celltypes) {
-  #Filter to PT Cells
-  so_celltype <- subset(so_subset,celltype2==celltype)
-  DefaultAssay(so_celltype) <- "RNA" 
-  
-  nrow(so_celltype) #34 genes
-  ncol(so_celltype) #13534 PT cells
-  
-  celltype2 <- str_replace_all(celltype,"/","_")
-  celltype2 <- str_replace_all(celltype2,"-","_")
-  
-  #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
-  #Make sure to set reference level
-  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
-  
-  
-  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-  
-  # With parallelization
-  #TCA Cycle
-  # List of genes
-  genes_list <- tca_genes
-  
-  cl <- makeCluster(1)
-  registerDoParallel(cl)
-  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
-  
-  
-  start_time <- Sys.time()
-  
-  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_path[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
-      # library <- meta_gene$library_size
-      library <- meta_gene$pooled_offset
-      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-      
-      if (is.null(data_g_gene)) {
-        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-      }
-      
-      #With offset
-      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
-      
-      list(gene = g, result = result)  # return both gene name and result
-      
-    }, error = function(e) {
-      NULL
-    })
-  }
-  
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  # set the names of results based on gene names
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-  
-  PT_nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      df <- data.frame(Gene = gene_name,
-                       Convergence_Code = converged)
-      return(df)
-    }
-  )
-  
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
-  
-  #Make dataframe of final results
-  full_results <- as.data.frame(nebula_summaries)
-  #Calculate number of genes filtered out for low expression 
-  low_exp <- length(ox_phos_genes)-length(full_results$gene)
-  #Filter out non-converging genes
-  full_results <- full_results %>% 
-    filter(!gene %in%  nonconverge_genes)
-  #Calculate nonconvergence rate
-  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
-  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
-  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-  full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
-  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
-  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
-  
-  # Identify significant points (fdr < 0.05)
-  significant_df <- full_results[full_results$fdr < 0.05, ]
-  
-  Genes <- length(unique(full_results$gene))
-  Cell <- ncol(so_celltype)
-  Nonconvergence_Rate <- nebula_nonconverged_percent
-  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
-  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
-  # 
-  # # Identify significant points (fdr < 0.05)
-  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
-  
-  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
-  # max <- 3.1
-  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
-  
-  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
-                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
-    arrange(`logFC_groupType_2_Diabetes`)
-  
-  dot_plot_tca <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color1,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
-  dot_plot_tca_2 <- ggplot(full_results, aes(
-    y = factor(gene, levels = order$gene),
-    x = `logFC_epic_sglti2_1Yes`,
-    color = color2,
-    size = abs(`logFC_epic_sglti2_1Yes`)
-  )) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
-    scale_size(range = c(2, 6), name = "|LogFC|") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
-    theme_minimal() +  # Retains grid lines
-    labs(
-      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
-      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
-      x = "Log Fold Change",
-      y = "Gene",
-      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
-                       "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
-      )
-    ) +
-    theme(plot.caption = element_text(size = 8), 
-          plot.title = element_text(hjust = 0),
-          axis.text.y = element_text(size = 8),
-          # axis.text.x = element_text(angle = 0, hjust = 1),
-          axis.line = element_line(color = "black", size = 0.5),
-          axis.ticks.x = element_line(color = "black"),
-          panel.border = element_blank(),
-          panel.background = element_blank()
-    )
-  
-  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
-              paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
-  
-  
-  
-  genes_list <- ox_phos_genes
-  
-  cl <- makeCluster(1)
-  registerDoParallel(cl)
-  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
   
   
   start_time <- Sys.time()
@@ -4289,9 +2598,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -4304,9 +2611,9 @@ for (celltype in celltypes) {
           panel.background = element_blank()
     )
   
+  
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
-  
   
   
   
@@ -4336,22 +2643,13 @@ for (celltype in celltypes) {
   
   
   
+  
 }
 
 
+### ii. DCT Subtypes
 
-#Immune cells
-
-celltypes <- c(
-  "cDC",
-  "cycT",
-  "CD4+ T",
-  "CD8+ T",
-  "NK",
-  "B",
-  "MON",
-  "MAC",
-  "MC")
+celltypes <- c("DCT","dDCT")
 for (celltype in celltypes) {
   #Filter to PT Cells
   so_celltype <- subset(so_subset,KPMP_celltype==celltype)
@@ -4362,8 +2660,6 @@ for (celltype in celltypes) {
   
   celltype2 <- str_replace_all(celltype,"/","_")
   celltype2 <- str_replace_all(celltype2,"-","_")
-  celltype2 <- str_replace_all(celltype2," ","")
-  celltype2 <- str_replace_all(celltype2,"\\+","_")
   
   #Make sure exposure/independent/x variable or group variable is a factor variable
   so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
@@ -4381,8 +2677,10 @@ for (celltype in celltypes) {
   cl <- makeCluster(1)
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
   
   
   start_time <- Sys.time()
@@ -4499,9 +2797,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -4536,9 +2832,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -4554,8 +2848,8 @@ for (celltype in celltypes) {
   write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
               paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
   
   
   genes_list <- ox_phos_genes
@@ -4563,8 +2857,245 @@ for (celltype in celltypes) {
   cl <- makeCluster(1)
   registerDoParallel(cl)
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') %>% nrow()
-  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No') %>% nrow()
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
+  
+  
+  start_time <- Sys.time()
+  
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_path[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype,features=g)@meta.data
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
+      # library <- meta_gene$library_size
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  PT_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
+  
+  #Make dataframe of final results
+  full_results <- as.data.frame(nebula_summaries)
+  #Calculate number of genes filtered out for low expression 
+  low_exp <- length(ox_phos_genes)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
+  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
+  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+  full_results <- full_results %>%
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
+  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_OxPhos_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cell <- ncol(so_celltype)
+  Nonconvergence_Rate <- nebula_nonconverged_percent
+  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
+  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
+  # 
+  # # Identify significant points (fdr < 0.05)
+  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+  
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
+  # max <- 3.1
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
+  
+  dot_plot_ox_phos <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color1,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
+                              "; Genes = ", Genes,
+                              ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  dot_plot_ox_phos_2 <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color2,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  
+  
+  
+  comb_plot <- dot_plot_tca + dot_plot_ox_phos
+  comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
+  # dot_plot
+  # 
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_tca)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_tca_2)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_ox_phos)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_ox_phos_2)
+  dev.off()
+  
+  
+  
+  
+}
+
+
+### i. EC Cells
+
+celltypes <- c("EC")
+#Filter to PT Cells
+for (celltype in celltypes) {
+  #Filter to PT Cells
+  so_celltype <- subset(so_subset,celltype2==celltype)
+  DefaultAssay(so_celltype) <- "RNA" 
+  
+  nrow(so_celltype) #34 genes
+  ncol(so_celltype) #13534 PT cells
+  
+  celltype2 <- str_replace_all(celltype,"/","_")
+  celltype2 <- str_replace_all(celltype2,"-","_")
+  
+  #Make sure exposure/independent/x variable or group variable is a factor variable
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
+  #Make sure to set reference level
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
+  
+  
+  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+  
+  # With parallelization
+  #TCA Cycle
+  # List of genes
+  genes_list <- tca_genes
+  
+  cl <- makeCluster(1)
+  registerDoParallel(cl)
+  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
   
   
   start_time <- Sys.time()
@@ -4659,6 +3190,185 @@ for (celltype in celltypes) {
   # max <- 3.1
   min <- min(full_results$`logFC_epic_sglti2_1Yes`)
   
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
+  
+  dot_plot_tca <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color1,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  dot_plot_tca_2 <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color2,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  
+  
+  genes_list <- ox_phos_genes
+  
+  cl <- makeCluster(1)
+  registerDoParallel(cl)
+  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
+  
+  start_time <- Sys.time()
+  
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_path[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype,features=g)@meta.data
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
+      # library <- meta_gene$library_size
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  PT_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
+  
+  #Make dataframe of final results
+  full_results <- as.data.frame(nebula_summaries)
+  #Calculate number of genes filtered out for low expression 
+  low_exp <- length(ox_phos_genes)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
+  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
+  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+  full_results <- full_results %>%
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
+  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_Ox_PHOS_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cell <- ncol(so_celltype)
+  Nonconvergence_Rate <- nebula_nonconverged_percent
+  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
+  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
+  # 
+  # # Identify significant points (fdr < 0.05)
+  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+  
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
+  # max <- 3.1
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
   order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
                                     celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
     arrange(`logFC_groupType_2_Diabetes`)
@@ -4681,9 +3391,7 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
                               "; Genes = ", Genes,
-                              ", Cells = ", Cell,
-                              ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                              ", Genes Filtered out for Low Expression: ", low_exp
+                              ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
@@ -4718,9 +3426,1259 @@ for (celltype in celltypes) {
       y = "Gene",
       caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
                        "; Genes = ", Genes,
-                       ", Cells = ", Cell,
-                       ", Non-Convergence Rate: ", Nonconvergence_Rate,
-                       ", Genes Filtered out for Low Expression: ", low_exp
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  
+  
+  
+  comb_plot <- dot_plot_tca + dot_plot_ox_phos
+  comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
+  # dot_plot
+  # 
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_tca)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_tca_2)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_ox_phos)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_ox_phos_2)
+  dev.off()
+  
+  
+  
+}
+
+
+### ii. EC Subtypes
+
+celltypes <- c("EC/VSMC","EC-AVR","EC-PTC","EC-AEA","EC-LYM","EC-GC")
+for (celltype in celltypes) {
+  #Filter to PT Cells
+  so_celltype <- subset(so_subset,KPMP_celltype==celltype)
+  DefaultAssay(so_celltype) <- "RNA" 
+  
+  nrow(so_celltype) #34 genes
+  ncol(so_celltype) #13534 PT cells
+  
+  celltype2 <- str_replace_all(celltype,"/","_")
+  celltype2 <- str_replace_all(celltype2,"-","_")
+  
+  #Make sure exposure/independent/x variable or group variable is a factor variable
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
+  #Make sure to set reference level
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
+  
+  
+  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+  
+  # With parallelization
+  #TCA Cycle
+  # List of genes
+  genes_list <- tca_genes
+  
+  cl <- makeCluster(1)
+  registerDoParallel(cl)
+  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
+  
+  start_time <- Sys.time()
+  
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_path[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype,features=g)@meta.data
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
+      # library <- meta_gene$library_size
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  PT_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
+  
+  #Make dataframe of final results
+  full_results <- as.data.frame(nebula_summaries)
+  #Calculate number of genes filtered out for low expression 
+  low_exp <- length(ox_phos_genes)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
+  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
+  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+  full_results <- full_results %>%
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
+  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cell <- ncol(so_celltype)
+  Nonconvergence_Rate <- nebula_nonconverged_percent
+  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
+  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
+  # 
+  # # Identify significant points (fdr < 0.05)
+  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+  
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
+  # max <- 3.1
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
+  
+  dot_plot_tca <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color1,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  dot_plot_tca_2 <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color2,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  
+  
+  ####OX_PHOS
+  genes_list <- ox_phos_genes
+  
+  cl <- makeCluster(1)
+  registerDoParallel(cl)
+  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
+  
+  
+  start_time <- Sys.time()
+  
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_path[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype,features=g)@meta.data
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
+      # library <- meta_gene$library_size
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  PT_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
+  
+  #Make dataframe of final results
+  full_results <- as.data.frame(nebula_summaries)
+  #Calculate number of genes filtered out for low expression 
+  low_exp <- length(ox_phos_genes)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
+  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
+  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+  full_results <- full_results %>%
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
+  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_OX_PHOS_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cell <- ncol(so_celltype)
+  Nonconvergence_Rate <- nebula_nonconverged_percent
+  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
+  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
+  # 
+  # # Identify significant points (fdr < 0.05)
+  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+  
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
+  # max <- 3.1
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
+  
+  dot_plot_ox_phos <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color1,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
+                              "; Genes = ", Genes,
+                              ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  dot_plot_ox_phos_2 <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color2,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  
+  
+  
+  comb_plot <- dot_plot_tca + dot_plot_ox_phos
+  comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
+  # dot_plot
+  # 
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_tca)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_tca_2)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_ox_phos)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_ox_phos_2)
+  dev.off()
+  
+  
+  
+}
+
+
+
+### i. Podocytes
+
+celltypes <- c("POD")
+for (celltype in celltypes) {
+  #Filter to PT Cells
+  so_celltype <- subset(so_subset,celltype2==celltype)
+  DefaultAssay(so_celltype) <- "RNA" 
+  
+  nrow(so_celltype) #34 genes
+  ncol(so_celltype) #13534 PT cells
+  
+  celltype2 <- str_replace_all(celltype,"/","_")
+  celltype2 <- str_replace_all(celltype2,"-","_")
+  
+  #Make sure exposure/independent/x variable or group variable is a factor variable
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
+  #Make sure to set reference level
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
+  
+  
+  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+  
+  # With parallelization
+  #TCA Cycle
+  # List of genes
+  genes_list <- tca_genes
+  
+  cl <- makeCluster(1)
+  registerDoParallel(cl)
+  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
+  
+  
+  start_time <- Sys.time()
+  
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_path[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype,features=g)@meta.data
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
+      # library <- meta_gene$library_size
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  PT_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
+  
+  #Make dataframe of final results
+  full_results <- as.data.frame(nebula_summaries)
+  #Calculate number of genes filtered out for low expression 
+  low_exp <- length(ox_phos_genes)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
+  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
+  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+  full_results <- full_results %>%
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
+  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cell <- ncol(so_celltype)
+  Nonconvergence_Rate <- nebula_nonconverged_percent
+  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
+  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
+  # 
+  # # Identify significant points (fdr < 0.05)
+  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+  
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
+  # max <- 3.1
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
+  
+  dot_plot_tca <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color1,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  dot_plot_tca_2 <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color2,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  
+  
+  genes_list <- ox_phos_genes
+  
+  cl <- makeCluster(1)
+  registerDoParallel(cl)
+  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
+  
+  
+  start_time <- Sys.time()
+  
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_path[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype,features=g)@meta.data
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
+      # library <- meta_gene$library_size
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  PT_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
+  
+  #Make dataframe of final results
+  full_results <- as.data.frame(nebula_summaries)
+  #Calculate number of genes filtered out for low expression 
+  low_exp <- length(ox_phos_genes)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
+  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
+  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+  full_results <- full_results %>%
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
+  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_OxPhos_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cell <- ncol(so_celltype)
+  Nonconvergence_Rate <- nebula_nonconverged_percent
+  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
+  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
+  # 
+  # # Identify significant points (fdr < 0.05)
+  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+  
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
+  # max <- 3.1
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
+  
+  dot_plot_ox_phos <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color1,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
+                              "; Genes = ", Genes,
+                              ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  dot_plot_ox_phos_2 <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color2,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_Pvalue_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  
+  
+  
+  comb_plot <- dot_plot_tca + dot_plot_ox_phos
+  comb_plot2 <- dot_plot_tca_2 + dot_plot_ox_phos_2
+  # dot_plot
+  # 
+  png(fs::path(dir.results, paste("fdr/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_tca)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("pvalue/Plot_TCA_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_tca_2)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("fdr/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_ox_phos)
+  dev.off()
+  
+  png(fs::path(dir.results, paste("pvalue/Plot_OxPhos_NEBULA_",celltype2,"_Cells_T2D_SGLT2_unadjusted_pooled_offset.png")),
+      width = 5000, height = 2000, res = 300)
+  print(dot_plot_ox_phos_2)
+  dev.off()
+  
+  
+  
+}
+
+
+
+#Immune cells
+
+celltypes <- c(
+  "cDC",
+  "cycT",
+  "CD4+ T",
+  "CD8+ T",
+  "NK",
+  "B",
+  "MON",
+  "MAC",
+  "MC")
+for (celltype in celltypes) {
+  #Filter to PT Cells
+  so_celltype <- subset(so_subset,KPMP_celltype==celltype)
+  DefaultAssay(so_celltype) <- "RNA" 
+  
+  nrow(so_celltype) #34 genes
+  ncol(so_celltype) #13534 PT cells
+  
+  celltype2 <- str_replace_all(celltype,"/","_")
+  celltype2 <- str_replace_all(celltype2,"-","_")
+  celltype2 <- str_replace_all(celltype2," ","")
+  celltype2 <- str_replace_all(celltype2,"\\+","_")
+  
+  #Make sure exposure/independent/x variable or group variable is a factor variable
+  so_celltype$epic_sglti2_1 <- factor(so_celltype$epic_sglti2_1)
+  #Make sure to set reference level
+  so_celltype$epic_sglti2_1  <- relevel(so_celltype$epic_sglti2_1 ,ref="No")
+  
+  
+  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+  
+  # With parallelization
+  #TCA Cycle
+  # List of genes
+  genes_list <- tca_genes
+  
+  cl <- makeCluster(1)
+  registerDoParallel(cl)
+  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
+  
+  
+  start_time <- Sys.time()
+  
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_path[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype,features=g)@meta.data
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
+      # library <- meta_gene$library_size
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  PT_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
+  
+  #Make dataframe of final results
+  full_results <- as.data.frame(nebula_summaries)
+  #Calculate number of genes filtered out for low expression 
+  low_exp <- length(ox_phos_genes)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
+  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
+  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+  full_results <- full_results %>%
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
+  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cell <- ncol(so_celltype)
+  Nonconvergence_Rate <- nebula_nonconverged_percent
+  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
+  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
+  # 
+  # # Identify significant points (fdr < 0.05)
+  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+  
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
+  # max <- 3.1
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
+  
+  dot_plot_tca <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color1,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_FDR_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  dot_plot_tca_2 <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color2,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed TCA Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_Pvalue_TCA_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  
+  
+  genes_list <- ox_phos_genes
+  
+  cl <- makeCluster(1)
+  registerDoParallel(cl)
+  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
+  sglt2_count <- test2 %>% filter(epic_sglti2_1 == 'Yes') 
+  sglt2_count <- length(unique(sglt2_count$mrn))
+  nosglt2_count <- test2 %>% filter(epic_sglti2_1 == 'No')
+  nosglt2_count <- length(unique(nosglt2_count))
+  
+  
+  start_time <- Sys.time()
+  
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_path[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype,features=g)@meta.data
+      pred_gene <- model.matrix(~epic_sglti2_1, data = meta_gene)
+      # library <- meta_gene$library_size
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  PT_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
+  
+  #Make dataframe of final results
+  full_results <- as.data.frame(nebula_summaries)
+  #Calculate number of genes filtered out for low expression 
+  low_exp <- length(ox_phos_genes)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  nebula_nonconverged_percent <- paste0(round((1-(length(ox_phos_genes)-length(nonconverge_genes))/length(ox_phos_genes))*100,3),"%")
+  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
+  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+  full_results <- full_results %>%
+    mutate(fdr=p.adjust(`p_epic_sglti2_1Yes`,method="fdr"))  
+  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+  full_results$PValue10 <- -log10(pmax(full_results$`p_epic_sglti2_1Yes`, 1e-10))  # Avoid log(0)
+  
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_Ox_Phos_cycle_",celltype2,"_cells_T2D_SGLT2_unadjusted_pooled_offset.csv")))
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+  full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cell <- ncol(so_celltype)
+  Nonconvergence_Rate <- nebula_nonconverged_percent
+  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
+  #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
+  # 
+  # # Identify significant points (fdr < 0.05)
+  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+  
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
+  # max <- 3.1
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+  
+  order <- data.table::fread(paste0("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_", 
+                                    celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv')) %>%
+    arrange(`logFC_groupType_2_Diabetes`)
+  
+  dot_plot_ox_phos <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color1,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed OX PHOS Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0(       "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count,
+                              "; Genes = ", Genes,
+                              ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  
+  write.table(full_results%>% arrange(`logFC_epic_sglti2_1Yes`) %>% dplyr::select(gene) %>% as.character(), 
+              paste0(dir.results, 'Order_FDR_OxPhos_', celltype2, 'Cells.txt'), quote=F, sep='\t', row.names=F)
+  
+  names(full_results)[which(names(full_results) == 'p_epic_sglti2_1Yes')] <- 'pvalue' 
+  dot_plot_ox_phos_2 <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color2,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (P-value)', labels = c('> 0.05', '<0.05'), guide = 'legend') + 
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed OxPhos Cycle Genes in ",celltype," Cells"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0("Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+                       "; Genes = ", Genes,
+                       ", Cells = ", Cell
       )
     ) +
     theme(plot.caption = element_text(size = 8), 
