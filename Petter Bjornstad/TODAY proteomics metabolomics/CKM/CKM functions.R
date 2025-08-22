@@ -1,3 +1,7 @@
+#################################
+# CKM CLASSIFICATION            #
+#################################
+
 # KDIGO CKD Staging System Implementation in R
 # Based on KDIGO 2012 Clinical Practice Guideline
 
@@ -233,21 +237,122 @@ plot_ckd_stage <- function(gfr, albumin_mg_g) {
 }
 
 # Example usage
-library(dplyr)
-
 # Single patient classification
-patient_result <- classify_ckd(gfr = 55, albumin_mg_g = 150)
-print(patient_result)
+#patient_result <- classify_ckd(gfr = 55, albumin_mg_g = 150)
+#print(patient_result)
 
 # Multiple patients
-sample_data <- data.frame(
-  patient_id = 1:5,
-  gfr = c(95, 75, 50, 35, 20),
-  albumin_mg_g = c(20, 150, 45, 350, 500)
-)
+#sample_data <- data.frame(
+#  patient_id = 1:5,
+#  gfr = c(95, 75, 50, 35, 20),
+#  albumin_mg_g = c(20, 150, 45, 350, 500)
+#)
 
-results <- classify_ckd_batch(sample_data)
-print(results)
+#results <- classify_ckd_batch(sample_data)
+#print(results)
 
 # Visualize a patient's stage
 # plot_ckd_stage(gfr = 55, albumin_mg_g = 150)
+
+#################################
+# BIOMARKER EXTRACTION          #
+#################################
+# Need to modify function to extract data across both TODAY and TODAY2
+extract_biomarker_values <- function(df_list, var) {
+  # If a single dataframe is passed, convert to list
+  if(is.data.frame(df_list)) {
+    df_list <- list(df_list)
+  }
+  # Combine all dataframes that contain the variable
+  combined_df <- NULL
+  for(df in df_list) {
+    if(var %in% names(df)) {
+      # Select only the columns we need
+      temp_df <- df %>%
+        select(releaseid, days, all_of(var), any_of("mvisit"))
+      if(is.null(combined_df)) {
+        combined_df <- temp_df
+      } else {
+        combined_df <- bind_rows(combined_df, temp_df)
+      }
+    }
+  }
+  # If variable not found in any dataset, return empty dataframe
+  if(is.null(combined_df)) {
+    warning(paste("Variable", var, "not found in any of the provided datasets"))
+    return(data.frame())
+  }
+  combined_df %>%
+    arrange(releaseid, days) %>%
+    group_by(releaseid) %>%
+    summarise(
+      # Baseline: only M00 visit, NA if not present (unchanged)
+      baseline = {
+        if("mvisit" %in% names(combined_df)) {
+          m00_row <- which(mvisit == "M00" & !is.na(.data[[var]]))
+          if(length(m00_row) > 0) {
+            .data[[var]][m00_row[1]] 
+          } else {
+            NA_real_
+          }
+        } else {
+          NA_real_
+        }
+      },
+      # Highest now looks across all combined data
+      highest = max(.data[[var]], na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    # Clean up infinite values
+    mutate(across(where(is.numeric), ~ifelse(is.infinite(.), NA_real_, .))) %>%
+    rename_with(~ paste0(var, "_", .), -releaseid)
+}
+
+#################################
+# FILL IN NA IN EVENTS          #
+#################################
+replace_missing_events <- function(data) {
+  # Check if fup_time column exists
+  if (!"fup_time" %in% names(data)) {
+    stop("Column 'fup_time' not found in the data")
+  }
+  # Define the event pairs
+  event_pairs <- list(
+    c("ARRHYTHMIA", "DAYSTOARRHYTHMIA"),
+    c("CAD", "DAYSTOCAD"),
+    c("CHF", "DAYSTOCHF"),
+    c("LVSD", "DAYSTOLVSD"),
+    c("MI", "DAYSTOMI"),
+    c("PAD", "DAYSTOPAD"),
+    c("DVT", "DAYSTODVT"),
+    c("STROKE", "DAYSTOSTROKE"),
+    c("TIA", "DAYSTOTIA"),
+    c("PANCREATITIS", "DAYSTOPANCREATITIS"),
+    c("GALLBLADDER", "DAYSTOGALLBLADDER"),
+    c("PNEURO", "DAYSTOPNEURO"),
+    c("ANEURO", "DAYSTOANEURO"),
+    c("MONONEURO", "DAYSTOMONONEURO"),
+    c("CKD", "DAYSTOCKD"),
+    c("ESKD", "DAYSTOESKD"),
+    c("NPDR", "DAYSTONPDR"),
+    c("PDR", "DAYSTOPDR"),
+    c("ME", "DAYSTOME"),
+    c("VH", "DAYSTOVH"),
+    c("BLINDNESS", "DAYSTOBLINDNESS"),
+    c("CATARACTS", "DAYSTOCATARACTS"),
+    c("GLAUCOMA", "DAYSTOGLAUCOMA"),
+    c("DEATH", "DAYSTODEATH")
+  )
+  # Loop through each event pair
+  for (pair in event_pairs) {
+    event_var <- pair[1]
+    days_var <- pair[2]
+    # Step 1: Set missing event values to 0
+    data[[event_var]][is.na(data[[event_var]])] <- 0
+    # Step 2: Now set any missing DAYSTO values to fup_time
+    # (including those that were missing because the event was missing/0)
+    missing_days_rows <- is.na(data[[days_var]])
+    data[[days_var]][missing_days_rows] <- data$fup_time[missing_days_rows]
+  }
+  return(data)
+}
