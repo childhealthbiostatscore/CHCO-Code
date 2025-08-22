@@ -74,7 +74,7 @@ NEBULA_LC_T2D_dotplots <- function(so_subset, celltype, dir.results){
     so_celltype <- subset(so_subset,KPMP_celltype==celltype)
     DefaultAssay(so_celltype) <- "RNA" 
   }else if(celltype == 'DCTall'){
-    so_celltype <- subset(so_subset, DCT_celltype==celltype)
+    so_celltype <- subset(so_subset, DCT_celltype=='DCT')
   }
   
   
@@ -574,7 +574,7 @@ cell_vector <- c('All',
                  'POD',"cDC","cycT","CD4+ T", "CD8+ T","NK","B","MON", "MAC","MC")
 
 
-for(i in c(2:length(cell_vector))){
+for(i in c(11:length(cell_vector))){
   NEBULA_LC_T2D_dotplots(so_subset, celltype = cell_vector[i], dir.results = dir.results)
   print(cell_vector[i])
 }
