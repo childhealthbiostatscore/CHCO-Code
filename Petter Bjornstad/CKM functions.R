@@ -237,21 +237,19 @@ plot_ckd_stage <- function(gfr, albumin_mg_g) {
 }
 
 # Example usage
-library(dplyr)
-
 # Single patient classification
-patient_result <- classify_ckd(gfr = 55, albumin_mg_g = 150)
-print(patient_result)
+#patient_result <- classify_ckd(gfr = 55, albumin_mg_g = 150)
+#print(patient_result)
 
 # Multiple patients
-sample_data <- data.frame(
-  patient_id = 1:5,
-  gfr = c(95, 75, 50, 35, 20),
-  albumin_mg_g = c(20, 150, 45, 350, 500)
-)
+#sample_data <- data.frame(
+#  patient_id = 1:5,
+#  gfr = c(95, 75, 50, 35, 20),
+#  albumin_mg_g = c(20, 150, 45, 350, 500)
+#)
 
-results <- classify_ckd_batch(sample_data)
-print(results)
+#results <- classify_ckd_batch(sample_data)
+#print(results)
 
 # Visualize a patient's stage
 # plot_ckd_stage(gfr = 55, albumin_mg_g = 150)
