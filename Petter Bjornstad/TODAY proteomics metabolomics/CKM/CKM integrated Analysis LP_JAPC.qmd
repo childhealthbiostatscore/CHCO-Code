@@ -352,7 +352,7 @@ ame_summary <- ame_summary %>%
 
 # Clinical CVD composite
 ame_summary$clin_cvd <- ifelse(
-  rowSums(ame_summary[, c("ARRHYTHMIA", "CAD", "CHF", "MI", "PAD", "DVT", "STROKE", "TIA", "DEATH")] == 1, na.rm = TRUE) > 0,
+  rowSums(ame_summary[, c("ARRHYTHMIA", "CAD", "CHF", "MI", "PAD", "DVT", "STROKE", "TIA")] == 1, na.rm = TRUE) > 0,
   1,
   0)
 
@@ -420,8 +420,14 @@ biomarker_list <- lapply(biomarker_list, function(df) {
 })
 
 # Create consolidated biomarker dataset
-biom_ckm <- list(biomarker_list[[1]], biomarker_list[[2]], biomarker_list[[8]], biomarker_list[[9]]) %>%
+biom_ckm <- list(biomarker_list[[1]], biomarker_list[[2]], biomarker_list[[3]],
+                 biomarker_list[[8]], biomarker_list[[9]], biomarker_list[[10]],
+                 biomarker_list[[11]], biomarker_list[[12]], biomarker_list[[13]], biomarker_list[[14]],
+                 biomarker_list[[16]]) %>%
   reduce(full_join, by = "RELEASEID")
+
+#biom_ckm <- list(biomarker_list[[1]], biomarker_list[[2]], biomarker_list[[8]], biomarker_list[[9]]) %>%
+#  reduce(full_join, by = "RELEASEID")
 
 # Filter out rows where all biomarker columns are NA
 cols_to_check <- setdiff(names(biom_ckm), c("RELEASEID"))
@@ -447,6 +453,23 @@ biom_ckm <- biom_ckm %>%
       1, 0
     )
   )
+
+# convert UAlbCreat
+biom_ckm$UAlbCreat_baseline <- biom_ckm$UAlbCreat_baseline*1000
+biom_ckm$UAlbCreat_highest <- biom_ckm$UAlbCreat_highest*1000
+
+# create dataframe of UACR and eGFR values for classifying KDIGO criteria
+gfr1 <- addcbl_1 %>% select(releaseid, days, ckd_gfr) 
+#gfr2 <- addcbl_2 %>% select(releaseid, days, ckd_gfr)
+#all_gfr <- rbind(gfr1, gfr2)
+all_gfr <- gfr1
+uacr1 <- cbl_1 %>% select(releaseid, days, UAlbCreat)
+uacr2 <- cbl_2 %>% select(releaseid, days, UAlbCreat)
+all_uacr <- rbind(uacr1, uacr2)
+kdigo <- full_join(all_gfr, all_uacr, by = c("releaseid", "days"))
+kdigo <- kdigo %>% arrange(releaseid, days)
+kdigo$UAlbCreat_mg_g <- kdigo$UAlbCreat*1000
+kdigo <- classify_ckd_batch(kdigo, gfr_col = "ckd_gfr", albumin_mg_g_col = "UAlbCreat_mg_g")
 ```
 
 ```{r include = F}
@@ -844,6 +867,9 @@ comorb_ckm2 <- comorb_ckm %>%
 # Merge all biomarker datasets at once
 all_biomarkers <- biomarker_list %>%
   reduce(full_join, by = "RELEASEID")
+# convert UAlbCreat
+all_biomarkers$UAlbCreat_baseline <- all_biomarkers$UAlbCreat_baseline*1000
+all_biomarkers$UAlbCreat_highest <- all_biomarkers$UAlbCreat_highest*1000
 
 # Add to main dataset
 comorb_ckm2 <- comorb_ckm2 %>%
@@ -1182,7 +1208,13 @@ p2 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = eGFR_FAS_baseline)) +
 p3 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = UAlbCreat_baseline)) +
   geom_boxplot(fill = "lightblue", outlier.shape = NA) +
   geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
-  labs(title = "Baseline UALB by CKM Stage", x = "CKM Stage", y = "UALB (mg/dL)") +
+  labs(title = "Baseline UACR by CKM Stage", x = "CKM Stage", y = "UACR") +
+  theme_minimal()
+
+p3a <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = UAlbCreat_highest)) +
+  geom_boxplot(fill = "lightblue", outlier.shape = NA) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
+  labs(title = "Highest UACR by CKM Stage", x = "CKM Stage", y = "UACR") +
   theme_minimal()
 
 p5 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = IL6_highest)) +
@@ -1257,6 +1289,7 @@ p12 <- ggplot(df_alluvial2, aes(axis1 = CKM_syn_base2, axis2 = CKM_syn2)) +
 print(p1)
 print(p2)
 print(p3)
+print(p3a)
 print(p5)
 print(p6)
 print(p7)
