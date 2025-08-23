@@ -170,6 +170,10 @@ filename <- "/Clinical data/TODAY2/PEDSQLGT.csv"
 full_path <- file.path(data_path, filename)
 pedsQL_T <- read.csv(full_path)
 
+filename <- "/Clinical data/TODAY2/TME.csv"
+full_path <- file.path(data_path, filename)
+tme <- read.csv(full_path)
+
 # Alternative paths (backup)
 #comorb <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad#/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/COMORB.csv")
 #ame <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad#/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/AME.csv')
@@ -319,6 +323,11 @@ colnames(death) <- c("RELEASEID", "DAYSTODEATH")
 death$DEATH <- 1
 death <- death %>% arrange(RELEASEID, DAYSTODEATH) %>% group_by(RELEASEID) %>% filter(row_number()==1)
 
+ulcer <- tme %>% filter(TMETYPE == 5) %>% select(RELEASEID, DAYSTOTME)
+colnames(ulcer) <- c("RELEASEID", "DAYSTOULCER")
+ulcer$ULCER <- 1
+ulcer <- ulcer %>% arrange(RELEASEID, DAYSTOULCER) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
 # Merge all AME events
 ame_summary <- full_join(arrhythmia, cad, by = "RELEASEID")
 ame_summary <- full_join(ame_summary, chf, by = "RELEASEID")
@@ -343,16 +352,17 @@ ame_summary <- full_join(ame_summary, blindness, by = "RELEASEID")
 ame_summary <- full_join(ame_summary, cataracts, by = "RELEASEID")
 ame_summary <- full_join(ame_summary, glaucoma, by = "RELEASEID")
 ame_summary <- full_join(ame_summary, death, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, ulcer, by = "RELEASEID")
 
 # Convert NAs to 0 and create factors
 ame_summary <- ame_summary %>% 
-    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "CKD", "ESKD", "DEATH"), ~replace_na(.,0))
+    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "CKD", "ESKD", "DEATH", "ULCER"), ~replace_na(.,0))
 ame_summary <- ame_summary %>% 
-    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "CKD", "ESKD", "DEATH"), ~as.factor(.))
+    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "CKD", "ESKD", "DEATH", "ULCER"), ~as.factor(.))
 
 # Clinical CVD composite
 ame_summary$clin_cvd <- ifelse(
-  rowSums(ame_summary[, c("ARRHYTHMIA", "CAD", "CHF", "MI", "PAD", "DVT", "STROKE", "TIA")] == 1, na.rm = TRUE) > 0,
+  rowSums(ame_summary[, c("ARRHYTHMIA", "CAD", "CHF", "MI", "PAD", "DVT", "STROKE", "TIA", "ULCER", "LVSD")] == 1, na.rm = TRUE) > 0,
   1,
   0)
 
@@ -1089,7 +1099,8 @@ label(comorb_ckm2$progress_CKM_bmi_gt1) <- "CKM syndrome progression >1 stage (b
 ```{r include=F}
 t2a <- tableby(CKM_syn ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + CKD + DEATH + progress_CKM + progress_CKM2 + progress_CKM_bmi + progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
+                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
+                progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
               data = comorb_ckm2, total = F)
 
 ```
@@ -1103,7 +1114,8 @@ summary(t2a,  pfootnote = F)
 ```{r include=F}
 t2b <- tableby(CKM_syn2 ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + CKD + DEATH + progress_CKM + progress_CKM2 + progress_CKM_bmi + progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
+                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
+                progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
               data = comorb_ckm2, total = F)
 ```
 
@@ -1116,7 +1128,8 @@ summary(t2b,  pfootnote = F)
 ```{r include=F}
 t2c <- tableby(CKM_syn_base ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + CKD + DEATH + progress_CKM + progress_CKM2 + progress_CKM_bmi + progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
+                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
+                progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
               data = comorb_ckm2, total = F)
 ```
 
@@ -1129,7 +1142,8 @@ summary(t2c,  pfootnote = F)
 ```{r include=F}
 t2d <- tableby(CKM_syn_base2 ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + CKD + DEATH + progress_CKM + progress_CKM2 + progress_CKM_bmi + progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
+                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
+                progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
               data = comorb_ckm2, total = F)
 ```
 

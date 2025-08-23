@@ -371,7 +371,8 @@ replace_missing_events <- function(data) {
     c("BLINDNESS", "DAYSTOBLINDNESS"),
     c("CATARACTS", "DAYSTOCATARACTS"),
     c("GLAUCOMA", "DAYSTOGLAUCOMA"),
-    c("DEATH", "DAYSTODEATH")
+    c("DEATH", "DAYSTODEATH"),
+    c("ULCER", "DAYSTOULCER")
   )
   # Loop through each event pair
   for (pair in event_pairs) {
