@@ -6,7 +6,7 @@
 # Based on KDIGO 2012 Clinical Practice Guideline
 
 # Function to classify CKD stage based on GFR and Albuminuria
-classify_ckd <- function(gfr, albumin_mg_g = NULL, albumin_mg_mmol = NULL) {
+classify_ckd <- function(gfr = NULL, albumin_mg_g = NULL, albumin_mg_mmol = NULL) {
   
   # Convert albumin units if needed
   if (!is.null(albumin_mg_mmol) && is.null(albumin_mg_g)) {
@@ -14,37 +14,55 @@ classify_ckd <- function(gfr, albumin_mg_g = NULL, albumin_mg_mmol = NULL) {
     albumin_mg_g <- albumin_mg_mmol * 8.84
   }
   
-  # Validate inputs
-  if (is.na(gfr) || is.na(albumin_mg_g)) {
+  # Handle missing values - allow partial classification
+  gfr_available <- !is.null(gfr) && !is.na(gfr)
+  albumin_available <- !is.null(albumin_mg_g) && !is.na(albumin_mg_g)
+  
+  # If both are missing, return all NAs
+  if (!gfr_available && !albumin_available) {
     return(list(
       gfr_category = NA,
+      gfr_description = NA,
       albumin_category = NA,
+      albumin_description = NA,
       risk_level = NA,
       recommendation = NA
     ))
   }
   
-  # Classify GFR category
-  gfr_category <- case_when(
-    gfr >= 90 ~ "G1",
-    gfr >= 60 & gfr < 90 ~ "G2",
-    gfr >= 45 & gfr < 60 ~ "G3a",
-    gfr >= 30 & gfr < 45 ~ "G3b",
-    gfr >= 15 & gfr < 30 ~ "G4",
-    gfr < 15 ~ "G5",
-    TRUE ~ NA_character_
-  )
+  # Classify GFR category if available
+  if (gfr_available) {
+    gfr_category <- case_when(
+      gfr >= 90 ~ "G1",
+      gfr >= 60 & gfr < 90 ~ "G2",
+      gfr >= 45 & gfr < 60 ~ "G3a",
+      gfr >= 30 & gfr < 45 ~ "G3b",
+      gfr >= 15 & gfr < 30 ~ "G4",
+      gfr < 15 ~ "G5",
+      TRUE ~ NA_character_
+    )
+  } else {
+    gfr_category <- NA_character_
+  }
   
-  # Classify Albuminuria category
-  albumin_category <- case_when(
-    albumin_mg_g < 30 ~ "A1",
-    albumin_mg_g >= 30 & albumin_mg_g < 300 ~ "A2",
-    albumin_mg_g >= 300 ~ "A3",
-    TRUE ~ NA_character_
-  )
+  # Classify Albuminuria category if available
+  if (albumin_available) {
+    albumin_category <- case_when(
+      albumin_mg_g < 30 ~ "A1",
+      albumin_mg_g >= 30 & albumin_mg_g < 300 ~ "A2",
+      albumin_mg_g >= 300 ~ "A3",
+      TRUE ~ NA_character_
+    )
+  } else {
+    albumin_category <- NA_character_
+  }
   
-  # Determine risk level and recommendation based on the matrix
-  risk_recommendation <- get_risk_recommendation(gfr_category, albumin_category)
+  # Determine risk level and recommendation only if both values are available
+  if (gfr_available && albumin_available) {
+    risk_recommendation <- get_risk_recommendation(gfr_category, albumin_category)
+  } else {
+    risk_recommendation <- list(risk = NA, recommendation = NA)
+  }
   
   return(list(
     gfr_category = gfr_category,
@@ -237,21 +255,33 @@ plot_ckd_stage <- function(gfr, albumin_mg_g) {
 }
 
 # Example usage
-# Single patient classification
-#patient_result <- classify_ckd(gfr = 55, albumin_mg_g = 150)
-#print(patient_result)
+# # Single patient classification - both values available
+# patient_result1 <- classify_ckd(gfr = 55, albumin_mg_g = 150)
+# print("Patient with both values:")
+# print(patient_result1)
+# 
+# # Patient with only GFR available
+# patient_result2 <- classify_ckd(gfr = 45, albumin_mg_g = NA)
+# print("\nPatient with only GFR:")
+# print(patient_result2)
+# 
+# # Patient with only albumin available
+# patient_result3 <- classify_ckd(gfr = NA, albumin_mg_g = 350)
+# print("\nPatient with only albumin:")
+# print(patient_result3)
+# 
+# # Multiple patients with some missing values
+# sample_data <- data.frame(
+#   patient_id = 1:5,
+#   gfr = c(95, 75, 50, NA, 20),
+#   albumin_mg_g = c(20, NA, 45, 350, 500)
+# )
+# 
+# results <- classify_ckd_batch(sample_data)
+# print("\nBatch classification with missing values:")
+# print(results)
 
-# Multiple patients
-#sample_data <- data.frame(
-#  patient_id = 1:5,
-#  gfr = c(95, 75, 50, 35, 20),
-#  albumin_mg_g = c(20, 150, 45, 350, 500)
-#)
-
-#results <- classify_ckd_batch(sample_data)
-#print(results)
-
-# Visualize a patient's stage
+# Visualize a patient's stage (only works with both values)
 # plot_ckd_stage(gfr = 55, albumin_mg_g = 150)
 
 #################################
@@ -327,21 +357,10 @@ replace_missing_events <- function(data) {
     c("DVT", "DAYSTODVT"),
     c("STROKE", "DAYSTOSTROKE"),
     c("TIA", "DAYSTOTIA"),
-    c("PANCREATITIS", "DAYSTOPANCREATITIS"),
-    c("GALLBLADDER", "DAYSTOGALLBLADDER"),
-    c("PNEURO", "DAYSTOPNEURO"),
-    c("ANEURO", "DAYSTOANEURO"),
-    c("MONONEURO", "DAYSTOMONONEURO"),
     c("CKD", "DAYSTOCKD"),
     c("ESKD", "DAYSTOESKD"),
-    c("NPDR", "DAYSTONPDR"),
-    c("PDR", "DAYSTOPDR"),
-    c("ME", "DAYSTOME"),
-    c("VH", "DAYSTOVH"),
-    c("BLINDNESS", "DAYSTOBLINDNESS"),
-    c("CATARACTS", "DAYSTOCATARACTS"),
-    c("GLAUCOMA", "DAYSTOGLAUCOMA"),
-    c("DEATH", "DAYSTODEATH")
+    c("DEATH", "DAYSTODEATH"),
+    c("ULCER", "DAYSTOULCER")
   )
   # Loop through each event pair
   for (pair in event_pairs) {

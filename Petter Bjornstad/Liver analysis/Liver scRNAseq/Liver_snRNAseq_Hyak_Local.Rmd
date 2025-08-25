@@ -275,10 +275,10 @@ so_liver_sn$celltype_LR <- ifelse(grepl("Hep-",so_liver_sn$celltype) | grepl("dH
 unique(so_liver_sn$celltype_LR)
 
 so_oro$celltype_LR <- ifelse(grepl("Hep-",so_oro$celltype) | grepl("dHep",so_oro$celltype) | grepl("Hep/Immune",so_oro$celltype),"Hep",
-                                  ifelse(so_oro$celltype=="EC-1" | so_oro$celltype=="EC-2","EC",
-                                         ifelse(so_oro$celltype=="Stellate-1" | so_oro$celltype=="Stellate-2","Stellate",
-                                                ifelse(so_oro$celltype=="Cholang","Cholang",
-                                                       ifelse(so_oro$celltype=="B/Plasma" | so_oro$celltype=="cFIB/cImmune" | so_oro$celltype=="Kup/MAC"|so_oro$celltype=="Kup/MON" | so_oro$celltype=="NKC/NKT","Immune","Unknown")))))
+                             ifelse(so_oro$celltype=="EC-1" | so_oro$celltype=="EC-2","EC",
+                                    ifelse(so_oro$celltype=="Stellate-1" | so_oro$celltype=="Stellate-2","Stellate",
+                                           ifelse(so_oro$celltype=="Cholang","Cholang",
+                                                  ifelse(so_oro$celltype=="B/Plasma" | so_oro$celltype=="cFIB/cImmune" | so_oro$celltype=="Kup/MAC"|so_oro$celltype=="Kup/MON" | so_oro$celltype=="NKC/NKT","Immune","Unknown")))))
 unique(so_oro$celltype_LR)
 ```
 
@@ -4720,105 +4720,105 @@ LR_celltypes <- unique(so_liver_sn$celltype_LR)
 
 # cell_name <- "Hep"
 for (cell_name in LR_celltypes[-1]){
-so_celltype <- subset(so_liver_sn,celltype_LR==cell_name)
-DefaultAssay(so_celltype) <- "RNA" 
-
-## Select Highly Variable Genes (HVGs)
-so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(so_celltype)
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-# so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
-so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
-
-#Make sure to set reference level
-# so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
-so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
-
-#Round counts layer for nb
-# counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
-
-# List of genes
-genes_list <- rownames(counts_hvg)
-
-# With parallelization
-cl <- makeCluster(20)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+  so_celltype <- subset(so_liver_sn,celltype_LR==cell_name)
+  DefaultAssay(so_celltype) <- "RNA" 
+  
+  ## Select Highly Variable Genes (HVGs)
+  so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+  hvgs <- VariableFeatures(so_celltype)
+  
+  #Make sure exposure/independent/x variable or group variable is a factor variable
+  # so_celltype_hvg$steatosis_cat <- factor(so_celltype_hvg$steatosis_cat)
+  so_celltype$steatosis_cat <- factor(so_celltype$steatosis_cat)
+  
+  #Make sure to set reference level
+  # so_celltype_hvg$steatosis_cat <- relevel(so_celltype_hvg$steatosis_cat,ref="Low Steatosis (0+1)")
+  so_celltype$steatosis_cat <- relevel(so_celltype$steatosis_cat,ref="Low Steatosis (0+1)")
+  
+  #Round counts layer for nb
+  # counts_hvg <- round(GetAssayData(so_celltype_hvg, layer = "counts")) # load counts and round
+  counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
+  
+  # List of genes
+  genes_list <- rownames(counts_hvg)
+  
+  # With parallelization
+  cl <- makeCluster(20)
+  registerDoParallel(cl)
+  
+  start_time <- Sys.time()
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_hvg[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype,features=g)@meta.data
+      pred_gene <- model.matrix(~steatosis_cat, data = meta_gene)
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  hep_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
     }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
-
-# set the names of results based on gene names
-nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-
-hep_nebula_converged <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    converged <- nebula_results_list[[gene_name]]$convergence
-    df <- data.frame(Gene = gene_name,
-                     Convergence_Code = converged)
-    return(df)
-  }
-)
-
-nebula_summaries <- map_dfr(
-  names(nebula_results_list),
-  function(gene_name) {
-    df <- nebula_results_list[[gene_name]]$summary
-    df <- df %>% mutate(Gene = gene_name)
-    return(df)
-  }
-)
-
-full_results <- as.data.frame(nebula_summaries)
-nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40|hep_nebula_converged$Convergence_Code==-50|hep_nebula_converged$Convergence_Code==-60)]
-) 
-
-#Calculate number of genes filtered out for low expression 
-full_results$low_exp <- length(genes_list)-length(full_results$gene)
-
-#Filter out non-converging genes
-full_results <- full_results %>% 
-  filter(!gene %in%  nonconverge_genes)
-
-#Calculate nonconvergence rate
-full_results$nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-
-full_results <- full_results %>%
-  mutate(fdr=p.adjust(`p_steatosis_catHigh Steatosis (2+3)`,method="fdr"))  
-# mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
-
-#Save Results
-write.csv(full_results,fs::path(dir.results,paste0("NEBULA_",cell_name,"_Steatosis_unadjusted_2000_pooled_offset.csv")))
-
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  
+  full_results <- as.data.frame(nebula_summaries)
+  nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40|hep_nebula_converged$Convergence_Code==-50|hep_nebula_converged$Convergence_Code==-60)]
+  ) 
+  
+  #Calculate number of genes filtered out for low expression 
+  full_results$low_exp <- length(genes_list)-length(full_results$gene)
+  
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  
+  #Calculate nonconvergence rate
+  full_results$nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+  
+  full_results <- full_results %>%
+    mutate(fdr=p.adjust(`p_steatosis_catHigh Steatosis (2+3)`,method="fdr"))  
+  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+  full_results$PValue10 <- -log10(pmax(full_results$`p_steatosis_catHigh Steatosis (2+3)`, 1e-10))  # Avoid log(0)
+  
+  #Save Results
+  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_",cell_name,"_Steatosis_unadjusted_2000_pooled_offset.csv")))
+  
 }
 
 #Heat Map visualization of results
@@ -5968,29 +5968,29 @@ for (var in clinical_variables){
   #   geom_text(data = significant_df, aes(label =Gene),
   #             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
   volcano_plot <- ggplot(results, aes(x = log_fc, y = p_value10, color = color)) +
-  geom_point(alpha = 0.7) +
-  scale_color_identity() +
-  theme_bw() +
-  facet_wrap(~ Celltype, ncol = 5, scales = "free_y") +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1)
-  ) +
-  labs(title = paste0("Gene Expression vs. ", var)) +
-  xlim(-1, 1) +
-  # Use geom_text_repel instead
-  geom_text_repel(
-    data = significant_df, 
-    aes(label = Gene),
-    size = 3, 
-    color = "black", 
-    box.padding = 0.5,
-    point.padding = 0.3,
-    segment.color = "grey50",
-    max.overlaps = 20,
-    force = 2,
-    nudge_y = 0.5  # Nudge labels up slightly
-  )
+    geom_point(alpha = 0.7) +
+    scale_color_identity() +
+    theme_bw() +
+    facet_wrap(~ Celltype, ncol = 5, scales = "free_y") +
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    ) +
+    labs(title = paste0("Gene Expression vs. ", var)) +
+    xlim(-1, 1) +
+    # Use geom_text_repel instead
+    geom_text_repel(
+      data = significant_df, 
+      aes(label = Gene),
+      size = 3, 
+      color = "black", 
+      box.padding = 0.5,
+      point.padding = 0.3,
+      segment.color = "grey50",
+      max.overlaps = 20,
+      force = 2,
+      nudge_y = 0.5  # Nudge labels up slightly
+    )
   # Add labels for significant points with ggrepel
   # geom_text_repel(data = significant_df, aes(label = Gene),
   #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
@@ -18334,39 +18334,61 @@ so_subset$avg_m_k2_f_med <- relevel(so_subset$avg_m_k2_f_med,"Below Median")
 ##i. Set Up - RH2 & CRC
 ```{r}
 #Load PET data & alt, ast, ggt and potentially masld 
-harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
+# harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv",na=""))
+harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = c("", "NA", "N/A", "n/a", " ","na"))
 
 #Number of participants
-length(unique(harm_meta_data$record_id)) #651
+length(unique(harm_meta_data$record_id)) #651 changed to 574 on 08/25
 
 #Filter to RH2 and CRC 
-harm_meta_data <- harm_meta_data %>% 
-  filter(grepl("RH2",record_id)|grepl("CRC",record_id))
+harm_meta_data <- harm_meta_data %>%
+  filter(grepl("RH",record_id)|grepl("RH2",record_id)|grepl("CRC",record_id))
+# harm_meta_data <- harm_meta_data %>% 
+#   filter(grepl("CRC",record_id))
 
 #Number of participants
-length(unique(harm_meta_data$record_id)) #117
+length(unique(harm_meta_data$record_id)) #117, 60 CRC people, 211 including RH and RH2
+
 #Number of participants with Pet data
-length(which(!is.na(harm_meta_data$lc_k2))) #53
-length(which(!is.na(harm_meta_data$rc_k2))) #55
-length(which(!is.na(harm_meta_data$lm_k2))) #53
-length(which(!is.na(harm_meta_data$rm_k2))) #54
-
-
+length(which(!is.na(harm_meta_data$liver_k1))) #57, 27 crc
+length(which(!is.na(harm_meta_data$liver_k2))) #57, 27 crc
+length(which(!is.na(harm_meta_data$liver_k3))) #57, 27 crc
 
 #Filter to those with Pet data - remove "mm_ir","mm_si","airg because complete missing data 
 pet_dat <- harm_meta_data %>% 
-  dplyr::select(c("record_id","kit_id","visit","screen_date","lc_k2","rc_k2","lm_k2","rm_k2",
-                  "lc_f","rc_f","lm_f","rm_f","search_eis",
+  dplyr::select(c("record_id","mrn","co_enroll_id","visit","screen_date","liver_k1","liver_k2","liver_k3","search_eis",
                   "homa_ir","p1_ffa_suppression","gir_190","gir_200",
                   "p1_gc_leanm","p1_gc_m","p1_raw_leanm","p1_raw_m","p1_steady_state_ffa",
                   "p2_ffa_suppression","p2_gc_leanm","p2_gc_m","p2_raw_leanm","p2_raw_m",
                   "p2_steady_state_ffa"))
+# screen_dates <- pet_dat %>%
+#   filter(procedure == "screening") %>%
+#   dplyr::select(record_id, screen_date = date) %>%
+#   distinct()  # In case there are multiple screening records per person
+# 
+# # Join back to original data
+# pet_dat <- tidylog::left_join(pet_dat,screen_dates, by = "record_id")
 
+# pet_dat <- harm_meta_data %>% 
+#   dplyr::select(c("record_id","kit_id","visit","screen_date","liver_k1","liver_k2","liver_k3","search_eis",
+#                   "homa_ir","p1_ffa_suppression","gir_190","gir_200",
+#                   "p1_gc_leanm","p1_gc_m","p1_raw_leanm","p1_raw_m","p1_steady_state_ffa",
+#                   "p2_ffa_suppression","p2_gc_leanm","p2_gc_m","p2_raw_leanm","p2_raw_m",
+#                   "p2_steady_state_ffa"))
+
+# pet_dat2 <- pet_dat %>%
+#   arrange(screen_date) %>%
+#   # arrange(date) %>% 
+#   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, dplyr::first(na.omit(.x)))),
+#                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, dplyr::first(na.omit(.x)))),
+#                    .by = c(record_id, visit))
 pet_dat2 <- pet_dat %>%
-  arrange(screen_date) %>% 
+  arrange(screen_date) %>%
+  # arrange(date) %>% 
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, dplyr::first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, dplyr::first(na.omit(.x)))),
-                   .by = c(record_id, visit))
+                   .by = c(mrn, screen_date))
+
 # Table 1: Summary Table - Total counts of missing and non-missing data
 summary_table <- pet_dat2 %>%
   summarise(across(everything(), 
@@ -18382,8 +18404,7 @@ summary_table <- pet_dat2 %>%
 
 
 #Filter to those with at least one pet variable
-pet_variables <- c("lc_k2","rc_k2","lm_k2","rm_k2",
-                   "lc_f","rc_f","lm_f","rm_f")
+pet_variables <- c("liver_k1","liver_k2","liver_k3")
 pet_dat3 <- pet_dat2 %>%
   filter(if_any(all_of(pet_variables), ~ !is.na(.)))
 #55 participants have at least 1 pet variable of data 
@@ -18397,20 +18418,9 @@ pet_dat4 <- pet_dat3 %>%
   filter(if_any(all_of(insulin_vars), ~ !is.na(.)))
 #28 remain that have at least 1 pet var and at least 1 insulin var
 
-
-#Calculate K2 and F variables
-pet_dat4$avg_c_k2 <- (pet_dat4$lc_k2+pet_dat4$rc_k2)/2 
-pet_dat4$avg_m_k2 <- (pet_dat4$lm_k2+pet_dat4$rm_k2)/2
-pet_dat4$avg_c_f <- (pet_dat4$lc_f+pet_dat4$rc_f)/2 
-pet_dat4$avg_m_f <- (pet_dat4$lm_f+pet_dat4$rm_f)/2
-pet_dat4$avg_c_k2_f <- pet_dat4$avg_c_k2/pet_dat4$avg_c_f
-pet_dat4$avg_m_k2_f <- pet_dat4$avg_m_k2/pet_dat4$avg_m_f
-pet_vars_avg <- c("avg_c_k2","avg_m_k2","avg_c_f",
-                  "avg_m_f","avg_c_k2_f","avg_m_k2_f")
-
 #Correlation/association between each pet var and each insulin var
 total_results <- data.frame()
-for(pet in pet_vars_avg) {
+for(pet in pet_variables) {
   for (insulin in insulin_vars){
     # Pearson correlation test
     pearson_test <- cor.test(pet_dat4[[pet]], pet_dat4[[insulin]], 
@@ -18449,8 +18459,8 @@ get_sig_stars <- function(p) {
 
 # Function to create a heatmap with significance stars
 create_heatmap <- function(data, value_col, pval_col, title, 
-                          color_low = "blue", color_high = "red", 
-                          color_mid = "white", limits = NULL) {
+                           color_low = "blue", color_high = "red", 
+                           color_mid = "white", limits = NULL) {
   
   # Reshape data to wide format for values
   values_wide <- data %>%
@@ -18490,8 +18500,8 @@ create_heatmap <- function(data, value_col, pval_col, title,
     geom_tile(color = "white", size = 0.5) +
     geom_text(aes(label = label), size = 3.5) +
     scale_fill_gradient2(low = color_low, mid = color_mid, high = color_high,
-                        midpoint = 0, limits = limits,
-                        name = "Value") +
+                         midpoint = 0, limits = limits,
+                         name = "Value") +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1,face="bold"),
           axis.title = element_blank(),
@@ -18511,17 +18521,17 @@ library(gridExtra)
 # Create the three heatmaps
 # 1. Spearman Correlation Heatmap
 heatmap_spearman <- create_heatmap(total_results, 
-                                  value_col = "Corr_s", 
-                                  pval_col = "Pval_s",
-                                  title = "Spearman Correlation Coefficients",
-                                  limits = c(-1, 1))
+                                   value_col = "Corr_s", 
+                                   pval_col = "Pval_s",
+                                   title = "Spearman Correlation Coefficients",
+                                   limits = c(-1, 1))
 
 # 2. Pearson Correlation Heatmap
 heatmap_pearson <- create_heatmap(total_results, 
-                                 value_col = "Corr_p", 
-                                 pval_col = "Pval_p",
-                                 title = "Pearson Correlation Coefficients",
-                                 limits = c(-1, 1))
+                                  value_col = "Corr_p", 
+                                  pval_col = "Pval_p",
+                                  title = "Pearson Correlation Coefficients",
+                                  limits = c(-1, 1))
 
 # 3. Linear Regression Beta Coefficients Heatmap
 # For betas, we might want different color scheme and no fixed limits
@@ -18531,10 +18541,142 @@ heatmap_pearson <- create_heatmap(total_results,
 #                               title = "Linear Regression Beta Coefficients")
 
 # Display individual heatmaps
-png(fs::path(dir.results,"Heatmaps_Pearson_Corr_Liver_Pet_IR.png"),width=3000,height=2000,res=300)
+png(fs::path(dir.results,"Heatmaps_Pearson_Corr_Liver_Pet_IR_CRC.png"),width=3000,height=2000,res=300)
 print(heatmap_pearson)
 dev.off()
-png(fs::path(dir.results,"Heatmaps_Spearman_Corr_Liver_Pet_IR.png"),width=3000,height=2000,res=300)
+png(fs::path(dir.results,"Heatmaps_Spearman_Corr_Liver_Pet_IR_CRC.png"),width=3000,height=2000,res=300)
+print(heatmap_spearman)
+dev.off()
+# print(heatmap_beta)
+
+#By Diabetes status
+#Correlation/association between each pet var and each insulin var
+total_results <- data.frame()
+for(pet in pet_variables) {
+  for (insulin in insulin_vars){
+    # Pearson correlation test
+    pearson_test <- cor.test(pet_dat4[[pet]], pet_dat4[[insulin]], 
+                             method = "pearson",
+                             conf.level = 0.95)
+    corr.p <- pearson_test$estimate
+    p.p <- pearson_test$p.value
+    
+    # Spearman correlation test
+    spearman_test <- cor.test(pet_dat4[[pet]], pet_dat4[[insulin]], 
+                              method = "spearman",
+                              conf.level = 0.95)
+    corr.s <- spearman_test$estimate
+    p.s <- spearman_test$p.value
+    
+    #Linear regression of x = insulin on y = pet variable
+    m0 <- as.formula(paste0(pet,"~",insulin))
+    m1 <- lm(m0,data=pet_dat4)
+    beta <- summary(m1)$coef[2,1]
+    pval <- summary(m1)$coef[2,4] 
+    
+    results <- data.frame(Pet=pet,IR=insulin,Corr_p=corr.p,Pval_p=p.p,Corr_s=corr.s,Pval_s=p.s,Beta=beta,Pval=pval)
+    total_results <- rbind(total_results,results)
+  }
+}
+
+#Visualize results
+get_sig_stars <- function(p) {
+  case_when(
+    p < 0.001 ~ "***",
+    p < 0.01 ~ "**",
+    p < 0.05 ~ "*",
+    TRUE ~ ""
+  )
+}
+
+# Function to create a heatmap with significance stars
+create_heatmap <- function(data, value_col, pval_col, title, 
+                           color_low = "blue", color_high = "red", 
+                           color_mid = "white", limits = NULL) {
+  
+  # Reshape data to wide format for values
+  values_wide <- data %>%
+    dplyr::select(Pet, IR, all_of(value_col)) %>%
+    pivot_wider(names_from = IR, values_from = all_of(value_col))
+  
+  # Reshape data to wide format for p-values
+  pvals_wide <- data %>%
+    dplyr::select(Pet, IR, all_of(pval_col)) %>%
+    pivot_wider(names_from = IR, values_from = all_of(pval_col))
+  
+  # Convert to matrix for melting
+  values_matrix <- as.matrix(values_wide[,-1])
+  rownames(values_matrix) <- values_wide$Pet
+  
+  pvals_matrix <- as.matrix(pvals_wide[,-1])
+  rownames(pvals_matrix) <- pvals_wide$Pet
+  
+  # Melt for ggplot
+  values_melt <- melt(values_matrix, varnames = c("Pet", "IR"), value.name = "value")
+  pvals_melt <- melt(pvals_matrix, varnames = c("Pet", "IR"), value.name = "pval")
+  
+  # Combine and add stars
+  plot_data <- values_melt %>%
+    left_join(pvals_melt, by = c("Pet", "IR")) %>%
+    mutate(stars = get_sig_stars(pval),
+           label = paste0(round(value, 2), stars))
+  
+  # Set limits if not provided
+  if (is.null(limits)) {
+    limits <- c(min(plot_data$value, na.rm = TRUE), 
+                max(plot_data$value, na.rm = TRUE))
+  }
+  
+  # Create heatmap
+  p <- ggplot(plot_data, aes(x = IR, y = Pet, fill = value)) +
+    geom_tile(color = "white", size = 0.5) +
+    geom_text(aes(label = label), size = 3.5) +
+    scale_fill_gradient2(low = color_low, mid = color_mid, high = color_high,
+                         midpoint = 0, limits = limits,
+                         name = "Value") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1,face="bold"),
+          axis.title = element_blank(),
+          plot.title = element_text(hjust = 0.5, face = "bold")) +
+    labs(title = title)
+  
+  return(p)
+}
+
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(tidyr)
+library(viridis)
+library(gridExtra)
+
+# Create the three heatmaps
+# 1. Spearman Correlation Heatmap
+heatmap_spearman <- create_heatmap(total_results, 
+                                   value_col = "Corr_s", 
+                                   pval_col = "Pval_s",
+                                   title = "Spearman Correlation Coefficients",
+                                   limits = c(-1, 1))
+
+# 2. Pearson Correlation Heatmap
+heatmap_pearson <- create_heatmap(total_results, 
+                                  value_col = "Corr_p", 
+                                  pval_col = "Pval_p",
+                                  title = "Pearson Correlation Coefficients",
+                                  limits = c(-1, 1))
+
+# 3. Linear Regression Beta Coefficients Heatmap
+# For betas, we might want different color scheme and no fixed limits
+# heatmap_beta <- create_heatmap(total_results, 
+#                               value_col = "Beta", 
+#                               pval_col = "Pval",
+#                               title = "Linear Regression Beta Coefficients")
+
+# Display individual heatmaps
+png(fs::path(dir.results,"Heatmaps_Pearson_Corr_Liver_Pet_IR_CRC.png"),width=3000,height=2000,res=300)
+print(heatmap_pearson)
+dev.off()
+png(fs::path(dir.results,"Heatmaps_Spearman_Corr_Liver_Pet_IR_CRC.png"),width=3000,height=2000,res=300)
 print(heatmap_spearman)
 dev.off()
 # print(heatmap_beta)
