@@ -288,7 +288,7 @@ def clean_renal_heiritage():
     liver_pet.drop(["redcap_event_name"], axis=1, inplace=True)
     # Replace missing values
     liver_pet.replace(rep, np.nan, inplace=True)
-    liver_pet["procedure"] = "liver_pet_pet_scan"
+    liver_pet["procedure"] = "liver_pet_scan"
     liver_pet["visit"] = "baseline"
     
     # --------------------------------------------------------------------------
