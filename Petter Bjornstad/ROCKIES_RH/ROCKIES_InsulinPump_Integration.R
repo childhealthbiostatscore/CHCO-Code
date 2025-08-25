@@ -100,7 +100,7 @@ dat <- harmonized_data %>%
                    .by = c(record_id, visit))
 
 
-dat2 <- dat2 %>% dplyr::select(record_id, epic_sglti2_1, airg, acprg) %>% 
+dat2 <- dat %>% dplyr::select(record_id, epic_sglti2_1, airg, acprg) %>% 
   filter(!is.na(epic_sglti2_1))
 
 #Fix up FSOC data
@@ -172,17 +172,17 @@ so_subset@meta.data$pooled_offset <- pooled_offset
 
 
 
-
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Insulin_Clamp/'
 celltypes <- c('PT', 'TAL', 'EC')
 
 for(i in c(1:length(celltypes))){
 #TAL 
   celltype <- celltypes[i]
   
-so_subset <- subset(so_subset, celltype2 == celltype)
+so_celltype <- subset(so_subset, celltype2 == celltype)
 
-num_cells <- nrow(so_subset)
-test <- so_subset@meta.data %>% filter(!is.na(airg))
+num_cells <- nrow(so_celltype)
+test <- so_celltype@meta.data %>% filter(!is.na(airg))
 num_part <- length(unique(test$record_id))
 
 
@@ -191,11 +191,11 @@ num_part <- length(unique(test$record_id))
 
 genes_list <- insulin_genes
 
-so_subset <- subset(so_subset, features = tal_genes)
+so_celltype <- subset(so_celltype, features = genes_list)
 
-counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
+counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
 count_gene <- counts_path
-meta_gene <- subset(so_subset)@meta.data
+meta_gene <- subset(so_celltype)@meta.data
 
 
 complete_idx <- complete.cases(meta_gene$airg)
@@ -237,8 +237,9 @@ full_results$PValue10 <- -log10(pmax(full_results$`summary.p_airg`, 1e-10))  # A
 full_results$num_cells <- num_cells
 full_results$num_part <- num_part
 
-write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TALGeneList_", 
-celltype, "_cells_AIRg_T2D_pooledoffset.csv")))
+write.table(full_results,paste0(dir.results,"NEBULA_", 
+                                celltype, "_cells_AIRg_T2D_pooledoffset.csv"),
+            row.names=F, quote=F, sep=',')
 
 
 
@@ -246,14 +247,14 @@ celltype, "_cells_AIRg_T2D_pooledoffset.csv")))
 
 #ACPRg
 
-num_cells <- nrow(so_subset)
-test <- so_subset@meta.data %>% filter(!is.na(airg))
+num_cells <- nrow(so_celltype)
+test <- so_celltype@meta.data %>% filter(!is.na(airg))
 num_part <- length(unique(test$record_id))
 
 
-counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
+counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
 count_gene <- counts_path
-meta_gene <- subset(so_subset)@meta.data
+meta_gene <- subset(so_celltype)@meta.data
 
 
 complete_idx <- complete.cases(meta_gene$acprg)
@@ -295,10 +296,90 @@ full_results$PValue10 <- -log10(pmax(full_results$`summary.p_acprg`, 1e-10))  # 
 full_results$num_cells <- num_cells
 full_results$num_part <- num_part
 
-write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TALGeneList_", 
-                                                   celltype, "_cells_ACPRg_T2D_pooledoffset.csv")))
+write.table(full_results,paste0(dir.results,"NEBULA_", 
+                                                   celltype, "_cells_ACPRg_T2D_pooledoffset.csv"),
+            row.names=F, quote=F, sep=',')
 
 }
+
+
+
+
+
+
+
+#Plotting the results 
+
+remove(list=ls())
+
+celltypes <- c('PT', 'TAL', 'EC')
+
+for(i in c(1:length(celltypes))){
+  celltype <- celltypes[i]
+  
+}
+
+names(full_results)[6] <- 'pvalue' 
+full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
+
+# Identify significant points (fdr < 0.05)
+significant_df <- full_results[full_results$fdr < 0.05, ]
+
+Genes <- length(unique(full_results$gene))
+Cell <- ncol(so_celltype)
+Nonconvergence_Rate <- nebula_nonconverged_percent
+# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
+#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
+# 
+# # Identify significant points (fdr < 0.05)
+# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+
+max <- max(full_results$`logFC_groupType_2_Diabetes`)
+# max <- 3.1
+min <- min(full_results$`logFC_groupType_2_Diabetes`)
+
+
+dot_plot <- ggplot(full_results, aes(
+  y = reorder(gene, `logFC_groupType_2_Diabetes`),
+  x = `logFC_groupType_2_Diabetes`,
+  color = color1,
+  size = abs(`logFC_groupType_2_Diabetes`)
+)) +
+  geom_point(alpha = 0.7) +
+  scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
+  scale_size(range = c(2, 6), name = "|LogFC|") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+  theme_minimal() +  # Retains grid lines
+  labs(
+    title = "Differentially Expressed TCA Cycle Genes in All Cell Types",
+    subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+    x = "Log Fold Change",
+    y = "Gene",
+    caption = paste0(
+      "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      "; Genes = ", Genes,
+      ", Cells = ", Cell
+    )
+  ) +
+  theme(plot.caption = element_text(size = 8), 
+        plot.title = element_text(hjust = 0),
+        axis.text.y = element_text(size = 8),
+        # axis.text.x = element_text(angle = 0, hjust = 1),
+        axis.line = element_line(color = "black", size = 0.5),
+        axis.ticks.x = element_line(color = "black"),
+        panel.border = element_blank(),
+        panel.background = element_blank()
+  )
+dot_plot
+
+png(fs::path(dir.results, "fdr/Plot__TCA_cycle_NEBULA_All_Cells_T2D_LC_NoMed_unadjusted_pooled_offset_no_IT_08.png"), 
+    width = 2500, height = 2000, res = 300)
+print(dot_plot)
+dev.off()
+
+
+
 
 
 
