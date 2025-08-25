@@ -158,106 +158,6 @@ so_subset$DCT_celltype <- ifelse((so_subset$KPMP_celltype=="DCT" |
 
 
 
-
-#TAL 
-so_subset <- subset(so_subset, celltype2 == 'TAL')
-
-
-
-tests <- c('airg', 'acprg')
-
-
-
-
-tmp_df <- dat2 %>% dplyr::select(starts_with('fsoc'))
-
-
-
-find_fsoc_averages <- function(data){
-  tmp_data <- data %>% dplyr::select(starts_with('fsoc'))
-  fsoc_full_combined <- rowMeans(tmp_data, na.rm=T)
-  
-  tmp_data <- data %>% dplyr::select(starts_with('fsoc_l_'))
-  fsoc_l_combined <- tmp_data %>% rowMeans(na.rm=T)
-  
-  tmp_data <- data %>% dplyr::select(starts_with('fsoc_r_'))
-  fsoc_r_combined <- tmp_data %>% rowMeans(na.rm=T)
-  
-  fsoc_medulla <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_medulla) %>%
-    rowMeans(na.rm=T)
-  fsoc_cortex <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_cortex) %>%
-    rowMeans(na.rm=T)
-  fsoc_kidney <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_kidney) %>%
-    rowMeans(na.rm=T)
-  
-  tmp_df <- cbind(fsoc_l_combined, fsoc_r_combined, fsoc_medulla, fsoc_cortex, fsoc_kidney, fsoc_full_combined)
-  return(tmp_df)
-  
-}
-
-tmp_results <- find_fsoc_averages(dat2)
-
-
-dat_results <- dat2 %>% bind_cols(tmp_results)
-
-
-meta.data <- so_subset@meta.data
-dat_results <- dat_results %>% filter(record_id %in% meta.data$record_id)
-
-
-table1::table1(~age + sex + epic_mfm_1 + epic_insulin_1 + epic_glp1ra_1 +
-                 fsoc_l_cortex + fsoc_l_kidney + fsoc_l_medulla + 
-                 fsoc_r_cortex + fsoc_r_kidney + fsoc_r_medulla + 
-                 fsoc_l_combined + fsoc_r_combined + fsoc_medulla + 
-                 fsoc_cortex + fsoc_kidney + fsoc_full_combined | group, data = dat_results)
-
-
-
-names(meta.data)[which(names(meta.data) %in% c('fsoc_l_kidney', 'fsoc_r_kidney', 
-                                               'fsoc_l_medulla', 'fsoc_r_medulla', 'fsoc_l_cortex', 'fsoc_r_cortex',
-                                               'fsoc_l_combined', 'fsoc_r_combined',
-                                               'fsoc_medulla', 'fsoc_cortex', 'fsoc_kidney',
-                                               'fsoc_full_combined'))]
-
-meta.data <- meta.data %>% dplyr::select(-fsoc_l_kidney, -fsoc_l_medulla, 
-                                         -fsoc_r_kidney, -fsoc_r_medulla, 
-                                         -fsoc_l_cortex, -fsoc_r_cortex) %>% 
-  left_join(dat_results, by='record_id')
-
-
-
-so_subset@meta.data$fsoc_l_kidney <- meta.data$fsoc_l_kidney
-so_subset@meta.data$fsoc_l_medulla <- meta.data$fsoc_l_medulla
-so_subset@meta.data$fsoc_l_cortex <- meta.data$fsoc_l_cortex
-
-so_subset@meta.data$fsoc_r_kidney <- meta.data$fsoc_r_kidney
-so_subset@meta.data$fsoc_r_medulla <- meta.data$fsoc_r_medulla
-so_subset@meta.data$fsoc_r_cortex <- meta.data$fsoc_r_cortex
-
-so_subset@meta.data$fsoc_l_combined <- meta.data$fsoc_l_combined
-so_subset@meta.data$fsoc_r_combined <- meta.data$fsoc_r_combined
-so_subset@meta.data$fsoc_medulla <- meta.data$fsoc_medulla
-so_subset@meta.data$fsoc_cortex <- meta.data$fsoc_cortex
-so_subset@meta.data$fsoc_kidney <- meta.data$fsoc_kidney
-so_subset@meta.data$fsoc_full_combined <- meta.data$fsoc_full_combined
-
-
-
-
-
-
-
-
-#filter data to only TAL cells 
-
-celltypes <- c('PT', 'TAL', 'EC')
-
-
-
-
-#gene lists
-
-
 counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
 
 sce <- SingleCellExperiment(assays = list(counts = counts_path))
@@ -271,7 +171,25 @@ so_subset@meta.data$pooled_offset <- pooled_offset
 
 
 
-genes_list <- tal_genes
+
+
+celltypes <- c('PT', 'TAL', 'EC')
+
+for(i in c(1:length(celltypes))){
+#TAL 
+  celltype <- celltypes[i]
+  
+so_subset <- subset(so_subset, celltype2 == celltype)
+
+num_cells <- nrow(so_subset)
+test <- so_subset@meta.data %>% filter(!is.na(airg))
+num_part <- length(unique(test$record_id))
+
+
+#gene lists
+
+
+genes_list <- insulin_genes
 
 so_subset <- subset(so_subset, features = tal_genes)
 
@@ -280,7 +198,7 @@ count_gene <- counts_path
 meta_gene <- subset(so_subset)@meta.data
 
 
-complete_idx <- complete.cases(meta_gene$fsoc_medulla)
+complete_idx <- complete.cases(meta_gene$airg)
 cat("Cells with complete data:", sum(complete_idx), "\n")
 
 # Step 3: Filter all your data to only include cells with complete predictor data
@@ -289,7 +207,7 @@ count_gene <- count_gene[, complete_idx]  # Note: subsetting columns for cells
 
 
 # Step 4: Create prediction matrix from the complete data
-pred_gene <- model.matrix(~fsoc_medulla, data = meta_gene)
+pred_gene <- model.matrix(~airg, data = meta_gene)
 
 
 # library <- meta_gene$library_size
@@ -312,58 +230,79 @@ full_results <- as.data.frame(result)
 
 # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
 full_results <- full_results %>%
-  mutate(fdr=p.adjust(`summary.p_fsoc_medulla`,method="fdr"))  
+  mutate(fdr=p.adjust(`summary.p_airg`,method="fdr"))  
 # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-full_results$PValue10 <- -log10(pmax(full_results$`summary.p_fsoc_medulla`, 1e-10))  # Avoid log(0)
+full_results$PValue10 <- -log10(pmax(full_results$`summary.p_airg`, 1e-10))  # Avoid log(0)
 
-write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TALGeneList_TAL_cells_medulla_T2D_pooledoffset.csv")))
+full_results$num_cells <- num_cells
+full_results$num_part <- num_part
 
-
-
-
-
-
+write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TALGeneList_", 
+celltype, "_cells_AIRg_T2D_pooledoffset.csv")))
 
 
 
 
 
+#ACPRg
+
+num_cells <- nrow(so_subset)
+test <- so_subset@meta.data %>% filter(!is.na(airg))
+num_part <- length(unique(test$record_id))
+
+
+counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
+count_gene <- counts_path
+meta_gene <- subset(so_subset)@meta.data
+
+
+complete_idx <- complete.cases(meta_gene$acprg)
+cat("Cells with complete data:", sum(complete_idx), "\n")
+
+# Step 3: Filter all your data to only include cells with complete predictor data
+meta_gene <- meta_gene[complete_idx, ]
+count_gene <- count_gene[, complete_idx]  # Note: subsetting columns for cells
+
+
+# Step 4: Create prediction matrix from the complete data
+pred_gene <- model.matrix(~acprg, data = meta_gene)
+
+
+# library <- meta_gene$library_size
+library <- meta_gene$pooled_offset
+data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+
+if (is.null(data_g_gene)) {
+  data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+}
+
+#With offset
+result <- nebula(count = data_g_gene$count, id = data_g_gene$id, 
+                 pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+
+
+
+#Make dataframe of final results
+full_results <- as.data.frame(result)
+#Calculate number of genes filtered out for low expression 
+
+# print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+full_results <- full_results %>%
+  mutate(fdr=p.adjust(`summary.p_acprg`,method="fdr"))  
+# mutate(fdr3=p.adjust(PValue3,method="fdr"))
+full_results$PValue10 <- -log10(pmax(full_results$`summary.p_acprg`, 1e-10))  # Avoid log(0)
+
+full_results$num_cells <- num_cells
+full_results$num_part <- num_part
+
+write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TALGeneList_", 
+                                                   celltype, "_cells_ACPRg_T2D_pooledoffset.csv")))
+
+}
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#PT 
-
-
-
-
-
-
-
-
-#TAL 
-
-
-
-
-
-
-#EC 
 
 
 
