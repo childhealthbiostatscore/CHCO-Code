@@ -48,6 +48,7 @@ library(doParallel)
 #insulin clamp integration
 
 
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Insulin_Clamp/'
 
 
 insulin_genes <- c("INSR", "IGF1R", "INSRR",
@@ -83,8 +84,6 @@ insulin_genes <- c("INSR", "IGF1R", "INSRR",
 load('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_T2D_SGLT2_DylanEdits_Line728.RData')
 
 
-load("C:/Users/netio/Downloads/TCA_genes.txt")
-load('C:/Users/netio/Downloads/OxPhos_genes.txt')
 
 so_subset <- so_kpmp_sc
 remove(so_kpmp_sc)
@@ -101,63 +100,32 @@ dat <- harmonized_data %>%
                    .by = c(record_id, visit))
 
 
-dat <- dat %>% dplyr::select(record_id, epic_sglti2_1, starts_with('fsoc')) %>% 
+dat2 <- dat2 %>% dplyr::select(record_id, epic_sglti2_1, airg, acprg) %>% 
   filter(!is.na(epic_sglti2_1))
 
 #Fix up FSOC data
-test$epic_sglti2_1 <- NULL
-test$fsoc_l_cortex <- NULL
-test$fsoc_l_kidney <- NULL
-test$fsoc_l_medulla <- NULL
-test$fsoc_r_cortex <- NULL
-test$fsoc_r_kidney <- NULL
-test$fsoc_r_medulla <- NULL
+test$airg <- NULL
+test$acprg<- NULL
 
-find_fsoc_averages <- function(data){
-  tmp_data <- data %>% dplyr::select(starts_with('fsoc'))
-  fsoc_full_combined <- rowMeans(tmp_data, na.rm=T)
-  
-  tmp_data <- data %>% dplyr::select(starts_with('fsoc_l_'))
-  fsoc_l_combined <- tmp_data %>% rowMeans(na.rm=T)
-  
-  tmp_data <- data %>% dplyr::select(starts_with('fsoc_r_'))
-  fsoc_r_combined <- tmp_data %>% rowMeans(na.rm=T)
-  
-  fsoc_medulla <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_medulla)
-  fsoc_cortex <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_cortex)
-  fsoc_kidney <- data %>% dplyr::select(fsoc_l_medulla, fsoc_r_kidney)
-  
-  tmp_df <- cbind(fsoc_l_combined, fsoc_r_combined, fsoc_medulla, fsoc_cortex, fsoc_kidney, fsoc_full_combined)
-  return(tmp_df)
-  
-}
 
-tmp_results <- find_fsoc_averages(dat)
+
+test <- test %>% left_join(dat2, by='record_id')
+
+so_subset@meta.data$airg <- test$airg
+so_subset@meta.data$acprg <- test$acprg
 
 
 
 
-test <- test %>% left_join(dat, by='record_id')
+demo_table <- dat %>% filter(visit == 'baseline') %>% 
+  filter(record_id %in% so_subset@meta.data$record_id) %>% 
+  filter(!is.na(airg))
 
-so_subset@meta.data$epic_sglti2_1 <- test$epic_sglti2_1
-so_subset@meta.data$fsoc_l_cortex <- test$fsoc_l_cortex
-so_subset@meta.data$fsoc_l_kidney <- test$fsoc_l_kidney
-so_subset@meta.data$fsoc_l_medulla <- test$fsoc_l_medulla
-so_subset@meta.data$fsoc_r_cortex <- test$fsoc_r_cortex
-so_subset@meta.data$fsoc_r_kidney <- test$fsoc_r_kidney
-so_subset@meta.data$fsoc_r_medulla <- test$fsoc_r_medulla
-so_subset@meta.data$fsoc_l_combined <- test$fsoc_l_combined
-so_subset@meta.data$fsoc_r_combined <- test$fsoc_r_combined
-so_subset@meta.data$fsoc_full_combined <- test$fsoc_full_combined
-so_subset@meta.data$fsoc_medulla <- test$fsoc_medulla
-so_subset@meta.data$fsoc_cortex <- test$fsoc_cortex
-so_subset@meta.data$fsoc_kidney <- test$fsoc_kidney
+demo_table$group2 <- ifelse(demo_table$epic_sglti2_1 == 'Yes', 'T2D-SGLT2', 'T2D-No SGLT2')
 
 
+table1::table1(~age + sex + bmi + airg + acprg + epic_sglti2_1 | group2, data = demo_table)
 
-
-
-rm(test)
 
 
 
@@ -188,40 +156,15 @@ so_subset$DCT_celltype <- ifelse((so_subset$KPMP_celltype=="DCT" |
                                     so_subset$KPMP_celltype=="dDCT"), "DCT","Non-DCT")
 
 
+
+
+
+#TAL 
 so_subset <- subset(so_subset, celltype2 == 'TAL')
 
 
-##Get all FSOC data 
 
-harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
-
-#harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
-
-#date_of_screen
-#screen_date
-
-dat <- harmonized_data %>% dplyr::select(-dob) %>% 
-  arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-                   .by = c(record_id, visit))
-
-
-dat2 <- dat %>% filter(visit == 'baseline') %>% 
-  filter(study %in% c('RENAL-HEIR', 'RENAL-HEIRitage', 'CROCODILE') | record_id == 'IT_19') %>%
-  #  filter(group != 'Obese Control') %>% 
-  dplyr::select(mrn, record_id, study, visit, group, starts_with('fsoc'), bmi, 
-                epic_sglti2_1, age, sex, epic_mfm_1, epic_insulin_1, epic_glp1ra_1)
-
-dat2 <- dat2[-which(dat2$study == 'CROCODILE' & dat2$group == 'Type 1 Diabetes'),]
-
-
-tests <- c('fsoc_l_cortex', 'fsoc_r_cortex', 
-           'fsoc_l_kidney', 'fsoc_r_kidney', 
-           'fsoc_l_medulla', 'fsoc_r_medulla', 
-           'fsoc_l_combined', 'fsoc_r_combined',
-           'fsoc_medulla', 'fsoc_cortex', 'fsoc_kidney',
-           'fsoc_full_combined')
+tests <- c('airg', 'acprg')
 
 
 

@@ -228,11 +228,10 @@ meta.data <- so_subset@meta.data
 dat_results <- dat_results %>% filter(record_id %in% meta.data$record_id)
 
 
-table1::table1(~age + sex + epic_mfm_1 + epic_insulin_1 + epic_glp1ra_1 +
+table1::table1(~age + sex + bmi + epic_sglti2_1 + epic_mfm_1 + epic_insulin_1 + epic_glp1ra_1 +
                  fsoc_l_cortex + fsoc_l_kidney + fsoc_l_medulla + 
-                 fsoc_r_cortex + fsoc_r_kidney + fsoc_r_medulla + 
-                 fsoc_l_combined + fsoc_r_combined + fsoc_medulla + 
-                 fsoc_cortex + fsoc_kidney + fsoc_full_combined | group, data = dat_results)
+                 fsoc_r_cortex + fsoc_r_kidney + fsoc_r_medulla + fsoc_medulla + 
+                 fsoc_cortex + fsoc_kidney | group, data = dat_results %>% filter(!is.na(fsoc_l_cortex)))
 
 
 

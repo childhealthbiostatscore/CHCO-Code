@@ -46,10 +46,22 @@ library(nebula)
 
 load('C:/Users/netio/Documents/UofW/Rockies/Line438_Boxplots_NoMed.RData')
 
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+
+dat <- harmonized_data %>%
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+
+
+
 dat2 <- dat %>% filter(visit == 'baseline') %>% 
-  filter(study %in% c('RENAL-HEIR', 'RENAL-HEIRitage', 'CROCODILE') | record_id == 'IT_19') %>%
+#  filter(study %in% c('RENAL-HEIR', 'RENAL-HEIRitage', 'CROCODILE') | record_id == 'IT_19') %>%
 #  filter(group != 'Obese Control') %>% 
-  dplyr::select(mrn, record_id, study, visit, group, group2, starts_with('fsoc'), bmi, 
+  dplyr::select(mrn, record_id, study, visit, group, starts_with('fsoc'), bmi, 
                 epic_sglti2_1, age, sex, epic_mfm_1, epic_insulin_1, epic_glp1ra_1)
 
 dat2 <- dat2[-which(dat2$group == 'Type 1 Diabetes'),]
@@ -58,14 +70,20 @@ dat2 <- dat2[-which(dat2$group == 'Type 1 Diabetes'),]
 tests <- c('fsoc_l_cortex', 'fsoc_r_cortex', 
            'fsoc_l_kidney', 'fsoc_r_kidney', 
            'fsoc_l_medulla', 'fsoc_r_medulla', 
-           'fsoc_l_combined', 'fsoc_r_combined',
-           'fsoc_medulla', 'fsoc_cortex', 'fsoc_kidney',
-           'fsoc_full_combined')
+           'fsoc_medulla', 'fsoc_cortex', 'fsoc_kidney')
 
 
 graphs <- list()
 
 
+dat2 <- dat2 %>% filter(!is.na(fsoc_l_cortex))
+
+dat2$group2 <- dat2$group
+
+dat2$group2[which(dat2$group == 'Type 2 Diabetes' & dat2$epic_sglti2_1 == 'Yes')] <- 'T2D-SGLTi2'
+dat2$group2[which(dat2$group == 'Type 2 Diabetes' & dat2$epic_sglti2_1 == 'No')] <- 'T2D-No SGLTi2'
+dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
+dat2$epic_sglti2_1[which(dat2$group == 'Obese Control')] <- 'No'
 
 
 medications <- readxl::read_xlsx("C:/Users/netio/Documents/Harmonized_data/Biopsies_w_mrn_Oct3.xlsx")
@@ -74,7 +92,7 @@ names(medications) <- str_replace(names(medications), pattern = '_1', replacemen
 
 
 
-need_med_info <- dat2 %>% filter(group == 'Type 2 Diabetes') %>% filter(is.na(group2))
+need_med_info <- dat2 %>% filter(group == 'Type 2 Diabetes') %>% filter(is.na(epic_sglti2_1))
 
 med_small <- medications %>% filter(mrn %in% need_med_info$mrn)
 
@@ -100,6 +118,13 @@ RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-S
 names(RH2) <- c('Subject', 'event', 'rep_instr', 'rep_inst', 'mrn', 'SGLT2', 'SGLT2_ever')
 RH2 <- RH2 %>% filter(!is.na(mrn))
 
+improve <- data.table::fread('C:/Users/netio/Downloads/IMPROVET2D-SGLT2i_DATA_LABELS_2025-08-25_0938.csv')
+names(improve)[5] <- 'SGLT2'
+names(improve)[1] <- 'record_id'
+improve <- improve %>% filter(!is.na(SGLT2)) %>% 
+  filter(SGLT2 != '')
+
+improve_small <- improve %>% filter(record_id %in% need_med_info$record_id)
 RH_small <- RH %>% filter(Subject %in% need_med_info$record_id)
 RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
 
@@ -129,15 +154,34 @@ for(i in c(1:nrow(RH2_small))){
   
 }
 
+
+for(i in c(1:nrow(improve_small))){
+  if(improve_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'No'
+  }else if(improve_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-SGLTi2' 
+    dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'Yes'
+  }else{
+    next
+  }
+}
+  
+
+
+
+
+
+
+
 dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
 
 dat2$group2[which(dat2$group == 'Obese Control')] <- 'Obese Control' 
 
-
-table1::table1(~age + sex + bmi+study + epic_mfm_1+epic_insulin_1+epic_glp1ra_1+epic_sglti2_1 | group2,data=dat2 %>% 
-                 filter(!is.na(group2)))
-
 dat2$group2[which(dat2$group %in% c('Obese Control', 'Lean Control'))] <- 'Control'
+
+dat2 <- dat2 %>% filter(!is.na(fsoc_l_cortex))
+
 
 
 tmp_df <- dat2 %>% dplyr::select(starts_with('fsoc'))
@@ -181,29 +225,6 @@ dat_results <- dat2 %>% bind_cols(tmp_results)
 
 apply(dat_results %>% dplyr::select(starts_with('fsoc')), 2, is.na) %>% 
   colSums() %>% which.min()
-
-
-
-max_num_trait <- apply(dat_results %>% dplyr::select(starts_with('fsoc')), 2, is.na) %>% colSums() %>% which.min() %>% names()
-
-min_num_missing <- sum(is.na(dplyr::select(dat_results, starts_with('fsoc'))[,apply(dat_results %>% dplyr::select(starts_with('fsoc')), 2, is.na) %>% colSums() %>% which.min()]))
-
-
-max_num_lc <- dat_results %>% filter(group == 'Lean Control') %>% filter(!is.na(fsoc_r_cortex)) %>% 
-  nrow()
-max_num_nosglt2 <- dat_results %>% filter(group == 'T2D-No SGLTi2') %>% filter(!is.na(fsoc_r_cortex)) %>% 
-  nrow()
-max_num_sglt2 <- dat_results %>% filter(group == 'T2D-SGLTi2') %>% filter(!is.na(fsoc_r_cortex)) %>% 
-  nrow()
-
-
-
-number_part_df <- dat_results %>% filter(!is.na(fsoc_full_combined))
-
-min_num_lc <- number_part_df %>% filter(group2 == 'Lean Control')
-min_num_nosglt2 <- number_part_df %>% filter(group2 == 'T2D-No SGLTi2')
-min_num_sglt2 <- number_part_df %>% filter(group2 == 'T2D-SGLTi2')
-
 
 
 
@@ -345,8 +366,7 @@ gridExtra::grid.arrange(results_list[[1]], results_list[[2]],
                         results_list[[3]], results_list[[4]], 
                         results_list[[5]], results_list[[6]], 
                         results_list[[7]], results_list[[8]],
-                        results_list[[9]], results_list[[10]],
-                        results_list[[11]], results_list[[12]],
+                        results_list[[9]],
                         ncol = 2)
 
 dev.off()
@@ -357,8 +377,7 @@ gridExtra::grid.arrange(results_list[[1]], results_list[[2]],
                         results_list[[3]], results_list[[4]], 
                         results_list[[5]], results_list[[6]], 
                         results_list[[7]], results_list[[8]],
-                        results_list[[9]], results_list[[10]],
-                        results_list[[11]], results_list[[12]],
+                        results_list[[9]],
                         ncol = 2)
 
 dev.off()
@@ -387,8 +406,7 @@ gridExtra::grid.arrange(results_list[[1]], results_list[[2]],
                         results_list[[3]], results_list[[4]], 
                         results_list[[5]], results_list[[6]], 
                         results_list[[7]], results_list[[8]],
-                        results_list[[9]], results_list[[10]],
-                        results_list[[11]], results_list[[12]],
+                        results_list[[9]],
                         ncol = 2)
 
 dev.off()
@@ -399,8 +417,7 @@ gridExtra::grid.arrange(results_list[[1]], results_list[[2]],
                         results_list[[3]], results_list[[4]], 
                         results_list[[5]], results_list[[6]], 
                         results_list[[7]], results_list[[8]],
-                        results_list[[9]], results_list[[10]],
-                        results_list[[11]], results_list[[12]],
+                        results_list[[9]],
                         ncol = 2)
 
 dev.off()
