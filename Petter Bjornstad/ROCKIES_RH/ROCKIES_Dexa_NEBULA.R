@@ -201,6 +201,9 @@ so_subset$group  <- relevel(so_subset$group ,ref="Lean_Control")
 counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
 
 
+
+
+#function
 T2D_LC_Dexa_Analysis <- function(data, dir.results, celltype, variable){
   if(celltype == 'All'){
     so_celltype <- so_subset 
@@ -243,7 +246,7 @@ T2D_LC_Dexa_Analysis <- function(data, dir.results, celltype, variable){
   test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
   t2d_count <- test2 %>% filter(group == 'Type_2_Diabetes') %>% nrow()
   lc_count <- test2 %>% filter(group == 'Lean_Control') %>% nrow()
-  
+  cell_count <- nrow(so_celltype)
   
   start_time <- Sys.time()
   
@@ -302,18 +305,13 @@ T2D_LC_Dexa_Analysis <- function(data, dir.results, celltype, variable){
   #Make dataframe of final results
   full_results <- as.data.frame(nebula_summaries)
   #Calculate number of genes filtered out for low expression 
-  low_exp <- length(tca_genes)-length(full_results$gene)
-  #Filter out non-converging genes
-  full_results <- full_results %>% 
-    filter(!gene %in%  nonconverge_genes)
-  #Calculate nonconvergence rate
-  nebula_nonconverged_percent <- paste0(round((1-(length(tca_genes)-length(nonconverge_genes))/length(tca_genes))*100,3),"%")
-  # nebula_nonconverged_percent <- (length(rownames(counts_path))-length(unique(full_results$gene)))/length(rownames(counts_path))
-  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-  full_results <- full_results %>%
-    mutate(fdr=p.adjust(`p_groupType_2_Diabetes`,method="fdr"))  
+
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
   full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  
+  full_results$t2d_count <- t2d_count
+  full_results$lc_count <- lc_count
+  full_results$cell_count <- cell_count
   
   write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
   
