@@ -645,3 +645,67 @@ for (celltype in missing_celltypes) {
 
 
 
+
+
+
+##If data is there, just need to plot 
+
+
+
+
+
+
+
+
+missing_celltypes <- c('TAL', 'C-TAL-1', 'C-TAL-2', 'dTAL', 'aTAL',
+                       'DCT', 'dDCT', 'EC',
+                       "EC/VSMC","EC-AVR","EC-PTC","EC-AEA","EC-LYM","EC-GC",
+                       "cDC",
+                       "cycT",
+                       "CD4+ T",
+                       "CD8+ T",
+                       "NK",
+                       "B",
+                       "MON",
+                       "MAC",
+                       "MC", 'POD')
+
+cell_counts <- data.table::fread("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/T2D_SGLT2/Cell_Counts.csv")
+
+for (celltype in missing_celltypes) {
+  #Filter to PT Cells
+  
+  print(paste0('Starting ', celltype))
+  
+  if(celltype %in% c('TAL', 'EC', 'POD')){
+    so_celltype <- subset(so_subset, celltype2 == celltype)
+  }else if(celltype == 'DCT'){
+    so_celltype <- subset(so_subset, DCT_celltype == celltype)
+  }else{
+    so_celltype <- subset(so_subset, KPMP_celltype == celltype)
+  }
+  
+  
+  DefaultAssay(so_celltype) <- "RNA" 
+  
+  nrow(so_celltype) #34 genes
+  ncol(so_celltype) #13534 PT cells
+  
+  celltype2 <- str_replace_all(celltype,"/","_")
+  celltype2 <- str_replace_all(celltype2,"-","_")
+  
+full_results <- data.table::fread(paste0('C:/Users/'))
+  
+  print(paste0(celltype, ' is done.'))
+}
+
+
+
+
+
+
+
+
+
+
+

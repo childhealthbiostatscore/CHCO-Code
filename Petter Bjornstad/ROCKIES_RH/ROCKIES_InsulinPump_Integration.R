@@ -313,51 +313,56 @@ write.table(full_results,paste0(dir.results,"NEBULA_",
 remove(list=ls())
 
 celltypes <- c('PT', 'TAL', 'EC')
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Insulin_Clamp/'
 
 for(i in c(1:length(celltypes))){
   celltype <- celltypes[i]
   
-}
+  full_results <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Insulin_Clamp/NEBULA_', 
+                                                   celltype, '_cells_AIRg_T2D_pooledoffset.csv'))
+  
 
-names(full_results)[6] <- 'pvalue' 
-full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+
+names(full_results)[which(names(full_results) == 'summary.p_airg')] <- 'pvalue' 
+#full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
 full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
 
 # Identify significant points (fdr < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
 
-Genes <- length(unique(full_results$gene))
-Cell <- ncol(so_celltype)
-Nonconvergence_Rate <- nebula_nonconverged_percent
+
+Genes <- length(unique(full_results$summary.gene))
+Cell <- full_results$num_cells[1]
+num_part <- full_results$num_part[1]
+
 # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
 #                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
 # 
 # # Identify significant points (fdr < 0.05)
 # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
 
-max <- max(full_results$`logFC_groupType_2_Diabetes`)
+max <- max(full_results$summary.logFC_airg)
 # max <- 3.1
-min <- min(full_results$`logFC_groupType_2_Diabetes`)
+min <- min(full_results$summary.logFC_airg)
 
 
 dot_plot <- ggplot(full_results, aes(
-  y = reorder(gene, `logFC_groupType_2_Diabetes`),
-  x = `logFC_groupType_2_Diabetes`,
-  color = color1,
-  size = abs(`logFC_groupType_2_Diabetes`)
+  y = reorder(summary.gene, `summary.logFC_airg`),
+  x = `summary.logFC_airg`,
+  color = color2,
+  size = abs(`summary.logFC_airg`)
 )) +
   geom_point(alpha = 0.7) +
-  scale_color_identity(name = 'Significance (FDR)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
+  scale_color_identity(name = 'Significance (pvalue)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
   scale_size(range = c(2, 6), name = "|LogFC|") +
   geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
   theme_minimal() +  # Retains grid lines
   labs(
-    title = "Differentially Expressed TCA Cycle Genes in All Cell Types",
-    subtitle = "LC vs. T2D (No SGLT2), Unadjusted (Pooled Offset)",
+    title = paste0("Differentially Expressed Genes in ", celltype, " Cells"),
+    subtitle = "AIRg Analysis",
     x = "Log Fold Change",
     y = "Gene",
     caption = paste0(
-      "Participant Number: T2D: ", t2d_count, ', LC: ', lc_count, 
+      "Participant Number: ", num_part,  
       "; Genes = ", Genes,
       ", Cells = ", Cell
     )
@@ -373,11 +378,93 @@ dot_plot <- ggplot(full_results, aes(
   )
 dot_plot
 
-png(fs::path(dir.results, "fdr/Plot__TCA_cycle_NEBULA_All_Cells_T2D_LC_NoMed_unadjusted_pooled_offset_no_IT_08.png"), 
+png(paste0(dir.results, 'NEBULA_', celltype, '_AIRg.png'), 
     width = 2500, height = 2000, res = 300)
 print(dot_plot)
 dev.off()
 
+
+
+
+rm(full_results)
+
+
+full_results <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Insulin_Clamp/NEBULA_', 
+                                         celltype, '_cells_ACPRg_T2D_pooledoffset.csv'))
+
+
+
+names(full_results)[which(names(full_results) == 'summary.p_acprg')] <- 'pvalue' 
+#full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+full_results$color2 <- ifelse(full_results$pvalue < 0.05, "lightcoral", "gray")
+
+# Identify significant points (fdr < 0.05)
+
+
+Genes <- length(unique(full_results$summary.gene))
+Cell <- full_results$num_cells[1]
+num_part <- full_results$num_part[1]
+
+# full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 > 0, "lightcoral",
+#                               ifelse(full_results$fdr3 < 0.2 & full_results$`logFC_SGLT2SGLT2i`3 < 0, "lightblue", "gray"))
+# 
+# # Identify significant points (fdr < 0.05)
+# significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+
+max <- max(full_results$summary.logFC_acprg)
+# max <- 3.1
+min <- min(full_results$summary.logFC_acprg)
+
+
+dot_plot <- ggplot(full_results, aes(
+  y = reorder(summary.gene, `summary.logFC_acprg`),
+  x = `summary.logFC_acprg`,
+  color = color2,
+  size = abs(`summary.logFC_acprg`)
+)) +
+  geom_point(alpha = 0.7) +
+  scale_color_identity(name = 'Significance (pvalue)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
+  scale_size(range = c(2, 6), name = "|LogFC|") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+  theme_minimal() +  # Retains grid lines
+  labs(
+    title = paste0("Differentially Expressed Genes in ", celltype, " Cells"),
+    subtitle = "ACPRg Analysis",
+    x = "Log Fold Change",
+    y = "Gene",
+    caption = paste0(
+      "Participant Number: ", num_part,  
+      "; Genes = ", Genes,
+      ", Cells = ", Cell
+    )
+  ) +
+  theme(plot.caption = element_text(size = 8), 
+        plot.title = element_text(hjust = 0),
+        axis.text.y = element_text(size = 8),
+        # axis.text.x = element_text(angle = 0, hjust = 1),
+        axis.line = element_line(color = "black", size = 0.5),
+        axis.ticks.x = element_line(color = "black"),
+        panel.border = element_blank(),
+        panel.background = element_blank()
+  )
+dot_plot
+
+png(paste0(dir.results, 'NEBULA_', celltype, '_acprg.png'), 
+    width = 2500, height = 2000, res = 300)
+print(dot_plot)
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
+}
 
 
 

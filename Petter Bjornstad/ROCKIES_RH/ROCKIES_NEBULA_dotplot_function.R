@@ -464,19 +464,80 @@ NEBULA_LC_T2D_dotplots <- function(so_subset, celltype, dir.results){
 
 
 
-NEBULA_T2D_SGLT2_dotplots <- function(data, celltype, dir.results){
+NEBULA_T2D_SGLT2_dotplots <- function(celltype, dir.results, analysis){
   
-  if(celltype %in% c('TAL', 'EC', 'POD', 'PT')){
-    so_celltype <- subset(so_subset,celltype2==celltype)
-    DefaultAssay(so_celltype) <- "RNA" 
-  }else if(celltype != 'DCT'){
-    so_celltype <- subset(so_subset,KPMP_celltype==celltype)
-    DefaultAssay(so_celltype) <- "RNA" 
-  }else if(celltype == 'DCT'){
-    so_celltype <- subset(so_subset, DCT_celltype==celltype)
+  
+  celltype2 <- str_replace_all(celltype,"/","_")
+  celltype2 <- str_replace_all(celltype2,"-","_")
+
+  if(analysis == 'TCA'){
+  full_results <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/T2D_SGLT2/NEBULA_TCA_cycle_', celltype2, '_cells_T2D_SGLT2_unadjusted_pooled_offset.csv'))
+  order <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_TCA_cycle_', celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv'))
+  }else if(analysis == 'OxPhos'){
+    full_results <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/T2D_SGLT2/NEBULA_OX_PHOS_cycle_', celltype2, '_cells_T2D_SGLT2_unadjusted_pooled_offset.csv'))
+    order <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/NEBULA_OX_PHOS_cycle_', celltype2, '_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv'))
+    }
+  
+  full_results$color1 <- ifelse(full_results$fdr < 0.05, "lightcoral", "gray")
+  full_results$color2 <- ifelse(full_results$p_epic_sglti2_1Yes < 0.05, "lightcoral", "gray")
+  
+  # Identify significant points (fdr < 0.05)
+  
+  ref_file <- data.table::fread("C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/T2D_SGLT2/Cell_Counts.csv")
+  index <- which(ref_file$celltype == celltype)
+  if(length(index) < 1){
+    Genes <- NA
+    Cell <- NA
+    sglt2_count <- NA
+    nosglt2_count <- NA
+  }else{
+    Genes <- ref_file$Genes[index]
+    Cell <- ref_file$Cells[index]
+    sglt2_count <- ref_file$SGLT2[index]
+    nosglt2_count <- ref_file$noSGLT2[index]
   }
   
   
+  max <- max(full_results$`logFC_epic_sglti2_1Yes`)
+  # max <- 3.1
+  min <- min(full_results$`logFC_epic_sglti2_1Yes`)
+
+  dot_plot <- ggplot(full_results, aes(
+    y = factor(gene, levels = order$gene),
+    x = `logFC_epic_sglti2_1Yes`,
+    color = color2,
+    size = abs(`logFC_epic_sglti2_1Yes`)
+  )) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity(name = 'Significance (pvalue)', labels = c('> 0.05', '<0.05'), guide = 'legend')+
+    scale_size(range = c(2, 6), name = "|LogFC|") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    theme_minimal() +  # Retains grid lines
+    labs(
+      title = paste0("Differentially Expressed TCA Cycle Genes in ", celltype2, " Cell Types"),
+      subtitle = "SGLT2i vs. No SGLT2i (T2D Only), Unadjusted (Pooled Offset)",
+      x = "Log Fold Change",
+      y = "Gene",
+      caption = paste0(
+        "Participants on SGLT2: ", sglt2_count, ', No SGLT2: ', nosglt2_count, 
+        ", Cells = ", Cell
+      )
+    ) +
+    theme(plot.caption = element_text(size = 8), 
+          plot.title = element_text(hjust = 0),
+          axis.text.y = element_text(size = 8),
+          # axis.text.x = element_text(angle = 0, hjust = 1),
+          axis.line = element_line(color = "black", size = 0.5),
+          axis.ticks.x = element_line(color = "black"),
+          panel.border = element_blank(),
+          panel.background = element_blank()
+    )
+  dot_plot
+  
+  png(paste0(dir.results, "pvalue/Plot__TCA_cycle_NEBULA_", celltype2, "_Cells_T2D_SGLT2_unadjusted_pooled_offset_no_IT_08.png"), 
+      width = 2500, height = 2000, res = 300)
+  print(dot_plot)
+  dev.off()
   
   
   
