@@ -1,0 +1,52 @@
+##ROCKIES Cell Distributions
+
+
+
+combined <- data.table::fread('C:/Users/netio/Downloads/ROCKIES_scRNA_combined_LC_T2D.csv')
+
+results.dir <- 'C:/Users/netio/Documents/UofW/Rockies/celltype_distributions/'
+
+
+
+#Major cell types 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
