@@ -311,7 +311,7 @@ T2D_LC_Dexa_Analysis <- function(so_subset, dir.results, celltype, genes){
   full_results$num_lc <- num_lc
   
   write.table(full_results,paste0(dir.results,"NEBULA_", 
-                                  celltype, "_cells_", dex_var[iter], "_LC_vs_T2D_pooledoffset.csv"),
+                                  celltype2, "_cells_", dex_var[iter], "_LC_vs_T2D_pooledoffset.csv"),
               row.names=F, quote=F, sep=',')
   }
   
@@ -360,6 +360,206 @@ for(i  in 1:length(celltypes_vec)){
 
 
 
+load('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_T2D_SGLT2_DylanEdits_Line728.RData')
+
+
+
+so_subset$celltype1 <- case_when(grepl("PT-",so_subset$celltype_rpca)~"PT",
+                                 grepl("TAL-",so_subset$celltype_rpca)~"TAL",
+                                 grepl("EC-",so_subset$celltype_rpca)~"EC",
+                                 grepl("POD",so_subset$celltype_rpca)~"POD",
+                                 grepl("MAC",so_subset$celltype_rpca)~"MAC",
+                                 grepl("MON",so_subset$celltype_rpca)~"MON",
+                                 grepl("PC-",so_subset$celltype_rpca)~"PC",
+                                 grepl("FIB",so_subset$celltype_rpca)~"FIB_MC_VSMC",
+                                 grepl("DTL",so_subset$celltype_rpca)~"DTL",
+                                 so_subset$celltype_rpca=="DCT"~"DCT",
+                                 so_subset$celltype_rpca=="ATL"~"ATL",
+                                 so_subset$celltype_rpca=="B"~"B",
+                                 so_subset$celltype_rpca=="T"~"T")
+so_subset$celltype1 <- as.character(so_subset$celltype1)
+
+so_subset$KPMP_celltype2 <- as.character(so_subset$KPMP_celltype)
+so_subset$celltype2 <- ifelse(so_subset$KPMP_celltype=="aPT" | 
+                                so_subset$KPMP_celltype=="PT-S1/S2" | 
+                                so_subset$KPMP_celltype == "PT-S3","PT",
+                              ifelse(grepl("TAL",so_subset$KPMP_celltype),"TAL",
+                                     ifelse(grepl("EC-",so_subset$KPMP_celltype),"EC",so_subset$KPMP_celltype2)))
+
+
+so_subset$DCT_celltype <- ifelse((so_subset$KPMP_celltype=="DCT" | 
+                                    so_subset$KPMP_celltype=="dDCT"), "DCT","Non-DCT")
+
+
+so_subset <- subset(so_subset, celltype2 == 'TAL')
+
+
+test <- so_subset@meta.data
+
+test <- test %>% dplyr::select(-starts_with('dexa_'))
+
+
+test <- test %>% left_join(dat2, by='record_id') %>% 
+  dplyr::select(record_id, starts_with('dexa_'))
+
+
+so_subset@meta.data$dexa_ag_ratio <- test$dexa_ag_ratio
+so_subset@meta.data$dexa_body_fat <- test$dexa_body_fat
+so_subset@meta.data$dexa_bone_mineral_density <- test$dexa_bone_mineral_density
+so_subset@meta.data$dexa_est_vat <- test$dexa_est_vat
+so_subset@meta.data$dexa_fat_kg <- test$dexa_fat_kg
+so_subset@meta.data$dexa_lean_kg <- test$dexa_lean_kg
+so_subset@meta.data$dexa_lean_mass <- test$dexa_lean_mass
+so_subset@meta.data$dexa_trunk_kg <- test$dexa_trunk_kg
+so_subset@meta.data$dexa_trunk_mass <- test$dexa_trunk_mass
+
+
+#Make sure exposure/independent/x variable or group variable is a factor variable
+so_subset$group <- factor(so_subset$group)
+#Make sure to set reference level
+so_subset$group  <- relevel(so_subset$group ,ref="Lean_Control")
+
+counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
+
+
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/dexa/'
+
+#function
+T2D_SGLT2_Dexa_Analysis <- function(so_subset, dir.results, celltype, genes){
+  if(celltype == 'All'){
+    so_celltype <- so_subset 
+  }else if(celltype %in% c('TAL', 'EC', 'POD', 'PT')){
+    so_celltype <- subset(so_subset,celltype2==celltype)
+    DefaultAssay(so_celltype) <- "RNA" 
+  }else if(celltype != 'DCTall'){
+    so_celltype <- subset(so_subset,KPMP_celltype==celltype)
+    DefaultAssay(so_celltype) <- "RNA" 
+  }else if(celltype == 'DCTall'){
+    so_celltype <- subset(so_subset, DCT_celltype=='DCT')
+  }
+  
+  
+  
+  
+  
+  if(celltype %in% c('PT', 'PT-S1/S2', 'PT-S3', 'aPT')){
+    tmp_gene_list <- c(genes, PT)
+  }else if(celltype == 'POD'){
+    tmp_gene_list <- c(genes, POD)
+  }else if(celltype %in% c('EC', 'EC-AEA', 'EC-AVR', 'EC-GC', 'EC-PTC')){
+    tmp_gene_list <- c(genes, Endothelial)
+  }else if(celltype %in% c('B')){
+    tmp_gene_list <- c(genes, Immune)
+  }else if(celltype %in% c('TAL', 'C-TAL-1', 'C-TAL-2', 'dTAL')){
+    tmp_gene_list <- c(genes, TAL)
+  }else if(celltype == 'DCT'){
+    tmp_gene_list <- c(genes, DCT)
+  }else{
+    tmp_gene_list <- genes
+  }
+  
+  
+  so_celltype <- subset(so_celltype, features = tmp_gene_list)
+  
+  
+  celltype2 <- str_replace_all(celltype,"/","_")
+  celltype2 <- str_replace_all(celltype2,"-","_")
+  
+  
+  so_celltype$group <- factor(so_celltype$group)
+  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+  
+  
+  print(paste0(celltype2, ' is running.'))
+  #FOR LOOP OVER VARIABLES 
+  for(iter in c(1:length(dex_var))){
+    print(paste0('Working on ', dex_var[iter]))
+    
+    so_celltype@meta.data$Variable <- so_celltype@meta.data[,which(names(so_celltype@meta.data) == dex_var[iter])]
+    counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+    count_gene <- counts_path
+    meta_gene <- subset(so_celltype)@meta.data
+    
+    
+    
+    complete_idx <- complete.cases(meta_gene$Variable)
+    cat("Cells with complete data:", sum(complete_idx), "\n")
+    
+    # Step 3: Filter all your data to only include cells with complete predictor data
+    meta_gene <- meta_gene[complete_idx, ]
+    count_gene <- count_gene[, complete_idx]  # Note: subsetting columns for cells
+    
+    if(length(unique(meta_gene$group2)) != 2){
+      print(paste0('Skipped ', dex_var[iter], ' in ', celltype2, ' Cells.'))
+      next
+    }
+    
+    
+    num_cells <- nrow(meta_gene)
+    num_part <- unique(meta_gene$record_id) %>% length()
+    
+    tmp_df <- meta_gene %>% dplyr::select(record_id, group, epic_sglti2_1) %>% filter(!duplicated(record_id))
+    
+    num_t2d <- tmp_df %>% filter(group == 'Type_2_Diabetes') %>% nrow()
+    num_lc <- tmp_df %>% filter(group == 'Lean_Control') %>% nrow()
+    
+    # Step 4: Create prediction matrix from the complete data
+    pred_gene <- model.matrix(~Variable*group2, data = meta_gene)
+    
+    
+    # library <- meta_gene$library_size
+    library <- meta_gene$pooled_offset
+    data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+    
+    if (is.null(data_g_gene)) {
+      data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+    }
+    
+    #With offset
+    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, 
+                     pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+    
+    
+    
+    #Make dataframe of final results
+    full_results <- as.data.frame(result)
+    #Calculate number of genes filtered out for low expression 
+    
+    
+    full_results$num_cells <- num_cells
+    full_results$num_t2d <- num_t2d
+    full_results$num_lc <- num_lc
+    
+    write.table(full_results,paste0(dir.results,"NEBULA_", 
+                                    celltype2, "_cells_", dex_var[iter], "_T2D_SGLT2_pooledoffset.csv"),
+                row.names=F, quote=F, sep=',')
+  }
+  
+  
+  
+  
+  print(paste0(celltype2, ' is done.'))
+  
+  
+}
+
+celltypes_vec <- c('All', 'PT', 'PT-S1/S2', 'PT-S3', 'aPT', 'POD', 
+                   'TAL', 'C-TAL-1','C-TAL-2', 'dTAL', 'DCT', 'dDCT',
+                   'EC', 'EC-AEA', 'EC-AVR', 'EC-GC', 'EC-PTC', 
+                   "cDC",
+                   "cycT",
+                   #              "CD4+ T",
+                   #             "CD8+ T",
+                   "NK",
+                   "B",
+                   "MON",
+                   "MAC",
+                   "MC")
+
+for(i  in 1:length(celltypes_vec)){
+  T2D_SGLT2_Dexa_Analysis(so_subset = so_subset, dir.results = dir.results, celltype = celltypes_vec[i], genes = gene_list)
+  print(celltypes_vec[i])
+}
 
 
 
