@@ -562,3 +562,178 @@ for(i  in 1:length(celltypes_vec)){
 
 
 
+
+
+
+
+
+
+
+
+
+
+### Plotting 
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(grid)
+
+remove(list=ls())
+
+
+results_files <- list.files('C:/Users/netio/Documents/UofW/Rockies/dexa/', pattern='csv')
+results.dir <- 'C:/Users/netio/Documents/UofW/Rockies/dexa/barplots/'
+
+celltypes_vec <- c('All', 'PT', 'PT-S1/S2', 'PT-S3', 'aPT', 'POD', 
+                   'TAL', 'C-TAL-1','C-TAL-2', 'dTAL', 'DCT', 'dDCT',
+                   'EC', 'EC-AEA', 'EC-AVR', 'EC-GC', 'EC-PTC', 
+                   "cDC",
+                   "cycT",
+                   #              "CD4+ T",
+                   #             "CD8+ T",
+                   "NK",
+                   "B",
+                   "MON",
+                   "MAC",
+                   "MC")
+
+
+dexa_vec <- c("dexa_ag_ratio",  "dexa_body_fat",            "dexa_bone_mineral_density", "dexa_est_vat",             
+             "dexa_fat_kg",               "dexa_lean_kg",              "dexa_lean_mass",            "dexa_trunk_kg",            
+             "dexa_trunk_mass"  )
+
+
+
+
+
+for(i in 1:length(celltypes_vec)){
+
+  celltype <- celltypes_vec[i]
+  
+  celltype2 <- str_replace_all(celltype,"/","_")
+  celltype2 <- str_replace_all(celltype2,"-","_")
+  
+  print(paste0(celltype2, ' is starting.'))
+  
+  tmp_files <- results_files[str_which(results_files, pattern = paste0('_', celltype2, '_cells'))]
+  
+  for(iter in 1:length(dexa_vec)){
+   tmp_files_dex <- tmp_files[str_which(tmp_files, pattern = paste0('_', dexa_vec[iter], '_'))]
+   if(length(tmp_files_dex) < 2){
+     next
+   }
+    lc_results <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/dexa/', tmp_files_dex[1]))
+    lc_results <- lc_results %>% 
+      dplyr::select(gene = summary.gene, lc_logFC_Variable = summary.logFC_Variable, lc_pvalue_Variable = summary.p_Variable, 
+                    lc_logFC_interaction = summary.logFC_Variable.groupType_2_Diabetes, lc_pvalue_interaction = summary.p_Variable.groupType_2_Diabetes)
+    
+    t2d_results <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/dexa/', tmp_files_dex[2]))
+    t2d_results <- t2d_results %>% 
+      dplyr::select(gene = summary.gene, t2d_logFC_Variable = summary.logFC_Variable, t2d_pvalue_Variable = summary.p_Variable, 
+                    t2d_logFC_interaction = summary.logFC_Variable.group2T2D.SGLT2, t2d_pvalue_interaction = summary.p_Variable.group2T2D.SGLT2)
+    
+    combined <- lc_results %>% inner_join(t2d_results, by='gene')
+    
+    #Main effect 
+    sig_traits <- combined %>% filter(lc_pvalue_Variable < 0.05 | t2d_pvalue_Variable < 0.05)
+    opposite1 <- combined %>% filter(lc_logFC_Variable < 0 & t2d_logFC_Variable > 0)
+    opposite2 <- combined %>% filter(lc_logFC_Variable > 0 & t2d_logFC_Variable < 0)
+    
+    sig_combined <- bind_rows(list(sig_traits, opposite1, opposite2)) %>% 
+      filter(!duplicated(gene))
+    
+    if(nrow(sig_combined) > 0){
+      plot_df <- sig_combined %>% dplyr::select(gene, lc_logFC = lc_logFC_Variable, lc_pvalue = lc_pvalue_Variable, 
+                                                t2d_logFC = t2d_logFC_Variable, t2d_pvalue = t2d_pvalue_Variable)
+      plot_df <- plot_df %>% pivot_longer(
+        cols = -gene,
+        names_to = c("condition", ".value"),
+        names_pattern = "(.+)_(logFC|pvalue)") %>% 
+        mutate(Significance = ifelse(pvalue < 0.05, '*', ''))
+      
+      tmp_plot <- ggplot(plot_df, aes(x=gene, y=logFC, fill=condition))+
+        geom_bar(stat='identity', position='dodge')+
+        geom_text(aes(label = Significance), 
+                  position = position_dodge(width = 0.9),
+                  vjust = -0.5, 
+                  size = 4)+
+        labs(x='Gene', y='LogFC', title = paste0('Gene Comparison in ', celltype2, ' Cells in ', dexa_vec[iter]))+
+        scale_fill_manual(name = 'Comparison',
+                          labels = c('lc' = 'Lean Control vs. T2D (no SGLT2)',
+                                     't2d' = 'T2D: no SGLT2 vs. SGLT2'),
+                          values = c('lc' = 'darkturquoise', 
+                                     't2d' = 'coral2'))+
+        theme_classic()
+      
+      pdf(paste0(results.dir, celltype2, '_', dexa_vec[iter], '_maineffect_barplot.pdf'), 
+          width = 16, height = 8)
+      print(tmp_plot)
+      dev.off()
+      
+      png(paste0(results.dir, celltype2, '_', dexa_vec[iter], '_maineffect_barplot.png'), 
+          width = 1600, height = 800)
+      print(tmp_plot)
+      dev.off()
+      
+      print(paste0('Made main effect plot of ', dexa_vec[iter], ' in ', celltype2, ' cells.'))
+    }
+    
+    
+    
+    #interaction analysis 
+    sig_traits <- combined %>% filter(lc_pvalue_interaction < 0.05 | t2d_pvalue_interaction < 0.05)
+    opposite1 <- combined %>% filter(lc_logFC_interaction < 0 & t2d_logFC_interaction > 0)
+    opposite2 <- combined %>% filter(lc_logFC_interaction > 0 & t2d_logFC_interaction < 0)
+    
+    sig_combined <- bind_rows(list(sig_traits, opposite1, opposite2)) %>% 
+      filter(!duplicated(gene))
+    
+    if(nrow(sig_combined) > 0){
+      plot_df <- sig_combined %>% dplyr::select(gene, lc_logFC = lc_logFC_interaction , lc_pvalue = lc_pvalue_interaction , 
+                                                t2d_logFC = t2d_logFC_interaction , t2d_pvalue = t2d_pvalue_interaction )
+      plot_df <- plot_df %>% pivot_longer(
+        cols = -gene,
+        names_to = c("condition", ".value"),
+        names_pattern = "(.+)_(logFC|pvalue)") %>% 
+        mutate(Significance = ifelse(pvalue < 0.05, '*', ''))
+      
+      tmp_plot <- ggplot(plot_df, aes(x=gene, y=logFC, fill=condition))+
+        geom_bar(stat='identity', position='dodge')+
+        geom_text(aes(label = Significance), 
+                  position = position_dodge(width = 0.9),
+                  vjust = -0.5, 
+                  size = 4)+
+        labs(x='Gene', y='LogFC', title = paste0('Gene Comparison in ', celltype2, ' Cells in ', dexa_vec[iter], ' Interaction with Group'))+
+        scale_fill_manual(name = 'Comparison',
+                          labels = c('lc' = 'Interaction with LC vs. T2D (no SGLT2)',
+                                     't2d' = 'Interaction with SGLT2 in T2D'),
+                          values = c('lc' = 'darkturquoise', 
+                                     't2d' = 'coral2'))+
+        theme_classic()
+      
+      pdf(paste0(results.dir, celltype2, '_', dexa_vec[iter], '_interaction_barplot.pdf'), 
+          width = 16, height = 8)
+      print(tmp_plot)
+      dev.off()
+      
+      png(paste0(results.dir, celltype2, '_', dexa_vec[iter], '_interaction_barplot.png'), 
+          width = 1600, height = 800)
+      print(tmp_plot)
+      dev.off()
+      print(paste0('Made interaction effect plot of ', dexa_vec[iter], ' in ', celltype2, ' cells.'))
+      
+    }
+    
+     
+  }
+}
+
+
+
+
+
+
+
+
+
+
