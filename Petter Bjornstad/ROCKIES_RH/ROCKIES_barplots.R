@@ -17,7 +17,7 @@ lc_files <- list.files('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/',
 t2d_files <- list.files('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/T2D_SGLT2/', pattern = 'csv')
 
 
-celltypes <- c('PT', 'PT-S1/S2', 'PT-S3', 'aPT', 'POD', 
+celltypes <- c('All', 'PT', 'PT-S1/S2', 'PT-S3', 'aPT', 'POD', 
                'TAL', 'C-TAL-1','C-TAL-2', 'dTAL', 'DCT', 'dDCT',
                'EC', 'EC-AEA', 'EC-AVR', 'EC-GC', 'EC-PTC', 
                "cDC",
@@ -147,7 +147,7 @@ for(i in c(1:length(celltypes))){
     print(tmp_plot)
     dev.off()
     
-    png(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/barplots/oxphos_', celltype2, '_barplot.pdf'), 
+    png(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/barplots/oxphos_', celltype2, '_barplot.png'), 
         width = 1200, height = 800)
     print(tmp_plot)
     dev.off()
