@@ -18343,36 +18343,47 @@ length(unique(harm_meta_data$mrn)) #480 unique mrns
 
 #Filter to RH2 and CRC 
 harm_meta_data <- harm_meta_data %>%
-  filter(grepl("RH",record_id)|grepl("RH2",record_id)|grepl("CRC",record_id))
+  filter(grepl("RH",record_id)|grepl("RH2",record_id)|grepl("CRC",record_id)|grepl("PEN",record_id))
 # harm_meta_data <- harm_meta_data %>% 
 #   filter(grepl("CRC",record_id))
 
 #Number of participants
-length(unique(harm_meta_data$record_id)) #60 CRC people, 211 including RH and RH2
+length(unique(harm_meta_data$record_id)) #60 CRC people, 233 including RH and RH2 and PEN
 
 #Number of participants with Pet data
 length(which(!is.na(harm_meta_data$liver_k1))) #57 
 length(which(!is.na(harm_meta_data$liver_k2))) #57
 length(which(!is.na(harm_meta_data$liver_k3))) #57
 
-# pet_dat <- harm_meta_data %>%
-#   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-#                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-#                    .by = c(mrn, visit)) %>%
-  arrange(mrn)
-length(unique(pet_dat$record_id)) #178
-length(unique(pet_dat$mrn)) #178
+pet_dat <- harm_meta_data %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(mrn, visit)) %>%
+arrange(mrn)
+length(unique(pet_dat$record_id)) #200
+length(unique(pet_dat$mrn)) #200
 
 #select variables of interest
 pet_dat2 <- pet_dat %>%
-  dplyr::select(c("record_id","mrn","study","visit","screen_date","group","liver_k1","liver_k2","liver_k3","search_eis",
-                  "homa_ir","p1_ffa_suppression","gir_190","gir_200",
-                  "p1_gc_leanm","p1_gc_m","p1_raw_leanm","p1_raw_m","p1_steady_state_ffa",
-                  "p2_ffa_suppression","p2_gc_leanm","p2_gc_m","p2_raw_leanm","p2_raw_m",
-                  "p2_steady_state_ffa"))
+  dplyr::select(c("record_id","mrn","study","visit","screen_date","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","gir_190","gir_200","p2_gc_leanm", "p2_gc_m"))
+# pet_dat2 <- pet_dat %>%
+#   dplyr::select(c("record_id","mrn","study","visit","screen_date","group","liver_k1","liver_k2","liver_k3","search_eis",
+#                   "homa_ir","p1_ffa_suppression","gir_190","gir_200","p2_gc_leanm", "p2_gc_m",
+#                   "p1_gc_leanm","p1_gc_m","p1_raw_leanm","p1_raw_m","p1_steady_state_ffa",
+#                   "p2_ffa_suppression","p2_gc_leanm","p2_gc_m","p2_raw_leanm","p2_raw_m",
+#                   "p2_steady_state_ffa"))
 #Filter to thoser with pet and insulin data
 pet_dat3 <- pet_dat2 %>% filter(study %in% c("CROCODILE", "RENAL-HEIR", "RENAL-HEIRitage")) %>%
   filter(!is.na(liver_k1) & !is.na(gir_190))
+#44 have gir_190 and gir_200
+#24 have p2_gc_leanm
+#26 have p2_gc_m
+# > length(which(is.na(pet_dat3$p2_gc_leanm)))
+# [1] 20
+# > length(which(is.na(pet_dat3$p2_gc_m)))
+# [1] 18
+
+
 # pet_dat2 <- pet_dat %>%
 #   arrange(screen_date) %>%
 #   # arrange(date) %>% 
@@ -18399,7 +18410,15 @@ summary_table <- pet_dat3 %>%
   mutate(total = n_not_missing + n_missing) %>%
   arrange(desc(n_not_missing))
 
-
+# Define a custom rendering function without median
+my.render.cont <- function(x) {
+  with(stats.apply.rounding(stats.default(x), digits=2), c("",
+    "Mean (SD)" = sprintf("%s (%s)", MEAN, SD)))
+}
+table1(~age+sex+bmi+hba1c+liver_k1+liver_k2+liver_k3+gir_190+gir_200+p2_gc_leanm+p2_gc_m| group, data=pet_dat3,
+       render.continuous = my.render.cont)
+table1(~age+sex+bmi+hba1c+liver_k1+liver_k2+liver_k3+gir_190+gir_200+p2_gc_leanm+p2_gc_m| study, data=pet_dat3,
+       render.continuous = my.render.cont)
 #Filter to those with at least one pet variable
 pet_variables <- c("liver_k1","liver_k2","liver_k3")
 # pet_dat3 <- pet_dat2 %>%
@@ -18411,7 +18430,7 @@ pet_variables <- c("liver_k1","liver_k2","liver_k3")
 #                   "p1_gc_leanm","p1_gc_m","p1_raw_leanm","p1_raw_m","p1_steady_state_ffa",
 #                   "p2_ffa_suppression","p2_gc_leanm","p2_gc_m","p2_raw_leanm","p2_raw_m",
 #                   "p2_steady_state_ffa")
-insulin_vars <- c("homa_ir","gir_190","gir_200")
+insulin_vars <- c("gir_190","gir_200","p2_gc_leanm", "p2_gc_m")
 # pet_dat4 <- pet_dat3 %>%
 #   filter(if_any(all_of(insulin_vars), ~ !is.na(.)))
 #28 remain that have at least 1 pet var and at least 1 insulin var
@@ -18539,10 +18558,10 @@ heatmap_pearson <- create_heatmap(total_results,
 #                               title = "Linear Regression Beta Coefficients")
 
 # Display individual heatmaps
-png(fs::path(dir.results,"Heatmaps_Pearson_Corr_Liver_Pet_IR.png"),width=3000,height=2000,res=300)
+png(fs::path(dir.results,"Heatmaps_Pearson_Corr_Liver_Pet_IR2.png"),width=3000,height=2000,res=300)
 print(heatmap_pearson)
 dev.off()
-png(fs::path(dir.results,"Heatmaps_Spearman_Corr_Liver_Pet_IR.png"),width=3000,height=2000,res=300)
+png(fs::path(dir.results,"Heatmaps_Spearman_Corr_Liver_Pet_IR2.png"),width=3000,height=2000,res=300)
 print(heatmap_spearman)
 dev.off()
 # print(heatmap_beta)
@@ -18578,21 +18597,36 @@ library(ggplot2)
 library(ggpubr)
 library(rstatix)
 library(gridExtra)
+library(dplyr)
 
-# Function to create box plot with ANOVA and pairwise comparisons
+# Function to create box plot with ANOVA and Tukey HSD
 create_boxplot_with_stats <- function(data, pet_var, group_var = "group") {
   # Perform ANOVA
   anova_formula <- as.formula(paste(pet_var, "~", group_var))
   anova_result <- aov(anova_formula, data = data)
   anova_pval <- summary(anova_result)[[1]][["Pr(>F)"]][1]
   
-  # Perform pairwise comparisons
-  pwc <- data %>%
+  # Perform Tukey HSD test
+  tukey_result <- TukeyHSD(anova_result)
+  tukey_df <- as.data.frame(tukey_result[[group_var]])
+  
+  # Get unadjusted p-values using pairwise t-tests
+  pwc_raw <- data %>%
     rstatix::pairwise_t_test(
       formula = as.formula(paste(pet_var, "~", group_var)),
-      p.adjust.method = "bonferroni"
+      p.adjust.method = "none"  # No adjustment for raw p-values
     ) %>%
     add_xy_position(x = group_var)
+  
+  # Add significance labels for raw p-values
+  pwc_raw <- pwc_raw %>%
+    mutate(p.signif = case_when(
+      p < 0.001 ~ "***",
+      p < 0.01 ~ "**",
+      p < 0.05 ~ "*",
+      p < 0.1 ~ ".",
+      TRUE ~ "ns"
+    ))
   
   # Create the plot
   p <- ggplot(data, aes_string(x = group_var, y = pet_var, fill = group_var)) +
@@ -18605,14 +18639,23 @@ create_boxplot_with_stats <- function(data, pet_var, group_var = "group") {
           plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
           plot.subtitle = element_text(hjust = 0.5, size = 12)) +
     labs(title = paste("Distribution of", pet_var, "by Group"),
-         subtitle = paste("ANOVA p-value:", format(anova_pval, digits = 3)),
+         subtitle = paste("ANOVA p =", format(anova_pval, digits = 3), 
+                         "| p-values"),
          x = "Group",
          y = pet_var) +
-    stat_pvalue_manual(pwc, label = "p.adj.signif", 
+    stat_pvalue_manual(pwc_raw, 
+                       label = "p.signif",  # Use raw p-value significance
                        tip.length = 0.01, 
-                       bracket.nudge.y = 0.05)
+                       bracket.nudge.y = 0.05) +
+    scale_y_continuous(expand = expansion(mult = c(0.05, 0.15)))  # Add space for brackets
   
-  return(list(plot = p, anova_pval = anova_pval, pairwise = pwc))
+  # Return all results
+  return(list(
+    plot = p, 
+    anova_pval = anova_pval, 
+    tukey_hsd = tukey_df,  # Tukey HSD results for reference
+    pairwise_raw = pwc_raw  # Raw p-values that are plotted
+  ))
 }
 
 # Create box plots and statistical tests for all PET variables
@@ -18624,12 +18667,77 @@ for(pet in pet_variables) {
   plot_list[[pet]] <- result$plot
   results_list[[pet]] <- list(
     anova_pval = result$anova_pval,
-    pairwise = result$pairwise
+    tukey_hsd = result$tukey_hsd,
+    pairwise_raw = result$pairwise_raw
   )
 }
 
+# Optional: Print summary of results
+for(pet in names(results_list)) {
+  cat("\n", pet, ":\n", sep = "")
+  cat("ANOVA p-value:", format(results_list[[pet]]$anova_pval, digits = 4), "\n")
+  cat("\nTukey HSD adjusted p-values:\n")
+  print(results_list[[pet]]$tukey_hsd[, "p adj", drop = FALSE])
+  cat("\nUnadjusted p-values (shown on plot):\n")
+  print(results_list[[pet]]$pairwise_raw[, c("group1", "group2", "p", "p.signif")])
+  cat("\n", rep("-", 50), "\n", sep = "")
+}
+# library(ggplot2)
+# library(ggpubr)
+# library(rstatix)
+# library(gridExtra)
+# 
+# # Function to create box plot with ANOVA and pairwise comparisons
+# create_boxplot_with_stats <- function(data, pet_var, group_var = "group") {
+#   # Perform ANOVA
+#   anova_formula <- as.formula(paste(pet_var, "~", group_var))
+#   anova_result <- aov(anova_formula, data = data)
+#   anova_pval <- summary(anova_result)[[1]][["Pr(>F)"]][1]
+#   
+#   # Perform pairwise comparisons
+#   pwc <- data %>%
+#     rstatix::pairwise_t_test(
+#       formula = as.formula(paste(pet_var, "~", group_var)),
+#       p.adjust.method = "bonferroni"
+#     ) %>%
+#     add_xy_position(x = group_var)
+#   
+#   # Create the plot
+#   p <- ggplot(data, aes_string(x = group_var, y = pet_var, fill = group_var)) +
+#     geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+#     geom_jitter(width = 0.2, alpha = 0.6, size = 2) +
+#     theme_minimal() +
+#     theme(legend.position = "none",
+#           axis.text.x = element_text(face = "bold", size = 12),
+#           axis.title = element_text(size = 14),
+#           plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+#           plot.subtitle = element_text(hjust = 0.5, size = 12)) +
+#     labs(title = paste("Distribution of", pet_var, "by Group"),
+#          subtitle = paste("ANOVA p-value:", format(anova_pval, digits = 3)),
+#          x = "Group",
+#          y = pet_var) +
+#     stat_pvalue_manual(pwc, label = "p.adj.signif", 
+#                        tip.length = 0.01, 
+#                        bracket.nudge.y = 0.05)
+#   
+#   return(list(plot = p, anova_pval = anova_pval, pairwise = pwc))
+# }
+# 
+# # Create box plots and statistical tests for all PET variables
+# results_list <- list()
+# plot_list <- list()
+# 
+# for(pet in pet_variables) {
+#   result <- create_boxplot_with_stats(pet_dat3, pet)
+#   plot_list[[pet]] <- result$plot
+#   results_list[[pet]] <- list(
+#     anova_pval = result$anova_pval,
+#     pairwise = result$pairwise
+#   )
+# }
+# 
 # Save combined box plots
-png(fs::path(dir.results, "Boxplots_Liver_Pet_by_Group_with_Stats.png"), 
+png(fs::path(dir.results, "Boxplots_Liver_Pet_by_Group_with_Stats2.png"),
     width = 7000, height = 3000, res = 300)
 do.call(grid.arrange, c(plot_list, ncol = 3))
 dev.off()
@@ -18737,7 +18845,7 @@ heatmap_pearson_faceted <- create_faceted_heatmap(total_results_by_group,
                                                  title = "Pearson Correlation Coefficients by Group")
 
 # Save faceted heatmaps
-png(fs::path(dir.results, "Heatmap_Pearson_Faceted_by_Group.png"), 
+png(fs::path(dir.results, "Heatmap_Pearson_Faceted_by_Group2.png"), 
     width = 4000, height = 3000, res = 300)
 print(heatmap_pearson_faceted)
 dev.off()
