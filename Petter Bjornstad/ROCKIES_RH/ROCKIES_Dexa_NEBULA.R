@@ -55,11 +55,10 @@ dat <- harmonized_data %>%
                    .by = c(record_id, visit))
 
 
-dat2 <- dat %>% dplyr::select(record_id, mrn, visit, epic_sglti2_1, starts_with('dexa_')) %>% 
-  filter(!is.na(epic_sglti2_1))
+dat2 <- dat %>% dplyr::select(record_id, mrn, visit, epic_sglti2_1, starts_with('dexa_'))
+dat2 <- dat2 %>% filter(!duplicated(record_id))
 
-
-dat2 <- dat2 %>% filter(!is.na(dexa_body_fat))
+#dat2 <- dat2 %>% filter(!is.na(dexa_body_fat))
 
 
 
@@ -168,6 +167,7 @@ gene_list <- c(
 
 load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
 
+so_subset <- so_kpmp_sc
 remove(so_kpmp_sc)
 
 #dat_groups <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_GroupAssignments.txt')
@@ -179,7 +179,8 @@ test <- so_subset@meta.data
 test <- test %>% dplyr::select(-starts_with('dexa_'))
 
 
-test <- test %>% left_join(dat2, by='record_id')
+test <- test %>% left_join(dat2, by='record_id') %>% 
+  dplyr::select(record_id, starts_with('dexa_'))
 
 
 so_subset@meta.data$dexa_ag_ratio <- test$dexa_ag_ratio
@@ -204,7 +205,7 @@ counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts an
 dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/dexa/'
 
 #function
-T2D_LC_Dexa_Analysis <- function(data, dir.results, celltype){
+T2D_LC_Dexa_Analysis <- function(so_subset, dir.results, celltype, genes){
   if(celltype == 'All'){
     so_celltype <- so_subset 
   }else if(celltype %in% c('TAL', 'EC', 'POD', 'PT')){
@@ -221,35 +222,69 @@ T2D_LC_Dexa_Analysis <- function(data, dir.results, celltype){
   
   
   
+  if(celltype %in% c('PT', 'PT-S1/S2', 'PT-S3', 'aPT')){
+    tmp_gene_list <- c(genes, PT)
+  }else if(celltype == 'POD'){
+    tmp_gene_list <- c(genes, POD)
+  }else if(celltype %in% c('EC', 'EC-AEA', 'EC-AVR', 'EC-GC', 'EC-PTC')){
+    tmp_gene_list <- c(genes, Endothelial)
+  }else if(celltype %in% c('B')){
+    tmp_gene_list <- c(genes, Immune)
+  }else if(celltype %in% c('TAL', 'C-TAL-1', 'C-TAL-2', 'dTAL')){
+    tmp_gene_list <- c(genes, TAL)
+  }else if(celltype == 'DCT'){
+    tmp_gene_list <- c(genes, DCT)
+  }else{
+    tmp_gene_list <- genes
+  }
   
-  nrow(so_celltype) #34 genes
-  ncol(so_celltype) #13534 PT cells
+  
+  so_celltype <- subset(so_celltype, features = tmp_gene_list)
+  
   
   celltype2 <- str_replace_all(celltype,"/","_")
   celltype2 <- str_replace_all(celltype2,"-","_")
   
-  #Make sure exposure/independent/x variable or group variable is a factor variable
+
   so_celltype$group <- factor(so_celltype$group)
-  #Make sure to set reference level
   so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
   
   
+  print(paste0(celltype2, ' is running.'))
+  #FOR LOOP OVER VARIABLES 
+  for(iter in c(1:length(dex_var))){
+    print(paste0('Working on ', dex_var[iter]))
   
-  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-  count_gene <- counts_path
-  meta_gene <- subset(so_celltype)@meta.data
+    so_celltype@meta.data$Variable <- so_celltype@meta.data[,which(names(so_celltype@meta.data) == dex_var[iter])]
+    counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+    count_gene <- counts_path
+    meta_gene <- subset(so_celltype)@meta.data
   
   
-  complete_idx <- complete.cases(meta_gene$airg)
+  
+  complete_idx <- complete.cases(meta_gene$Variable)
   cat("Cells with complete data:", sum(complete_idx), "\n")
   
   # Step 3: Filter all your data to only include cells with complete predictor data
   meta_gene <- meta_gene[complete_idx, ]
   count_gene <- count_gene[, complete_idx]  # Note: subsetting columns for cells
   
+  if(length(unique(meta_gene$group)) != 2){
+    print(paste0('Skipped ', dex_var[iter], ' in ', celltype2, ' Cells.'))
+    next
+  }
+  
+  
+  num_cells <- nrow(meta_gene)
+  num_part <- unique(meta_gene$record_id) %>% length()
+  
+  tmp_df <- meta_gene %>% dplyr::select(record_id, group, epic_sglti2_1) %>% filter(!duplicated(record_id))
+  
+  num_t2d <- tmp_df %>% filter(group == 'Type_2_Diabetes') %>% nrow()
+  num_lc <- tmp_df %>% filter(group == 'Lean_Control') %>% nrow()
   
   # Step 4: Create prediction matrix from the complete data
-  pred_gene <- model.matrix(~airg, data = meta_gene)
+  pred_gene <- model.matrix(~Variable*group, data = meta_gene)
   
   
   # library <- meta_gene$library_size
@@ -270,31 +305,41 @@ T2D_LC_Dexa_Analysis <- function(data, dir.results, celltype){
   full_results <- as.data.frame(result)
   #Calculate number of genes filtered out for low expression 
   
-  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-  full_results <- full_results %>%
-    mutate(fdr=p.adjust(`summary.p_airg`,method="fdr"))  
-  # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`summary.p_airg`, 1e-10))  # Avoid log(0)
   
   full_results$num_cells <- num_cells
-  full_results$num_part <- num_part
+  full_results$num_t2d <- num_t2d
+  full_results$num_lc <- num_lc
   
   write.table(full_results,paste0(dir.results,"NEBULA_", 
-                                  celltype, "_cells_", variable, "_T2D_pooledoffset.csv"),
+                                  celltype, "_cells_", dex_var[iter], "_LC_vs_T2D_pooledoffset.csv"),
               row.names=F, quote=F, sep=',')
+  }
   
   
   
   
-  
-  
+  print(paste0(celltype2, ' is done.'))
   
   
 }
 
+celltypes_vec <- c('All', 'PT', 'PT-S1/S2', 'PT-S3', 'aPT', 'POD', 
+               'TAL', 'C-TAL-1','C-TAL-2', 'dTAL', 'DCT', 'dDCT',
+               'EC', 'EC-AEA', 'EC-AVR', 'EC-GC', 'EC-PTC', 
+               "cDC",
+               "cycT",
+               #              "CD4+ T",
+               #             "CD8+ T",
+               "NK",
+               "B",
+               "MON",
+               "MAC",
+               "MC")
 
-
-
+for(i  in 1:length(celltypes_vec)){
+  T2D_LC_Dexa_Analysis(so_subset = so_subset, dir.results = dir.results, celltype = celltypes_vec[i], genes = gene_list)
+  print(celltypes_vec[i])
+}
 
 
 
