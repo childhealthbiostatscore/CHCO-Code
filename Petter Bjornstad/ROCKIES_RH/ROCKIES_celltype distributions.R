@@ -10,20 +10,59 @@ results.dir <- 'C:/Users/netio/Documents/UofW/Rockies/celltype_distributions/'
 
 #Major cell types 
 
+tmp <- combined %>% filter(celltype2 %in% c('PT', 'TAL', 'EC', 'POD'))
+
+
+png(paste0(results.dir, 'ROCKIES_majorcellypes_distributions.png'))
+ggplot(tmp, aes(x=group2, fill=celltype2))+
+  geom_bar(position='fill')+theme_classic()+labs(x='Condition Group', fill='Cell Type', title= 'Major Celltype Distributions')
+dev.off()
+
+
+#PT Cells
+tmp <- combined %>% filter(KPMP_celltype %in% c('aPT', 'PT-S1/S2', 'PT-S3'))
+
+png(paste0(results.dir, 'ROCKIES_PTCells_distributions.png'))
+ggplot(tmp, aes(x=group2, fill= KPMP_celltype))+
+  geom_bar(position='fill')+theme_classic()+labs(x='Condition Group', fill='Cell Type', title= 'PT Cell Distributions')
+dev.off()
 
 
 
+#TAL Cells
+tmp <- combined %>% filter(KPMP_celltype %in% c('C-TAL-1', 'C-TAL-2', 'dTAL'))
+
+png(paste0(results.dir, 'ROCKIES_TALCells_distributions.png'))
+ggplot(tmp, aes(x=group2, fill= KPMP_celltype))+
+  geom_bar(position='fill')+theme_classic()+labs(x='Condition Group', fill='Cell Type', title= 'TAL Cell Distributions')
+dev.off()
+
+#Endothelial Cells
+
+tmp <- combined %>% filter(KPMP_celltype %in% c('EC-AEA', 'EC-AVR', 'EC-GC', 'EC-PTC'))
+
+png(paste0(results.dir, 'ROCKIES_EndothelialCells_distributions.png'))
+ggplot(tmp, aes(x=group2, fill= KPMP_celltype))+
+  geom_bar(position='fill')+theme_classic()+labs(x='Condition Group', fill='Cell Type', title= 'Endothelial Cell Distributions')
+dev.off()
 
 
+#Immune Cells
 
+tmp <- combined %>% filter(KPMP_celltype %in% c("cDC",
+                                                  "cycT",
+                                                  "CD4+ T",
+                                                  "CD8+ T",
+                                                  "NK",
+                                                  "B",
+                                                  "MON",
+                                                  "MAC",
+                                                  "MC"))
 
-
-
-
-
-
-
-
+png(paste0(results.dir, 'ROCKIES_ImmuneCells_distributions.png'))
+ggplot(tmp, aes(x=group2, fill= KPMP_celltype))+
+  geom_bar(position='fill')+theme_classic()+labs(x='Condition Group', fill='Cell Type', title= 'Immune Cell Distributions')
+dev.off()
 
 
 
