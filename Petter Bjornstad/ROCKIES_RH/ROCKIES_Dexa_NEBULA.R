@@ -362,7 +362,8 @@ for(i  in 1:length(celltypes_vec)){
 
 load('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_T2D_SGLT2_DylanEdits_Line728.RData')
 
-
+so_subset <- so_kpmp_sc
+remove(so_kpmp_sc)
 
 so_subset$celltype1 <- case_when(grepl("PT-",so_subset$celltype_rpca)~"PT",
                                  grepl("TAL-",so_subset$celltype_rpca)~"TAL",
@@ -391,7 +392,6 @@ so_subset$DCT_celltype <- ifelse((so_subset$KPMP_celltype=="DCT" |
                                     so_subset$KPMP_celltype=="dDCT"), "DCT","Non-DCT")
 
 
-so_subset <- subset(so_subset, celltype2 == 'TAL')
 
 
 test <- so_subset@meta.data
@@ -400,7 +400,9 @@ test <- test %>% dplyr::select(-starts_with('dexa_'))
 
 
 test <- test %>% left_join(dat2, by='record_id') %>% 
-  dplyr::select(record_id, starts_with('dexa_'))
+  dplyr::select(record_id, starts_with('dexa_'), group, epic_sglti2_1.y)
+test$group2 <- 'T2D-No SGLT2'
+test$group2[which(test$epic_sglti2_1.y == 'Yes')] <- 'T2D-SGLT2'
 
 
 so_subset@meta.data$dexa_ag_ratio <- test$dexa_ag_ratio
@@ -412,12 +414,13 @@ so_subset@meta.data$dexa_lean_kg <- test$dexa_lean_kg
 so_subset@meta.data$dexa_lean_mass <- test$dexa_lean_mass
 so_subset@meta.data$dexa_trunk_kg <- test$dexa_trunk_kg
 so_subset@meta.data$dexa_trunk_mass <- test$dexa_trunk_mass
+so_subset@meta.data$group2 <- test$group2
 
 
 #Make sure exposure/independent/x variable or group variable is a factor variable
-so_subset$group <- factor(so_subset$group)
+so_subset$group2 <- factor(so_subset$group2)
 #Make sure to set reference level
-so_subset$group  <- relevel(so_subset$group ,ref="Lean_Control")
+so_subset$group2  <- relevel(so_subset$group2 ,ref="T2D-No SGLT2")
 
 counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
 
@@ -466,10 +469,6 @@ T2D_SGLT2_Dexa_Analysis <- function(so_subset, dir.results, celltype, genes){
   celltype2 <- str_replace_all(celltype2,"-","_")
   
   
-  so_celltype$group <- factor(so_celltype$group)
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
-  
-  
   print(paste0(celltype2, ' is running.'))
   #FOR LOOP OVER VARIABLES 
   for(iter in c(1:length(dex_var))){
@@ -489,7 +488,7 @@ T2D_SGLT2_Dexa_Analysis <- function(so_subset, dir.results, celltype, genes){
     meta_gene <- meta_gene[complete_idx, ]
     count_gene <- count_gene[, complete_idx]  # Note: subsetting columns for cells
     
-    if(length(unique(meta_gene$group2)) != 2){
+    if(length(unique(meta_gene$group2)) < 2){
       print(paste0('Skipped ', dex_var[iter], ' in ', celltype2, ' Cells.'))
       next
     }
@@ -498,10 +497,10 @@ T2D_SGLT2_Dexa_Analysis <- function(so_subset, dir.results, celltype, genes){
     num_cells <- nrow(meta_gene)
     num_part <- unique(meta_gene$record_id) %>% length()
     
-    tmp_df <- meta_gene %>% dplyr::select(record_id, group, epic_sglti2_1) %>% filter(!duplicated(record_id))
+    tmp_df <- meta_gene %>% dplyr::select(record_id, group2, epic_sglti2_1) %>% filter(!duplicated(record_id))
     
-    num_t2d <- tmp_df %>% filter(group == 'Type_2_Diabetes') %>% nrow()
-    num_lc <- tmp_df %>% filter(group == 'Lean_Control') %>% nrow()
+    num_sglt2 <- tmp_df %>% filter(group2 == 'T2D-SGLT2') %>% nrow()
+    num_nosglt2 <- tmp_df %>% filter(group2 == 'T2D-No SGLT2') %>% nrow()
     
     # Step 4: Create prediction matrix from the complete data
     pred_gene <- model.matrix(~Variable*group2, data = meta_gene)
@@ -527,8 +526,8 @@ T2D_SGLT2_Dexa_Analysis <- function(so_subset, dir.results, celltype, genes){
     
     
     full_results$num_cells <- num_cells
-    full_results$num_t2d <- num_t2d
-    full_results$num_lc <- num_lc
+    full_results$num_sglt2<- num_sglt2
+    full_results$num_nosglt2 <- num_nosglt2
     
     write.table(full_results,paste0(dir.results,"NEBULA_", 
                                     celltype2, "_cells_", dex_var[iter], "_T2D_SGLT2_pooledoffset.csv"),
