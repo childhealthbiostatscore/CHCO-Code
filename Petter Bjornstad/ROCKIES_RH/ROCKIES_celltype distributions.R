@@ -11,7 +11,7 @@ results.dir <- 'C:/Users/netio/Documents/UofW/Rockies/celltype_distributions/'
 #Major cell types 
 
 tmp <- combined %>% filter(celltype2 %in% c('PT', 'TAL', 'EC', 'POD'))
-
+chisq.test(tmp$group2, tmp$celltype2)
 
 png(paste0(results.dir, 'ROCKIES_majorcellypes_distributions.png'))
 ggplot(tmp, aes(x=group2, fill=celltype2))+
@@ -21,6 +21,7 @@ dev.off()
 
 #PT Cells
 tmp <- combined %>% filter(KPMP_celltype %in% c('aPT', 'PT-S1/S2', 'PT-S3'))
+chisq.test(tmp$group2, tmp$KPMP_celltype)
 
 png(paste0(results.dir, 'ROCKIES_PTCells_distributions.png'))
 ggplot(tmp, aes(x=group2, fill= KPMP_celltype))+
@@ -31,6 +32,7 @@ dev.off()
 
 #TAL Cells
 tmp <- combined %>% filter(KPMP_celltype %in% c('C-TAL-1', 'C-TAL-2', 'dTAL'))
+chisq.test(tmp$group2, tmp$KPMP_celltype)
 
 png(paste0(results.dir, 'ROCKIES_TALCells_distributions.png'))
 ggplot(tmp, aes(x=group2, fill= KPMP_celltype))+
@@ -40,6 +42,7 @@ dev.off()
 #Endothelial Cells
 
 tmp <- combined %>% filter(KPMP_celltype %in% c('EC-AEA', 'EC-AVR', 'EC-GC', 'EC-PTC'))
+chisq.test(tmp$group2, tmp$KPMP_celltype)
 
 png(paste0(results.dir, 'ROCKIES_EndothelialCells_distributions.png'))
 ggplot(tmp, aes(x=group2, fill= KPMP_celltype))+
@@ -58,6 +61,7 @@ tmp <- combined %>% filter(KPMP_celltype %in% c("cDC",
                                                   "MON",
                                                   "MAC",
                                                   "MC"))
+chisq.test(tmp$group2, tmp$KPMP_celltype)
 
 png(paste0(results.dir, 'ROCKIES_ImmuneCells_distributions.png'))
 ggplot(tmp, aes(x=group2, fill= KPMP_celltype))+

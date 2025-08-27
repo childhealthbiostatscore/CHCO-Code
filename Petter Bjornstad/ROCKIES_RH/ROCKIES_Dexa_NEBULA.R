@@ -201,10 +201,10 @@ so_subset$group  <- relevel(so_subset$group ,ref="Lean_Control")
 counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
 
 
-
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/dexa/'
 
 #function
-T2D_LC_Dexa_Analysis <- function(data, dir.results, celltype, variable){
+T2D_LC_Dexa_Analysis <- function(data, dir.results, celltype){
   if(celltype == 'All'){
     so_celltype <- so_subset 
   }else if(celltype %in% c('TAL', 'EC', 'POD', 'PT')){
@@ -234,88 +234,54 @@ T2D_LC_Dexa_Analysis <- function(data, dir.results, celltype, variable){
   so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
   
   
+  
   counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+  count_gene <- counts_path
+  meta_gene <- subset(so_celltype)@meta.data
   
-  # With parallelization
-  #TCA Cycle
-  # List of genes
-  genes_list <- tca_genes
   
-  cl <- makeCluster(1)
-  registerDoParallel(cl)
-  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  t2d_count <- test2 %>% filter(group == 'Type_2_Diabetes') %>% nrow()
-  lc_count <- test2 %>% filter(group == 'Lean_Control') %>% nrow()
-  cell_count <- nrow(so_celltype)
+  complete_idx <- complete.cases(meta_gene$airg)
+  cat("Cells with complete data:", sum(complete_idx), "\n")
   
-  start_time <- Sys.time()
+  # Step 3: Filter all your data to only include cells with complete predictor data
+  meta_gene <- meta_gene[complete_idx, ]
+  count_gene <- count_gene[, complete_idx]  # Note: subsetting columns for cells
   
-  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_path[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype,features=g)@meta.data
-      pred_gene <- model.matrix(~group, data = meta_gene)
-      # library <- meta_gene$library_size
-      library <- meta_gene$pooled_offset
-      data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
-      
-      if (is.null(data_g_gene)) {
-        data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
-      }
-      
-      #With offset
-      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
-      
-      list(gene = g, result = result)  # return both gene name and result
-      
-    }, error = function(e) {
-      NULL
-    })
+  
+  # Step 4: Create prediction matrix from the complete data
+  pred_gene <- model.matrix(~airg, data = meta_gene)
+  
+  
+  # library <- meta_gene$library_size
+  library <- meta_gene$pooled_offset
+  data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+  
+  if (is.null(data_g_gene)) {
+    data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
   }
   
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
+  #With offset
+  result <- nebula(count = data_g_gene$count, id = data_g_gene$id, 
+                   pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
   
-  # set the names of results based on gene names
-  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
   
-  PT_nebula_converged <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      converged <- nebula_results_list[[gene_name]]$convergence
-      df <- data.frame(Gene = gene_name,
-                       Convergence_Code = converged)
-      return(df)
-    }
-  )
-  
-  nebula_summaries <- map_dfr(
-    names(nebula_results_list),
-    function(gene_name) {
-      df <- nebula_results_list[[gene_name]]$summary
-      df <- df %>% mutate(Gene = gene_name)
-      return(df)
-    }
-  )
-  nonconverge_genes <- unique(PT_nebula_converged$Gene[which(PT_nebula_converged$Convergence_Code==-40)]) 
   
   #Make dataframe of final results
-  full_results <- as.data.frame(nebula_summaries)
+  full_results <- as.data.frame(result)
   #Calculate number of genes filtered out for low expression 
-
+  
+  # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+  full_results <- full_results %>%
+    mutate(fdr=p.adjust(`summary.p_airg`,method="fdr"))  
   # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))  # Avoid log(0)
+  full_results$PValue10 <- -log10(pmax(full_results$`summary.p_airg`, 1e-10))  # Avoid log(0)
   
-  full_results$t2d_count <- t2d_count
-  full_results$lc_count <- lc_count
-  full_results$cell_count <- cell_count
+  full_results$num_cells <- num_cells
+  full_results$num_part <- num_part
   
-  write.csv(full_results,fs::path(dir.results,paste0("NEBULA_TCA_cycle_",celltype2,"_cells_LC_T2D_NoMed_unadjusted_pooled_offset.csv")))
-  
-  
+  write.table(full_results,paste0(dir.results,"NEBULA_", 
+                                  celltype, "_cells_", variable, "_T2D_pooledoffset.csv"),
+              row.names=F, quote=F, sep=',')
   
   
   
