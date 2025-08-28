@@ -70,6 +70,22 @@ Next steps:
 ```{r echo = T}
 harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
 
+harm_dat_collapsed <- harm_dat %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                                     race == "Black or African American" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                                     T ~ "Not Hispanic or Latino Other")) %>%
+  arrange(record_id)
+
+s3saveRDS(harm_dat_collapsed, bucket = "attempt", 
+          object = "cleaned_data/harm_dat_collapsed.rds",
+          region = "")
+
 attempt_redcap <- harm_dat %>% filter(study == "ATTEMPT") %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
@@ -85,21 +101,47 @@ attempt_redcap <- harm_dat %>% filter(study == "ATTEMPT") %>%
 
 attempt_redcap_denver <- attempt_redcap %>%
   filter(grepl("^3", record_id)) %>%
-  mutate(visit = case_when(visit == "baseline" ~ 0,
-                           visit == "4_weeks_post" ~ 4,
-                           visit == "4_months_post" ~ 16,
-                           visit == "screening"  ~ -4,
-                           visit == "follow_up" ~ 18),
-         record_id = as.integer(record_id)) %>%
-  dplyr::select(-c(ethnicity, bmi, gfr_raw_plasma, gfr_bsa_plasma, date, sex, mri_date,
-                   creatinine_s, cystatin_c_s, temp, pulse, height, avg_c_r2, avg_k_r2, 
-                   sbp, dbp, hct, age, weight)) %>%
+  mutate(
+    visit = case_when(
+      visit == "baseline" ~ 0,
+      visit == "4_weeks_post" ~ 4,
+      visit == "4_months_post" ~ 16,
+      visit == "screening"  ~ -4,
+      visit == "follow_up" ~ 18
+    ),
+    record_id = as.integer(record_id)
+  ) %>%
+  dplyr::select(
+    -c(ethnicity, bmi, gfr_raw_plasma, gfr_bsa_plasma, date, sex, mri_date,
+       creatinine_s, cystatin_c_s, temp, pulse, height, avg_c_r2, avg_k_r2, 
+       sbp, dbp, hct, age, weight)
+  ) %>%
   rowwise() %>%
-  mutate(avg_c_t1 = mean(c(t1_r_cortex, t1_l_cortex), na.rm = T),
-         avg_k_t1 = mean(c(t1_r_kidney, t1_l_kidney), na.rm = T),
-         tkv = (volume_left + volume_right)) %>%
+  mutate(
+    avg_c_t1 = mean(c(t1_r_cortex, t1_l_cortex), na.rm = TRUE),
+    avg_k_t1 = mean(c(t1_r_kidney, t1_l_kidney), na.rm = TRUE),
+    tkv      = (volume_left + volume_right)
+  ) %>%
   ungroup() %>%
   dplyr::rename(subject_id = record_id)
+
+
+# Extract screening values for MRI
+screening_values <- attempt_redcap_denver %>%
+  filter(visit == 0) %>%
+  dplyr::select(subject_id, avg_m_r2_screening = avg_m_r2)
+
+# Join back and update
+attempt_redcap_denver <- attempt_redcap_denver %>%
+  left_join(screening_values, by = "subject_id") %>%
+  mutate(
+    avg_m_r2 = case_when(
+      visit == 0 ~ NA,
+      visit == -4 ~ avg_m_r2_screening,
+      TRUE ~ avg_m_r2
+    )
+  ) %>%
+  dplyr::select(-avg_m_r2_screening)
 
 # clinical dataset from Antoine (merged version)
 attempt_dat <- s3readRDS("Clinical Data/ATTEMPT_AC.RDS", "attempt", region = "")
@@ -160,6 +202,7 @@ attempt_dat %>%
   write.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Clean/ATTEMPT_4M_LN2.csv", na = "",
             row.names = F)
 ```
+
 ```{r echo = F}
 # morphometric report
 morph_report <- read_excel(file.path(root_path, "ATTEMPT/Results/Morphometry_qualitative-Aug20-2025.xlsx")) %>%
@@ -201,6 +244,7 @@ attempt_dat <- attempt_dat %>% left_join(morph_report_merged)
 s3saveRDS(attempt_dat, bucket = "attempt", 
           object = "cleaned_data/attempt_dat.rds",
           region = "")
+
 ```
 
 ## Baseline Table (Full cohort, Dapa vs. Placebo)
@@ -301,7 +345,7 @@ delta_df <- attempt_dat %>%
     id_cols = c(subject_id, treatment, site, sex),
     names_from = visit,
     values_from = c(
-      hba1c, cgm_tir, weight, mgfr_jodal_bsa, mgfr_jodal, avg_c_r2, avg_k_r2,
+      hba1c, cgm_tir, weight, mgfr_jodal_bsa, mgfr_jodal, avg_c_r2, avg_k_r2, avg_m_r2,
       avg_c_t1, avg_k_t1, avg_pcascl, avg_c_adc, avg_ketones,
       cholesterol_serum_mmoll, triglycerides_serum_mmoll, ldl_serum_mmoll, hdl_serum_mmoll
     )
@@ -322,6 +366,8 @@ delta_df <- attempt_dat %>%
     delta_avg_ketones_16 = avg_ketones_16 - `avg_ketones_-4`,
     delta_avg_c_r2_4 = avg_c_r2_4 - `avg_c_r2_-4`,
     delta_avg_c_r2_16 = avg_c_r2_16 - `avg_c_r2_-4`,
+    delta_avg_m_r2_4 = avg_m_r2_4 - `avg_m_r2_-4`,
+    delta_avg_m_r2_16 = avg_m_r2_16 - `avg_m_r2_-4`,
     delta_avg_k_r2_4 = avg_k_r2_4 - `avg_k_r2_-4`,
     delta_avg_k_r2_16 = avg_k_r2_16 - `avg_k_r2_-4`,
     delta_avg_c_t1_4 = avg_c_t1_4 - `avg_c_t1_0`,
@@ -352,6 +398,7 @@ delta_df <- attempt_dat %>%
     `delta_mgfr_jodal_-4` = 0,
     `delta_avg_c_r2_-4` = 0,
     `delta_avg_k_r2_-4` = 0,
+    `delta_avg_m_r2_-4` = 0,
     `delta_avg_pcascl_0` = 0,
     `delta_avg_c_adc_0` = 0,
     `delta_avg_c_t1_0` = 0,
@@ -399,12 +446,13 @@ delta_df <- delta_df %>%
       group_by(subject_id) %>%
       filter(visit == -4) %>%
       dplyr::select(subject_id, mgfr_jodal_bsa, mgfr_jodal,
-                    avg_c_r2, avg_k_r2, avg_ketones) %>%
+                    avg_c_r2, avg_k_r2, avg_m_r2, avg_ketones) %>%
       dplyr::rename(
         mgfr_jodal_bsa_bl = mgfr_jodal_bsa,
         mgfr_jodal_bl = mgfr_jodal,
         avg_c_r2_bl = avg_c_r2,
         avg_k_r2_bl = avg_k_r2,
+        avg_m_r2_bl = avg_m_r2,
         avg_ketones_bl = avg_ketones
       )
   )
