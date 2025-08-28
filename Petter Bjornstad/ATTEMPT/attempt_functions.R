@@ -1315,7 +1315,9 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
                          legend_text_size = 9,
                          caption_padding = 15,
                          x_title_padding_t = 32,
-                         genes_to_label= NULL) {
+                         genes_to_label= NULL,
+                         volcano_force = 6,
+                         volcano_box_padding = 0) {
   
   set.seed(1)
   top_pos <- data %>%
@@ -1325,7 +1327,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   n_pos <- nrow(top_pos)
   
   top_pos <- top_pos %>%
-    filter(Gene %in% genes_to_label) %>%
+    filter(if (!is.null(genes_to_label)) Gene %in% genes_to_label else TRUE) %>%
     slice_head(n=20)
   
   top_neg <- data %>%
@@ -1335,7 +1337,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   n_neg <- nrow(top_neg)
   
   top_neg <- top_neg %>%
-    filter(Gene %in% genes_to_label) %>%
+    filter(if (!is.null(genes_to_label)) Gene %in% genes_to_label else TRUE) %>%
     slice_head(n=20)
   
   data <- data %>%
@@ -1351,14 +1353,16 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   min_fc <- min(data[[fc]], na.rm = TRUE)
   
   # Get y-axis max for dynamic scaling
-  y_max <- max(-log10(data[[p_col]]), na.rm = TRUE) * 1.1
+  epsilon <- 1e-300
+  y_max <- max(-log10(data[[p_col]] + epsilon), na.rm = TRUE) * 1.1
 
   p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
     geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
     geom_text_repel(aes(label = top_lab, color = top_color),
                     size = geom_text_size, max.overlaps = Inf,
-                    force = 6, segment.alpha = 0.3, segment.size = 0.3) +
+                    force = volcano_force, segment.alpha = 0.3, segment.size = 0.3,
+                    box.padding = volcano_box_padding) +
     labs(title = paste(title),
          x = paste(x_axis),
          y = paste(y_axis),
@@ -1611,6 +1615,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                                      cell_type = "", top_n = 50,
                                      seed = 1, 
                                      force = 50,
+                                     force_pull = 1,
                                      box.padding = 0.6,
                                      point.padding = 0.4, 
                                      text_size = 3,
@@ -1627,6 +1632,10 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                                      legend_text_size = 9,     # Size for legend text
                                      caption_size = 9,         # Size for caption text
                                      annotation_text_size = 3, # Size for annotation text (positive/negative text)
+                                     nudge_y = 0.3,
+                                     nudge_x = 0.2,
+                                     y_expand = 0,
+                                     ylim = 0.2,
                                      save = T) {
   
   set.seed(seed)
@@ -1764,10 +1773,10 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
     # Split geom_text_repel for positive logFC (right side)
     geom_text_repel(data = clin_results[clin_results[[fc]] > 0 & clin_results$top_lab != "", ],
                     aes(label = top_lab, color = color_var_plot),
-                    nudge_x = max_fc * 0.2,
-                    nudge_y = 0.3,
+                    nudge_x = max_fc * nudge_x,
+                    nudge_y = nudge_y,
                     xlim = c(max_fc * 0.15, NA),
-                    ylim = c(y_max*0.2, NA),
+                    ylim = c(y_max*ylim, NA),
                     segment.size = 0.4,
                     segment.color = "darkgrey",
                     segment.alpha = 0.3,
@@ -1775,6 +1784,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                     size = label_size,
                     max.overlaps = Inf,
                     force = force,
+                    force_pull = force_pull,
                     box.padding = box.padding,
                     point.padding = point.padding,
                     min.segment.length = 0,
@@ -1783,10 +1793,10 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
     # Split geom_text_repel for negative logFC (left side)
     geom_text_repel(data = clin_results[clin_results[[fc]] < 0 & clin_results$top_lab != "", ],
                     aes(label = top_lab, color = color_var_plot),
-                    nudge_x = min_fc * 0.2,
-                    nudge_y = 0.3,
+                    nudge_x = min_fc * nudge_x,
+                    nudge_y = nudge_y,
                     xlim = c(NA, (min_fc * 0.15)),
-                    ylim = c(y_max*0.2, NA),
+                    ylim = c(y_max*ylim, NA),
                     segment.size = 0.4,
                     segment.color = "darkgrey",
                     segment.alpha = 0.3,
@@ -1794,6 +1804,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                     size = label_size,
                     max.overlaps = Inf,
                     force = force,
+                    force_pull = force_pull,
                     box.padding = box.padding,
                     point.padding = point.padding,
                     min.segment.length = 0,
@@ -1834,7 +1845,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
              y=-y_max * arrow_text_padding, 
              label=negative_text,
              size=annotation_text_size, color="#343a40") +
-    scale_y_continuous(expand=c(0,0)) +
+    scale_y_continuous(expand=c(0,y_expand)) +
     scale_x_continuous(expand = expansion(mult = c(0.25, 0.25))) + 
     coord_cartesian(ylim = c(0, y_max), clip="off") +
     theme(legend.title = element_blank(),
@@ -2020,7 +2031,9 @@ create_gene_expression_plots <- function(main_results,
                                          arrow_text_padding = 0.08,
                                          caption_padding = 10, 
                                          x_title_padding_t = 0,
-                                         geom_text_size = 5) { 
+                                         geom_text_size = 5,
+                                         volcano_force = 6,
+                                         volcano_box_padding = 0) { 
   
   # Load required libraries
   require(tidyverse)
@@ -2149,7 +2162,9 @@ create_gene_expression_plots <- function(main_results,
       legend_text_size = volcano_text_size,
       caption_padding = caption_padding,
       x_title_padding_t = x_title_padding_t,
-      genes_to_label = volcano_genes  # All selected significant genes
+      genes_to_label = volcano_genes,  # All selected significant genes
+      volcano_force = volcano_force,
+      volcano_box_padding = volcano_box_padding
     )
   }
   
@@ -2418,6 +2433,55 @@ capitalize_acronyms <- function(text, terms) {
   return(text)
 }
 
+# ===========================================================================
+# Function: clean_pathway_names
+# ===========================================================================
+
+clean_pathway_names <- function(pathways) {
+  # Remove REACTOME_ prefix
+  cleaned <- gsub("^REACTOME_", "", pathways)
+  cleaned <- gsub("^GOBP_", "", cleaned)
+  cleaned <- gsub("^KEGG_", "", cleaned)
+  
+  # Replace underscores with spaces
+  cleaned <- gsub("_", " ", cleaned)
+  
+  # Convert to title case (capitalize first letter of each word)
+  cleaned <- tools::toTitleCase(tolower(cleaned))
+  
+  # Define patterns that should be in uppercase
+  uppercase_words <- c(
+    # Roman numerals
+    "\\bI\\b", "\\bIi\\b", "\\bIii\\b", "\\bIv\\b", "\\bV\\b", "\\bVi\\b", 
+    "\\bVii\\b", "\\bViii\\b", "\\bIx\\b", "\\bX\\b",
+    # Common biological abbreviations
+    "\\bTca\\b", "\\bAtp\\b", "\\bAdp\\b", "\\bAmp\\b", "\\bGtp\\b", "\\bGdp\\b",
+    "\\bNad\\b", "\\bNadh\\b", "\\bFad\\b", "\\bFadh2\\b", "\\bCoa\\b",
+    "\\bDna\\b", "\\bRna\\b", "\\bMrna\\b", "\\bTrna\\b", "\\bRrna\\b",
+    "\\bEr\\b", "\\bUpr\\b", "\\bNf\\b", "\\bHif\\b", "\\bMhc\\b",
+    "\\bTgf\\b", "\\bEgf\\b", "\\bVegf\\b", "\\bPdgf\\b", "\\bFgf\\b",
+    "\\bRos\\b", "\\bRns\\b", "\\bNo\\b", "\\bNos\\b", "\\bInos\\b", "\\bEnos\\b", "\\bNnos\\b",
+    "\\Mapk\\b"
+  )
+  
+  # Apply uppercase replacements
+  for (pattern in uppercase_words) {
+    # Extract the word without the word boundaries
+    word <- gsub("\\\\b", "", pattern)
+    # Convert to uppercase
+    replacement <- toupper(word)
+    # Replace in the cleaned string
+    cleaned <- gsub(pattern, replacement, cleaned, ignore.case = TRUE)
+  }
+  
+  # Fix specific cases that might need custom handling
+  cleaned <- gsub("\\bOf\\b", "of", cleaned)  # lowercase 'of'
+  cleaned <- gsub("\\bBy\\b", "by", cleaned)  # lowercase 'by'
+  cleaned <- gsub("\\bThe\\b", "the", cleaned)  # lowercase 'the' (except at start)
+  cleaned <- gsub("^the", "The", cleaned)  # capitalize 'the' at start
+  
+  return(cleaned)
+}
 
 # ===========================================================================
 # Function: filter_redundant_pathways
@@ -2567,7 +2631,7 @@ trt_run_cell_type_analysis <- function(cell_type,
                                        input_suffix,
                                        output_base_path,
                                        output_prefix,
-                                       bg_path,
+                                       bg_path = file.path(root_path, "GSEA/"),
                                        bucket = "attempt",
                                        region = "") {
   
@@ -2632,7 +2696,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
                                          input_suffix,
                                          output_base_path,
                                          output_prefix,
-                                         bg_path,
+                                         bg_path = file.path(root_path, "GSEA/"),
                                          plot_title = "Volcano Plot",
                                          bucket = "attempt",
                                          region = "") {
@@ -3854,6 +3918,7 @@ plot_croc_attempt_volcano <- function(attempt_df,
                                       croc_p_cut = 0.05,
                                       width = 7,
                                       height = 5,
+                                      caption = T, 
                                       positive_text = "Upregulated in T1D compared to LC",
                                       negative_text = "Downregulated in T1D compared to LC",
                                       x_axis = "logFC_groupT1D",
@@ -3923,11 +3988,16 @@ plot_croc_attempt_volcano <- function(attempt_df,
                      segment.color = "#ced4da", seed = 1234, label.size = 0) +
     labs(x = x_axis,
          y = y_axis,
-         caption = paste0("\n\nCell type: ", cell_type, " | ",
+         caption = ifelse(caption, 
+                          paste0("\n\nCell type: ", cell_type, " | ",
+                                 "N of overlap: ", n_nonreversed + n_reversed, " (",
+                                 "reversal: ", n_reversed, ", non-reversal: ", n_nonreversed, ")",
+                                 "\n\nUp to top ", top_n, " from each direction are labeled.\n",
+                                 "Reversed genes are boxed in fill color corresponding to direction of dapagliflozin effect."),
+                          paste0("\n\nCell type: ", cell_type, " | ",
                           "N of overlap: ", n_nonreversed + n_reversed, " (",
-                          "reversal: ", n_reversed, ", non-reversal: ", n_nonreversed, ")",
-                          "\n\nUp to top ", top_n, " from each direction are labeled.\n",
-                          "Reversed genes are boxed in fill color corresponding to direction of dapagliflozin effect.")) +
+                          "reversal: ", n_reversed, ", non-reversal: ", n_nonreversed, ")")
+                          )) +
     scale_size_continuous(range = c(1, 1.3)) +
     scale_fill_manual(values = c("+" = scales::alpha("#ff9996", 0.2),
                                  "-" = scales::alpha("#5c9fc1", 0.2),
@@ -4427,7 +4497,7 @@ run_limma_proteomics <- function(
 # Function: run_fgsea_analysis
 # ===========================================================================
 
-run_fgsea_analysis <- function(bg_path,
+run_fgsea_analysis <- function(bg_path = file.path(root_path, "GSEA/"),
                                results_annotated,
                                stat_col = "t",
                                gene_col = "EntrezGeneSymbol",
@@ -4437,7 +4507,7 @@ run_fgsea_analysis <- function(bg_path,
                                maxSize_reactome = 500,
                                minSize_go = 5,
                                maxSize_go = 500,
-                               nPermSimple_go = 10000,
+                               nPermSimple = 10000,
                                nproc = 1,
                                seed = 1234) {
   
@@ -4447,11 +4517,10 @@ run_fgsea_analysis <- function(bg_path,
     stop("Not enough GMT files found in the directory.")
   }
   
-  kegg_legacy <- prepare_gmt(gmt_files[1], unique(results_annotated$EntrezGeneSymbol), savefile = FALSE)
-  reactome    <- prepare_gmt(gmt_files[3], unique(results_annotated$EntrezGeneSymbol), savefile = FALSE)
-  go          <- prepare_gmt(gmt_files[4], unique(results_annotated$EntrezGeneSymbol), savefile = FALSE)
+  kegg_legacy <- prepare_gmt(gmt_files[1], unique(results_annotated[[gene_col]]), savefile = FALSE)
+  reactome    <- prepare_gmt(gmt_files[3], unique(results_annotated[[gene_col]]), savefile = FALSE)
+  go          <- prepare_gmt(gmt_files[4], unique(results_annotated[[gene_col]]), savefile = FALSE)
   
-  # --- Rank genes by t-statistic ---
   # --- Rank genes by specified statistic ---
   if (!stat_col %in% names(results_annotated)) {
     stop(paste("Column", stat_col, "not found in results_annotated"))
@@ -4468,21 +4537,23 @@ run_fgsea_analysis <- function(bg_path,
                     scoreType = 'std', 
                     minSize = minSize_kegg,
                     maxSize = maxSize_kegg,
-                    nproc = nproc)
+                    nproc = nproc,
+                    nPermSimple = nPermSimple)
   
   reactome_res <- fgsea(pathways = reactome,
                         stats = rankings,
                         scoreType = 'std', 
                         minSize = minSize_reactome,
                         maxSize = maxSize_reactome,
-                        nproc = nproc)
+                        nproc = nproc,
+                        nPermSimple = nPermSimple)
   
   go_res <- fgsea(pathways = go,
                   stats = rankings,
                   scoreType = "std",
                   minSize = minSize_go,
                   maxSize = maxSize_go,
-                  nPermSimple = nPermSimple_go,
+                  nPermSimple = nPermSimple,
                   nproc = nproc)
   
   # --- Summarize results ---
@@ -5313,3 +5384,200 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
 #   multi_bar_fill = "#4A90A4",  # Color for 3+ intersections
 #   multi_threshold = 3          # Highlight bars with 3 or more cell types
 # )
+
+
+# ===========================================================================
+# Function: shorten_pathway_names
+# ===========================================================================
+
+shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = FALSE) {
+  
+  # Define replacement patterns
+  # Common words that can be shortened
+  word_replacements <- c(
+    "Regulation" = "Reg",
+    "Regulatory" = "Reg",
+    "Phosphorylation" = "Phosph",
+    "Degradation" = "Degr",
+    "Biosynthesis" = "Biosyn",
+    "Metabolism" = "Metab",
+    "Production" = "Prod",
+    "Activation" = "Act",
+    "Expression" = "Expr",
+    "Development" = "Dev",
+    "Differentiation" = "Diff",
+    "Transcriptional" = "Txn",
+    "Transcription" = "Txn",
+    "Translation" = "Tln",
+    "Receptor" = "Rec",
+    "Extracellular" = "EC",
+    "Intracellular" = "IC",
+    "Dysfunction" = "Dysf",
+    "Alternative" = "Alt",
+    "Dependent" = "Dep",
+    "Independent" = "Indep",
+    "Associated" = "Assoc",
+    "Mediated" = "Med",
+    "Induced" = "Ind",
+    "Interaction" = "Int",
+    "Interactions" = "Int",
+    "Formation" = "Form",
+    "Processing" = "Proc",
+    "Inflammatory" = "Inflam",
+    "Inflammation" = "Inflam",
+    "Lymphocyte" = "Lymph",
+    "Lymphocytes" = "Lymph",
+    "Fibroblast" = "Fib",
+    "Fibroblasts" = "Fib",
+    "Endothelial" = "Endo",
+    "Epithelial" = "Epi",
+    "Mesenchymal" = "Mes",
+    "Transition" = "Trans",
+    "Rheumatoid Arthritis" = "RA",
+    "Multiple Sclerosis" = "MS",
+    "Alzheimer's Disease" = "AD",
+    "Parkinson's" = "PD",
+    "Respiratory" = "Resp",
+    "Cardiovascular" = "CV",
+    "Gastrointestinal" = "GI",
+    "Central Nervous System" = "CNS",
+    "Immunoregulatory" = "Immunoreg",
+    "Antioxidant" = "Antiox",
+    "Oxidative" = "Ox",
+    "between" = "b/w",
+    "through" = "via",
+    "and" = "&"
+  )
+  
+  # More aggressive replacements
+  aggressive_replacements <- c(
+    "Role of" = "",
+    "Function of" = "",
+    "in the" = "in",
+    "by the" = "by",
+    "of the" = "of",
+    " the " = " ",
+    " in " = " ",
+    " of " = " ",
+    " to " = "→",
+    " from " = "←"
+  )
+  
+  # Cell/molecule specific replacements
+  molecule_replacements <- c(
+    "T Helper Cell" = "Th",
+    "T Helper Cells" = "Th",
+    "T Cell" = "TC",
+    "T Cells" = "TC",
+    "B Cell" = "BC", 
+    "B Cells" = "BC",
+    "Natural Killer" = "NK",
+    "Dendritic Cell" = "DC",
+    "Dendritic Cells" = "DC",
+    "Stem Cell" = "SC",
+    "Stem Cells" = "SC",
+    "Growth Factor" = "GF",
+    "Growth Factors" = "GF",
+    "Tumor Necrosis Factor" = "TNF",
+    "Transforming Growth Factor" = "TGF",
+    "Platelet Derived Growth Factor" = "PDGF",
+    "Epidermal Growth Factor" = "EGF",
+    "Vascular Endothelial Growth Factor" = "VEGF",
+    "Insulin-like Growth Factor" = "IGF",
+    "Interferon" = "IFN",
+    "Interleukin" = "IL",
+    "Matrix Metalloprotease" = "MMP",
+    "Matrix Metalloproteases" = "MMPs",
+    "Protein Kinase" = "PK",
+    "G-Protein Coupled" = "GPCR",
+    "G Protein Coupled" = "GPCR",
+    "Nuclear Factor" = "NF",
+    "Activator Protein" = "AP",
+    "Electron Transport" = "e- Transport",
+    "Nitric Oxide" = "NO",
+    "Reactive Oxygen Species" = "ROS",
+    "Endoplasmic Reticulum" = "ER",
+    "Double-Strand Break" = "DSB",
+    "Single Strand" = "SS",
+    "Double Strand" = "DS",
+    "Amino Acid" = "AA",
+    "Fatty Acid" = "FA"
+  )
+  
+  # Function to apply replacements
+  apply_replacements <- function(text, replacements) {
+    for (pattern in names(replacements)) {
+      text <- gsub(pattern, replacements[pattern], text, ignore.case = FALSE)
+    }
+    return(text)
+  }
+  
+  # Process each pathway name
+  shortened <- sapply(pathway_names, function(pathway) {
+    if (is.na(pathway)) return(NA)
+    
+    # Step 1: Apply molecule/cell replacements first
+    result <- apply_replacements(pathway, molecule_replacements)
+    
+    # Step 2: Apply standard word replacements
+    result <- apply_replacements(result, word_replacements)
+    
+    # Step 3: If still too long and aggressive mode is on
+    if (nchar(result) > max_length && aggressive) {
+      result <- apply_replacements(result, aggressive_replacements)
+    }
+    
+    # Step 4: Remove parenthetical content if still too long
+    if (nchar(result) > max_length) {
+      result <- gsub(" \\([^)]+\\)", "", result)
+    }
+    
+    # Step 5: If still too long, abbreviate remaining long words
+    if (nchar(result) > max_length) {
+      words <- strsplit(result, " ")[[1]]
+      # Abbreviate words longer than 8 characters that aren't already abbreviated
+      words <- sapply(words, function(word) {
+        if (nchar(word) > 8 && !grepl("[A-Z]{2,}", word)) {
+          # Keep first 3-4 letters and last letter
+          if (nchar(word) > 10) {
+            paste0(substr(word, 1, 3), ".", substr(word, nchar(word), nchar(word)))
+          } else {
+            paste0(substr(word, 1, 4), ".")
+          }
+        } else {
+          word
+        }
+      })
+      result <- paste(words, collapse = " ")
+    }
+    
+    # Step 6: Final truncation if needed
+    if (nchar(result) > max_length) {
+      result <- paste0(substr(result, 1, max_length - 3), "...")
+    }
+    
+    return(result)
+  }, USE.NAMES = FALSE)
+  
+  return(shortened)
+}
+
+# Helper function to create a lookup table for manual review
+create_pathway_lookup <- function(original, shortened) {
+  data.frame(
+    original = original,
+    shortened = shortened,
+    length_original = nchar(original),
+    length_shortened = nchar(shortened),
+    reduction = round((1 - nchar(shortened)/nchar(original)) * 100, 1),
+    stringsAsFactors = FALSE
+  )
+}
+
+# Extract the legend from one of the plots (e.g., p2)
+get_legend <- function(myplot) {
+  tmp <- ggplot_gtable(ggplot_build(myplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)
+}

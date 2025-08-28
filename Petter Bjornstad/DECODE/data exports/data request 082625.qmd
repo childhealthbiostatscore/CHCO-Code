@@ -1,0 +1,48 @@
+---
+title: "DECODE data request"
+format: html
+---
+
+```{r}
+library(dplyr)
+library(Hmisc)
+library(purrr)
+library(arsenal)
+```
+# PANDA, RH, RH2, CASPER, CROC, IMPROVE
+# PENGUIN, ATTEMPT, TODAY/TOODAY2,
+# TEEN-LABS, T1-DISCO, REMODEL-T1D, RPC2
+
+# study, group, record_id, type of study, primary use of cohort data, # of participants, age range, nationality, number of blood, number of plasma, number of biopsy, number of urine, number/type of assays, published studies associated
+
+```{r echo = F}
+load("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/DECODE/Data Clean/decode_harmonized_collapsed.RData")
+
+decode_clean <- decode_collapsed %>%
+  dplyr::mutate(
+    visit = case_when(
+      study == "TEEN-LABS" & visit == "Month 1" ~ "baseline",
+      T ~ visit
+    ),
+    # Blood collection indicator
+    blood_yn = case_when(
+      !is.na(hba1c) | !is.na(creatinine_s) | !is.na(cholesterol) | 
+        !is.na(hdl) | !is.na(ldl) | !is.na(triglycerides) |
+        !is.na(cystatin_c_s) ~ "Yes", T ~ "No"),
+    
+    # Urine collection indicator
+    urine_yn = case_when(
+      !is.na(microalbumin_u) | !is.na(acr_u) |
+        !is.na(urine24h_start_time) | !is.na(urine24h_stop_time) |
+        !is.na(emu_1_sample_id) | !is.na(emu_2_sample_id) | 
+        !is.na(emu_3_sample_id) | !is.na(sample_id_urine24h) |
+        !is.na(emu_urine_acr_mean_pooled) |
+        !is.na(UAlbCreat)|
+        !is.na(albuminuria) ~ "Yes", T ~ "No")
+  )
+```
+
+```{r}
+summary(tableby(study ~ group + age + race + ethnicity + blood_yn + urine_yn, data = subset(decode_clean, visit == "baseline"), test = F))
+```
+
