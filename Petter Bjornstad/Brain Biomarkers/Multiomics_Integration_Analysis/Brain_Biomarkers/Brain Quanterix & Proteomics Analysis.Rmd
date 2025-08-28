@@ -70,6 +70,56 @@ data_full <- data_full %>%
 data_full <- data_full %>% 
   filter(!is.na(seq.10000.28)) #142 have brain biomarkers, 135 also have proteomics
 rm(dat_prot,dat_prot2,dat_prot3,data2)
+
+# #25,354 protein variables
+# # Remove columns ending with "_urine_cradj", "_urine"
+# data_full <- data_full %>%
+#   dplyr::select(-ends_with("_urine_cradj")) %>% 
+#   dplyr::select(-ends_with("_urine"))
+
+#Proteomics data ends at column 7310
+# Find the first column that is all NAs
+first_all_na <- which(sapply(data_full, function(x) all(is.na(x))))[1] #7311
+
+# If such a column exists, keep only columns before it
+  data_full <- data_full %>%
+    dplyr::select(1:(first_all_na - 1))
+length(which(grepl("seq.",colnames(data_full)))) #7289 proteins remain
+proteins <- colnames(data_full[which(grepl("seq.",colnames(data_full)))])
+length(proteins)  #7289
+length(unique(proteins)) #7289
+
+#Aptomer names
+load(fs::path(dir.dat,"/Data Harmonization","Combined SomaScan","analytes.RData"))
+length(which(analytes$AptName %in% proteins))
+length(which(proteins %in% analytes$AptName))
+
+#Rename proteins with gene name & for duplicates, make _aptomer number
+analytes$EntrezGeneSymbol[which(duplicated(analytes$EntrezGeneSymbol))]
+
+analytes <- analytes %>%
+  group_by(EntrezGeneSymbol) %>%
+  mutate(
+    count = n(),
+    EntrezGeneSymbol_modified = if_else(
+      count > 1,
+      paste0(EntrezGeneSymbol, "_Apt", row_number()),
+      EntrezGeneSymbol
+    )
+  ) %>%
+  ungroup() %>%
+  dplyr::select(-count)  # Remove the helper column
+#Format for column names
+analytes$EntrezGeneSymbol_modified <- str_replace_all(analytes$EntrezGeneSymbol_modified,"\\|","_")
+
+# Create a named vector for the mapping
+name_mapping <- setNames(analytes$EntrezGeneSymbol_modified, analytes$AptName)
+
+# Rename the columns
+data_full <- data_full %>%
+  rename_with(~ name_mapping[.x], .cols = names(name_mapping)) 
+
+proteins <- colnames(data_full)[which(colnames(data_full) %in% analytes$EntrezGeneSymbol_modified)]
 ```
 
 ##b. Label Variables of Interest
@@ -124,8 +174,9 @@ save(data_full, table_demographics, table_biomarkers, file = "/Users/hhampson/Li
 
 #4. Analysis
 ##a. PENGUIN & CROCODILE
+###i. Explore Distributions by proteomics
 ```{r}
-#FIlter to PENGUIN & CROCODILE
+#Filter to PENGUIN & CROCODILE
 data_plasma <- data_full %>% 
   filter(study=="PENGUIN" | study=="CROCODILE") #69 participants
 
@@ -142,6 +193,33 @@ hist(data_plasma$gfap_avg_conc)
 hist(data_plasma$ptau_181_avg_conc)
 hist(data_plasma$ptau_217_avg_conc)
 
+#Linear regression
+total_results <- data.frame()
+for (y in qx_var) {
+  for(x in proteins) {
+  m0 <- as.formula(paste0(y,"~ ",x))
+  model0 <- lm(m0,data=data_plasma)
+  beta <- summary(model0)$coef[2,1]
+  pval <- summary(model0)$coef[2,4]
+  sig <- ifelse(pval<0.05,"*","")
+  results <- data.frame(Variable=y,Group=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+  total_results <- rbind(total_results,results)
+  }
+}
+
+#Check assumptions
+for (y in qx_var) {
+  m0 <- as.formula(paste0(y,"~ group"))
+  model0 <- lm(m0,data=data_plasma)
+  residuals <- resid(model0)
+  # 2. QQ plot to check normality of residuals
+  print(qqnorm(residuals))
+  qqline(residuals, col = "red")
+  
+}
+```
+###ii. Explore distributions by group
+```{r}
 #Make group a factor variable
 data_plasma$group <- factor(data_plasma$group)
 data_plasma$group <- relevel(data_plasma$group,"Lean Control")
