@@ -42,6 +42,7 @@ library(ggplotify)
 library(gridExtra)
 library(grid)
 library(gtable)
+library(extrafont)
 ```
 
 ```{r include = F}
@@ -83,6 +84,7 @@ source(file.path(git_path, "ATTEMPT/attempt_functions.R"))
 ```{r echo = F}
 attempt_dat <- s3readRDS(object = "cleaned_data/attempt_dat.rds", bucket = "attempt", region = "")
 delta_df <- s3readRDS(object = "cleaned_data/attempt_delta_df.rds", bucket = "attempt", region = "")
+harm_dat_collapsed <- s3readRDS(object = "cleaned_data/harm_dat_collapsed.rds", bucket = "attempt", region = "")
 
 table_labs <- list(
   age = "Age (years)",
@@ -111,7 +113,10 @@ table_labs <- list(
   avg_c_r2 = "Cortical R2*",
   mri_r2_kidney_l = "MRI R2* left kidney",
   mri_r2_kidney_r = "MRI R2* right kidney",
-  avg_k_r2 = "Kidney R2*"
+  avg_k_r2 = "Kidney R2*",
+  mri_r2_medulla_l = "MRI R2* left medulla",
+  mri_r2_medulla_r = "MRI R2* right medulla",
+  avg_m_r2 = "Medulla R2*"
 )
 
 # Apply labels to your data
@@ -132,7 +137,7 @@ table_controls <-tableby.control(
 # List of variables to copy
 vars_to_copy <- c('mgfr_jodal_bsa', 'mgfr_jodal', 'mri_r2_cortex_l', 
                   'mri_r2_cortex_r', 'avg_c_r2', 'mri_r2_kidney_l', 
-                  'mri_r2_kidney_r', 'avg_k_r2')
+                  'mri_r2_kidney_r', 'avg_k_r2', 'avg_m_r2')
 
 # Get values from visit -4
 visit_minus4_values <- attempt_dat[attempt_dat$visit == -4, c('subject_id', vars_to_copy)]
@@ -178,6 +183,16 @@ for (cell in names(celltype_groups))  {
   var_name <- paste0(lower_cell, "_hvg_kpmp")
   print(var_name)
   assign(var_name, annotated_df)
+  
+    
+  annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_res.csv")))
+  colnames(annotated_df) <- gsub("\\.", ":", colnames(annotated_df))
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp")
+  print(var_name)
+  assign(var_name, annotated_df)
 }
 
 for (cell in unlist(celltype_groups))  {
@@ -194,6 +209,7 @@ for (cell in unlist(celltype_groups))  {
   var_name <- paste0(lower_cell, "_hvg_kpmp")
   print(var_name)
   assign(var_name, annotated_df)
+
 }
 
 # Top 2000 HVG w/ clinical var
@@ -221,6 +237,21 @@ clinical_directions <- data.frame(variable =
                                       "+","+", "+"))
 
 # s3$upload_file(temp_file, "attempt", "cleaned_data/attempt_meta_proportions.Rdata")
+
+# Read in results for CROC targeted analysis
+for (cell in names(celltype_groups))  {
+  print(paste0("Processing: ", cell))
+  cell <- gsub("/", "_", cell)
+
+  annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_croc_targeted_res.csv")))
+  colnames(annotated_df) <- gsub("\\.", "", colnames(annotated_df))
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_croc_targeted_res")
+  print(var_name)
+  assign(var_name, annotated_df)
+}
 ```
 
 # Tables
@@ -252,7 +283,8 @@ kable(summary(arsenal::tableby(
     pulse + 
     ldl_serum_mmoll + 
     hdl_serum_mmoll +
-     mgfr_jodal_bsa + mgfr_jodal + avg_c_r2 + avg_k_r2, 
+     mgfr_jodal_bsa + mgfr_jodal + 
+    avg_c_r2 + avg_k_r2, 
   data = subset(attempt_dat, visit == 0),
   control = table_controls
 )), digits = 1)
@@ -284,7 +316,7 @@ kable(summary(arsenal::tableby(
     pulse + 
     ldl_serum_mmoll + 
     hdl_serum_mmoll +
-     mgfr_jodal_bsa + mgfr_jodal + avg_c_r2 + avg_k_r2, 
+     mgfr_jodal_bsa + mgfr_jodal + avg_c_r2 + avg_k_r2 + avg_m_r2, 
   data = subset(attempt_dat, visit == 0 & site == "Denver"),
   control = table_controls
 )), digits = 1)
@@ -451,7 +483,7 @@ avg_k_r2_by_mgfr_category_bars <- plot_delta_by_category(
                                                    "DiD" = "#669bbc")
 ) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
 
-# (D) Change in mGFR by baseline mGFR
+# (D) 
 delta_avg_k_r2_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df, 
                                                                    site == "Denver"), 
                    visits_to_plot = c(-4, 16),
@@ -459,7 +491,15 @@ delta_avg_k_r2_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df,
                    legend_position = c(0.3,0.8)) +
   geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
 
-# (E)
+# (E) 
+delta_avg_m_r2_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df, 
+                                                                   site == "Denver"), 
+                   visits_to_plot = c(-4, 16),
+                   y_var = avg_m_r2, y_axis_title = "\u0394 Medulla R2*",
+                   legend_position = c(0.3,0.8)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
+
+# (F)
 delta_avg_c_r2_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df, 
                                                                    site == "Denver"), 
                    visits_to_plot = c(-4, 16),
@@ -468,9 +508,9 @@ delta_avg_c_r2_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df,
   geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
 
 ggarrange(delta_avg_k_r2_overtime, avg_k_r2_by_mgfr_category_bars,
-          delta_avg_k_r2_overtime_denver, delta_avg_c_r2_overtime_denver, ncol=2, nrow=2, common.legend = TRUE, legend="bottom", labels = c("A", "B", "C", "D"))
+          delta_avg_k_r2_overtime_denver, delta_avg_m_r2_overtime_denver, delta_avg_c_r2_overtime_denver, ncol=3, nrow=2, common.legend = TRUE, legend="bottom", labels = c("A", "B", "C", "D", "E"))
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Panels/avg_k_r2_panel.png", width = 7, height = 7, dpi = 300)
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Panels/avg_k_r2_panel.png", width = 12, height = 7, dpi = 300)
 ```
 
 
@@ -571,11 +611,7 @@ ggsave(file.path(base_path, "Panels/scrna_desc_panel.png"), final_plot, dpi = 60
 knitr::include_graphics(file.path(base_path, "Panels/scrna_desc_panel.png"))
 ```
 
-```{r, out.width="100%"}
-#| label: fig-upset
-#| fig-cap: "(A) UpSet plot showing the overlap of differentially expressed genes across kidney cell types. Only intersections with size > 3 are displayed. Intersections corresponding to genes unique to a single cell type are omitted for clarity. Bars representing overlaps across ≥ 3 cell types are highlighted in blue. (B) Bar plot showing the frequency of differentially expressed genes by cell type, separated by direction of effect (DiD > 0 in red, DiD < 0 in blue). (C) Scatter plot of DiD values for each gene, grouped by cell type. Points above zero indicate positive DiD, and points below zero indicate negative DiD."
-#| fig-dpi: 300
-
+```{r, include = F}
 # Read images
 img1 <- image_read(file.path(base_path, "Cell type comparison/celltype_deg_upset_kpmp.png"))
 img2 <- image_read(file.path(base_path, "Cell type comparison/celltype_deg_stacked_barplot_kpmp.png"))
@@ -586,18 +622,26 @@ p1 <- image_ggplot(img1)
 p2 <- image_ggplot(img2)
 p3 <- image_ggplot(img3)
 
-(p1) + (p2 / p3) +
-  plot_annotation(tag_levels = 'A')
+p <- ggarrange(p1, 
+          ggarrange(p2, p3, nrow = 2, labels = c("B", "C")), 
+          ncol = 2, labels = "A", widths = c(1,1))
+ggsave(file.path(base_path, "Panels/upset_plot_panel.png"), p, dpi = 600, height = 6)
+```
+
+```{r, out.width="100%"}
+#| label: fig-upset
+#| fig-cap: "(A) UpSet plot showing the overlap of differentially expressed genes across kidney cell types. Only intersections with size > 3 are displayed. Intersections corresponding to genes unique to a single cell type are omitted for clarity. Bars representing overlaps across ≥ 3 cell types are highlighted in blue. (B) Bar plot showing the frequency of differentially expressed genes by cell type, separated by direction of effect (DiD > 0 in red, DiD < 0 in blue). (C) Scatter plot of DiD values for each gene, grouped by cell type. Points above zero indicate positive DiD, and points below zero indicate negative DiD."
+#| fig-dpi: 600
+knitr::include_graphics(file.path(base_path, "Panels/upset_plot_panel.png"))
 ```
 
 ```{r, out.width="100%"}
 #| label: fig-segment-phoom
-#| fig-cap: "Segmental distribution of kidney cell populations (Placeholder)"
+#| fig-cap: "Segmental distribution of kidney cell populations"
 #| fig-dpi: 300
-knitr::include_graphics(file.path(base_path, "Pathways and transcripts in ATTEMPT-2.png"))
+knitr::include_graphics(file.path(base_path, "Pathways and transcripts in ATTEMPT.png"))
 ```
 
-### Section 2E: PT cells
 
 ```{r eval = F}
 pt_plots <- create_gene_expression_plots(
@@ -619,8 +663,11 @@ pt_plots <- create_gene_expression_plots(
   arrow_padding = 0.08,
   arrow_text_padding = 0.1,
   caption_padding = 20,
-  x_title_padding_t = 3
+  x_title_padding_t = 3,
+  volcano_force = 30,
+  volcano_box_padding = 0.5
 )
+
 pt_dot_legend <- get_legend(pt_plots$dot_plot)
 pt_plots$dot_plot <- pt_plots$dot_plot + theme(legend.position = "none")
 pt_plots$heatmap_plot <- pt_plots$heatmap_plot + theme(legend.position = "top",
@@ -646,7 +693,9 @@ tal_plots <- create_gene_expression_plots(
   arrow_padding = 0.08,
   arrow_text_padding = 0.1,
   caption_padding = 20,
-  x_title_padding_t = 3
+  x_title_padding_t = 3,
+  volcano_force = 30,
+  volcano_box_padding = 0.5
   )
 tal_dot_legend <- get_legend(tal_plots$dot_plot)
 tal_plots$dot_plot <- tal_plots$dot_plot + theme(legend.position = "none")
@@ -675,7 +724,9 @@ ec_plots <- create_gene_expression_plots(
   arrow_padding = 0.08,
   arrow_text_padding = 0.1,
   caption_padding = 20,
-  x_title_padding_t = 3
+  x_title_padding_t = 3,
+  volcano_force = 30,
+  volcano_box_padding = 0.5
 )
 ec_dot_legend <- get_legend(ec_plots$dot_plot)
 ec_plots$dot_plot <- ec_plots$dot_plot + theme(legend.position = "none")
@@ -701,7 +752,9 @@ ic_plots <- create_gene_expression_plots(
   arrow_padding = 0.08,
   arrow_text_padding = 0.1,
   caption_padding = 20,
-  x_title_padding_t = 3
+  x_title_padding_t = 3,
+  volcano_force = 20,
+  volcano_box_padding = 0.5
 )
 ic_dot_legend <- get_legend(ic_plots$dot_plot)
 ic_plots$dot_plot <- ic_plots$dot_plot + theme(legend.position = "none")
@@ -724,7 +777,9 @@ pod_plots <- create_gene_expression_plots(
   arrow_padding = 0.08,
   arrow_text_padding = 0.1,
   caption_padding = 20,
-  x_title_padding_t = 3
+  x_title_padding_t = 3,
+  volcano_force = 30,
+  volcano_box_padding = 0.5
 )
 pod_dot_legend <- get_legend(pod_plots$dot_plot)
 pod_plots$dot_plot <- pod_plots$dot_plot + theme(legend.position = "none")
@@ -753,7 +808,9 @@ pc_plots <- create_gene_expression_plots(
   arrow_padding = 0.08,
   arrow_text_padding = 0.1,
   caption_padding = 20,
-  x_title_padding_t = 3
+  x_title_padding_t = 3,
+  volcano_force = 30,
+  volcano_box_padding = 0.5
 )
 pc_dot_legend <- get_legend(pc_plots$dot_plot)
 pc_plots$dot_plot <- pc_plots$dot_plot + theme(legend.position = "none")
@@ -778,7 +835,9 @@ vsmc_p_fib_plots <- create_gene_expression_plots(
   arrow_padding = 0.08,
   arrow_text_padding = 0.1,
   caption_padding = 20,
-  x_title_padding_t = 3
+  x_title_padding_t = 3,
+  volcano_force = 30,
+  volcano_box_padding = 0.5
 )
 vsmc_p_fib_dot_legend <- get_legend(vsmc_p_fib_plots$dot_plot)
 vsmc_p_fib_plots$dot_plot <- vsmc_p_fib_plots$dot_plot + theme(legend.position = "none")
@@ -809,7 +868,9 @@ immune_plots <- create_gene_expression_plots(
   arrow_padding = 0.08,
   arrow_text_padding = 0.1,
   caption_padding = 20,
-  x_title_padding_t = 3
+  x_title_padding_t = 3,
+  volcano_force = 30,
+  volcano_box_padding = 0.5
 )
 immune_dot_legend <- get_legend(immune_plots$dot_plot)
 immune_plots$dot_plot <- immune_plots$dot_plot + theme(legend.position = "none")
@@ -817,162 +878,261 @@ immune_plots$heatmap_plot <- immune_plots$heatmap_plot + theme(legend.position =
                                                          legend.text = element_text(angle = 60, hjust = 1))
 ```
 
-```{r eval = F}
-ggarrange(ggarrange(ggarrange(pt_plots$volcano_plot, pt_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
-                    ggarrange(pt_dot_legend, pt_plots$bar_plot, pt_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
-                    nrow = 2, heights = c(3,1), labels = "A", font.label = list(size = 30)), 
-          ggarrange(ggarrange(tal_plots$volcano_plot, tal_plots$heatmap_plot, ncol = 2, widths = c(4,1)), 
-                    ggarrange(tal_dot_legend, tal_plots$bar_plot, tal_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
-                    nrow = 2, heights = c(3,1), labels = "B", font.label = list(size = 30)), 
-          ggarrange(ggarrange(ec_plots$volcano_plot, ec_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
-                    ggarrange(ec_dot_legend, ec_plots$bar_plot, ec_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
-                    nrow = 2, heights = c(3,1), labels = "C", font.label = list(size = 30)), 
-          ggarrange(ggarrange(ic_plots$volcano_plot, ic_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
-                    ggarrange(ic_dot_legend, ic_plots$bar_plot, ic_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
-                    nrow = 2, heights = c(3,1), labels = "D", font.label = list(size = 30)), 
-          nrow = 2, ncol = 2)
-
-ggsave(file.path(base_path, "Panels/key_celltypes_panel.png"), height = 22, width = 20)
-
-```
-
-```{r}
-#| label: fig-key-cells-panel
-#| fig-cap: ""
-#| fig-dpi: 300
-
-knitr::include_graphics(file.path(base_path, "Panels/key_celltypes_panel.png"))
-```
-
-
 ```{r, eval = F}
-plot_params <- list(
-  mgfr = list(
-    data = pt_mgfr_jodal_bsa_delta_hvg_kpmp,
-    fc_col = "logFC_mgfr_jodal_bsa_delta",
-    p_col = "p_mgfr_jodal_bsa_delta",
-    x_axis = "\n\nlogFC \u0394 mGFR (BSA)",
-    y_axis = "-log10(p-value)",
-    file_suffix = "nebula/kpmp_pt_mgfr_jodal_bsa_trtcolors",
-    positive_text = "Positively associated \nw/ \u0394 mGFR (BSA)",
-    negative_text = "Negatively associated \nw/ \u0394 mGFR (BSA)",
-    clinical_var = "mgfr_jodal_bsa",
-    arrow_label = "mGFR\n-8.2",
-    subset_expr = NULL
-  ),
-  hba1c = list(
-    data = pt_hba1c_delta_hvg_kpmp,
-    fc_col = "logFC_hba1c_delta",
-    p_col = "p_hba1c_delta",
-    x_axis = "\n\nlogFC \u0394 HbA1c",
-    y_axis = "-log10(p-value)",
-    file_suffix = "nebula/kpmp_pt_hba1c_trtcolors",
-    positive_text = "Positively associated \nw/ \u0394 HbA1c",
-    negative_text = "Negatively associated \nw/ \u0394 HbA1c",
-    clinical_var = "hba1c",
-    arrow_label = "HbA1c\n-0.47",
-    subset_expr = NULL
-  ),
-  tir = list(
-    data = pt_tir_delta_hvg_kpmp,
-    fc_col = "logFC_tir_delta",
-    p_col = "p_tir_delta",
-    x_axis = "\n\nlogFC \u0394 TIR",
-    y_axis = "-log10(p-value)",
-    file_suffix = "nebula/kpmp_pt_tir_trtcolors",
-    positive_text = "Positively associated \nw/ \u0394 TIR",
-    negative_text = "Negatively associated \nw/ \u0394 TIR",
-    clinical_var = "tir",
-    arrow_label = "TIR\n+9.3",
-    subset_expr = NULL
-  ),
-  avg_k_r2 = list(
-    data = pt_avg_k_r2_delta_hvg_kpmp,
-    fc_col = "logFC_avg_k_r2_delta",
-    p_col = "p_avg_k_r2_delta",
-    x_axis = "\n\nlogFC \u0394 avg kidney R2*",
-    y_axis = "-log10(p-value)",
-    file_suffix = "nebula/kpmp_pt_avg_k_r2_trtcolors",
-    positive_text = "Positively associated \nw/ \u0394 avg kidney R2*",
-    negative_text = "Negatively associated \nw/ \u0394 avg kidney R2*",
-    clinical_var = "avg_k_r2",
-    arrow_label = "Kidney R2*\n+0.50",
-    subset_expr = expression(logFC_avg_k_r2_delta > -10)
-  )
-)
-
-# Size parameters - adjust these to increase/decrease sizes
-size_params <- list(
-  label_size = 6,           # Gene labels
-  arrow_symbol_size = 12,    # Up/down arrow symbols
-  main_arrow_size = 15,     # Central arrow
-  axis_title_size = 15,      # Axis titles
-  axis_text_size = 14,       # Axis tick labels
-  legend_text_size = 15,     # Legend text
-  caption_size = 15,         # Caption text
-  annotation_text_size = 5, # Annotation text (positive/negative text)
-  text_size = 7,            # Arrow label text
-  title_size = 9,            # Overall theme text
+# Define base size parameters
+base_size_params <- list(
+  label_size = 5,
+  arrow_symbol_size = 12,
+  main_arrow_size = 15,
+  axis_title_size = 15,
+  axis_text_size = 14,
+  legend_text_size = 15,
+  caption_size = 15,
+  annotation_text_size = 5,
+  text_size = 7,
+  title_size = 9,
   arrow_padding = 0.15,
   arrow_text_padding = 0.27,
-  x_axis_padding = 39
+  x_axis_padding = 39,
+  force = 50,
+  box.padding = 0.6,
+  force_pull = 1,
+  nudge_y = 0.3,
+  y_expand = 0,
+  ylim = 0.2,
+  nudge_x = 0.2
 )
 
-# Create empty list to store plots
-plots <- list()
+# Define cell-specific overrides (only specify what changes)
+cell_size_overrides <- list(
+  TAL = list(
+    label_size = 4.8,
+    force = 45,
+    box.padding = 0.3,
+    force_pull = 0,
+    nudge_y = 0.3
+  )
+)
 
-# Loop through each clinical variable
-for (var_name in names(plot_params)) {
-  params <- plot_params[[var_name]]
+cell_var_overrides <- list(
+  TAL_mgfr = list(
+    label_size = 4.5,
+    force = 38,
+    box.padding = 0.5,
+    nudge_y = 0,
+    ylim = 0
+  ),
+  TAL_hba1c = list(
+    nudge_y = 0,
+    force = 80,
+    box.padding = 0.1,
+    ylim = 0.3
+  ),
+  EC_mgfr = list(
+    label_size = 4.8,
+    ylim = 0.29,
+    force = 20,
+    force_pull = 0,
+    box.padding = 1.2
+  ),
+  EC_tir = list(
+    label_size = 4.8,
+    ylim = 0.2,
+    force_pull = 0,
+    force = 20,
+    box.padding = 0.55
+  ),
+  EC_avg_k_r2 = list(
+    ylim = 0.3,
+    force = 50,
+    box.padding = 0.8
+  ),
+  IC_mgfr = list(
+    ylim = 0.05,
+    force = 10,
+    force_pull = 0,
+    box.padding = 1
+  ),
+  IC_tir = list(
+    ylim = 0,
+    force = 10,
+    box.padding = 1.2
+  ),
+  IC_hba1c = list(
+    ylim = -0.1,
+    force = 20,
+    box.padding = 0.8,
+    force_pull = 0
+  ),
+  IC_avg_k_r2 = list(
+    box.padding = 0,
+    force_pull = 0,
+    force = 85,
+    ylim = -0.1
+  ),
+  POD_mgfr = list(
+    ylim = 0.1
+  )
+)
+
+# Create empty list to store all plots
+all_plots <- list()
+
+# Loop through each cell type
+for (cell in names(celltype_groups)) {
   
-  # Apply subset if specified
-  data_to_plot <- params$data
-  if (!is.null(params$subset_expr)) {
-    data_to_plot <- subset(data_to_plot, eval(params$subset_expr))
+  # Get size parameters with overrides
+  size_params <- base_size_params
+  if (cell %in% names(cell_size_overrides)) {
+    # Update only the specified parameters
+    size_params <- modifyList(base_size_params, cell_size_overrides[[cell]])
   }
   
-  # Create plot
-  plots[[var_name]] <- plot_volcano_concordance(
-    clin_results = data_to_plot,
-    fc = params$fc_col,
-    p_col = params$p_col,
-    x_axis = params$x_axis,
-    y_axis = params$y_axis,
-    file_suffix = params$file_suffix,
-    treatment_results = pt_hvg_kpmp,
-    treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
-    positive_text = params$positive_text,
-    negative_text = params$negative_text,
-    clinical_direction = clinical_directions[clinical_directions$variable == params$clinical_var,]$direction,
-    cell_type = "PT",
-    arrow_label = params$arrow_label,
-    caption_text = NULL,
-    save = FALSE,
-    formula = NULL,
-    top_n = 20,
-    # Add all size parameters
-    label_size = size_params$label_size,
-    arrow_symbol_size = size_params$arrow_symbol_size,
-    main_arrow_size = size_params$main_arrow_size,
-    axis_title_size = size_params$axis_title_size,
-    axis_text_size = size_params$axis_text_size,
-    legend_text_size = size_params$legend_text_size,
-    caption_size = size_params$caption_size,
-    annotation_text_size = size_params$annotation_text_size,
-    text_size = size_params$text_size,
-    title_size = size_params$title_size,
-    arrow_padding = size_params$arrow_padding,
-    arrow_text_padding = size_params$arrow_text_padding,
-    x_axis_padding = size_params$x_axis_padding
+  # Create plot parameters for this cell type
+  plot_params <- list(
+    mgfr = list(
+      data = get(paste0(tolower(cell), "_mgfr_jodal_bsa_delta_hvg_kpmp")),
+      fc_col = "logFC_mgfr_jodal_bsa_delta",
+      p_col = "p_mgfr_jodal_bsa_delta",
+      x_axis = "\n\nlogFC \u0394 mGFR (BSA)",
+      y_axis = "-log10(p-value)",
+      file_suffix = paste0("nebula/kpmp_", tolower(cell), "_mgfr_jodal_bsa_trtcolors"),
+      positive_text = "Positively associated \nw/ \u0394 mGFR (BSA)",
+      negative_text = "Negatively associated \nw/ \u0394 mGFR (BSA)",
+      clinical_var = "mgfr_jodal_bsa",
+      arrow_label = "mGFR\n-8.2",
+      subset_expr = NULL
+    ),
+    hba1c = list(
+      data = get(paste0(tolower(cell), "_hba1c_delta_hvg_kpmp")),
+      fc_col = "logFC_hba1c_delta",
+      p_col = "p_hba1c_delta",
+      x_axis = "\n\nlogFC \u0394 HbA1c",
+      y_axis = "-log10(p-value)",
+      file_suffix = paste0("nebula/kpmp_", tolower(cell), "_hba1c_trtcolors"),
+      positive_text = "Positively associated \nw/ \u0394 HbA1c",
+      negative_text = "Negatively associated \nw/ \u0394 HbA1c",
+      clinical_var = "hba1c",
+      arrow_label = "HbA1c\n-0.47",
+      subset_expr = NULL
+    ),
+    tir = list(
+      data = get(paste0(tolower(cell), "_tir_delta_hvg_kpmp")),
+      fc_col = "logFC_tir_delta",
+      p_col = "p_tir_delta",
+      x_axis = "\n\nlogFC \u0394 TIR",
+      y_axis = "-log10(p-value)",
+      file_suffix = paste0("nebula/kpmp_", tolower(cell), "_tir_trtcolors"),
+      positive_text = "Positively associated \nw/ \u0394 TIR",
+      negative_text = "Negatively associated \nw/ \u0394 TIR",
+      clinical_var = "tir",
+      arrow_label = "TIR\n+9.3",
+      subset_expr = NULL
+    ),
+    avg_k_r2 = list(
+      data = get(paste0(tolower(cell), "_avg_k_r2_delta_hvg_kpmp")),
+      fc_col = "logFC_avg_k_r2_delta",
+      p_col = "p_avg_k_r2_delta",
+      x_axis = "\n\nlogFC \u0394 avg kidney R2*",
+      y_axis = "-log10(p-value)",
+      file_suffix = paste0("nebula/kpmp_", tolower(cell), "_avg_k_r2_trtcolors"),
+      positive_text = "Positively associated \nw/ \u0394 avg kidney R2*",
+      negative_text = "Negatively associated \nw/ \u0394 avg kidney R2*",
+      clinical_var = "avg_k_r2",
+      arrow_label = "Kidney R2*\n+0.50",
+      subset_expr = expression(logFC_avg_k_r2_delta > -10)
+    )
   )
+  
+  # Create empty list to store plots for this cell type
+  cell_plots <- list()
+  
+  # Loop through each clinical variable
+  for (var_name in names(plot_params)) {
+    params <- plot_params[[var_name]]
+    
+    # Get size parameters with hierarchy:
+    # 1. Start with base parameters
+    size_params <- base_size_params
+    
+    # 2. Apply cell-specific overrides if they exist
+    if (cell %in% names(cell_size_overrides)) {
+      size_params <- modifyList(size_params, cell_size_overrides[[cell]])
+    }
+    
+    # 3. Apply cell+variable specific overrides if they exist
+    cell_var_key <- paste0(cell, "_", var_name)
+    if (cell_var_key %in% names(cell_var_overrides)) {
+      size_params <- modifyList(size_params, cell_var_overrides[[cell_var_key]])
+    }
+    
+    # Apply subset if specified
+    data_to_plot <- params$data
+    if (!is.null(params$subset_expr)) {
+      data_to_plot <- subset(data_to_plot, eval(params$subset_expr))
+    }
+    
+    # Create plot
+    cell_plots[[var_name]] <- plot_volcano_concordance(
+      clin_results = data_to_plot,
+      fc = params$fc_col,
+      p_col = params$p_col,
+      x_axis = params$x_axis,
+      y_axis = params$y_axis,
+      file_suffix = params$file_suffix,
+      treatment_results = get(paste0(tolower(cell), "_hvg_kpmp")),
+      treatment_p_col = "p_treatmentDapagliflozin:visitPOST",
+      positive_text = params$positive_text,
+      negative_text = params$negative_text,
+      clinical_direction = clinical_directions[clinical_directions$variable == params$clinical_var,]$direction,
+      cell_type = toupper(cell),
+      arrow_label = params$arrow_label,
+      caption_text = NULL,
+      save = FALSE,
+      formula = NULL,
+      top_n = 20,
+      # Add all size parameters
+      label_size = size_params$label_size,
+      arrow_symbol_size = size_params$arrow_symbol_size,
+      main_arrow_size = size_params$main_arrow_size,
+      axis_title_size = size_params$axis_title_size,
+      axis_text_size = size_params$axis_text_size,
+      legend_text_size = size_params$legend_text_size,
+      caption_size = size_params$caption_size,
+      annotation_text_size = size_params$annotation_text_size,
+      text_size = size_params$text_size,
+      title_size = size_params$title_size,
+      arrow_padding = size_params$arrow_padding,
+      arrow_text_padding = size_params$arrow_text_padding,
+      x_axis_padding = size_params$x_axis_padding,
+      force = size_params$force,
+      box.padding = size_params$box.padding,
+      force_pull = size_params$force_pull,
+      nudge_y = size_params$nudge_y,
+      y_expand = size_params$y_expand,
+      ylim = size_params$ylim,
+      nudge_x = size_params$nudge_x
+    )
+    
+    # Store plot with unique name
+    plot_name <- paste0(tolower(cell), "_", var_name, "_volcano")
+    assign(plot_name, cell_plots[[var_name]])
+  }
+  
+  # Store all plots for this cell type
+  all_plots[[cell]] <- cell_plots
 }
+```
 
+
+### Section 2E: PT cells
+
+```{r eval = F}
 # Convert to ggplot objects
-p1 <- pt_main_plot
-p2 <- plots$mgfr
-p3 <- plots$hba1c
-p4 <- plots$tir
-p5 <- plots$avg_k_r2
+p1 <- pt_mgfr_volcano
+p2 <- pt_hba1c_volcano
+p3 <- pt_tir_volcano
+p4 <- pt_avg_k_r2_volcano
 
 # Extract the legend from one of the plots (e.g., p2)
 get_legend <- function(myplot) {
@@ -983,7 +1143,7 @@ get_legend <- function(myplot) {
 }
 
 # If you haven't already modified p2-p5, you can do it here:
-p3_with_solid_legend <- p3 + 
+p2_with_solid_legend <- p2 + 
   guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
   theme(legend.position = "bottom",
         legend.justification = "center",
@@ -993,39 +1153,237 @@ p3_with_solid_legend <- p3 +
 common_legend <- get_legend(p3_with_solid_legend)
 
 # Remove legends from p2-p5
+p1_no_legend <- p1 + theme(legend.position = "none")
 p2_no_legend <- p2 + theme(legend.position = "none")
 p3_no_legend <- p3 + theme(legend.position = "none")
 p4_no_legend <- p4 + theme(legend.position = "none")
-p5_no_legend <- p5 + theme(legend.position = "none")
 
-# Create the combined plots for rows 2 and 3
-middle_row <- ggarrange(p2_no_legend, p3_no_legend, ncol = 2, labels = c("A", "B"),
-                        font.label = list(size = 25))
-bottom_row <- ggarrange(p4_no_legend, p5_no_legend, ncol = 2, labels = c("C", "D"),
-                        font.label = list(size = 25))
+p <-ggarrange(ggarrange(ggarrange(pt_plots$volcano_plot, pt_plots$heatmap_plot, ncol = 2, widths = c(6,1)),
+                        ggarrange(pt_dot_legend, ggarrange(pt_plots$bar_plot, pt_plots$dot_plot, 
+                                                           nrow = 2, heights = c(1,2), align = "v"),
+                                  nrow = 2, heights = c(1, 30)),
+                        nrow = 2, heights = c(3,1), labels = "A", font.label = list(size = 30)),
+              ggarrange(p1_no_legend, p2_no_legend, ncol = 2, labels = c("B", "C"),
+                                      font.label = list(size = 25)),
+              ggarrange(p3_no_legend, p4_no_legend, ncol = 2, labels = c("D", "E"),
+                                      font.label = list(size = 25)),
+              nrow = 3, ncol = 1,
+              heights = c(2,1,1))
 
-# Combine middle and bottom rows with the common legend at the bottom
-rows_2_3_with_legend <- ggarrange(
-  ggarrange(middle_row, bottom_row, nrow = 2),
-  nrow = 2,
-  heights = c(1, 0.1),  # Adjust the height ratio between plots and legend
-  align = "h"  # Horizontal alignment
-)
-
-# Create final plot
-final_plot <- ggarrange(
-  rows_2_3_with_legend)
-
-ggsave(file.path(base_path, "Panels/pt_panel.png"), final_plot, width = 18, height = 12, dpi = 600)
+ggsave(file.path(base_path, "Panels/pt_panel.png"), p, height = 20, width = 14, dpi = 600)
 ```
 
-
-```{r}
+```{r, out.height="80%"}
 #| label: fig-pt-clin-panel
 #| fig-cap: "Proximal tubule gene expression correlations with clinical outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
 #| fig-dpi: 300
 
 knitr::include_graphics(file.path(base_path, "Panels/pt_panel.png"))
+```
+
+```{r eval = F}
+# p <- ggarrange(ggarrange(ggarrange(pt_plots$volcano_plot, pt_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
+#                     ggarrange(pt_dot_legend, pt_plots$bar_plot, pt_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
+#                     nrow = 2, heights = c(3,1), labels = "A", font.label = list(size = 30)), 
+#           ggarrange(ggarrange(tal_plots$volcano_plot, tal_plots$heatmap_plot, ncol = 2, widths = c(4,1)), 
+#                     ggarrange(tal_dot_legend, tal_plots$bar_plot, tal_plots$dot_plot, nrow = 3, heights = c(1, 10,20)),
+#                     nrow = 2, heights = c(3,1), labels = "B", font.label = list(size = 30)), 
+#           ggarrange(ggarrange(ec_plots$volcano_plot, ec_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
+#                     ggarrange(ec_dot_legend, ec_plots$bar_plot, ec_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
+#                     nrow = 2, heights = c(3,1), labels = "C", font.label = list(size = 30)), 
+#           ggarrange(ggarrange(ic_plots$volcano_plot, ic_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
+#                     ggarrange(ic_dot_legend, ic_plots$bar_plot, ic_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
+#                     nrow = 2, heights = c(3,1), labels = "D", font.label = list(size = 30)), 
+#           ggarrange(ggarrange(pod_plots$volcano_plot, pod_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
+#                     ggarrange(pod_dot_legend, pod_plots$bar_plot, pod_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
+#                     nrow = 2, heights = c(3,1), labels = "E", font.label = list(size = 30)), 
+#           nrow = 3, ncol = 2)
+# 
+# ggsave(file.path(base_path, "Panels/key_celltypes_panel.png"), p, height = 33, width = 20)
+```
+
+```{r include = F, eval = F}
+# read in all the results by looping through cell types
+for (cell in names(celltype_groups)){
+  ipa_res <- read_excel(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/kpmp/nebula/full ", tolower(cell), "_kpmp_DiD.xls"), skip = 1)
+  colnames(ipa_res) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
+  var_name = paste0(tolower(cell), "_kpmp_ipa")
+  assign(var_name, ipa_res, envir = .GlobalEnv)
+}
+
+for (cell in names(celltype_groups)) {
+  df <- get(paste0(tolower(cell), "_kpmp_ipa"))
+  
+  df_top <- df %>%
+    arrange(desc(neg_log_p)) %>%
+    filter(!is.na(z)) %>%
+    head(20) %>%
+    mutate(
+      # Keep track of which pathways were truncated
+      was_truncated = nchar(pathway) > 45,
+      pathway_short = shorten_pathway_names(pathway, max_length = 45)
+    )
+  
+  # Get truncated pathways for caption
+  truncated_pathways <- df_top %>%
+    filter(was_truncated) %>%
+    mutate(
+      # Wrap long pathway names
+      full_wrapped = sapply(pathway, function(x) {
+        if (nchar(x) > 45) {
+          paste(strwrap(x, width = 70), collapse = "\n    ")  # Indent continuation lines
+        } else {
+          x
+        }
+      })
+    ) %>%
+    dplyr::select(pathway_short, full_wrapped)
+  
+  # Create caption
+  base_caption <- paste0("Cell type: ", gsub("_", " ", cell))
+  
+  if (nrow(truncated_pathways) > 0) {
+    truncated_text <- paste(
+      apply(truncated_pathways, 1, function(x) {
+        paste0(x["full_wrapped"])
+      }), 
+      collapse = "\n"
+    )
+    full_caption <- paste0(base_caption, "\n\nTruncated pathways:\n", truncated_text)
+  } else {
+    full_caption <- base_caption
+  }
+  
+  df_top$pathway <- factor(df_top$pathway_short, 
+                          levels = rev(df_top$pathway_short))
+  
+  p <- df_top %>%
+    ggplot(aes(y = pathway, x = neg_log_p, fill = z)) +
+    geom_col(width = 0.9) + 
+    geom_vline(xintercept = -log10(0.05), linetype = "dashed", color = "#aaaaaa") +
+    geom_text(aes(label = pathway), 
+              x = -log10(0.05)+0.1, hjust = 0, 
+              fontface = "bold", family = "Arial",
+              color = "#2b2b2b") +
+    scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0,
+                         guide = guide_colorbar(barheight = 0.4, barwidth = 8)) +
+    theme_minimal() +
+    theme(panel.grid = element_blank(), 
+          legend.position = "top",
+          axis.text.y = element_blank(),
+          legend.title = element_text(vjust = 0.8),
+          plot.caption = element_text(hjust = 0, size = 8, lineheight = 1.2)) +
+    labs(y = NULL, x = "-log(p-value)", fill = "Z-score",
+         caption = full_caption) +
+    scale_x_continuous(expand = expansion(mult = c(0, 0)))
+  
+  assign(paste0(tolower(cell), "_ipa"), p)
+}
+
+# IPA
+# Convert to ggplot objects
+p1 <- pt_ipa
+p2 <- tal_ipa
+p3 <- ec_ipa
+p4 <- ic_ipa
+p5 <- pod_ipa
+
+combined_ipa <- ggarrange(p1, p2, p3, p4, p5, ncol = 3, nrow = 2, labels = "AUTO")
+ggsave(file.path(base_path, "Panels/key_combined_ipa.png"), combined_ipa, height = 12, width = 12)
+```
+
+```{r, out.height="80%"}
+#| label: fig-ipa-main
+#| fig-cap: "Pathway analysis using IPA on key cell types."
+#| fig-dpi: 300
+
+knitr::include_graphics(file.path(base_path, "Panels/key_combined_ipa.png"))
+```
+
+```{r, eval = F}
+for (cell in names(celltype_groups)) {
+  gsea_list <- readRDS(file.path(root_path, 
+                                 paste0("ATTEMPT/Results/GSEA/full_", tolower(cell), "_gsea.RDS")))
+  
+  reactome_top <- gsea_list$reactome %>%
+    arrange(pval) %>%
+    head(20) %>%
+    mutate(
+      # Keep track of which pathways were truncated
+      was_truncated = nchar(pathway) > 45,
+      clean_pathway = clean_pathway_names(shorten_pathway_names(pathway, max_length = 45)),
+      neg_log_p = -log10(pval)
+    )
+  
+ # Get truncated pathways for caption
+truncated_pathways <- reactome_top %>%
+  filter(was_truncated) %>%
+  dplyr::mutate(
+    full_clean = clean_pathway_names(pathway),
+    # Using stringr for more consistent wrapping
+    full_clean_wrapped = str_wrap(full_clean, width = 70, indent = 0, exdent = 4)
+  ) %>%
+  dplyr::select(clean_pathway, full_clean_wrapped)
+  
+  # Create caption
+  base_caption <- paste0("Cell type: ", gsub("_", " ", cell))
+  
+  if (nrow(truncated_pathways) > 0) {
+    truncated_text <- paste(
+      apply(truncated_pathways, 1, function(x) {
+        paste0(x["full_clean_wrapped"])
+      }), 
+      collapse = "\n"
+    )
+    full_caption <- paste0(base_caption, "\n\nTruncated pathways:\n", truncated_text)
+  } else {
+    full_caption <- base_caption
+  }
+  
+  reactome_top$clean_pathway <- factor(reactome_top$clean_pathway, 
+                                       levels = rev(reactome_top$clean_pathway))
+  
+  p <- reactome_top %>%
+    ggplot(aes(y = clean_pathway, x = neg_log_p, fill = NES)) +
+    geom_col(width = 0.9) + 
+    geom_vline(xintercept = -log10(0.05), linetype = "dashed", color = "#aaaaaa") +
+    geom_text(aes(label = clean_pathway), 
+              x = -log10(0.05)+0.1, hjust = 0, 
+              fontface = "bold", family = "Arial",
+              color = "#2b2b2b") +
+    scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0,
+                         guide = guide_colorbar(barheight = 0.4, barwidth = 8)) +
+    theme_minimal() +
+    theme(panel.grid = element_blank(), 
+          legend.position = "top",
+          axis.text.y = element_blank(),
+          legend.title = element_text(vjust = 0.8),
+          plot.caption = element_text(hjust = 0, size = 8, lineheight = 1.2)) +  # Added lineheight
+    labs(y = NULL, x = "-log(p-value)", fill = "NES",
+         caption = full_caption) +
+    scale_x_continuous(expand = expansion(mult = c(0, 0)))
+  
+  assign(paste0(tolower(cell), "_reactome"), p)
+}
+
+# IPA
+# Convert to ggplot objects
+p1 <- pt_reactome
+p2 <- tal_reactome
+p3 <- ec_reactome
+p4 <- ic_reactome
+p5 <- pod_reactome
+
+combined_reactome <- ggarrange(p1, p2, p3, p4, p5, ncol = 3, nrow = 2, labels = "AUTO")
+ggsave(file.path(base_path, "Panels/key_combined_reactome.png"), combined_reactome, height = 12, width = 12)
+```
+
+```{r, out.height="80%"}
+#| label: fig-reactome-main
+#| fig-cap: "Gene set enrichment using REACTOME on key cell types."
+#| fig-dpi: 300
+
+knitr::include_graphics(file.path(base_path, "Panels/key_combined_reactome.png"))
 ```
 
 
@@ -1064,60 +1422,253 @@ ggsave(file.path(base_path, "Proportions/attempt_pt_visit_treatment_proportions_
 # Read images
 img1 <- image_read(file.path(base_path, "Slingshot/attempt_pca_pt_kpmp_slingshot.png"))
 img2 <- image_read(file.path(base_path, "Slingshot/attempt_pt_kpmp_slingshot_density_trtvisit.png"))
+img4 <- image_read(file.path(base_path, "Slingshot/attempt_density_pt_kpmp_mgfr_jodal_bsa_deltadelta_slingshot.png"))
+img5 <- image_read(file.path(base_path, "Slingshot/attempt_density_pt_kpmp_hba1c_deltadelta_slingshot.png"))
+img6 <- image_read(file.path(base_path, "Slingshot/attempt_density_pt_kpmp_tir_deltadelta_slingshot.png"))
 
 # Convert to ggplot objects
 p1 <- image_ggplot(img1)
 p2 <- image_ggplot(img2)
-
+p4 <- image_ggplot(img4)
+p5 <- image_ggplot(img5)
+p6 <- image_ggplot(img6)
 
 ggarrange(
-  p2, labels = "A", nrow = 2, label.x = 0.15,
-  ggarrange(p1, p3, ncol = 2, labels = c("B", "C")))
-ggsave(file.path(base_path, "Panels/slingshot_panel.png"), dpi = 600)
+  p2, labels = "A", nrow = 2,
+  ggarrange(p1, p3, 
+            p4, p5,
+            p6, ncol = 2, nrow = 3, 
+            labels = c("B", "C", "D", "E", "F"),
+            heights = c(3,2,2)),
+  heights = c(1,2))
+ggsave(file.path(base_path, "Panels/slingshot_panel.png"), dpi = 600, height = 12)
 
 ```
 
 ```{r, out.width="100%"}
 #| label: fig-pt-pseudotime
-#| fig-cap: "Proximal tubule pseudotime trajectory analysis. (A) Cell density distribution along pseudotime. (B) PCA plot with inferred lineage trajectory. (C) Proportion plot of PT cells in each treatment/visit groups."
+#| fig-cap: "Proximal tubule pseudotime trajectory analysis. (A) Cell density distribution along pseudotime. (B) PCA plot with inferred lineage trajectory. (C) Proportion plot of PT cells in each treatment/visit groups. (D-F) Clinical parameter changes along proximal tubule pseudotime. Correlation of pseudotime progression with change in mGFR and change in HbA1c"
 #| fig-dpi: 300
 
 knitr::include_graphics(file.path(base_path, "Panels/slingshot_panel.png"))
 ```
 
-```{r, out.width="100%"}
-#| label: fig-pt-pseudotime-clinical
-#| fig-cap: "Clinical parameter changes along proximal tubule pseudotime. Correlation of pseudotime progression with change in mGFR and change in HbA1c"
+### Section 2E: TAL cells
+
+```{r eval = F}
+# Convert to ggplot objects
+p1 <- tal_mgfr_volcano
+p2 <- tal_hba1c_volcano
+p3 <- tal_tir_volcano
+p4 <- tal_avg_k_r2_volcano
+
+# Extract the legend from one of the plots (e.g., p2)
+get_legend <- function(myplot) {
+  tmp <- ggplot_gtable(ggplot_build(myplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)
+}
+
+# If you haven't already modified p2-p5, you can do it here:
+p2_with_solid_legend <- p2 + 
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.box.just = "center")
+
+# Extract legend from the modified p2
+common_legend <- get_legend(p2_with_solid_legend)
+
+# Remove legends from p2-p5
+p1_no_legend <- p1 + theme(legend.position = "none")
+p2_no_legend <- p2 + theme(legend.position = "none")
+p3_no_legend <- p3 + theme(legend.position = "none")
+p4_no_legend <- p4 + theme(legend.position = "none")
+
+p <-ggarrange(ggarrange(ggarrange(tal_plots$volcano_plot, tal_plots$heatmap_plot, ncol = 2, widths = c(6,1)),
+                        ggarrange(tal_dot_legend, ggarrange(tal_plots$bar_plot, tal_plots$dot_plot, 
+                                                           nrow = 2, heights = c(1,2), align = "v"),
+                                  nrow = 2, heights = c(1, 30)),
+                        nrow = 2, heights = c(3,1), labels = "A", font.label = list(size = 25)),
+              ggarrange(p1_no_legend, p2_no_legend, ncol = 2, labels = c("B", "C"),
+                                      font.label = list(size = 25)),
+              ggarrange(p3_no_legend, p4_no_legend, ncol = 2, labels = c("D", "E"),
+                                      font.label = list(size = 25)),
+              nrow = 3, ncol = 1,
+              heights = c(2,1,1))
+
+ggsave(file.path(base_path, "Panels/tal_panel.png"), p, height = 20, width = 15, dpi = 600)
+```
+
+```{r}
+#| label: fig-tal-clin-panel
+#| fig-cap: "TAL gene expression correlations with clinical outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
 #| fig-dpi: 300
 
-# Read images
-img1 <- image_read(file.path(base_path, "Slingshot/attempt_density_pt_kpmp_mgfr_jodal_bsa_deltadelta_slingshot.png"))
-img2 <- image_read(file.path(base_path, "Slingshot/attempt_density_pt_kpmp_hba1c_deltadelta_slingshot.png"))
-img3 <- image_read(file.path(base_path, "Slingshot/attempt_density_pt_kpmp_tir_deltadelta_slingshot.png"))
-
-# Convert to ggplot objects
-p1 <- image_ggplot(img1)
-p2 <- image_ggplot(img2)
-p3 <- image_ggplot(img3)
-
-ggarrange(p1, p2, p3, labels = "AUTO")
+knitr::include_graphics(file.path(base_path, "Panels/tal_panel.png"))
 ```
+### Section 2E: EC cells
+
+```{r eval = F}
+# Convert to ggplot objects
+p1 <- ec_mgfr_volcano
+p2 <- ec_hba1c_volcano
+p3 <- ec_tir_volcano
+p4 <- ec_avg_k_r2_volcano
+
+p2_with_solid_legend <- p2 + 
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.box.just = "center")
+
+# Extract legend from the modified p2
+common_legend <- get_legend(p2_with_solid_legend)
+
+# Remove legends from p2-p5
+p1_no_legend <- p1 + theme(legend.position = "none")
+p2_no_legend <- p2 + theme(legend.position = "none")
+p3_no_legend <- p3 + theme(legend.position = "none")
+p4_no_legend <- p4 + theme(legend.position = "none")
+
+p <-ggarrange(ggarrange(ggarrange(ec_plots$volcano_plot, ec_plots$heatmap_plot, ncol = 2, widths = c(6,1)),
+                        ggarrange(ec_dot_legend, ggarrange(ec_plots$bar_plot, ec_plots$dot_plot, 
+                                                           nrow = 2, heights = c(1,2), align = "v"),
+                                  nrow = 2, heights = c(1, 30)),
+                        nrow = 2, heights = c(5,2), labels = "A", font.label = list(size = 25)),
+              ggarrange(p1_no_legend, p2_no_legend, ncol = 2, labels = c("B", "C"),
+                                      font.label = list(size = 25)),
+              ggarrange(p3_no_legend, p4_no_legend, ncol = 2, labels = c("D", "E"),
+                                      font.label = list(size = 25)),
+              nrow = 3, ncol = 1,
+              heights = c(2,1,1))
+
+ggsave(file.path(base_path, "Panels/ec_panel.png"), p, height = 23, width = 15, dpi = 600)
+```
+
+```{r}
+#| label: fig-ec-clin-panel
+#| fig-cap: "EC gene expression correlations with clinical outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
+#| fig-dpi: 300
+
+knitr::include_graphics(file.path(base_path, "Panels/ec_panel.png"))
+```
+
+
+### Section 2E: IC cells
+
+```{r eval = F}
+# Convert to ggplot objects
+p1 <- ic_mgfr_volcano
+p2 <- ic_hba1c_volcano
+p3 <- ic_tir_volcano
+p4 <- ic_avg_k_r2_volcano
+
+p2_with_solid_legend <- p2 + 
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
+  theme(legend.position = "bottom",
+        legend.justification = "center",
+        legend.box.just = "center")
+
+# Extract legend from the modified p2
+common_legend <- get_legend(p2_with_solid_legend)
+
+# Remove legends from p2-p5
+p1_no_legend <- p1 + theme(legend.position = "none")
+p2_no_legend <- p2 + theme(legend.position = "none")
+p3_no_legend <- p3 + theme(legend.position = "none")
+p4_no_legend <- p4 + theme(legend.position = "none")
+
+p <-ggarrange(ggarrange(ggarrange(ic_plots$volcano_plot, ic_plots$heatmap_plot, ncol = 2, widths = c(6,1)),
+                        ggarrange(ic_dot_legend, ggarrange(ic_plots$bar_plot, ic_plots$dot_plot, 
+                                                           nrow = 2, heights = c(1,2), align = "v"),
+                                  nrow = 2, heights = c(1, 30)),
+                        nrow = 2, heights = c(5,2), labels = "A", font.label = list(size = 25)),
+              ggarrange(p1_no_legend, p2_no_legend, ncol = 2, labels = c("B", "C"),
+                                      font.label = list(size = 25)),
+              ggarrange(p3_no_legend, p4_no_legend, ncol = 2, labels = c("D", "E"),
+                                      font.label = list(size = 25)),
+              nrow = 3, ncol = 1,
+              heights = c(2,1,1))
+
+ggsave(file.path(base_path, "Panels/ic_panel.png"), p, height = 22, width = 15, dpi = 600)
+```
+
+```{r}
+#| label: fig-ic-clin-panel
+#| fig-cap: "IC gene expression correlations with clinical outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
+#| fig-dpi: 300
+
+knitr::include_graphics(file.path(base_path, "Panels/ic_panel.png"))
+```
+
+### Section 2E: POD cells
+
+```{r eval = F}
+# Convert to ggplot objects
+p1 <- pod_mgfr_volcano
+p2 <- pod_hba1c_volcano
+p3 <- pod_tir_volcano
+p4 <- pod_avg_k_r2_volcano
+
+p2_with_solid_legend <- p2 + 
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
+  theme(legend.position = "bottom",
+        legend.justifpodation = "center",
+        legend.box.just = "center")
+
+# Extract legend from the modified p2
+common_legend <- get_legend(p2_with_solid_legend)
+
+# Remove legends from p2-p5
+p1_no_legend <- p1 + theme(legend.position = "none")
+p2_no_legend <- p2 + theme(legend.position = "none")
+p3_no_legend <- p3 + theme(legend.position = "none")
+p4_no_legend <- p4 + theme(legend.position = "none")
+
+p <-ggarrange(ggarrange(ggarrange(pod_plots$volcano_plot, pod_plots$heatmap_plot, ncol = 2, widths = c(6,1)),
+                        ggarrange(pod_dot_legend, ggarrange(pod_plots$bar_plot, pod_plots$dot_plot, 
+                                                           nrow = 2, heights = c(1,2), align = "v"),
+                                  nrow = 2, heights = c(1, 30)),
+                        nrow = 2, heights = c(5,2), labels = "A", font.label = list(size = 25)),
+              ggarrange(p1_no_legend, p2_no_legend, ncol = 2, labels = c("B", "C"),
+                                      font.label = list(size = 25)),
+              ggarrange(p3_no_legend, p4_no_legend, ncol = 2, labels = c("D", "E"),
+                                      font.label = list(size = 25)),
+              nrow = 3, ncol = 1,
+              heights = c(2,1,1))
+
+ggsave(file.path(base_path, "Panels/pod_panel.png"), p, height = 22, width = 15, dpi = 600)
+```
+
+```{r}
+#| label: fig-pod-clin-panel
+#| fig-cap: "POD gene expression correlations with clinpodal outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
+#| fig-dpi: 300
+
+knitr::include_graphics(file.path(base_path, "Panels/pod_panel.png"))
+```
+
 
 ### Section 2E: Other cell types
 
 ```{r, eval = F}
-ggarrange(ggarrange(ggarrange(pod_plots$volcano_plot, pod_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
-                    ggarrange(pod_dot_legend, pod_plots$bar_plot, pod_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
+ggarrange(ggarrange(ggarrange(pc_plots$volcano_plot, pc_plots$heatmap_plot, ncol = 2, widths = c(4,1)), 
+                    ggarrange(pc_dot_legend, ggarrange(pc_plots$bar_plot, pc_plots$dot_plot, 
+                                                       nrow = 2, heights = c(1,2), align = "v"),
+                              nrow = 2, heights = c(1, 30)),
                     nrow = 2, heights = c(3,1), labels = "A", font.label = list(size = 30)), 
-          ggarrange(ggarrange(pc_plots$volcano_plot, pc_plots$heatmap_plot, ncol = 2, widths = c(4,1)), 
-                    ggarrange(pc_dot_legend, pc_plots$bar_plot, pc_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
-                    nrow = 2, heights = c(3,1), labels = "B", font.label = list(size = 30)), 
           ggarrange(ggarrange(vsmc_p_fib_plots$volcano_plot, vsmc_p_fib_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
-                    ggarrange(vsmc_p_fib_dot_legend, vsmc_p_fib_plots$bar_plot, vsmc_p_fib_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
-                    nrow = 2, heights = c(3,1), labels = "C", font.label = list(size = 30)), 
+                    ggarrange(vsmc_p_fib_dot_legend, ggarrange(vsmc_p_fib_plots$bar_plot, vsmc_p_fib_plots$dot_plot, 
+                                                       nrow = 2, heights = c(1,2), align = "v"),
+                              nrow = 2, heights = c(1, 30)),
+                    nrow = 2, heights = c(3,1), labels = "B", font.label = list(size = 30)), 
           ggarrange(ggarrange(immune_plots$volcano_plot, immune_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
-                    ggarrange(immune_dot_legend, immune_plots$bar_plot, immune_plots$dot_plot, nrow = 3, heights = c(1, 10,20)), 
-                    nrow = 2, heights = c(3,1), labels = "D", font.label = list(size = 30)), 
+                    ggarrange(immune_dot_legend, ggarrange(immune_plots$bar_plot, immune_plots$dot_plot, 
+                                                       nrow = 2, heights = c(1,2), align = "v"),
+                              nrow = 2, heights = c(1, 30)),
+                    nrow = 2, heights = c(3,1), labels = "C", font.label = list(size = 30)), 
           nrow = 2, ncol = 2)
 
 ggsave(file.path(base_path, "Panels/other_celltypes_panel.png"), height = 22, width = 20)
@@ -1129,6 +1680,7 @@ ggsave(file.path(base_path, "Panels/other_celltypes_panel.png"), height = 22, wi
 #| fig-dpi: 300
 knitr::include_graphics(file.path(base_path, "Panels/other_celltypes_panel.png"))
 ```
+
 
 ## Section 2F
 
@@ -1142,22 +1694,160 @@ knitr::include_graphics(file.path(base_path, "Proteomics/Volcano Plots/Volcano_D
 
 ## Section 2G
 
-```{r, out.width="100%", out.height = NULL}
+```{r, include = F}
+for (cell in names(celltype_groups)) {
+  message("Processing: ", cell)
+  p <- plot_croc_attempt_volcano(
+    attempt_df = get(paste0(tolower(cell), "_kpmp")),
+    croc_df = get(paste0(tolower(cell), "_croc_targeted_res")),
+    cell_type = cell,
+    caption = F,
+    top_n = 20)
+  assign(paste0(tolower(cell), "_croc_p"), p)
+}
+```
+
+
+```{r, include = F}
+# Convert to ggplot objects
+p1 <- pt_croc_p
+p2 <- tal_croc_p
+p3 <- ec_croc_p
+p4 <- ic_croc_p
+p5 <- pod_croc_p
+
+p <- ggarrange(p1, p2, p3, p4, p5, nrow = 3, ncol = 2, labels = "AUTO")
+ggsave(file.path(base_path, "Panels/croc_targeted_panels_main.png"), p, 
+       height = 14, width = 10, dpi = 600)
+```
+
+```{r, out.height="80%"}
 #| label: fig-croc-reversals
 #| fig-cap: "CROCODILE reversal analysis. Volcano plot displaying gene expression changes associated with improved renal outcomes"
 #| fig-dpi: 300
 
-# Read images
-img1 <- image_read(file.path(base_path, "CROCODILE comparison/Volcano Plots/kpmp_pt_targeted_volcano_attempt_directions_labeled.png"))
-img2 <- image_read(file.path(base_path, "CROCODILE comparison/Volcano Plots/kpmp_tal_targeted_volcano_attempt_directions_labeled.png"))
-img3 <- image_read(file.path(base_path, "CROCODILE comparison/Volcano Plots/kpmp_ec_targeted_volcano_attempt_directions_labeled.png"))
-img4 <- image_read(file.path(base_path, "CROCODILE comparison/Volcano Plots/kpmp_ic_targeted_volcano_attempt_directions_labeled.png"))
+knitr::include_graphics(file.path(base_path, "Panels/croc_targeted_panels_main.png"))
+```
 
-# Convert to ggplot objects
-p1 <- image_ggplot(img1)
-p2 <- image_ggplot(img2)
-p3 <- image_ggplot(img3)
-p4 <- image_ggplot(img4)
 
-ggarrange(p1, p2, p3, p4, nrow = 2, ncol = 2, labels = "AUTO")
+```{r, include = F}
+# do you think we should create a bar graph showing medulla R2* between LC vs. T1D in one color (CROC) and medullary R2* between SGLT2i vs. dapa (ATTEMPT) in another color
+load(file = file.path(root_path, "/CROCODILE/Data_Cleaned/croc_data.RData"))
+croc_dat <- dat
+croc_comp_df <- croc_dat %>%
+  dplyr::select(subject_id = record_id, visit, group, avg_m_r2) %>%
+  filter(!is.na(avg_m_r2))
+
+attempt_comp_df <- attempt_dat %>%
+  filter(site == "Denver") %>%
+  dplyr::select(subject_id, visit, group = treatment, avg_m_r2) %>%
+  filter(!is.na(avg_m_r2))
+
+comp_df <- rbind(croc_comp_df, attempt_comp_df)
+```
+
+
+```{r, include = F}
+# ----- 1) PAIRED CHANGES: Placebo & Dapagliflozin (Δ = visit16 - visit-4) -----
+paired_changes <- comp_df %>%
+  filter(group %in% c("Placebo", "Dapagliflozin 5mg"),
+         visit %in% c(-4, 16)) %>%
+  group_by(subject_id, group) %>%
+  summarise(delta = diff(avg_m_r2[order(visit)]), .groups = "drop")
+
+paired_summary <- paired_changes %>%
+  group_by(group) %>%
+  summarise(
+    n          = n(),
+    mean_delta = mean(delta, na.rm = TRUE),
+    sd_delta   = sd(delta, na.rm = TRUE),
+    se         = sd_delta / sqrt(n),
+    ci_low     = mean_delta + qt(0.025, df = n - 1) * se,
+    ci_high    = mean_delta + qt(0.975, df = n - 1) * se,
+    # p-value for within-group change vs 0
+    p_value    = t.test(delta, mu = 0)$p.value,
+    .groups = "drop"
+  )
+
+# ----- 2) BASELINE DIFFERENCE: Type 1 Diabetes – Lean Control -----
+baseline_comp <- comp_df %>%
+  filter(group %in% c("Lean Control", "Type 1 Diabetes"),
+         visit == "baseline")
+baseline_comp$group <- factor(baseline_comp$group, levels = c("Type 1 Diabetes", "Lean Control"))
+
+tt_t1d <- t.test(avg_m_r2 ~ group, data = baseline_comp)  # Welch
+
+# get group sizes
+n_t1d  <- sum(baseline_comp$group == "Type 1 Diabetes")
+n_lean <- sum(baseline_comp$group == "Lean Control")
+
+baseline_diff_row <- tibble(
+  group      = "Type 1 Diabetes - Lean Control",
+  n          = n_t1d + n_lean,                         # total N as integer
+  mean_delta = unname(diff(tt_t1d$estimate)),          # T1D − Lean
+  sd_delta   = NA_real_,
+  se         = NA_real_,
+  ci_low     = tt_t1d$conf.int[1],
+  ci_high    = tt_t1d$conf.int[2],
+  p_value    = tt_t1d$p.value
+)
+
+# ----- 3) COMBINE -----
+final_summary <- bind_rows(paired_summary, baseline_diff_row)
+
+final_summary
+
+# ----- 4) DiD -----
+# t-test for difference in mean deltas (Dapa vs Placebo)
+paired_changes$group <- factor(paired_changes$group, levels = c("Placebo", "Dapagliflozin 5mg"))
+tt_did <- t.test(delta ~ group, data = paired_changes)
+
+did_row <- tibble(
+  group      = "Dapagliflozin - Placebo (DiD)",
+  n          = nrow(paired_changes),   # total N across both groups
+  mean_delta = unname(diff(tt_did$estimate)),  # mean ΔDapa − mean ΔPlacebo
+  sd_delta   = NA_real_,
+  se         = NA_real_,
+  ci_low     = tt_did$conf.int[1],
+  ci_high    = tt_did$conf.int[2],
+  p_value    = tt_did$p.value
+)
+
+# add into the final summary
+final_summary2 <- bind_rows(final_summary, did_row)
+
+final_summary2
+
+final_summary2$group <- factor(final_summary2$group, labels = c("HC - T1D", "DiD\n(D - P)",
+                                                               "Placebo\n(POST - PRE)", "Dapagliflozin\n(POST - PRE)"),
+                              levels = c("Type 1 Diabetes - Lean Control", "Dapagliflozin - Placebo (DiD)",
+                                         "Placebo", "Dapagliflozin 5mg"))
+
+```
+
+```{r, out.height="80%"}
+#| label: fig-croc-m-r2
+#| fig-cap: "CROCODILE reversal analysis. Medulla R2* showed reversal post treatment towards healthy state."
+#| fig-dpi: 300
+
+fill_colors = c("Placebo\n(POST - PRE)" = "#f8ae9d", 
+                "Dapagliflozin\n(POST - PRE)" = "#a7b298",
+                "DiD\n(D - P)" = "#669bbc",
+                "HC - T1D" = "#A3C4BC")
+                                   
+final_summary2 %>%
+  filter(group %in% c("DiD\n(D - P)", "HC - T1D")) %>%
+  ggplot(aes(x = group, y = mean_delta, fill = group)) +
+  geom_col() +
+  geom_hline(yintercept = 0, size = 0.2) +
+  theme_minimal(base_size = 15) +
+  theme(
+    axis.text.x = element_text(angle = 60,
+                               hjust = 1),
+    axis.ticks = element_line(color = "grey"),
+    panel.grid = element_blank()
+  ) +
+  guides(fill = "none") +
+  labs(x = NULL, y = "\u0394Medulla R2*") +
+  scale_fill_manual(values = fill_colors)
 ```
