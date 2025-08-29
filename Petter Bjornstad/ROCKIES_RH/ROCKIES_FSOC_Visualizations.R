@@ -61,7 +61,7 @@ dat <- harmonized_data %>%
 dat2 <- dat %>% filter(visit == 'baseline') %>% 
 #  filter(study %in% c('RENAL-HEIR', 'RENAL-HEIRitage', 'CROCODILE') | record_id == 'IT_19') %>%
 #  filter(group != 'Obese Control') %>% 
-  dplyr::select(mrn, record_id, study, visit, group, starts_with('fsoc'), bmi, 
+  dplyr::select(mrn, record_id, study, visit, group, starts_with('fsoc'), bmi, hba1c,
                 epic_sglti2_1, age, sex, epic_mfm_1, epic_insulin_1, epic_glp1ra_1)
 
 dat2 <- dat2[-which(dat2$group == 'Type 1 Diabetes'),]
@@ -76,7 +76,7 @@ tests <- c('fsoc_l_cortex', 'fsoc_r_cortex',
 graphs <- list()
 
 
-dat2 <- dat2 %>% filter(!is.na(fsoc_l_cortex))
+dat2 <- dat2 %>% filter(!is.na(fsoc_l_cortex) | !is.na(fsoc_r_cortex))
 
 dat2$group2 <- dat2$group
 
@@ -177,10 +177,11 @@ for(i in c(1:nrow(improve_small))){
 dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
 
 dat2$group2[which(dat2$group == 'Obese Control')] <- 'Obese Control' 
+dat2$group2[which(dat2$group == 'Lean Control')] <- 'Lean Control' 
 
-dat2$group2[which(dat2$group %in% c('Obese Control', 'Lean Control'))] <- 'Control'
 
-dat2 <- dat2 %>% filter(!is.na(fsoc_l_cortex))
+
+dat2 <- dat2 %>% filter(!is.na(fsoc_l_cortex) | !is.na(fsoc_r_cortex))
 
 
 
@@ -236,7 +237,8 @@ dat_results_combined <- dat_results %>%
   mutate(group2 = 'T2D Combined')
 
 df_plot <- bind_rows(dat_results, dat_results_combined) %>% 
-  mutate(group2 = factor(group2, levels = c('Control', 
+  mutate(group2 = factor(group2, levels = c('Lean Control',
+                                            'Obese Control',
                                             'T2D-No SGLTi2', 
                                             'T2D-SGLTi2',
                                             'T2D Combined')))
@@ -253,8 +255,9 @@ df_plot <- df_plot %>% mutate(position = ifelse(group2 == 'T2D-No SGLTi2', 1.7, 
 
 
 
-table1::table1(~age + sex + bmi+study + epic_mfm_1+epic_insulin_1+epic_glp1ra_1+epic_sglti2_1 + fsoc_l_cortex | group2,data=dat_results %>% 
-                 filter(!is.na(fsoc_l_cortex)))
+table1::table1(~age + sex + bmi+ hba1c + study + epic_mfm_1+epic_insulin_1+epic_glp1ra_1+epic_sglti2_1 + fsoc_l_kidney + fsoc_r_kidney | group2,
+               data=dat_results %>% 
+                 filter(!is.na(fsoc_l_cortex) | !is.na(fsoc_r_cortex)))
 
 
 
@@ -264,7 +267,14 @@ boxplot_function <- function(data, variable, label, method){
   data <- data %>% dplyr::select(group2, var_index)
   names(data)[2] <- 'Variable'
   
-  data <- data %>% mutate(position = ifelse(group2 == 'T2D-No SGLTi2', 1.7, ifelse(group2 == 'T2D-SGLTi2', 2.0, NA)))
+  data <- data %>% 
+    mutate(position = case_when(
+      group2 == 'Lean Control' ~ 1,
+      group2 == 'Obese Control' ~ 2,
+      group2 == 'T2D-No SGLTi2' ~ 2.8,
+      group2 == 'T2D-SGLTi2' ~ 3.2,
+      group2 == 'T2D Combined' ~ 3, 
+      TRUE ~ NA_real_))
   
   if(method == 'ANOVA'){
   model <- aov(Variable ~ group2, data = data)
@@ -275,22 +285,37 @@ boxplot_function <- function(data, variable, label, method){
     mutate(pvalue = ifelse(`p adj` < 0.001, '< 0.001', 
                            paste0('p = ', round(`p adj`, 3))))
   
-  pval_T2D_noslgt2_control <- model_results$pvalue[which(rownames(model_results) == 'T2D-No SGLTi2-Control')] %>%
+  pval_T2D_noslgt2_lean <- model_results$pvalue[which(rownames(model_results) == 'T2D-No SGLTi2-Lean Control')] %>%
     as.character()
-  pval_T2D_total_control <- model_results$pvalue[which(rownames(model_results) == 'T2D Combined-Control')] %>% 
+  pval_T2D_total_lean <- model_results$pvalue[which(rownames(model_results) == 'T2D Combined-Lean Control')] %>% 
+    as.character()
+  pval_T2D_noslgt2_obese <- model_results$pvalue[which(rownames(model_results) == 'T2D-No SGLTi2-Obese Control')] %>%
+    as.character()
+  pval_T2D_total_obese <- model_results$pvalue[which(rownames(model_results) == 'T2D Combined-Obese Control')] %>% 
     as.character()
   pval_T2D_comparison <- model_results$pvalue[which(rownames(model_results) == 'T2D-SGLTi2-T2D-No SGLTi2')] %>% 
     as.character()
+  
   }else if(method == 't-test'){
-    tmp_df <- data %>% filter(group2 %in% c('T2D-No SGLTi2', 'Control'))
+    tmp_df <- data %>% filter(group2 %in% c('T2D-No SGLTi2', 'Lean Control'))
     model1 <- t.test(Variable ~ group2, data = tmp_df)
-    pval_T2D_noslgt2_control <- ifelse(model1$p.value < 0.001, '< 0.001', 
+    pval_T2D_noslgt2_lean <- ifelse(model1$p.value < 0.001, '< 0.001', 
                                        paste0('p = ', round(model1$p.value, 3)))
     
-    tmp_df <- data %>% filter(group2 %in% c('T2D Combined', 'Control'))
+    tmp_df <- data %>% filter(group2 %in% c('T2D Combined', 'Lean Control'))
     model1 <- t.test(Variable ~ group2, data = tmp_df)
-    pval_T2D_total_control <- ifelse(model1$p.value < 0.001, '< 0.001', 
+    pval_T2D_total_lean <- ifelse(model1$p.value < 0.001, '< 0.001', 
                                        paste0('p = ', round(model1$p.value, 3)))
+    
+    tmp_df <- data %>% filter(group2 %in% c('T2D-No SGLTi2', 'Obese Control'))
+    model1 <- t.test(Variable ~ group2, data = tmp_df)
+    pval_T2D_noslgt2_obese <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                                    paste0('p = ', round(model1$p.value, 3)))
+    
+    tmp_df <- data %>% filter(group2 %in% c('T2D Combined', 'Obese Control'))
+    model1 <- t.test(Variable ~ group2, data = tmp_df)
+    pval_T2D_total_obese <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                                  paste0('p = ', round(model1$p.value, 3)))
     
     tmp_df <- data %>% filter(group2 %in% c('T2D-No SGLTi2', 'T2D-SGLTi2'))
     model1 <- t.test(Variable ~ group2, data = tmp_df)
@@ -305,43 +330,68 @@ boxplot_function <- function(data, variable, label, method){
   y_range <- diff(range(data$Variable, na.rm = TRUE))
 
     
-  plot <- ggplot(data %>% dplyr::filter(group2 %in% c('Control', 'T2D Combined')), aes(x = group2, y = Variable, fill = group2))  +
-    geom_boxplot(width = 1.3, size = 1)+
-    scale_fill_manual(values = c("#c2dfe3", "#fff9ec", "#fcb1a6", "#fb6376")) +
+  plot <- ggplot(data %>% dplyr::filter(group2 %in% c('Lean Control', 'Obese Control', 'T2D Combined')), 
+                 aes(x = position, y = Variable, fill = group2))  +
+    geom_boxplot(width = 0.6, size = 1)+
+    scale_fill_manual(values = c("#c2dfe3", "#9bc1bc", "#fff9ec", "#fcb1a6", "#fb6376")) +
     geom_boxplot(data = data %>%
                    dplyr::filter(group2 %in% c('T2D-No SGLTi2', 'T2D-SGLTi2')), 
                  aes(x = position, y=Variable, fill = group2), width = 0.1, size = 1)+
     labs(x= 'Study Group', y = label, fill = 'Study Group')+
+    scale_x_continuous(breaks = c(1, 2, 2.8, 3, 3.2), 
+                       labels = c('Lean Control', 'Obese Control', 'T2D-No SGLT2', 'T2D Combined', 'T2D-SGLT2'),
+                       limits = c(0.5, 4.1), 
+                       expand = expansion(mult = c(0.05, 0.05)))+
     theme_minimal()+
     theme(axis.text.x = element_blank(),
           text = element_text(size = 20))
   
   plot <- plot + 
-    geom_segment(aes(x = 1, xend = 2, y = y_max + 0.15 * y_range, yend = y_max + 0.15 * y_range), 
+    # T2D Combined vs Lean Control (top level)
+    geom_segment(aes(x = 1, xend = 3, y = y_max + 0.25 * y_range, yend = y_max + 0.25 * y_range), 
                  color = "black", size = 0.5, inherit.aes = FALSE) +
-    geom_segment(aes(x = 1, xend = 1, y = y_max + 0.13 * y_range, yend = y_max + 0.15 * y_range), 
+    geom_segment(aes(x = 1, xend = 1, y = y_max + 0.23 * y_range, yend = y_max + 0.25 * y_range), 
                  color = "black", size = 0.5, inherit.aes = FALSE) +
-    geom_segment(aes(x = 2, xend = 2, y = y_max + 0.13 * y_range, yend = y_max + 0.15 * y_range), 
+    geom_segment(aes(x = 3, xend = 3, y = y_max + 0.23 * y_range, yend = y_max + 0.25 * y_range), 
                  color = "black", size = 0.5, inherit.aes = FALSE) +
-    annotate("text", x = 1.5, y = y_max + 0.19 * y_range, label = pval_T2D_total_control, size = 4.5) +
+    annotate("text", x = 2, y = y_max + 0.29 * y_range, label = pval_T2D_total_lean, size = 4.5) +
     
-    geom_segment(aes(x = 1, xend = 1.7, y = y_max + 0.09 * y_range, yend = y_max + 0.09 * y_range), 
+    # T2D Combined vs Obese Control (second level)
+    geom_segment(aes(x = 2, xend = 3, y = y_max + 0.19 * y_range, yend = y_max + 0.19 * y_range), 
                  color = "black", size = 0.5, inherit.aes = FALSE) +
-    geom_segment(aes(x = 1, xend = 1, y = y_max + 0.07 * y_range, yend = y_max + 0.09 * y_range), 
+    geom_segment(aes(x = 2, xend = 2, y = y_max + 0.17 * y_range, yend = y_max + 0.19 * y_range), 
                  color = "black", size = 0.5, inherit.aes = FALSE) +
-    geom_segment(aes(x = 1.7, xend = 1.7, y = y_max + 0.07 * y_range, yend = y_max + 0.09 * y_range), 
+    geom_segment(aes(x = 3, xend = 3, y = y_max + 0.17 * y_range, yend = y_max + 0.19 * y_range), 
                  color = "black", size = 0.5, inherit.aes = FALSE) +
-    annotate("text", x = 1.35, y = y_max + 0.13 * y_range, label = pval_T2D_noslgt2_control, size = 4.5) +
+    annotate("text", x = 2.5, y = y_max + 0.23 * y_range, label = pval_T2D_total_obese, size = 4.5) +
     
-    geom_segment(aes(x = 1.7, xend = 2.0, y = y_max + 0.03 * y_range, yend = y_max + 0.03 * y_range), 
+    # T2D-No SGLTi2 vs Lean Control
+    geom_segment(aes(x = 1, xend = 2.7, y = y_max + 0.13 * y_range, yend = y_max + 0.13 * y_range), 
                  color = "black", size = 0.5, inherit.aes = FALSE) +
-    geom_segment(aes(x = 1.7, xend = 1.7, y = y_max + 0.01 * y_range, yend = y_max + 0.03 * y_range), 
+    geom_segment(aes(x = 1, xend = 1, y = y_max + 0.11 * y_range, yend = y_max + 0.13 * y_range), 
                  color = "black", size = 0.5, inherit.aes = FALSE) +
-    geom_segment(aes(x = 2.0, xend = 2.0, y = y_max + 0.01 * y_range, yend = y_max + 0.03 * y_range), 
+    geom_segment(aes(x = 2.7, xend = 2.7, y = y_max + 0.11 * y_range, yend = y_max + 0.13 * y_range), 
                  color = "black", size = 0.5, inherit.aes = FALSE) +
-    annotate("text", x = 1.85, y = y_max + 0.07 * y_range, label = pval_T2D_comparison, size = 4.5) +
+    annotate("text", x = 1.85, y = y_max + 0.17 * y_range, label = pval_T2D_noslgt2_lean, size = 4.5) +
     
-    expand_limits(y = y_max + 0.28 * y_range)
+    # T2D-No SGLTi2 vs Obese Control
+    geom_segment(aes(x = 2, xend = 2.7, y = y_max + 0.07 * y_range, yend = y_max + 0.07 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 2, xend = 2, y = y_max + 0.05 * y_range, yend = y_max + 0.07 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 2.7, xend = 2.7, y = y_max + 0.05 * y_range, yend = y_max + 0.07 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    annotate("text", x = 2.35, y = y_max + 0.11 * y_range, label = pval_T2D_noslgt2_obese, size = 4.5) +
+    
+    # T2D subgroup comparison (bottom level)
+    geom_segment(aes(x = 2.8, xend = 3.2, y = y_max + 0.01 * y_range, yend = y_max + 0.01 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 2.8, xend = 2.8, y = y_max - 0.01 * y_range, yend = y_max + 0.01 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 3.2, xend = 3.2, y = y_max - 0.01 * y_range, yend = y_max + 0.01 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    annotate("text", x = 3.25, y = y_max + 0.05 * y_range, label = pval_T2D_comparison, size = 4.5) +
+    expand_limits(y = y_max + 0.35 * y_range)
   
   print(plot)
 }
