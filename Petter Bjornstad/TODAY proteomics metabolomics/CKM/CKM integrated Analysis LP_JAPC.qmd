@@ -33,7 +33,7 @@ getwd()
 user <- Sys.info()[["user"]]
 if (user == "laurapyle") {
   data_path <- "/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
-  github_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  github_path <- "/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
 } else if (user == "lpyle") {
   data_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
   github_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
@@ -397,6 +397,7 @@ biom_ckm$UAlbCreat_baseline <- biom_ckm$UAlbCreat_baseline*1000
 biom_ckm$UAlbCreat_highest <- biom_ckm$UAlbCreat_highest*1000
 
 # create dataframe of UACR and eGFR values for classifying KDIGO criteria
+# NOTE: this currently requires eGFR and UACR criteria on the same day
 gfr1 <- addcbl_1 %>% select(releaseid, days, ckd_gfr) 
 #gfr2 <- addcbl_2 %>% select(releaseid, days, ckd_gfr)
 #all_gfr <- rbind(gfr1, gfr2)
@@ -408,6 +409,29 @@ kdigo <- full_join(all_gfr, all_uacr, by = c("releaseid", "days"))
 kdigo <- kdigo %>% arrange(releaseid, days)
 kdigo$UAlbCreat_mg_g <- kdigo$UAlbCreat*1000
 kdigo <- classify_ckd_batch(kdigo, gfr_col = "ckd_gfr", albumin_mg_g_col = "UAlbCreat_mg_g")
+kdigo_keep <- kdigo %>% select(-c(ckd_gfr, UAlbCreat, UAlbCreat_mg_g))
+kdigo_baseline <- kdigo_keep %>% filter(days == 0) %>% select(releaseid, risk_level)
+colnames(kdigo_baseline) <- c("RELEASEID", "Baseline KDIGO risk")
+#kdigo_baseline$`Baseline KDIGO risk` <- factor(kdigo_baseline$`Baseline KDIGO risk`, levels = c("Low", "Medium", "High", "Very High"))
+
+summarize_max_risk_tidy <- function(data, person_col = "person", risk_col = "risk_level") {
+  # Define the risk level order
+  risk_order <- c("Low", "Moderate", "High", "Very high")
+  
+  data %>%
+    mutate(!!risk_col := factor(!!sym(risk_col), 
+                                 levels = risk_order, 
+                                 ordered = TRUE)) %>%
+    group_by(!!sym(person_col)) %>%
+    summarise(!!paste0("max_", risk_col) := max(!!sym(risk_col), na.rm = TRUE)) %>%
+    mutate(!!paste0("max_", risk_col) := as.character(!!sym(paste0("max_", risk_col))))
+}
+
+kdigo_summary <- summarize_max_risk_tidy(data = kdigo_keep, person_col = "releaseid")
+kdigo_summary <- kdigo_summary %>% rename(RELEASEID = releaseid)
+#kdigo_summary$max_risk_level <- factor(kdigo_summary$max_risk_level, levels = c("Low", "Medium", "High", "Very High"))
+kdigo_summary <- full_join(kdigo_summary, kdigo_baseline, by = "RELEASEID")
+
 ```
 
 ```{r include = F}
@@ -784,7 +808,9 @@ comorb_ckm2 <- comorb_ckm %>%
   left_join(echo_hfpef2, by = "RELEASEID") %>%
   left_join(pedsQL_summary, by = "RELEASEID") %>%
   left_join(baseline %>% select(RELEASEID, bmi, sbp, dbp, wastcirc), by = "RELEASEID") %>%
-  left_join(baserisk %>% select(RELEASEID, sex, AGEBASE), by = "RELEASEID")
+  left_join(baserisk %>% select(RELEASEID, sex, AGEBASE), by = "RELEASEID") %>%
+  left_join(kdigo_summary, by = "RELEASEID")
+
 
 # LP: we don't need both versions of merging biomarker data with comorb_ckm2
 # Add all biomarker data
@@ -827,20 +853,19 @@ comorb_ckm2 <- comorb_ckm2 %>%
       (high_bnp0 == 1 | high_bnp1 == 1 |
        high_trop0 == 1 | high_trop1 == 1 |
        high_pwv0 == 1 | high_pwv1 == 1 |
-       MAC0 == 1 | MAC == 1) ~ "Stage3",
+       max_risk_level == "Very high") ~ "Stage3",
       
       # Stage 2_plus: risk factors
       # need to add KDIGO criteria
       (HTN0 == 1 | HTN == 1 |
        ANYDLP0 == 1 | ANYDLP == 1 |
-       MAC0 == 1 | MAC == 1) ~ "Stage2_plus",
+       max_risk_level %in% c("Moderate", "High")) ~ "Stage2_plus",
       
       TRUE ~ "Stage2"
     )
   )
 
 # CKM Staging with BMI inclusion
-# LP: Everyone has a BMI >= 30
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
     CKM_syn2 = case_when(
@@ -853,13 +878,13 @@ comorb_ckm2 <- comorb_ckm2 %>%
       (high_bnp0 == 1 | high_bnp1 == 1 |
        high_trop0 == 1 | high_trop1 == 1 |
        high_pwv0 == 1 | high_pwv1 == 1 |
-       MAC0 == 1 | MAC == 1) ~ "Stage3",
+       max_risk_level == "Very high") ~ "Stage3",
       
       # Stage 2_plus: risk factors OR BMI ≥30
       # need to add KDIGO criteria
       (HTN0 == 1 | HTN == 1 |
        ANYDLP0 == 1 | ANYDLP == 1 |
-       MAC0 == 1 | MAC == 1 | 
+       max_risk_level %in% c("Moderate", "High") | 
        bmi >= 30) ~ "Stage2_plus",
       
       TRUE ~ "Stage2"
@@ -867,18 +892,18 @@ comorb_ckm2 <- comorb_ckm2 %>%
   )
 
 # Baseline-only CKM staging
+# NOTE: need a variable equal to baseline KDIGO risk
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
     CKM_syn_base = case_when(
-      MAC0 == 1 ~ "Stage4",
-      high_bnp0 == 1 | high_trop0 == 1 | high_pwv0 == 1 | MAC0 == 1 ~ "Stage3",
-      HTN0 == 1 | ANYDLP0 == 1 | MAC0 == 1 ~ "Stage2_plus",
+      high_bnp0 == 1 | high_trop0 == 1 | high_pwv0 == 1 | `Baseline KDIGO risk` == "Very high" ~ "Stage3",
+      HTN0 == 1 | ANYDLP0 == 1 | `Baseline KDIGO risk` == "Moderate" | `Baseline KDIGO risk` == "High" ~ "Stage2_plus",
       TRUE ~ "Stage2"
     ),
     CKM_syn_base2 = case_when(
       MAC0 == 1 ~ "Stage4",
-      high_bnp0 == 1 | high_trop0 == 1 | high_pwv0 == 1 | MAC0 == 1 ~ "Stage3",
-      HTN0 == 1 | ANYDLP0 == 1 | MAC0 == 1 | bmi >= 30 ~ "Stage2_plus",
+      high_bnp0 == 1 | high_trop0 == 1 | high_pwv0 == 1 | `Baseline KDIGO risk` == "Very high" ~ "Stage3",
+      HTN0 == 1 | ANYDLP0 == 1 | `Baseline KDIGO risk` == "Moderate" | `Baseline KDIGO risk` == "High" | bmi >= 30 ~ "Stage2_plus",
       TRUE ~ "Stage2"
     )
   )
@@ -1015,7 +1040,7 @@ label(comorb_ckm2$progress_CKM2_bmi) <- "CKM syndrome progression magnitude (num
 
 label(comorb_ckm2$progress_CKM_gt1) <- "CKM syndrome progression >1 stage (binary, without BMI)"
 label(comorb_ckm2$progress_CKM_bmi_gt1) <- "CKM syndrome progression >1 stage (binary, with BMI)"
-
+label(comorb_ckm2$max_risk_level) <- "Maximum KDIGO risk category"
 ```
 
 # Results and Statistical Analysis
@@ -1027,7 +1052,7 @@ label(comorb_ckm2$progress_CKM_bmi_gt1) <- "CKM syndrome progression >1 stage (b
 ```{r include=F}
 t2a <- tableby(CKM_syn ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
+                STROKE + TIA + LVSD + CKD + DEATH + ULCER + max_risk_level + `Baseline KDIGO risk` + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
                 progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
               data = comorb_ckm2, total = F)
 
@@ -1042,7 +1067,7 @@ summary(t2a,  pfootnote = F)
 ```{r include=F}
 t2b <- tableby(CKM_syn2 ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
+                STROKE + TIA + LVSD + CKD + DEATH + ULCER + max_risk_level + `Baseline KDIGO risk` + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
                 progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
               data = comorb_ckm2, total = F)
 ```
@@ -1056,7 +1081,7 @@ summary(t2b,  pfootnote = F)
 ```{r include=F}
 t2c <- tableby(CKM_syn_base ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
+                STROKE + TIA + LVSD + CKD + DEATH + ULCER + max_risk_level + `Baseline KDIGO risk` + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
                 progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
               data = comorb_ckm2, total = F)
 ```
@@ -1070,7 +1095,7 @@ summary(t2c,  pfootnote = F)
 ```{r include=F}
 t2d <- tableby(CKM_syn_base2 ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
               + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
+                STROKE + TIA + LVSD + CKD + DEATH + ULCER + max_risk_level + `Baseline KDIGO risk` + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
                 progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
               data = comorb_ckm2, total = F)
 ```
