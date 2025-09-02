@@ -136,7 +136,8 @@ strange_cells <- aPT_data %>% left_join(TAL_data)
 write.table(strange_cells, 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/aPT_dTAL_cellproportions.txt', row.names=F, quote=F, sep='\t')
 
 ggplot(strange_cells, aes(x=aPT_percentage, y = dTAL_percentage, color = group_labels))+
-  geom_point()+geom_smooth(method='lm', se=F)+geom_smooth(method = 'lm', aes(color = NULL), color = 'black', size = 1.2)+
+  geom_point()+geom_smooth(method='lm', se=F)+
+  #geom_smooth(method = 'lm', aes(color = NULL), color = 'black', size = 1.2)+
   theme_classic()+labs(x='aPT Percentage of PT Cells', y = 'dTAL Percentage of TAL Cells')
 
 
@@ -153,6 +154,14 @@ strange_cells %>%
 strange_cells %>% 
   with(cor.test(aPT_percentage, dTAL_percentage))
 #this is not significant. p = 0.22, cor = 0.18
+
+
+
+
+
+
+#Find relationship between ratios/percentages and clinical variables 
+
 
 
 
