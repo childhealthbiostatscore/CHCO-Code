@@ -352,6 +352,7 @@ tia <- tia %>% rename("days" = "DAYSTOTIA")
 comorb_long <- full_join(comorb_long, tia, by = c("RELEASEID", "days"))
 ulcer <- ulcer %>% rename("days" = "DAYSTOULCER")
 comorb_long <- full_join(comorb_long, ulcer, by = c("RELEASEID", "days"))
+fup <- comorb_ckm %>% select(RELEASEID, fup_time)
 
 # Biomarker extraction for various markers
 bnp_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "bnp")
@@ -415,13 +416,15 @@ biom_ckm <- biom_ckm %>%
 # Create high troponin indicators
 biom_ckm <- biom_ckm %>%
   mutate(
-    high_trop = ifelse(!is.na(troponin) & troponin > 0, 1, 0)
+    high_trop = ifelse(is.na(troponin), NA, 
+                       ifelse(troponin > 0, 1, 0))
   )
 
 # Create high BNP indicators
 biom_ckm <- biom_ckm %>%
   mutate(
-    high_bnp = ifelse(!is.na(bnp) & bnp > 35, 1, 0)
+    high_bnp = ifelse(is.na(bnp), NA, 
+                       ifelse(bnp > 35, 1, 0))
   )
 
 # convert UAlbCreat
@@ -824,6 +827,11 @@ comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% fill(clin_cvd, .direction
 comorb_ckm2 <- replace_na_tidyverse(comorb_ckm2, c("HTN", "ANYDLP", "ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "DVT", "PAD", "STROKE", "TIA", "ULCER", "high_pwv", "hfpef",
                                             "high_trop", "high_bnp"))
 
+# drop unneeded variables
+comorb_ckm2 <- comorb_ckm2 %>% select(-TIMEPOINT, -lvsepem, -lvem, -lvsepratio, -lvratio, -peakvelo, -laarea2d, -lvmass, -walthick, -ivsdias, -ivssyst, -walldias, -wallsyst,
+                                      -average_E_Em, -GLS_4CH, -GLS_2CH, -GLS_3CH, -height_final, -weight, -BSA_mosteller, -BSA_dubois, -lvmi, -lvmi_score, -ladimen, 
+                                      -LA_volume_est, -LAVI_est, -HFpEF_points, -G01WALK, -G02RUN, -G03SPORT, -G04LIFT, -G05BATH, -G06CHORE, -G07HURT, -G08ENERG)
+
 # CKM Staging - Main classification
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
@@ -873,117 +881,89 @@ comorb_ckm2 <- comorb_ckm2 %>%
     )
   )
 
-# STOPPED HERE
-# need to create the following variables
-# CKM_syn_base, CKM_syn_base2
-# max CKM_syn, max CKM_syn2
-# time to progression (first? all?)
-
-# Baseline-only CKM staging
-comorb_ckm2 <- comorb_ckm2 %>%
-  mutate(
-    CKM_syn_base = case_when(
-      MAC0 == 1 ~ "Stage4",
-      high_bnp0 == 1 | high_trop0 == 1 | high_pwv0 == 1 | MAC0 == 1 ~ "Stage3",
-      HTN0 == 1 | ANYDLP0 == 1 | MAC0 == 1 ~ "Stage2_plus",
-      TRUE ~ "Stage2"
-    ),
-    CKM_syn_base2 = case_when(
-      MAC0 == 1 ~ "Stage4",
-      high_bnp0 == 1 | high_trop0 == 1 | high_pwv0 == 1 | MAC0 == 1 ~ "Stage3",
-      HTN0 == 1 | ANYDLP0 == 1 | MAC0 == 1 | bmi >= 30 ~ "Stage2_plus",
-      TRUE ~ "Stage2"
-    )
-  )
-
-
-
-# Collapsed CKM staging
-## CKM stages 3 and 4 will be joined because both are CV stages
-comorb_ckm2 <- comorb_ckm2 %>%
-  mutate(
-    CKM_syn_collapsed = case_when(
-      CKM_syn %in% c("Stage3", "Stage4") ~ "Adv_CVDCKM",
-      CKM_syn == "Stage2_plus" ~ "Stage2_plus",
-      CKM_syn == "Stage2" ~ "Stage2"
-    )
-  )
-
 # Set factor levels for proper ordering
 comorb_ckm2$CKM_syn <- factor(comorb_ckm2$CKM_syn, levels = c("Stage2", "Stage2_plus", "Stage3", "Stage4"))
 comorb_ckm2$CKM_syn2 <- factor(comorb_ckm2$CKM_syn2, levels = c("Stage2", "Stage2_plus", "Stage3", "Stage4"))
 
-### Create progression variables for both BMI and non-BMI comparisons
+# need to create the following variables
+# CKM_syn_base, CKM_syn_base2
+ckm_base <- comorb_ckm2 %>% filter(days == 0) 
+ckm_base <- ckm_base %>% select(RELEASEID, CKM_syn, CKM_syn2)
+colnames(ckm_base) <- c("RELEASEID", "CKM_syn_base", "CKM_syn_base2")
+comorb_ckm2 <- full_join(comorb_ckm2, ckm_base, by = "RELEASEID")
 
-# Create progression variables for both BMI and non-BMI comparisons
-# LP: these should be moved to the data section
+# create a numeric variable for stages
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
     # Convert stages to numeric (without BMI)
-    baseline_numeric = case_when(
-      CKM_syn_base == "Stage2" ~ 1,
-      CKM_syn_base == "Stage2_plus" ~ 2,
-      CKM_syn_base == "Stage3" ~ 3,
-      CKM_syn_base == "Stage4" ~ 4
-    ),
-    followup_numeric = case_when(
+    CKM_syn_num = case_when(
       CKM_syn == "Stage2" ~ 1,
       CKM_syn == "Stage2_plus" ~ 2,
       CKM_syn == "Stage3" ~ 3,
       CKM_syn == "Stage4" ~ 4
     ),
-    
     # Convert stages to numeric (with BMI)
-    baseline_numeric2 = case_when(
-      CKM_syn_base2 == "Stage2" ~ 1,
-      CKM_syn_base2 == "Stage2_plus" ~ 2,
-      CKM_syn_base2 == "Stage3" ~ 3,
-      CKM_syn_base2 == "Stage4" ~ 4
-    ),
-    followup_numeric2 = case_when(
+    CKM_syn_num2 = case_when(
       CKM_syn2 == "Stage2" ~ 1,
       CKM_syn2 == "Stage2_plus" ~ 2,
       CKM_syn2 == "Stage3" ~ 3,
       CKM_syn2 == "Stage4" ~ 4
-    ),
-    
-    # Progression variables (without BMI)
-    progress_CKM = case_when(
-      baseline_numeric == 4 ~ NA_real_,  # Already at highest stage
-      followup_numeric > baseline_numeric ~ 1,  # Progressed
-      followup_numeric <= baseline_numeric ~ 0  # Stayed same
-    ),
-    progress_CKM2 = case_when(
-      baseline_numeric == 4 ~ NA_real_,  # Already at highest stage
-      TRUE ~ pmax(0, followup_numeric - baseline_numeric)  # Steps progressed (0 if stayed same)
-    ),
-    
-    # Progression variables (with BMI)
-    progress_CKM_bmi = case_when(
-      baseline_numeric2 == 4 ~ NA_real_,
-      followup_numeric2 > baseline_numeric2 ~ 1,
-      followup_numeric2 <= baseline_numeric2 ~ 0
-    ),
-    progress_CKM2_bmi = case_when(
-      baseline_numeric2 == 4 ~ NA_real_,
-      TRUE ~ pmax(0, followup_numeric2 - baseline_numeric2)
-    ),
-    
-    # CV progression classification (without BMI)
-    CV_progress = case_when(
-      CKM_syn_base %in% c("Stage3", "Stage4") ~ "already_advanced",
-      CKM_syn %in% c("Stage3", "Stage4") & !CKM_syn_base %in% c("Stage3", "Stage4") ~ "CV_progressor",
-      TRUE ~ "non_progressor"
-    ),
-    
-    # CV progression classification (with BMI)
-    CV_progress_bmi = case_when(
-      CKM_syn_base2 %in% c("Stage3", "Stage4") ~ "already_advanced",
-      CKM_syn2 %in% c("Stage3", "Stage4") & !CKM_syn_base2 %in% c("Stage3", "Stage4") ~ "CV_progressor",
-      TRUE ~ "non_progressor"
-    )
-  )
+    ))
 
+# create indicator for progression from previous visit and number of stages
+comorb_ckm2 <- comorb_ckm2 %>% arrange(RELEASEID, days)
+comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>%
+  mutate(
+    CKM_syn_lag = ifelse(days == 0, NA, lag(CKM_syn_num)),
+    CKM_syn2_lag = ifelse(days == 0, NA, lag(CKM_syn_num2))
+  )
+comorb_ckm2$progress_CKM <- ifelse(comorb_ckm2$CKM_syn_num > comorb_ckm2$CKM_syn_lag, 1, 0)
+comorb_ckm2$progress_CKM_stages <- pmax(0, comorb_ckm2$CKM_syn_num - comorb_ckm2$CKM_syn_lag)
+comorb_ckm2$regress_CKM <- ifelse(comorb_ckm2$CKM_syn_num < comorb_ckm2$CKM_syn_lag, 1, 0)
+comorb_ckm2$regress_CKM_stages <- pmax(0, comorb_ckm2$CKM_syn_lag - comorb_ckm2$CKM_syn_num)
+comorb_ckm2$progress_CKM2 <- ifelse(comorb_ckm2$CKM_syn_num2 > comorb_ckm2$CKM_syn2_lag, 1, 0)
+comorb_ckm2$progress_CKM2_stages <- pmax(0, comorb_ckm2$CKM_syn_num2 - comorb_ckm2$CKM_syn2_lag)
+comorb_ckm2$regress_CKM2 <- ifelse(comorb_ckm2$CKM_syn_num2 < comorb_ckm2$CKM_syn2_lag, 1, 0)
+comorb_ckm2$regress_CKM2_stages <- pmax(0, comorb_ckm2$CKM_syn2_lag - comorb_ckm2$CKM_syn_num2)
+
+# max CKM_syn, max CKM_syn2
+ckm_max <- comorb_ckm2 %>% group_by(RELEASEID) %>% arrange(RELEASEID, desc(CKM_syn_num)) %>% filter(row_number() == 1) %>% select(RELEASEID, CKM_syn_num)
+colnames(ckm_max) <- c("RELEASEID", "CKM_max")
+ckm_max2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% arrange(RELEASEID, desc(CKM_syn_num2)) %>% filter(row_number() == 1) %>% select(RELEASEID, CKM_syn_num2)
+colnames(ckm_max2) <- c("RELEASEID", "CKM_max2")
+ckm_max <- full_join(ckm_max, ckm_max2, by = "RELEASEID")
+comorb_ckm2 <- full_join(comorb_ckm2, ckm_max, by = "RELEASEID")
+
+# time to progression (first? all?)
+fup <- comorb_ckm %>% select(RELEASEID, fup_time)
+comorb_ckm2 <- full_join(comorb_ckm2, fup)
+ckm_prog_time <- comorb_ckm2 %>% select(RELEASEID, days, progress_CKM, progress_CKM2, fup_time)
+ckm_prog_time1 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM)) %>% filter(row_number() == 1) %>% select(-progress_CKM2)
+ckm_prog_time1$days_to_ckm_prog <- ifelse(ckm_prog_time1$progress_CKM == 1, ckm_prog_time1$days, ckm_prog_time1$fup_time)
+ckm_prog_time1 <- ckm_prog_time1 %>% select(RELEASEID, days_to_ckm_prog)
+ckm_prog_time2 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM2)) %>% filter(row_number() == 1) %>% select(-progress_CKM)
+ckm_prog_time2$days_to_ckm2_prog <- ifelse(ckm_prog_time2$progress_CKM2 == 1, ckm_prog_time2$days, ckm_prog_time2$fup_time)
+ckm_prog_time2 <- ckm_prog_time2 %>% select(RELEASEID, days_to_ckm2_prog)
+ckm_prog_time_final <- full_join(ckm_prog_time1, ckm_prog_time2, by = "RELEASEID")
+comorb_ckm2 <- full_join(comorb_ckm2, ckm_prog_time_final, by = "RELEASEID")
+
+# number of progressions
+a <- comorb_ckm2 %>% filter(progress_CKM == 1) %>% select(RELEASEID, progress_CKM)
+b <- comorb_ckm2 %>% filter(progress_CKM2 == 1) %>% select(RELEASEID, progress_CKM2)
+tab_a <- as.data.frame(table(a$RELEASEID))
+colnames(tab_a) <- c("RELEASEID", "num_prog")
+tab_b <- as.data.frame(table(b$RELEASEID))
+colnames(tab_b) <- c("RELEASEID", "num_prog2")
+prog_table <- merge(tab_a, tab_b, by = "RELEASEID")
+comorb_ckm2 <- full_join(comorb_ckm2, prog_table, by = "RELEASEID")
+
+# collapse to a dataset with 1 row per person with baseline CKM, max CKM, time to progression, number of progressions?
+# this is an oversimplification because people progress, regress, progress
+
+
+    
+   
+# STOPPED HERE
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
     progress_CKM_gt1 = case_when(
