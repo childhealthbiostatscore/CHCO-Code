@@ -33,7 +33,7 @@ getwd()
 user <- Sys.info()[["user"]]
 if (user == "laurapyle") {
   data_path <- "/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
-  github_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  github_path <- "/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
 } else if (user == "lpyle") {
   data_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
   github_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
@@ -286,15 +286,15 @@ comorb_ckm <- merge(comorb, ame_summary, by = "RELEASEID", all.x = TRUE)
 
 # Follow-up time calculation
 # CHECK THIS
-comorb$fup_time <- ifelse(comorb$HTN == 0, comorb$DAYSTOHTN, 
-                          ifelse(comorb$LDLDLP == 0, comorb$DAYSTOLDL,
-                                 ifelse(comorb$NEURO == 0, comorb$DAYSTONEURO, 
-                                        ifelse(comorb$DNE == 0, comorb$DAYSTODNE, 
-                                               ifelse(comorb$FILAM == 0, comorb$DAYSTOFILAM, 
-                                                     ifelse(comorb$RETINO == 0, comorb$DAYSTORETINO, 
-                                                            ifelse(comorb$TGDLP == 0, comorb$DAYSTOTG, 
-                                                                   ifelse(comorb$NEPHRO == 0, comorb$DAYSTONEPHRO, 
-                                                                          ifelse(comorb$HYP ==0, comorb$DAYSTOHYP, NA)))))))))
+# comorb$fup_time <- ifelse(comorb$HTN == 0, comorb$DAYSTOHTN, 
+#                           ifelse(comorb$LDLDLP == 0, comorb$DAYSTOLDL,
+#                                  ifelse(comorb$NEURO == 0, comorb$DAYSTONEURO, 
+#                                         ifelse(comorb$DNE == 0, comorb$DAYSTODNE, 
+#                                                ifelse(comorb$FILAM == 0, comorb$DAYSTOFILAM, 
+#                                                      ifelse(comorb$RETINO == 0, comorb$DAYSTORETINO, 
+#                                                             ifelse(comorb$TGDLP == 0, comorb$DAYSTOTG, 
+#                                                                    ifelse(comorb$NEPHRO == 0, comorb$DAYSTONEPHRO, 
+#                                                                           ifelse(comorb$HYP ==0, comorb$DAYSTOHYP, NA)))))))))
 
 for (i in 1:nrow(comorb_ckm)) {
   comorb_ckm$fup_time[i] <- max(comorb_ckm$DAYSTOHTN[i], comorb_ckm$DAYSTOLDL[i], comorb_ckm$DAYSTOLDL[i],
@@ -316,13 +316,22 @@ comorb_ckm <- replace_missing_events(comorb_ckm)
 # we only have the first event of each so can't look at repeat events
 # first comorb events which have a baseline and follow up variable
 HTN0 <- comorb_ckm %>% select(RELEASEID, HTN0)
+HTN0 <- HTN0 %>% rename(HTN = HTN0)
 HTN0$days <- 0
+HTN <- comorb_ckm %>% select(RELEASEID, DAYSTOHTN, HTN)
+colnames(HTN) <- c("RELEASEID", "days", "HTN")
+HTN <- rbind(HTN0, HTN)
+HTN <- HTN %>% filter(HTN == 1)
+HTN <- unique(HTN)
 ANYDLP0 <- comorb_ckm %>% select(RELEASEID, ANYDLP0)
+ANYDLP0 <- ANYDLP0 %>% rename(ANYDLP = ANYDLP0)
 ANYDLP0$days <- 0
-ANYDLP0 <- comorb_ckm %>% select(RELEASEID, ANYDLP0)
-ANYDLP0$days <- 0
-temp <- full_join(HTN0, ANYDLP0, by = c("RELEASEID", "days"))
-temp <- temp %>% rename("HTN" = "HTN0", "ANYDLP" = "ANYDLP0")
+ANYDLP <- comorb_ckm %>% select(RELEASEID, DAYSTOANYDLP, ANYDLP)
+colnames(ANYDLP) <- c("RELEASEID", "days", "ANYDLP")
+ANYDLP <- rbind(ANYDLP0, ANYDLP)
+ANYDLP <- ANYDLP %>% filter(ANYDLP == 1)
+ANYDLP <- unique(ANYDLP)
+temp <- full_join(HTN, ANYDLP, by = c("RELEASEID", "days"))
 arrhythmia <- arrhythmia %>% rename("days" = "DAYSTOARRHYTHMIA")
 comorb_long <- full_join(temp, arrhythmia, by = c("RELEASEID", "days"))
 cad <- cad %>% rename("days" = "DAYSTOCAD")
@@ -343,45 +352,33 @@ tia <- tia %>% rename("days" = "DAYSTOTIA")
 comorb_long <- full_join(comorb_long, tia, by = c("RELEASEID", "days"))
 ulcer <- ulcer %>% rename("days" = "DAYSTOULCER")
 comorb_long <- full_join(comorb_long, ulcer, by = c("RELEASEID", "days"))
-# need to fill down
 
 # Biomarker extraction for various markers
-# testing new function
-# need to test this for additional biomarkers
-# also there seems to be an issue where addcbl_1 = addcbl_2
-bnp_vals <- extract_biomarker_values(list(addcbl_1, addcbl_2), "bnp")
-troponin_vals <- extract_biomarker_values(list(addcbl_1, addcbl_2), "troponin")
-adiponectin_vals <- extract_biomarker_values(list(addcbl_1, addcbl_2), "adiponectin")
-hmwa_vals <- extract_biomarker_values(list(addcbl_1, addcbl_2), "hmwa")
-edol_vals <- extract_biomarker_values(list(addcbl_1, addcbl_2), "edol")
-shbg_vals <- extract_biomarker_values(list(addcbl_1, addcbl_2), "shbg")
-test_vals <- extract_biomarker_values(list(addcbl_1, addcbl_2), "testosterone")
-gfr_vals <- extract_biomarker_values(list(addcbl_1, addcbl_2), "ckd_gfr")
-fas_vals <- extract_biomarker_values(list(addcbl_1, addcbl_2), "eGFR_FAS")
-
-# Clean up deduplication for cbl_2
-# cbl_2_unique <- cbl_2 %>%
-#   filter(!is.na(pvisit)) %>%
-#   group_by(days) %>%
-#   slice(1) %>%
-#   ungroup()
-# LP commented this out: I don't see any duplicates once releaseid is taken into account
+bnp_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "bnp")
+troponin_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "troponin")
+adiponectin_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "adiponectin")
+hmwa_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "hmwa")
+edol_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "edol")
+shbg_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "shbg")
+test_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "testosterone")
+gfr_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "ckd_gfr")
+fas_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "eGFR_FAS")
 
 # More biomarker extractions
-uacr_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "UAlbCreat")
-il6_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "IL6")
-il1_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "il1")
-hscrp_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "hsCRP")
-apob_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "ApoB")
-mcp1_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "mcp1")
-tnfa_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "tnfa")
-tnfr1_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "tnfr1")
-tnfr2_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "tnfr2")
-icam1_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "icam1")
-vcam1_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "vcam1")
-eselectin_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "eselectin")
-vegf_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "vegf")
-fgf23_vals <- extract_biomarker_values(list(cbl_1, cbl_2), "fgf23")
+uacr_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "UAlbCreat")
+il6_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "IL6")
+il1_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "il1")
+hscrp_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "hsCRP")
+apob_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "ApoB")
+mcp1_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "mcp1")
+tnfa_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "tnfa")
+tnfr1_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "tnfr1")
+tnfr2_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "tnfr2")
+icam1_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "icam1")
+vcam1_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "vcam1")
+eselectin_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "eselectin")
+vegf_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "vegf")
+fgf23_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "fgf23")
 
 # Clean infinite values
 clean_infinite <- function(df) {
@@ -399,7 +396,7 @@ biomarker_list <- lapply(biomarker_list, clean_infinite)
 
 # Standardize RELEASEID to uppercase for all biomarker datasets
 biomarker_list <- lapply(biomarker_list, function(df) {
-  df %>% mutate(RELEASEID = toupper(releaseid)) %>% select(-releaseid)
+  df %>% rename(RELEASEID = releaseid) 
 })
 
 # Create consolidated biomarker dataset
@@ -407,10 +404,8 @@ biom_ckm <- list(biomarker_list[[1]], biomarker_list[[2]], biomarker_list[[3]],
                  biomarker_list[[8]], biomarker_list[[9]], biomarker_list[[10]],
                  biomarker_list[[11]], biomarker_list[[12]], biomarker_list[[13]], biomarker_list[[14]],
                  biomarker_list[[16]]) %>%
-  reduce(full_join, by = "RELEASEID")
-
-#biom_ckm <- list(biomarker_list[[1]], biomarker_list[[2]], biomarker_list[[8]], biomarker_list[[9]]) %>%
-#  reduce(full_join, by = "RELEASEID")
+  reduce(full_join, by = c("RELEASEID", "days")) %>%
+  distinct(RELEASEID, days, .keep_all = TRUE)
 
 # Filter out rows where all biomarker columns are NA
 cols_to_check <- setdiff(names(biom_ckm), c("RELEASEID"))
@@ -420,26 +415,17 @@ biom_ckm <- biom_ckm %>%
 # Create high troponin indicators
 biom_ckm <- biom_ckm %>%
   mutate(
-    high_trop0 = ifelse(!is.na(troponin_baseline) & troponin_baseline > 0, 1, 0),
-    high_trop1 = ifelse(
-      (!is.na(troponin_highest) & troponin_highest > 0),
-      1, 0
-    )
+    high_trop = ifelse(!is.na(troponin) & troponin > 0, 1, 0)
   )
 
 # Create high BNP indicators
 biom_ckm <- biom_ckm %>%
   mutate(
-    high_bnp0 = ifelse(!is.na(bnp_baseline) & bnp_baseline > 35, 1, 0),
-    high_bnp1 = ifelse(
-      (!is.na(bnp_highest) & bnp_highest > 35),
-      1, 0
-    )
+    high_bnp = ifelse(!is.na(bnp) & bnp > 35, 1, 0)
   )
 
 # convert UAlbCreat
-biom_ckm$UAlbCreat_baseline <- biom_ckm$UAlbCreat_baseline*1000
-biom_ckm$UAlbCreat_highest <- biom_ckm$UAlbCreat_highest*1000
+biom_ckm$UAlbCreat <- biom_ckm$UAlbCreat*1000
 
 # create dataframe of UACR and eGFR values for classifying KDIGO criteria
 gfr1 <- addcbl_1 %>% select(releaseid, days, ckd_gfr) 
@@ -453,6 +439,9 @@ kdigo <- full_join(all_gfr, all_uacr, by = c("releaseid", "days"))
 kdigo <- kdigo %>% arrange(releaseid, days)
 kdigo$UAlbCreat_mg_g <- kdigo$UAlbCreat*1000
 kdigo <- classify_ckd_batch(kdigo, gfr_col = "ckd_gfr", albumin_mg_g_col = "UAlbCreat_mg_g")
+kdigo <- kdigo %>% rename(RELEASEID = releaseid)
+kdigo <- kdigo %>% group_by(RELEASEID) %>% fill(risk_level, .direction = "down") %>%
+  fill(recommendation, .direction = "down") %>% ungroup() %>% select(RELEASEID, days, gfr_category, gfr_description, albumin_category, albumin_description, risk_level, recommendation)
 ```
 
 ```{r include = F}
@@ -484,28 +473,10 @@ speckle_keep$TIMEPOINT <- gsub("SPECKLE", "", speckle_keep$TIMEPOINT)
 echo_keep <- merge(echo_keep, speckle_keep, by = c("RELEASEID", "TIMEPOINT"), all.x = TRUE)
 
 # Process PWV data
-pwv_keep <- pwv %>% select(RELEASEID, TIMEPOINT, PWVF)
-pwv_keep$pwv_cf_gt10 <- ifelse(is.na(pwv_keep$PWVF), NA, 
+pwv_keep <- pwv %>% select(RELEASEID, DAYS, PWVF)
+pwv_keep$high_pwv <- ifelse(is.na(pwv_keep$PWVF), NA, 
                                ifelse(pwv_keep$PWVF > 10, 1, 0))
-pwv_keep <- pwv_keep %>% arrange(RELEASEID, desc(pwv_cf_gt10)) %>% 
-                        group_by(RELEASEID) %>% filter(row_number()==1)
-
-# Create PWV flags
-# LP fixed timepoints - were coded as 1/2, but data were PWV1/PWV2
-pwv_keep$high_pwv0 <- ifelse(pwv_keep$TIMEPOINT == "PWV1", pwv_keep$pwv_cf_gt10, NA)
-pwv_keep$high_pwv1 <- ifelse(pwv_keep$TIMEPOINT == "PWV2", pwv_keep$pwv_cf_gt10, NA)
-
-pwv_flags <- pwv_keep %>%
-  group_by(RELEASEID) %>%
-  summarise(
-    high_pwv0 = suppressWarnings(max(high_pwv0, na.rm = TRUE)),
-    high_pwv1 = suppressWarnings(max(high_pwv1, na.rm = TRUE)),
-    .groups = "drop"
-  ) %>%
-  mutate(
-    high_pwv0 = ifelse(is.infinite(high_pwv0), NA, high_pwv0),
-    high_pwv1 = ifelse(is.infinite(high_pwv1), NA, high_pwv1)
-  )
+pwv_keep <- pwv_keep %>% rename(days = DAYS)
 
 # Add height and weight data for BSA calculation
 long_clean <- long %>%
@@ -741,23 +712,8 @@ for (i in 1:nrow(echo_keep)) {
 
 # Create HFpEF diagnosis variable
 echo_keep$hfpef <- ifelse(echo_keep$HFpEF_points >= 5, 1, 0)
+echo_keep <- echo_keep %>% select(-bnp)
 
-# Create timepoint-specific HFpEF variables
-echo_keep$hfpef1 <- ifelse(echo_keep$TIMEPOINT == 1, echo_keep$hfpef, NA)
-echo_keep$hfpef2 <- ifelse(echo_keep$TIMEPOINT == 2, echo_keep$hfpef, NA)
-
-# Create separate datasets for each timepoint
-echo_hfpef <- echo_keep %>%
-  filter(TIMEPOINT == 1) %>%
-  select(RELEASEID, hfpef1) %>%
-  filter(!is.na(hfpef1)) %>%
-  distinct(RELEASEID, .keep_all = TRUE)
-
-echo_hfpef2 <- echo_keep %>%
-  filter(TIMEPOINT == 2) %>%
-  select(RELEASEID, hfpef2) %>%
-  filter(!is.na(hfpef2)) %>%
-  distinct(RELEASEID, .keep_all = TRUE)
 ```
 
 ```{r include = F}
@@ -790,20 +746,20 @@ pedsQL_all <- pedsQL_all %>%
 
 # Ensure DAYS is numeric
 pedsQL_all <- pedsQL_all %>%
-  mutate(DAYS = as.numeric(DAYS))
+  mutate(days = as.numeric(DAYS)) %>% select(-DAYS)
 
 # Get baseline, latest, lowest and highest scores per participant
 pedsQL_summary <- pedsQL_all %>%
   group_by(RELEASEID) %>%
   summarise(
-    pedsql_baseline = physical_total[which.min(DAYS)],
-    days_baseline = DAYS[which.min(DAYS)],
-    pedsql_last = physical_total[which.max(DAYS)],
-    days_last = DAYS[which.max(DAYS)],
+    pedsql_baseline = physical_total[which.min(days)],
+    days_baseline = days[which.min(days)],
+    pedsql_last = physical_total[which.max(days)],
+    days_last = days[which.max(days)],
     pedsql_highest = max(physical_total, na.rm = TRUE),
-    days_highest = DAYS[which.max(physical_total)],
+    days_highest = days[which.max(physical_total)],
     pedsql_lowest = min(physical_total, na.rm = TRUE),
-    days_lowest = DAYS[which.min(physical_total)],
+    days_lowest = days[which.min(physical_total)],
     .groups = "drop"
   )
 ```
@@ -813,103 +769,115 @@ pedsQL_summary <- pedsQL_all %>%
 # DATA INTEGRATION AND CKM STAGING
 # =============================================================================
 
+# set any days <0 to zero
+baseline$days <- 0
+baserisk$days <- 0
+biom_ckm$days <- ifelse(biom_ckm$days <0, 0, biom_ckm$days)
+
 # Fix the column name first
 baseline <- baseline %>% 
-  rename(RELEASEID = releaseid)  # or whatever the actual column name is
+ rename(RELEASEID = releaseid)  # or whatever the actual column name is
 
 baserisk <- baserisk %>% 
-  rename(RELEASEID = releaseid)  # or whatever the actual column name is
+ rename(RELEASEID = releaseid)  # or whatever the actual column name is
 
 # Create main analysis dataset
-comorb_ckm2 <- comorb_ckm %>%
-  left_join(biom_ckm %>% select(RELEASEID, high_trop0, high_trop1, high_bnp0, high_bnp1), 
-            by = "RELEASEID") %>%
-  left_join(pwv_flags, by = "RELEASEID") %>%
-  left_join(echo_hfpef, by = "RELEASEID") %>%
-  left_join(echo_hfpef2, by = "RELEASEID") %>%
-  left_join(pedsQL_summary, by = "RELEASEID") %>%
-  left_join(baseline %>% select(RELEASEID, bmi, sbp, dbp, wastcirc), by = "RELEASEID") %>%
-  left_join(baserisk %>% select(RELEASEID, sex, AGEBASE), by = "RELEASEID")
-
-# LP: we don't need both versions of merging biomarker data with comorb_ckm2
-# Add all biomarker data
-# biomarker_vars <- c("adiponectin", "hmwa", "edol", "shbg", "testosterone", "ualb", "ualbcreat",
-#                    "il6", "il1", "hscrp", "apob", "mcp1", "tnfa", "tnfr1", "tnfr2", "icam1",
-#                    "vcam1", "eselectin", "vegf", "fgf23", "bnp", "eGFR_FAS", "ckd_gfr")
-# 
-# for (var in biomarker_vars) {
-#   if (paste0(var, "_vals") %in% ls()) {
-#     biomarker_data <- get(paste0(var, "_vals"))
-#     if ("RELEASEID" %in% names(biomarker_data)) {
-#       comorb_ckm2 <- comorb_ckm2 %>%
-#         left_join(biomarker_data, by = "RELEASEID")
-#     }
-#   }
-# }
+comorb_ckm2 <- comorb_long %>%
+  full_join(pwv_keep, by = c("RELEASEID", "days")) %>%
+  full_join(echo_keep, by = c("RELEASEID", "days")) %>%
+  full_join(pedsQL_all, by = c("RELEASEID", "days")) %>%
+  full_join(baseline %>% select(RELEASEID, bmi, sbp, dbp, wastcirc, days), by = c("RELEASEID", "days")) %>%
+  full_join(baserisk %>% select(RELEASEID, AGEBASE, days), by = c("RELEASEID", "days")) %>% 
+  full_join(kdigo, , by = c("RELEASEID", "days"))
+comorb_ckm2 <- comorb_ckm2 %>% arrange("RELEASEID", "days")
+comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% fill(gfr_category, .direction = "down") %>% fill(gfr_description, .direction = "down") %>%
+  fill(albumin_category, .direction = "down") %>% fill(albumin_description, .direction = "down") %>% fill(risk_level, .direction = "down") %>%
+  fill(recommendation, .direction = "down") %>% ungroup()
 
 # Merge all biomarker datasets at once
-all_biomarkers <- biomarker_list %>%
-  reduce(full_join, by = "RELEASEID")
+# all_biomarkers <- biomarker_list %>%
+#   reduce(full_join, by = c("RELEASEID", "days"))
+
 # convert UAlbCreat
-all_biomarkers$UAlbCreat_baseline <- all_biomarkers$UAlbCreat_baseline*1000
-all_biomarkers$UAlbCreat_highest <- all_biomarkers$UAlbCreat_highest*1000
+# all_biomarkers$UAlbCreat_baseline <- all_biomarkers$UAlbCreat_baseline*1000
+# all_biomarkers$UAlbCreat_highest <- all_biomarkers$UAlbCreat_highest*1000
 
 # Add to main dataset
 comorb_ckm2 <- comorb_ckm2 %>%
-  left_join(all_biomarkers, by = "RELEASEID")
+  full_join(biom_ckm, by = c("RELEASEID", "days"))
+
+# need to fill down, and make earlier NA's into zero
+comorb_ckm2 <- comorb_ckm2 %>% arrange(RELEASEID, days)
+comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% fill(HTN, .direction = "down") %>% fill(ANYDLP, .direction = "down") %>% fill(ARRHYTHMIA, .direction = "down") %>%
+  fill(CAD, .direction = "down") %>% fill(CHF, .direction = "down") %>% fill(LVSD, .direction = "down") %>% fill(MI, .direction = "down") %>% fill(DVT, .direction = "down") %>%
+  fill(PAD, .direction = "down") %>% fill(STROKE, .direction = "down") %>% fill(TIA, .direction = "down") %>% fill(ULCER, .direction = "down") %>% fill(high_pwv, .direction = "down") %>%
+  fill(hfpef, .direction = "down") %>% fill(high_bnp, .direction = "down") %>% fill(high_trop, .direction = "down")
+
+comorb_ckm2$clin_cvd <- ifelse(
+  rowSums(comorb_ckm2[, c("ARRHYTHMIA", "CAD", "CHF", "MI", "PAD", "DVT", "STROKE", "TIA", "ULCER", "LVSD")] == 1, na.rm = TRUE) > 0,
+  1,
+  0)
+# fill down clincvd
+comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% fill(clin_cvd, .direction = "down") %>% ungroup()
+
+# fill in zeroes
+comorb_ckm2 <- replace_na_tidyverse(comorb_ckm2, c("HTN", "ANYDLP", "ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "DVT", "PAD", "STROKE", "TIA", "ULCER", "high_pwv", "hfpef",
+                                            "high_trop", "high_bnp"))
 
 # CKM Staging - Main classification
-# LP: MAC0/MAC1 meets criteria for all stages
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
     CKM_syn = case_when(
       # Stage 4: most severe
       clin_cvd == 1 |
-      hfpef1 == 1 | hfpef2 == 1 ~ "Stage4",
+      hfpef == 1 ~ "Stage4",
       
       # Stage 3: elevated biomarkers
-      # need to add KDIGO criteria
-      (high_bnp0 == 1 | high_bnp1 == 1 |
-       high_trop0 == 1 | high_trop1 == 1 |
-       high_pwv0 == 1 | high_pwv1 == 1 |
-       MAC0 == 1 | MAC == 1) ~ "Stage3",
+       (high_bnp == 1 |
+       high_trop == 1 |
+       high_pwv == 1 |
+       risk_level == "Very high") ~ "Stage3",
       
       # Stage 2_plus: risk factors
       # need to add KDIGO criteria
-      (HTN0 == 1 | HTN == 1 |
-       ANYDLP0 == 1 | ANYDLP == 1 |
-       MAC0 == 1 | MAC == 1) ~ "Stage2_plus",
+      (HTN == 1 |
+       ANYDLP == 1 |
+       risk_level %in% c("Moderate", "High")) ~ "Stage2_plus",
       
       TRUE ~ "Stage2"
     )
   )
 
 # CKM Staging with BMI inclusion
-# LP: Everyone has a BMI >= 30
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
     CKM_syn2 = case_when(
-      # Stage 4: most severe
+       # Stage 4: most severe
       clin_cvd == 1 |
-      hfpef1 == 1 | hfpef2 == 1  ~ "Stage4",
+      hfpef == 1 ~ "Stage4",
       
       # Stage 3: elevated biomarkers
-      # need to add KDIGO criteria
-      (high_bnp0 == 1 | high_bnp1 == 1 |
-       high_trop0 == 1 | high_trop1 == 1 |
-       high_pwv0 == 1 | high_pwv1 == 1 |
-       MAC0 == 1 | MAC == 1) ~ "Stage3",
+       (high_bnp == 1 |
+       high_trop == 1 |
+       high_pwv == 1 |
+       risk_level == "Very high") ~ "Stage3",
       
-      # Stage 2_plus: risk factors OR BMI ≥30
+      # Stage 2_plus: risk factors
       # need to add KDIGO criteria
-      (HTN0 == 1 | HTN == 1 |
-       ANYDLP0 == 1 | ANYDLP == 1 |
-       MAC0 == 1 | MAC == 1 | 
+      (HTN == 1 |
+       ANYDLP == 1 |
+       risk_level %in% c("Moderate", "High") |
        bmi >= 30) ~ "Stage2_plus",
       
       TRUE ~ "Stage2"
     )
   )
+
+# STOPPED HERE
+# need to create the following variables
+# CKM_syn_base, CKM_syn_base2
+# max CKM_syn, max CKM_syn2
+# time to progression (first? all?)
 
 # Baseline-only CKM staging
 comorb_ckm2 <- comorb_ckm2 %>%
@@ -927,6 +895,8 @@ comorb_ckm2 <- comorb_ckm2 %>%
       TRUE ~ "Stage2"
     )
   )
+
+
 
 # Collapsed CKM staging
 ## CKM stages 3 and 4 will be joined because both are CV stages
