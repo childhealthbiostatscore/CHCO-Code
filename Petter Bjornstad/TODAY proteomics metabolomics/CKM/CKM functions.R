@@ -57,6 +57,9 @@ classify_ckd <- function(gfr = NULL, albumin_mg_g = NULL, albumin_mg_mmol = NULL
     albumin_category <- NA_character_
   }
   
+  # fill down the GFR and albuminuria categories
+  
+  
   # Determine risk level and recommendation only if both values are available
   if (gfr_available && albumin_available) {
     risk_recommendation <- get_risk_recommendation(gfr_category, albumin_category)
@@ -171,7 +174,14 @@ classify_ckd_batch <- function(data, gfr_col = "gfr", albumin_mg_g_col = "albumi
       gfr_category = sapply(classification, function(x) x$gfr_category),
       gfr_description = sapply(classification, function(x) x$gfr_description),
       albumin_category = sapply(classification, function(x) x$albumin_category),
-      albumin_description = sapply(classification, function(x) x$albumin_description),
+      albumin_description = sapply(classification, function(x) x$albumin_description)
+    ) %>% 
+    group_by(releaseid) %>% fill(gfr_category, .direction = "down") %>%
+    fill(gfr_description, .direction = "down") %>% 
+    fill(albumin_category, .direction = "down") %>% 
+    fill(albumin_description, .direction = "down") %>%
+    ungroup() %>%
+    mutate(
       risk_level = sapply(classification, function(x) x$risk_level),
       recommendation = sapply(classification, function(x) x$recommendation)
     ) %>%
@@ -287,7 +297,6 @@ plot_ckd_stage <- function(gfr, albumin_mg_g) {
 #################################
 # BIOMARKER EXTRACTION          #
 #################################
-# Need to modify function to extract data across both TODAY and TODAY2
 extract_biomarker_values <- function(df_list, var) {
   # If a single dataframe is passed, convert to list
   if(is.data.frame(df_list)) {
@@ -338,6 +347,38 @@ extract_biomarker_values <- function(df_list, var) {
     rename_with(~ paste0(var, "_", .), -releaseid)
 }
 
+# function that returns long df without summarization
+extract_biomarker_values_long <- function(df_list, var) {
+  # If a single dataframe is passed, convert to list
+  if(is.data.frame(df_list)) {
+    df_list <- list(df_list)
+  }
+  # Combine all dataframes that contain the variable
+  combined_df <- NULL
+  for(df in df_list) {
+    if(var %in% names(df)) {
+      # Select only the columns we need
+      temp_df <- df %>%
+        select(releaseid, days, all_of(var))
+      if(is.null(combined_df)) {
+        combined_df <- temp_df
+      } else {
+        combined_df <- bind_rows(combined_df, temp_df)
+      }
+    }
+  }
+  # If variable not found in any dataset, return empty dataframe
+  if(is.null(combined_df)) {
+    warning(paste("Variable", var, "not found in any of the provided datasets"))
+    return(data.frame())
+  }
+  combined_df %>%
+    arrange(releaseid, days) %>%
+    group_by(releaseid) %>%
+   # Clean up infinite values
+    mutate(across(where(is.numeric), ~ifelse(is.infinite(.), NA_real_, .))) 
+}
+
 #################################
 # FILL IN NA IN EVENTS          #
 #################################
@@ -376,6 +417,17 @@ replace_missing_events <- function(data) {
   return(data)
 }
 
+#################################
+# FILL IN NA IN EVENTS  - V2    #
+#################################
 
+# Using tidyr's replace_na function
+replace_na_tidyverse <- function(df, columns, value = 0) {
+  df %>%
+    mutate(across(all_of(columns), ~replace_na(.x, value)))
+}
+
+# Example usage:
+#result <- replace_na_tidyverse(sample_df, c("a", "b"))
 
 
