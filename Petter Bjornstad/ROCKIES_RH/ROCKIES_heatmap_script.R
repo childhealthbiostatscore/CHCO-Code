@@ -66,10 +66,10 @@ library(nebula)
 
 
 #heatmaps 
+dir.results <- c("C:/Users/netio/Documents/UofW/Rockies/")
 
 
-
-
+list.files(dir.results, pattern='NEBULA_Ox-Phos_medianTRUE_')
 
 total_results <- data.table::fread(paste0(dir.results,"NEBULA_TCA_cycle_PT_cells_PET_Variables_unadjusted_pooled_offset.csv"))
 # total_results <- read.csv(fs::path(dir.results,"NEBULA_TCA_cycle_PT_cells_PET_Variables_unadjusted_pooled_offset.csv"))
