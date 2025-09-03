@@ -15,9 +15,9 @@ easy_elasticnet = function(data,outcome,predictors,
   # Random seed
   set.seed(seed)
   # Fix names if necessary
-  colnames(df) = make.names(colnames(df),unique = T,allow_ = F)
-  preds = make.names(predictors,unique = T,allow_ = F)
-  outcome = make.names(outcome,unique = T,allow_ = F)
+  #colnames(df) = make.names(colnames(df),unique = T,allow_ = F)
+  #preds = make.names(predictors,unique = T,allow_ = F)
+  #outcome = make.names(outcome,unique = T,allow_ = F)
   # Predictor matrix
   #X = data.frame(df[,preds])
   #X = data.frame(df[,predictors])
