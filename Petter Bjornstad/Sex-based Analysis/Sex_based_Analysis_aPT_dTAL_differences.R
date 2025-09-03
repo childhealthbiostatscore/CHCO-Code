@@ -163,6 +163,79 @@ strange_cells %>%
 #Find relationship between ratios/percentages and clinical variables 
 
 
+strange_cells <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/aPT_dTAL_cellproportions.txt')
+
+
+
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+
+dat <- harmonized_data %>%
+  arrange(screen_date) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+
+
+
+dat2 <- dat %>% dplyr::select(record_id, mrn, visit, starts_with('eGFR'), starts_with('fsoc_'),
+                              'lc_k2', 'rc_k2', 'lm_k2', 'rm_k2',
+                                   'lc_f', 'rc_f', 'lm_f', 'rm_f') %>% filter(visit == 'baseline')
+
+
+tmp_df <- dat2 %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+                                 lc_f, rc_f, lm_f, rm_f)
+avg_c_k2 <- tmp_df %>%
+  dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+
+avg_m_k2 <- tmp_df %>% 
+  dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+
+avg_c_f <- tmp_df %>% 
+  dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+
+avg_m_f <- tmp_df %>% 
+  dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+
+avg_c_k2_f <- avg_c_k2 / avg_c_f
+
+avg_m_k2_f <- avg_m_k2 / avg_m_f
+
+results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                     avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                    'avg_c_k2_f', 'avg_m_k2_f')
+
+dat2 <- dat2 %>% bind_cols(results)
+
+
+strange_cells_full <- strange_cells %>% left_join(dat2)
+
+
+
+for(i in c(11:ncol(39))){
+  tmp_var <- names(strange_cells_full)[i]
+  tmp_df <- strange_cells_full %>% 
+    dplyr::select(group_labels, aPT_percentage, dTAL_percentage, tmp_var)
+  
+  
+  
+  
+  
+  
+  
+}
+
+
+
+
+
+
+
+
+
+
 
 
 
