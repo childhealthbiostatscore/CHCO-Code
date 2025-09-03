@@ -1317,9 +1317,24 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
                          x_title_padding_t = 32,
                          genes_to_label= NULL,
                          volcano_force = 6,
-                         volcano_box_padding = 0) {
+                         volcano_box_padding = 0,
+                         off_chart_threshold = 0.95,  # New parameter: proportion of y_max to consider "off chart"
+                         off_chart_y_position = 0.85,  # New parameter: where to place off-chart labels
+                         off_chart_arrow_length = 0.02) {  # New parameter: length of off-chart arrows
   
   set.seed(1)
+  
+  # Add epsilon for log transformation
+  epsilon <- 1e-300
+  
+  # Calculate -log10(p) with epsilon
+  data <- data %>%
+    mutate(neg_log_p = -log10(!!sym(p_col) + epsilon))
+  
+  # Get y-axis max for dynamic scaling
+  y_max <- max(data$neg_log_p, na.rm = TRUE) * 1.1
+  y_cutoff <- y_max * off_chart_threshold  # Points above this are "off chart"
+  
   top_pos <- data %>%
     dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
     dplyr::arrange(!!sym(p_col))
@@ -1340,29 +1355,81 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
     filter(if (!is.null(genes_to_label)) Gene %in% genes_to_label else TRUE) %>%
     slice_head(n=20)
   
+  # Identify off-chart genes
+  off_chart_genes <- data %>%
+    filter(Gene %in% c(top_pos$Gene, top_neg$Gene) & neg_log_p > y_cutoff) %>%
+    mutate(
+      is_positive = !!sym(fc) > 0,
+      # Spread out x positions for off-chart labels
+      x_position = if_else(is_positive,
+                           !!sym(fc) + seq(from = 0.1, by = 0.2, length.out = n()),
+                           !!sym(fc) - seq(from = 0.1, by = 0.2, length.out = n())),
+      y_position = y_max * off_chart_y_position
+    )
+  
+  # Separate on-chart and off-chart genes for labeling
+  on_chart_genes <- c(top_pos$Gene, top_neg$Gene)[!c(top_pos$Gene, top_neg$Gene) %in% off_chart_genes$Gene]
+  
   data <- data %>%
-    dplyr::mutate(top_color = case_when(Gene %in% top_pos$Gene ~ "#f28482",
-                                        Gene %in% top_neg$Gene ~ "#457b9d",
-                                        TRUE ~ "#ced4da"),
-                  top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
-                  top_lab  = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), Gene, "")) %>%
+    dplyr::mutate(
+      top_color = case_when(
+        Gene %in% top_pos$Gene ~ "#f28482",
+        Gene %in% top_neg$Gene ~ "#457b9d",
+        TRUE ~ "#ced4da"
+      ),
+      top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
+      # Only label on-chart genes normally
+      top_lab  = if_else(Gene %in% on_chart_genes, Gene, ""),
+      # Cap display values at y_cutoff for plotting
+      display_neg_log_p = pmin(neg_log_p, y_cutoff)
+    ) %>%
     filter(abs(!!sym(fc)) < 10)
   
   # Max and min for annotation arrows
   max_fc <- max(data[[fc]], na.rm = TRUE)
   min_fc <- min(data[[fc]], na.rm = TRUE)
   
-  # Get y-axis max for dynamic scaling
-  epsilon <- 1e-300
-  y_max <- max(-log10(data[[p_col]] + epsilon), na.rm = TRUE) * 1.1
-
-  p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
+  p <- ggplot(data, aes(x = !!sym(fc), y = display_neg_log_p)) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
     geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
-    geom_text_repel(aes(label = top_lab, color = top_color),
-                    size = geom_text_size, max.overlaps = Inf,
-                    force = volcano_force, segment.alpha = 0.3, segment.size = 0.3,
-                    box.padding = volcano_box_padding) +
+    # Regular labels for on-chart genes
+    geom_text_repel(
+      data = filter(data, top_lab != ""),
+      aes(label = top_lab, color = top_color),
+      size = geom_text_size, max.overlaps = Inf,
+      force = volcano_force, segment.alpha = 0.3, segment.size = 0.3,
+      box.padding = volcano_box_padding
+    ) +
+    # Add arrows for off-chart genes
+    {if(nrow(off_chart_genes) > 0) {
+      list(
+        geom_segment(
+          data = off_chart_genes,
+          aes(x = !!sym(fc), y = y_cutoff * 0.98,
+              xend = !!sym(fc), yend = y_cutoff - (y_max * off_chart_arrow_length)),
+          arrow = arrow(length = unit(0.15, "cm"), type = "closed"),
+          color = "black",
+          size = 0.6
+        ),
+        geom_text(
+          data = off_chart_genes,
+          aes(x = x_position, y = y_position, label = Gene),
+          size = geom_text_size * 0.9,
+          hjust = if_else(off_chart_genes$is_positive, 0, 1),
+          color = "black",
+          fontface = "italic"
+        ),
+        # Add p-value annotation for off-chart genes
+        geom_text(
+          data = off_chart_genes,
+          aes(x = x_position, y = y_position - (y_max * 0.03), 
+              label = paste0("p=", format(!!sym(p_col), scientific = TRUE, digits = 2))),
+          size = geom_text_size * 0.7,
+          hjust = if_else(off_chart_genes$is_positive, 0, 1),
+          color = "darkgrey"
+        )
+      )
+    }} +
     labs(title = paste(title),
          x = paste(x_axis),
          y = paste(y_axis),
@@ -1370,7 +1437,8 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
            paste0("Formula: ~ ", formula, " + (1|subject)", 
                   "\n\nCell type: ", 
                   cell_type, if(cell_type != "") " | " else "", 
-                  "Positive n = ", n_pos, " | Negative n = ", n_neg)
+                  "Positive n = ", n_pos, " | Negative n = ", n_neg,
+                  if(nrow(off_chart_genes) > 0) paste0("\n", nrow(off_chart_genes), " gene(s) with p-values near zero (arrows indicate off-scale values)") else "")
          } else if(!is.null(cell_type) & full_formula) {
            bquote(
              atop(
@@ -1381,13 +1449,15 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
                  epsilon[ij],
                "Cell type:" ~ .(cell_type) ~ "|" ~ 
                  "Positive n =" ~ .(n_pos) ~ "|" ~ 
-                 "Negative n =" ~ .(n_neg)
+                 "Negative n =" ~ .(n_neg) ~
+                 .(if(nrow(off_chart_genes) > 0) paste0(" | ", nrow(off_chart_genes), " off-scale") else "")
              )
            )
          } else {
            paste0("\nCell type: ", 
                   cell_type, if(cell_type != "") " | " else "", 
-                  "Positive n = ", n_pos, " | Negative n = ", n_neg)
+                  "Positive n = ", n_pos, " | Negative n = ", n_neg,
+                  if(nrow(off_chart_genes) > 0) paste0("\n", nrow(off_chart_genes), " gene(s) with p-values near zero (arrows indicate off-scale values)") else "")
          }) +
     scale_size_continuous(range = c(1, 1.3)) + 
     scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
@@ -5580,4 +5650,105 @@ get_legend <- function(myplot) {
   leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
   legend <- tmp$grobs[[leg]]
   return(legend)
+}
+
+# ===========================================================================
+# Function: concordance_by_celltype
+# ===========================================================================
+
+concordance_by_celltype <- function(
+    biofluid_df,
+    scrna_df,
+    biofluid_label   = "urine",   # could be "plasma"
+    urine_gene_col   = Gene,
+    urine_logFC_col  = `logFC_log2(protein)`,
+    urine_p_col      = `p_log2(protein)`,
+    scrna_gene_col   = Gene,
+    scrna_logFC_col  = `logFC_treatmentDapagliflozin:visitPOST`,
+    scrna_p_col      = `p_treatmentDapagliflozin:visitPOST`,
+    p_thresh         = 0.05,
+    celltype         = "PT",
+    out_dir          = ".",
+    include_not_in_both = TRUE
+) {
+  stopifnot(requireNamespace("dplyr", quietly = TRUE),
+            requireNamespace("tidyr", quietly = TRUE),
+            requireNamespace("readr", quietly = TRUE),
+            requireNamespace("rlang", quietly = TRUE))
+  
+  library(dplyr); library(tidyr); library(rlang)
+  
+  # Tidy-eval symbols
+  bg   <- enquo(urine_gene_col)
+  blfc <- enquo(urine_logFC_col)
+  bp   <- enquo(urine_p_col)
+  sg   <- enquo(scrna_gene_col)
+  slfc <- enquo(scrna_logFC_col)
+  sp   <- enquo(scrna_p_col)
+  
+  standardize <- function(df, gene_q, logfc_q, p_q, source_label) {
+    df %>%
+      filter(!is.na(!!p_q), !is.na(!!logfc_q), !!p_q < p_thresh) %>%
+      mutate(source = source_label) %>%
+      transmute(
+        source,
+        Gene  = as.character(!!gene_q),
+        logFC = as.numeric(!!logfc_q),
+        p     = as.numeric(!!p_q)
+      )
+  }
+  
+  biofluid_std <- standardize(biofluid_df, bg, blfc, bp, biofluid_label)
+  scrna_std    <- standardize(scrna_df, sg, slfc, sp, "scRNA")
+  
+  concordance_tbl <- bind_rows(biofluid_std, scrna_std) %>%
+    mutate(.dir = case_when(
+      logFC > 0 ~ "pos",
+      logFC < 0 ~ "neg",
+      TRUE ~ NA_character_
+    )) %>%
+    group_by(Gene, source) %>%
+    summarise(
+      n_entries = n(),
+      n_pos = sum(.dir == "pos", na.rm = TRUE),
+      n_neg = sum(.dir == "neg", na.rm = TRUE),
+      source_dir = case_when(
+        n_pos > 0 & n_neg > 0 ~ "mixed",
+        n_pos > 0 ~ "pos",
+        n_neg > 0 ~ "neg",
+        TRUE ~ NA_character_
+      ),
+      .groups = "drop"
+    ) %>%
+    dplyr::select(Gene, source, source_dir, n_entries) %>%
+    pivot_wider(
+      names_from = source,
+      values_from = c(source_dir, n_entries),
+      names_sep = "__"
+    ) %>%
+    mutate(
+      concordance = case_when(
+        is.na(!!sym(paste0("source_dir__", biofluid_label))) |
+          is.na(source_dir__scRNA) ~ "not_in_both",
+        !!sym(paste0("source_dir__", biofluid_label)) == "mixed" |
+          source_dir__scRNA == "mixed" ~ "mixed",
+        !!sym(paste0("source_dir__", biofluid_label)) == "pos" &
+          source_dir__scRNA == "pos" ~ "positive",
+        !!sym(paste0("source_dir__", biofluid_label)) == "neg" &
+          source_dir__scRNA == "neg" ~ "negative",
+        TRUE ~ "non-concordant"
+      )
+    ) %>%
+    { if (!include_not_in_both) filter(., concordance != "not_in_both") else . } %>%
+    arrange(match(concordance, c("mixed","positive","negative","non-concordant","not_in_both")),
+            Gene)
+  
+  out_file <- file.path(out_dir,
+                        paste0(tolower(celltype), "_", biofluid_label, "_concordance.csv"))
+  readr::write_csv(concordance_tbl, out_file)
+  
+  print(table(concordance_tbl$concordance, useNA = "ifany"))
+  message("Saved: ", out_file)
+  
+  return(concordance_tbl)
 }
