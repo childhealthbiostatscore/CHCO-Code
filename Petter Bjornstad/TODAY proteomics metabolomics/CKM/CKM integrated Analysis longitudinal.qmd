@@ -30,6 +30,7 @@ library(survival)
 library(broom)
 library(openxlsx)
 library(readxl)
+library(knitr)
 
 # Working directory setup
 getwd()
@@ -1110,7 +1111,7 @@ summary(t3,  pfootnote = F)
 result_noBMI <- NULL
 predictors <- colnames(base_log[seq])
 for (i in 1:length(predictors)) {
-  form <- paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~",predictors[i],"+HbA1c+log_trig+sbp+si_1_ins0")
+  form <- paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~",predictors[i])
   mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
   tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
   tidymod <- tidymod[1,]
@@ -1128,7 +1129,7 @@ result_noBMI <- result_noBMI[order(result_noBMI$p.value),]
 result_BMI <- NULL
 predictors <- colnames(base_log[seq])
 for (i in 1:length(predictors)) {
-  form <- paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM2))~",predictors[i],"+HbA1c+log_trig+sbp+si_1_ins0")
+  form <- paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM2))~",predictors[i])
   mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
   tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
   tidymod <- tidymod[1,]
@@ -1191,4 +1192,74 @@ set.seed(3654)
 filename <- "TODAY proteomics metabolomics/Proteomics analyses/Elastic net/easy_elasticnet.R"
 full_path <- file.path(github_path, filename)
 source(full_path)
+```
+
+# Elastic net models
+
+## CKM without BMI
+
+```{r, include=FALSE, comment=""}
+ckm_without_bmi_endata_nozero <- ckm_without_bmi_endata[!ckm_without_bmi_endata$days_to_ckm_prog == 0,]
+seq <- is_seq(names(ckm_without_bmi_endata_nozero))
+
+ckm_without_bmi_select = easy_elasticnet(data = ckm_without_bmi_endata_nozero,outcome = "progress_CKM",
+                           predictors = ckm_without_bmi_endata_nozero[,seq], out = "min.error",
+                           model_type = "cox",time = "days_to_ckm_prog", cv_method="kfold", folds = 10)
+retained_vars = analytes[analytes$AptName %in% ckm_without_bmi_select, c("Target","TargetFullName")]
+
+form = as.formula(paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+")))
+mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+
+#concordance_df <- as.data.frame(cbind("Severe albuminuria","Proteins",mod$concordance[[6]], mod$concordance[[7]]))
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+## CKM with BMI
+
+```{r, include=FALSE, comment=""}
+ckm_with_bmi_endata_nozero <- ckm_with_bmi_endata[!ckm_with_bmi_endata$days_to_ckm2_prog == 0,]
+seq <- is_seq(names(ckm_with_bmi_endata_nozero))
+
+ckm_with_bmi_select = easy_elasticnet(data = ckm_with_bmi_endata_nozero,outcome = "progress_CKM2",
+                           predictors = ckm_with_bmi_endata_nozero[,seq], out = "min.error",
+                           model_type = "cox",time = "days_to_ckm2_prog", cv_method="kfold", folds = 10)
+retained_vars = analytes[analytes$AptName %in% ckm_without_bmi_select, c("Target","TargetFullName")]
+
+form = as.formula(paste0("Surv(days_to_ckm2_prog, as.numeric(progress_CKM2))~",paste0(ckm_with_bmi_select,collapse = "+")))
+mod = coxph(formula = form,data = ckm_with_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+
+#concordance_df <- as.data.frame(cbind("Severe albuminuria","Proteins",mod$concordance[[6]], mod$concordance[[7]]))
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
 ```
