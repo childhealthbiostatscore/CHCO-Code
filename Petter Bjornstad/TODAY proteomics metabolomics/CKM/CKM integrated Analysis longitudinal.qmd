@@ -1026,6 +1026,37 @@ cols_to_convert <- c("HTN", "ANYDLP", "MIC", "MAC", "GLYC", "tx",
                      "progress_CKM", "progress_CKM2", "DEATH", 
                      "num_prog", "num_prog2")
 prog_summary_final[cols_to_convert] <- lapply(prog_summary_final[cols_to_convert], as.factor)
+
+# merge in proteins
+# load somalogic data, with QC samples already excluded
+filename <- "/Somalogic data raw/soma.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
+# load analyte info
+filename <- "/Somalogic data raw/analytes.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
+# take only the baseline soma samples
+base <- soma %>% arrange(releaseid,Date.Drawn) %>% dplyr::group_by(releaseid) %>% dplyr::filter(row_number()==1)
+# these 3 release IDs have first sample after end of recruitment, so they must be missing the baseline visit
+base <- base %>% filter(!releaseid %in% c("65-85903","65-47984","65-25901"))
+# identify columns corresponding to proteins
+#is_seq <- function(.x) grepl("^seq\\.[0-9]{4}", .x) # regex for analytes
+is_seq <- function(.x) grepl("seq", .x)
+seq <- is_seq(names(base))
+# convert to numeric
+base[,seq] <- apply(base[,seq],2,as.numeric)
+# log transform
+base_log <- base %>% modify_if(is_seq(names(.)), log)
+# scale by SD
+base_log_scale <- base_log
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  base_log_scale[,paste0(predictors[i])] <- base_log_scale[,paste0(predictors[i])]/sd(unlist(base_log[,paste0(predictors[i])]))
+}
+base_log_scale <- base_log_scale %>% rename(RELEASEID = releaseid)
+
+prog_summary_final_soma <- left_join(base_log_scale, prog_summary_final, by = "RELEASEID")
 ```
 
 # Results and Statistical Analysis
