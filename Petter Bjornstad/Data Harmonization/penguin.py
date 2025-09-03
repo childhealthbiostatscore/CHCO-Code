@@ -30,7 +30,7 @@ def clean_penguin():
     # Get project metadata
     meta = pd.DataFrame(proj.metadata)
     # Replace missing values
-    rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999]
+    rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
     # --------------------------------------------------------------------------
