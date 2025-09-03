@@ -24,6 +24,12 @@ library(purrr)
 library(stringr)
 library(arsenal)
 library(Hmisc)
+library(SomaDataIO)
+library(caret)
+library(survival)
+library(broom)
+library(openxlsx)
+library(readxl)
 
 # Working directory setup
 getwd()
@@ -1089,7 +1095,7 @@ summary(t2,  pfootnote = F)
 ## Descriptive statistics by maximum CKM stage, with BMI
 
 ```{r include=F}
-t3 <- tableby(CKM_max_char2 ~  days_to_ckm_prog + HTN + ANYDLP + MIC + MAC + GLYC + HbA1c +
+t3 <- tableby(CKM_max_char2 ~  days_to_ckm2_prog + HTN + ANYDLP + MIC + MAC + GLYC + HbA1c +
                 log_trig + sbp + dbp + uacid + si_1_ins0 + UAlbCreat + bmi + HDL + codi + ALT + AST + sex_char + racedesc + AGEBASE +
                 txdesc + DEATH, 
               data = prog_summary_final, total = F)
@@ -1097,4 +1103,92 @@ t3 <- tableby(CKM_max_char2 ~  days_to_ckm_prog + HTN + ANYDLP + MIC + MAC + GLY
 
 ```{r results='asis'}
 summary(t3,  pfootnote = F)
+```
+
+```{r, include=FALSE}
+# Run univariable Cox models for time to first progression without BMI
+result_noBMI <- NULL
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~",predictors[i],"+HbA1c+log_trig+sbp+si_1_ins0")
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_noBMI <- rbind(result_noBMI,tidymod)
+}
+result_noBMI$adj.p.value <- p.adjust(result_noBMI$p.value, "fdr")
+result_noBMI$AptName <- result_noBMI$term
+result_noBMI$term <- NULL
+result_noBMI <- merge(result_noBMI,analytes,by="AptName",all.x = T, all.y = F)
+result_noBMI <- result_noBMI[order(result_noBMI$p.value),] 
+```
+
+```{r, include=FALSE}
+# Run univariable Cox models for time to first progression with BMI
+result_BMI <- NULL
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM2))~",predictors[i],"+HbA1c+log_trig+sbp+si_1_ins0")
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_BMI <- rbind(result_BMI,tidymod)
+}
+result_BMI$adj.p.value <- p.adjust(result_BMI$p.value, "fdr")
+result_BMI$AptName <- result_BMI$term
+result_BMI$term <- NULL
+result_BMI <- merge(result_BMI,analytes,by="AptName",all.x = T, all.y = F)
+result_BMI <- result_BMI[order(result_BMI$p.value),] 
+```
+
+```{r, include=FALSE}
+# write all results to file
+wb <- createWorkbook()
+addWorksheet(wb,"CKM without BMI CPH")
+writeData(wb,"CKM without BMI CPH",result_noBMI,rowNames = F)
+addWorksheet(wb,"CKM with BMI CPH")
+writeData(wb,"CKM with BMI CPH",result_BMI,rowNames = F)
+full_path <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline adjusted.xlsx")
+saveWorkbook(wb, full_path, overwrite = TRUE)
+
+# separate files for IPA
+wb <- createWorkbook()
+addWorksheet(wb,"CKM without BMI CPH")
+writeData(wb,"CKM without BMI CPH",result_noBMI,rowNames = F)
+full_path <- file.path(data_path, "CKM/Results/IPA/TODAY somalogic Cox models scaled baseline adjusted without BMI.xlsx")
+saveWorkbook(wb, full_path, overwrite = TRUE)
+
+wb <- createWorkbook()
+addWorksheet(wb,"CKM with BMI CPH")
+writeData(wb,"CKM with BMI CPH",result_BMI,rowNames = F)
+full_path <- file.path(data_path, "CKM/Results/IPA/TODAY somalogic Cox models scaled baseline adjusted with BMI.xlsx")
+saveWorkbook(wb, full_path, overwrite = TRUE)
+```
+
+```{r, include=FALSE}
+# Elastic net Cox models
+
+# filter to top 100 proteins by effect size
+f <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline adjusted.xlsx")
+
+# CKM without BMI
+ckm_without_bmi_keep = read_excel(f,sheet = "CKM without BMI CPH")
+ckm_without_bmi_keep <- arrange(ckm_without_bmi_keep,adj.p.value)
+ckm_without_bmi_drop <- ckm_without_bmi_keep[101:nrow(ckm_without_bmi_keep),"AptName"]
+rownames(ckm_without_bmi_drop) <- ckm_without_bmi_drop$AptName
+ckm_without_bmi_drop <- as.data.frame(t(ckm_without_bmi_drop))
+ckm_without_bmi_endata <- prog_summary_final_soma %>% select(-colnames(ckm_without_bmi_drop))
+
+# CKM with BMI
+ckm_with_bmi_keep = read_excel(f,sheet = "CKM with BMI CPH")
+ckm_with_bmi_keep <- arrange(ckm_with_bmi_keep,adj.p.value)
+ckm_with_bmi_drop <- ckm_with_bmi_keep[101:nrow(ckm_with_bmi_keep),"AptName"]
+rownames(ckm_with_bmi_drop) <- ckm_with_bmi_drop$AptName
+ckm_with_bmi_drop <- as.data.frame(t(ckm_with_bmi_drop))
+ckm_with_bmi_endata <- prog_summary_final_soma %>% select(-colnames(ckm_with_bmi_drop))
+
+set.seed(3654)
+filename <- "TODAY proteomics metabolomics/Proteomics analyses/Elastic net/easy_elasticnet.R"
+full_path <- file.path(github_path, filename)
+source(full_path)
 ```
