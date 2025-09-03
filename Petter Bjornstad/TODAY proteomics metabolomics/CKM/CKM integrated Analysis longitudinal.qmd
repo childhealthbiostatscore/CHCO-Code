@@ -24,6 +24,13 @@ library(purrr)
 library(stringr)
 library(arsenal)
 library(Hmisc)
+library(SomaDataIO)
+library(caret)
+library(survival)
+library(broom)
+library(openxlsx)
+library(readxl)
+library(knitr)
 
 # Working directory setup
 getwd()
@@ -935,8 +942,14 @@ ckm_max <- full_join(ckm_max, ckm_max2, by = "RELEASEID")
 comorb_ckm2 <- full_join(comorb_ckm2, ckm_max, by = "RELEASEID")
 
 # time to progression (first? all?)
+# first get follow-up time
 fup <- comorb_ckm %>% select(RELEASEID, fup_time)
 comorb_ckm2 <- full_join(comorb_ckm2, fup)
+# get max days for each person
+max_days <- comorb_ckm2 %>% select(RELEASEID, days) %>% arrange(RELEASEID, desc(days)) %>% filter(row_number() == 1)
+colnames(max_days) <- c("RELEASEID", "maxdays")
+comorb_ckm2 <- left_join(comorb_ckm2, max_days, by = "RELEASEID")
+comorb_ckm2$fup_time <- ifelse(is.na(comorb_ckm2$fup_time), comorb_ckm2$maxdays, comorb_ckm2$fup_time)
 ckm_prog_time <- comorb_ckm2 %>% select(RELEASEID, days, progress_CKM, progress_CKM2, fup_time)
 ckm_prog_time1 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM)) %>% filter(row_number() == 1) %>% select(-progress_CKM2)
 ckm_prog_time1$days_to_ckm_prog <- ifelse(ckm_prog_time1$progress_CKM == 1, ckm_prog_time1$days, ckm_prog_time1$fup_time)
@@ -954,8 +967,24 @@ tab_a <- as.data.frame(table(a$RELEASEID))
 colnames(tab_a) <- c("RELEASEID", "num_prog")
 tab_b <- as.data.frame(table(b$RELEASEID))
 colnames(tab_b) <- c("RELEASEID", "num_prog2")
-prog_table <- merge(tab_a, tab_b, by = "RELEASEID")
+prog_table <- full_join(tab_a, tab_b, by = "RELEASEID")
 comorb_ckm2 <- full_join(comorb_ckm2, prog_table, by = "RELEASEID")
+comorb_ckm2$num_prog <- ifelse(is.na(comorb_ckm2$progress_CKM), NA, 
+                                     ifelse(is.na(comorb_ckm2$num_prog), 0, comorb_ckm2$num_prog))
+comorb_ckm2$num_prog2 <- ifelse(is.na(comorb_ckm2$progress_CKM2), NA, 
+                                ifelse(is.na(comorb_ckm2$num_prog2), 0, comorb_ckm2$num_prog2))
+
+# merge in death
+death_keep <- death %>% select(RELEASEID, DEATH)
+comorb_ckm2 <- left_join(comorb_ckm2, death_keep, by = "RELEASEID")
+comorb_ckm2$DEATH <- ifelse(is.na(comorb_ckm2$DEATH), 0, comorb_ckm2$DEATH)
+
+# convert to factors
+cols_to_convert <- c("HTN", "ANYDLP", "high_pwv", "hfpef",
+                     "high_trop", "CKM_syn_base", "CKM_max", "CKM_syn_base2", "CKM_max2",
+                     "progress_CKM", "progress_CKM2", "regress_CKM", "regress_CKM_stages", "regress_CKM2", "regress_CKM2_stages", "DEATH", 
+                     "num_prog", "num_prog2")
+comorb_ckm2[cols_to_convert] <- lapply(comorb_ckm2[cols_to_convert], as.factor)
 
 # collapse to a dataset with 1 row per person with baseline CKM, max CKM, time to progression, number of progressions?
 # this is an oversimplification because people progress, regress, progress
@@ -964,264 +993,273 @@ prog_summary <- comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base, CKM_ma
 prog_summary2 <-  comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base2, CKM_max2, progress_CKM2, days_to_ckm2_prog, num_prog2, -fup_time) %>%
   arrange(RELEASEID, desc(progress_CKM2)) %>% filter(row_number() == 1)
 prog_summary_final <- full_join(prog_summary, prog_summary2, by = "RELEASEID")    
-   
-# STOPPED HERE
-comorb_ckm2 <- comorb_ckm2 %>%
-  mutate(
-    progress_CKM_gt1 = case_when(
-      progress_CKM2 > 1 ~ 1,
-      TRUE ~ 0
-    ),
-    progress_CKM_bmi_gt1 = case_when(
-      progress_CKM2_bmi > 1 ~ 1,
-      TRUE ~ 0
-    )
-  )
+# create character variable corresponding to max stages
+prog_summary_final$CKM_max_char <- case_when(
+  prog_summary_final$CKM_max == 1 ~ "Stage 2",
+  prog_summary_final$CKM_max == 2 ~ "Stage 2+",
+  prog_summary_final$CKM_max == 3 ~ "Stage 3",
+  prog_summary_final$CKM_max == 4 ~ "Stage 4"
+)
+prog_summary_final$CKM_max_char2 <- case_when(
+  prog_summary_final$CKM_max2 == 1 ~ "Stage 2",
+  prog_summary_final$CKM_max2 == 2 ~ "Stage 2+",
+  prog_summary_final$CKM_max2 == 3 ~ "Stage 3",
+  prog_summary_final$CKM_max2 == 4 ~ "Stage 4"
+)
 
-# STOPPED HERE
-# convert to factors
-cols_to_convert <- c("HTN", "ANYDLP", "MIC", "MAC", "high_pwv", "hfpef",
-                     "high_trop", "CKM_syn_base", "CKM_max", "CKM_syn_base2", "CKM_max2",
-                     "progress_CKM", "progress_CKM2", "progress_CKM_bmi", "progress_CKM2_bmi", "progress_CKM_gt1", "progress_CKM_bmi_gt1")
-comorb_ckm2[cols_to_convert] <- lapply(comorb_ckm2[cols_to_convert], as.factor)
+# Labels
+label(prog_summary_final$progress_CKM) <- "CKM syndrome progression (binary: 0=no progression, 1=progressed, without BMI)"
+label(prog_summary_final$progress_CKM2) <- "CKM syndrome progression (binary: 0=no progression, 1=progressed, with BMI)"
+label(prog_summary_final$CKM_syn_base) <- "CKM syndrome stage at baseline, without BMI"
+label(prog_summary_final$CKM_syn_base2) <- "CKM syndrome stage at baseline, with BMI"
+label(prog_summary_final$CKM_max) <- "Maximum CKM stage, without BMI"
+label(prog_summary_final$CKM_max_char) <- "Maximum CKM stage, without BMI"
+label(prog_summary_final$CKM_max2) <- "Maximum CKM stage, with BMI"
+label(prog_summary_final$CKM_max_char2) <- "Maximum CKM stage, without BMI"
+label(prog_summary_final$num_prog) <- "Number of progression events, without BMI"
+label(prog_summary_final$num_prog2) <- "Number of progression events, with BMI"
+label(prog_summary_final$days_to_ckm_prog) <- "Days to first progression event, without BMI"
+label(prog_summary_final$days_to_ckm2_prog) <- "Days to first progression event, with BMI"
 
-# Apply labels to the created variables
-label(comorb_ckm2$baseline_numeric) <- "CKM syndrome stage at baseline (numeric, without BMI)"
-label(comorb_ckm2$followup_numeric) <- "CKM syndrome stage at follow-up (numeric, without BMI)"
-label(comorb_ckm2$baseline_numeric2) <- "CKM syndrome stage at baseline (numeric, with BMI)"
-label(comorb_ckm2$followup_numeric2) <- "CKM syndrome stage at follow-up (numeric, with BMI)"
+# make a descriptive dataset using progression summary data and baseline/comorb info
+prog_summary_final <- left_join(prog_summary_final, comorb, by = "RELEASEID")
+prog_summary_final <- left_join(prog_summary_final, baserisk, by = "RELEASEID") 
+prog_summary_final <- prog_summary_final %>% select(-days)
+prog_summary_final <- left_join(prog_summary_final, death, by = "RELEASEID")
+prog_summary_final$DEATH <- ifelse(is.na(prog_summary_final$DEATH), 0, prog_summary_final$DEATH)
 
-label(comorb_ckm2$progress_CKM) <- "CKM syndrome progression (binary: 0=no progression, 1=progressed, without BMI)"
-label(comorb_ckm2$progress_CKM2) <- "CKM syndrome progression magnitude (number of stages progressed, without BMI)"
-label(comorb_ckm2$progress_CKM_bmi) <- "CKM syndrome progression (binary: 0=no progression, 1=progressed, with BMI)"
-label(comorb_ckm2$progress_CKM2_bmi) <- "CKM syndrome progression magnitude (number of stages progressed, with BMI)"
+cols_to_convert <- c("HTN", "ANYDLP", "MIC", "MAC", "GLYC", "tx", 
+                     "CKM_syn_base", "CKM_max", "CKM_syn_base2", "CKM_max2",
+                     "progress_CKM", "progress_CKM2", "DEATH", 
+                     "num_prog", "num_prog2")
+prog_summary_final[cols_to_convert] <- lapply(prog_summary_final[cols_to_convert], as.factor)
 
-label(comorb_ckm2$progress_CKM_gt1) <- "CKM syndrome progression >1 stage (binary, without BMI)"
-label(comorb_ckm2$progress_CKM_bmi_gt1) <- "CKM syndrome progression >1 stage (binary, with BMI)"
+# merge in proteins
+# load somalogic data, with QC samples already excluded
+filename <- "/Somalogic data raw/soma.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
+# load analyte info
+filename <- "/Somalogic data raw/analytes.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
+# take only the baseline soma samples
+base <- soma %>% arrange(releaseid,Date.Drawn) %>% dplyr::group_by(releaseid) %>% dplyr::filter(row_number()==1)
+# these 3 release IDs have first sample after end of recruitment, so they must be missing the baseline visit
+base <- base %>% filter(!releaseid %in% c("65-85903","65-47984","65-25901"))
+# identify columns corresponding to proteins
+#is_seq <- function(.x) grepl("^seq\\.[0-9]{4}", .x) # regex for analytes
+is_seq <- function(.x) grepl("seq", .x)
+seq <- is_seq(names(base))
+# convert to numeric
+base[,seq] <- apply(base[,seq],2,as.numeric)
+# log transform
+base_log <- base %>% modify_if(is_seq(names(.)), log)
+# scale by SD
+base_log_scale <- base_log
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  base_log_scale[,paste0(predictors[i])] <- base_log_scale[,paste0(predictors[i])]/sd(unlist(base_log[,paste0(predictors[i])]))
+}
+base_log_scale <- base_log_scale %>% rename(RELEASEID = releaseid)
 
+prog_summary_final_soma <- left_join(base_log_scale, prog_summary_final, by = "RELEASEID")
 ```
 
 # Results and Statistical Analysis
 
-## Tabulation of CKM stages
-
-### CKM_syn variable
+## CKM stage summary
 
 ```{r include=F}
-t2a <- tableby(CKM_syn ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
-              + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
-                progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
-              data = comorb_ckm2, total = F)
-
+t1 <- tableby( ~ CKM_syn_base + CKM_syn_base2 + CKM_max_char + CKM_max_char2 + progress_CKM + progress_CKM2 +
+                 num_prog + num_prog2 + notest(days_to_ckm_prog, "Nmiss", "median", "q1q3") + notest(days_to_ckm2_prog, "Nmiss", "median", "q1q3"), 
+              data = prog_summary_final, total = F)
 ```
 
 ```{r results='asis'}
-summary(t2a,  pfootnote = F)
+summary(t1,  pfootnote = F)
 ```
 
-### CKM_syn2 variable
+## Descriptive statistics by maximum CKM stage, without BMI
 
 ```{r include=F}
-t2b <- tableby(CKM_syn2 ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
-              + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
-                progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
-              data = comorb_ckm2, total = F)
+t2 <- tableby(CKM_max_char ~  days_to_ckm_prog + HTN + ANYDLP + MIC + MAC + GLYC + HbA1c +
+                log_trig + sbp + dbp + uacid + si_1_ins0 + UAlbCreat + bmi + HDL + codi + ALT + AST + sex_char + racedesc + AGEBASE +
+                txdesc + DEATH, 
+              data = prog_summary_final, total = F)
 ```
 
 ```{r results='asis'}
-summary(t2b,  pfootnote = F)
+summary(t2,  pfootnote = F)
 ```
 
-### CKM_syn_base variable
+## Descriptive statistics by maximum CKM stage, with BMI
 
 ```{r include=F}
-t2c <- tableby(CKM_syn_base ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
-              + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
-                progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
-              data = comorb_ckm2, total = F)
-```
-
-```{r results='asis'}
-summary(t2c,  pfootnote = F)
-```
-
-### CKM_syn_base2 variable
-
-```{r include=F}
-t2d <- tableby(CKM_syn_base2 ~ HTN0 + HTN + ANYDLP0 + ANYDLP + MIC0 + MIC + MAC0 + MAC + high_pwv0 + high_pwv1
-              + hfpef1 + hfpef2 + high_trop0 + high_trop1 + ARRHYTHMIA + CAD + CHF + MI + DVT + PAD +
-                STROKE + TIA + LVSD + CKD + DEATH + ULCER + progress_CKM + progress_CKM2 + progress_CKM_bmi + 
-                progress_CKM2_bmi + progress_CKM_gt1 + progress_CKM_bmi_gt1, 
-              data = comorb_ckm2, total = F)
-```
-
-```{r results='asis'}
-summary(t2d,  pfootnote = F)
-```
-
-## CKM stages by baseline hyperfiltration
-
-```{r include=F}
-t3 <- tableby(HYP0 ~ CKM_syn + CKM_syn2 + CKM_syn_base + CKM_syn_base2, 
-              data = comorb_ckm2, total = F)
+t3 <- tableby(CKM_max_char2 ~  days_to_ckm2_prog + HTN + ANYDLP + MIC + MAC + GLYC + HbA1c +
+                log_trig + sbp + dbp + uacid + si_1_ins0 + UAlbCreat + bmi + HDL + codi + ALT + AST + sex_char + racedesc + AGEBASE +
+                txdesc + DEATH, 
+              data = prog_summary_final, total = F)
 ```
 
 ```{r results='asis'}
 summary(t3,  pfootnote = F)
 ```
 
-## Biomarkers by CKM stage
-
-### CKM_syn
-
-```{r include=F}
-t4a <- tableby(CKM_syn ~  eGFR_FAS_baseline + eGFR_FAS_highest + kwt(UAlbCreat_baseline, "Nmiss","medianq1q3", "range") +  
-                 kwt(UAlbCreat_highest, "Nmiss","medianq1q3", "range") + kwt(IL6_baseline, "Nmiss","medianq1q3", "range") + 
-                 kwt(IL6_highest, "Nmiss","medianq1q3", "range")  +
-                 kwt(hsCRP_baseline, "Nmiss","medianq1q3", "range")  + kwt(hsCRP_highest, "Nmiss","medianq1q3", "range") +
-                    kwt(mcp1_highest, "Nmiss","medianq1q3", "range") +
-                     kwt(tnfa_highest, "Nmiss","medianq1q3", "range") +
-                    kwt(bnp_baseline, "Nmiss","medianq1q3", "range")  + kwt(bnp_highest, "Nmiss","medianq1q3", "range") +
-                    ApoB_baseline + ApoB_highest,  
-              data = comorb_ckm2, total = F)
+```{r, include=FALSE}
+# Run univariable Cox models for time to first progression without BMI
+result_noBMI <- NULL
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~",predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_noBMI <- rbind(result_noBMI,tidymod)
+}
+result_noBMI$adj.p.value <- p.adjust(result_noBMI$p.value, "fdr")
+result_noBMI$AptName <- result_noBMI$term
+result_noBMI$term <- NULL
+result_noBMI <- merge(result_noBMI,analytes,by="AptName",all.x = T, all.y = F)
+result_noBMI <- result_noBMI[order(result_noBMI$p.value),] 
 ```
 
-```{r results='asis'}
-summary(t4a,  pfootnote = F)
+```{r, include=FALSE}
+# Run univariable Cox models for time to first progression with BMI
+result_BMI <- NULL
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM2))~",predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_BMI <- rbind(result_BMI,tidymod)
+}
+result_BMI$adj.p.value <- p.adjust(result_BMI$p.value, "fdr")
+result_BMI$AptName <- result_BMI$term
+result_BMI$term <- NULL
+result_BMI <- merge(result_BMI,analytes,by="AptName",all.x = T, all.y = F)
+result_BMI <- result_BMI[order(result_BMI$p.value),] 
 ```
 
-### CKM_syn2
+```{r, include=FALSE}
+# write all results to file
+wb <- createWorkbook()
+addWorksheet(wb,"CKM without BMI CPH")
+writeData(wb,"CKM without BMI CPH",result_noBMI,rowNames = F)
+addWorksheet(wb,"CKM with BMI CPH")
+writeData(wb,"CKM with BMI CPH",result_BMI,rowNames = F)
+full_path <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline adjusted.xlsx")
+saveWorkbook(wb, full_path, overwrite = TRUE)
 
-```{r include=F}
-t4b <- tableby(CKM_syn2 ~ eGFR_FAS_baseline + eGFR_FAS_highest + kwt(UAlbCreat_baseline, "Nmiss","medianq1q3", "range") +  
-                 kwt(UAlbCreat_highest, "Nmiss","medianq1q3", "range") + kwt(IL6_baseline, "Nmiss","medianq1q3", "range") + 
-                 kwt(IL6_highest, "Nmiss","medianq1q3", "range")  +
-                 kwt(hsCRP_baseline, "Nmiss","medianq1q3", "range")  + kwt(hsCRP_highest, "Nmiss","medianq1q3", "range") +
-                    kwt(mcp1_highest, "Nmiss","medianq1q3", "range") +
-                     kwt(tnfa_highest, "Nmiss","medianq1q3", "range") +
-                    kwt(bnp_baseline, "Nmiss","medianq1q3", "range")  + kwt(bnp_highest, "Nmiss","medianq1q3", "range") +
-                    ApoB_baseline + ApoB_highest, 
-              data = comorb_ckm2, total = F)
+# separate files for IPA
+wb <- createWorkbook()
+addWorksheet(wb,"CKM without BMI CPH")
+writeData(wb,"CKM without BMI CPH",result_noBMI,rowNames = F)
+full_path <- file.path(data_path, "CKM/Results/IPA/TODAY somalogic Cox models scaled baseline adjusted without BMI.xlsx")
+saveWorkbook(wb, full_path, overwrite = TRUE)
+
+wb <- createWorkbook()
+addWorksheet(wb,"CKM with BMI CPH")
+writeData(wb,"CKM with BMI CPH",result_BMI,rowNames = F)
+full_path <- file.path(data_path, "CKM/Results/IPA/TODAY somalogic Cox models scaled baseline adjusted with BMI.xlsx")
+saveWorkbook(wb, full_path, overwrite = TRUE)
 ```
 
-```{r results='asis'}
-summary(t4b,  pfootnote = F)
+```{r, include=FALSE}
+# Elastic net Cox models
+
+# filter to top 100 proteins by effect size
+f <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline adjusted.xlsx")
+
+# CKM without BMI
+ckm_without_bmi_keep = read_excel(f,sheet = "CKM without BMI CPH")
+ckm_without_bmi_keep <- arrange(ckm_without_bmi_keep,adj.p.value)
+ckm_without_bmi_drop <- ckm_without_bmi_keep[101:nrow(ckm_without_bmi_keep),"AptName"]
+rownames(ckm_without_bmi_drop) <- ckm_without_bmi_drop$AptName
+ckm_without_bmi_drop <- as.data.frame(t(ckm_without_bmi_drop))
+ckm_without_bmi_endata <- prog_summary_final_soma %>% select(-colnames(ckm_without_bmi_drop))
+
+# CKM with BMI
+ckm_with_bmi_keep = read_excel(f,sheet = "CKM with BMI CPH")
+ckm_with_bmi_keep <- arrange(ckm_with_bmi_keep,adj.p.value)
+ckm_with_bmi_drop <- ckm_with_bmi_keep[101:nrow(ckm_with_bmi_keep),"AptName"]
+rownames(ckm_with_bmi_drop) <- ckm_with_bmi_drop$AptName
+ckm_with_bmi_drop <- as.data.frame(t(ckm_with_bmi_drop))
+ckm_with_bmi_endata <- prog_summary_final_soma %>% select(-colnames(ckm_with_bmi_drop))
+
+set.seed(3654)
+filename <- "TODAY proteomics metabolomics/Proteomics analyses/Elastic net/easy_elasticnet.R"
+full_path <- file.path(github_path, filename)
+source(full_path)
 ```
 
-# Visualizations
+# Elastic net models
 
-```{r visualizations}
-# Distribution of CKM stages
-p1 <- ggplot(comorb_ckm2, aes(x = CKM_syn)) +
-  geom_bar(fill = "steelblue") +
-  labs(title = "Distribution of CKM Stages", x = "CKM Stage", y = "Number of Patients") +
-  theme_minimal(base_size = 14)
+## CKM without BMI
 
-# eGFR by CKM stage
-p2 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = eGFR_FAS_baseline)) +
-  geom_boxplot(fill = "skyblue", outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.4, color = "darkblue") +
-  stat_summary(fun = median, geom = "point", shape = 18, size = 3, color = "red") +
-  labs(x = "CKM Stage", y = "eGFR_FAS_baseline (mL/min/1.73m²)", 
-       title = "Baseline eGFR by CKM Stage") +
-  theme_minimal()
+```{r, include=FALSE, comment=""}
+ckm_without_bmi_endata_nozero <- ckm_without_bmi_endata[!ckm_without_bmi_endata$days_to_ckm_prog == 0,]
+seq <- is_seq(names(ckm_without_bmi_endata_nozero))
 
-# Biomarker visualizations
-p3 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = UAlbCreat_baseline)) +
-  geom_boxplot(fill = "lightblue", outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
-  labs(title = "Baseline UACR by CKM Stage", x = "CKM Stage", y = "UACR") +
-  theme_minimal()
+ckm_without_bmi_select = easy_elasticnet(data = ckm_without_bmi_endata_nozero,outcome = "progress_CKM",
+                           predictors = ckm_without_bmi_endata_nozero[,seq], out = "min.error",
+                           model_type = "cox",time = "days_to_ckm_prog", cv_method="kfold", folds = 10)
+retained_vars = analytes[analytes$AptName %in% ckm_without_bmi_select, c("Target","TargetFullName")]
 
-p3a <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = UAlbCreat_highest)) +
-  geom_boxplot(fill = "lightblue", outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
-  labs(title = "Highest UACR by CKM Stage", x = "CKM Stage", y = "UACR") +
-  theme_minimal()
+form = as.formula(paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+")))
+mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
 
-p5 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = IL6_highest)) +
-  geom_boxplot(fill = "lightgreen", outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5, color = "darkgreen") +
-  labs(title = "Highest IL-6 by CKM Stage", x = "CKM Stage", y = "IL-6") +
-  theme_minimal()
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 
-p6 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = hsCRP_highest)) +
-  geom_boxplot(fill = "lightblue", outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
-  labs(title = "Highest hs-CRP by CKM Stage", x = "CKM Stage", y = "hs-CRP") +
-  theme_minimal()
+#concordance_df <- as.data.frame(cbind("Severe albuminuria","Proteins",mod$concordance[[6]], mod$concordance[[7]]))
+```
 
-p7 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = bmi)) +
-  geom_boxplot(fill = "lightblue", outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5, color = "darkblue") +
-  labs(title = "Baseline BMI by CKM Stage", x = "CKM Stage", y = "BMI (kg/m²)") +
-  theme_minimal()
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
 
-p8 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = sbp)) +
-  geom_boxplot(fill = "pink", outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5, color = "darkred") +
-  labs(title = "Baseline SBP by CKM Stage", x = "CKM Stage", y = "SBP (mmHg)") +
-  theme_minimal()
+There are `r nrow(moddf)` variables in the model.
 
-p9 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn), y = bnp_highest)) +
-  geom_boxplot(fill = "orange", outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5, color = "darkorange3") +
-  labs(title = "BNP-highest by CKM Stage", x = "CKM Stage", y = "BNP (ng/mL)") +
-  theme_minimal()
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
 
-p10 <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = pedsql_highest)) +
-  geom_boxplot(fill = "orange", outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5, color = "darkorange3") +
-  labs(title = "Highest PedsQL by CKM Stage", x = "CKM Stage", y = "PedsQL") +
-  theme_minimal()
+## CKM with BMI
 
-p10a <- ggplot(comorb_ckm2, aes(x = as.factor(CKM_syn2), y = pedsql_lowest)) +
-  geom_boxplot(fill = "orange", outlier.shape = NA) +
-  geom_jitter(width = 0.2, alpha = 0.5, color = "darkorange3") +
-  labs(title = "Lowest PedsQL by CKM Stage", x = "CKM Stage", y = "PedsQL") +
-  theme_minimal()
+```{r, include=FALSE, comment=""}
+ckm_with_bmi_endata_nozero <- ckm_with_bmi_endata[!ckm_with_bmi_endata$days_to_ckm2_prog == 0,]
+seq <- is_seq(names(ckm_with_bmi_endata_nozero))
 
-# Sankey diagram for CKM transitions
-df_alluvial <- comorb_ckm2 %>%
-  select(RELEASEID, CKM_syn_base, CKM_syn) %>%
-  mutate(CKM_syn_base = as.factor(CKM_syn_base), CKM_syn = as.factor(CKM_syn))
+ckm_with_bmi_select = easy_elasticnet(data = ckm_with_bmi_endata_nozero,outcome = "progress_CKM2",
+                           predictors = ckm_with_bmi_endata_nozero[,seq], out = "min.error",
+                           model_type = "cox",time = "days_to_ckm2_prog", cv_method="kfold", folds = 10)
+retained_vars = analytes[analytes$AptName %in% ckm_without_bmi_select, c("Target","TargetFullName")]
 
-p11 <- ggplot(df_alluvial, aes(axis1 = CKM_syn_base, axis2 = CKM_syn)) +
-  geom_alluvium(aes(fill = CKM_syn_base), width = 1/12, alpha = 0.8) +
-  geom_stratum(width = 1/12, fill = "grey80", color = "black") +
-  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
-  scale_x_discrete(limits = c("Baseline CKM Stage", "Follow-up CKM Stage"), expand = c(.05, .05)) +
-  labs(title = "Transitions Between CKM Stages", y = "Number of Participants") +
-  theme_minimal()
+form = as.formula(paste0("Surv(days_to_ckm2_prog, as.numeric(progress_CKM2))~",paste0(ckm_with_bmi_select,collapse = "+")))
+mod = coxph(formula = form,data = ckm_with_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
 
-# Sankey with BMI inclusion
-df_alluvial2 <- comorb_ckm2 %>%
-  select(RELEASEID, CKM_syn_base2, CKM_syn2) %>%
-  mutate(CKM_syn_base2 = as.factor(CKM_syn_base2), CKM_syn2 = as.factor(CKM_syn2))
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 
-p12 <- ggplot(df_alluvial2, aes(axis1 = CKM_syn_base2, axis2 = CKM_syn2)) +
-  geom_alluvium(aes(fill = CKM_syn_base2), width = 1/12, alpha = 0.8) +
-  geom_stratum(width = 1/12, fill = "grey80", color = "black") +
-  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
-  scale_x_discrete(limits = c("Baseline CKM Stage", "Follow-up CKM Stage"), expand = c(.05, .05)) +
-  labs(title = "Transitions Between CKM Stages (with BMI)", y = "Number of Participants") +
-  theme_minimal()
+#concordance_df <- as.data.frame(cbind("Severe albuminuria","Proteins",mod$concordance[[6]], mod$concordance[[7]]))
+```
 
-# Display key plots
-print(p1)
-print(p2)
-print(p3)
-print(p3a)
-print(p5)
-print(p6)
-print(p7)
-print(p8)
-print(p9)
-print(p10)
-print(p10a)
-print(p11)
-print(p12)
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
 ```
