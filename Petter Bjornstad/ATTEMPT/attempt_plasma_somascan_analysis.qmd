@@ -310,7 +310,7 @@ did_res_plasma_mixed <- run_limma_proteomics(data = soma,
                                              model_type = "interaction_random")
 # 6 out of 7289 singularity warning (0.1%)
 s3saveRDS(did_res_plasma_mixed, "Proteomics/plasma_proteomics_res.RDS", "attempt", region = "")
-
+write.csv(did_res_plasma_mixed$results_annotated, file.path(root_path, "ATTEMPT/Results/Somascan/plasma_proteomics_res.csv"), row.names = F)
 ```
 
 ```{r echo = F}
@@ -647,6 +647,78 @@ ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Co
 
 # Integration with scRNA (results from Hyak)
 
+```{r include = F}
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD",
+  DCT = c("DCT", "dDCT"),  # Distal convoluted tubule
+  CD = c("CCD-PC", "dCCD-PC", "CNT-PC", "tPC-IC", "MC", "aIC", "IC-A", "IC-B", "CNT"),  # Collecting duct & connecting tubule
+  Glom  = c("POD", "MC", "M-PC"),
+  VSMC        = c("VSMC/P", "EC/VSMC")
+)
+
+# Now add combined group
+celltype_groups$Combined_p <- c(
+  celltype_groups$EC,
+  celltype_groups$Glom,
+  celltype_groups$VSMC,
+  celltype_groups$Immune
+)
+
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+# Top 2000 HVG
+for (cell in names(celltype_groups))  {
+  print(paste0("Processing: ", cell))
+  cell <- gsub("/", "_", cell)
+
+  annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_hvg_res.csv")))
+  colnames(annotated_df) <- gsub("\\.", ":", colnames(annotated_df))
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_hvg_kpmp")
+  print(var_name)
+  assign(var_name, annotated_df)
+  
+    
+  annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_res.csv")))
+  colnames(annotated_df) <- gsub("\\.", ":", colnames(annotated_df))
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp")
+  print(var_name)
+  assign(var_name, annotated_df)
+}
+
+for (cell in unlist(celltype_groups))  {
+  print(paste0("Processing: ", cell))
+  cell <- gsub("/", "_", cell)
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  
+  annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_hvg_res.csv")))
+  colnames(annotated_df) <- gsub("\\.", ":", colnames(annotated_df))
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_hvg_kpmp")
+  print(var_name)
+  assign(var_name, annotated_df)
+
+}
+```
+
+
 ```{r echo = F}
 vsmc_plasma_raw <- s3readRDS("Proteomics/vsmc_nebula_plasma_soma_res_kpmp.rds", "attempt", region = "")
 vsmc_plasma <- process_nebula_results(vsmc_plasma_raw$results, pval_col = "p_log2(protein)")$results
@@ -661,9 +733,21 @@ plot_volcano(vsmc_plasma,
              x_axis = "logFC log2(protein)", 
              y_axis = "-log10(p.value)",
              file_suffix = "_kpmp_vsmc_plasma",
-             formula = "log2(protein) + treatment", cell_type = "VSMC") + 
+             formula = "log2(protein) + treatment", cell_type = "VSMC",
+             positive_text = "Positively associated\nwith transcript",
+             negative_text = "Negatively associated\nwith transcript") + 
   geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
 ```
+```{r echo = F}
+vsmc_concordance_plasma <- concordance_by_celltype(
+  biofluid_df = vsmc_plasma,
+  scrna_df    = vsmc_kpmp,
+  biofluid_label = "plasma",
+  celltype = "VSMC",
+  out_dir = file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance")
+)
+```
+
 
 ```{r echo = F}
 glom_plasma_raw <- s3readRDS("Proteomics/glom_nebula_plasma_soma_res_kpmp.rds", "attempt", region = "")
@@ -675,8 +759,20 @@ glom_plasma <- glom_plasma %>%
 ```{r echo = F}
 plot_volcano(glom_plasma, fc = "logFC_log2(protein)", p_col = "p_log2(protein)", x_axis = "logFC log2(protein)", y_axis = "-log10(p.value)", 
              file_suffix = "_kpmp_glom_plasma",
-             formula = "log2(protein) + treatment", cell_type = "Glomerular cells") + 
+             formula = "log2(protein) + treatment", cell_type = "Glomerular cells",
+             positive_text = "Positively associated\nwith transcript",
+             negative_text = "Negatively associated\nwith transcript") + 
   geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+```
+
+```{r echo = F}
+glom_concordance_plasma <- concordance_by_celltype(
+  biofluid_df = glom_plasma,
+  scrna_df    = glom_kpmp,
+  biofluid_label = "plasma",
+  celltype = "Glom",
+  out_dir = file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance")
+)
 ```
 
 ```{r echo = F}
@@ -688,8 +784,19 @@ immune_plasma <- immune_plasma %>%
 
 ```{r echo = F}
 plot_volcano(immune_plasma, fc = "logFC_log2(protein)", p_col = "p_log2(protein)", x_axis = "logFC log2(protein)", y_axis = "-log10(p.value)", file_suffix = "_kpmp_immune_plasma",
-             formula = "log2(protein) + treatment", cell_type = "Immune") + 
+             formula = "log2(protein) + treatment", cell_type = "Immune",
+             positive_text = "Positively associated\nwith transcript",
+             negative_text = "Negatively associated\nwith transcript") + 
   geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+```
+```{r echo = F}
+immune_concordance_plasma <- concordance_by_celltype(
+  biofluid_df = immune_plasma,
+  scrna_df    = immune_kpmp,
+  biofluid_label = "plasma",
+  celltype = "Immune",
+  out_dir = file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance")
+)
 ```
 
 ```{r echo = F}
@@ -702,8 +809,20 @@ ec_plasma <- ec_plasma %>%
 ```{r echo = F}
 plot_volcano(ec_plasma, fc = "logFC_log2(protein)", p_col = "p_log2(protein)", x_axis = "logFC log2(protein)", y_axis = "-log10(p.value)", 
              file_suffix = "_kpmp_ec_plasma",
-             formula = "log2(protein) + treatment", cell_type = "EC") + 
+             formula = "log2(protein) + treatment", cell_type = "EC",
+             positive_text = "Positively associated\nwith transcript",
+             negative_text = "Negatively associated\nwith transcript") + 
   geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+```
+
+```{r echo = F}
+ec_concordance_plasma <- concordance_by_celltype(
+  biofluid_df = ec_plasma,
+  scrna_df    = ec_kpmp,
+  biofluid_label = "plasma",
+  celltype = "EC",
+  out_dir = file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance")
+)
 ```
 
 ```{r combinedho = F}
@@ -716,8 +835,21 @@ combined_plasma <- combined_plasma %>%
 ```{r combinedho = F}
 plot_volcano(combined_plasma, fc = "logFC_log2(protein)", p_col = "p_log2(protein)", x_axis = "logFC log2(protein)", y_axis = "-log10(p.value)", 
              file_suffix = "_kpmp_combined_plasma",
-             formula = "log2(protein) + treatment", cell_type = "Combined (EC, VSMC, Immune, Glom)") + 
+             formula = "log2(protein) + treatment", 
+             cell_type = "Combined (EC, VSMC, Immune, Glom)",
+             positive_text = "Positively associated\nwith transcript",
+             negative_text = "Negatively associated\nwith transcript") + 
   geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+```
+
+```{r echo = F}
+combined_concordance_plasma <- concordance_by_celltype(
+  biofluid_df = combined_plasma,
+  scrna_df    = combined_p_kpmp,
+  biofluid_label = "plasma",
+  celltype = "Combined",
+  out_dir = file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance")
+)
 ```
 
 # Looking for overlap between treatment DiD & proteomics DiD
