@@ -214,16 +214,37 @@ strange_cells_full <- strange_cells %>% left_join(dat2)
 
 
 
-for(i in c(11:ncol(39))){
+for(i in c(11:ncol(strange_cells_full))){
   tmp_var <- names(strange_cells_full)[i]
   tmp_df <- strange_cells_full %>% 
     dplyr::select(group_labels, aPT_percentage, dTAL_percentage, tmp_var)
   
+  names(tmp_df)[4] <- 'Variable'
+  
+  graph1 <- ggplot(tmp_df, aes(x=group_labels, y=Variable, color = group_labels))+
+    geom_boxplot()+geom_point()+theme_classic()+labs(x='Condition Group', y = tmp_var)
+  
+  graph2 <- ggplot(tmp_df, aes(x=aPT_percentage, y=Variable, color = group_labels))+
+    geom_point()+geom_smooth(method='lm', se=F)+theme_classic()+labs(x='aPT Percentage of PT Cells', y = tmp_var)
+  
+  graph3 <- ggplot(tmp_df, aes(x=dTAL_percentage, y=Variable, color = group_labels))+
+    geom_point()+geom_smooth(method='lm', se=F)+theme_classic()+labs(x='dTAL Percentage of TAL Cells', y = tmp_var)
   
   
+  png(paste0('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/CellType_Plots/', tmp_var, '_groupdifferences.png'), 
+      width= 600)
+  print(graph1)
+  dev.off()
   
+  png(paste0('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/CellType_Plots/', tmp_var, '_aPTdifferences.png'))
+  print(graph2)
+  dev.off()
   
+  png(paste0('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/CellType_Plots/', tmp_var, '_dTALdifferences.png'))
+  print(graph3)
+  dev.off()
   
+  print(i)
   
 }
 
