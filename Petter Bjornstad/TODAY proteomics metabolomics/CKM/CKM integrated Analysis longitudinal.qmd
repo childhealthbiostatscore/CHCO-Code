@@ -395,6 +395,8 @@ shbg_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "shbg")
 test_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "testosterone")
 gfr_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "ckd_gfr")
 fas_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "eGFR_FAS")
+codi_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "codi")
+insinv_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "insinv")
 
 # More biomarker extractions
 uacr_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "UAlbCreat")
@@ -411,6 +413,7 @@ vcam1_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "vcam1")
 eselectin_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "eselectin")
 vegf_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "vegf")
 fgf23_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "fgf23")
+a1c_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "HbA1c")
 
 # Clean infinite values
 clean_infinite <- function(df) {
@@ -422,7 +425,7 @@ biomarker_list <- list(bnp_vals, troponin_vals, adiponectin_vals, hmwa_vals, edo
                       shbg_vals, test_vals, gfr_vals, fas_vals, uacr_vals, 
                       il6_vals, il1_vals, hscrp_vals, apob_vals, mcp1_vals, tnfa_vals,
                       tnfr1_vals, tnfr2_vals, icam1_vals, vcam1_vals, eselectin_vals,
-                      vegf_vals, fgf23_vals)
+                      vegf_vals, fgf23_vals, a1c_vals, insinv_vals, codi_vals)
 
 biomarker_list <- lapply(biomarker_list, clean_infinite)
 
@@ -476,6 +479,27 @@ kdigo <- classify_ckd_batch(kdigo, gfr_col = "ckd_gfr", albumin_mg_g_col = "UAlb
 kdigo <- kdigo %>% rename(RELEASEID = releaseid)
 kdigo <- kdigo %>% group_by(RELEASEID) %>% fill(risk_level, .direction = "down") %>%
   fill(recommendation, .direction = "down") %>% ungroup() %>% select(RELEASEID, days, gfr_category, gfr_description, albumin_category, albumin_description, risk_level, recommendation)
+
+# create data frame with mean value of labs
+a1c_means <- a1c_vals %>% group_by(releaseid) %>% summarise(mean_a1c = mean(HbA1c, na.rm = T))
+adipo_means <- adiponectin_vals %>% group_by(releaseid) %>% summarise(mean_adipo = mean(adiponectin, na.rm = T))
+il6_means <-  il6_vals %>% group_by(releaseid) %>% summarise(mean_il6 = mean(IL6, na.rm = T))
+il1_means <- il1_vals %>% group_by(releaseid) %>% summarise(mean_il1 = mean(il1, na.rm = T))
+hscrp_means <- hscrp_vals %>% group_by(releaseid) %>% summarise(mean_hscrp = mean(hsCRP, na.rm = T))
+apob_means <- apob_vals %>% group_by(releaseid) %>% summarise(mean_apob = mean(ApoB, na.rm = T))
+tnfa_means <- tnfa_vals %>% group_by(releaseid) %>% summarise(mean_tnfa = mean(tnfa, na.rm = T))
+insinv_means <- insinv_vals %>% group_by(releaseid) %>% summarise(mean_insinv = mean(insinv, na.rm = T))
+codi_means <- codi_vals %>% group_by(releaseid) %>% summarise(mean_codi = mean(codi, na.rm = T))
+
+lab_means <- a1c_means %>% full_join(adipo_means, by = "releaseid") %>%
+  full_join(il6_means, by = "releaseid") %>%
+  full_join(il1_means, by = "releaseid") %>%
+  full_join(hscrp_means, by = "releaseid") %>%
+  full_join(apob_means, by = "releaseid") %>%
+  full_join(tnfa_means, by = "releaseid") %>%
+  full_join(insinv_means, by = "releaseid") %>%
+  full_join(codi_means, by = "releaseid") 
+lab_means <- lab_means %>% rename(RELEASEID = releaseid)
 ```
 
 ```{r include = F}
@@ -1150,6 +1174,7 @@ prog_summary_final <- left_join(prog_summary_final, baserisk, by = "RELEASEID")
 prog_summary_final <- prog_summary_final %>% select(-days)
 prog_summary_final <- left_join(prog_summary_final, death, by = "RELEASEID")
 prog_summary_final$DEATH <- ifelse(is.na(prog_summary_final$DEATH), 0, prog_summary_final$DEATH)
+prog_summary_final <- left_join(prog_summary_final, lab_means, by = "RELEASEID")
 
 cols_to_convert <- c("HTN", "TGDLP", "MIC", "MAC", "GLYC", "tx", 
                      "CKM_syn_base", "CKM_max", "CKM_syn_base2", "CKM_max2",
@@ -1305,21 +1330,25 @@ result_noBMI <- result_noBMI[order(result_noBMI$p.value),]
 ```{r, include=FALSE}
 # Run univariable Cox models for clinical variables
 result_clinical <- NULL
-predictors <- c("AGEBASE", "sex_char", "bmi", "HbA1c", "sbp", "codi", "si_1_ins0", "GLYC")
+predictors <- c("AGEBASE", "sex_char", "bmi", "HbA1c", "sbp", "codi", "si_1_ins0", "GLYC", "mean_a1c", "mean_adipo", "mean_il6", "mean_il1",
+                "mean_hscrp", "mean_apob", "mean_tnfa", "mean_insinv", "mean_codi")
 for (i in 1:length(predictors)) {
   form <- paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~",predictors[i])
   mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
   tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
   tidymod <- tidymod[1,]
+  tidymod <- cbind(tidymod, mod$concordance[[6]])
   result_clinical <- rbind(result_clinical,tidymod)
 }
 result_clinical$adj.p.value <- p.adjust(result_clinical$p.value, "fdr")
 result_clinical$AptName <- result_clinical$term
 result_clinical$term <- NULL
+result_clinical$concordance <- result_clinical$`mod$concordance[[6]]`
+result_clinical$`mod$concordance[[6]]` <- NULL
 result_clinical <- merge(result_clinical,analytes,by="AptName",all.x = T, all.y = F)
 result_clinical <- result_clinical[order(result_clinical$p.value),] 
 result_clinical$VarName <- result_clinical$AptName
-result_clinical <- result_clinical %>% select(VarName, estimate, std.error,	statistic,	p.value,	conf.low,	conf.high)
+result_clinical <- result_clinical %>% select(VarName, estimate, std.error,	statistic,	p.value,	conf.low,	conf.high, concordance)
 ```
 
 ```{r, include=FALSE}
