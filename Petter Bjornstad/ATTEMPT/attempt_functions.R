@@ -1232,6 +1232,7 @@ plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axi
                                  data$AptName %in% top_neg$AptName ~ "#457b9d",
                                  TRUE ~ "#ced4da"),
            top_size = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), 1.3, 1),
+           EntrezGeneSymbol = if_else(data$EntrezGeneSymbol == "", data$Target, data$EntrezGeneSymbol),
            top_lab  = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), EntrezGeneSymbol, ""))
   
   # Max and min for annotation arrows
@@ -1951,8 +1952,8 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
                                baseline_visit = 0, 
                                visits_to_plot = c(-4, 0, 4, 16, 18),
                                covariates = NULL,
-                               test_method = c("lmer")) { # test method can be "lmer", "ancova", "lmer_covars"
-  test_method <- match.arg(test_method)
+                               test_method = "lmer_covars") { # test method can be "lmer", "ancova", "lmer_covars"
+
   dodge_val <- 0.08
   y_sym <- rlang::ensym(y_var)
   y_name <- rlang::as_name(y_sym)
@@ -1992,7 +1993,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
         
       } else if (test_method == "lmer_covars") {
         model <- lmer(
-          formula(paste0(y_name, " ~ treatment * factor(visit) + age + sex + diabetes_dx_duration + (1|subject_id)")),
+          formula(paste0(y_name, " ~ treatment * factor(visit) + age + sex + diabetes_dx_duration + bmi + (1|subject_id)")),
           data = data
         )
         emm <- emmeans(model, ~ treatment | visit)
@@ -2000,6 +2001,17 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
           as_tibble() %>% 
           filter(visit == v) %>% 
          dplyr::mutate(contrast = contrast, estimate = estimate, p.value = p.value)
+        
+      } else if (test_method == "lmer_covars_site") {
+        model <- lmer(
+          formula(paste0(y_name, " ~ treatment * factor(visit) + age + sex + diabetes_dx_duration + bmi + site + (1|subject_id)")),
+          data = data
+        )
+        emm <- emmeans(model, ~ treatment | visit)
+        contrast(emm, method = "revpairwise", by = "visit", adjust = "bonferroni") %>%
+          as_tibble() %>% 
+          filter(visit == v) %>% 
+          dplyr::mutate(contrast = contrast, estimate = estimate, p.value = p.value)
         
       } else if (test_method == "lmer") {
         model <- lmer(
@@ -3659,9 +3671,10 @@ plot_treatment_heatmap <- function(data,
   library(dplyr)
   library(tidyr)
   library(ggplot2)
+  library(ggtext)  # Add this for element_markdown
   
   if (!is.null(genes_to_show)) {
-    data <- data %>% filter(Gene %in% genes_to_show)
+    data <- data %>% filter(!!sym(gene_col) %in% genes_to_show)  # Fixed: use gene_col
   }
   
   data <- data %>%
@@ -3700,7 +3713,7 @@ plot_treatment_heatmap <- function(data,
     dplyr::mutate(DiD_value = Slope[group == "DiD"]) %>%
     ungroup() %>%
     dplyr::arrange(desc(DiD_value)) %>%
-    dplyr::mutate(!!gene_col := reorder(!!sym(gene_col), -DiD_value)) %>%
+    dplyr::mutate(!!sym(gene_col) := reorder(!!sym(gene_col), -DiD_value)) %>%
     dplyr::select(-DiD_value)
   
   abs_max <- max(abs(plot_df$Slope)) * 1.1
@@ -3711,9 +3724,12 @@ plot_treatment_heatmap <- function(data,
     c(rep("#457b9d", top_n), rep("#f28482", top_n)),
     gene_levels
   )
-  plot_df$Gene <- factor(plot_df$Gene, levels = rev(gene_levels))
-  # Heatmap
-  ggplot(plot_df, aes(x = group, y = Gene, fill = Slope)) +
+  
+  # Fixed: use gene_col instead of hardcoded "Gene"
+  plot_df[[gene_col]] <- factor(plot_df[[gene_col]], levels = rev(gene_levels))
+  
+  # Heatmap - Fixed to use gene_col parameter
+  ggplot(plot_df, aes(x = group, y = !!sym(gene_col), fill = Slope)) +
     geom_tile() +
     scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674",
                          midpoint = 0, limits = c(-abs_max, abs_max)) +
@@ -3730,9 +3746,7 @@ plot_treatment_heatmap <- function(data,
       panel.grid = element_blank(),
       text = element_text(size = 15),
       legend.title.position = "top",
-      # legend.text.position = "left",
       legend.title = element_text(hjust = 0.5, size = 10),
-      # legend.position = "left",
       axis.text.x = element_text(angle = 60, hjust = 1), 
       axis.text.y = element_markdown(),
       plot.caption = element_text(size = 18, hjust = 0.5)
@@ -3754,7 +3768,6 @@ plot_treatment_heatmap <- function(data,
       else NULL
     )
 }
-
 
 # ===========================================================================
 # Function: plot_clinvar_pseudotime_arrows
@@ -3972,31 +3985,101 @@ plot_clinvar_pseudotime_arrows_delta <- function(df,
 }
 
 
+
+# ===========================================================================
+# Function: create_croc_attempt_df
+# ===========================================================================
+
+create_croc_attempt_df <- function(attempt_df,
+                                   croc_df,
+                                   cell_type = "PT",
+                                   FC_attempt = "logFC_treatmentDapagliflozin:visitPOST",
+                                   FC_croc = "logFC_groupType_1_Diabetes",
+                                   p_attempt = "fdr",
+                                   p_croc = "p_groupType_1_Diabetes",
+                                   attempt_p_cut = 0.05,
+                                   croc_p_cut = 0.05,
+                                   save_csv = FALSE,
+                                   csv_path = NULL) {
+  
+  # Filter extreme values from croc_df
+  croc_df <- croc_df %>% 
+    filter(abs(.data[[FC_croc]]) < 10)
+  
+  # Create the joined dataframe with direction classification
+  joined_df <- attempt_df %>%
+    dplyr::select(Gene, 
+                  logFC_attempt = .data[[FC_attempt]], 
+                  p.val_attempt = .data[[p_attempt]]) %>%
+    full_join(
+      croc_df %>%
+        dplyr::select(Gene, 
+                      logFC_croc = .data[[FC_croc]], 
+                      p.val_croc = .data[[p_croc]]),
+      by = "Gene"
+    ) %>%
+    mutate(
+      direction = case_when(
+        logFC_attempt < 0 & logFC_croc < 0 & p.val_attempt < attempt_p_cut & p.val_croc < croc_p_cut ~ "non-reversed",
+        logFC_attempt > 0 & logFC_croc > 0 & p.val_attempt < attempt_p_cut & p.val_croc < croc_p_cut ~ "non-reversed",
+        logFC_attempt < 0 & logFC_croc > 0 & p.val_attempt < attempt_p_cut & p.val_croc < croc_p_cut ~ "reversed",
+        logFC_attempt > 0 & logFC_croc < 0 & p.val_attempt < attempt_p_cut & p.val_croc < croc_p_cut ~ "reversed",
+        TRUE ~ NA_character_
+      ),
+      cell_type = cell_type
+    ) %>%
+    filter(!is.na(direction))
+  
+  # Save to CSV if requested
+  if (save_csv && !is.null(csv_path)) {
+    write.csv(joined_df, csv_path, row.names = FALSE)
+    message("Saved ", nrow(joined_df), " overlapping genes to: ", csv_path)
+  }
+  
+  return(joined_df)
+}
+
 # ===========================================================================
 # Function: plot_croc_attempt_volcano
 # ===========================================================================
 
 plot_croc_attempt_volcano <- function(attempt_df,
-                                      croc_df,
-                                      cell_type = "PT",
-                                      FC_attempt = "logFC_treatmentDapagliflozin:visitPOST",
-                                      FC_croc = "logFC_groupType_1_Diabetes",
-                                      p_attempt = "fdr",
-                                      p_croc = "p_groupType_1_Diabetes",
-                                      top_n = 20,
-                                      attempt_p_cut = 0.05,
-                                      croc_p_cut = 0.05,
-                                      width = 7,
-                                      height = 5,
-                                      caption = T, 
-                                      positive_text = "Upregulated in T1D compared to LC",
-                                      negative_text = "Downregulated in T1D compared to LC",
-                                      x_axis = "logFC_groupT1D",
-                                      y_axis = "-log10(p-value)",
-                                      save_path = NULL) {
+                                              croc_df,
+                                              cell_type = "PT",
+                                              FC_attempt = "logFC_treatmentDapagliflozin:visitPOST",
+                                              FC_croc = "logFC_groupType_1_Diabetes",
+                                              p_attempt = "fdr",
+                                              p_croc = "p_groupType_1_Diabetes",
+                                              top_n = 20,
+                                              attempt_p_cut = 0.05,
+                                              croc_p_cut = 0.05,
+                                              width = 7,
+                                              height = 5,
+                                              caption = T, 
+                                              positive_text = "Upregulated in T1D compared to HC",
+                                              negative_text = "Downregulated in T1D compared to HC",
+                                              x_axis = "logFC_groupT1D",
+                                              y_axis = "-log10(p-value)",
+                                              save_path = NULL,
+                                              return_df = FALSE) {
   
+  # Create the joined dataframe
+  joined_df <- create_croc_attempt_df(
+    attempt_df = attempt_df,
+    croc_df = croc_df,
+    cell_type = cell_type,
+    FC_attempt = FC_attempt,
+    FC_croc = FC_croc,
+    p_attempt = p_attempt,
+    p_croc = p_croc,
+    attempt_p_cut = attempt_p_cut,
+    croc_p_cut = croc_p_cut
+  )
+  
+  # Continue with the original plotting code...
   croc_df <- croc_df %>% 
     filter(abs(.data[[FC_croc]]) < 10)
+  
   # Subset by significance and direction
   attempt_pos <- attempt_df %>% filter(.data[[FC_attempt]] > 0 & .data[[p_attempt]] < attempt_p_cut)
   attempt_neg <- attempt_df %>% filter(.data[[FC_attempt]] < 0 & .data[[p_attempt]] < attempt_p_cut)
@@ -4012,23 +4095,23 @@ plot_croc_attempt_volcano <- function(attempt_df,
   top_neg <- croc_neg %>% dplyr::arrange(.data[[p_croc]]) %>% slice_head(n = top_n)
   
   top_merged <- rbind(top_pos, top_neg) %>%
-   dplyr::mutate(attempt_direction = case_when(Gene %in% attempt_neg$Gene ~ "-",
-                                         Gene %in% attempt_pos$Gene ~ "+",
-                                         T ~ "NA"),
-           croc_direction = case_when(Gene %in% croc_neg$Gene ~ "-",
-                                      Gene %in% croc_pos$Gene ~ "+"),
-           match = case_when(attempt_direction == croc_direction  ~ "nonreversed",
-                             (attempt_direction == "+" & croc_direction == "-") | 
-                               (attempt_direction == "-" & croc_direction == "+") ~ "reversed",
-                             T ~ "no match"),
-           top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
-                                 Gene %in% croc_neg$Gene ~ "#457b9d",
-                                 TRUE ~ "#ced4da"),
-           reversed_fill = case_when(attempt_direction == "+" & match == "reversed" ~ "+",
-                                     attempt_direction == "-" & match == "reversed" ~ "-",
-                                     T ~ "nonreversed"),
-           face = case_when(match == "reversed" ~ "bold",
-                            T ~ "plain"))
+    dplyr::mutate(attempt_direction = case_when(Gene %in% attempt_neg$Gene ~ "-",
+                                                Gene %in% attempt_pos$Gene ~ "+",
+                                                T ~ "NA"),
+                  croc_direction = case_when(Gene %in% croc_neg$Gene ~ "-",
+                                             Gene %in% croc_pos$Gene ~ "+"),
+                  match = case_when(attempt_direction == croc_direction  ~ "nonreversed",
+                                    (attempt_direction == "+" & croc_direction == "-") | 
+                                      (attempt_direction == "-" & croc_direction == "+") ~ "reversed",
+                                    T ~ "no match"),
+                  top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
+                                        Gene %in% croc_neg$Gene ~ "#457b9d",
+                                        TRUE ~ "#ced4da"),
+                  reversed_fill = case_when(attempt_direction == "+" & match == "reversed" ~ "+",
+                                            attempt_direction == "-" & match == "reversed" ~ "-",
+                                            T ~ "nonreversed"),
+                  face = case_when(match == "reversed" ~ "bold",
+                                   T ~ "plain"))
   
   n_reversed <- length(intersect(attempt_pos$Gene, croc_neg$Gene)) +
     length(intersect(attempt_neg$Gene, croc_pos$Gene))
@@ -4042,9 +4125,10 @@ plot_croc_attempt_volcano <- function(attempt_df,
   y_max <- max(-log10(croc_df[[p_croc]]), na.rm = TRUE) * 1.1
   
   croc_df <- croc_df %>%
-   dplyr::mutate(top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
-                                 Gene %in% croc_neg$Gene ~ "#457b9d",
-                                 TRUE ~ "#ced4da"))
+    dplyr::mutate(top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
+                                        Gene %in% croc_neg$Gene ~ "#457b9d",
+                                        TRUE ~ "#ced4da"))
+  
   # Create plot
   p <- ggplot(croc_df, aes(x = .data[[FC_croc]], y = -log10(.data[[p_croc]]))) +
     geom_hline(yintercept = -log10(attempt_p_cut), linetype = "dashed", color = "darkgrey") +
@@ -4065,9 +4149,9 @@ plot_croc_attempt_volcano <- function(attempt_df,
                                  "\n\nUp to top ", top_n, " from each direction are labeled.\n",
                                  "Reversed genes are boxed in fill color corresponding to direction of dapagliflozin effect."),
                           paste0("\n\nCell type: ", cell_type, " | ",
-                          "N of overlap: ", n_nonreversed + n_reversed, " (",
-                          "reversal: ", n_reversed, ", non-reversal: ", n_nonreversed, ")")
-                          )) +
+                                 "N of overlap: ", n_nonreversed + n_reversed, " (",
+                                 "reversal: ", n_reversed, ", non-reversal: ", n_nonreversed, ")")
+         )) +
     scale_size_continuous(range = c(1, 1.3)) +
     scale_fill_manual(values = c("+" = scales::alpha("#ff9996", 0.2),
                                  "-" = scales::alpha("#5c9fc1", 0.2),
@@ -4109,9 +4193,12 @@ plot_croc_attempt_volcano <- function(attempt_df,
     ggsave(save_path, p, width = width, height = height)
   }
   
-  return(p)
+  if (return_df) {
+    return(list(plot = p, data = joined_df))
+  } else {
+    return(p)
+  }
 }
-
 # ===========================================================================
 # Function: soma_corr
 # ===========================================================================
@@ -4512,7 +4599,7 @@ run_limma_proteomics <- function(
         dplyr::select(record_id, all_of(visit_var), all_of(treatment_var), all_of(feat), 
                       if (!is.null(creatinine)) all_of(creatinine) else NULL) %>%
         dplyr::rename(y = !!feat) %>%
-       dplyr::mutate(y = log2(y))
+        dplyr::mutate(y = log2(y))
       
       # Build formula with or without creatinine
       if (!is.null(creatinine)) {
@@ -4531,16 +4618,38 @@ run_limma_proteomics <- function(
         singular_count <<- singular_count + 1
       }
       
-      broom.mixed::tidy(fit, effects = "fixed") %>%
-        dplyr::filter(term == coef_name) %>%
+      # Get all fixed effects for res_full
+      full_results <- broom.mixed::tidy(fit, effects = "fixed") %>%
         dplyr::mutate(feature = feat)
+      
+      # Return a list with both filtered and full results
+      list(
+        filtered = full_results %>% dplyr::filter(term == coef_name),
+        full = full_results
+      )
     })
     
-    # Combine results
-    res <- dplyr::bind_rows(results_list) %>%
+    # Extract filtered results for res
+    res <- dplyr::bind_rows(lapply(results_list, function(x) x$filtered)) %>%
       dplyr::rename(logFC = estimate, P.Value = p.value) %>%
       dplyr::arrange(P.Value) %>%
-     dplyr::mutate(adj.P.Val = p.adjust(P.Value, method = "fdr"))
+      dplyr::mutate(adj.P.Val = p.adjust(P.Value, method = "fdr"))
+    
+    # Extract full results for res_full
+    res_full <- dplyr::bind_rows(lapply(results_list, function(x) x$full)) %>%
+      dplyr::rename(logFC = estimate, P.Value = p.value) %>%
+      dplyr::arrange(feature, term) %>%
+      dplyr::group_by(term) %>%
+      dplyr::mutate(adj.P.Val = p.adjust(P.Value, method = "fdr")) %>%
+      dplyr::ungroup()
+    
+    res_full <- res_full %>%
+      dplyr::rename(AptName = feature) %>%
+      dplyr::left_join(
+        analyte_info %>% 
+          dplyr::mutate(AptName = paste0(AptName, feature_suffix)),
+        by = "AptName"
+      )
     
     # Output singular count
     message("Number of singular fits: ", singular_count, " out of ", ncol(features),
@@ -4551,14 +4660,15 @@ run_limma_proteomics <- function(
   res_save <- res %>%
     dplyr::rename(AptName = feature) %>%
     dplyr::left_join(
-      analyte_info %>% dplyr::mutate(AptName = paste0(AptName, feature_suffix)),
+      analyte_info %>% 
+        dplyr::mutate(AptName = paste0(AptName, feature_suffix)),
       by = "AptName"
     )
-  
   
   return(list(
     fit = if (model_type == "interaction_random") NULL else fit,
     results = res,
+    results_full = if (model_type == "interaction_random") res_full else NULL, 
     results_annotated = res_save
   ))
 }
@@ -5463,36 +5573,23 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
 shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = FALSE) {
   
   # Define replacement patterns
-  # Common words that can be shortened
+  # [Keep all your existing replacements as they are]
   word_replacements <- c(
-    "Regulation" = "Reg",
-    "Regulatory" = "Reg",
+    "Role of " = "",
+    "Function of " = "",
+    "Eukaryotic " = "",
+    "in the" = "in",
+    "by the" = "by",
+    "of the" = "of",
     "Phosphorylation" = "Phosph",
-    "Degradation" = "Degr",
-    "Biosynthesis" = "Biosyn",
     "Metabolism" = "Metab",
-    "Production" = "Prod",
-    "Activation" = "Act",
-    "Expression" = "Expr",
-    "Development" = "Dev",
-    "Differentiation" = "Diff",
-    "Transcriptional" = "Txn",
-    "Transcription" = "Txn",
-    "Translation" = "Tln",
-    "Receptor" = "Rec",
     "Extracellular" = "EC",
     "Intracellular" = "IC",
-    "Dysfunction" = "Dysf",
+    "Dysfunction" = "Adaptation",
     "Alternative" = "Alt",
     "Dependent" = "Dep",
     "Independent" = "Indep",
     "Associated" = "Assoc",
-    "Mediated" = "Med",
-    "Induced" = "Ind",
-    "Interaction" = "Int",
-    "Interactions" = "Int",
-    "Formation" = "Form",
-    "Processing" = "Proc",
     "Inflammatory" = "Inflam",
     "Inflammation" = "Inflam",
     "Lymphocyte" = "Lymph",
@@ -5501,18 +5598,14 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
     "Fibroblasts" = "Fib",
     "Endothelial" = "Endo",
     "Epithelial" = "Epi",
-    "Mesenchymal" = "Mes",
     "Transition" = "Trans",
     "Rheumatoid Arthritis" = "RA",
     "Multiple Sclerosis" = "MS",
-    "Alzheimer's Disease" = "AD",
-    "Parkinson's" = "PD",
+    "Alzheimer's Disease" = "Alzheimer's",
+    "Parkinson's Disease" = "Parkinson's",
     "Respiratory" = "Resp",
-    "Cardiovascular" = "CV",
     "Gastrointestinal" = "GI",
     "Central Nervous System" = "CNS",
-    "Immunoregulatory" = "Immunoreg",
-    "Antioxidant" = "Antiox",
     "Oxidative" = "Ox",
     "between" = "b/w",
     "through" = "via",
@@ -5521,11 +5614,6 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
   
   # More aggressive replacements
   aggressive_replacements <- c(
-    "Role of" = "",
-    "Function of" = "",
-    "in the" = "in",
-    "by the" = "by",
-    "of the" = "of",
     " the " = " ",
     " in " = " ",
     " of " = " ",
@@ -5535,19 +5623,7 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
   
   # Cell/molecule specific replacements
   molecule_replacements <- c(
-    "T Helper Cell" = "Th",
-    "T Helper Cells" = "Th",
-    "T Cell" = "TC",
-    "T Cells" = "TC",
-    "B Cell" = "BC", 
-    "B Cells" = "BC",
     "Natural Killer" = "NK",
-    "Dendritic Cell" = "DC",
-    "Dendritic Cells" = "DC",
-    "Stem Cell" = "SC",
-    "Stem Cells" = "SC",
-    "Growth Factor" = "GF",
-    "Growth Factors" = "GF",
     "Tumor Necrosis Factor" = "TNF",
     "Transforming Growth Factor" = "TGF",
     "Platelet Derived Growth Factor" = "PDGF",
@@ -5556,20 +5632,12 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
     "Insulin-like Growth Factor" = "IGF",
     "Interferon" = "IFN",
     "Interleukin" = "IL",
-    "Matrix Metalloprotease" = "MMP",
-    "Matrix Metalloproteases" = "MMPs",
-    "Protein Kinase" = "PK",
     "G-Protein Coupled" = "GPCR",
     "G Protein Coupled" = "GPCR",
-    "Nuclear Factor" = "NF",
     "Activator Protein" = "AP",
     "Electron Transport" = "e- Transport",
     "Nitric Oxide" = "NO",
     "Reactive Oxygen Species" = "ROS",
-    "Endoplasmic Reticulum" = "ER",
-    "Double-Strand Break" = "DSB",
-    "Single Strand" = "SS",
-    "Double Strand" = "DS",
     "Amino Acid" = "AA",
     "Fatty Acid" = "FA"
   )
@@ -5582,8 +5650,12 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
     return(text)
   }
   
+  # Track which pathways got truncated at Step 6
+  step6_truncated <- rep(FALSE, length(pathway_names))
+  
   # Process each pathway name
-  shortened <- sapply(pathway_names, function(pathway) {
+  shortened <- sapply(seq_along(pathway_names), function(i) {
+    pathway <- pathway_names[i]
     if (is.na(pathway)) return(NA)
     
     # Step 1: Apply molecule/cell replacements first
@@ -5602,34 +5674,39 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
       result <- gsub(" \\([^)]+\\)", "", result)
     }
     
-    # Step 5: If still too long, abbreviate remaining long words
-    if (nchar(result) > max_length) {
-      words <- strsplit(result, " ")[[1]]
-      # Abbreviate words longer than 8 characters that aren't already abbreviated
-      words <- sapply(words, function(word) {
-        if (nchar(word) > 8 && !grepl("[A-Z]{2,}", word)) {
-          # Keep first 3-4 letters and last letter
-          if (nchar(word) > 10) {
-            paste0(substr(word, 1, 3), ".", substr(word, nchar(word), nchar(word)))
-          } else {
-            paste0(substr(word, 1, 4), ".")
-          }
-        } else {
-          word
-        }
-      })
-      result <- paste(words, collapse = " ")
-    }
+    # # Step 5: If still too long, abbreviate remaining long words
+    # if (nchar(result) > max_length) {
+    #   words <- strsplit(result, " ")[[1]]
+    #   # Abbreviate words longer than 8 characters that aren't already abbreviated
+    #   words <- sapply(words, function(word) {
+    #     if (nchar(word) > 8 && !grepl("[A-Z]{2,}", word)) {
+    #       # Keep first 3-4 letters and last letter
+    #       if (nchar(word) > 10) {
+    #         paste0(substr(word, 1, 3), ".", substr(word, nchar(word), nchar(word)))
+    #       } else {
+    #         paste0(substr(word, 1, 4), ".")
+    #       }
+    #     } else {
+    #       word
+    #     }
+    #   })
+    #   result <- paste(words, collapse = " ")
+    # }
     
     # Step 6: Final truncation if needed
     if (nchar(result) > max_length) {
+      step6_truncated[i] <<- TRUE  # Mark this pathway as truncated at Step 6
       result <- paste0(substr(result, 1, max_length - 3), "...")
     }
     
     return(result)
-  }, USE.NAMES = FALSE)
+  })
   
-  return(shortened)
+  # Return a list with both the shortened names and the Step 6 truncation info
+  return(list(
+    shortened = shortened,
+    step6_truncated = step6_truncated
+  ))
 }
 
 # Helper function to create a lookup table for manual review
