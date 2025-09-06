@@ -821,7 +821,7 @@ comorb_ckm2 <- comorb_long %>%
   full_join(echo_keep, by = c("RELEASEID", "days")) %>%
   full_join(pedsQL_all, by = c("RELEASEID", "days")) %>%
   full_join(baseline %>% select(RELEASEID, bmi, sbp, dbp, wastcirc, days), by = c("RELEASEID", "days")) %>%
-  full_join(baserisk %>% select(RELEASEID, AGEBASE, days), by = c("RELEASEID", "days")) %>% 
+  full_join(baserisk %>% select(RELEASEID, AGEBASE, sex_char, HbA1c, days), by = c("RELEASEID", "days")) %>% 
   full_join(kdigo, , by = c("RELEASEID", "days"))
 comorb_ckm2 <- comorb_ckm2 %>% arrange("RELEASEID", "days")
 comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% fill(gfr_category, .direction = "down") %>% fill(gfr_description, .direction = "down") %>%
@@ -1192,6 +1192,8 @@ for (i in 1:length(predictors)) {
 base_log_scale <- base_log_scale %>% rename(RELEASEID = releaseid)
 
 prog_summary_final_soma <- left_join(base_log_scale, prog_summary_final, by = "RELEASEID")
+#prog_summary_final_soma <- left_join(prog_summary_final_soma, baserisk, by = "RELEASEID")
+#prog_summary_final_soma$sex_char <- as.factor(prog_summary_final_soma$sex_char)
 
 # # create another data frame with change in proteins
 # # find follow-up samples
@@ -1301,30 +1303,44 @@ result_noBMI <- result_noBMI[order(result_noBMI$p.value),]
 ```
 
 ```{r, include=FALSE}
+# Run univariable Cox models for clinical variables
+result_clinical <- NULL
+predictors <- c("AGEBASE", "sex_char", "bmi", "HbA1c", "sbp", "codi", "si_1_ins0", "GLYC")
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~",predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_clinical <- rbind(result_clinical,tidymod)
+}
+result_clinical$adj.p.value <- p.adjust(result_clinical$p.value, "fdr")
+result_clinical$AptName <- result_clinical$term
+result_clinical$term <- NULL
+result_clinical <- merge(result_clinical,analytes,by="AptName",all.x = T, all.y = F)
+result_clinical <- result_clinical[order(result_clinical$p.value),] 
+result_clinical$VarName <- result_clinical$AptName
+result_clinical <- result_clinical %>% select(VarName, estimate, std.error,	statistic,	p.value,	conf.low,	conf.high)
+```
+
+```{r, include=FALSE}
 # write all results to file
 wb <- createWorkbook()
-addWorksheet(wb,"Time to CKM CPH")
-writeData(wb,"Time to CKM CPH",result_noBMI,rowNames = F)
-full_path <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline adjusted.xlsx")
+addWorksheet(wb,"Time to CKM Proteins")
+writeData(wb,"Time to CKM Proteins",result_noBMI,rowNames = F)
+addWorksheet(wb,"Time to CKM Clinical")
+writeData(wb,"Time to CKM Clinical",result_clinical,rowNames = F)
+full_path <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline unadjusted.xlsx")
 saveWorkbook(wb, full_path, overwrite = TRUE)
-
-# separate files for IPA
-wb <- createWorkbook()
-addWorksheet(wb,"Time to CKM CPH")
-writeData(wb,"Time to CKM CPH",result_noBMI,rowNames = F)
-full_path <- file.path(data_path, "CKM/Results/IPA/TODAY somalogic Cox models scaled baseline adjusted time to CKM.xlsx")
-saveWorkbook(wb, full_path, overwrite = TRUE)
-
 ```
 
 ```{r, include=FALSE}
 # Elastic net Cox models
 
 # filter to top 100 proteins by effect size
-f <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline adjusted.xlsx")
+f <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline unadjusted.xlsx")
 
 # CKM without BMI
-ckm_without_bmi_keep = read_excel(f,sheet = "Time to CKM CPH")
+ckm_without_bmi_keep = read_excel(f,sheet = "Time to CKM Proteins")
 ckm_without_bmi_keep <- arrange(ckm_without_bmi_keep,adj.p.value)
 ckm_without_bmi_drop <- ckm_without_bmi_keep[101:nrow(ckm_without_bmi_keep),"AptName"]
 rownames(ckm_without_bmi_drop) <- ckm_without_bmi_drop$AptName
@@ -1381,3 +1397,106 @@ There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
 ```
 
+## Model with only age and sex
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~sex_char + AGEBASE"))
+mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+
+#concordance_df_temp <- as.data.frame(cbind("Severe albuminuria","Covariates",mod$concordance[[6]], mod$concordance[[7]]))
+#concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+## Model with age, sex, BMI, HbA1c, SBP
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~sex_char + AGEBASE + bmi + HbA1c + sbp"))
+mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+
+#concordance_df_temp <- as.data.frame(cbind("Severe albuminuria","Covariates",mod$concordance[[6]], mod$concordance[[7]]))
+#concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+## Model with proteins, age, and sex
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+"),paste0("+sex_char+AGEBASE")))
+mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf[1:(nrow(moddf)-2),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+#concordance_df_temp <- as.data.frame(cbind("Moderate albuminuria","Proteins + covariates",mod$concordance[[6]], mod$concordance[[7]]))
+#concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+## Model with proteins, age, sex, BMI, HbA1c, SBP
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+"),paste0("+HbA1c+log_trig+sbp+si_1_ins0+sex_char+bmi+AGEBASE+racedesc")))
+mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf[1:(nrow(moddf)-10),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+#concordance_df_temp <- as.data.frame(cbind("Moderate albuminuria","Proteins + covariates",mod$concordance[[6]], mod$concordance[[7]]))
+#concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
