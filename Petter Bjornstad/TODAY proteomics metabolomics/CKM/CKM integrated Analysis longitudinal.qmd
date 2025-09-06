@@ -329,7 +329,7 @@ comorb_ckm <- merge(comorb, ame_summary, by = "RELEASEID", all.x = TRUE)
 
 for (i in 1:nrow(comorb_ckm)) {
   comorb_ckm$fup_time[i] <- max(comorb_ckm$DAYSTOHTN[i], comorb_ckm$DAYSTOLDL[i], comorb_ckm$DAYSTOLDL[i],
-                                comorb_ckm$daystotg[i], comorb_ckm$DAYSTOANYDLP[i], comorb_ckm$DAYSTOMIC[i],
+                                comorb_ckm$DAYSTOTG[i], comorb_ckm$DAYSTOTG[i], comorb_ckm$DAYSTOMIC[i],
                                 comorb_ckm$DAYSTOMAC[i], comorb_ckm$DAYSTONEPHRO[i], comorb_ckm$DAYSTOHYP[i],
                                 comorb_ckm$DAYSTORAPID[i], comorb_ckm$DAYSTODNE[i], comorb_ckm$DAYSTOFILAM[i],
                                 comorb_ckm$DAYSTONEURO[i], comorb_ckm$DAYSTORETINO[i], comorb_ckm$DAYSTOMVD[i],
@@ -354,15 +354,15 @@ colnames(HTN) <- c("RELEASEID", "days", "HTN")
 HTN <- rbind(HTN0, HTN)
 HTN <- HTN %>% filter(HTN == 1)
 HTN <- unique(HTN)
-ANYDLP0 <- comorb_ckm %>% select(RELEASEID, ANYDLP0)
-ANYDLP0 <- ANYDLP0 %>% rename(ANYDLP = ANYDLP0)
-ANYDLP0$days <- 0
-ANYDLP <- comorb_ckm %>% select(RELEASEID, DAYSTOANYDLP, ANYDLP)
-colnames(ANYDLP) <- c("RELEASEID", "days", "ANYDLP")
-ANYDLP <- rbind(ANYDLP0, ANYDLP)
-ANYDLP <- ANYDLP %>% filter(ANYDLP == 1)
-ANYDLP <- unique(ANYDLP)
-temp <- full_join(HTN, ANYDLP, by = c("RELEASEID", "days"))
+TGDLP0 <- comorb_ckm %>% select(RELEASEID, TGDLP0)
+TGDLP0 <- TGDLP0 %>% rename(TGDLP = TGDLP0)
+TGDLP0$days <- 0
+TGDLP <- comorb_ckm %>% select(RELEASEID, DAYSTOTG, TGDLP)
+colnames(TGDLP) <- c("RELEASEID", "days", "TGDLP")
+TGDLP <- rbind(TGDLP0, TGDLP)
+TGDLP <- TGDLP %>% filter(TGDLP == 1)
+TGDLP <- unique(TGDLP)
+temp <- full_join(HTN, TGDLP, by = c("RELEASEID", "days"))
 arrhythmia <- arrhythmia %>% rename("days" = "DAYSTOARRHYTHMIA")
 comorb_long <- full_join(temp, arrhythmia, by = c("RELEASEID", "days"))
 cad <- cad %>% rename("days" = "DAYSTOCAD")
@@ -842,7 +842,7 @@ comorb_ckm2 <- comorb_ckm2 %>%
 
 # need to fill down, and make earlier NA's into zero
 comorb_ckm2 <- comorb_ckm2 %>% arrange(RELEASEID, days)
-comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% fill(HTN, .direction = "down") %>% fill(ANYDLP, .direction = "down") %>% fill(ARRHYTHMIA, .direction = "down") %>%
+comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% fill(HTN, .direction = "down") %>% fill(TGDLP, .direction = "down") %>% fill(ARRHYTHMIA, .direction = "down") %>%
   fill(CAD, .direction = "down") %>% fill(CHF, .direction = "down") %>% fill(LVSD, .direction = "down") %>% fill(MI, .direction = "down") %>% fill(DVT, .direction = "down") %>%
   fill(PAD, .direction = "down") %>% fill(STROKE, .direction = "down") %>% fill(TIA, .direction = "down") %>% fill(ULCER, .direction = "down") %>% fill(high_pwv, .direction = "down") %>%
   fill(hfpef, .direction = "down") %>% fill(high_bnp, .direction = "down") %>% fill(high_trop, .direction = "down")
@@ -855,7 +855,7 @@ comorb_ckm2$clin_cvd <- ifelse(
 comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% fill(clin_cvd, .direction = "down") %>% ungroup()
 
 # fill in zeroes
-comorb_ckm2 <- replace_na_tidyverse(comorb_ckm2, c("HTN", "ANYDLP", "ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "DVT", "PAD", "STROKE", "TIA", "ULCER", "high_pwv", "hfpef",
+comorb_ckm2 <- replace_na_tidyverse(comorb_ckm2, c("HTN", "TGDLP", "ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "DVT", "PAD", "STROKE", "TIA", "ULCER", "high_pwv", "hfpef",
                                             "high_trop", "high_bnp"))
 
 # drop unneeded variables
@@ -880,7 +880,7 @@ comorb_ckm2 <- comorb_ckm2 %>%
       # Stage 2_plus: risk factors
       # need to add KDIGO criteria
       (HTN == 1 |
-       ANYDLP == 1 |
+       TGDLP == 1 |
        risk_level %in% c("Moderate", "High")) ~ "Stage2_plus",
       
       TRUE ~ "Stage2"
@@ -904,7 +904,7 @@ comorb_ckm2 <- comorb_ckm2 %>%
       # Stage 2_plus: risk factors
       # need to add KDIGO criteria
       (HTN == 1 |
-       ANYDLP == 1 |
+       TGDLP == 1 |
        risk_level %in% c("Moderate", "High") |
        bmi >= 30) ~ "Stage2_plus",
       
@@ -1004,7 +1004,7 @@ comorb_ckm2 <- left_join(comorb_ckm2, death_keep, by = "RELEASEID")
 comorb_ckm2$DEATH <- ifelse(is.na(comorb_ckm2$DEATH), 0, comorb_ckm2$DEATH)
 
 # convert to factors
-cols_to_convert <- c("HTN", "ANYDLP", "high_pwv", "hfpef",
+cols_to_convert <- c("HTN", "TGDLP", "high_pwv", "hfpef",
                      "high_trop", "CKM_syn_base", "CKM_max", "CKM_syn_base2", "CKM_max2",
                      "progress_CKM", "progress_CKM2", "regress_CKM", "regress_CKM_stages", "regress_CKM2", "regress_CKM2_stages", "DEATH", 
                      "num_prog", "num_prog2")
@@ -1012,7 +1012,7 @@ comorb_ckm2[cols_to_convert] <- lapply(comorb_ckm2[cols_to_convert], as.factor)
 
 # create a dataframe with the component parts of the stage definitions only, to collapse to 1 record per person
 comorb_ckm2_criteria <- comorb_ckm2 %>% select(RELEASEID, CKM_max, clin_cvd, hfpef, ARRHYTHMIA, CAD, CHF, LVSD, MI, DVT,
-                                               PAD, STROKE, TIA, ULCER, DEATH, risk_level) 
+                                               PAD, STROKE, TIA, ULCER, DEATH, risk_level, HTN, TGDLP, high_pwv, high_bnp) 
 comorb_ckm2_criteria$KDIGO_num <- ifelse(is.na(comorb_ckm2_criteria$risk_level), NA, 
                                          ifelse(comorb_ckm2_criteria$risk_level == "Very high", 4, 
                                                 ifelse(comorb_ckm2_criteria$risk_level == "High", 3, 
@@ -1021,8 +1021,10 @@ comorb_ckm2_criteria <- comorb_ckm2_criteria %>% select(-risk_level)
 comorb_ckm2_criteria[,2:ncol(comorb_ckm2_criteria)] <- apply(comorb_ckm2_criteria[,2:ncol(comorb_ckm2_criteria)], 2, as.numeric)
 # take the max across all criteria
 comorb_ckm2_criteria <- comorb_ckm2_criteria %>% group_by(RELEASEID) %>%
-  mutate(across(c(CKM_max, clin_cvd, hfpef, ARRHYTHMIA, CAD, CHF, LVSD, MI, DVT,PAD, STROKE, TIA, ULCER, DEATH, KDIGO_num), max, .names = "max_{.col}"))
-comorb_ckm2_criteria <- comorb_ckm2_criteria %>% select(-c(max_CKM_max, clin_cvd, hfpef, ARRHYTHMIA, CAD, CHF, LVSD, MI, DVT,PAD, STROKE, TIA, ULCER, DEATH, KDIGO_num))
+  mutate(across(c(CKM_max, clin_cvd, hfpef, ARRHYTHMIA, CAD, CHF, LVSD, MI, DVT,PAD, STROKE, TIA, ULCER, DEATH, KDIGO_num,
+                  HTN, TGDLP, high_pwv, high_bnp), max, .names = "max_{.col}"))
+comorb_ckm2_criteria <- comorb_ckm2_criteria %>% select(-c(max_CKM_max, clin_cvd, hfpef, ARRHYTHMIA, CAD, CHF, LVSD, MI, DVT,PAD, STROKE, TIA, ULCER, DEATH, KDIGO_num,
+                                                           HTN, TGDLP, high_pwv, high_bnp))
 comorb_ckm2_criteria <- unique(comorb_ckm2_criteria)
 comorb_ckm2_criteria$CKM_max_char <- case_when(
   comorb_ckm2_criteria$CKM_max == 1 ~ "Stage 2",
@@ -1039,7 +1041,7 @@ comorb_ckm2_criteria$max_KDIGO_char <- case_when(
 comorb_ckm2_criteria$max_KDIGO_char <- factor(comorb_ckm2_criteria$max_KDIGO_char, levels = c("Low", "Moderate", "High", "Very High"))
 comorb_ckm2_criteria <- comorb_ckm2_criteria %>% 
   mutate(across(c(max_clin_cvd, max_hfpef, max_ARRHYTHMIA, max_CAD, max_CHF, max_LVSD, max_MI, max_DVT, max_PAD, max_STROKE, max_TIA, max_ULCER,
-                  max_DEATH, max_KDIGO_num), as.factor))
+                  max_DEATH, max_KDIGO_num, max_HTN, max_TGDLP, max_high_pwv, max_high_bnp), as.factor))
 
 comorb_ckm2 <- comorb_ckm2 %>%
   mutate(
@@ -1057,7 +1059,7 @@ comorb_ckm2 <- comorb_ckm2 %>%
       # Stage 2_plus: risk factors
       # need to add KDIGO criteria
       (HTN == 1 |
-       ANYDLP == 1 |
+       TGDLP == 1 |
        risk_level %in% c("Moderate", "High")) ~ "Stage2_plus",
       
       TRUE ~ "Stage2"
@@ -1081,7 +1083,7 @@ comorb_ckm2 <- comorb_ckm2 %>%
       # Stage 2_plus: risk factors
       # need to add KDIGO criteria
       (HTN == 1 |
-       ANYDLP == 1 |
+       TGDLP == 1 |
        risk_level %in% c("Moderate", "High") |
        bmi >= 30) ~ "Stage2_plus",
       
@@ -1123,7 +1125,25 @@ label(prog_summary_final$num_prog) <- "Number of progression events, without BMI
 label(prog_summary_final$num_prog2) <- "Number of progression events, with BMI"
 label(prog_summary_final$days_to_ckm_prog) <- "Days to first progression event, without BMI"
 label(prog_summary_final$days_to_ckm2_prog) <- "Days to first progression event, with BMI"
-
+label(comorb_ckm2_criteria$max_ARRHYTHMIA) <- "ARRHYTHMIA"
+label(comorb_ckm2_criteria$max_clin_cvd) <- "Clinical CVD"
+label(comorb_ckm2_criteria$max_hfpef) <- "HFpEF"
+label(comorb_ckm2_criteria$max_CAD) <- "CAD"
+label(comorb_ckm2_criteria$max_CHF) <- "CHF"
+label(comorb_ckm2_criteria$max_LVSD) <- "LVSD"
+label(comorb_ckm2_criteria$max_MI) <- "MI"
+label(comorb_ckm2_criteria$max_DVT) <- "DVT"
+label(comorb_ckm2_criteria$max_PAD) <- "PAD"
+label(comorb_ckm2_criteria$max_STROKE) <- "Stroke"
+label(comorb_ckm2_criteria$max_TIA) <- "TIA"
+label(comorb_ckm2_criteria$max_ULCER) <- "Ulcer"
+label(comorb_ckm2_criteria$max_DEATH) <- "Death"
+label(comorb_ckm2_criteria$max_KDIGO_char) <- "Maximum KDIGO stage"
+label(comorb_ckm2_criteria$max_HTN) <- "Hypertension"
+label(comorb_ckm2_criteria$max_TGDLP) <- "Hypertriglyceridemia"
+label(comorb_ckm2_criteria$max_high_pwv) <- "Elevated cf-PWV"
+label(comorb_ckm2_criteria$max_high_bnp) <- "Elevated BNP"
+      
 # make a descriptive dataset using progression summary data and baseline/comorb info
 prog_summary_final <- left_join(prog_summary_final, comorb, by = "RELEASEID")
 prog_summary_final <- left_join(prog_summary_final, baserisk, by = "RELEASEID") 
@@ -1131,7 +1151,7 @@ prog_summary_final <- prog_summary_final %>% select(-days)
 prog_summary_final <- left_join(prog_summary_final, death, by = "RELEASEID")
 prog_summary_final$DEATH <- ifelse(is.na(prog_summary_final$DEATH), 0, prog_summary_final$DEATH)
 
-cols_to_convert <- c("HTN", "ANYDLP", "MIC", "MAC", "GLYC", "tx", 
+cols_to_convert <- c("HTN", "TGDLP", "MIC", "MAC", "GLYC", "tx", 
                      "CKM_syn_base", "CKM_max", "CKM_syn_base2", "CKM_max2",
                      "progress_CKM", "progress_CKM2", "DEATH", 
                      "num_prog", "num_prog2")
@@ -1223,7 +1243,7 @@ summary(t1,  pfootnote = F)
 
 ```{r include=F}
 t2a <- tableby(CKM_max_char ~ max_clin_cvd + max_hfpef + max_ARRHYTHMIA + max_CAD + max_CHF + max_LVSD + max_MI + max_DVT + max_PAD + max_STROKE + 
-                 max_TIA + max_ULCER + max_DEATH + max_KDIGO_char, 
+                 max_TIA + max_ULCER + max_DEATH + max_KDIGO_char + max_HTN + max_TGDLP + max_high_pwv + max_high_bnp, 
               data = comorb_ckm2_criteria, total = F)
 ```
 
@@ -1234,7 +1254,7 @@ summary(t2a,  pfootnote = F)
 ## Descriptive statistics by maximum CKM stage, without BMI
 
 ```{r include=F}
-t2 <- tableby(CKM_max_char ~  days_to_ckm_prog + HTN + ANYDLP + MIC + MAC + GLYC + HbA1c +
+t2 <- tableby(CKM_max_char ~  days_to_ckm_prog + HTN + TGDLP + MIC + MAC + GLYC + HbA1c +
                 log_trig + sbp + dbp + uacid + si_1_ins0 + UAlbCreat + bmi + HDL + codi + ALT + AST + sex_char + racedesc + AGEBASE +
                 txdesc + DEATH, 
               data = prog_summary_final, total = F)
@@ -1247,7 +1267,7 @@ summary(t2,  pfootnote = F)
 ## Descriptive statistics by maximum CKM stage, with BMI
 
 ```{r include=F}
-t3 <- tableby(CKM_max_char2 ~  days_to_ckm2_prog + HTN + ANYDLP + MIC + MAC + GLYC + HbA1c +
+t3 <- tableby(CKM_max_char2 ~  days_to_ckm2_prog + HTN + TGDLP + MIC + MAC + GLYC + HbA1c +
                 log_trig + sbp + dbp + uacid + si_1_ins0 + UAlbCreat + bmi + HDL + codi + ALT + AST + sex_char + racedesc + AGEBASE +
                 txdesc + DEATH, 
               data = prog_summary_final, total = F)
