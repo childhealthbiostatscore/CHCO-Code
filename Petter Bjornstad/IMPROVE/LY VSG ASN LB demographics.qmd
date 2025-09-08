@@ -1,0 +1,137 @@
+---
+title: "IMPROVE ASN Late Breaking Demographics"
+author: "Ye Ji Choi"
+format: html
+---
+
+```{r}
+library(dplyr)
+library(arsenal)
+
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+
+```{r}
+ids <- c("IT_10", "IT_09", "IT_07", "IT_11", "IT_12", "IT_08", "IT_13", "IT_19", "IT_14", "RH-68-T", "RH-49-T", "RH-63-T", "RH-23-T", "RH-71-T", "RH-62-T", "RH-50-T", "RH-74-T", "RH-72-T", "RH-76-T", "RH-77-T", "RH-75-T", "RH-67-T", "RH2-51-T", "RH2-53-T", "RH2-07-O", "RH-93-T", "RH-91-T", "RH2-11-O", "RH2-23-T", "RH2-22-T", "RH2-38-T", "RH2-21-T", "RH2-55-T", "RH2-36-O", "RH2-43-T", "RH2-42-T")
+```
+
+```{r}
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
+
+vsg_cohort <- harm_dat %>% filter(record_id %in% ids) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  filter(visit != "3_months_post_surgery")  %>%
+  mutate(study_visit = case_when(study == "IMPROVE" & visit == "baseline" ~ "PRE-VSG",
+                                 study == "IMPROVE" & visit == "12_months_post_surgery" ~ "POST-VSG",
+                                 study == "RENAL-HEIR" ~ "PRE-SMT",
+                                 study == "RENAL-HEIRitage" ~ "POST-SMT")) %>%
+  group_by(record_id) %>%
+  dplyr::mutate(
+    intervention = if_else(study_visit %in% c("PRE-VSG", "POST-VSG"), "VSG", "SMT"),
+    
+    # Get PRE values - matching by intervention type
+    weight_pre = case_when(
+      study_visit == "POST-VSG" ~ first(weight[study_visit == "PRE-VSG"], default = NA_real_),
+      study_visit == "POST-SMT" ~ first(weight[study_visit == "PRE-SMT"], default = NA_real_),
+      TRUE ~ NA_real_
+    ),
+    bmi_pre = case_when(
+      study_visit == "POST-VSG" ~ first(bmi[study_visit == "PRE-VSG"], default = NA_real_),
+      study_visit == "POST-SMT" ~ first(bmi[study_visit == "PRE-SMT"], default = NA_real_),
+      TRUE ~ NA_real_
+    ),
+    hba1c_pre = case_when(
+      study_visit == "POST-VSG" ~ first(hba1c[study_visit == "PRE-VSG"], default = NA_real_),
+      study_visit == "POST-SMT" ~ first(hba1c[study_visit == "PRE-SMT"], default = NA_real_),
+      TRUE ~ NA_real_
+    ),
+    
+    # POST values are just current values when it's a POST visit
+    weight_post = if_else(
+      study_visit %in% c("POST-VSG", "POST-SMT"),
+      weight,
+      NA_real_
+    ),
+    bmi_post = if_else(
+      study_visit %in% c("POST-VSG", "POST-SMT"),
+      bmi,
+      NA_real_
+    ),
+    hba1c_post = if_else(
+      study_visit %in% c("POST-VSG", "POST-SMT"),
+      hba1c,
+      NA_real_
+    ),
+    
+    # Calculate absolute deltas
+    delta_weight_abs = if_else(
+      study_visit %in% c("POST-VSG", "POST-SMT"),
+      weight - weight_pre,
+      NA_real_
+    ),
+    delta_bmi_abs = if_else(
+      study_visit %in% c("POST-VSG", "POST-SMT"),
+      bmi - bmi_pre,
+      NA_real_
+    ),
+    delta_hba1c_abs = if_else(
+      study_visit %in% c("POST-VSG", "POST-SMT"),
+      hba1c - hba1c_pre,
+      NA_real_
+    ),
+    
+    # Calculate percent deltas
+    delta_weight_pct = if_else(
+      study_visit %in% c("POST-VSG", "POST-SMT"),
+      (weight - weight_pre) / weight_pre * 100,
+      NA_real_
+    ),
+    delta_bmi_pct = if_else(
+      study_visit %in% c("POST-VSG", "POST-SMT"),
+      (bmi - bmi_pre) / bmi_pre * 100,
+      NA_real_
+    ),
+    delta_hba1c_pct = if_else(
+      study_visit %in% c("POST-VSG", "POST-SMT"),
+      (hba1c - hba1c_pre) / hba1c_pre * 100,
+      NA_real_
+    )
+  ) %>%
+  ungroup()
+
+vsg_cohort$study_visit = factor(vsg_cohort$study_visit, levels = c("PRE-SMT", "POST-SMT", "PRE-VSG", "POST-VSG"))
+```
+
+
+```{r}
+labels_list <- list(
+  age = "Age (years)",
+  sex = "Sex",
+  weight = "Weight (kg)",
+  height = "Height (cm)",
+  bmi = "BMI (kg/m²)",
+  hba1c = "HbA1c (%)",
+  delta_weight_abs = "Absolute Weight Change (kg)",
+  delta_weight_pct = "Weight Change (%)",
+  delta_bmi_abs = "Absolute BMI Change (kg/m²)",
+  delta_bmi_pct = "BMI Change (%)"
+)
+
+summary(tableby(study_visit ~ age + sex + weight + height + bmi + hba1c + delta_weight_abs + delta_weight_pct + delta_bmi_abs + delta_bmi_pct, data = vsg_cohort, total = F, test = F), labelTranslations = labels_list)
+```
