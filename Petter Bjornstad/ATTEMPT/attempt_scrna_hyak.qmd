@@ -89,7 +89,7 @@ s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
 # read ATTEMPT Seurat file
 temp_file <- tempfile(fileext = ".RDS")
 s3$download_file("scrna", "Kidney transcriptomics/Single cell RNA seq/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS", temp_file)
-attempt_so <- readRDS(temp_file)
+attempt_so_raw <- readRDS(temp_file)
 
 # N of cells for Petter (B-cells and POD at baseline)
 # attempt_so$celltype_pt <- ifelse(grepl("PT-", attempt_so$celltype),
@@ -98,18 +98,15 @@ attempt_so <- readRDS(temp_file)
 # attempt_so_b_bl <- subset(attempt_so, celltype == "B" & Visit == "BL")
 # attempt_so_pod_bl <- subset(attempt_so, celltype == "POD" & Visit == "BL")
 
-
-# calculate cell library size for offset
-
 # Identify mitochondrial genes
-mito_genes <- grep("^MT-", rownames(attempt_so), value = TRUE)
+mito_genes <- grep("^MT-", rownames(attempt_so_raw), value = TRUE)
 
 # Calculate the percentage of mitochondrial transcripts per cell
-attempt_so[["percent.mt"]] <- PercentageFeatureSet(attempt_so, pattern = "^MT-")
-hist(attempt_so$percent.mt)
-# FeaturePlot(attempt_so, reduction = "umap.harmony", features = "percent.mt", cols = c("lightgray", "blue"), raster = F)
-# DimPlot(attempt_so, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
-# DimPlot(attempt_so, reduction = "umap.harmony", group.by = "celltype", raster = F, alpha = 0.2, label = T)
+attempt_so_raw[["percent.mt"]] <- PercentageFeatureSet(attempt_so_raw, pattern = "^MT-")
+hist(attempt_so_raw$percent.mt)
+# FeaturePlot(attempt_so_raw, reduction = "umap.harmony", features = "percent.mt", cols = c("lightgray", "blue"), raster = F)
+# DimPlot(attempt_so_raw, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
+# DimPlot(attempt_so_raw, reduction = "umap.harmony", group.by = "celltype", raster = F, alpha = 0.2, label = T)
 
 # Identify ribosomal genes
 ribo_genes <- c(
@@ -120,19 +117,19 @@ ribo_genes <- c(
   "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
   "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
   "RPL10", "RPS4Y1"
-) # grep("^RPL|^RPS", rownames(attempt_so), value = TRUE) captures some none ribosomal genes
-attempt_so[["percent.ribo"]] <- PercentageFeatureSet(attempt_so, features = ribo_genes)
-hist(attempt_so$percent.ribo)
+) # grep("^RPL|^RPS", rownames(attempt_so_raw), value = TRUE) captures some none ribosomal genes
+attempt_so_raw[["percent.ribo"]] <- PercentageFeatureSet(attempt_so_raw, features = ribo_genes)
+hist(attempt_so_raw$percent.ribo)
 
-# attempt_so <- subset(attempt_so, subset = percent.mt < 50) # keep as 50%, it's how it's done with KPMP
-FeaturePlot(attempt_so, reduction = "umap.harmony", features = "percent.mt", cols = c("lightgray", "blue"), raster = F)
-DimPlot(attempt_so, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
-DimPlot(attempt_so, reduction = "umap.harmony", group.by = "celltype", raster = F, alpha = 0.2, label = T)
+# attempt_so_raw <- subset(attempt_so_raw, subset = percent.mt < 50) # keep as 50%, it's how it's done with KPMP
+FeaturePlot(attempt_so_raw, reduction = "umap.harmony", features = "percent.mt", cols = c("lightgray", "blue"), raster = F)
+DimPlot(attempt_so_raw, reduction = "umap.harmony", group.by = "KPMP_celltype", raster = F, alpha = 0.2, label = T)
+DimPlot(attempt_so_raw, reduction = "umap.harmony", group.by = "celltype", raster = F, alpha = 0.2, label = T)
 
-attempt_so <- subset(attempt_so, features = setdiff(rownames(attempt_so), mito_genes)) # remove MT- genes
-attempt_so <- subset(attempt_so, features = setdiff(rownames(attempt_so), ribo_genes)) # remove ribosomal genes
+attempt_so_raw <- subset(attempt_so_raw, features = setdiff(rownames(attempt_so_raw), mito_genes)) # remove MT- genes
+attempt_so_raw <- subset(attempt_so_raw, features = setdiff(rownames(attempt_so_raw), ribo_genes)) # remove ribosomal genes
 
-expr_matrix <- as.matrix(GetAssayData(attempt_so, layer = "data"))
+expr_matrix <- as.matrix(GetAssayData(attempt_so_raw, layer = "data"))
 # Calculate the proportion of cells expressing each gene
 num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
 total_cells <- ncol(expr_matrix)  # Total number of cells
@@ -143,46 +140,46 @@ genes_to_keep <- names(gene_proportion[gene_proportion  >= 0.05])
 length(genes_to_keep) # 8672 ( ~ 28.3% remaining)
 
 remove(expr_matrix)
-attempt_so <- subset(attempt_so, features = genes_to_keep)
+# attempt_so_raw <- subset(attempt_so_raw, features = genes_to_keep)
 
 # renormalize after filtering
-attempt_so <- NormalizeData(attempt_so)
+attempt_so_raw <- NormalizeData(attempt_so_raw)
 
-# # calculate cell library size for offset in NEBULA
-counts_layer <- round(GetAssayData(attempt_so, layer = "counts"))
-library_size <- Matrix::colSums(counts_layer)
-attempt_so$library_size <- library_size
-View(attempt_so@meta.data)
-
-# TMM offset
-dge <- DGEList(counts = counts_layer)
-dge <- calcNormFactors(dge, method = "TMM")
-tmm_offset <- (dge$samples$lib.size) * (dge$samples$norm.factors)
-attempt_so$tmm_offset <- tmm_offset
-
-# Pooled offset
-bp <- MulticoreParam(workers = 63)
-sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-# sce <- computeSumFactors(sce)
-sce <- computeSumFactors(sce, BPPARAM = bp)
-# # View size factors
-sizeFactors(sce)
-# Calculate offset → (size factors)
-pooled_offset <- (sizeFactors(sce))
-attempt_so$pooled_offset <- pooled_offset
+# # # calculate cell library size for offset in NEBULA
+# counts_layer <- round(GetAssayData(attempt_so_raw, layer = "counts"))
+# library_size <- Matrix::colSums(counts_layer)
+# attempt_so_raw$library_size <- library_size
+# View(attempt_so_raw@meta.data)
+# 
+# # TMM offset
+# dge <- DGEList(counts = counts_layer)
+# dge <- calcNormFactors(dge, method = "TMM")
+# tmm_offset <- (dge$samples$lib.size) * (dge$samples$norm.factors)
+# attempt_so_raw$tmm_offset <- tmm_offset
+# 
+# # Pooled offset
+# bp <- MulticoreParam(workers = 63)
+# sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+# # sce <- computeSumFactors(sce)
+# sce <- computeSumFactors(sce, BPPARAM = bp)
+# # # View size factors
+# sizeFactors(sce)
+# # Calculate offset → (size factors)
+# pooled_offset <- (sizeFactors(sce))
+# attempt_so_raw$pooled_offset <- pooled_offset
 
 ## want to double check expression of some metallothionines because logFC for them in dapa is near 0
-# FindMarkers(subset(attempt_so, grepl("PT-", attempt_so$celltype) & treatment == "Placebo"), features = c("MT1X", "MT2A", "MT1M", "MT1H"), group.by = "visit", 
+# FindMarkers(subset(attempt_so_raw, grepl("PT-", attempt_so_raw$celltype) & treatment == "Placebo"), features = c("MT1X", "MT2A", "MT1M", "MT1H"), group.by = "visit", 
 #             min.pct = 0, logfc.threshold = 0,
 #             ident.1 = "POST")
 # 
-# FindMarkers(subset(attempt_so, grepl("PT-", attempt_so$celltype) & treatment == "Dapagliflozin 5mg"), features = c("MT1X", "MT2A", "MT1M", "MT1H"), group.by = "visit", 
+# FindMarkers(subset(attempt_so_raw, grepl("PT-", attempt_so_raw$celltype) & treatment == "Dapagliflozin 5mg"), features = c("MT1X", "MT2A", "MT1M", "MT1H"), group.by = "visit", 
 #             min.pct = 0, logfc.threshold = 0,
 #             ident.1 = "POST")
 
 # check for expression of TRHDE-AS1 (in immune), FGF14 (in immune), and PSAT1 (in fib/vsmc/p)
-FeaturePlot(attempt_so, features = c("TRHDE-AS1", "FGF14", "PSAT1"), raster = F)
-DimPlot(attempt_so, group.by = "celltype", raster = F, alpha = 0.2, label = T)
+FeaturePlot(attempt_so_raw, features = c("TRHDE-AS1", "FGF14", "PSAT1"), raster = F)
+DimPlot(attempt_so_raw, group.by = "celltype", raster = F, alpha = 0.2, label = T)
 
 ```
 
@@ -192,14 +189,17 @@ temp_file <- tempfile(fileext = ".RDS")
 s3$download_file("harmonized.dataset", "attempt_clinical_data.RDS", temp_file)
 dat <- readRDS(temp_file)
 
-attempt_so_meta <- attempt_so@meta.data %>%
+attempt_so_meta <- attempt_so_raw@meta.data %>%
   mutate(subject_id = Subject.ID,
          visit = case_when(Visit == "BL" ~ "PRE", 
                            Visit == "4M" ~ "POST"))
 attempt_so_meta <- left_join(attempt_so_meta, dat, by = c("subject_id", "visit"))
 rownames(attempt_so_meta) <- attempt_so_meta$barcode
-attempt_so <- AddMetaData(attempt_so, attempt_so_meta)
+attempt_so_raw <- AddMetaData(attempt_so_raw, attempt_so_meta)
 options(future.globals.maxSize = 3000 * 1024^3)
+
+View(subset(attempt_so_meta, select = c(subject_id, visit, treatment, Cryostor_ID)) %>%
+       distinct(Cryostor_ID, .keep_all = T))
 ```
 
 
@@ -211,6 +211,185 @@ attempt_so <- readRDS(temp_file)
 ```
 
 
+```{r}
+# module scores
+# Curated immune and metabolism gene sets for kidney biology
+kidney_gene_sets <- list(
+  immune_response = c(
+    # TLRs
+    "TLR2", "TLR3", "TLR4", "TLR7", "TLR9",
+    # Inflammasome
+    "NLRP3", "NLRC4", "AIM2", "CASP1",
+    # Interferon response
+    "IFI16", "IFIT1", "IFIT3", "ISG15", "MX1", "OAS1", "STAT1", "IRF7",
+    # Cytokines
+    "IL1B", "IL6", "TNF", "IFNG", "IL18", "IL10", "TGFB1",
+    # Chemokines
+    "CCL2", "CCL5", "CXCL9", "CXCL10", "CXCL11", "CXCL13",
+    # Macrophages
+    "CD14", "CD68", "CD163", "MRC1", "FCGR3A",
+    # T cells
+    "CD3D", "CD4", "CD8A", "FOXP3", "PDCD1", "CTLA4",
+    # B cells
+    "CD19", "CD79A", "MS4A1",
+    # NK cells
+    "NCAM1", "KLRD1", "NKG7",
+    # Checkpoints
+    "PDCD1", "CD274", "CTLA4", "LAG3", "HAVCR2", "TIGIT",
+    # Complement
+    "C1QA", "C1QB", "C3", "C5", "CFH", "CFD", "CFB"
+  ),
+  
+  metabolism = c(
+    # Glucose transport
+    "SLC5A2", "SLC5A1", "SLC2A1", "SLC2A2",
+    # Glycolysis
+    "HK1", "HK2", "PFKFB3", "PKM", "LDHA", "ENO1",
+    # Gluconeogenesis
+    "PCK1", "PCK2", "FBP1", "G6PC",
+    # TCA cycle
+    "IDH3A", "IDH2", "CS", "SDHA", "FH", "MDH2",
+    # OxPhos
+    "NDUFA9", "UQCRC1", "COX4I1", "ATP5F1A",
+    # Fatty acid oxidation
+    "CPT1A", "CPT2", "ACADM", "HADHA", "ACADVL",
+    # Lipid metabolism
+    "SREBF1", "FASN", "ACACA", "CD36", "FABP1", "FABP3",
+    # Cholesterol metabolism
+    "HMGCR", "HMGCS1", "LDLR", "ABCA1", "APOE",
+    # Amino acid metabolism
+    "GLS", "GLUD1", "SLC1A5", "SLC38A1", "ASS1", "ARG1", "NOS2",
+    # Redox/oxidative stress
+    "NFE2L2", "KEAP1", "GPX1", "GPX3", "PRDX1", "PRDX3", "SOD1", "SOD2", "CAT"
+  ))
+
+attempt_so <- AddModuleScore(attempt_so, features = kidney_gene_sets, name = names(kidney_gene_sets))
+attempt_so@meta.data %>%
+  ggplot(aes(x = treatment, y = immune_response1, fill = visit)) +
+  geom_boxplot() +
+  theme_bw()
+
+attempt_so@meta.data %>%
+  ggplot(aes(x = treatment, y = metabolism2, fill = visit)) +
+  geom_boxplot() +
+  theme_bw()
+
+sample_means <- attempt_so@meta.data %>%
+  group_by(treatment, subject_id, visit) %>%
+  summarise(
+    mean_immune = mean(immune_response1, na.rm = TRUE),
+    mean_metabolism = mean(metabolism2, na.rm = TRUE),
+    n_cells = n(),
+    .groups = 'drop'
+  )
+
+sample_differences <- sample_means %>%
+  pivot_wider(
+    names_from = visit,
+    values_from = c(mean_immune, mean_metabolism, n_cells),
+    names_sep = "_"
+  ) %>%
+  mutate(
+    immune_diff = mean_immune_POST - mean_immune_PRE,
+    metabolism_diff = mean_metabolism_POST - mean_metabolism_PRE
+  ) %>%
+  dplyr::select(treatment, subject_id, immune_diff, metabolism_diff, 
+         n_cells_PRE, n_cells_POST)
+
+summary_stats <- sample_differences %>%
+  group_by(treatment) %>%
+  summarise(
+    n_subjects = n(),
+    mean_immune_diff = mean(immune_diff, na.rm = TRUE),
+    se_immune_diff = sd(immune_diff, na.rm = TRUE) / sqrt(n()),
+    mean_metabolism_diff = mean(metabolism_diff, na.rm = TRUE),
+    se_metabolism_diff = sd(metabolism_diff, na.rm = TRUE) / sqrt(n())
+  )
+
+
+
+library(ggplot2)
+library(patchwork)
+
+p1 <- ggplot(sample_differences, aes(x = treatment, y = immune_diff)) +
+  geom_boxplot(aes(fill = treatment), alpha = 0.7) +
+  geom_point(position = position_jitter(width = 0.15), size = 2) +
+  labs(title = "Immune Module: Post - Pre Differences",
+       subtitle = "Sample-level means",
+       y = "Mean Module Score Difference",
+       x = "Treatment") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p2 <- ggplot(sample_differences, aes(x = treatment, y = metabolism_diff)) +
+  geom_boxplot(aes(fill = treatment), alpha = 0.7) +
+  geom_point(position = position_jitter(width = 0.15), size = 2) +
+  labs(title = "Metabolism Module: Post - Pre Differences",
+       subtitle = "Sample-level means",
+       y = "Mean Module Score Difference",
+       x = "Treatment") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p1 + p2
+
+# Option 2: Look at cell-level distribution changes
+# This preserves single-cell resolution but is more complex to interpret
+
+# Create density plots showing distribution shifts
+library(ggridges)
+
+# Prepare data for ridge plots
+cell_data_long <- attempt_so@meta.data %>%
+  mutate(sample_visit = paste(subject_id, visit, sep = "_")) %>%
+  pivot_longer(
+    cols = c(immune_response1, metabolism2),
+    names_to = "module",
+    values_to = "score"
+  ) %>%
+  mutate(module = case_when(
+    module == "immune_response1" ~ "Immune",
+    module == "metabolism2" ~ "Metabolism"
+  ))
+
+# Ridge plot showing distributions
+ggplot(cell_data_long, aes(x = score, y = interaction(visit, treatment), 
+                           fill = interaction(visit, treatment))) +
+  geom_density_ridges(alpha = 0.7) +
+  facet_wrap(~module, scales = "free_x") +
+  labs(title = "Module Score Distributions by Treatment and Visit",
+       x = "Module Score",
+       y = "Treatment.Visit") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+# Option 3: Statistical testing
+# Paired t-test or Wilcoxon signed-rank test per treatment group
+
+# For each treatment, test if post-pre difference is significant
+test_results <- sample_differences %>%
+  group_by(treatment) %>%
+  summarise(
+    # Immune module tests
+    immune_t_test_p = t.test(immune_diff, mu = 0)$p.value,
+    immune_wilcox_p = wilcox.test(immune_diff, mu = 0)$p.value,
+    # Metabolism module tests
+    metab_t_test_p = t.test(metabolism_diff, mu = 0)$p.value,
+    metab_wilcox_p = wilcox.test(metabolism_diff, mu = 0)$p.value
+  )
+
+print(test_results)
+
+# ANOVA to compare differences between treatments
+immune_aov <- aov(immune_diff ~ treatment, data = sample_differences)
+metab_aov <- aov(metabolism_diff ~ treatment, data = sample_differences)
+
+print("Immune module - Treatment comparison:")
+summary(immune_aov)
+
+print("Metabolism module - Treatment comparison:")
+summary(metab_aov)
+```
 
 ```{r echo = F}
 # remove cells with ambient RNA (indicated with high expression of PT biomarkers)
@@ -4869,6 +5048,95 @@ for (ct in all_listed_celltypes) {
 }
 ```
 
+# Proteomics specific cell types
+```{r echo = F}
+urine_celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),  # Proximal tubule
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),  # Thick ascending limb
+  DCT = c("DCT", "dDCT"),  # Distal convoluted tubule
+  CD = c("CCD-PC", "dCCD-PC", "CNT-PC", "tPC-IC", "MC", "aIC", "IC-A", "IC-B", "CNT"),  # Collecting duct & connecting tubule
+  POD = c("POD")  # Podocytes
+)
+urine_celltype_groups$Combined_u <- c(
+  urine_celltype_groups$PT,
+  urine_celltype_groups$TAL,
+  urine_celltype_groups$DCT,
+  urine_celltype_groups$CD,
+  urine_celltype_groups$POD
+)
+urine_celltype_groups <- urine_celltype_groups[!(names(urine_celltype_groups) %in% c("PT", "DCT", "TAL", "POD"))]
+
+attempt_so_urine_subsets <- make_subsets(attempt_so, urine_celltype_groups, celltype_col = "KPMP_celltype", prefix = "attempt_so_")
+
+plasma_celltype_groups <- list(
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC/VSMC", "EC-LYM"),
+  Glom  = c("POD", "MC", "M-PC"),
+  VSMC        = c("VSMC/P", "EC/VSMC"),
+  Immune      = c("CD4+ T", "CD8+ T", "B", "NK", "MAC", "MON", "cDC", "pDC")
+)
+# Now add combined group
+plasma_celltype_groups$Combined_p <- c(
+  plasma_celltype_groups$EC,
+  plasma_celltype_groups$Glom,
+  plasma_celltype_groups$VSMC,
+  plasma_celltype_groups$Immune
+)
+
+plasma_celltype_groups <- plasma_celltype_groups[!(names(plasma_celltype_groups) %in% c("EC", "Immune"))]
+
+attempt_so_plasma_subsets <- make_subsets(attempt_so, plasma_celltype_groups, celltype_col = "KPMP_celltype", prefix = "attempt_so_")
+
+proteomics_celltypes <- c(urine_celltype_groups, plasma_celltype_groups)
+```
+
+```{r echo = F}
+# --- Initialize result list
+nebula_kpmp_proteomics_specific <- list()
+
+# --- Helper function to run HVG + ALL analysis
+run_for_subset <- function(so_subset, label) {
+  # # --- HVG selection for this subset
+  # so_hvg <- FindVariableFeatures(so_subset, selection.method = "vst", nfeatures = 2000)
+  # hvgs <- VariableFeatures(so_hvg)
+  # so_hvg <- subset(so_subset, features = hvgs)
+  # 
+  # # --- HVG run
+  # res_hvg <- run_nebula_parallel(
+  #   seurat_obj = so_hvg,
+  #   n_cores = 50,
+  #   s3_bucket = "attempt",
+  #   s3_key = paste0(label, "/HVG/nebula/", gsub("/", "_", tolower(label)),
+  #                   "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  # )
+
+  # --- ALL run
+  res_all <- run_nebula_parallel(
+    seurat_obj = so_subset,
+    n_cores = 10,
+    s3_bucket = "attempt",
+    s3_key = paste0(label, "/ALL/nebula/", gsub("/", "_", tolower(label)),
+                    "_kpmp_attempt_nebula_res_reml_pooled.rds")
+  )
+
+  list(
+    # HVG = res_hvg, 
+       ALL = res_all)
+}
+
+# --- Loop through each cell type group
+for (grp_name in "Combined_p") {
+  message("Processing group: ", grp_name)
+
+  so_subset <- subset(attempt_so, idents = proteomics_celltypes[[grp_name]])
+  res_list <- run_for_subset(so_subset, paste0("grouped/", grp_name))
+
+  nebula_kpmp_proteomics_specific[[paste0(grp_name, "_group")]] <- res_list
+  gc()
+}
+
+
+```
+
 # Expression
 
 ```{r echo = F}
@@ -5292,4 +5560,33 @@ s3$upload_file(temp_file, "attempt", "Figures/nonconverged/fibvsmcp_nonconverged
 ```{r echo = F}
 hvgs_union <- unique(c(hvgs_ec, hvgs_fibvsmc, hvgs_ic, hvgs_immune, hvgs_pc, hvgs_pt, hvgs_tal))
 length(hvgs_union)
+```
+
+# Dot plot of markers
+```{r echo = F}
+FindMarkers(subset(attempt_so_raw, treatment == "Placebo"), group.by = "visit",
+            ident.1 = "POST", ident.2 = "PRE", features = "HAVCR1", min.pct = 0, logfc.threshold = 0)
+
+FindMarkers(subset(attempt_so_raw, treatment == "Dapagliflozin 5mg"), group.by = "visit",
+            ident.1 = "POST", ident.2 = "PRE", features = "HAVCR1", min.pct = 0, logfc.threshold = 0)
+
+attempt_so$treatment_visit <- paste0(attempt_so$treatment, "_", attempt_so$visit)
+
+markers <- c("CD24", "PROM1", "VCAM1", "CST3")
+
+DotPlot(object = subset(attempt_so, KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT")),
+        features = markers,
+        group.by = "treatment_visit")
+
+DotPlot(object = subset(attempt_so, KPMP_celltype %in% c("PT-S1/S2")),
+        features = markers,
+        group.by = "treatment_visit")
+
+DotPlot(object = subset(attempt_so, KPMP_celltype %in% c("PT-S3")),
+        features = markers,
+        group.by = "treatment_visit")
+
+DotPlot(object = subset(attempt_so, KPMP_celltype %in% c( "aPT")),
+        features = markers,
+        group.by = "treatment_visit")
 ```
