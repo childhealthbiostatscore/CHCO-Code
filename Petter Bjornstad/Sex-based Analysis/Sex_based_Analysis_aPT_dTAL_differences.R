@@ -470,6 +470,11 @@ pdf('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Threeway_Interact
 print(p1)
 dev.off()
 
+png('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Threeway_Interactions/Threeway_interactions_findings_panel.png', 
+    width = 12, height = 20, res = 300, units = 'in')
+print(p1)
+dev.off()
+
 
 
 #Heatmap 
@@ -529,6 +534,10 @@ pdf('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Threeway_Interact
 print(p3)
 dev.off()
 
+png('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Threeway_Interactions/Threeway_interactions_findings_heatmap.png', 
+    width = 12, height = 20, res = 300, units = 'in')
+print(p3)
+dev.off()
 
 
 
