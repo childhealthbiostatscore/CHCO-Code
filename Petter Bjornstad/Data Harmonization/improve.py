@@ -34,7 +34,7 @@ def clean_improve():
     redcap_cols = ["redcap_event_name",
                    "redcap_repeat_instrument", "redcap_repeat_instance"]
     # Replace missing values
-    rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999]
+    rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
     # --------------------------------------------------------------------------

@@ -45,214 +45,12 @@ Sys.setenv(
 ```
 
 ```{r echo = F}
-harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
-
-attempt_redcap <- harm_dat %>% filter(study == "ATTEMPT") %>%
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id, visit)) %>%
-  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
-                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
-                                                     race == "Black or African American" &
-                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
-                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
-                                                     T ~ "Not Hispanic or Latino Other")) %>%
-  arrange(record_id) %>%
-  dplyr::select(-hba1c)
-
-attempt_redcap_denver <- attempt_redcap %>%
-  filter(grepl("^3", record_id)) %>%
-  mutate(visit = case_when(visit == "baseline" ~ 0,
-                           visit == "4_weeks_post" ~ 4,
-                           visit == "4_months_post" ~ 16,
-                           visit == "screening"  ~ -4,
-                           visit == "follow_up" ~ 18),
-         record_id = as.integer(record_id)) %>%
-  dplyr::select(-c(ethnicity, bmi, gfr_raw_plasma, gfr_bsa_plasma, date, sex, mri_date, PWV,
-                   creatinine_s, cystatin_c_s, temp, pulse, height, avg_c_r2, avg_k_r2, 
-                   sbp, dbp, hct, age, weight)) %>%
-  rowwise() %>%
-  mutate(avg_c_t1 = mean(c(t1_r_cortex, t1_l_cortex), na.rm = T),
-         avg_k_t1 = mean(c(t1_r_kidney, t1_l_kidney), na.rm = T),
-         tkv = (volume_left + volume_right)) %>%
-  ungroup() %>%
-  dplyr::rename(subject_id = record_id)
-
-## clinical dataset from Antoine (merged version)
-attempt_dat <- s3readRDS("Clinical Data/ATTEMPT_AC.RDS", "attempt", region = "")
-attempt_dat[attempt_dat == ""] <- NA
-attempt_dat <- attempt_dat %>%
-  filter(visit %in% c("baseline", "4_weeks_post", "4_months_post", "screening", "follow_up")) %>%
-  mutate(visit = case_when(visit == "baseline" ~ 0,
-                           visit == "4_weeks_post" ~ 4,
-                           visit == "4_months_post" ~ 16,
-                           visit == "screening"  ~ -4,
-                           visit == "follow_up" ~ 18),
-         record_id = as.integer(record_id)) %>%
-  dplyr::rename(subject_id = record_id,
-                treatment = treatment_arm)
-
-## extract IDs with biopsy
-attempt_clean_so_metadata <- s3readRDS("cleaned_data/attempt_clean_so_metadata.rds", "attempt", region = "")
-attempt_biopsy_yn <- attempt_clean_so_metadata %>%
-  dplyr::select(subject_id, visit) %>%
-  distinct(subject_id, visit, .keep_all = T) %>%
-  mutate(visit = case_when(visit == "PRE" ~ 0,
-                           visit == "POST" ~ 16),
-         biopsy_yn = "Yes")
-attempt_biopsy_yn <- attempt_biopsy_yn %>%
-  rbind(attempt_biopsy_yn %>%
-          filter(visit == 0) %>%
-          mutate(visit = -4))
-
-## merge REDCap version (for Denver) and dataset from Antoine
-attempt_dat <- left_join(attempt_dat, attempt_redcap_denver) %>%
-  left_join(attempt_biopsy_yn) %>%
-  group_by(subject_id, visit) %>%
-  mutate(biopsy_yn = case_when(biopsy_yn == "Yes" ~ "Yes",
-                               T ~ "No"),
-         avg_ketones = mean(c(mgfr_ketones_pre, mgfr_ketone_iv), na.rm = T)) %>%
-  ungroup()
-attempt_dat$treatment <- factor(attempt_dat$treatment, levels = c("Placebo", "Dapagliflozin 5mg"))
-
-attempt_dat %>%
-  filter(biopsy_yn == "Yes") %>%
-  filter(visit %in% c(0)) %>%
-  filter(subject_id != 30001) %>%
-  dplyr::select(subject_id, visit, treatment) %>%
-  arrange(subject_id) %>%
-  write.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Clean/ATTEMPT_BL_LN2.csv", na = "",
-            row.names = F)
-
-attempt_dat %>%
-  filter(biopsy_yn == "Yes") %>%
-  filter(visit %in% c(16)) %>%
-  filter(subject_id != 30013) %>%
-  dplyr::select(subject_id, visit, treatment) %>%
-  arrange(subject_id) %>%
-  rbind(attempt_dat[attempt_dat$subject_id == 30472,] %>%
-          filter(visit %in% c(16)) %>%
-          dplyr::select(subject_id, visit, treatment) %>%
-          arrange(subject_id)) %>%
-  write.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Clean/ATTEMPT_4M_LN2.csv", na = "",
-            row.names = F)
+attempt_dat <- s3readRDS(object = "cleaned_data/attempt_dat.rds", bucket = "attempt", region = "")
 ```
 
 
 ```{r echo = F}
-delta_df <- attempt_dat %>%
-  filter(!is.na(visit)) %>%
-  pivot_wider(
-    id_cols = c(subject_id, treatment, site, sex),
-    names_from = visit,
-    values_from = c(
-      hba1c, cgm_tir, weight, mgfr_jodal_bsa, mgfr_jodal, avg_c_r2, avg_k_r2,
-      avg_c_t1, avg_k_t1, avg_pcascl, avg_c_adc, avg_ketones,
-      cholesterol_serum_mmoll, triglycerides_serum_mmoll, ldl_serum_mmoll, hdl_serum_mmoll
-    )
-  ) %>%
-  mutate(
-    ## Existing deltas
-    delta_hba1c_4 = hba1c_4 - hba1c_0,
-    delta_hba1c_16 = hba1c_16 - hba1c_0,
-    delta_tir_4 = cgm_tir_4 - cgm_tir_0,
-    delta_tir_16 = cgm_tir_16 - cgm_tir_0,
-    delta_weight_4 = weight_4 - weight_0,
-    delta_weight_16 = weight_16 - weight_0,
-    delta_mgfr_jodal_bsa_4 = mgfr_jodal_bsa_4 - `mgfr_jodal_bsa_-4`,
-    delta_mgfr_jodal_bsa_16 = mgfr_jodal_bsa_16 - `mgfr_jodal_bsa_-4`,
-    delta_mgfr_jodal_4 = mgfr_jodal_4 - `mgfr_jodal_-4`,
-    delta_mgfr_jodal_16 = mgfr_jodal_16 - `mgfr_jodal_-4`,
-    delta_avg_ketones_4 = avg_ketones_4 - `avg_ketones_-4`,
-    delta_avg_ketones_16 = avg_ketones_16 - `avg_ketones_-4`,
-    delta_avg_c_r2_4 = avg_c_r2_4 - `avg_c_r2_-4`,
-    delta_avg_c_r2_16 = avg_c_r2_16 - `avg_c_r2_-4`,
-    delta_avg_k_r2_4 = avg_k_r2_4 - `avg_k_r2_-4`,
-    delta_avg_k_r2_16 = avg_k_r2_16 - `avg_k_r2_-4`,
-    delta_avg_c_t1_4 = avg_c_t1_4 - `avg_c_t1_0`,
-    delta_avg_c_t1_16 = avg_c_t1_16 - `avg_c_t1_0`,
-    delta_avg_k_t1_4 = avg_k_t1_4 - `avg_k_t1_0`,
-    delta_avg_k_t1_16 = avg_k_t1_16 - `avg_k_t1_0`,
-    delta_avg_pcascl_4 = avg_pcascl_4 - `avg_pcascl_0`,
-    delta_avg_pcascl_16 = avg_pcascl_16 - `avg_pcascl_0`,
-    delta_avg_c_adc_4 = avg_c_adc_4 - `avg_c_adc_0`,
-    delta_avg_c_adc_16 = avg_c_adc_16 - `avg_c_adc_0`,
-    
-    ## New lipid deltas (baseline = visit 0)
-    delta_cholesterol_4 = cholesterol_serum_mmoll_4 - cholesterol_serum_mmoll_0,
-    delta_cholesterol_16 = cholesterol_serum_mmoll_16 - cholesterol_serum_mmoll_0,
-    delta_triglycerides_4 = triglycerides_serum_mmoll_4 - triglycerides_serum_mmoll_0,
-    delta_triglycerides_16 = triglycerides_serum_mmoll_16 - triglycerides_serum_mmoll_0,
-    delta_ldl_4 = ldl_serum_mmoll_4 - ldl_serum_mmoll_0,
-    delta_ldl_16 = ldl_serum_mmoll_16 - ldl_serum_mmoll_0,
-    delta_hdl_4 = hdl_serum_mmoll_4 - hdl_serum_mmoll_0,
-    delta_hdl_16 = hdl_serum_mmoll_16 - hdl_serum_mmoll_0,
-    
-    ## Zero deltas for baseline
-    delta_hba1c_0 = 0,
-    delta_tir_0 = 0,
-    delta_weight_0 = 0,
-    `delta_avg_ketones_-4` = 0,
-    `delta_mgfr_jodal_bsa_-4` = 0,
-    `delta_mgfr_jodal_-4` = 0,
-    `delta_avg_c_r2_-4` = 0,
-    `delta_avg_k_r2_-4` = 0,
-    `delta_avg_pcascl_0` = 0,
-    `delta_avg_c_adc_0` = 0,
-    `delta_avg_c_t1_0` = 0,
-    `delta_avg_k_t1_0` = 0,
-    delta_cholesterol_0 = 0,
-    delta_triglycerides_0 = 0,
-    delta_ldl_0 = 0,
-    delta_hdl_0 = 0
-  ) %>%
-  dplyr::select(subject_id, treatment, site, sex, matches("delta_.*_(-?4|16|0)$")) %>%
-  pivot_longer(
-    cols = -c(subject_id, treatment, sex, site),
-    names_to = c("variable", "visit"),
-    names_pattern = "delta_(.*)_(-?\\d+)"
-  ) %>% 
-  pivot_wider(names_from = variable, values_from = value) %>%
-  mutate(visit = as.numeric(visit))
-
-delta_df$treatment <- factor(delta_df$treatment, levels = c("Placebo", "Dapagliflozin 5mg"))
-
-## Add baseline values for covariate adjustment (includes lipid baselines)
-delta_df <- delta_df %>% 
-  left_join(
-    attempt_dat %>%
-      group_by(subject_id) %>%
-      filter(visit == 0) %>%
-      dplyr::select(
-        subject_id, age, diabetes_dx_duration, 
-        hba1c, cgm_tir, weight,
-        cholesterol_serum_mmoll, triglycerides_serum_mmoll, 
-        ldl_serum_mmoll, hdl_serum_mmoll
-      ) %>%
-      dplyr::rename(
-        hba1c_bl = hba1c,
-        tir_bl = cgm_tir,
-        weight_bl = weight,
-        cholesterol_bl = cholesterol_serum_mmoll,
-        triglycerides_bl = triglycerides_serum_mmoll,
-        ldl_bl = ldl_serum_mmoll,
-        hdl_bl = hdl_serum_mmoll
-      )
-  ) %>% 
-  left_join(
-    attempt_dat %>%
-      group_by(subject_id) %>%
-      filter(visit == -4) %>%
-      dplyr::select(subject_id, mgfr_jodal_bsa, mgfr_jodal,
-                    avg_c_r2, avg_k_r2, avg_ketones) %>%
-      dplyr::rename(
-        mgfr_jodal_bsa_bl = mgfr_jodal_bsa,
-        mgfr_jodal_bl = mgfr_jodal,
-        avg_c_r2_bl = avg_c_r2,
-        avg_k_r2_bl = avg_k_r2,
-        avg_ketones_bl = avg_ketones
-      )
-  )
+delta_df <- s3readRDS(object = "cleaned_data/attempt_delta_df.rds", bucket = "attempt", region = "")
 ```
 
 ```{r echo = F}
@@ -375,7 +173,7 @@ summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + 
 
 (summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hba1c + kwt(emu_urine_acr_mean, "Nmiss","medianq1q3", "range") + creatinine_s + cystatin_c_s + albumin_serum_gl + cgm_tir + diabetes_dx_duration  + creatinine_s + cystatin_c_s + sbp + dbp + cholesterol_serum_mmoll + triglycerides_serum_mmoll + pulse + ldl_serum_mmoll + hdl_serum_mmoll + avg_c_t1 + avg_k_t1 + avg_pcascl + avg_c_adc, data = subset(attempt_dat, visit == 16 & site == "Denver")), digits = 1))
 
-(summary(arsenal::tableby(treatment ~ mgfr_jodal_bsa + mgfr_jodal + mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + mri_r2_kidney_l + mri_r2_kidney_r + avg_k_r2, data = subset(attempt_dat, visit == -4 & site == "Denver")), digits = 1))
+(summary(arsenal::tableby(treatment ~ mgfr_jodal_bsa + mgfr_jodal + mri_r2_cortex_l + mri_r2_cortex_r + avg_c_r2 + avg_k_r2 + avg_m_r2, data = subset(attempt_dat, visit == -4 & site == "Denver")), digits = 1))
 ```
 
 ## mGFR (BSA)
@@ -521,6 +319,15 @@ Difference in kidney R2\* correlation with baseline kidney R2\*
 cor.test(subset(delta_df, site == "Denver" & visit == 16)$avg_k_r2, 
 subset(delta_df, site == "Denver" & visit == 16)$avg_k_r2_bl)
 ```
+
+## Avg medulla R2*
+
+
+Whole cohort
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Plot%20over%20time/delta_avg_m_r2_overtime.jpeg){width="100%"}
+
+
 
 ## Ketones (avg of mgfr_ketone_iv and mgfr_ketones_pre)
 
@@ -799,6 +606,48 @@ cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/
 
 :::
 
+
+::: columns
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Volcano Plots/_kpmp_ec_plasma.png)
+
+```{r echo= F}
+table(read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance/ec_plasma_concordance.csv"))$concordance)
+```
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Volcano Plots/_kpmp_vsmc_plasma.png)
+```{r echo= F, eval = T}
+table(read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance/vsmc_plasma_concordance.csv"))$concordance)
+```
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Volcano Plots/_kpmp_combined_plasma.png)
+```{r echo= F, eval = T}
+table(read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance/combined_plasma_concordance.csv"))$concordance)
+```
+
+:::
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Volcano Plots/_kpmp_glom_plasma.png)
+```{r echo= F, eval = T}
+table(read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance/glom_plasma_concordance.csv"))$concordance)
+```
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Volcano Plots/_kpmp_immune_plasma.png)
+
+```{r echo= F}
+table(read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance/immune_plasma_concordance.csv"))$concordance)
+```
+
+:::
+
+:::
+
+---
+
 ### Urine
 
 ::: columns
@@ -809,6 +658,48 @@ cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/
 
 ::: column
 ![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Proteomics/Volcano%20Plots/Volcano_DiD_urine_proteomics_adjp_mixed.jpeg)
+:::
+
+:::
+
+::: columns
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Volcano Plots/_kpmp_pt_urine.png)
+
+```{r echo= F}
+table(read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance/pt_urine_concordance.csv"))$concordance)
+```
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Volcano Plots/_kpmp_dct_urine.png)
+```{r echo= F}
+table(read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance/dct_urine_concordance.csv"))$concordance)
+```
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Volcano Plots/_kpmp_pod_urine.png)
+```{r echo= F}
+table(read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance/pod_urine_concordance.csv"))$concordance)
+```
+
+:::
+
+::: column
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Volcano Plots/_kpmp_tal_urine.png)
+```{r echo= F}
+table(read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance/tal_urine_concordance.csv"))$concordance)
+```
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Volcano Plots/_kpmp_cd_urine.png)
+```{r echo= F, eval = T}
+table(read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance/cd_urine_concordance.csv"))$concordance)
+```
+
+![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Volcano Plots/_kpmp_combined_urine.png)
+```{r echo= F, eval = T}
+table(read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance/combined_urine_concordance.csv"))$concordance)
+```
 :::
 
 :::
@@ -852,8 +743,6 @@ Lineage: PT-S1/S2, PT-S3, aPT
 
 ![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_kpmp_slingshot_density_trt.jpeg){width="100%"}
 
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_kpmp_slingshot_percentile_heatmap.jpeg){width="100%"}
-
 :::
 
 ::: column
@@ -863,7 +752,6 @@ Lineage: PT-S1/S2, PT-S3, aPT
 ![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_slingshot_violin.jpeg){width="100%"} 
 
 ```{r echo = F, results = 'asis'}
-
 pt_kpmp_rq <- s3readRDS("Results/pt_kpmp_rq_fit.rds", "attempt", region ="")
 pt_kpmp_rq_summary <- summary(pt_kpmp_rq, se = "nid")
 
@@ -886,37 +774,44 @@ coef_df
 ## KPMP PT Pseudotime associations with clinical variables
 
 ```{r echo = F, results='asis'}
-#| layout-ncol: 2
-
 vars <- c("mgfr_jodal_bsa", "hba1c",  "tir", "weight")
 
+captions <- c("mgfr_jodal_bsa" = "A positive change in mGFR was consistently associated with later/stressed PT states across all quantiles. Effects were highly significant at τ = 0.25, 0.65, and 0.85 (all p < 0.0001).",
+"hba1c" = "Higher HbA1c was associated with earlier/less differentiated PT states. Effects were significant at τ = 0.25 (β = -0.38, p < 0.0001) and τ = 0.85 (β = -1.82, p < 0.0001), but not at τ = 0.65 (β = -1.02, p = 0.378).",
+"tir" = "Higher TIR was inconsistently associated with PT states across quantiles. Effects were not significant at τ = 0.25 (β = 0.002, p = 0.770), but were significantly associated with earlier PT states at τ = 0.65 (β = -0.03, p < 0.0001) and τ = 0.85 (β = -0.10, p < 0.0001).",
+"weight" = "Weight change showed opposing effects across quantiles. Higher weight change was associated with earlier PT states at τ = 0.25 (β = -0.08, p < 0.0001), showed no significant effect at τ = 0.65 (β = -0.14, p = 0.084), but was associated with later PT states at τ = 0.85 (β = 0.13, p = 0.0003).")
+
 for (v in vars) {
+  key <- v
+  v_delta <- paste0(v, "_delta")
 
-cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Slingshot/attempt_density_pt_kpmp_", v, "_deltadelta_slingshot.jpeg){width=100%}\n\n"))
+  # Load model + summary
+  model_path <- paste0("Results/pt_kpmp_rq_fit_", v_delta, ".rds")
+  pt_kpmp_rq_fit <- s3readRDS(model_path, bucket = "attempt", region = "")
+  pt_kpmp_rq_summary <- quantreg:::summary.rqs(pt_kpmp_rq_fit, se = "nid")
+  coef_table <- dplyr::bind_rows(lapply(seq_along(pt_kpmp_rq_summary), function(i) {
+    coef_df <- as.data.frame(pt_kpmp_rq_summary[[i]]$coefficients)
+    coef_df$term <- rownames(coef_df)
+    coef_df$tau  <- pt_kpmp_rq_fit$tau[i]
+    coef_df
+  }), .id = "quantile")
 
-v = paste0(v, "_delta")
-
-## Load the model
-model_path <- paste0("Results/pt_kpmp_rq_fit_", v, ".rds")
-pt_kpmp_rq_fit <- s3readRDS(model_path, bucket = "attempt", region = "")
-
-## Force correct summary method
-pt_kpmp_rq_summary <- quantreg:::summary.rqs(pt_kpmp_rq_fit, se = "nid")
-
-## Extract coefficient table
-coef_table <- bind_rows(
-lapply(seq_along(pt_kpmp_rq_summary), function(i) {
-coef_df <- as.data.frame(pt_kpmp_rq_summary[[i]]$coefficients)
-coef_df$term <- rownames(coef_df)
-coef_df$tau <- pt_kpmp_rq_fit$tau[i]
-coef_df
-}),
-.id = "quantile"
-)
-
-## Display nicely
-print(kable(coef_table, row.names = F))
-cat("\n\n")
+  # Open a two-column layout
+  cat("::: {.columns}\n")
+  
+  # Left column = figure
+  cat("::: {.column width=\"50%\"}\n")
+  cat(paste0("![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_density_pt_kpmp_", key, "_deltadelta_slingshot.jpeg){width=100%}\n"))
+  cat(":::\n")
+  
+  # Right column = table + caption
+  cat("::: {.column width=\"50%\"}\n")
+  print(knitr::kable(coef_table, row.names = FALSE))
+  cat("\n\n", captions[[key]], "\n")
+  cat(":::\n")
+  
+  # Close columns
+  cat(":::\n\n")
 }
 ```
 
@@ -933,8 +828,6 @@ Lineage: PT-2, PT-1, PT-3, PT-5, PT-4
 ![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pca_pt_slingshot.jpeg){width="100%"}
 
 ![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_slingshot_density_trt.jpeg){width="100%"}
-
-![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/Slingshot/attempt_pt_slingshot_percentile_heatmap.jpeg){width="100%"}
 
 :::
 

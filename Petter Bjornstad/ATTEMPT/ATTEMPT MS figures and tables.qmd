@@ -174,7 +174,7 @@ celltype_groups <- list(
 for (cell in names(celltype_groups))  {
   print(paste0("Processing: ", cell))
   cell <- gsub("/", "_", cell)
-
+  
   annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_hvg_res.csv")))
   colnames(annotated_df) <- gsub("\\.", ":", colnames(annotated_df))
   cell <- gsub("-", "_", cell)
@@ -184,7 +184,7 @@ for (cell in names(celltype_groups))  {
   print(var_name)
   assign(var_name, annotated_df)
   
-    
+  
   annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_res.csv")))
   colnames(annotated_df) <- gsub("\\.", ":", colnames(annotated_df))
   cell <- gsub("-", "_", cell)
@@ -209,7 +209,7 @@ for (cell in unlist(celltype_groups))  {
   var_name <- paste0(lower_cell, "_hvg_kpmp")
   print(var_name)
   assign(var_name, annotated_df)
-
+  
 }
 
 # Top 2000 HVG w/ clinical var
@@ -242,7 +242,7 @@ clinical_directions <- data.frame(variable =
 for (cell in names(celltype_groups))  {
   print(paste0("Processing: ", cell))
   cell <- gsub("/", "_", cell)
-
+  
   annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_croc_targeted_res.csv")))
   colnames(annotated_df) <- gsub("\\.", "", colnames(annotated_df))
   cell <- gsub("-", "_", cell)
@@ -283,7 +283,7 @@ kable(summary(arsenal::tableby(
     pulse + 
     ldl_serum_mmoll + 
     hdl_serum_mmoll +
-     mgfr_jodal_bsa + mgfr_jodal + 
+    mgfr_jodal_bsa + mgfr_jodal + 
     avg_c_r2 + avg_k_r2, 
   data = subset(attempt_dat, visit == 0),
   control = table_controls
@@ -293,7 +293,8 @@ kable(summary(arsenal::tableby(
 
 ```{r echo = F}
 #| label: tbl-co-baseline
-#| tbl-cap: "Participant characteristics at baseline in CO"
+#| tbl-cap: "Participant characteristics at baseline in biopsy eligible cohort."
+#| tbl-subcap: "Baseline biopsies were available for 78% (7/9) of placebo and 100% (9/9) of dapagliflozin participants."
 
 kable(summary(arsenal::tableby(
   treatment ~ 
@@ -316,7 +317,7 @@ kable(summary(arsenal::tableby(
     pulse + 
     ldl_serum_mmoll + 
     hdl_serum_mmoll +
-     mgfr_jodal_bsa + mgfr_jodal + avg_c_r2 + avg_k_r2 + avg_m_r2, 
+    mgfr_jodal_bsa + mgfr_jodal + avg_c_r2 + avg_k_r2 + avg_m_r2, 
   data = subset(attempt_dat, visit == 0 & site == "Denver"),
   control = table_controls
 )), digits = 1)
@@ -369,7 +370,7 @@ kable(summary(arsenal::tableby(
 
 ```{r}
 #| label: fig-consort
-#| fig-cap: "CONSORT flow diagram showing participant enrollment, allocation, follow-up, and analysis"
+#| fig-cap: "CONSORT flow diagram showing participant enrollment, allocation, follow-up, and analysis. The left panel (pink background) illustrates the ancillary study within the parent trial conducted in Toronto, London, and Colorado (total n=98), with participants randomized to either placebo (n=49) or dapagliflozin 5 mg (n=49). The right panel (green background) highlights the kidney biopsy-eligible cohort, a subset of participants from Colorado (n=18), randomized to placebo (n=9) or dapagliflozin 5 mg (n=9). "
 
 knitr::include_graphics(file.path(base_path, "ATTEMPT_FU_Consort_diagram.png"))
 ```
@@ -378,9 +379,12 @@ knitr::include_graphics(file.path(base_path, "ATTEMPT_FU_Consort_diagram.png"))
 
 ```{r, include = F}
 # create panels
+attempt_dat2 <- attempt_dat %>%
+  mutate(treatment = case_when(treatment == "Dapagliflozin 5mg" ~ "Dapa",
+                               T ~ treatment))
 # (A) Change in mGFR by baseline mGFR
 mgfr_jodal_bsa_category_bars <- plot_delta_by_category(
-  data = attempt_dat,
+  data = attempt_dat2,
   id_var = "subject_id",
   treatment_var = "treatment",
   value_var = "mgfr_jodal_bsa",
@@ -391,54 +395,42 @@ mgfr_jodal_bsa_category_bars <- plot_delta_by_category(
   bin_by_tertiles = F,
   bin_breaks = c(-Inf, 90, 110, Inf),
   bin_labels = c("<90", "90-110", "\u2265110"),
-  proper_name =  "mGFR (BSA)"
+  proper_name =  "mGFR (BSA)",
+  treatment_levels = c("Dapa", "Placebo"),
+  fill_colors = c("Placebo" = "#f8ae9d", 
+                  "Dapa" = "#a7b298",
+                  "DiD" = "#669bbc")
 ) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
 
 # (B)
 delta_mgfr_jodal_bsa_denver <- plot_mean_ci_stars(subset(delta_df, visit %in% c(-4,16) & site == "Denver"),
-                   y_var = mgfr_jodal_bsa, 
-                   y_axis_title = "\u0394 mGFR (BSA)",
-                   legend_position = c(0.3,0.2),
-                   visits_to_plot = c(-4, 16),
-                   baseline_visit = -4,
-                   covariates = "site")
+                                                  y_var = mgfr_jodal_bsa, 
+                                                  y_axis_title = "\u0394 mGFR (BSA)",
+                                                  legend_position = c(0.3,0.2),
+                                                  visits_to_plot = c(-4, 16),
+                                                  baseline_visit = -4,
+                                                  covariates = "site")
 
 # (C)
 delta_hba1c_overtime_2_denver <- plot_mean_ci_stars(data = subset(delta_df, site == "Denver"), y_var = hba1c, 
-                   y_axis_title = "\u0394 HbA1c (%)",
-                  legend_position = c(0.3,0.2),
-                  visits_to_plot = c(0, 4, 16)) +
+                                                    y_axis_title = "\u0394 HbA1c (%)",
+                                                    legend_position = c(0.3,0.2),
+                                                    visits_to_plot = c(0, 4, 16)) +
   geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
 
 # (D)
 delta_tir_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df, visit %in% c(0,16) & site == "Denver", test_method = "ancova"), 
-                   y_var = tir, y_axis_title = "\u0394 Time in Range (%)",
-                   legend_position = c(0.3,0.8),
-                    visits_to_plot = c(0, 16)) +
+                                                y_var = tir, y_axis_title = "\u0394 Time in Range (%)",
+                                                legend_position = c(0.3,0.8),
+                                                visits_to_plot = c(0, 16)) +
   geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
 
-ggarrange(mgfr_jodal_bsa_category_bars, delta_mgfr_jodal_bsa_denver, delta_hba1c_overtime_2_denver, delta_tir_overtime_denver, ncol=2, nrow=2, common.legend = TRUE, legend="bottom", labels = "AUTO")
 
-ggsave(file.path(base_path, "Panels/mgfr_hba1c_tir_overtime.png"), width = 10, height = 7, dpi = 300)
-```
-
-
-```{r, out.width="100%"}
-#| label: fig-mgfr-tertiles-panel
-#| fig-cap: "(A) Change in mGFR by baseline mGFR in full cohort, (B) Change in mGFR over time in Colorado cohort, (C) Change in HbA1c over time in Colorado cohort, (D) Change in TIR over time in Colorado cohort"
-
-knitr::include_graphics(file.path(base_path, "Panels/mgfr_hba1c_tir_overtime.png")) 
-```
-
-## Section 2C
-
-```{r, include = F}
-# create panels
 # (A) Change in mGFR by baseline mGFR
 delta_avg_k_r2_overtime <- plot_mean_ci_stars(data = delta_df, 
-                   visits_to_plot = c(-4, 16), baseline_visit = -4,
-                   y_var = avg_k_r2, y_axis_title = "\u0394 Kidney R2*",
-                   legend_position = c(0.3,0.8)) +
+                                              visits_to_plot = c(-4, 16), baseline_visit = -4,
+                                              y_var = avg_k_r2, y_axis_title = "\u0394 Kidney R2*",
+                                              legend_position = c(0.3,0.8)) +
   geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
 
 # # (B)
@@ -458,9 +450,6 @@ delta_avg_k_r2_overtime <- plot_mean_ci_stars(data = delta_df,
 # )
 
 # (C)
-attempt_dat2 <- attempt_dat %>%
-  mutate(treatment = case_when(treatment == "Dapagliflozin 5mg" ~ "Dapa",
-                               T ~ treatment))
 avg_k_r2_by_mgfr_category_bars <- plot_delta_by_category(
   data = attempt_dat2,
   id_var = "subject_id",
@@ -479,46 +468,68 @@ avg_k_r2_by_mgfr_category_bars <- plot_delta_by_category(
   bin_labels = c("<90", "90-110", "\u2265110"),
   output_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/avg_k_r2_by_mgfr_category_bars.png",
   fill_colors = c("Placebo" = "#f8ae9d", 
-                                                   "Dapa" = "#a7b298",
-                                                   "DiD" = "#669bbc")
+                  "Dapa" = "#a7b298",
+                  "DiD" = "#669bbc")
 ) + theme(axis.text.x = element_text(angle = 60, hjust = 1))
 
 # (D) 
 delta_avg_k_r2_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df, 
                                                                    site == "Denver"), 
-                   visits_to_plot = c(-4, 16),
-                   y_var = avg_k_r2, y_axis_title = "\u0394 Kidney R2*",
-                   legend_position = c(0.3,0.8)) +
+                                                     visits_to_plot = c(-4, 16),
+                                                     y_var = avg_k_r2, y_axis_title = "\u0394 Kidney R2*",
+                                                     legend_position = c(0.3,0.8)) +
   geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
 
 # (E) 
 delta_avg_m_r2_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df, 
                                                                    site == "Denver"), 
-                   visits_to_plot = c(-4, 16),
-                   y_var = avg_m_r2, y_axis_title = "\u0394 Medulla R2*",
-                   legend_position = c(0.3,0.8)) +
+                                                     visits_to_plot = c(-4, 16),
+                                                     y_var = avg_m_r2, y_axis_title = "\u0394 Medulla R2*",
+                                                     legend_position = c(0.3,0.8)) +
   geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
 
 # (F)
 delta_avg_c_r2_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df, 
                                                                    site == "Denver"), 
-                   visits_to_plot = c(-4, 16),
-                   y_var = avg_c_r2, y_axis_title = "\u0394 Cortical R2*",
-                   legend_position = c(0.3,0.8)) +
+                                                     visits_to_plot = c(-4, 16),
+                                                     y_var = avg_c_r2, y_axis_title = "\u0394 Cortical R2*",
+                                                     legend_position = c(0.3,0.8)) +
   geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
 
-ggarrange(delta_avg_k_r2_overtime, avg_k_r2_by_mgfr_category_bars,
-          delta_avg_k_r2_overtime_denver, delta_avg_m_r2_overtime_denver, delta_avg_c_r2_overtime_denver, ncol=3, nrow=2, common.legend = TRUE, legend="bottom", labels = c("A", "B", "C", "D", "E"))
 
-ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Panels/avg_k_r2_panel.png", width = 12, height = 7, dpi = 300)
+```
+
+```{r echo = F, eval = F}
+ggarrange(mgfr_jodal_bsa_category_bars, delta_avg_k_r2_overtime, avg_k_r2_by_mgfr_category_bars,
+          ncol=3, nrow=1, common.legend = TRUE, legend="bottom", labels = "AUTO")
+
+ggsave(file.path(base_path, "Panels/full_mgfr_r2.png"), width = 10, height = 4, dpi = 600)
+```
+
+
+```{r, out.width="100%"}
+#| label: fig-mgfr-tertiles-panel
+#| fig-cap: "Clinical endpoints of full cohort. (A) Mean change in mGFR stratified by baseline mGFR categories. Participants were categorized by baseline mGFR. Bars show mean change from baseline to week 16 with 95% CI, and individual dots represent participant-level changes. Paired t-tests assessed within-arm change. Difference-in-differences (DiD) between dapagliflozin and placebo within each category was estimated using pairwise contrasts from a linear model including treatment, baseline category, and their interaction (emmeans framework). (B) Longitudinal change in kidney R2* by treatment. Visit-specific means and 95% CIs are shown for dapagliflozin and placebo at baseline and week 16. Stars above panels indicate between-arm differences at each visit from a linear mixed-effects model with treatment × visit interaction and subject-level random intercepts (emmeans pairwise contrasts; Bonferroni adjusted; * P<0.05, ** P<0.01, *** P<0.001). (C) Mean change in kidney R2* stratified by baseline kidney R2* categories. Participants were categorized by baseline kidney R2*. Same methods applied as (A)."
+
+knitr::include_graphics(file.path(base_path, "Panels/full_mgfr_r2.png")) 
+```
+
+## Section 2C
+
+```{r, include = F}
+# create panels
+ggarrange(delta_mgfr_jodal_bsa_denver, delta_hba1c_overtime_2_denver, delta_tir_overtime_denver,
+          delta_avg_k_r2_overtime_denver, delta_avg_m_r2_overtime_denver, delta_avg_c_r2_overtime_denver, ncol=3, nrow=2, common.legend = TRUE, legend="bottom", labels = "AUTO")
+
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Panels/denver_mgfr_r2_panel.png", width = 12, height = 7, dpi = 300)
 ```
 
 
 ```{r, out.width="100%"}
 #| label: fig-r2star-timeline
-#| fig-cap: "(A) Longitudinal changes in full cohort kidney R2* measurements over the study period, (B) Change in kidney R2* with baseline kidney R2* in full cohort. (C) Change in kidney R2* with baseline mGFR in full cohort. (D) Longitudinal changes in Colorado cohort kidney R2* measurements over the study period, and (E) cortical R2* measurements over the study period."
+#| fig-cap: "(A-F) Longitudinal change in mGFR, HbA1c, TIR, and R2* in kidney, medulla, and cortex by treatment in biopsy eligible cohort. Visit-specific means and 95% CIs are shown for dapagliflozin and placebo at baseline and week 16. Stars above panels indicate between-arm differences at each visit from a linear mixed-effects model with treatment × visit interaction and subject-level random intercepts (emmeans pairwise contrasts; Bonferroni adjusted; * P<0.05, ** P<0.01, *** P<0.001). "
 
-knitr::include_graphics(file.path(base_path, "Panels/avg_k_r2_panel.png"))
+knitr::include_graphics(file.path(base_path, "Panels/denver_mgfr_r2_panel.png"))
 ```
 
 ## Section 2E
@@ -585,9 +596,9 @@ cell_table <- data.frame(
 
 table_plot <- 
   ggtexttable(cell_table,
-                          rows = NULL,
-                          cols = c("General type", "KPMP Subtype"),
-                          theme = ttheme("light", base_size = 8)) 
+              rows = NULL,
+              cols = c("General type", "KPMP Subtype"),
+              theme = ttheme("light", base_size = 8)) 
 
 final_plot <- ggarrange(
   ggarrange(p1, table_plot, ncol = 2, labels = c("A", "B")),
@@ -605,7 +616,7 @@ ggsave(file.path(base_path, "Panels/scrna_desc_panel.png"), final_plot, dpi = 60
 
 ```{r, out.width="100%", out.height = NULL}
 #| label: fig-umap
-#| fig-cap: "UMAP dimensionality reduction of single-cell RNA sequencing data from kidney biopsies"
+#| fig-cap: '(A) UMAP dimensionality reduction of single-cell RNA sequencing data from kidney biopsies. (B) Table of cell subtype groupings into general cell types. (C) Counts of each general cell types in each treatment and visit groups. "Other" cell types not shown.'
 #| fig-dpi: 300
 
 knitr::include_graphics(file.path(base_path, "Panels/scrna_desc_panel.png"))
@@ -623,21 +634,21 @@ p2 <- image_ggplot(img2)
 p3 <- image_ggplot(img3)
 
 p <- ggarrange(p1, 
-          ggarrange(p2, p3, nrow = 2, labels = c("B", "C")), 
-          ncol = 2, labels = "A", widths = c(1,1))
+               ggarrange(p2, p3, nrow = 2, labels = c("B", "C")), 
+               ncol = 2, labels = "A", widths = c(1,1))
 ggsave(file.path(base_path, "Panels/upset_plot_panel.png"), p, dpi = 600, height = 6)
 ```
 
 ```{r, out.width="100%"}
 #| label: fig-upset
-#| fig-cap: "(A) UpSet plot showing the overlap of differentially expressed genes across kidney cell types. Only intersections with size > 3 are displayed. Intersections corresponding to genes unique to a single cell type are omitted for clarity. Bars representing overlaps across ≥ 3 cell types are highlighted in blue. (B) Bar plot showing the frequency of differentially expressed genes by cell type, separated by direction of effect (DiD > 0 in red, DiD < 0 in blue). (C) Scatter plot of DiD values for each gene, grouped by cell type. Points above zero indicate positive DiD, and points below zero indicate negative DiD."
+#| fig-cap: "(A) UpSet plot showing the overlap of differentially expressed genes across kidney cell types. Only intersections with size > 3 are displayed. Intersections corresponding to genes unique to a single cell type are omitted for clarity. Bars representing overlaps across ≥ 3 cell types are highlighted in steel blue. (B) Bar plot showing the frequency of differentially expressed genes by cell type, separated by direction of effect (DiD > 0 in red, DiD < 0 in blue). (C) Scatter plot of DiD values for each gene, grouped by cell type. Points above zero indicate positive DiD, and points below zero indicate negative DiD."
 #| fig-dpi: 600
 knitr::include_graphics(file.path(base_path, "Panels/upset_plot_panel.png"))
 ```
 
 ```{r, out.width="100%"}
 #| label: fig-segment-phoom
-#| fig-cap: "Segmental distribution of kidney cell populations"
+#| fig-cap: "Summary of findings in segmental distribution of kidney cell populations."
 #| fig-dpi: 300
 knitr::include_graphics(file.path(base_path, "Pathways and transcripts in ATTEMPT.png"))
 ```
@@ -671,7 +682,7 @@ pt_plots <- create_gene_expression_plots(
 pt_dot_legend <- get_legend(pt_plots$dot_plot)
 pt_plots$dot_plot <- pt_plots$dot_plot + theme(legend.position = "none")
 pt_plots$heatmap_plot <- pt_plots$heatmap_plot + theme(legend.position = "top",
-                                                         legend.text = element_text(angle = 60, hjust = 1))
+                                                       legend.text = element_text(angle = 60, hjust = 1))
 
 tal_plots <- create_gene_expression_plots(
   main_results = tal_hvg_kpmp,
@@ -696,7 +707,7 @@ tal_plots <- create_gene_expression_plots(
   x_title_padding_t = 3,
   volcano_force = 30,
   volcano_box_padding = 0.5
-  )
+)
 tal_dot_legend <- get_legend(tal_plots$dot_plot)
 tal_plots$dot_plot <- tal_plots$dot_plot + theme(legend.position = "none")
 tal_plots$heatmap_plot <- tal_plots$heatmap_plot + theme(legend.position = "top",
@@ -731,7 +742,7 @@ ec_plots <- create_gene_expression_plots(
 ec_dot_legend <- get_legend(ec_plots$dot_plot)
 ec_plots$dot_plot <- ec_plots$dot_plot + theme(legend.position = "none")
 ec_plots$heatmap_plot <- ec_plots$heatmap_plot + theme(legend.position = "top",
-                                                         legend.text = element_text(angle = 60, hjust = 1))
+                                                       legend.text = element_text(angle = 60, hjust = 1))
 
 ic_plots <- create_gene_expression_plots(
   main_results = ic_hvg_kpmp,
@@ -759,7 +770,7 @@ ic_plots <- create_gene_expression_plots(
 ic_dot_legend <- get_legend(ic_plots$dot_plot)
 ic_plots$dot_plot <- ic_plots$dot_plot + theme(legend.position = "none")
 ic_plots$heatmap_plot <- ic_plots$heatmap_plot + theme(legend.position = "top",
-                                                         legend.text = element_text(angle = 60, hjust = 1))
+                                                       legend.text = element_text(angle = 60, hjust = 1))
 
 pod_plots <- create_gene_expression_plots(
   main_results = pod_hvg_kpmp,
@@ -815,7 +826,7 @@ pc_plots <- create_gene_expression_plots(
 pc_dot_legend <- get_legend(pc_plots$dot_plot)
 pc_plots$dot_plot <- pc_plots$dot_plot + theme(legend.position = "none")
 pc_plots$heatmap_plot <- pc_plots$heatmap_plot + theme(legend.position = "top",
-                                                         legend.text = element_text(angle = 60, hjust = 1))
+                                                       legend.text = element_text(angle = 60, hjust = 1))
 
 vsmc_p_fib_plots <- create_gene_expression_plots(
   main_results = vsmc_p_fib_hvg_kpmp,
@@ -842,7 +853,7 @@ vsmc_p_fib_plots <- create_gene_expression_plots(
 vsmc_p_fib_dot_legend <- get_legend(vsmc_p_fib_plots$dot_plot)
 vsmc_p_fib_plots$dot_plot <- vsmc_p_fib_plots$dot_plot + theme(legend.position = "none")
 vsmc_p_fib_plots$heatmap_plot <- vsmc_p_fib_plots$heatmap_plot + theme(legend.position = "top",
-                                                         legend.text = element_text(angle = 60, hjust = 1))
+                                                                       legend.text = element_text(angle = 60, hjust = 1))
 
 immune_plots <- create_gene_expression_plots(
   main_results = immune_hvg_kpmp,
@@ -875,7 +886,7 @@ immune_plots <- create_gene_expression_plots(
 immune_dot_legend <- get_legend(immune_plots$dot_plot)
 immune_plots$dot_plot <- immune_plots$dot_plot + theme(legend.position = "none")
 immune_plots$heatmap_plot <- immune_plots$heatmap_plot + theme(legend.position = "top",
-                                                         legend.text = element_text(angle = 60, hjust = 1))
+                                                               legend.text = element_text(angle = 60, hjust = 1))
 ```
 
 ```{r, eval = F}
@@ -1150,7 +1161,7 @@ p2_with_solid_legend <- p2 +
         legend.box.just = "center")
 
 # Extract legend from the modified p2
-common_legend <- get_legend(p3_with_solid_legend)
+common_legend <- get_legend(p2_with_solid_legend)
 
 # Remove legends from p2-p5
 p1_no_legend <- p1 + theme(legend.position = "none")
@@ -1162,21 +1173,23 @@ p <-ggarrange(ggarrange(ggarrange(pt_plots$volcano_plot, pt_plots$heatmap_plot, 
                         ggarrange(pt_dot_legend, ggarrange(pt_plots$bar_plot, pt_plots$dot_plot, 
                                                            nrow = 2, heights = c(1,2), align = "v"),
                                   nrow = 2, heights = c(1, 30)),
-                        nrow = 2, heights = c(3,1), labels = "A", font.label = list(size = 30)),
+                        nrow = 2, heights = c(3,1), labels = "A", font.label = list(size = 25)),
               ggarrange(p1_no_legend, p2_no_legend, ncol = 2, labels = c("B", "C"),
-                                      font.label = list(size = 25)),
+                        font.label = list(size = 25)),
               ggarrange(p3_no_legend, p4_no_legend, ncol = 2, labels = c("D", "E"),
-                                      font.label = list(size = 25)),
+                        font.label = list(size = 25)),
               nrow = 3, ncol = 1,
               heights = c(2,1,1))
 
-ggsave(file.path(base_path, "Panels/pt_panel.png"), p, height = 20, width = 14, dpi = 600)
+
+ggsave(file.path(base_path, "Panels/pt_panel.png"), p, height = 20, width = 15, dpi = 600)
 ```
 
 ```{r, out.height="80%"}
 #| label: fig-pt-clin-panel
-#| fig-cap: "Proximal tubule gene expression correlations with clinical outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
+#| fig-cap: "Differential transcript signatures and subtype consistency (PT). (A) Volcano plot of PT main results with FDR-significant genes (up to top 20 per direction) labeled. Same genes from the volcano plot are shown in the heatmap with treatment group effects. Weighted consistency scores for selected genes are shown as bars above the dot plot, summarizing concordance of subtype logFCs with the main PT effect (gray bars indicate any subtype–main direction mismatch). Subtype dot plot shows effect size as size and direction as color across PT subtypes for selected genes. (B - E) Concordance between clinical association and treatment effect. The x-axis shows the estimated association with the clinical variable (effect size), and the y-axis shows the −log10(P) for that association. Points are colored by the significant treatment effect direction and labeled if they are concordant with the direction of the clinical variable for up to the top 20 concordant genes per direction. The central arrow annotates the clinical direction after treatment."
 #| fig-dpi: 300
+
 
 knitr::include_graphics(file.path(base_path, "Panels/pt_panel.png"))
 ```
@@ -1255,7 +1268,7 @@ for (cell in names(celltype_groups)) {
   }
   
   df_top$pathway <- factor(df_top$pathway_short, 
-                          levels = rev(df_top$pathway_short))
+                           levels = rev(df_top$pathway_short))
   
   p <- df_top %>%
     ggplot(aes(y = pathway, x = neg_log_p, fill = z)) +
@@ -1292,7 +1305,7 @@ combined_ipa <- ggarrange(p1, p2, p3, p4, p5, ncol = 3, nrow = 2, labels = "AUTO
 ggsave(file.path(base_path, "Panels/key_combined_ipa.png"), combined_ipa, height = 12, width = 12)
 ```
 
-```{r, out.height="80%"}
+```{r, out.height="100%"}
 #| label: fig-ipa-main
 #| fig-cap: "Pathway analysis using IPA on key cell types."
 #| fig-dpi: 300
@@ -1315,15 +1328,15 @@ for (cell in names(celltype_groups)) {
       neg_log_p = -log10(pval)
     )
   
- # Get truncated pathways for caption
-truncated_pathways <- reactome_top %>%
-  filter(was_truncated) %>%
-  dplyr::mutate(
-    full_clean = clean_pathway_names(pathway),
-    # Using stringr for more consistent wrapping
-    full_clean_wrapped = str_wrap(full_clean, width = 70, indent = 0, exdent = 4)
-  ) %>%
-  dplyr::select(clean_pathway, full_clean_wrapped)
+  # Get truncated pathways for caption
+  truncated_pathways <- reactome_top %>%
+    filter(was_truncated) %>%
+    dplyr::mutate(
+      full_clean = clean_pathway_names(pathway),
+      # Using stringr for more consistent wrapping
+      full_clean_wrapped = str_wrap(full_clean, width = 70, indent = 0, exdent = 4)
+    ) %>%
+    dplyr::select(clean_pathway, full_clean_wrapped)
   
   # Create caption
   base_caption <- paste0("Cell type: ", gsub("_", " ", cell))
@@ -1389,22 +1402,22 @@ knitr::include_graphics(file.path(base_path, "Panels/key_combined_reactome.png")
 
 ```{r eval = F}
 attempt_meta$KPMP_celltype <- factor(attempt_meta$KPMP_celltype,
-                                level = c("aPT", "PT-S1/S2", "PT-S3", 
-                                          "C-TAL-1", "C-TAL-2", "aTAL",
-                                          "aDTL", "DTL",
-                                          "CNT", "CNT-PC", "CCD-PC", "dCCD-PC", "M-PC",
-                                          "tPC-IC", "IC-A", "IC-B",
-                                          "ATL",
-                                          "POD", "PEC",
-                                          "DCT", "dDCT",
-                                          "MC",
-                                          "EC-PTC", "EC-GC", "EC-AEA", "EC-LYM", "EC-AVR", "EC/VSMC",
-                                          "VSMC/P", "FIB",
-                                          "MAC", "MON", "NK",
-                                          "CD4+ T", "CD8+ T", "cycT",
-                                          "B",
-                                          "pDC", "cDC",
-                                          "aIC", "SchwannCells", "non-specific"))
+                                     level = c("aPT", "PT-S1/S2", "PT-S3", 
+                                               "C-TAL-1", "C-TAL-2", "aTAL",
+                                               "aDTL", "DTL",
+                                               "CNT", "CNT-PC", "CCD-PC", "dCCD-PC", "M-PC",
+                                               "tPC-IC", "IC-A", "IC-B",
+                                               "ATL",
+                                               "POD", "PEC",
+                                               "DCT", "dDCT",
+                                               "MC",
+                                               "EC-PTC", "EC-GC", "EC-AEA", "EC-LYM", "EC-AVR", "EC/VSMC",
+                                               "VSMC/P", "FIB",
+                                               "MAC", "MON", "NK",
+                                               "CD4+ T", "CD8+ T", "cycT",
+                                               "B",
+                                               "pDC", "cDC",
+                                               "aIC", "SchwannCells", "non-specific"))
 p3 <- attempt_meta %>%
   filter(KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT")) %>%
   ggplot(aes(visit_treatment, fill = KPMP_celltype)) +
@@ -1445,7 +1458,7 @@ ggsave(file.path(base_path, "Panels/slingshot_panel.png"), dpi = 600, height = 1
 
 ```
 
-```{r, out.width="100%"}
+```{r, out.width="70%"}
 #| label: fig-pt-pseudotime
 #| fig-cap: "Proximal tubule pseudotime trajectory analysis. (A) Cell density distribution along pseudotime. (B) PCA plot with inferred lineage trajectory. (C) Proportion plot of PT cells in each treatment/visit groups. (D-F) Clinical parameter changes along proximal tubule pseudotime. Correlation of pseudotime progression with change in mGFR and change in HbA1c"
 #| fig-dpi: 300
@@ -1488,13 +1501,13 @@ p4_no_legend <- p4 + theme(legend.position = "none")
 
 p <-ggarrange(ggarrange(ggarrange(tal_plots$volcano_plot, tal_plots$heatmap_plot, ncol = 2, widths = c(6,1)),
                         ggarrange(tal_dot_legend, ggarrange(tal_plots$bar_plot, tal_plots$dot_plot, 
-                                                           nrow = 2, heights = c(1,2), align = "v"),
+                                                            nrow = 2, heights = c(1,2), align = "v"),
                                   nrow = 2, heights = c(1, 30)),
                         nrow = 2, heights = c(3,1), labels = "A", font.label = list(size = 25)),
               ggarrange(p1_no_legend, p2_no_legend, ncol = 2, labels = c("B", "C"),
-                                      font.label = list(size = 25)),
+                        font.label = list(size = 25)),
               ggarrange(p3_no_legend, p4_no_legend, ncol = 2, labels = c("D", "E"),
-                                      font.label = list(size = 25)),
+                        font.label = list(size = 25)),
               nrow = 3, ncol = 1,
               heights = c(2,1,1))
 
@@ -1503,7 +1516,7 @@ ggsave(file.path(base_path, "Panels/tal_panel.png"), p, height = 20, width = 15,
 
 ```{r}
 #| label: fig-tal-clin-panel
-#| fig-cap: "TAL gene expression correlations with clinical outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
+#| fig-cap: "Differential transcript signatures and subtype consistency (TAL). (A) Volcano plot of TAL main results with FDR-significant genes (up to top 20 per direction) labeled. Same genes from the volcano plot are shown in the heatmap with treatment group effects. Weighted consistency scores for selected genes are shown as bars above the dot plot, summarizing concordance of subtype logFCs with the main TAL effect (gray bars indicate any subtype–main direction mismatch). Subtype dot plot shows effect size as size and direction as color across TAL subtypes for selected genes. (B - E) Concordance between clinical association and treatment effect. The x-axis shows the estimated association with the clinical variable (effect size), and the y-axis shows the −log10(P) for that association. Points are colored by the significant treatment effect direction and labeled if they are concordant with the direction of the clinical variable for up to the top 20 concordant genes per direction. The central arrow annotates the clinical direction after treatment."
 #| fig-dpi: 300
 
 knitr::include_graphics(file.path(base_path, "Panels/tal_panel.png"))
@@ -1538,18 +1551,18 @@ p <-ggarrange(ggarrange(ggarrange(ec_plots$volcano_plot, ec_plots$heatmap_plot, 
                                   nrow = 2, heights = c(1, 30)),
                         nrow = 2, heights = c(5,2), labels = "A", font.label = list(size = 25)),
               ggarrange(p1_no_legend, p2_no_legend, ncol = 2, labels = c("B", "C"),
-                                      font.label = list(size = 25)),
+                        font.label = list(size = 25)),
               ggarrange(p3_no_legend, p4_no_legend, ncol = 2, labels = c("D", "E"),
-                                      font.label = list(size = 25)),
+                        font.label = list(size = 25)),
               nrow = 3, ncol = 1,
               heights = c(2,1,1))
 
 ggsave(file.path(base_path, "Panels/ec_panel.png"), p, height = 23, width = 15, dpi = 600)
 ```
 
-```{r}
+```{r, out.width="80%"}
 #| label: fig-ec-clin-panel
-#| fig-cap: "EC gene expression correlations with clinical outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
+#| fig-cap: "Differential transcript signatures and subtype consistency (EC). (A) Volcano plot of EC main results with FDR-significant genes (up to top 20 per direction) labeled. Same genes from the volcano plot are shown in the heatmap with treatment group effects. Weighted consistency scores for selected genes are shown as bars above the dot plot, summarizing concordance of subtype logFCs with the main EC effect (gray bars indicate any subtype–main direction mismatch). Subtype dot plot shows effect size as size and direction as color across EC subtypes for selected genes. (B - E) Concordance between clinical association and treatment effect. The x-axis shows the estimated association with the clinical variable (effect size), and the y-axis shows the −log10(P) for that association. Points are colored by the significant treatment effect direction and labeled if they are concordant with the direction of the clinical variable for up to the top 20 concordant genes per direction. The central arrow annotates the clinical direction after treatment."
 #| fig-dpi: 300
 
 knitr::include_graphics(file.path(base_path, "Panels/ec_panel.png"))
@@ -1586,18 +1599,18 @@ p <-ggarrange(ggarrange(ggarrange(ic_plots$volcano_plot, ic_plots$heatmap_plot, 
                                   nrow = 2, heights = c(1, 30)),
                         nrow = 2, heights = c(5,2), labels = "A", font.label = list(size = 25)),
               ggarrange(p1_no_legend, p2_no_legend, ncol = 2, labels = c("B", "C"),
-                                      font.label = list(size = 25)),
+                        font.label = list(size = 25)),
               ggarrange(p3_no_legend, p4_no_legend, ncol = 2, labels = c("D", "E"),
-                                      font.label = list(size = 25)),
+                        font.label = list(size = 25)),
               nrow = 3, ncol = 1,
               heights = c(2,1,1))
 
 ggsave(file.path(base_path, "Panels/ic_panel.png"), p, height = 22, width = 15, dpi = 600)
 ```
 
-```{r}
+```{r, out.width="80%"}
 #| label: fig-ic-clin-panel
-#| fig-cap: "IC gene expression correlations with clinical outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
+#| fig-cap: "Differential transcript signatures and subtype consistency (IC). (A) Volcano plot of IC main results with FDR-significant genes (up to top 20 per direction) labeled. Same genes from the volcano plot are shown in the heatmap with treatment group effects. Weighted consistency scores for selected genes are shown as bars above the dot plot, summarizing concordance of subtype logFCs with the main IC effect (gray bars indicate any subtype–main direction mismatch). Subtype dot plot shows effect size as size and direction as color across IC subtypes for selected genes. (B - E) Concordance between clinical association and treatment effect. The x-axis shows the estimated association with the clinical variable (effect size), and the y-axis shows the −log10(P) for that association. Points are colored by the significant treatment effect direction and labeled if they are concordant with the direction of the clinical variable for up to the top 20 concordant genes per direction. The central arrow annotates the clinical direction after treatment."
 #| fig-dpi: 300
 
 knitr::include_graphics(file.path(base_path, "Panels/ic_panel.png"))
@@ -1629,22 +1642,22 @@ p4_no_legend <- p4 + theme(legend.position = "none")
 
 p <-ggarrange(ggarrange(ggarrange(pod_plots$volcano_plot, pod_plots$heatmap_plot, ncol = 2, widths = c(6,1)),
                         ggarrange(pod_dot_legend, ggarrange(pod_plots$bar_plot, pod_plots$dot_plot, 
-                                                           nrow = 2, heights = c(1,2), align = "v"),
+                                                            nrow = 2, heights = c(1,2), align = "v"),
                                   nrow = 2, heights = c(1, 30)),
                         nrow = 2, heights = c(5,2), labels = "A", font.label = list(size = 25)),
               ggarrange(p1_no_legend, p2_no_legend, ncol = 2, labels = c("B", "C"),
-                                      font.label = list(size = 25)),
+                        font.label = list(size = 25)),
               ggarrange(p3_no_legend, p4_no_legend, ncol = 2, labels = c("D", "E"),
-                                      font.label = list(size = 25)),
+                        font.label = list(size = 25)),
               nrow = 3, ncol = 1,
               heights = c(2,1,1))
 
 ggsave(file.path(base_path, "Panels/pod_panel.png"), p, height = 22, width = 15, dpi = 600)
 ```
 
-```{r}
+```{r, out.width="90%"}
 #| label: fig-pod-clin-panel
-#| fig-cap: "POD gene expression correlations with clinpodal outcomes. Volcano plots showing gene expression changes correlated with (A) change in mGFR, (B) change in HbA1c, (C) change in time in range, and (D) change in kidney R2*"
+#| fig-cap: "Differential transcript signatures and subtype consistency (POD). (A) Volcano plot of POD main results with FDR-significant genes (up to top 20 per direction) labeled. Same genes from the volcano plot are shown in the heatmap with treatment group effects. Subtype cell type makes up the main cell type for POD. (B - E) Concordance between clinical association and treatment effect. The x-axis shows the estimated association with the clinical variable (effect size), and the y-axis shows the −log10(P) for that association. Points are colored by the significant treatment effect direction and labeled if they are concordant with the direction of the clinical variable for up to the top 20 concordant genes per direction. The central arrow annotates the clinical direction after treatment."
 #| fig-dpi: 300
 
 knitr::include_graphics(file.path(base_path, "Panels/pod_panel.png"))
@@ -1661,12 +1674,12 @@ ggarrange(ggarrange(ggarrange(pc_plots$volcano_plot, pc_plots$heatmap_plot, ncol
                     nrow = 2, heights = c(3,1), labels = "A", font.label = list(size = 30)), 
           ggarrange(ggarrange(vsmc_p_fib_plots$volcano_plot, vsmc_p_fib_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
                     ggarrange(vsmc_p_fib_dot_legend, ggarrange(vsmc_p_fib_plots$bar_plot, vsmc_p_fib_plots$dot_plot, 
-                                                       nrow = 2, heights = c(1,2), align = "v"),
+                                                               nrow = 2, heights = c(1,2), align = "v"),
                               nrow = 2, heights = c(1, 30)),
                     nrow = 2, heights = c(3,1), labels = "B", font.label = list(size = 30)), 
           ggarrange(ggarrange(immune_plots$volcano_plot, immune_plots$heatmap_plot, ncol = 2, widths = c(4,1)),
                     ggarrange(immune_dot_legend, ggarrange(immune_plots$bar_plot, immune_plots$dot_plot, 
-                                                       nrow = 2, heights = c(1,2), align = "v"),
+                                                           nrow = 2, heights = c(1,2), align = "v"),
                               nrow = 2, heights = c(1, 30)),
                     nrow = 2, heights = c(3,1), labels = "C", font.label = list(size = 30)), 
           nrow = 2, ncol = 2)
@@ -1674,10 +1687,11 @@ ggarrange(ggarrange(ggarrange(pc_plots$volcano_plot, pc_plots$heatmap_plot, ncol
 ggsave(file.path(base_path, "Panels/other_celltypes_panel.png"), height = 22, width = 20)
 ```
 
-```{r, out.width="100%"}
-#| label: fig-pod-pc-panel
-#| fig-cap: "Combined analysis of podocyte and principal cell populations. Multi-panel figure showing gene expression patterns and treatment responses"
+```{r, out.width="90%"}
+#| label: fig-pc-vsmcpfib-immune-panel
+#| fig-cap: "Differential transcript signatures and subtype consistency for secondary cell types ((A) PC, (B) VSMC, FIB/P, (C) Immune). Volcano plot of main cell type results with FDR-significant genes (up to top 20 per direction) labeled. Same genes from the volcano plot are shown in the heatmap with treatment group effects. Weighted consistency scores for selected genes are shown as bars above the dot plot, summarizing concordance of subtype logFCs with the main cell type effect (gray bars indicate any subtype–main direction mismatch). Subtype dot plot shows effect size as size and direction as color across subtypes for selected genes."
 #| fig-dpi: 300
+#| 
 knitr::include_graphics(file.path(base_path, "Panels/other_celltypes_panel.png"))
 ```
 
@@ -1686,7 +1700,7 @@ knitr::include_graphics(file.path(base_path, "Panels/other_celltypes_panel.png")
 
 ```{r, out.width="100%"}
 #| label: fig-urine-proteins
-#| fig-cap: "Differential abundance of urinary proteins. Volcano plot showing significantly changed proteins in urine samples following treatment"
+#| fig-cap: "Each point represents a urine protein from SOMA 7k panel. The x-axis shows logFC for the treatment × visit interaction (difference-in-differences estimate), and the y-axis shows −log10 of the FDR-adjusted P value. Proteins with significantly lower levels following dapagliflozin (negative DiD) are shown in blue, and proteins with significantly higher levels (positive DiD) are shown in red. Up to 20 points are labeled with Entrez identifiers, and duplicate labels occur when multiple aptamers map to the same gene."
 #| fig-dpi: 300
 
 knitr::include_graphics(file.path(base_path, "Proteomics/Volcano Plots/Volcano_DiD_urine_proteomics_adjp_mixed.png"))
@@ -1721,9 +1735,9 @@ ggsave(file.path(base_path, "Panels/croc_targeted_panels_main.png"), p,
        height = 14, width = 10, dpi = 600)
 ```
 
-```{r, out.height="80%"}
+```{r, out.width="90%"}
 #| label: fig-croc-reversals
-#| fig-cap: "CROCODILE reversal analysis. Volcano plot displaying gene expression changes associated with improved renal outcomes"
+#| fig-cap: "Cross-cohort concordance between case–control (CROC) and treatment response (ATTEMPT) in (A) PT, (B) TAL, (C) EC, (D) IC, and (E) POD. Significantly altered genes from the ATTEMPT analysis (P<0.05) from each cell type were analyzed in the CROC cohort. Volcano plots show gene-level case–control effects from CROC (x-axis: logFC for T1D vs healthy control; y-axis: −log10(P)). Points are colored by the CROC direction (red = up in T1D, blue = down in T1D; gray = not significant). Up to the top 20 genes in each direction are labeled when significant in both cohorts. The translucent boxes indicate reversal of direction between cohorts (pink fill = up with dapagliflozin; blue fill = down with dapagliflozin), unfilled labels indicate non-reversal (same sign in both)."
 #| fig-dpi: 300
 
 knitr::include_graphics(file.path(base_path, "Panels/croc_targeted_panels_main.png"))
@@ -1772,23 +1786,26 @@ paired_summary <- paired_changes %>%
 # ----- 2) BASELINE DIFFERENCE: Type 1 Diabetes – Lean Control -----
 baseline_comp <- comp_df %>%
   filter(group %in% c("Lean Control", "Type 1 Diabetes"),
-         visit == "baseline")
-baseline_comp$group <- factor(baseline_comp$group, levels = c("Type 1 Diabetes", "Lean Control"))
+         visit == "baseline") |>
+  mutate(group = factor(group, levels = c("Lean Control", "Type 1 Diabetes")))
 
-tt_t1d <- t.test(avg_m_r2 ~ group, data = baseline_comp)  # Welch
+tt_t1d <- t.test(avg_m_r2 ~ group, data = baseline_comp)  # reports (Lean - T1D)
 
-# get group sizes
+# we want (T1D - Lean):
+t1d_minus_lean_mean <- unname(diff(tt_t1d$estimate))            # T1D - Lean
+t1d_minus_lean_ci   <- -rev(tt_t1d$conf.int)                    # flip CI to match T1D - Lean
+
 n_t1d  <- sum(baseline_comp$group == "Type 1 Diabetes")
 n_lean <- sum(baseline_comp$group == "Lean Control")
 
 baseline_diff_row <- tibble(
   group      = "Type 1 Diabetes - Lean Control",
-  n          = n_t1d + n_lean,                         # total N as integer
-  mean_delta = unname(diff(tt_t1d$estimate)),          # T1D − Lean
+  n          = n_t1d + n_lean,
+  mean_delta = t1d_minus_lean_mean,
   sd_delta   = NA_real_,
   se         = NA_real_,
-  ci_low     = tt_t1d$conf.int[1],
-  ci_high    = tt_t1d$conf.int[2],
+  ci_low     = t1d_minus_lean_ci[1],
+  ci_high    = t1d_minus_lean_ci[2],
   p_value    = tt_t1d$p.value
 )
 
@@ -1798,18 +1815,21 @@ final_summary <- bind_rows(paired_summary, baseline_diff_row)
 final_summary
 
 # ----- 4) DiD -----
-# t-test for difference in mean deltas (Dapa vs Placebo)
 paired_changes$group <- factor(paired_changes$group, levels = c("Placebo", "Dapagliflozin 5mg"))
-tt_did <- t.test(delta ~ group, data = paired_changes)
+tt_did <- t.test(delta ~ group, data = paired_changes)          # reports (Placebo - Dapa)
+
+# we want (Dapa - Placebo):
+did_mean <- unname(diff(tt_did$estimate))                       # Dapa - Placebo
+did_ci   <- -rev(tt_did$conf.int)                               # flip CI to match Dapa - Placebo
 
 did_row <- tibble(
   group      = "Dapagliflozin - Placebo (DiD)",
-  n          = nrow(paired_changes),   # total N across both groups
-  mean_delta = unname(diff(tt_did$estimate)),  # mean ΔDapa − mean ΔPlacebo
+  n          = nrow(paired_changes),
+  mean_delta = did_mean,
   sd_delta   = NA_real_,
   se         = NA_real_,
-  ci_low     = tt_did$conf.int[1],
-  ci_high    = tt_did$conf.int[2],
+  ci_low     = did_ci[1],
+  ci_high    = did_ci[2],
   p_value    = tt_did$p.value
 )
 
@@ -1818,10 +1838,25 @@ final_summary2 <- bind_rows(final_summary, did_row)
 
 final_summary2
 
-final_summary2$group <- factor(final_summary2$group, labels = c("HC - T1D", "DiD\n(D - P)",
-                                                               "Placebo\n(POST - PRE)", "Dapagliflozin\n(POST - PRE)"),
-                              levels = c("Type 1 Diabetes - Lean Control", "Dapagliflozin - Placebo (DiD)",
-                                         "Placebo", "Dapagliflozin 5mg"))
+final_summary2$group <- factor(final_summary2$group, labels = c("T1D - HC", "DiD\n(D - P)",
+                                                                "Placebo\n(POST - PRE)", "Dapagliflozin\n(POST - PRE)"),
+                               levels = c("Type 1 Diabetes - Lean Control", "Dapagliflozin - Placebo (DiD)",
+                                          "Placebo", "Dapagliflozin 5mg"))
+# --- tidy data for plotting, add stars & y positions ---
+plot_df <- final_summary2 %>%
+  dplyr::filter(group %in% c("DiD\n(D - P)", "T1D - HC")) %>%
+  dplyr::mutate(
+    stars = dplyr::case_when(
+      p_value < 0.001 ~ "***",
+      p_value < 0.01  ~ "**",
+      p_value < 0.05  ~ "*",
+      TRUE            ~ "ns"
+    ),
+    rng   = range(c(ci_low, ci_high, mean_delta), na.rm = TRUE),
+    pad   = 0.07 * diff(rng),
+    # put star above if mean >= 0, below if mean < 0
+    y_lab = ifelse(mean_delta >= 0, ci_high + pad, ci_low - pad)
+  )
 
 ```
 
@@ -1833,19 +1868,21 @@ final_summary2$group <- factor(final_summary2$group, labels = c("HC - T1D", "DiD
 fill_colors = c("Placebo\n(POST - PRE)" = "#f8ae9d", 
                 "Dapagliflozin\n(POST - PRE)" = "#a7b298",
                 "DiD\n(D - P)" = "#669bbc",
-                "HC - T1D" = "#A3C4BC")
-                                   
-final_summary2 %>%
-  filter(group %in% c("DiD\n(D - P)", "HC - T1D")) %>%
+                "T1D - HC" = "#A3C4BC")
+
+plot_df %>%
   ggplot(aes(x = group, y = mean_delta, fill = group)) +
   geom_col() +
-  geom_hline(yintercept = 0, size = 0.2) +
+  geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.12, linewidth = 0.6) +
+  geom_hline(yintercept = 0, linewidth = 0.3) +
+  geom_text(aes(y = y_lab, label = stars), vjust = ifelse(plot_df$mean_delta >= 0, 0, 1), size = 6) +
+  expand_limits(y = c(min(plot_df$ci_low, na.rm = TRUE) - diff(range(plot_df$y_lab, na.rm = TRUE))*0.05,
+                      max(plot_df$y_lab,  na.rm = TRUE) + diff(range(plot_df$y_lab, na.rm = TRUE))*0.05)) +
   theme_minimal(base_size = 15) +
   theme(
-    axis.text.x = element_text(angle = 60,
-                               hjust = 1),
-    axis.ticks = element_line(color = "grey"),
-    panel.grid = element_blank()
+    axis.text.x = element_text(angle = 60, hjust = 1),
+    axis.ticks  = element_line(color = "grey"),
+    panel.grid  = element_blank()
   ) +
   guides(fill = "none") +
   labs(x = NULL, y = "\u0394Medulla R2*") +

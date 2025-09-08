@@ -979,6 +979,76 @@ ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Proteomics/Volcano Plots/Co
 
 # Integration with scRNA (results from Hyak)
 
+```{r include = F}
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD",
+  DCT = c("DCT", "dDCT"),  # Distal convoluted tubule
+  CD = c("CCD-PC", "dCCD-PC", "CNT-PC", "tPC-IC", "MC", "aIC", "IC-A", "IC-B", "CNT")  # Collecting duct & connecting tubule
+)
+
+celltype_groups$Combined_u <- c(
+  celltype_groups$PT,
+  celltype_groups$TAL,
+  celltype_groups$DCT,
+  celltype_groups$CD,
+  celltype_groups$POD
+)
+
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+# Top 2000 HVG
+for (cell in names(celltype_groups))  {
+  print(paste0("Processing: ", cell))
+  cell <- gsub("/", "_", cell)
+
+  # annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_hvg_res.csv")))
+  # colnames(annotated_df) <- gsub("\\.", ":", colnames(annotated_df))
+  # cell <- gsub("-", "_", cell)
+  # cell <- gsub("\\+\\s", "_", cell)
+  # lower_cell <- tolower(cell)
+  # var_name <- paste0(lower_cell, "_hvg_kpmp")
+  # print(var_name)
+  # assign(var_name, annotated_df)
+  
+    
+  annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_res.csv")))
+  colnames(annotated_df) <- gsub("\\.", ":", colnames(annotated_df))
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp")
+  print(var_name)
+  assign(var_name, annotated_df)
+}
+
+for (cell in unlist(celltype_groups))  {
+  print(paste0("Processing: ", cell))
+  cell <- gsub("/", "_", cell)
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  
+  annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_hvg_res.csv")))
+  colnames(annotated_df) <- gsub("\\.", ":", colnames(annotated_df))
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_hvg_kpmp")
+  print(var_name)
+  assign(var_name, annotated_df)
+
+}
+```
+
+
 ```{r echo = F}
 pt_urine_raw <- s3readRDS("Proteomics/pt_nebula_urine_soma_res_kpmp.rds", "attempt", region = "")
 pt_urine_raw$results$ISG15_seq.14148.2_urine_cradj
@@ -999,7 +1069,16 @@ plot_volcano(pt_urine,
              positive_text = "Positively associated\nwith transcript",
              negative_text = "Negatively associated\nwith transcript") + 
   geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+```
 
+```{r echo = F}
+pt_concordance_urine <- concordance_by_celltype(
+  biofluid_df = pt_urine,
+  scrna_df    = pt_kpmp,
+  biofluid_label = "urine",
+  celltype = "PT",
+  out_dir = file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance")
+)
 ```
 
 ```{r echo = F}
@@ -1013,8 +1092,21 @@ tal_urine <- subset(tal_urine, `logFC_log2(protein)` > -1) # 2 outliers
 
 ```{r echo = F}
 plot_volcano(tal_urine, fc = "logFC_log2(protein)", p_col = "p_log2(protein)", x_axis = "logFC log2(protein)", y_axis = "-log10(p.value)", file_suffix = "_kpmp_tal_urine",
-             formula = "log2(protein) + treatment", cell_type = "TAL") + 
+             formula = "log2(protein) + treatment", 
+             cell_type = "TAL",
+             positive_text = "Positively associated\nwith transcript",
+             negative_text = "Negatively associated\nwith transcript") + 
   geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+```
+
+```{r echo = F}
+tal_concordance_urine <- concordance_by_celltype(
+  biofluid_df = tal_urine,
+  scrna_df    = tal_kpmp,
+  biofluid_label = "urine",
+  celltype = "TAL",
+  out_dir = file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance")
+)
 ```
 
 ```{r echo = F}
@@ -1028,8 +1120,20 @@ dct_urine <- subset(dct_urine, `logFC_log2(protein)` < 1) # 2 outliers
 
 ```{r echo = F}
 plot_volcano(dct_urine, fc = "logFC_log2(protein)", p_col = "p_log2(protein)", x_axis = "logFC log2(protein)", y_axis = "-log10(p.value)", file_suffix = "_kpmp_dct_urine",
-             formula = "log2(protein) + treatment", cell_type = "DCT") + 
+             formula = "log2(protein) + treatment", cell_type = "DCT",
+             positive_text = "Positively associated\nwith transcript",
+             negative_text = "Negatively associated\nwith transcript") + 
   geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+```
+
+```{r echo = F}
+dct_concordance_urine <- concordance_by_celltype(
+  biofluid_df = dct_urine,
+  scrna_df    = dct_kpmp,
+  biofluid_label = "urine",
+  celltype = "DCT",
+  out_dir = file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance")
+)
 ```
 
 ```{r echo = F}
@@ -1043,8 +1147,20 @@ cd_urine <- cd_urine %>%
 
 ```{r echo = F}
 plot_volcano(cd_urine, fc = "logFC_log2(protein)", p_col = "p_log2(protein)", x_axis = "logFC log2(protein)", y_axis = "-log10(p.value)", file_suffix = "_kpmp_cd_urine",
-             formula = "log2(protein) + treatment", cell_type = "CD") + 
+             formula = "log2(protein) + treatment", cell_type = "CD",
+             positive_text = "Positively associated\nwith transcript",
+             negative_text = "Negatively associated\nwith transcript") + 
   geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+```
+
+```{r echo = F}
+cd_concordance_urine <- concordance_by_celltype(
+  biofluid_df = cd_urine,
+  scrna_df    = cd_kpmp,
+  biofluid_label = "urine",
+  celltype = "CD",
+  out_dir = file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance")
+)
 ```
 
 ```{r echo = F}
@@ -1058,8 +1174,20 @@ pod_urine <- pod_urine %>%
 
 ```{r echo = F}
 plot_volcano(pod_urine, fc = "logFC_log2(protein)", p_col = "p_log2(protein)", x_axis = "logFC log2(protein)", y_axis = "-log10(p.value)", file_suffix = "_kpmp_pod_urine",
-             formula = "log2(protein) + treatment", cell_type = "POD") + 
+             formula = "log2(protein) + treatment", cell_type = "POD",
+             positive_text = "Positively associated\nwith transcript",
+             negative_text = "Negatively associated\nwith transcript") + 
   geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+```
+
+```{r echo = F}
+pod_concordance_urine <- concordance_by_celltype(
+  biofluid_df = pod_urine,
+  scrna_df    = pod_kpmp,
+  biofluid_label = "urine",
+  celltype = "POD",
+  out_dir = file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance")
+)
 ```
 
 ```{r echo = F}
@@ -1079,8 +1207,21 @@ plot_volcano(combined_urine,
              y_axis = "-log10(p.value)", 
              file_suffix = "_kpmp_combined_urine",
              formula = "log2(protein) + treatment", 
-             cell_type = "Combined (PT, TAL, DCT, CD, POD") + 
-  geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2)
+             cell_type = "Combined (PT, TAL, DCT, CD, POD)",
+             positive_text = "Positively associated\nwith transcript",
+             negative_text = "Negatively associated\nwith transcript") + 
+  geom_vline(xintercept = 0, color = "grey", linetype = "dashed", size = 0.2) +
+  coord_cartesian(clip = "off")
+```
+
+```{r echo = F}
+combined_concordance_urine <- concordance_by_celltype(
+  biofluid_df = combined_urine,
+  scrna_df    = combined_u_kpmp,
+  biofluid_label = "urine",
+  celltype = "Combined",
+  out_dir = file.path(root_path, "ATTEMPT/Results/Somascan/Transcript concordance")
+)
 ```
 
 # Looking for overlap between treatment DiD & proteomics DiD

@@ -1232,6 +1232,7 @@ plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axi
                                  data$AptName %in% top_neg$AptName ~ "#457b9d",
                                  TRUE ~ "#ced4da"),
            top_size = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), 1.3, 1),
+           EntrezGeneSymbol = if_else(data$EntrezGeneSymbol == "", data$Target, data$EntrezGeneSymbol),
            top_lab  = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), EntrezGeneSymbol, ""))
   
   # Max and min for annotation arrows
@@ -1317,9 +1318,24 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
                          x_title_padding_t = 32,
                          genes_to_label= NULL,
                          volcano_force = 6,
-                         volcano_box_padding = 0) {
+                         volcano_box_padding = 0,
+                         off_chart_threshold = 0.95,  # New parameter: proportion of y_max to consider "off chart"
+                         off_chart_y_position = 0.85,  # New parameter: where to place off-chart labels
+                         off_chart_arrow_length = 0.02) {  # New parameter: length of off-chart arrows
   
   set.seed(1)
+  
+  # Add epsilon for log transformation
+  epsilon <- 1e-300
+  
+  # Calculate -log10(p) with epsilon
+  data <- data %>%
+    mutate(neg_log_p = -log10(!!sym(p_col) + epsilon))
+  
+  # Get y-axis max for dynamic scaling
+  y_max <- max(data$neg_log_p, na.rm = TRUE) * 1.1
+  y_cutoff <- y_max * off_chart_threshold  # Points above this are "off chart"
+  
   top_pos <- data %>%
     dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
     dplyr::arrange(!!sym(p_col))
@@ -1340,29 +1356,81 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
     filter(if (!is.null(genes_to_label)) Gene %in% genes_to_label else TRUE) %>%
     slice_head(n=20)
   
+  # Identify off-chart genes
+  off_chart_genes <- data %>%
+    filter(Gene %in% c(top_pos$Gene, top_neg$Gene) & neg_log_p > y_cutoff) %>%
+    mutate(
+      is_positive = !!sym(fc) > 0,
+      # Spread out x positions for off-chart labels
+      x_position = if_else(is_positive,
+                           !!sym(fc) + seq(from = 0.1, by = 0.2, length.out = n()),
+                           !!sym(fc) - seq(from = 0.1, by = 0.2, length.out = n())),
+      y_position = y_max * off_chart_y_position
+    )
+  
+  # Separate on-chart and off-chart genes for labeling
+  on_chart_genes <- c(top_pos$Gene, top_neg$Gene)[!c(top_pos$Gene, top_neg$Gene) %in% off_chart_genes$Gene]
+  
   data <- data %>%
-    dplyr::mutate(top_color = case_when(Gene %in% top_pos$Gene ~ "#f28482",
-                                        Gene %in% top_neg$Gene ~ "#457b9d",
-                                        TRUE ~ "#ced4da"),
-                  top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
-                  top_lab  = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), Gene, "")) %>%
+    dplyr::mutate(
+      top_color = case_when(
+        Gene %in% top_pos$Gene ~ "#f28482",
+        Gene %in% top_neg$Gene ~ "#457b9d",
+        TRUE ~ "#ced4da"
+      ),
+      top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
+      # Only label on-chart genes normally
+      top_lab  = if_else(Gene %in% on_chart_genes, Gene, ""),
+      # Cap display values at y_cutoff for plotting
+      display_neg_log_p = pmin(neg_log_p, y_cutoff)
+    ) %>%
     filter(abs(!!sym(fc)) < 10)
   
   # Max and min for annotation arrows
   max_fc <- max(data[[fc]], na.rm = TRUE)
   min_fc <- min(data[[fc]], na.rm = TRUE)
   
-  # Get y-axis max for dynamic scaling
-  epsilon <- 1e-300
-  y_max <- max(-log10(data[[p_col]] + epsilon), na.rm = TRUE) * 1.1
-
-  p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
+  p <- ggplot(data, aes(x = !!sym(fc), y = display_neg_log_p)) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
     geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
-    geom_text_repel(aes(label = top_lab, color = top_color),
-                    size = geom_text_size, max.overlaps = Inf,
-                    force = volcano_force, segment.alpha = 0.3, segment.size = 0.3,
-                    box.padding = volcano_box_padding) +
+    # Regular labels for on-chart genes
+    geom_text_repel(
+      data = filter(data, top_lab != ""),
+      aes(label = top_lab, color = top_color),
+      size = geom_text_size, max.overlaps = Inf,
+      force = volcano_force, segment.alpha = 0.3, segment.size = 0.3,
+      box.padding = volcano_box_padding
+    ) +
+    # Add arrows for off-chart genes
+    {if(nrow(off_chart_genes) > 0) {
+      list(
+        geom_segment(
+          data = off_chart_genes,
+          aes(x = !!sym(fc), y = y_cutoff * 0.98,
+              xend = !!sym(fc), yend = y_cutoff - (y_max * off_chart_arrow_length)),
+          arrow = arrow(length = unit(0.15, "cm"), type = "closed"),
+          color = "black",
+          size = 0.6
+        ),
+        geom_text(
+          data = off_chart_genes,
+          aes(x = x_position, y = y_position, label = Gene),
+          size = geom_text_size * 0.9,
+          hjust = if_else(off_chart_genes$is_positive, 0, 1),
+          color = "black",
+          fontface = "italic"
+        ),
+        # Add p-value annotation for off-chart genes
+        geom_text(
+          data = off_chart_genes,
+          aes(x = x_position, y = y_position - (y_max * 0.03), 
+              label = paste0("p=", format(!!sym(p_col), scientific = TRUE, digits = 2))),
+          size = geom_text_size * 0.7,
+          hjust = if_else(off_chart_genes$is_positive, 0, 1),
+          color = "darkgrey"
+        )
+      )
+    }} +
     labs(title = paste(title),
          x = paste(x_axis),
          y = paste(y_axis),
@@ -1370,7 +1438,8 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
            paste0("Formula: ~ ", formula, " + (1|subject)", 
                   "\n\nCell type: ", 
                   cell_type, if(cell_type != "") " | " else "", 
-                  "Positive n = ", n_pos, " | Negative n = ", n_neg)
+                  "Positive n = ", n_pos, " | Negative n = ", n_neg,
+                  if(nrow(off_chart_genes) > 0) paste0("\n", nrow(off_chart_genes), " gene(s) with p-values near zero (arrows indicate off-scale values)") else "")
          } else if(!is.null(cell_type) & full_formula) {
            bquote(
              atop(
@@ -1381,13 +1450,15 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
                  epsilon[ij],
                "Cell type:" ~ .(cell_type) ~ "|" ~ 
                  "Positive n =" ~ .(n_pos) ~ "|" ~ 
-                 "Negative n =" ~ .(n_neg)
+                 "Negative n =" ~ .(n_neg) ~
+                 .(if(nrow(off_chart_genes) > 0) paste0(" | ", nrow(off_chart_genes), " off-scale") else "")
              )
            )
          } else {
            paste0("\nCell type: ", 
                   cell_type, if(cell_type != "") " | " else "", 
-                  "Positive n = ", n_pos, " | Negative n = ", n_neg)
+                  "Positive n = ", n_pos, " | Negative n = ", n_neg,
+                  if(nrow(off_chart_genes) > 0) paste0("\n", nrow(off_chart_genes), " gene(s) with p-values near zero (arrows indicate off-scale values)") else "")
          }) +
     scale_size_continuous(range = c(1, 1.3)) + 
     scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
@@ -1881,8 +1952,8 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
                                baseline_visit = 0, 
                                visits_to_plot = c(-4, 0, 4, 16, 18),
                                covariates = NULL,
-                               test_method = c("lmer")) { # test method can be "lmer", "ancova", "lmer_covars"
-  test_method <- match.arg(test_method)
+                               test_method = "lmer_covars") { # test method can be "lmer", "ancova", "lmer_covars"
+
   dodge_val <- 0.08
   y_sym <- rlang::ensym(y_var)
   y_name <- rlang::as_name(y_sym)
@@ -1922,7 +1993,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
         
       } else if (test_method == "lmer_covars") {
         model <- lmer(
-          formula(paste0(y_name, " ~ treatment * factor(visit) + age + sex + diabetes_dx_duration + (1|subject_id)")),
+          formula(paste0(y_name, " ~ treatment * factor(visit) + age + sex + diabetes_dx_duration + bmi + (1|subject_id)")),
           data = data
         )
         emm <- emmeans(model, ~ treatment | visit)
@@ -1930,6 +2001,17 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
           as_tibble() %>% 
           filter(visit == v) %>% 
          dplyr::mutate(contrast = contrast, estimate = estimate, p.value = p.value)
+        
+      } else if (test_method == "lmer_covars_site") {
+        model <- lmer(
+          formula(paste0(y_name, " ~ treatment * factor(visit) + age + sex + diabetes_dx_duration + bmi + site + (1|subject_id)")),
+          data = data
+        )
+        emm <- emmeans(model, ~ treatment | visit)
+        contrast(emm, method = "revpairwise", by = "visit", adjust = "bonferroni") %>%
+          as_tibble() %>% 
+          filter(visit == v) %>% 
+          dplyr::mutate(contrast = contrast, estimate = estimate, p.value = p.value)
         
       } else if (test_method == "lmer") {
         model <- lmer(
@@ -3589,9 +3671,10 @@ plot_treatment_heatmap <- function(data,
   library(dplyr)
   library(tidyr)
   library(ggplot2)
+  library(ggtext)  # Add this for element_markdown
   
   if (!is.null(genes_to_show)) {
-    data <- data %>% filter(Gene %in% genes_to_show)
+    data <- data %>% filter(!!sym(gene_col) %in% genes_to_show)  # Fixed: use gene_col
   }
   
   data <- data %>%
@@ -3630,7 +3713,7 @@ plot_treatment_heatmap <- function(data,
     dplyr::mutate(DiD_value = Slope[group == "DiD"]) %>%
     ungroup() %>%
     dplyr::arrange(desc(DiD_value)) %>%
-    dplyr::mutate(!!gene_col := reorder(!!sym(gene_col), -DiD_value)) %>%
+    dplyr::mutate(!!sym(gene_col) := reorder(!!sym(gene_col), -DiD_value)) %>%
     dplyr::select(-DiD_value)
   
   abs_max <- max(abs(plot_df$Slope)) * 1.1
@@ -3641,9 +3724,12 @@ plot_treatment_heatmap <- function(data,
     c(rep("#457b9d", top_n), rep("#f28482", top_n)),
     gene_levels
   )
-  plot_df$Gene <- factor(plot_df$Gene, levels = rev(gene_levels))
-  # Heatmap
-  ggplot(plot_df, aes(x = group, y = Gene, fill = Slope)) +
+  
+  # Fixed: use gene_col instead of hardcoded "Gene"
+  plot_df[[gene_col]] <- factor(plot_df[[gene_col]], levels = rev(gene_levels))
+  
+  # Heatmap - Fixed to use gene_col parameter
+  ggplot(plot_df, aes(x = group, y = !!sym(gene_col), fill = Slope)) +
     geom_tile() +
     scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674",
                          midpoint = 0, limits = c(-abs_max, abs_max)) +
@@ -3660,9 +3746,7 @@ plot_treatment_heatmap <- function(data,
       panel.grid = element_blank(),
       text = element_text(size = 15),
       legend.title.position = "top",
-      # legend.text.position = "left",
       legend.title = element_text(hjust = 0.5, size = 10),
-      # legend.position = "left",
       axis.text.x = element_text(angle = 60, hjust = 1), 
       axis.text.y = element_markdown(),
       plot.caption = element_text(size = 18, hjust = 0.5)
@@ -3684,7 +3768,6 @@ plot_treatment_heatmap <- function(data,
       else NULL
     )
 }
-
 
 # ===========================================================================
 # Function: plot_clinvar_pseudotime_arrows
@@ -3902,31 +3985,101 @@ plot_clinvar_pseudotime_arrows_delta <- function(df,
 }
 
 
+
+# ===========================================================================
+# Function: create_croc_attempt_df
+# ===========================================================================
+
+create_croc_attempt_df <- function(attempt_df,
+                                   croc_df,
+                                   cell_type = "PT",
+                                   FC_attempt = "logFC_treatmentDapagliflozin:visitPOST",
+                                   FC_croc = "logFC_groupType_1_Diabetes",
+                                   p_attempt = "fdr",
+                                   p_croc = "p_groupType_1_Diabetes",
+                                   attempt_p_cut = 0.05,
+                                   croc_p_cut = 0.05,
+                                   save_csv = FALSE,
+                                   csv_path = NULL) {
+  
+  # Filter extreme values from croc_df
+  croc_df <- croc_df %>% 
+    filter(abs(.data[[FC_croc]]) < 10)
+  
+  # Create the joined dataframe with direction classification
+  joined_df <- attempt_df %>%
+    dplyr::select(Gene, 
+                  logFC_attempt = .data[[FC_attempt]], 
+                  p.val_attempt = .data[[p_attempt]]) %>%
+    full_join(
+      croc_df %>%
+        dplyr::select(Gene, 
+                      logFC_croc = .data[[FC_croc]], 
+                      p.val_croc = .data[[p_croc]]),
+      by = "Gene"
+    ) %>%
+    mutate(
+      direction = case_when(
+        logFC_attempt < 0 & logFC_croc < 0 & p.val_attempt < attempt_p_cut & p.val_croc < croc_p_cut ~ "non-reversed",
+        logFC_attempt > 0 & logFC_croc > 0 & p.val_attempt < attempt_p_cut & p.val_croc < croc_p_cut ~ "non-reversed",
+        logFC_attempt < 0 & logFC_croc > 0 & p.val_attempt < attempt_p_cut & p.val_croc < croc_p_cut ~ "reversed",
+        logFC_attempt > 0 & logFC_croc < 0 & p.val_attempt < attempt_p_cut & p.val_croc < croc_p_cut ~ "reversed",
+        TRUE ~ NA_character_
+      ),
+      cell_type = cell_type
+    ) %>%
+    filter(!is.na(direction))
+  
+  # Save to CSV if requested
+  if (save_csv && !is.null(csv_path)) {
+    write.csv(joined_df, csv_path, row.names = FALSE)
+    message("Saved ", nrow(joined_df), " overlapping genes to: ", csv_path)
+  }
+  
+  return(joined_df)
+}
+
 # ===========================================================================
 # Function: plot_croc_attempt_volcano
 # ===========================================================================
 
 plot_croc_attempt_volcano <- function(attempt_df,
-                                      croc_df,
-                                      cell_type = "PT",
-                                      FC_attempt = "logFC_treatmentDapagliflozin:visitPOST",
-                                      FC_croc = "logFC_groupType_1_Diabetes",
-                                      p_attempt = "fdr",
-                                      p_croc = "p_groupType_1_Diabetes",
-                                      top_n = 20,
-                                      attempt_p_cut = 0.05,
-                                      croc_p_cut = 0.05,
-                                      width = 7,
-                                      height = 5,
-                                      caption = T, 
-                                      positive_text = "Upregulated in T1D compared to LC",
-                                      negative_text = "Downregulated in T1D compared to LC",
-                                      x_axis = "logFC_groupT1D",
-                                      y_axis = "-log10(p-value)",
-                                      save_path = NULL) {
+                                              croc_df,
+                                              cell_type = "PT",
+                                              FC_attempt = "logFC_treatmentDapagliflozin:visitPOST",
+                                              FC_croc = "logFC_groupType_1_Diabetes",
+                                              p_attempt = "fdr",
+                                              p_croc = "p_groupType_1_Diabetes",
+                                              top_n = 20,
+                                              attempt_p_cut = 0.05,
+                                              croc_p_cut = 0.05,
+                                              width = 7,
+                                              height = 5,
+                                              caption = T, 
+                                              positive_text = "Upregulated in T1D compared to HC",
+                                              negative_text = "Downregulated in T1D compared to HC",
+                                              x_axis = "logFC_groupT1D",
+                                              y_axis = "-log10(p-value)",
+                                              save_path = NULL,
+                                              return_df = FALSE) {
   
+  # Create the joined dataframe
+  joined_df <- create_croc_attempt_df(
+    attempt_df = attempt_df,
+    croc_df = croc_df,
+    cell_type = cell_type,
+    FC_attempt = FC_attempt,
+    FC_croc = FC_croc,
+    p_attempt = p_attempt,
+    p_croc = p_croc,
+    attempt_p_cut = attempt_p_cut,
+    croc_p_cut = croc_p_cut
+  )
+  
+  # Continue with the original plotting code...
   croc_df <- croc_df %>% 
     filter(abs(.data[[FC_croc]]) < 10)
+  
   # Subset by significance and direction
   attempt_pos <- attempt_df %>% filter(.data[[FC_attempt]] > 0 & .data[[p_attempt]] < attempt_p_cut)
   attempt_neg <- attempt_df %>% filter(.data[[FC_attempt]] < 0 & .data[[p_attempt]] < attempt_p_cut)
@@ -3942,23 +4095,23 @@ plot_croc_attempt_volcano <- function(attempt_df,
   top_neg <- croc_neg %>% dplyr::arrange(.data[[p_croc]]) %>% slice_head(n = top_n)
   
   top_merged <- rbind(top_pos, top_neg) %>%
-   dplyr::mutate(attempt_direction = case_when(Gene %in% attempt_neg$Gene ~ "-",
-                                         Gene %in% attempt_pos$Gene ~ "+",
-                                         T ~ "NA"),
-           croc_direction = case_when(Gene %in% croc_neg$Gene ~ "-",
-                                      Gene %in% croc_pos$Gene ~ "+"),
-           match = case_when(attempt_direction == croc_direction  ~ "nonreversed",
-                             (attempt_direction == "+" & croc_direction == "-") | 
-                               (attempt_direction == "-" & croc_direction == "+") ~ "reversed",
-                             T ~ "no match"),
-           top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
-                                 Gene %in% croc_neg$Gene ~ "#457b9d",
-                                 TRUE ~ "#ced4da"),
-           reversed_fill = case_when(attempt_direction == "+" & match == "reversed" ~ "+",
-                                     attempt_direction == "-" & match == "reversed" ~ "-",
-                                     T ~ "nonreversed"),
-           face = case_when(match == "reversed" ~ "bold",
-                            T ~ "plain"))
+    dplyr::mutate(attempt_direction = case_when(Gene %in% attempt_neg$Gene ~ "-",
+                                                Gene %in% attempt_pos$Gene ~ "+",
+                                                T ~ "NA"),
+                  croc_direction = case_when(Gene %in% croc_neg$Gene ~ "-",
+                                             Gene %in% croc_pos$Gene ~ "+"),
+                  match = case_when(attempt_direction == croc_direction  ~ "nonreversed",
+                                    (attempt_direction == "+" & croc_direction == "-") | 
+                                      (attempt_direction == "-" & croc_direction == "+") ~ "reversed",
+                                    T ~ "no match"),
+                  top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
+                                        Gene %in% croc_neg$Gene ~ "#457b9d",
+                                        TRUE ~ "#ced4da"),
+                  reversed_fill = case_when(attempt_direction == "+" & match == "reversed" ~ "+",
+                                            attempt_direction == "-" & match == "reversed" ~ "-",
+                                            T ~ "nonreversed"),
+                  face = case_when(match == "reversed" ~ "bold",
+                                   T ~ "plain"))
   
   n_reversed <- length(intersect(attempt_pos$Gene, croc_neg$Gene)) +
     length(intersect(attempt_neg$Gene, croc_pos$Gene))
@@ -3972,9 +4125,10 @@ plot_croc_attempt_volcano <- function(attempt_df,
   y_max <- max(-log10(croc_df[[p_croc]]), na.rm = TRUE) * 1.1
   
   croc_df <- croc_df %>%
-   dplyr::mutate(top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
-                                 Gene %in% croc_neg$Gene ~ "#457b9d",
-                                 TRUE ~ "#ced4da"))
+    dplyr::mutate(top_color = case_when(Gene %in% croc_pos$Gene ~ "#f28482",
+                                        Gene %in% croc_neg$Gene ~ "#457b9d",
+                                        TRUE ~ "#ced4da"))
+  
   # Create plot
   p <- ggplot(croc_df, aes(x = .data[[FC_croc]], y = -log10(.data[[p_croc]]))) +
     geom_hline(yintercept = -log10(attempt_p_cut), linetype = "dashed", color = "darkgrey") +
@@ -3995,9 +4149,9 @@ plot_croc_attempt_volcano <- function(attempt_df,
                                  "\n\nUp to top ", top_n, " from each direction are labeled.\n",
                                  "Reversed genes are boxed in fill color corresponding to direction of dapagliflozin effect."),
                           paste0("\n\nCell type: ", cell_type, " | ",
-                          "N of overlap: ", n_nonreversed + n_reversed, " (",
-                          "reversal: ", n_reversed, ", non-reversal: ", n_nonreversed, ")")
-                          )) +
+                                 "N of overlap: ", n_nonreversed + n_reversed, " (",
+                                 "reversal: ", n_reversed, ", non-reversal: ", n_nonreversed, ")")
+         )) +
     scale_size_continuous(range = c(1, 1.3)) +
     scale_fill_manual(values = c("+" = scales::alpha("#ff9996", 0.2),
                                  "-" = scales::alpha("#5c9fc1", 0.2),
@@ -4039,9 +4193,12 @@ plot_croc_attempt_volcano <- function(attempt_df,
     ggsave(save_path, p, width = width, height = height)
   }
   
-  return(p)
+  if (return_df) {
+    return(list(plot = p, data = joined_df))
+  } else {
+    return(p)
+  }
 }
-
 # ===========================================================================
 # Function: soma_corr
 # ===========================================================================
@@ -4442,7 +4599,7 @@ run_limma_proteomics <- function(
         dplyr::select(record_id, all_of(visit_var), all_of(treatment_var), all_of(feat), 
                       if (!is.null(creatinine)) all_of(creatinine) else NULL) %>%
         dplyr::rename(y = !!feat) %>%
-       dplyr::mutate(y = log2(y))
+        dplyr::mutate(y = log2(y))
       
       # Build formula with or without creatinine
       if (!is.null(creatinine)) {
@@ -4461,16 +4618,38 @@ run_limma_proteomics <- function(
         singular_count <<- singular_count + 1
       }
       
-      broom.mixed::tidy(fit, effects = "fixed") %>%
-        dplyr::filter(term == coef_name) %>%
+      # Get all fixed effects for res_full
+      full_results <- broom.mixed::tidy(fit, effects = "fixed") %>%
         dplyr::mutate(feature = feat)
+      
+      # Return a list with both filtered and full results
+      list(
+        filtered = full_results %>% dplyr::filter(term == coef_name),
+        full = full_results
+      )
     })
     
-    # Combine results
-    res <- dplyr::bind_rows(results_list) %>%
+    # Extract filtered results for res
+    res <- dplyr::bind_rows(lapply(results_list, function(x) x$filtered)) %>%
       dplyr::rename(logFC = estimate, P.Value = p.value) %>%
       dplyr::arrange(P.Value) %>%
-     dplyr::mutate(adj.P.Val = p.adjust(P.Value, method = "fdr"))
+      dplyr::mutate(adj.P.Val = p.adjust(P.Value, method = "fdr"))
+    
+    # Extract full results for res_full
+    res_full <- dplyr::bind_rows(lapply(results_list, function(x) x$full)) %>%
+      dplyr::rename(logFC = estimate, P.Value = p.value) %>%
+      dplyr::arrange(feature, term) %>%
+      dplyr::group_by(term) %>%
+      dplyr::mutate(adj.P.Val = p.adjust(P.Value, method = "fdr")) %>%
+      dplyr::ungroup()
+    
+    res_full <- res_full %>%
+      dplyr::rename(AptName = feature) %>%
+      dplyr::left_join(
+        analyte_info %>% 
+          dplyr::mutate(AptName = paste0(AptName, feature_suffix)),
+        by = "AptName"
+      )
     
     # Output singular count
     message("Number of singular fits: ", singular_count, " out of ", ncol(features),
@@ -4481,14 +4660,15 @@ run_limma_proteomics <- function(
   res_save <- res %>%
     dplyr::rename(AptName = feature) %>%
     dplyr::left_join(
-      analyte_info %>% dplyr::mutate(AptName = paste0(AptName, feature_suffix)),
+      analyte_info %>% 
+        dplyr::mutate(AptName = paste0(AptName, feature_suffix)),
       by = "AptName"
     )
-  
   
   return(list(
     fit = if (model_type == "interaction_random") NULL else fit,
     results = res,
+    results_full = if (model_type == "interaction_random") res_full else NULL, 
     results_annotated = res_save
   ))
 }
@@ -5393,36 +5573,23 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
 shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = FALSE) {
   
   # Define replacement patterns
-  # Common words that can be shortened
+  # [Keep all your existing replacements as they are]
   word_replacements <- c(
-    "Regulation" = "Reg",
-    "Regulatory" = "Reg",
+    "Role of " = "",
+    "Function of " = "",
+    "Eukaryotic " = "",
+    "in the" = "in",
+    "by the" = "by",
+    "of the" = "of",
     "Phosphorylation" = "Phosph",
-    "Degradation" = "Degr",
-    "Biosynthesis" = "Biosyn",
     "Metabolism" = "Metab",
-    "Production" = "Prod",
-    "Activation" = "Act",
-    "Expression" = "Expr",
-    "Development" = "Dev",
-    "Differentiation" = "Diff",
-    "Transcriptional" = "Txn",
-    "Transcription" = "Txn",
-    "Translation" = "Tln",
-    "Receptor" = "Rec",
     "Extracellular" = "EC",
     "Intracellular" = "IC",
-    "Dysfunction" = "Dysf",
+    "Dysfunction" = "Adaptation",
     "Alternative" = "Alt",
     "Dependent" = "Dep",
     "Independent" = "Indep",
     "Associated" = "Assoc",
-    "Mediated" = "Med",
-    "Induced" = "Ind",
-    "Interaction" = "Int",
-    "Interactions" = "Int",
-    "Formation" = "Form",
-    "Processing" = "Proc",
     "Inflammatory" = "Inflam",
     "Inflammation" = "Inflam",
     "Lymphocyte" = "Lymph",
@@ -5431,18 +5598,14 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
     "Fibroblasts" = "Fib",
     "Endothelial" = "Endo",
     "Epithelial" = "Epi",
-    "Mesenchymal" = "Mes",
     "Transition" = "Trans",
     "Rheumatoid Arthritis" = "RA",
     "Multiple Sclerosis" = "MS",
-    "Alzheimer's Disease" = "AD",
-    "Parkinson's" = "PD",
+    "Alzheimer's Disease" = "Alzheimer's",
+    "Parkinson's Disease" = "Parkinson's",
     "Respiratory" = "Resp",
-    "Cardiovascular" = "CV",
     "Gastrointestinal" = "GI",
     "Central Nervous System" = "CNS",
-    "Immunoregulatory" = "Immunoreg",
-    "Antioxidant" = "Antiox",
     "Oxidative" = "Ox",
     "between" = "b/w",
     "through" = "via",
@@ -5451,11 +5614,6 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
   
   # More aggressive replacements
   aggressive_replacements <- c(
-    "Role of" = "",
-    "Function of" = "",
-    "in the" = "in",
-    "by the" = "by",
-    "of the" = "of",
     " the " = " ",
     " in " = " ",
     " of " = " ",
@@ -5465,19 +5623,7 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
   
   # Cell/molecule specific replacements
   molecule_replacements <- c(
-    "T Helper Cell" = "Th",
-    "T Helper Cells" = "Th",
-    "T Cell" = "TC",
-    "T Cells" = "TC",
-    "B Cell" = "BC", 
-    "B Cells" = "BC",
     "Natural Killer" = "NK",
-    "Dendritic Cell" = "DC",
-    "Dendritic Cells" = "DC",
-    "Stem Cell" = "SC",
-    "Stem Cells" = "SC",
-    "Growth Factor" = "GF",
-    "Growth Factors" = "GF",
     "Tumor Necrosis Factor" = "TNF",
     "Transforming Growth Factor" = "TGF",
     "Platelet Derived Growth Factor" = "PDGF",
@@ -5486,20 +5632,12 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
     "Insulin-like Growth Factor" = "IGF",
     "Interferon" = "IFN",
     "Interleukin" = "IL",
-    "Matrix Metalloprotease" = "MMP",
-    "Matrix Metalloproteases" = "MMPs",
-    "Protein Kinase" = "PK",
     "G-Protein Coupled" = "GPCR",
     "G Protein Coupled" = "GPCR",
-    "Nuclear Factor" = "NF",
     "Activator Protein" = "AP",
     "Electron Transport" = "e- Transport",
     "Nitric Oxide" = "NO",
     "Reactive Oxygen Species" = "ROS",
-    "Endoplasmic Reticulum" = "ER",
-    "Double-Strand Break" = "DSB",
-    "Single Strand" = "SS",
-    "Double Strand" = "DS",
     "Amino Acid" = "AA",
     "Fatty Acid" = "FA"
   )
@@ -5512,8 +5650,12 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
     return(text)
   }
   
+  # Track which pathways got truncated at Step 6
+  step6_truncated <- rep(FALSE, length(pathway_names))
+  
   # Process each pathway name
-  shortened <- sapply(pathway_names, function(pathway) {
+  shortened <- sapply(seq_along(pathway_names), function(i) {
+    pathway <- pathway_names[i]
     if (is.na(pathway)) return(NA)
     
     # Step 1: Apply molecule/cell replacements first
@@ -5532,34 +5674,39 @@ shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = F
       result <- gsub(" \\([^)]+\\)", "", result)
     }
     
-    # Step 5: If still too long, abbreviate remaining long words
-    if (nchar(result) > max_length) {
-      words <- strsplit(result, " ")[[1]]
-      # Abbreviate words longer than 8 characters that aren't already abbreviated
-      words <- sapply(words, function(word) {
-        if (nchar(word) > 8 && !grepl("[A-Z]{2,}", word)) {
-          # Keep first 3-4 letters and last letter
-          if (nchar(word) > 10) {
-            paste0(substr(word, 1, 3), ".", substr(word, nchar(word), nchar(word)))
-          } else {
-            paste0(substr(word, 1, 4), ".")
-          }
-        } else {
-          word
-        }
-      })
-      result <- paste(words, collapse = " ")
-    }
+    # # Step 5: If still too long, abbreviate remaining long words
+    # if (nchar(result) > max_length) {
+    #   words <- strsplit(result, " ")[[1]]
+    #   # Abbreviate words longer than 8 characters that aren't already abbreviated
+    #   words <- sapply(words, function(word) {
+    #     if (nchar(word) > 8 && !grepl("[A-Z]{2,}", word)) {
+    #       # Keep first 3-4 letters and last letter
+    #       if (nchar(word) > 10) {
+    #         paste0(substr(word, 1, 3), ".", substr(word, nchar(word), nchar(word)))
+    #       } else {
+    #         paste0(substr(word, 1, 4), ".")
+    #       }
+    #     } else {
+    #       word
+    #     }
+    #   })
+    #   result <- paste(words, collapse = " ")
+    # }
     
     # Step 6: Final truncation if needed
     if (nchar(result) > max_length) {
+      step6_truncated[i] <<- TRUE  # Mark this pathway as truncated at Step 6
       result <- paste0(substr(result, 1, max_length - 3), "...")
     }
     
     return(result)
-  }, USE.NAMES = FALSE)
+  })
   
-  return(shortened)
+  # Return a list with both the shortened names and the Step 6 truncation info
+  return(list(
+    shortened = shortened,
+    step6_truncated = step6_truncated
+  ))
 }
 
 # Helper function to create a lookup table for manual review
@@ -5580,4 +5727,105 @@ get_legend <- function(myplot) {
   leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
   legend <- tmp$grobs[[leg]]
   return(legend)
+}
+
+# ===========================================================================
+# Function: concordance_by_celltype
+# ===========================================================================
+
+concordance_by_celltype <- function(
+    biofluid_df,
+    scrna_df,
+    biofluid_label   = "urine",   # could be "plasma"
+    urine_gene_col   = Gene,
+    urine_logFC_col  = `logFC_log2(protein)`,
+    urine_p_col      = `p_log2(protein)`,
+    scrna_gene_col   = Gene,
+    scrna_logFC_col  = `logFC_treatmentDapagliflozin:visitPOST`,
+    scrna_p_col      = `p_treatmentDapagliflozin:visitPOST`,
+    p_thresh         = 0.05,
+    celltype         = "PT",
+    out_dir          = ".",
+    include_not_in_both = TRUE
+) {
+  stopifnot(requireNamespace("dplyr", quietly = TRUE),
+            requireNamespace("tidyr", quietly = TRUE),
+            requireNamespace("readr", quietly = TRUE),
+            requireNamespace("rlang", quietly = TRUE))
+  
+  library(dplyr); library(tidyr); library(rlang)
+  
+  # Tidy-eval symbols
+  bg   <- enquo(urine_gene_col)
+  blfc <- enquo(urine_logFC_col)
+  bp   <- enquo(urine_p_col)
+  sg   <- enquo(scrna_gene_col)
+  slfc <- enquo(scrna_logFC_col)
+  sp   <- enquo(scrna_p_col)
+  
+  standardize <- function(df, gene_q, logfc_q, p_q, source_label) {
+    df %>%
+      filter(!is.na(!!p_q), !is.na(!!logfc_q), !!p_q < p_thresh) %>%
+      mutate(source = source_label) %>%
+      transmute(
+        source,
+        Gene  = as.character(!!gene_q),
+        logFC = as.numeric(!!logfc_q),
+        p     = as.numeric(!!p_q)
+      )
+  }
+  
+  biofluid_std <- standardize(biofluid_df, bg, blfc, bp, biofluid_label)
+  scrna_std    <- standardize(scrna_df, sg, slfc, sp, "scRNA")
+  
+  concordance_tbl <- bind_rows(biofluid_std, scrna_std) %>%
+    mutate(.dir = case_when(
+      logFC > 0 ~ "pos",
+      logFC < 0 ~ "neg",
+      TRUE ~ NA_character_
+    )) %>%
+    group_by(Gene, source) %>%
+    summarise(
+      n_entries = n(),
+      n_pos = sum(.dir == "pos", na.rm = TRUE),
+      n_neg = sum(.dir == "neg", na.rm = TRUE),
+      source_dir = case_when(
+        n_pos > 0 & n_neg > 0 ~ "mixed",
+        n_pos > 0 ~ "pos",
+        n_neg > 0 ~ "neg",
+        TRUE ~ NA_character_
+      ),
+      .groups = "drop"
+    ) %>%
+    dplyr::select(Gene, source, source_dir, n_entries) %>%
+    pivot_wider(
+      names_from = source,
+      values_from = c(source_dir, n_entries),
+      names_sep = "__"
+    ) %>%
+    mutate(
+      concordance = case_when(
+        is.na(!!sym(paste0("source_dir__", biofluid_label))) |
+          is.na(source_dir__scRNA) ~ "not_in_both",
+        !!sym(paste0("source_dir__", biofluid_label)) == "mixed" |
+          source_dir__scRNA == "mixed" ~ "mixed",
+        !!sym(paste0("source_dir__", biofluid_label)) == "pos" &
+          source_dir__scRNA == "pos" ~ "positive",
+        !!sym(paste0("source_dir__", biofluid_label)) == "neg" &
+          source_dir__scRNA == "neg" ~ "negative",
+        TRUE ~ "non-concordant"
+      )
+    ) %>%
+    { if (!include_not_in_both) filter(., concordance != "not_in_both") else . } %>%
+    arrange(match(concordance, c("mixed","positive","negative","non-concordant","not_in_both")),
+            Gene)
+  
+  out_file <- file.path(out_dir,
+                        paste0(tolower(celltype), "_", biofluid_label, "_concordance.csv"))
+  readr::write_csv(concordance_tbl, out_file)
+  
+  print(table(concordance_tbl$concordance, useNA = "ifany"))
+  message("Saved: ", out_file)
+  
+  return(concordance_tbl)
 }
