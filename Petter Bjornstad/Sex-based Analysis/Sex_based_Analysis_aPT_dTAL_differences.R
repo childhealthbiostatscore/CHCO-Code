@@ -141,6 +141,26 @@ ggplot(strange_cells, aes(x=aPT_percentage, y = dTAL_percentage, color = group_l
   theme_classic()+labs(x='aPT Percentage of PT Cells', y = 'dTAL Percentage of TAL Cells')
 
 
+model_combined <- lm(dTAL_percentage ~ aPT_percentage * group_labels, data = strange_cells)
+summary(model_combined)
+anova(model_combined)
+
+
+strange_cells$lean_female_vs_others <- ifelse(strange_cells$group_labels == "Lean_Control_Female", 
+                                              "Lean_Control_Female", "Others")
+
+# Test this specific contrast
+model_contrast <- lm(dTAL_percentage ~ aPT_percentage * lean_female_vs_others, data = strange_cells)
+summary(model_contrast)
+anova(model_contrast)
+
+strange_cells$lean_female_vs_others <- ifelse(strange_cells$group_labels == "Lean_Control_Female", 
+                                              "Lean_Control_Female", "Others")
+
+# Test this specific contrast
+model_contrast <- lm(dTAL_percentage ~ aPT_percentage * lean_female_vs_others, data = strange_cells)
+summary(model_contrast)
+
 
 
 
@@ -212,6 +232,10 @@ dat2 <- dat2 %>% bind_cols(results)
 
 strange_cells_full <- strange_cells %>% left_join(dat2)
 
+results_df <- data.frame(names(strange_cells_full)[11:ncol(strange_cells_full)])
+results_df$comparisons <- NA
+results_df$pvalue <- NA
+results_df$beta <- NA
 
 
 for(i in c(11:ncol(strange_cells_full))){
