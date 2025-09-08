@@ -1,0 +1,107 @@
+---
+title: "Subset data for GL"
+author: "Ye Ji Choi / Shivani Ramesh"
+format: html
+editor: visual
+---
+
+```{r libraries, message = F, warning=F}
+#| include: false
+library(future)
+library(future.apply)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(msigdbr)
+library(kableExtra)
+# library(knitr)
+library(REDCapR)
+# library(data.table)
+library(emmeans)
+library(NMF)
+library(pheatmap)
+library(UpSetR)
+library(enrichR)
+library(WriteXLS)
+library(SAVER)
+library(readxl)
+library(limma)
+library(edgeR)
+library(BiocGenerics)
+library(GSEABase)
+library(slingshot)
+library(SingleCellExperiment)
+library(MAST)
+library(muscat)
+library(scater)
+library(Seurat)
+library(jsonlite)
+library(dplyr)
+library(glmmTMB)
+library(reshape2)
+library(broom.mixed) 
+library(foreach)
+library(doParallel)
+library(nebula)
+library(Matrix)
+library(scran)
+library(DirichletReg)
+library(BiocParallel)
+# library(scDC)
+library(DoubletFinder)
+library(scCustomize)
+source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
+```
+
+```{r include = F}
+reticulate::use_python("/mmfs1/gscratch/togo/yejichoi/mypy/bin/python", required = T)
+reticulate::repl_python()
+reticulate::py_config()
+# set up Kopah connection
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+```
+
+```{r}
+temp_file <- tempfile(fileext = ".rds")
+s3$download_file("scrna", 'data_clean/pb90_croc_subset.rds', temp_file)
+croc_so <- readRDS(temp_file)
+```
+
+```{r}
+# subset CROC Seurat object for Gabe Loeb
+# GL requested age, sex, gfr, uacr, comorbidities, meds, BMI, CKD risk factors, HbA1c on HC only
+croc_so_hc <- subset(croc_so, group == "Lean_Control" & T2D_HC_Phil != "HC_igA")
+
+croc_so_hc_meta <- croc_so_hc@meta.data
+
+length(unique(croc_so_hc_meta$record_id)) # confirmed 12 HC
+```
+
+```{r}
+# need to pull in bmi and acr_u
+croc_so_meta_sub <- croc_so_hc_meta %>%
+  dplyr::select(record_id, age, sex, eGFR_CKD_epi, hba1c)
+
+columns_to_keep <- c("orig.ident", "nCount_RNA", "nFeature_RNA", "record_id", "age", "sex", "eGFR_CKD_epi", "hba1c")
+croc_so_hc@meta.data <- croc_so_hc@meta.data[, columns_to_keep, drop = FALSE]
+
+View(croc_so_hc@meta.data)
+```
