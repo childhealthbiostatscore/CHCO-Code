@@ -465,6 +465,11 @@ p1 <- ggplot(plot_data, aes(x = reorder(Variable_Name, neg_log10_p),
 
 print(p1)
 
+pdf('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Threeway_Interactions/Threeway_interactions_findings_panel.pdf', 
+    width = 12, height = 20)
+print(p1)
+dev.off()
+
 
 
 #Heatmap 
@@ -518,6 +523,11 @@ p3 <- ggplot(heatmap_data, aes(x = Effect_Type,
   )
 
 print(p3)
+
+pdf('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/Threeway_Interactions/Threeway_interactions_findings_heatmap.pdf', 
+    width = 12, height = 20)
+print(p3)
+dev.off()
 
 
 
