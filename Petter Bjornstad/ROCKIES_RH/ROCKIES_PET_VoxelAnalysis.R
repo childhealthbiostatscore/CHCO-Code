@@ -347,7 +347,7 @@ for(i in c(1:length(tests))){
 
 
 pdf('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest_small.pdf', 
-    width =20, height = 20)  
+    width =12, height = 6)  
 gridExtra::grid.arrange(results_list[[1]], results_list[[2]],  ncol = 2)
 
 dev.off()
@@ -355,7 +355,7 @@ dev.off()
 
 
 png('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest_small.png', 
-    width =1200, height = 1600)  
+    width =1200, height = 600)  
 gridExtra::grid.arrange(results_list[[1]], results_list[[2]],
                         ncol = 2)
 
