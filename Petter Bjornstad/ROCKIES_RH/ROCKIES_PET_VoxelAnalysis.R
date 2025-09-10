@@ -143,9 +143,7 @@ dat_results$epic_sglti2_1[which(dat_results$group2 == 'T2D-SGLTi2')] <- 'Yes'
 
 table1::table1(~ age + sex + bmi + study + group + epic_sglti2_1+ epic_glp1ra_1 + epic_insulin_1 | group2, data = dat_results)
 
-tests <- c('avg_c_k2', 'avg_c_f', 
-           'avg_m_k2', 'avg_m_f', 
-           'avg_c_k2_f', 'avg_m_k2_f')
+tests <- c('avg_c_k2', 'avg_c_k2_f')
 
 
 graphs <- list()
@@ -283,29 +281,62 @@ for(i in c(1:length(tests))){
 
 
 
-pdf('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_voxel_wocyst_KidneyImaging.pdf', 
-    width =20, height = 20)  
-gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
-                        results_list[[3]], results_list[[4]], 
-                        results_list[[5]], results_list[[6]], ncol = 2)
+#pdf('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_voxel_wocyst_KidneyImaging.pdf', 
+#    width =20, height = 20)  
+#gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+#                        results_list[[3]], results_list[[4]], 
+#                        results_list[[5]], results_list[[6]], ncol = 2)
+#
+#dev.off()
 
-dev.off()
 
 
+#png('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_voxel_wocyst_KidneyImaging.png', 
+#    width =1200, height = 1600)  
+#gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+#                        results_list[[3]], results_list[[4]], 
+#                        results_list[[5]], results_list[[6]], 
+#                        ncol = 2)
 
-png('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_voxel_wocyst_KidneyImaging.png', 
-    width =1200, height = 1600)  
-gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
-                        results_list[[3]], results_list[[4]], 
-                        results_list[[5]], results_list[[6]], 
-                        ncol = 2)
-
-dev.off()
+#dev.off()
 
 
 
 
 #T-tests 
+#for(i in c(1:length(tests))){
+#  if(i == 1){
+#    results_list <- list()
+#  }
+#  results_list[[i]]<- boxplot_function(df_plot, tests[i], paste0(tests[i], ' (voxel, w/o cyst)'), method='t-test')
+#}
+
+
+
+#pdf('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest.pdf', 
+#    width =20, height = 20)  
+#gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+#                        results_list[[3]], results_list[[4]], 
+#                        results_list[[5]], results_list[[6]], ncol = 2)
+
+#dev.off()
+
+
+
+#png('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest.png', 
+#    width =1200, height = 1600)  
+#gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+ #                       results_list[[3]], results_list[[4]], 
+#                        results_list[[5]], results_list[[6]], 
+#                        ncol = 2)
+
+#dev.off()
+
+
+
+
+
+
 for(i in c(1:length(tests))){
   if(i == 1){
     results_list <- list()
@@ -315,30 +346,20 @@ for(i in c(1:length(tests))){
 
 
 
-pdf('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest.pdf', 
+pdf('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest_small.pdf', 
     width =20, height = 20)  
-gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
-                        results_list[[3]], results_list[[4]], 
-                        results_list[[5]], results_list[[6]], ncol = 2)
+gridExtra::grid.arrange(results_list[[1]], results_list[[2]],  ncol = 2)
 
 dev.off()
 
 
 
-png('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest.png', 
+png('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest_small.png', 
     width =1200, height = 1600)  
-gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
-                        results_list[[3]], results_list[[4]], 
-                        results_list[[5]], results_list[[6]], 
+gridExtra::grid.arrange(results_list[[1]], results_list[[2]],
                         ncol = 2)
 
 dev.off()
-
-
-
-
-
-
 
 
 
