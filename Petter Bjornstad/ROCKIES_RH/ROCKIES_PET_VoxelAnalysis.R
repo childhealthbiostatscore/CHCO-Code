@@ -62,7 +62,7 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
 
 PET_avg <- function(data){
   tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
-                                   lc_f_wo_cyst_vw, rc_f_wo_cyst_vw, lm_f_wo_cyst_vw, rm_f_wo_cyst_vw)
+                                   lc_f, rc_f, lm_f, rm_f)
   avg_c_k2 <- tmp_df %>%
     dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
   
@@ -70,14 +70,14 @@ PET_avg <- function(data){
     dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
   
   avg_c_f <- tmp_df %>% 
-    dplyr::select(lc_f_wo_cyst_vw, rc_f_wo_cyst_vw) %>% rowMeans(na.rm=T)
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
   
   avg_m_f <- tmp_df %>% 
-    dplyr::select(lm_f_wo_cyst_vw, rm_f_wo_cyst_vw) %>% rowMeans(na.rm=T)
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
   
-  avg_c_k2_f <- avg_c_k2_wo_cyst_vw / avg_c_f_wo_cyst_vw
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
   
-  avg_m_k2_f <- avg_m_k2_wo_cyst_vw / avg_m_f_wo_cyst_vw
+  avg_m_k2_f <- avg_m_k2/ avg_m_f
   
   results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
                        avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
