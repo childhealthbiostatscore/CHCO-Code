@@ -147,7 +147,153 @@ pt_kpmp_results <- analyze_pseudotime_by_celltype(
 ```
 
 ```{r echo = F}
-# dot plots of marker genes
+calculate_celltype_proportions <- function(data, bin_width = 10) {
+  
+  # Create pseudotime bins
+  data_with_bins <- data %>%
+    dplyr::mutate(
+      bin_start = floor(slingPseudotime_1 / bin_width) * bin_width,
+      bin_end = bin_start + bin_width,
+      bin_label = paste0(bin_start, "-", bin_end)
+    )
+  
+  # Calculate proportions for each bin
+  proportions <- data_with_bins %>%
+    group_by(bin_label, bin_start) %>%
+    dplyr::count(KPMP_celltype) %>%
+    dplyr::mutate(
+      total_in_bin = sum(n),
+      proportion = (n / total_in_bin) * 100
+    ) %>%
+    ungroup()
+  
+  # Ensure all celltypes are represented in each bin
+  all_bins <- unique(proportions$bin_label)
+  all_celltypes <- unique(data$KPMP_celltype)
+  
+  complete_proportions <- proportions %>%
+    complete(
+      bin_label = all_bins,
+      KPMP_celltype = all_celltypes,
+      fill = list(n = 0, proportion = 0)
+    ) %>%
+    group_by(bin_label) %>%
+    dplyr::mutate(
+      bin_start = min(bin_start, na.rm = TRUE),
+      total_in_bin = sum(n)
+    ) %>%
+    ungroup() %>%
+    arrange(bin_start, KPMP_celltype)
+  
+  return(complete_proportions)
+}
+
+# compositional pie charts of cell groups
+
+# pseudotime 0 - 50 (every 10)
+proportions_df <- calculate_celltype_proportions(pt_kpmp_results$sce_df, bin_width = 10) %>%
+  group_by(bin_start) %>%
+  mutate(ypos = cumsum(proportion)- 0.5*proportion ) %>%
+  ungroup()
+
+p1 <- proportions_df %>%
+  filter(bin_start == 0) %>%
+  ggplot(aes(x = "", y = proportion, fill = KPMP_celltype)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  theme_void() + 
+  labs(
+    fill = NULL,
+    caption = paste0(
+      "<span style='color:#264653'>aPT: ", round(proportions_df[proportions_df$KPMP_celltype == "aPT" & proportions_df$bin_start == 0,]$proportion, 1), "%</span><br>",
+      "<span style='color:#2a9d8f'>PT-S1/S2: ", round(proportions_df[proportions_df$KPMP_celltype == "PT-S1/S2" & proportions_df$bin_start == 0,]$proportion, 1), "%</span><br>",
+      "<span style='color:#e9c46a'>PT-S3: ", round(proportions_df[proportions_df$KPMP_celltype == "PT-S3" & proportions_df$bin_start == 0,]$proportion, 1), "%</span>"
+    )) +
+  theme(
+    plot.caption = element_markdown(hjust = 0.5, face = "bold")) +
+  scale_fill_manual(values = c("aPT"= "#264653","PT-S1/S2"="#2a9d8f","PT-S3" = "#e9c46a"))
+
+p2 <- proportions_df %>%
+  filter(bin_start == 10) %>%
+  ggplot(aes(x = "", y = proportion, fill = KPMP_celltype)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  theme_void() + 
+  labs(
+    fill = NULL,
+    caption = paste0(
+      "<span style='color:#264653'>aPT: ", round(proportions_df[proportions_df$KPMP_celltype == "aPT" & proportions_df$bin_start == 10,]$proportion, 1), "%</span><br>",
+      "<span style='color:#2a9d8f'>PT-S1/S2: ", round(proportions_df[proportions_df$KPMP_celltype == "PT-S1/S2" & proportions_df$bin_start == 10,]$proportion, 1), "%</span><br>",
+      "<span style='color:#e9c46a'>PT-S3: ", round(proportions_df[proportions_df$KPMP_celltype == "PT-S3" & proportions_df$bin_start == 10,]$proportion, 1), "%</span>"
+    )) +
+  theme(
+    plot.caption = element_markdown(hjust = 0.5, face = "bold")) +
+  scale_fill_manual(values = c("aPT"= "#264653","PT-S1/S2"="#2a9d8f","PT-S3" = "#e9c46a"))
+
+p3 <- proportions_df %>%
+  filter(bin_start == 20) %>%
+  ggplot(aes(x = "", y = proportion, fill = KPMP_celltype)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  theme_void() + 
+  labs(
+    fill = NULL,
+    caption = paste0(
+      "<span style='color:#264653'>aPT: ", round(proportions_df[proportions_df$KPMP_celltype == "aPT" & proportions_df$bin_start == 20,]$proportion, 1), "%</span><br>",
+      "<span style='color:#2a9d8f'>PT-S1/S2: ", round(proportions_df[proportions_df$KPMP_celltype == "PT-S1/S2" & proportions_df$bin_start == 20,]$proportion, 1), "%</span><br>",
+      "<span style='color:#e9c46a'>PT-S3: ", round(proportions_df[proportions_df$KPMP_celltype == "PT-S3" & proportions_df$bin_start == 20,]$proportion, 1), "%</span>"
+    )) +
+  theme(
+    plot.caption = element_markdown(hjust = 0.5, face = "bold")) +
+  scale_fill_manual(values = c("aPT"= "#264653","PT-S1/S2"="#2a9d8f","PT-S3" = "#e9c46a"))
+
+p4 <- proportions_df %>%
+  filter(bin_start == 30) %>%
+  ggplot(aes(x = "", y = proportion, fill = KPMP_celltype)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  theme_void() + 
+  labs(
+    fill = NULL,
+    caption = paste0(
+      "<span style='color:#264653'>aPT: ", round(proportions_df[proportions_df$KPMP_celltype == "aPT" & proportions_df$bin_start == 30,]$proportion, 1), "%</span><br>",
+      "<span style='color:#2a9d8f'>PT-S1/S2: ", round(proportions_df[proportions_df$KPMP_celltype == "PT-S1/S2" & proportions_df$bin_start == 30,]$proportion, 1), "%</span><br>",
+      "<span style='color:#e9c46a'>PT-S3: ", round(proportions_df[proportions_df$KPMP_celltype == "PT-S3" & proportions_df$bin_start == 30,]$proportion, 1), "%</span>"
+    )) +
+  theme(
+    plot.caption = element_markdown(hjust = 0.5, face = "bold")) +
+  scale_fill_manual(values = c("aPT"= "#264653","PT-S1/S2"="#2a9d8f","PT-S3" = "#e9c46a"))
+
+p5 <- proportions_df %>%
+  filter(bin_start == 40) %>%
+  ggplot(aes(x = "", y = proportion, fill = KPMP_celltype)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y") +
+  theme_void() +
+  labs(
+    fill = NULL,
+    caption = paste0(
+      "<span style='color:#264653'>aPT: ", round(proportions_df[proportions_df$KPMP_celltype == "aPT" & proportions_df$bin_start == 40,]$proportion, 1), "%</span><br>",
+      "<span style='color:#2a9d8f'>PT-S1/S2: ", round(proportions_df[proportions_df$KPMP_celltype == "PT-S1/S2" & proportions_df$bin_start == 40,]$proportion, 1), "%</span><br>",
+      "<span style='color:#e9c46a'>PT-S3: ", round(proportions_df[proportions_df$KPMP_celltype == "PT-S3" & proportions_df$bin_start == 40,]$proportion, 1), "%</span>"
+    )) +
+  theme(
+    plot.caption = element_markdown(hjust = 0.5, face = "bold")) +
+  scale_fill_manual(values = c("aPT"= "#264653","PT-S1/S2"="#2a9d8f","PT-S3" = "#e9c46a"))
+
+ggarrange(pt_kpmp_results$p_pseudotime$plot, 
+          ggarrange(p1, p2, p3, p4, p5, nrow = 1,
+                    common.legend = T, legend = "bottom"),
+          nrow = 2, align = "v", heights = c(4,1))
+
+temp_file <- tempfile(fileext = ".png")
+ggsave(filename = temp_file, width = 10, height = 10)
+s3$upload_file(temp_file, "attempt", file.path("slingshot", paste0("attempt_pt_slingshot_density_celltype_pie.png")))
+
+
+# compositional pie charts of treatment groups
+
+
 ```
 
 
