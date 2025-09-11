@@ -1,6 +1,7 @@
 library(ggplot2)
-
-
+library(dplyr)
+library(stringr)
+library(tidyr)
 
 
 
@@ -30,6 +31,14 @@ celltypes <- c('All', 'PT', 'PT-S1/S2', 'PT-S3', 'aPT', 'POD',
                "MAC",
                "MC")
 
+
+overall_summary <- data.frame(celltype = celltypes)
+overall_summary$TCA_total <- 27
+overall_summary$OxPhos_total <- 10
+overall_summary$TCA_flipped <- NA
+overall_summary$TCA_sig <- NA
+overall_summary$OxPhos_flipped <- NA
+overall_summary$OxPhos_sig <- NA
 
 
 for(i in c(1:length(celltypes))){
@@ -63,6 +72,11 @@ for(i in c(1:length(celltypes))){
   
   tca_full_sig <- bind_rows(list(significant_traits, opposite_1, opposite_2)) %>% 
     filter(!duplicated(gene))
+  
+  overall_summary$TCA_flipped[i] <- tca_full_sig %>% filter((logFC_lc > 0 & logFC_t2d < 0) | (logFC_lc < 0 & logFC_t2d > 0)) %>% 
+    nrow()
+  overall_summary$TCA_sig[i] <- tca_full_sig %>% filter(pvalue_lc < 0.05 | pvalue_t2d < 0.05) %>% nrow()
+  
   
   if(nrow(tca_full_sig) > 0){
     plot_df <- tca_full_sig %>% 
@@ -122,6 +136,10 @@ for(i in c(1:length(celltypes))){
   oxphos_full_sig <- bind_rows(list(significant_traits, opposite_1, opposite_2)) %>% 
     filter(!duplicated(gene))
   
+  overall_summary$OxPhos_flipped[i] <- oxphos_full_sig %>% filter((logFC_lc > 0 & logFC_t2d < 0) | (logFC_lc < 0 & logFC_t2d > 0)) %>% 
+    nrow()
+  overall_summary$OxPhos_sig[i] <- oxphos_full_sig %>% filter(pvalue_lc < 0.05 | pvalue_t2d < 0.05) %>% nrow()
+  
   if(nrow(oxphos_full_sig) > 0){
     plot_df <- oxphos_full_sig %>% 
       gather(key = 'metric_condition', value = 'value', -gene) %>% 
@@ -166,13 +184,78 @@ for(i in c(1:length(celltypes))){
 
 
 
+write.table(overall_summary, 'C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/barplots/Overall_SummaryofResults.txt', 
+            row.names=F, quote=F, sep='\t')
 
 
+overall_summary <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/barplots/Overall_SummaryofResults.txt')
+library(gridExtra)
 
 
+# Create summary data for the top panel (totals)
+summary_data <- data.frame(
+  Gene_Type = c("TCA", "OxPhos"),
+  Total_Genes = c(27, 10)
+)
+
+# Prepare data for main plot (excluding "All" row for cell-type specific analysis)
+plot_data <- overall_summary %>%
+  pivot_longer(cols = c(TCA_flipped, TCA_sig, OxPhos_flipped, OxPhos_sig),
+               names_to = "category", values_to = "count") %>%
+  separate(category, into = c("gene_type", "status"), sep = "_") %>%
+  mutate(
+    gene_type = factor(gene_type, levels = c("TCA", "OxPhos")),
+    status = factor(status, levels = c("flipped", "sig")),
+    celltype = factor(celltype, levels = unique(celltype))
+  )
+
+main_plot <- ggplot(plot_data, aes(x = celltype, y = count, fill = interaction(gene_type, status))) +
+  geom_bar(stat = "identity", position = "dodge", width = 0.8) +
+  geom_hline(yintercept = 27, color = "#2E86C1", linetype = "solid", size = 1.2, alpha = 0.8) +
+  geom_hline(yintercept = 10, color = "#E67E22", linetype = "solid", size = 1.2, alpha = 0.8) +
+  annotate("text", x = 1, y = 28.2, label = "TCA Total (27)", color = "#2E86C1", 
+           hjust = 0, fontface = "bold", size = 3.5) +
+  annotate("text", x = 1, y = 11.2, label = "OxPhos Total (10)", color = "#E67E22", 
+           hjust = 0, fontface = "bold", size = 3.5) +
+  scale_fill_manual(
+    name = "Category",
+    values = c("TCA.flipped" = "#5DADE2", "TCA.sig" = "#F8C471",
+               "OxPhos.flipped" = "#2E86C1", "OxPhos.sig" = "#E67E22"),
+    labels = c("TCA Flipped", "TCA Significant", "OxPhos Flipped", "OxPhos Significant")
+  ) +
+  labs(
+    title = "TCA and OxPhos Gene Analysis by Cell Type",
+    x = "Cell Type",
+    y = "Number of Genes"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.title = element_text(size = 12, face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 12, face = "bold"),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank()
+  ) +
+  guides(fill = guide_legend(nrow = 2, byrow = TRUE))
 
 
+# Alternative version: Save plots separately if needed
+# ggsave("summary_plot.png", summary_plot, width = 8, height = 4, dpi = 300)
+# ggsave("main_plot.png", main_plot, width = 12, height = 8, dpi = 300)
 
+# Display the combined plot
+
+
+pdf('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/barplots/OverallSummaryplot.pdf', width = 12, height=8)
+print(main_plot)
+dev.off()
+
+png('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/barplots/OverallSummaryplot.png', width = 1200, height=800)
+print(main_plot)
+dev.off()
 
 
 

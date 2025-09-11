@@ -61,13 +61,13 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
 
 
 PET_avg <- function(data){
-  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+  tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
                                    lc_f, rc_f, lm_f, rm_f)
   avg_c_k2 <- tmp_df %>%
-    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+    dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
   
   avg_m_k2 <- tmp_df %>% 
-    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+    dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
   
   avg_c_f <- tmp_df %>% 
     dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
@@ -77,7 +77,7 @@ PET_avg <- function(data){
   
   avg_c_k2_f <- avg_c_k2 / avg_c_f
   
-  avg_m_k2_f <- avg_m_k2 / avg_m_f
+  avg_m_k2_f <- avg_m_k2/ avg_m_f
   
   results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
                        avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
@@ -110,7 +110,7 @@ table1::table1(~age + sex + bmi + study + group + epic_sglti2_1 + avg_c_k2 + avg
 
 
 dat_results <- dat_results %>% mutate(group2 = ifelse(group == 'Lean Control', 'Lean Control', 
-                                      ifelse(epic_sglti2_1 == 'Yes', 'T2D-SGLTi2', 'T2D-No SGLTi2')))
+                                                      ifelse(epic_sglti2_1 == 'Yes', 'T2D-SGLTi2', 'T2D-No SGLTi2')))
 
 dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
 
@@ -143,9 +143,7 @@ dat_results$epic_sglti2_1[which(dat_results$group2 == 'T2D-SGLTi2')] <- 'Yes'
 
 table1::table1(~ age + sex + bmi + study + group + epic_sglti2_1+ epic_glp1ra_1 + epic_insulin_1 | group2, data = dat_results)
 
-tests <- c('avg_c_k2', 'avg_c_f', 
-           'avg_m_k2', 'avg_m_f', 
-           'avg_c_k2_f', 'avg_m_k2_f')
+tests <- c('avg_c_k2', 'avg_c_k2_f')
 
 
 graphs <- list()
@@ -196,20 +194,20 @@ boxplot_function <- function(data, variable, label, method){
           text = element_text(size = 20))
   
   if(method == 'ANOVA'){
-  model <- aov(Variable ~ group2, data = data)
-  model_results <- TukeyHSD(model, conf.level = 0.95)$group2 %>% 
-    as.data.frame()
-  
-  model_results <- model_results %>% 
-    mutate(pvalue = ifelse(`p adj` < 0.001, '< 0.001', 
-                           paste0('p = ', round(`p adj`, 3))))
-  
-  pval_T2D_noslgt2_control <- model_results$pvalue[which(rownames(model_results) == 'T2D-No SGLTi2-Lean Control')] %>%
-    as.character()
-  pval_T2D_total_control <- model_results$pvalue[which(rownames(model_results) == 'T2D Combined-Lean Control')] %>% 
-    as.character()
-  pval_T2D_comparison <- model_results$pvalue[which(rownames(model_results) == 'T2D-SGLTi2-T2D-No SGLTi2')] %>% 
-    as.character()
+    model <- aov(Variable ~ group2, data = data)
+    model_results <- TukeyHSD(model, conf.level = 0.95)$group2 %>% 
+      as.data.frame()
+    
+    model_results <- model_results %>% 
+      mutate(pvalue = ifelse(`p adj` < 0.001, '< 0.001', 
+                             paste0('p = ', round(`p adj`, 3))))
+    
+    pval_T2D_noslgt2_control <- model_results$pvalue[which(rownames(model_results) == 'T2D-No SGLTi2-Lean Control')] %>%
+      as.character()
+    pval_T2D_total_control <- model_results$pvalue[which(rownames(model_results) == 'T2D Combined-Lean Control')] %>% 
+      as.character()
+    pval_T2D_comparison <- model_results$pvalue[which(rownames(model_results) == 'T2D-SGLTi2-T2D-No SGLTi2')] %>% 
+      as.character()
   }else if(method == 't-test'){
     
     
@@ -227,7 +225,7 @@ boxplot_function <- function(data, variable, label, method){
     model1 <- t.test(Variable ~ group2, data = tmp)
     pval_T2D_comparison <- ifelse(model1$p.value < 0.001, '< 0.001',
                                   paste0('p = ', round(model1$p.value, 3)))
-
+    
     
   }
   
@@ -278,78 +276,87 @@ for(i in c(1:length(tests))){
   if(i == 1){
     results_list <- list()
   }
-  results_list[[i]]<- boxplot_function(df_plot, tests[i], tests[i], method='ANOVA')
+  results_list[[i]]<- boxplot_function(df_plot, tests[i], paste0(tests[i], ' (voxel, w/o cyst)'), method='ANOVA')
 }
-  
-  
-  
-pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_KidneyImaging.pdf', 
-    width =20, height = 20)  
-gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
-                        results_list[[3]], results_list[[4]], 
-                        results_list[[5]], results_list[[6]], ncol = 2)
 
-dev.off()
 
-  
-  
-png('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_KidneyImaging.png', 
-    width =1200, height = 1600)  
-gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
-                        results_list[[3]], results_list[[4]], 
-                        results_list[[5]], results_list[[6]], 
-                        ncol = 2)
 
-dev.off()
+#pdf('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_voxel_wocyst_KidneyImaging.pdf', 
+#    width =20, height = 20)  
+#gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+#                        results_list[[3]], results_list[[4]], 
+#                        results_list[[5]], results_list[[6]], ncol = 2)
+#
+#dev.off()
+
+
+
+#png('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_voxel_wocyst_KidneyImaging.png', 
+#    width =1200, height = 1600)  
+#gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+#                        results_list[[3]], results_list[[4]], 
+#                        results_list[[5]], results_list[[6]], 
+#                        ncol = 2)
+
+#dev.off()
 
 
 
 
 #T-tests 
+#for(i in c(1:length(tests))){
+#  if(i == 1){
+#    results_list <- list()
+#  }
+#  results_list[[i]]<- boxplot_function(df_plot, tests[i], paste0(tests[i], ' (voxel, w/o cyst)'), method='t-test')
+#}
+
+
+
+#pdf('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest.pdf', 
+#    width =20, height = 20)  
+#gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+#                        results_list[[3]], results_list[[4]], 
+#                        results_list[[5]], results_list[[6]], ncol = 2)
+
+#dev.off()
+
+
+
+#png('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest.png', 
+#    width =1200, height = 1600)  
+#gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
+ #                       results_list[[3]], results_list[[4]], 
+#                        results_list[[5]], results_list[[6]], 
+#                        ncol = 2)
+
+#dev.off()
+
+
+
+
+
+
 for(i in c(1:length(tests))){
   if(i == 1){
     results_list <- list()
   }
-  results_list[[i]]<- boxplot_function(df_plot, tests[i], tests[i], method='t-test')
+  results_list[[i]]<- boxplot_function(df_plot, tests[i], paste0(tests[i], ' (voxel, w/o cyst)'), method='t-test')
 }
 
 
 
-pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_KidneyImaging_ttest.pdf', 
-    width =20, height = 20)  
-gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
-                        results_list[[3]], results_list[[4]], 
-                        results_list[[5]], results_list[[6]], ncol = 2)
-
-dev.off()
-
-
-
-png('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_KidneyImaging_ttest.png', 
-    width =1200, height = 600)  
-gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
-                        results_list[[3]], results_list[[4]], 
-                        results_list[[5]], results_list[[6]], 
-                        ncol = 2)
-
-dev.off()
-
-
-
-
-pdf('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_ttest_small.pdf', 
+pdf('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest_small.pdf', 
     width =12, height = 6)  
-gridExtra::grid.arrange(results_list[[1]],
-                        results_list[[5]], ncol = 2)
+gridExtra::grid.arrange(results_list[[1]], results_list[[2]],  ncol = 2)
 
 dev.off()
 
 
 
-png('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_ttest_small.png', 
+png('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_voxel_wocyst_ttest_small.png', 
     width =1200, height = 600)  
-gridExtra::grid.arrange(results_list[[1]],
-                        results_list[[5]],
+gridExtra::grid.arrange(results_list[[1]], results_list[[2]],
                         ncol = 2)
 
 dev.off()
@@ -372,10 +379,6 @@ dev.off()
 
 
 
-
-
-  
-  
 ###All comparison groups 
 
 
@@ -459,22 +462,22 @@ boxplot_function <- function(data, variable, label, method){
   data$group <- factor(data$group, levels = available_levels)
   
   if(method == 'ANOVA'){
-  model <- aov(Variable ~ group, data = data)
-  model_results <- TukeyHSD(model, conf.level = 0.95)$group %>% 
-    as.data.frame()
-  
-  model_results <- model_results %>% 
-    mutate(pvalue = ifelse(`p adj` < 0.001, '< 0.001', 
-                           paste0('p = ', round(`p adj`, 3))))
-  
-  pval_1 <- model_results$pvalue[which(rownames(model_results) == 'Type 2 Diabetes-Obese Control')] %>%
-    as.character()
-  pval_2 <- model_results$pvalue[which(rownames(model_results) == 'Type 2 Diabetes-Lean Control')] %>% 
-    as.character()
-  pval_3 <- model_results$pvalue[which(rownames(model_results) == 'Type 2 Diabetes-Type 1 Diabetes')] %>% 
-    as.character()
-  pval_4 <- model_results$pvalue[which(rownames(model_results) == 'PKD-Type 2 Diabetes')] %>% 
-    as.character()
+    model <- aov(Variable ~ group, data = data)
+    model_results <- TukeyHSD(model, conf.level = 0.95)$group %>% 
+      as.data.frame()
+    
+    model_results <- model_results %>% 
+      mutate(pvalue = ifelse(`p adj` < 0.001, '< 0.001', 
+                             paste0('p = ', round(`p adj`, 3))))
+    
+    pval_1 <- model_results$pvalue[which(rownames(model_results) == 'Type 2 Diabetes-Obese Control')] %>%
+      as.character()
+    pval_2 <- model_results$pvalue[which(rownames(model_results) == 'Type 2 Diabetes-Lean Control')] %>% 
+      as.character()
+    pval_3 <- model_results$pvalue[which(rownames(model_results) == 'Type 2 Diabetes-Type 1 Diabetes')] %>% 
+      as.character()
+    pval_4 <- model_results$pvalue[which(rownames(model_results) == 'PKD-Type 2 Diabetes')] %>% 
+      as.character()
   }else if(method == 't-test'){
     
     tmp_df <- data %>% filter(group %in% c('Type 2 Diabetes', 'Obese Control'))

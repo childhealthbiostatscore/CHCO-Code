@@ -62,6 +62,7 @@ library(BiocParallel)
 # library(scDC)
 library(DoubletFinder)
 library(scCustomize)
+library(msigdbr)
 source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
 ```
 
@@ -213,182 +214,93 @@ attempt_so <- readRDS(temp_file)
 
 ```{r}
 # module scores
+# msigdb Hallmark
+msigdb_hallmark <- msigdbr(category = "H")
+
+inflammatory_response_hallmark <- 
+  msigdb_hallmark[msigdb_hallmark$gs_name == "HALLMARK_INFLAMMATORY_RESPONSE",] %>%
+  pull(gene_symbol)
+
+apoptosis_response_hallmark <- 
+  msigdb_hallmark[msigdb_hallmark$gs_name == "HALLMARK_APOPTOSIS",] %>%
+  pull(gene_symbol)
+
+oxphos_hallmark <- 
+  msigdb_hallmark[msigdb_hallmark$gs_name == "HALLMARK_OXIDATIVE_PHOSPHORYLATION",] %>%
+  pull(gene_symbol)
+
+
 # Curated immune and metabolism gene sets for kidney biology
 kidney_gene_sets <- list(
-  immune_response = c(
-    # TLRs
-    "TLR2", "TLR3", "TLR4", "TLR7", "TLR9",
-    # Inflammasome
-    "NLRP3", "NLRC4", "AIM2", "CASP1",
-    # Interferon response
-    "IFI16", "IFIT1", "IFIT3", "ISG15", "MX1", "OAS1", "STAT1", "IRF7",
-    # Cytokines
-    "IL1B", "IL6", "TNF", "IFNG", "IL18", "IL10", "TGFB1",
-    # Chemokines
-    "CCL2", "CCL5", "CXCL9", "CXCL10", "CXCL11", "CXCL13",
-    # Macrophages
-    "CD14", "CD68", "CD163", "MRC1", "FCGR3A",
-    # T cells
-    "CD3D", "CD4", "CD8A", "FOXP3", "PDCD1", "CTLA4",
-    # B cells
-    "CD19", "CD79A", "MS4A1",
-    # NK cells
-    "NCAM1", "KLRD1", "NKG7",
-    # Checkpoints
-    "PDCD1", "CD274", "CTLA4", "LAG3", "HAVCR2", "TIGIT",
-    # Complement
-    "C1QA", "C1QB", "C3", "C5", "CFH", "CFD", "CFB"
-  ),
-  
-  metabolism = c(
-    # Glucose transport
-    "SLC5A2", "SLC5A1", "SLC2A1", "SLC2A2",
-    # Glycolysis
-    "HK1", "HK2", "PFKFB3", "PKM", "LDHA", "ENO1",
-    # Gluconeogenesis
-    "PCK1", "PCK2", "FBP1", "G6PC",
-    # TCA cycle
-    "IDH3A", "IDH2", "CS", "SDHA", "FH", "MDH2",
-    # OxPhos
-    "NDUFA9", "UQCRC1", "COX4I1", "ATP5F1A",
-    # Fatty acid oxidation
-    "CPT1A", "CPT2", "ACADM", "HADHA", "ACADVL",
-    # Lipid metabolism
-    "SREBF1", "FASN", "ACACA", "CD36", "FABP1", "FABP3",
-    # Cholesterol metabolism
-    "HMGCR", "HMGCS1", "LDLR", "ABCA1", "APOE",
-    # Amino acid metabolism
-    "GLS", "GLUD1", "SLC1A5", "SLC38A1", "ASS1", "ARG1", "NOS2",
-    # Redox/oxidative stress
-    "NFE2L2", "KEAP1", "GPX1", "GPX3", "PRDX1", "PRDX3", "SOD1", "SOD2", "CAT"
-  ))
+  inflammatory_response = inflammatory_response_hallmark,
+  apoptosis = apoptosis_response_hallmark,
+  oxphos = oxphos_hallmark)
 
 attempt_so <- AddModuleScore(attempt_so, features = kidney_gene_sets, name = names(kidney_gene_sets))
-attempt_so@meta.data %>%
-  ggplot(aes(x = treatment, y = immune_response1, fill = visit)) +
-  geom_boxplot() +
-  theme_bw()
+```
 
-attempt_so@meta.data %>%
-  ggplot(aes(x = treatment, y = metabolism2, fill = visit)) +
-  geom_boxplot() +
-  theme_bw()
-
-sample_means <- attempt_so@meta.data %>%
-  group_by(treatment, subject_id, visit) %>%
+```{r echo = F}
+# Step 1: summarise subject × visit × cell type × score
+score_df <- attempt_so@meta.data %>%
+  group_by(subject_id, treatment, visit, KPMP_celltype) %>%
   summarise(
-    mean_immune = mean(immune_response1, na.rm = TRUE),
-    mean_metabolism = mean(metabolism2, na.rm = TRUE),
-    n_cells = n(),
-    .groups = 'drop'
+    across(
+      c(inflammatory_response1, apoptosis2, oxphos3),
+      mean,  # or mean if you prefer
+      .names = "{.col}"
+    ),
+    .groups = "drop"
   )
 
-sample_differences <- sample_means %>%
-  pivot_wider(
-    names_from = visit,
-    values_from = c(mean_immune, mean_metabolism, n_cells),
-    names_sep = "_"
-  ) %>%
-  mutate(
-    immune_diff = mean_immune_POST - mean_immune_PRE,
-    metabolism_diff = mean_metabolism_POST - mean_metabolism_PRE
-  ) %>%
-  dplyr::select(treatment, subject_id, immune_diff, metabolism_diff, 
-         n_cells_PRE, n_cells_POST)
-
-summary_stats <- sample_differences %>%
-  group_by(treatment) %>%
-  summarise(
-    n_subjects = n(),
-    mean_immune_diff = mean(immune_diff, na.rm = TRUE),
-    se_immune_diff = sd(immune_diff, na.rm = TRUE) / sqrt(n()),
-    mean_metabolism_diff = mean(metabolism_diff, na.rm = TRUE),
-    se_metabolism_diff = sd(metabolism_diff, na.rm = TRUE) / sqrt(n())
-  )
-
-
-
-library(ggplot2)
-library(patchwork)
-
-p1 <- ggplot(sample_differences, aes(x = treatment, y = immune_diff)) +
-  geom_boxplot(aes(fill = treatment), alpha = 0.7) +
-  geom_point(position = position_jitter(width = 0.15), size = 2) +
-  labs(title = "Immune Module: Post - Pre Differences",
-       subtitle = "Sample-level means",
-       y = "Mean Module Score Difference",
-       x = "Treatment") +
-  theme_minimal() +
-  theme(legend.position = "none")
-
-p2 <- ggplot(sample_differences, aes(x = treatment, y = metabolism_diff)) +
-  geom_boxplot(aes(fill = treatment), alpha = 0.7) +
-  geom_point(position = position_jitter(width = 0.15), size = 2) +
-  labs(title = "Metabolism Module: Post - Pre Differences",
-       subtitle = "Sample-level means",
-       y = "Mean Module Score Difference",
-       x = "Treatment") +
-  theme_minimal() +
-  theme(legend.position = "none")
-
-p1 + p2
-
-# Option 2: Look at cell-level distribution changes
-# This preserves single-cell resolution but is more complex to interpret
-
-# Create density plots showing distribution shifts
-library(ggridges)
-
-# Prepare data for ridge plots
-cell_data_long <- attempt_so@meta.data %>%
-  mutate(sample_visit = paste(subject_id, visit, sep = "_")) %>%
+# Step 2: pivot longer
+score_long <- score_df %>%
   pivot_longer(
-    cols = c(immune_response1, metabolism2),
-    names_to = "module",
-    values_to = "score"
-  ) %>%
-  mutate(module = case_when(
-    module == "immune_response1" ~ "Immune",
-    module == "metabolism2" ~ "Metabolism"
-  ))
-
-# Ridge plot showing distributions
-ggplot(cell_data_long, aes(x = score, y = interaction(visit, treatment), 
-                           fill = interaction(visit, treatment))) +
-  geom_density_ridges(alpha = 0.7) +
-  facet_wrap(~module, scales = "free_x") +
-  labs(title = "Module Score Distributions by Treatment and Visit",
-       x = "Module Score",
-       y = "Treatment.Visit") +
-  theme_minimal() +
-  theme(legend.position = "none")
-
-# Option 3: Statistical testing
-# Paired t-test or Wilcoxon signed-rank test per treatment group
-
-# For each treatment, test if post-pre difference is significant
-test_results <- sample_differences %>%
-  group_by(treatment) %>%
-  summarise(
-    # Immune module tests
-    immune_t_test_p = t.test(immune_diff, mu = 0)$p.value,
-    immune_wilcox_p = wilcox.test(immune_diff, mu = 0)$p.value,
-    # Metabolism module tests
-    metab_t_test_p = t.test(metabolism_diff, mu = 0)$p.value,
-    metab_wilcox_p = wilcox.test(metabolism_diff, mu = 0)$p.value
+    cols = c(inflammatory_response1, apoptosis2, oxphos3),
+    names_to = "score_type",
+    values_to = "score_value"
   )
 
-print(test_results)
+# Step 3: compute deltas only if paired
+score_delta <- score_long %>%
+  group_by(subject_id, treatment, KPMP_celltype, score_type) %>%
+  # keep only subjects with 2+ visits
+  filter(n() >= 2) %>%
+  arrange(visit) %>%
+  summarise(
+    delta = dplyr::last(score_value) - dplyr::first(score_value),
+    .groups = "drop"
+  )
 
-# ANOVA to compare differences between treatments
-immune_aov <- aov(immune_diff ~ treatment, data = sample_differences)
-metab_aov <- aov(metabolism_diff ~ treatment, data = sample_differences)
-
-print("Immune module - Treatment comparison:")
-summary(immune_aov)
-
-print("Metabolism module - Treatment comparison:")
-summary(metab_aov)
+score_delta %>%
+  ggplot(aes(x = treatment, y = score_type, fill = delta)) +
+  geom_tile() +
+  facet_wrap(~KPMP_celltype) +
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  theme_minimal() +
+  theme(panel.grid = element_blank())
+# attempt_so@meta.data %>%
+#   filter(KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT")) %>%
+#   ggplot(aes(x = treatment, y = inflammatory_response1, fill = visit)) +
+#   geom_boxplot() +
+#   theme_minimal() +
+#   facet_wrap(~KPMP_celltype)
+# 
+# attempt_so@meta.data %>%
+#   filter(KPMP_celltype %in% c("C-TAL-1", "C-TAL-2", "dTAL")) %>%
+#   ggplot(aes(x = treatment, y = inflammatory_response1, fill = visit)) +
+#   geom_boxplot() +
+#   theme_minimal() +
+#   facet_wrap(~KPMP_celltype)
+# 
+# attempt_so@meta.data %>%
+#   ggplot(aes(x = treatment, y = apoptosis2, fill = visit)) +
+#   geom_boxplot() +
+#   theme_bw()
+# 
+# attempt_so@meta.data %>%
+#   ggplot(aes(x = treatment, y = oxphos3, fill = visit)) +
+#   geom_boxplot() +
+#   theme_bw()
 ```
 
 ```{r echo = F}

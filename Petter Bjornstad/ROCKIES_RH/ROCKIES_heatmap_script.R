@@ -188,6 +188,9 @@ dev.off()
 
 
 
+#Performing rank analysis 
+
+dir.results <- c("C:/Users/netio/Documents/UofW/Rockies/heatmaps/")
 
 
 
