@@ -218,9 +218,21 @@ morph_report <- read_excel(file.path(root_path, "ATTEMPT/Results/Morphometry_qua
     values_from = value
   ) %>%
   dplyr::mutate(across(3:ncol(.), ~ case_when(
-    . == 0 ~ "No",
+    . == 0 ~ "None",
     . == 1 ~ "Yes"
-  )))
+  ))) %>%
+  filter(!is.na(`Glomeruli number`)) %>%
+  mutate(`Glomeruli sclerosed` = case_when(Global == "Yes" ~ "Global",
+                                           Segmental == "Yes" ~ "Segmental",
+                                           T ~ "None"),
+         `GBM thickening` = case_when(Mild == "Yes" ~ "Mild",
+                                      Moderate == "Yes" ~ "Moderate",
+                                      Severe == "Yes" ~ "Severe",
+                                      T ~ "None"),
+         `Vessel pathology` = case_when(arteriolosclerosis == "Yes" ~ "Arteriolosclerosis",
+                                        arteriolohyalinosis == "Yes" ~ "Arteriolohyalinosis",
+                                        T ~ "None")) %>%
+  dplyr::select(-c(Global, Segmental, Mild, Moderate, Severe, arteriolosclerosis, arteriolohyalinosis))
 
 biopsy_master <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/Biopsy master tracker.xlsx", skip = 2) 
 colnames(biopsy_master) <- gsub(" ", "_", colnames(biopsy_master))  # Replace spaces with underscores
@@ -235,7 +247,7 @@ morph_report_merged <- biopsy_master %>%
                                        T ~ Study_ID),
                 subject_id = as.numeric(subject_id),
                 kit_id = Kit_ID) %>%
-  dplyr::select(subject_id, visit, Pathology_report_ID, 32:43)
+  dplyr::select(subject_id, visit, Pathology_report_ID, 32:36)
 
 attempt_dat <- attempt_dat %>% left_join(morph_report_merged)
 
@@ -272,12 +284,18 @@ kable(summary(arsenal::tableby(treatment ~ age + sex + weight+ height + bmi + hb
 ```
 
 
-```{r echo = T, include = F}
+```{r echo = T, include = T}
 # N's for consort diagram
 bl_attempt_dat <- subset(attempt_dat, visit == -4) # R2* collected at -4
+fu_attempt_dat <- subset(attempt_dat, visit == 16) # R2* collected at 16
+
 bl_attempt_dat_denver <- subset(bl_attempt_dat, site == "Denver")
 bl_attempt_dat_london <- subset(bl_attempt_dat, site == "London")
 bl_attempt_dat_toronto <- subset(bl_attempt_dat, site == "Toronto")
+
+fu_attempt_dat_denver <- subset(fu_attempt_dat, site == "Denver")
+fu_attempt_dat_london <- subset(fu_attempt_dat, site == "London")
+fu_attempt_dat_toronto <- subset(fu_attempt_dat, site == "Toronto")
 
 # Number of each treatment group at each site
 table(bl_attempt_dat$site, bl_attempt_dat$treatment)
@@ -302,6 +320,30 @@ table(bl_attempt_dat_denver$biopsy_yn, bl_attempt_dat_denver$treatment)
 table(bl_attempt_dat_denver$biopsy_yn == "Yes" & 
         !is.na(subset(attempt_dat, visit == 0 & site == "Denver")$avg_c_t1), 
       bl_attempt_dat_denver$treatment)
+
+# Number of each treatment group at each site
+table(fu_attempt_dat$site, fu_attempt_dat$treatment)
+
+# Number of subjects with R2* at each site/treatment group
+table(!is.na(fu_attempt_dat_denver$avg_c_r2), fu_attempt_dat_denver$treatment)
+table(!is.na(fu_attempt_dat_london$avg_c_r2), fu_attempt_dat_london$treatment)
+table(!is.na(fu_attempt_dat_toronto$avg_c_r2), fu_attempt_dat_toronto$treatment)
+
+# Number of subjects with R2* AND biopsy in Denver
+table(fu_attempt_dat_denver$biopsy_yn == "Yes" & !is.na(fu_attempt_dat_denver$avg_c_r2), 
+      fu_attempt_dat_denver$treatment)
+
+# Number of subjects with T1 mapping in Denver (regardless of biopsy)
+table(!is.na(subset(attempt_dat, visit == 0 & site == "Denver")$avg_c_t1), 
+      subset(attempt_dat, visit == 0 & site == "Denver")$treatment)
+
+# Number of subjects with biopsy in Denver (regardless of MRI)
+table(fu_attempt_dat_denver$biopsy_yn, fu_attempt_dat_denver$treatment)
+
+# Number of subjects with T1 AND biopsy in Denver
+table(fu_attempt_dat_denver$biopsy_yn == "Yes" & 
+        !is.na(subset(attempt_dat, visit == 0 & site == "Denver")$avg_c_t1), 
+      fu_attempt_dat_denver$treatment)
 ```
 
 ## Baseline Table (Denver only cohort, Dapa vs. Placebo)
@@ -427,7 +469,7 @@ delta_df <- delta_df %>%
       filter(visit == 0) %>%
       dplyr::select(
         subject_id, age, diabetes_dx_duration, 
-        hba1c, cgm_tir, weight,
+        hba1c, cgm_tir, weight, bmi, 
         cholesterol_serum_mmoll, triglycerides_serum_mmoll, 
         ldl_serum_mmoll, hdl_serum_mmoll
       ) %>%

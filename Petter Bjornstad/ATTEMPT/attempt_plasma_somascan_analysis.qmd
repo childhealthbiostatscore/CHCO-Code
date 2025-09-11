@@ -173,7 +173,8 @@ soma$visit <- factor(soma$visit, levels = c(0, 16), label = c("PRE", "POST"))
 ```{r echo = F, results='asis'}
 summary(arsenal::tableby(visit ~ age + sex + bmi + diabetes_duration, 
                          data = soma, strata = treatment_arm), test = F, 
-        labelTranslations = c("age" = "Age", "sex" = "Sex", "acr_u" = "UACR", "bmi" = "BMI", "diabetes_duration" = "Diabetes duration"))
+        labelTranslations = c("age" = "Age", "sex" = "Sex", "acr_u" = "UACR", 
+                              "bmi" = "BMI", "diabetes_duration" = "Diabetes duration"))
 ```
 
 ## Placebo
@@ -347,7 +348,7 @@ plot_volcano_proteomics(data = did_res_plasma_mixed$results_annotated,
                         formula = "treatment:visit + (1|subject)",
                         file_suffix = "_DiD_plasma_proteomics_mixed")
 
-plot_volcano_proteomics(data = did_res_plasma_mixed$results_annotated, 
+plasma_volcano <- plot_volcano_proteomics(data = did_res_plasma_mixed$results_annotated, 
                         fc = "logFC",
                         p_col = "adj.P.Val",
                         title = NULL,
@@ -359,6 +360,33 @@ plot_volcano_proteomics(data = did_res_plasma_mixed$results_annotated,
                         file_suffix = "_DiD_plasma_proteomics_adjp_mixed")
 ```
 
+```{r echo = F}
+# DiD heatmap
+res_full_wide <- did_res_plasma_mixed$results_full %>%
+  dplyr::select(-effect) %>%
+  # Pivot wider, creating columns for each term's statistics
+  tidyr::pivot_wider(
+    id_cols = c(AptName, SeqId, EntrezGeneSymbol, Target),  # Keep these as row identifiers
+    names_from = term,
+    values_from = c(logFC, std.error, statistic, df, P.Value, adj.P.Val),
+    names_glue = "{term}_{.value}"  # Format: term_statistic
+  ) %>%
+  mutate(EntrezGeneSymbol = case_when(EntrezGeneSymbol == "" ~ Target, T ~ EntrezGeneSymbol),
+         Gene_seq = paste0(EntrezGeneSymbol, " (", SeqId, ")")) %>%
+  filter(`treatment_armDapagliflozin:visitPOST_P.Value` < 0.05)
+
+plasma_heatmap <- plot_treatment_heatmap(data = res_full_wide,
+                       p_col = "P.Value",
+                       top_n = 20,
+                       logfc_col = "treatment_armDapagliflozin:visitPOST_logFC",
+                       fdr_col = "treatment_armDapagliflozin:visitPOST_adj.P.Val",
+                       logfc_visit = "visitPOST_logFC",
+                       gene_col = "Gene_seq",
+                       heatmap_caption = F)
+
+ggarrange(plasma_volcano, plasma_heatmap, widths = c(2,1), labels = "AUTO")
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Panels/plasma_proteomics_panel.png"), width = 10, height = 6)
+```
 ## GSEA (fgsea)
 
 ```{r echo = F}
@@ -896,4 +924,50 @@ plasma_res <- batch_concordance_analysis(
   protein_source = 'plasma',
   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Pathways/enrichr"
 )
+```
+
+# Organ Age
+
+```{r}
+library(reticulate)
+py$soma <- soma
+```
+
+```{python}
+import pandas as pd
+import numpy as np
+from organage import OrganAge
+import matplotlib.pyplot as plt
+import seaborn as sns
+import re
+
+# create a metadata df with record_id, sex, and age
+soma['Sex_F'] = (soma['sex'] == 'Female').astype(int)
+soma['record_id_visit'] = soma['record_id'].astype(str) + '_' + soma['visit'].astype(str)
+soma = soma.set_index('record_id_visit')
+
+metadata_columns = ['age', 'Sex_F']
+soma_md = soma[metadata_columns].copy()
+soma_md = soma_md.rename(columns={'age': 'Age'})
+
+# create a df with record_id_visit and proteins
+seq_columns = [col for col in soma.columns if re.match(r'^seq\.\d+\.\d+', col) and '_' not in col]
+len(seq_columns) # 11k panel
+soma_prot = soma[seq_columns].copy()
+soma_prot.columns = soma_prot.columns.str.replace('seq.', '', regex=False).str.replace('.', '-', regex=False)
+
+# calculate organ age
+data = OrganAge.CreateOrganAgeObject()
+data.add_data(soma_md, soma_prot)
+data.normalize(assay_version="v5")  #requires "v4" 5k, or "v4.1" 7k, or "v5" 11k
+res = data.estimate_organ_ages()
+res
+
+
+toplot = res.loc[res.Organ=="Kidney"]
+toplot = toplot.sort_values("Age")
+sns.scatterplot(data=toplot, x="Age", y="Predicted_Age", 
+                hue="AgeGap_zscored", palette='coolwarm', hue_norm=(-3,3))                
+plt.plot(toplot.Age, toplot.yhat_lowess)
+plt.show()
 ```

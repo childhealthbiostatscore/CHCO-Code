@@ -1,0 +1,167 @@
+---
+title: "ATTEMPT GeneSetCluster"
+author: "Ye Ji Choi"
+format: html
+---
+
+```{r echo = F}
+library(GeneSetCluster)
+library(dplyr)
+library(tidyr)
+library(readxl)
+library(wordcloud)
+library(wordcloud2)
+library(tidyverse)
+library(RColorBrewer)
+```
+
+```{r echo = F}
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD"
+)
+```
+
+# IPA
+
+```{r}
+for (cell in names(celltype_groups)){
+  ipa_res <- read_excel(paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/IPA/kpmp/nebula/full ", tolower(cell), "_kpmp_DiD.xls"), skip = 1)
+  # colnames(ipa_res) <- c("pathway", "neg_log_p", "ratio", "z", "genes")
+  var_name = paste0(tolower(cell), "_kpmp_ipa")
+  
+  ipa_res$MoleculesCount <- NA
+  for(can.i in 1:nrow(ipa_res))
+  {
+    mol.i <- as.vector(strsplit2(as.character(ipa_res[can.i,"Molecules"]), split=","))
+    ipa_res[can.i,"MoleculesCount"]<- length(mol.i)
+  }
+
+  ipa_res.filtered <- ipa_res[ipa_res$`-log(p-value)` > -log10(0.05) & ipa_res$MoleculesCount > 5,]
+  
+  assign(var_name, ipa_res, envir = .GlobalEnv)
+  assign(paste0(var_name, "_filtered"), ipa_res.filtered, envir = .GlobalEnv)
+}
+```
+
+```{r}
+combined.PathwayObject <- ObjectCreator(Pathways = c(pt_kpmp_ipa_filtered$`Ingenuity Canonical Pathways`,
+                                                     tal_kpmp_ipa_filtered$`Ingenuity Canonical Pathways`,
+                                                     ec_kpmp_ipa_filtered$`Ingenuity Canonical Pathways`,
+                                                     ic_kpmp_ipa_filtered$`Ingenuity Canonical Pathways`,
+                                                     immune_kpmp_ipa_filtered$`Ingenuity Canonical Pathways`,
+                                                     immune_myeloid_kpmp_ipa_filtered$`Ingenuity Canonical Pathways`,
+                                                     immune_lymphoid_kpmp_ipa_filtered$`Ingenuity Canonical Pathways`,
+                                                     vsmc_p_fib_kpmp_ipa_filtered$`Ingenuity Canonical Pathways`,
+                                                     pod_kpmp_ipa_filtered$`Ingenuity Canonical Pathways`), 
+                                        Molecules = c(pt_kpmp_ipa_filtered$Molecules,
+                                                      tal_kpmp_ipa_filtered$Molecules,
+                                                      ec_kpmp_ipa_filtered$Molecules,
+                                                      ic_kpmp_ipa_filtered$Molecules,
+                                                      immune_kpmp_ipa_filtered$Molecules,
+                                                      immune_myeloid_kpmp_ipa_filtered$Molecules,
+                                                      immune_lymphoid_kpmp_ipa_filtered$Molecules,
+                                                      vsmc_p_fib_kpmp_ipa_filtered$Molecules,
+                                                      pod_kpmp_ipa_filtered$Molecules),
+                                        Groups = c(rep("PT", times = nrow(pt_kpmp_ipa_filtered)),
+                                                   rep("TAL", times = nrow(tal_kpmp_ipa_filtered)),
+                                                   rep("EC", times = nrow(ec_kpmp_ipa_filtered)),
+                                                   rep("IC", times = nrow(ic_kpmp_ipa_filtered)),
+                                                   rep("Immune", times = nrow(immune_kpmp_ipa_filtered)),
+                                                   rep("Immune Myeloid", times = nrow(immune_myeloid_kpmp_ipa_filtered)),
+                                                   rep("Immune Lymphoid", times = nrow(immune_lymphoid_kpmp_ipa_filtered)),
+                                                   rep("VSMC/P, FIB", times = nrow(vsmc_p_fib_kpmp_ipa_filtered)),
+                                                   rep("POD", times = nrow(pod_kpmp_ipa_filtered))),
+                                        Source = "IPA",
+                                        Type = "Canonical_Pathways", 
+                                        structure = "SYMBOL",
+                                          organism ="org.Hs.eg.db",
+                                          sep = ",")
+object2 <- CombineGeneSets(combined.PathwayObject)
+print(object2)
+OptimalGeneSets(Object = object2, method = "silhouette", max_cluster = 24, cluster_method = "kmeans", main = "") # 3
+OptimalGeneSets(Object = object2, uniquePathways = F, method = "silhouette", max_cluster = 24, cluster_method = "kmeans", main = "") # 3
+object3 <- ClusterGeneSets(object2, order = "cluster", clusters = 3)
+
+
+```
+
+```{r}
+# Example for PT cell type
+pt_object <- ObjectCreator(Pathways = pt_kpmp_ipa_filtered$`Ingenuity Canonical Pathways`,
+                          Molecules = pt_kpmp_ipa_filtered$Molecules,
+                          Groups = rep("PT", nrow(pt_kpmp_ipa_filtered)),
+                          Source = "IPA",
+                          Type = "Canonical_Pathways", 
+                          structure = "SYMBOL",
+                          organism = "org.Hs.eg.db",
+                          sep = ",")
+
+pt_object2 <- CombineGeneSets(pt_object)
+pt_object3 <- ClusterGeneSets(pt_object2, order = "cluster", clusters = 5)
+```
+
+```{r}
+# Extract the data
+cluster_data <- pt_object3@plot[[3]] %>%
+  rownames_to_column("Pathways")
+
+clean_text <- function(text) {
+  # Remove parentheses content like (Enhanced) or (MODY) unless it's the main term
+  text <- gsub("\\s*\\([^)]+\\)(?=\\s|$)", "", text, perl = TRUE)
+  
+  # Remove only truly generic terms at word boundaries
+  generic_terms <- c("Signaling Pathway", "Signaling", "Pathway", 
+                     "Regulation of", "Regulation", "Production$",
+                     "^Role of", "^Role in", "Mediated", "Induced",
+                     "Dependent", "Independent", "Based")
+  
+  for(term in generic_terms) {
+    text <- gsub(term, "", text, ignore.case = TRUE)
+  }
+  
+  # Remove articles and prepositions only when standalone
+  text <- gsub("\\b(the|in|by|via|through|for|and|of)\\b", " ", text, ignore.case = TRUE)
+  
+  # Clean up
+  text <- gsub("\\s+", " ", text)
+  text <- trimws(text)
+  
+  return(text)
+}
+
+# Create word clouds for each cluster
+par(mfrow = c(1, 2), mar = c(2, 2, 2, 2))
+
+for(cl in 1:5) {
+  # Get pathways for this cluster
+  cluster_pathways <- cluster_data %>%
+    filter(Cluster == cl) %>%
+    pull(Pathways)
+  
+  # Clean and combine text
+  text <- paste(sapply(cluster_pathways, clean_text), collapse = " ")
+  
+  # Create word frequency
+  words <- unlist(strsplit(tolower(text), "\\s+"))
+  words <- words[words != "" & nchar(words) > 2]  # Remove empty and very short words
+  word_freq <- sort(table(words), decreasing = TRUE)
+  
+  # Create wordcloud
+  set.seed(123)  # For reproducibility
+  wordcloud(names(word_freq), 
+            freq = word_freq,
+            min.freq = 2,
+            random.order = FALSE,
+            colors = brewer.pal(8, "Dark2"),
+            scale = c(3, 0.5))
+}
+```
