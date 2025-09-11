@@ -3479,7 +3479,7 @@ analyze_pseudotime_by_clinvar <- function(df,
     ks <- NULL
   }
   
-  return(invisible(list(plot = p, ks_test = ks, delta_df = delta_df)))
+  return(list(plot = p, ks_test = ks, delta_df = delta_df))
 }
 
 # ===========================================================================
@@ -3641,7 +3641,7 @@ analyze_pseudotime_by_celltype <- function(so,
   
   for (clin_var in names(clin_vars)) {
     message(sprintf("   [%s]   Analyzing %s...", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), clin_var))
-    analyze_pseudotime_by_clinvar(sce_df, 
+    clin_var_res <- analyze_pseudotime_by_clinvar(sce_df, 
                                   !!sym(clin_var), 
                                   slingPseudotime_1,
                                   bin_probs = "direction",
@@ -3659,7 +3659,8 @@ analyze_pseudotime_by_celltype <- function(so,
               rq_fit = rq_fit, rq_predict = rq_grid,
               p_pseudotime = p_pseudotime,
               p_pseudotime_trt = p_pseudotime_trt, 
-              p_pseudotime_heatmap = p_pseudotime_heatmap))
+              p_pseudotime_heatmap = p_pseudotime_heatmap,
+              clin_var_res = clin_var_res))
 }
 
 # ===========================================================================
