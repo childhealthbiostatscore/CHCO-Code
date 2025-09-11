@@ -1,5 +1,6 @@
 library(ggplot2)
-
+library(dplyr)
+library(stringr)
 
 
 
@@ -30,6 +31,14 @@ celltypes <- c('All', 'PT', 'PT-S1/S2', 'PT-S3', 'aPT', 'POD',
                "MAC",
                "MC")
 
+
+overall_summary <- data.frame(celltype = celltypes)
+overall_summary$TCA_total <- 27
+overall_summary$OxPhos_total <- 10
+overall_summary$TCA_flipped <- NA
+overall_summary$TCA_sig <- NA
+overall_summary$OxPhos_flipped <- NA
+overall_summary$OxPhos_sig <- NA
 
 
 for(i in c(1:length(celltypes))){

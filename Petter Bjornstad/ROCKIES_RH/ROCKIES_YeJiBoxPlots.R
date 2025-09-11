@@ -326,7 +326,7 @@ dev.off()
 
 
 png('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_KidneyImaging_ttest.png', 
-    width =1200, height = 1600)  
+    width =1200, height = 600)  
 gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
                         results_list[[3]], results_list[[4]], 
                         results_list[[5]], results_list[[6]], 
@@ -335,6 +335,24 @@ gridExtra::grid.arrange(results_list[[1]], results_list[[2]],
 dev.off()
 
 
+
+
+pdf('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_ttest_small.pdf', 
+    width =12, height = 6)  
+gridExtra::grid.arrange(results_list[[1]],
+                        results_list[[5]], ncol = 2)
+
+dev.off()
+
+
+
+png('C:/Users/netio/Documents/UofW/Rockies/PET_Scan/SGLT2ComparisonGroups_KidneyImaging_ttest_small.png', 
+    width =1200, height = 600)  
+gridExtra::grid.arrange(results_list[[1]],
+                        results_list[[5]],
+                        ncol = 2)
+
+dev.off()
 
 
 
