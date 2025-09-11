@@ -2,7 +2,7 @@ library(readxl)
 library(blockrand)
 library(dplyr)
 
-set.seed(3654)
+set.seed(36541111)
 
 # obs
 obs <- rep("OBS", 100)
@@ -22,12 +22,12 @@ existing$source <- "EXISTING"
 
 # combine
 rand <- rbind(obs, existing)
-rand$intinclusion7 <- ifelse(rand$source == "OBS", 0, 1)
+rand$inclusion7 <- ifelse(rand$source == "OBS", 0, 1)
 
 # check
 table(rand$treatment_char)
 table(rand$source, rand$treatment_char)
-table(rand$source, rand$intinclusion7)
+table(rand$source, rand$inclusion7)
 
 # output
 write.csv(rand, 
