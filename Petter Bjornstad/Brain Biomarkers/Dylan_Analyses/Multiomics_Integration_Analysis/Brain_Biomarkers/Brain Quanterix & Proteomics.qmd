@@ -1,0 +1,1298 @@
+---
+title: "Brain Quanterix & Proteomics"
+author: "Hailey E. Hampson"
+format:
+  revealjs:
+    embed-resources: true
+    scrollable: true
+    transition: slide
+    controls-layout: bottom-right
+    menu: true
+    toc: true
+    toc-depth: 1
+    fontsize: 15
+---
+
+```{r, Set up libraries and Directories, include=FALSE,echo=F}
+#Load Libraries 
+source("Libraries.R")
+
+#Set working directories
+dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+dir.code <- c("/Users/hhampson/CHCO-Code/Petter Bjornstad/Brain Biomarkers/Multiomics_Integration_Analysis/Brain_Biomarkers")
+dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Brain Biomarkers and Proteomics/Results")
+
+
+```
+
+# Background
+
+![](images/1%20-%20CRC%20&%20PKD.png){width="516"}
+
+**Figure 1.** Overview of cohorts, available data & data collection, and analysis in CROCODILE & PENGUIN.
+
+![](images/RH2.png){width="517"}
+
+**Figure 2.** Overview of cohorts, available data & data collection, and analysis in RENAL-HEIR & RENAL-HEIRitage.
+
+------------------------------------------------------------------------
+
+# Methods
+
+Pool data from from 69 youth participants from CROCODILE (n = 47; lean controls, LC, and Type 1 Diabetes, T1D) & PENGUIN (n = 22; Polycystic Kidney Disease, PKD) with plasma proteomics and quanterix brain biomarkers.
+
+Pooled data from 66 youth participants from RENAL-HEIR (n = 23; obese controls, OB, and Type 2 Diabetes, T2D) and the followup study, RENAL-HEIRitage (n = 43; OB & T2D) with serum proteomics and quanterix brain biomarkers.
+
+A total of 142 participants across all four studies had brain biomarkers, and of those, 135 also have proteomics data from serum or plasma.
+
+We examined the associations between disease status and brain biomarkers, performing ANOVAs with Tukeys test for pairwise comparisons. We performed these analyses stratified by cohort (CROCODILE, PENGUIN, RH and RH2), then pooled for CROCODILE and PENGUIN, and pooled for RH and RH2.
+
+We assessed the data for the assumptions of linear regression by regressing each brain biomarker on each proteins and inspecting the residuals for linearity, normality, and heteroskedasticity, independently for the plasma proteomics cohorts (CROCODILE & PENGUIN) and the serum proteomics cohorts (RH/RH2). As distributions of the residuals displayed some non-normality, we log2 transformed the proteins and inspected the proteins and the biomarkers for outliers.
+
+We performed linear regression on X = aptomer, Y = brain biomarker, for each of the 7 biomarkers and each of the 7289 aptomers. We performed these analyses stratified by cohort (CROCODILE, PENGUIN, RH and RH2), then pooled for CROCODILE and PENGUIN, and pooled for RH and RH2. For each analysis, a crude/adjusted analysis was performed and then an adjusted analysis was performed including age and sex in the model as well as disease status if there were multiple disease statuses in the cohort of interest. Analyses were adjusted for multiple comparisons.
+
+------------------------------------------------------------------------
+
+# Results
+
+```{r, Load & Clean data, include=FALSE, echo=FALSE}
+#Load Brain Biomarkers and Metadata
+data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = c("", "NA", "N/A", "n/a", " ","na"))
+
+data2 <- data %>% 
+  filter(study=="PENGUIN" | study=="CROCODILE"|study=="RENAL-HEIR" | study=="RENAL-HEIRitage") %>%
+  filter(visit=="baseline") %>%
+  arrange(screen_date) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(mrn, visit)) %>% 
+  dplyr::select(record_id,mrn,group,study,age,sex,race,bmi,triglycerides,hba1c,eGFR_CKD_epi,gfr_bsa_plasma,ab40_avg_conc,ab42_avg_conc,tau_avg_conc,nfl_avg_conc,gfap_avg_conc,ptau_181_avg_conc,ptau_217_avg_conc,total_kidney_volume_ml,ht_adj_tkv) %>% 
+  filter(if_any(c(ab40_avg_conc, ab42_avg_conc, tau_avg_conc, nfl_avg_conc, 
+                  gfap_avg_conc, ptau_181_avg_conc, ptau_217_avg_conc), 
+                ~ !is.na(.))) %>% 
+  dplyr::select(-c("record_id"))
+rm(data)
+
+#Load Proteomics data
+dat_prot <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","soma_harmonized_dataset.csv"),na.strings = c("", "NA", "N/A", "n/a", " ","na"))
+prot.names <- c("mrn","record_id","procedure",colnames(dat_prot)[which(grepl("seq.",colnames(dat_prot)))])
+dat_prot2 <- dat_prot %>% 
+  filter(study=="PENGUIN" | study=="CROCODILE"|study=="RENAL-HEIR" | study=="RENAL-HEIRitage") %>%
+  filter(visit=="baseline") %>%
+  arrange(screen_date) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(mrn, visit)) %>% 
+  dplyr::select(all_of(prot.names))  #Select only protein features
+dat_prot3 <- dat_prot2 %>%   
+  filter(!is.na(seq.10000.28)) %>% 
+  dplyr::select(-c("record_id"))
+length(unique(dat_prot3$mrn)) #166 unique participants with proteomics
+proteins <- prot.names[-c(1:3)]
+
+#Merge proteomics & Quanterix together
+data_full <- tidylog::full_join(data2,dat_prot3,by="mrn")
+data_full <- data_full %>% 
+  filter(if_any(c(ab40_avg_conc, ab42_avg_conc, tau_avg_conc, nfl_avg_conc, 
+                  gfap_avg_conc, ptau_181_avg_conc, ptau_217_avg_conc), 
+                ~ !is.na(.))) 
+data_full <- data_full %>% 
+  filter(!is.na(seq.10000.28)) #142 have brain biomarkers, 135 also have proteomics
+rm(dat_prot,dat_prot2,dat_prot3,data2)
+
+# #25,354 protein variables
+# # Remove columns ending with "_urine_cradj", "_urine"
+# data_full <- data_full %>%
+#   dplyr::select(-ends_with("_urine_cradj")) %>% 
+#   dplyr::select(-ends_with("_urine"))
+
+#Proteomics data ends at column 7310
+# Find the first column that is all NAs
+first_all_na <- which(sapply(data_full, function(x) all(is.na(x))))[1] #7311
+
+# If such a column exists, keep only columns before it
+data_full <- data_full %>%
+  dplyr::select(1:(first_all_na - 1))
+length(which(grepl("seq.",colnames(data_full)))) #7289 proteins remain
+proteins <- colnames(data_full[which(grepl("seq.",colnames(data_full)))])
+length(proteins)  #7289
+length(unique(proteins)) #7289
+
+#Aptomer names
+load(fs::path(dir.dat,"/Data Harmonization","Combined SomaScan","analytes.RData"))
+length(which(analytes$AptName %in% proteins))
+length(which(proteins %in% analytes$AptName))
+length(analytes$EntrezGeneSymbol)
+length(unique(analytes$EntrezGeneSymbol))
+
+#Rename proteins with gene name & for duplicates, make _aptomer number
+analytes$EntrezGeneSymbol[which(duplicated(analytes$EntrezGeneSymbol))]
+
+analytes <- analytes %>%
+  group_by(EntrezGeneSymbol) %>%
+  mutate(
+    count = n(),
+    EntrezGeneSymbol_modified = if_else(
+      count > 1,
+      paste0(EntrezGeneSymbol, "_Apt", row_number()),
+      EntrezGeneSymbol
+    )
+  ) %>%
+  ungroup() %>%
+  dplyr::select(-count)  # Remove the helper column
+
+#Format for column names
+analytes$EntrezGeneSymbol_modified <- str_replace_all(analytes$EntrezGeneSymbol_modified,"\\|","_")
+analytes$EntrezGeneSymbol_modified <- str_replace_all(analytes$EntrezGeneSymbol_modified,"\\-","_")
+
+# Create a named vector for the mapping
+name_mapping <- setNames(analytes$EntrezGeneSymbol_modified, analytes$AptName)
+
+# Rename the columns
+data_full <- data_full %>%
+  rename_with(~ name_mapping[.x], .cols = names(name_mapping)) 
+
+proteins <- colnames(data_full)[which(colnames(data_full) %in% analytes$EntrezGeneSymbol_modified)]
+rm(prot.names,first_all_na,name_mapping,analytes)
+
+#Log2 transform all proteins for analysis
+data_full <- data_full %>% 
+  mutate(across(all_of(proteins),~log2(.),.names = "{.col}_log2"))
+log2_proteins <- colnames(data_full)[which(grepl("_log2",colnames(data_full)))]
+```
+
+```{r, Label Variables of Interest, include=F,echo=F}
+# Add labels to demographic and clinical variables
+label(data_full$age) <- "Age (years)"
+label(data_full$sex) <- "Sex"
+label(data_full$race) <- "Race"
+label(data_full$bmi) <- "BMI (kg/m²)"
+label(data_full$triglycerides) <- "Triglycerides (mg/dL)"
+label(data_full$hba1c) <- "HbA1c (%)"
+label(data_full$eGFR_CKD_epi) <- "eGFR CKD-EPI (mL/min/1.73m²)"
+label(data_full$gfr_bsa_plasma) <- "GFR BSA Plasma (mL/min/1.73m²)"
+label(data_full$total_kidney_volume_ml) <- "Total Kidney Volume (mL)"
+label(data_full$ht_adj_tkv) <- "Height-Adjusted TKV (mL/m)"
+label(data_full$group) <- "Group"
+
+# Add labels to biomarker variables
+label(data_full$ab40_avg_conc) <- "Aβ40 Concentration (pg/mL)"
+label(data_full$ab42_avg_conc) <- "Aβ42 Concentration (pg/mL)"
+label(data_full$tau_avg_conc) <- "Total Tau Concentration (pg/mL)"
+label(data_full$nfl_avg_conc) <- "NFL Concentration (pg/mL)"
+label(data_full$gfap_avg_conc) <- "GFAP Concentration (pg/mL)"
+label(data_full$ptau_181_avg_conc) <- "p-Tau 181 Concentration (pg/mL)"
+label(data_full$ptau_217_avg_conc) <- "p-Tau 217 Concentration (pg/mL)"
+```
+
+```{r, Create Demographics Tables, include=F,echo=F}
+# Create and save tables 
+table_demographics <- table1(~ age + sex + race + bmi + triglycerides + hba1c + eGFR_CKD_epi + gfr_bsa_plasma + total_kidney_volume_ml + ht_adj_tkv | group, data = data_full)
+
+table_biomarkers <- table1(~ ab40_avg_conc + ab42_avg_conc + nfl_avg_conc + gfap_avg_conc + ptau_181_avg_conc + ptau_217_avg_conc + tau_avg_conc | group, data = data_full)
+```
+
+**Table 1.** Demographics & Clinical Characteristics by Disease Group
+
+```{r,Table 1,include=T,echo=F}
+table_demographics
+```
+
+**Table 2.** Quanterix Brain Biomarker Concentrations by Disease Group
+
+```{r,Table 2,include=T,echo=F}
+table_biomarkers
+```
+
+Across all 4 cohorts, all 135 participants had complete proteomics data for 7289 unique aptomers and 6386 unique proteins.
+
+------------------------------------------------------------------------
+
+## Brain Biomarkers by Disease Status
+
+### A. PENGUIN & CROCODILE
+
+```{r, filter to PEN & CROC, include = F, echo=F}
+#Filter to PENGUIN & CROCODILE
+data_plasma <- data_full %>% 
+  filter(study=="PENGUIN" | study=="CROCODILE") #69 participants
+#Analyze difference in quanterix variables (y) by group (LC vs. PKD) (x)
+qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
+            "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
+
+#Visualize the distributions for the quanterix vars
+hist(data_plasma$ab40_avg_conc)
+hist(data_plasma$ab42_avg_conc)
+hist(data_plasma$tau_avg_conc)
+hist(data_plasma$nfl_avg_conc)
+hist(data_plasma$gfap_avg_conc)
+hist(data_plasma$ptau_181_avg_conc)
+hist(data_plasma$ptau_217_avg_conc)
+
+```
+
+------------------------------------------------------------------------
+
+### B. RENAL-HEIR & RENAL-HEIRitage
+
+------------------------------------------------------------------------
+
+## Brain Biomarkers vs. Proteomics
+
+### A. PENGUIN & CROCODILE
+
+#### 1) CROCODILE (LC & T1D)
+
+```{r, include = F, echo=F}
+#Linear regression
+#Stratified Analysis First
+#CRC
+crc <- data_plasma %>% 
+  filter(study=="CROCODILE") #47 participants
+
+#Check assumptions
+for (y in qx_var) {
+  for(x in proteins[1:10]) {
+    m0 <- as.formula(paste0(y,"~",x))
+    model0 <- lm(m0,data=crc)
+    residuals <- resid(model0)
+    # 2. QQ plot to check normality of residuals
+    print(qqnorm(residuals))
+    qqline(residuals, col = "red")
+  }
+} 
+
+#Check assumptions
+for (y in qx_var) {
+  for(x in log2_proteins[1:10]) {
+    m0 <- as.formula(paste0(y,"~",x))
+    model0 <- lm(m0,data=crc)
+    residuals <- resid(model0)
+    # 2. QQ plot to check normality of residuals
+    print(qqnorm(residuals))
+    qqline(residuals, col = "red")
+  }
+} 
+
+#Visualize the distributions for the quanterix vars
+hist(crc$ab40_avg_conc)
+hist(crc$ab42_avg_conc)
+hist(crc$tau_avg_conc)
+hist(crc$nfl_avg_conc)
+hist(crc$gfap_avg_conc)
+hist(crc$ptau_181_avg_conc)
+hist(crc$ptau_217_avg_conc)
+#Residuals look pretty good, but maybe some outliers
+# #Check for outliers
+# # Function to identify outliers in a vector
+# check_outliers <- function(x) {
+#   mean_x <- mean(x, na.rm = TRUE)
+#   sd_x <- sd(x, na.rm = TRUE)
+#   threshold <- mean_x + 3 * sd_x
+#   outliers <- x > threshold & !is.na(x)
+#   return(outliers)
+# }
+# 
+# outlier_summary <- crc %>%
+#   select_if(is.numeric) %>%
+#   summarise(across(everything(),
+#                    ~ sum(check_outliers(.x), na.rm = TRUE),
+#                    .names = "{.col}_n_outliers"))
+# 
+# # View columns with outliers
+# outliers <- colnames(outlier_summary)[which(outlier_summary > 0)]
+# crc$nfl_avg_conc
+# crc$tau_avg_conc
+# crc_no_outliers <- crc %>% 
+#   mutate(across(all_of(qx_var,~case_when(.>))))
+# #All >3SD above the mean
+# #CRC-38: Nfl = 29.252430
+# #CRC-2: Tau = 10.031890
+# #CRC-43: Tau = 9.160396
+# #Try removing and see if assumptions improve
+# crc2 <- crc %>%
+#   mutate(tau_avg_conc=ifelse(tau_avg_conc>=9.160396,NA,tau_avg_conc)) %>%
+#   mutate(nfl_avg_conc=ifelse(nfl_avg_conc>=29.252430,NA,nfl_avg_conc))
+
+#Run analysis
+#Crude
+total_results <- data.frame()
+for (y in qx_var) {
+  for(x in proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x))
+    model0 <- lm(m0,data=crc)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results <- rbind(total_results,results)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results <- total_results %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"CROCODILE_Prot_Quanterix_Linear_Regression_Crude.csv"))
+
+#Adj. Age, Sex, Disease Status
+total_results_adj <- data.frame()
+for (y in qx_var) {
+  for(x in proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x,"+age+sex+group"))
+    model0 <- lm(m0,data=crc)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results_adj <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results_adj <- rbind(total_results_adj,results_adj)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results_adj <- total_results_adj %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"CROCODILE_Prot_Quanterix_Linear_Regression_Adj.csv"))
+
+#Log2 Transformed Analyses
+#Crude
+total_results <- data.frame()
+for (y in qx_var) {
+  for(x in log2_proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x))
+    model0 <- lm(m0,data=crc)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results <- rbind(total_results,results)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results <- total_results %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"CROCODILE_Prot_Quanterix_Linear_Regression_Crude_Log2_Proteins.csv"))
+
+#Adj. Age, Sex, Disease Status
+total_results_adj <- data.frame()
+for (y in qx_var) {
+  for(x in log2_proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x,"+age+sex+group"))
+    model0 <- lm(m0,data=crc)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results_adj <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results_adj <- rbind(total_results_adj,results_adj)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results_adj <- total_results_adj %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"CROCODILE_Prot_Quanterix_Linear_Regression_Adj_Log2_Proteins.csv"))
+
+sig_results <- total_results_adj %>% 
+  filter(fdr.sig=="*")
+
+```
+
+```{r,include = T, echo = F}
+# Create scatterplots only for significant pairs
+pdf(fs::path(dir.results, "CROCODILE_Prot_Quanterix_Scatterplots_Log2_Proteins_Sig_Adj.pdf"))
+for (i in 1:nrow(sig_results)) {
+  y <- sig_results$Biomarker[i]
+  x <- sig_results$Protein[i]
+  beta <- round(sig_results$Beta[i], 3)
+  pval <- format(sig_results$PValue[i], scientific = TRUE, digits = 2)
+  fdr <- format(sig_results$fdr[i], scientific = TRUE, digits = 2)
+  
+  p <- ggplot(data = crc, aes(x = .data[[x]], y = .data[[y]])) +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(
+      title = paste0(y, " vs. ", x," adj. for age, sex & Disease Status in CROCODILE (LC & T1D)"),
+      x = x,
+      y = y
+    ) +
+    theme_classic() +
+    # Add text annotation with statistics
+    annotate("text", 
+             x = -Inf, 
+             y = Inf, 
+             label = paste0("Beta = ", beta,", FDR = ", fdr,"*"),
+             hjust = -0.1, 
+             vjust = 1.1,
+             size = 3.5)
+  
+  print(p)
+}
+dev.off()
+
+for (i in 1:nrow(sig_results)) {
+  y <- sig_results$Biomarker[i]
+  x <- sig_results$Protein[i]
+  beta <- round(sig_results$Beta[i], 3)
+  pval <- format(sig_results$PValue[i], scientific = TRUE, digits = 2)
+  fdr <- format(sig_results$fdr[i], scientific = TRUE, digits = 2)
+  
+  p <- ggplot(data = crc, aes(x = .data[[x]], y = .data[[y]])) +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(
+      title = paste0(y, " vs. ", x," adj. for age, sex & Disease Status in CROCODILE (LC & T1D)"),
+      x = x,
+      y = y
+    ) +
+    theme_classic() +
+    # Add text annotation with statistics
+    annotate("text", 
+             x = -Inf, 
+             y = Inf, 
+             label = paste0("Beta = ", beta,", FDR = ", fdr,"*"),
+             hjust = -0.1, 
+             vjust = 1.1,
+             size = 3.5)
+  
+  print(p)
+}
+
+```
+
+#### 2) PENGUIN (PKD)
+
+```{r, include = F, echo = F}
+#Linear regression
+#Stratified Analysis First
+#PENG
+peng <- data_plasma %>% 
+  filter(study=="PENGUIN") #47 participants
+
+#Check assumptions
+for (y in qx_var) {
+  for(x in proteins[1:10]) {
+    m0 <- as.formula(paste0(y,"~",x))
+    model0 <- lm(m0,data=peng)
+    residuals <- resid(model0)
+    # 2. QQ plot to check normality of residuals
+    print(qqnorm(residuals))
+    qqline(residuals, col = "red")
+  }
+} 
+
+#Check assumptions
+for (y in qx_var) {
+  for(x in log2_proteins[1:10]) {
+    m0 <- as.formula(paste0(y,"~",x))
+    model0 <- lm(m0,data=peng)
+    residuals <- resid(model0)
+    # 2. QQ plot to check normality of residuals
+    print(qqnorm(residuals))
+    qqline(residuals, col = "red")
+  }
+} 
+
+#Visualize the distributions for the quanterix vars
+hist(peng$ab40_avg_conc)
+hist(peng$ab42_avg_conc)
+hist(peng$tau_avg_conc)
+hist(peng$nfl_avg_conc)
+hist(peng$gfap_avg_conc)
+hist(peng$ptau_181_avg_conc)
+hist(peng$ptau_217_avg_conc)
+#Residuals look pretty good, but maybe some outliers
+# #Check for outliers
+# # Function to identify outliers in a vector
+# check_outliers <- function(x) {
+#   mean_x <- mean(x, na.rm = TRUE)
+#   sd_x <- sd(x, na.rm = TRUE)
+#   threshold <- mean_x + 3 * sd_x
+#   outliers <- x > threshold & !is.na(x)
+#   return(outliers)
+# }
+# 
+# outlier_summary <- peng %>%
+#   select_if(is.numeric) %>%
+#   summarise(across(everything(),
+#                    ~ sum(check_outliers(.x), na.rm = TRUE),
+#                    .names = "{.col}_n_outliers"))
+# 
+# # View columns with outliers
+# outliers <- colnames(outlier_summary)[which(outlier_summary > 0)]
+# peng$nfl_avg_conc
+# peng$tau_avg_conc
+# peng_no_outliers <- peng %>% 
+#   mutate(across(all_of(qx_var,~case_when(.>))))
+# #All >3SD above the mean
+# #peng-38: Nfl = 29.252430
+# #peng-2: Tau = 10.031890
+# #peng-43: Tau = 9.160396
+# #Try removing and see if assumptions improve
+# peng2 <- peng %>%
+#   mutate(tau_avg_conc=ifelse(tau_avg_conc>=9.160396,NA,tau_avg_conc)) %>%
+#   mutate(nfl_avg_conc=ifelse(nfl_avg_conc>=29.252430,NA,nfl_avg_conc))
+
+#Run analysis
+#Crude
+total_results <- data.frame()
+for (y in qx_var) {
+  for(x in proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x))
+    model0 <- lm(m0,data=peng)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results <- rbind(total_results,results)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results <- total_results %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"PENGUIN_Prot_Quanterix_Linear_Regression_Crude.csv"))
+
+#Adj. Age, Sex, Disease Status
+total_results_adj <- data.frame()
+for (y in qx_var) {
+  for(x in proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x,"+age+sex"))
+    model0 <- lm(m0,data=peng)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results_adj <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results_adj <- rbind(total_results_adj,results_adj)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results_adj <- total_results_adj %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"PENGUIN_Prot_Quanterix_Linear_Regression_Adj.csv"))
+
+# #Scatterplots
+# pdf(fs::path(dir.results,"PENGUIN_Prot_Quanterix_Scatterplots.pdf"))
+# for (y in qx_var) {
+#   for(x in proteins) {
+# p <- ggplot(data= peng, aes(x = .data[[x]], y = .data[[y]])) +
+#   geom_point()+
+#   geom_smooth(method="lm",se=F) +
+#   # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")) +
+#   labs(
+#     title = paste0(y," vs. ",x),
+#     x = x,
+#     y = y
+#   ) +
+#   theme_classic()
+# print(p)
+#   }
+# }
+# dev.off()
+
+#Log2 Transformed Analyses
+#Crude
+total_results <- data.frame()
+for (y in qx_var) {
+  for(x in log2_proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x))
+    model0 <- lm(m0,data=peng)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results <- rbind(total_results,results)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results <- total_results %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"PENGUIN_Prot_Quanterix_Linear_Regression_Crude_Log2_Proteins.csv"))
+
+#Scatterplots 
+# Filter for significant results
+sig_results <- total_results %>% 
+  filter(fdr.sig == "*")
+
+# Create scatterplots only for significant pairs
+pdf(fs::path(dir.results, "PENGUIN_Prot_Quanterix_Scatterplots_Log2_Proteins_Sig_Crude.pdf"))
+for (i in 1:nrow(sig_results)) {
+  y <- sig_results$Biomarker[i]
+  x <- sig_results$Protein[i]
+  beta <- round(sig_results$Beta[i], 3)
+  pval <- format(sig_results$PValue[i], scientific = TRUE, digits = 2)
+  fdr <- format(sig_results$fdr[i], scientific = TRUE, digits = 2)
+  
+  p <- ggplot(data = peng, aes(x = .data[[x]], y = .data[[y]])) +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(
+      title = paste0(y, " vs. ", x," unadj. in PENGUIN (PKD)"),
+      x = x,
+      y = y
+    ) +
+    theme_classic() +
+    # Add text annotation with statistics
+    annotate("text", 
+             x = -Inf, 
+             y = Inf, 
+             label = paste0("For each doubling of ",x,", ",y," increases by ", beta*log2(2),"units (FDR = ", fdr,"*)"),
+             hjust = -0.1, 
+             vjust = 1.1,
+             size = 3.5)
+  
+  print(p)
+}
+dev.off()
+
+#Adj. Age, Sex, Disease Status
+total_results_adj <- data.frame()
+for (y in qx_var) {
+  for(x in log2_proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x,"+age+sex"))
+    model0 <- lm(m0,data=peng)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results_adj <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results_adj <- rbind(total_results_adj,results_adj)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results_adj <- total_results_adj %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"PENGUIN_Prot_Quanterix_Linear_Regression_Adj_Log2_Proteins.csv"))
+
+#Scatterplots 
+# Filter for significant results
+sig_results <- total_results_adj %>% 
+  filter(fdr.sig == "*")
+# sig_results <- unique(sig_results)
+# total_results_adj <- unique(total_results_adj)
+
+```
+
+```{r,Scatterplots of significant results,include = T, echo = F}
+
+# Create scatterplots only for significant pairs
+pdf(fs::path(dir.results, "PENGUIN_Prot_Quanterix_Scatterplots_Log2_Proteins_Sig_Adj.pdf"))
+for (i in 1:nrow(sig_results)) {
+  y <- sig_results$Biomarker[i]
+  x <- sig_results$Protein[i]
+  beta <- round(sig_results$Beta[i], 3)
+  pval <- format(sig_results$PValue[i], scientific = TRUE, digits = 2)
+  fdr <- format(sig_results$fdr[i], scientific = TRUE, digits = 2)
+  
+  p <- ggplot(data = peng, aes(x = .data[[x]], y = .data[[y]])) +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(
+      title = paste0(y, " vs. ", x," adj. for age & sex in PENGUIN (PKD)"),
+      x = x,
+      y = y
+    ) +
+    theme_classic() +
+    # Add text annotation with statistics
+    annotate("text", 
+             x = -Inf, 
+             y = Inf, 
+             label = paste0("Beta = ", beta,", FDR = ", fdr,"*"),
+             hjust = -0.1, 
+             vjust = 1.1,
+             size = 3.5)
+  
+  print(p)
+}
+dev.off()
+
+for (i in 1:nrow(sig_results)) {
+  y <- sig_results$Biomarker[i]
+  x <- sig_results$Protein[i]
+  beta <- round(sig_results$Beta[i], 3)
+  pval <- format(sig_results$PValue[i], scientific = TRUE, digits = 2)
+  fdr <- format(sig_results$fdr[i], scientific = TRUE, digits = 2)
+  
+  p <- ggplot(data = peng, aes(x = .data[[x]], y = .data[[y]])) +
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(
+      title = paste0(y, " vs. ", x," adj. for age & sex in PENGUIN (PKD)"),
+      x = x,
+      y = y
+    ) +
+    theme_classic() +
+    # Add text annotation with statistics
+    annotate("text", 
+             x = -Inf, 
+             y = Inf, 
+             label = paste0("Beta = ", beta,", FDR = ", fdr,"*"),
+             hjust = -0.1, 
+             vjust = 1.1,
+             size = 3.5)
+  
+  print(p)
+}
+```
+
+```{r, Heatmap of significant results,include=TRUE,echo=F}
+# Create matrix for heatmap with all associations
+heatmap_data <- total_results_adj %>%
+  filter(Biomarker %in% unique(sig_results$Biomarker)) %>% 
+  filter(Protein %in% unique(sig_results$Protein)) %>% 
+  dplyr::select(Biomarker, Protein, Beta) %>%
+  pivot_wider(names_from = Protein, values_from = Beta) %>%
+  column_to_rownames("Biomarker")
+
+heatmap_matrix <- as.matrix(heatmap_data)
+
+# Create significance matrix
+sig_data <- total_results_adj %>%
+  filter(Biomarker %in% unique(sig_results$Biomarker)) %>% 
+  filter(Protein %in% unique(sig_results$Protein)) %>% 
+  dplyr::select(Biomarker, Protein, fdr.sig) %>%
+  pivot_wider(names_from = Protein, values_from = fdr.sig, values_fill = "") %>%
+  column_to_rownames("Biomarker")
+
+sig_matrix <- as.matrix(sig_data)
+
+# Define purple to orange color palette
+color_palette <- colorRampPalette(c("#6A0DAD", "#9370DB", "#E6E6FA", "white", "#FFE4B5", "#FFA500", "#FF8C00"))(100)
+
+# Create the heatmap with significance annotations
+pheatmap(heatmap_matrix,
+         color = color_palette,
+         scale = "row",  # Scale by row
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "complete",
+         show_rownames = TRUE,
+         show_colnames = TRUE,
+         fontsize_row = 10,
+         fontsize_col = 8,
+         angle_col = "90",  # Changed from 90 to "90"
+         main = "PENGUIN Heatmap with Annotations",
+         border_color = NA,
+         display_numbers = sig_matrix,  # Show significance stars
+         number_color = "black",
+         fontsize_number = 12)
+# legend_title = "Beta coefficient\n(row scaled)")
+
+# Save the heatmap
+ggsave(fs::path(dir.results, "PENGUIN_Prot_Quanterix_Heatmap_Log2_Proteins_Sig_Adj.pdf"), 
+       width = 12, height = 4)
+```
+
+#### 3) Pooled CROCODILE (LC & T1D) & PENGUIN (PKD)
+##### i. Adjusting for Disease Status
+```{r}
+#Linear regression
+#Stratified Analysis First
+#Check assumptions
+for (y in qx_var) {
+  for(x in proteins[1:10]) {
+    m0 <- as.formula(paste0(y,"~",x))
+    model0 <- lm(m0,data=data_plasma)
+    residuals <- resid(model0)
+    # 2. QQ plot to check normality of residuals
+    print(qqnorm(residuals))
+    qqline(residuals, col = "red")
+  }
+} 
+
+#Check assumptions
+for (y in qx_var) {
+  for(x in log2_proteins[1:10]) {
+    m0 <- as.formula(paste0(y,"~",x))
+    model0 <- lm(m0,data=data_plasma)
+    residuals <- resid(model0)
+    # 2. QQ plot to check normality of residuals
+    print(qqnorm(residuals))
+    qqline(residuals, col = "red")
+  }
+} 
+
+#Visualize the distributions for the quanterix vars
+hist(data_plasma$ab40_avg_conc)
+hist(data_plasma$ab42_avg_conc)
+hist(data_plasma$tau_avg_conc)
+hist(data_plasma$nfl_avg_conc)
+hist(data_plasma$gfap_avg_conc)
+hist(data_plasma$ptau_181_avg_conc)
+hist(data_plasma$ptau_217_avg_conc)
+#Residuals look pretty good, but maybe some outliers
+# #Check for outliers
+# # Function to identify outliers in a vector
+# check_outliers <- function(x) {
+#   mean_x <- mean(x, na.rm = TRUE)
+#   sd_x <- sd(x, na.rm = TRUE)
+#   threshold <- mean_x + 3 * sd_x
+#   outliers <- x > threshold & !is.na(x)
+#   return(outliers)
+# }
+# 
+# outlier_summary <- data_plasma %>%
+#   select_if(is.numeric) %>%
+#   summarise(across(everything(),
+#                    ~ sum(check_outliers(.x), na.rm = TRUE),
+#                    .names = "{.col}_n_outliers"))
+# 
+# # View columns with outliers
+# outliers <- colnames(outlier_summary)[which(outlier_summary > 0)]
+# data_plasma$nfl_avg_conc
+# data_plasma$tau_avg_conc
+# data_plasma_no_outliers <- data_plasma %>% 
+#   mutate(across(all_of(qx_var,~case_when(.>))))
+# #All >3SD above the mean
+# #data_plasma-38: Nfl = 29.252430
+# #data_plasma-2: Tau = 10.031890
+# #data_plasma-43: Tau = 9.160396
+# #Try removing and see if assumptions improve
+# data_plasma2 <- data_plasma %>%
+#   mutate(tau_avg_conc=ifelse(tau_avg_conc>=9.160396,NA,tau_avg_conc)) %>%
+#   mutate(nfl_avg_conc=ifelse(nfl_avg_conc>=29.252430,NA,nfl_avg_conc))
+
+#Run analysis
+#Crude
+total_results <- data.frame()
+for (y in qx_var) {
+  for(x in proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x))
+    model0 <- lm(m0,data=data_plasma)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results <- rbind(total_results,results)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results <- total_results %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"Pooled_CROCODILE_PENGUIN_Prot_Quanterix_Linear_Regression_Crude.csv"))
+
+#Adj. Age, Sex, Disease Status
+total_results_adj <- data.frame()
+for (y in qx_var) {
+  for(x in proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x,"+age+sex+group"))
+    model0 <- lm(m0,data=data_plasma)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results_adj <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results_adj <- rbind(total_results_adj,results_adj)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results_adj <- total_results_adj %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"Pooled_CROCODILE_PENGUIN_Prot_Quanterix_Linear_Regression_Adj.csv"))
+
+# #Scatterplots
+# pdf(fs::path(dir.results,"Pooled_CROCODILE_PENGUIN_Prot_Quanterix_Scatterplots.pdf"))
+# for (y in qx_var) {
+#   for(x in proteins) {
+# p <- ggplot(data= data_plasma, aes(x = .data[[x]], y = .data[[y]])) +
+#   geom_point()+
+#   geom_smooth(method="lm",se=F) +
+#   # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")) +
+#   labs(
+#     title = paste0(y," vs. ",x),
+#     x = x,
+#     y = y
+#   ) +
+#   theme_classic()
+# print(p)
+#   }
+# }
+# dev.off()
+
+#Log2 Transformed Analyses
+#Crude
+total_results <- data.frame()
+for (y in qx_var) {
+  for(x in log2_proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x))
+    model0 <- lm(m0,data=data_plasma)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results <- rbind(total_results,results)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results <- total_results %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"Pooled_CROCODILE_PENGUIN_Prot_Quanterix_Linear_Regression_Crude_Log2_Proteins.csv"))
+
+#Adj. Age, Sex, Disease Status
+total_results_adj <- data.frame()
+for (y in qx_var) {
+  for(x in log2_proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x,"+age+sex+group"))
+    model0 <- lm(m0,data=data_plasma)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    results_adj <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig)
+    total_results_adj <- rbind(total_results_adj,results_adj)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results_adj <- total_results_adj %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #58 sig proteins after fdr
+write.csv(total_results,fs::path(dir.results,"Pooled_CROCODILE_PENGUIN_Prot_Quanterix_Linear_Regression_Adj_Log2_Proteins.csv"))
+
+sig_results <- total_results_adj %>% 
+  filter(fdr.sig=="*")
+
+```
+
+```{r,include=T,echo=F}
+#Scatterplots 
+pdf(fs::path(dir.results,"Pooled_CROCODILE_PENGUIN_Prot_Quanterix_Scatterplots_Log2_Proteins_Sig_Adj.pdf"))
+for (y in sig_quant) {
+  for(x in sig_proteins) {
+    p <- ggplot(data= data_plasma, aes(x = .data[[x]], y = .data[[y]])) +
+      geom_point()+
+      geom_smooth(method="lm",se=F) +
+      # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")) +
+      labs(
+        title = paste0(y," vs. ",x),
+        x = x,
+        y = y
+      ) +
+      theme_classic()
+    print(p)
+  }
+}
+dev.off()
+```
+
+##### ii. Interaction with Disease Status
+```{r}
+#Adj. Age, Sex, Interaction with Disease Status
+total_results_adj <- data.frame()
+for (y in qx_var) {
+  for(x in log2_proteins) {
+    m0 <- as.formula(paste0(y,"~ ",x,"*group+age+sex"))
+    model0 <- lm(m0,data=data_plasma)
+    beta <- summary(model0)$coef[2,1]
+    pval <- summary(model0)$coef[2,4]
+    sig <- ifelse(pval<0.05,"*","")
+    intPKD <- summary(model0)$coef[7,1]
+    pvalPKD <- summary(model0)$coef[7,4]
+    sigPKD <- ifelse(pvalPKD<0.05,"*","")
+    intT1D <- summary(model0)$coef[8,1]
+    pvalT1D <- summary(model0)$coef[8,4]
+    sigT1D <- ifelse(pvalT1D<0.05,"*","")
+    results_adj <- data.frame(Biomarker=y,Protein=names(model0$coefficients[2]),Beta=beta,PValue=pval,Significant=sig,BetaPKD=intPKD,PValuePKD=pvalPKD,sigPKD,BetaT1D=intT1D,PValueT1D=pvalT1D,sigT1D)
+    total_results_adj <- rbind(total_results_adj,results_adj)
+  }
+}
+# total_results <- total_results %>% 
+#   mutate(fdr=p.adjust(PValue,method="fdr")) %>% 
+#   mutate(fdr.sig = ifelse(fdr<0.05,"*","")) #44 sig proteins
+total_results_adj <- total_results_adj %>% 
+  group_by(Biomarker) %>%
+  mutate(fdr = p.adjust(PValue, method = "fdr")) %>%
+  mutate(fdrPKD=p.adjust(PValuePKD,method="fdr")) %>% 
+  mutate(fdrT1D=p.adjust(PValueT1D,method="fdr")) %>%
+  ungroup() %>% 
+  mutate(fdr.sig = ifelse(fdr<0.05,"*","")) %>%  #58 sig proteins after fdr
+  mutate(fdrPKD.sig = ifelse(fdrPKD<0.05,"*","")) %>% 
+  mutate(fdrT1D.sig = ifelse(fdrT1D<0.05,"*",""))
+write.csv(total_results_adj,fs::path(dir.results,"Pooled_CROCODILE_PENGUIN_Prot_Quanterix_Linear_Regression_Interaction_Log2_Proteins.csv"))
+
+sig_results <- total_results_adj %>% 
+  filter(fdr.sig=="*")
+
+```
+
+```{r,Heatmaps of significant results,include=T,echo=F}
+library(tidyverse)
+library(patchwork)
+library(pheatmap)
+library(ComplexHeatmap)
+library(circlize)
+library(gridExtra)
+
+# First, filter for any significant association
+sig_any <- total_results_adj %>%
+  filter(fdr.sig == "*" | fdrPKD.sig == "*" | fdrT1D.sig == "*")
+
+# Get unique proteins and biomarkers that have any significant association
+sig_proteins <- unique(sig_any$Protein)
+sig_biomarkers <- unique(sig_any$Biomarker)
+
+# Filter full results to only include these proteins and biomarkers
+filtered_results <- total_results_adj %>%
+  filter(Protein %in% sig_proteins & Biomarker %in% sig_biomarkers)
+
+# Prepare data for three heatmaps
+# Main effect
+main_effect_matrix <- filtered_results %>%
+  select(Biomarker, Protein, Beta) %>%
+  pivot_wider(names_from = Protein, values_from = Beta) %>%
+  column_to_rownames("Biomarker") %>%
+  as.matrix()
+
+main_sig_matrix <- filtered_results %>%
+  select(Biomarker, Protein, fdr.sig) %>%
+  pivot_wider(names_from = Protein, values_from = fdr.sig, values_fill = "") %>%
+  column_to_rownames("Biomarker") %>%
+  as.matrix()
+
+# PKD interaction
+pkd_matrix <- filtered_results %>%
+  select(Biomarker, Protein, BetaPKD) %>%
+  pivot_wider(names_from = Protein, values_from = BetaPKD) %>%
+  column_to_rownames("Biomarker") %>%
+  as.matrix()
+
+pkd_sig_matrix <- filtered_results %>%
+  select(Biomarker, Protein, fdrPKD.sig) %>%
+  pivot_wider(names_from = Protein, values_from = fdrPKD.sig, values_fill = "") %>%
+  column_to_rownames("Biomarker") %>%
+  as.matrix()
+
+# T1D interaction
+t1d_matrix <- filtered_results %>%
+  select(Biomarker, Protein, BetaT1D) %>%
+  pivot_wider(names_from = Protein, values_from = BetaT1D) %>%
+  column_to_rownames("Biomarker") %>%
+  as.matrix()
+
+t1d_sig_matrix <- filtered_results %>%
+  select(Biomarker, Protein, fdrT1D.sig) %>%
+  pivot_wider(names_from = Protein, values_from = fdrT1D.sig, values_fill = "") %>%
+  column_to_rownames("Biomarker") %>%
+  as.matrix()
+
+# Define color palette
+color_palette <- colorRampPalette(c("#6A0DAD", "#9370DB", "#E6E6FA", "white", "#FFE4B5", "#FFA500", "#FF8C00"))(100)
+
+# Option 1: Using ComplexHeatmap for side-by-side display
+col_fun <- colorRamp2(c(-0.5, 0, 0.8), c("#6A0DAD", "white", "#FF8C00"))
+
+# Create cell functions for each heatmap
+cell_fun_main <- function(j, i, x, y, width, height, fill) {
+  if(main_sig_matrix[i, j] == "*") {
+    grid.text("*", x = x, y = y, gp = gpar(fontsize = 12, fontface = "bold"))
+  }
+}
+
+cell_fun_pkd <- function(j, i, x, y, width, height, fill) {
+  if(pkd_sig_matrix[i, j] == "*") {
+    grid.text("*", x = x, y = y, gp = gpar(fontsize = 12, fontface = "bold"))
+  }
+}
+
+cell_fun_t1d <- function(j, i, x, y, width, height, fill) {
+  if(t1d_sig_matrix[i, j] == "*") {
+    grid.text("*", x = x, y = y, gp = gpar(fontsize = 12, fontface = "bold"))
+  }
+}
+
+# Create the three heatmaps
+ht1 <- Heatmap(main_effect_matrix,
+               name = "Main Effect",
+               col = col_fun,
+               cell_fun = cell_fun_main,
+               column_title = "Main Effect",
+               row_names_side = "left",
+               column_names_side = "bottom",
+               column_names_rot = 90,
+               column_names_gp = gpar(fontsize = 8),
+               row_names_gp = gpar(fontsize = 10))
+
+ht2 <- Heatmap(pkd_matrix,
+               name = "PKD Interaction",
+               col = col_fun,
+               cell_fun = cell_fun_pkd,
+               column_title = "PKD Interaction",
+               show_row_names = FALSE,
+               column_names_side = "bottom",
+               column_names_rot = 90,
+               column_names_gp = gpar(fontsize = 8))
+
+ht3 <- Heatmap(t1d_matrix,
+               name = "T1D Interaction",
+               col = col_fun,
+               cell_fun = cell_fun_t1d,
+               column_title = "T1D Interaction",
+               show_row_names = FALSE,
+               column_names_side = "bottom",
+               column_names_rot = 90,
+               column_names_gp = gpar(fontsize = 8))
+
+# Draw side by side
+ht_list <- ht1 + ht2 + ht3
+draw(ht_list, ht_gap = unit(5, "mm"))
+
+# Option 2: Using ggplot2 with faceting
+# Prepare long format data
+plot_data <- filtered_results %>%
+  select(Biomarker, Protein, Beta, fdr.sig, BetaPKD, fdrPKD.sig, BetaT1D, fdrT1D.sig) %>%
+  pivot_longer(cols = c(Beta, BetaPKD, BetaT1D),
+               names_to = "Effect_Type",
+               values_to = "Beta_Value") %>%
+  mutate(Significance = case_when(
+    Effect_Type == "Beta" ~ fdr.sig,
+    Effect_Type == "BetaPKD" ~ fdrPKD.sig,
+    Effect_Type == "BetaT1D" ~ fdrT1D.sig
+  )) %>%
+  mutate(Effect_Type = factor(Effect_Type, 
+                              levels = c("Beta", "BetaPKD", "BetaT1D"),
+                              labels = c("Main Effect", "PKD Interaction", "T1D Interaction")))
+
+# Scale by group and biomarker
+plot_data <- plot_data %>%
+  group_by(Effect_Type, Biomarker) %>%
+  mutate(Beta_scaled = scale(Beta_Value)[,1]) %>%
+  ungroup()
+
+# Create faceted heatmap
+p <- ggplot(plot_data, aes(x = Protein, y = Biomarker, fill = Beta_scaled)) +
+  geom_tile(color = "white", size = 0.1) +
+  geom_text(aes(label = Significance), size = 4, fontface = "bold") +
+  scale_fill_gradient2(low = "#6A0DAD", mid = "white", high = "#FF8C00", 
+                       midpoint = 0, 
+                       na.value = "grey90",
+                       name = "Beta\n(scaled)") +
+  facet_wrap(~ Effect_Type, scales = "free_x", nrow = 1) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 8),
+        axis.text.y = element_text(size = 10),
+        axis.title = element_blank(),
+        panel.grid = element_blank(),
+        strip.text = element_text(size = 12, face = "bold"),
+        legend.position = "right") +
+  ggtitle("Protein-Biomarker Associations with Disease Interactions")
+
+print(p)
+
+# Save the plot
+ggsave(fs::path(dir.results, "Interaction_Heatmaps_Faceted.pdf"), 
+       plot = p, width = 18, height = 6)
+
+# Option 3: Three separate pheatmaps arranged side by side
+p1 <- pheatmap(main_effect_matrix,
+               color = color_palette,
+               scale = "row",
+               clustering_distance_rows = "euclidean",
+               clustering_distance_cols = "euclidean",
+               clustering_method = "complete",
+               show_rownames = TRUE,
+               show_colnames = TRUE,
+               fontsize_row = 10,
+               fontsize_col = 8,
+               angle_col = 90,
+               main = "Main Effect",
+               border_color = NA,
+               display_numbers = main_sig_matrix,
+               number_color = "black",
+               fontsize_number = 10,
+               silent = TRUE)
+
+p2 <- pheatmap(pkd_matrix,
+               color = color_palette,
+               scale = "row",
+               clustering_distance_rows = "euclidean",
+               clustering_distance_cols = "euclidean",
+               clustering_method = "complete",
+               show_rownames = FALSE,
+               show_colnames = TRUE,
+               fontsize_col = 8,
+               angle_col = 90,
+               main = "PKD Interaction",
+               border_color = NA,
+               display_numbers = pkd_sig_matrix,
+               number_color = "black",
+               fontsize_number = 10,
+               silent = TRUE)
+
+p3 <- pheatmap(t1d_matrix,
+               color = color_palette,
+               scale = "row",
+               clustering_distance_rows = "euclidean",
+               clustering_distance_cols = "euclidean",
+               clustering_method = "complete",
+               show_rownames = FALSE,
+               show_colnames = TRUE,
+               fontsize_col = 8,
+               angle_col = 90,
+               main = "T1D Interaction",
+               border_color = NA,
+               display_numbers = t1d_sig_matrix,
+               number_color = "black",
+               fontsize_number = 10,
+               silent = TRUE)
+
+# Arrange side by side
+library(gridExtra)
+grid.arrange(p1[[4]], p2[[4]], p3[[4]], ncol = 3)
+
+
+```
+
+#### 4) Pooled CROCODILE (LC) & PENGUIN (PKD)
+
+------------------------------------------------------------------------
+
+### B. RENAL-HEIR & RENAL-HEIRitage

@@ -1,0 +1,3085 @@
+---
+title: "Multi-omics Integration Analysis with Brain Biomarkers & Diabetes Duration"
+author: "Hailey Hampson"
+date: "2024-04-02"
+output: html_document
+---
+
+#1. Set Up R Markdown 
+```{r setup, include=FALSE, echo=FALSE}
+#Load Libraries 
+source("Libraries.R")
+
+# #Load Functions
+# source("Functions.R")
+
+#Directories
+#Mac Studio 
+dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Brain Biomarkers and Proteomics/Results")
+#Macbook
+# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
+# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Brain Biomarkers and Proteomics/Results")
+```
+
+#2. Load & Clean Data
+```{r load clean data, include=FALSE, echo=FALSE}
+#Load Data
+dat_harm <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","soma_harmonized_dataset.csv"))
+dat_harm2 <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"))
+
+#- **Quanterix Note:**
+# - 2022 shipment was plasma (CROCODILE)
+# - 2023 shipment was serum (RH2)
+# - 2022 shipment was plasma (PENGUIN)
+
+#Filter to CROCODILE & Diabetes - heatmap for beta 
+CROC <- dat_harm %>% 
+  filter(study=="CROCODILE")  
+PENG <- dat_harm %>% 
+  filter(study=="PENGUIN")
+RH <- dat_harm %>%
+  filter(study=="RENAL-HEIR" | study=="RENAL-HEIRitage")
+RH2 <- dat_harm2 %>% 
+  filter(study=="RENAL-HEIR" | study=="RENAL-HEIRitage")
+```
+
+##a. CROCODILE
+```{r}
+#Metabolomics & proteomics
+#Select metabolomics data
+met.names <- c("record_id",colnames(CROC)[which(startsWith(colnames(CROC),"c0") | startsWith(colnames(CROC),"c1"))])
+met <- CROC %>%
+  filter(procedure == "metabolomics_blood") %>% #Filter to metabolomics measurement
+  dplyr::select(all_of(met.names)) #Select only metabolite features
+met <- met %>% #Remove metabolites with missing data
+  dplyr::select(where(~ !all(is.na(.))))
+metabolites <- colnames(met)[-1]
+#Select proteomics data
+prot.names <- c("record_id",colnames(CROC)[which(grepl("seq.",colnames(CROC)))])
+prot <- CROC %>% 
+  filter(procedure == "metabolomics_blood") %>% #Proteomics available for all measurements, select one arbitrarily)
+  dplyr::select(all_of(prot.names)) #Select only protein features
+#CRC-53 & CRC-60 missing proteomics data
+proteins <- prot.names[-1]
+rm(prot.names)
+rm(met.names)
+
+#Brain biomarkers
+brain <- CROC %>% 
+  filter(procedure=="brain_biomarkers") %>% 
+  dplyr::select(record_id,ab40_avg_conc,ab42_avg_conc,
+                tau_avg_conc,nfl_avg_conc,gfap_avg_conc,
+                ptau_181_avg_conc,ptau_217_avg_conc) %>% 
+  filter(!is.na(ab40_avg_conc))
+
+#Select covariates
+# What covariates to adjust for? Age, sex, disease status (lean controls, obese, type 1 and pkd, type 2), maybe ACEi/ARB & RAASi (if controls on these medications, otherwide no)
+#     1. Adjusting 
+#     2. Interaction/stratifying
+cov1 <- CROC %>% 
+  filter(procedure=="physical_exam") %>%
+  dplyr::select(record_id,procedure,diabetes_duration,group,age,sex,bmi,race_ethnicity) %>% 
+  filter(record_id %in% brain$record_id) %>% 
+  dplyr::select(-procedure)
+cov2 <- CROC %>% 
+  filter(procedure=="medications") %>%
+  dplyr::select(record_id,procedure,ace_inhibitor,angiotensin_receptor_blocker,insulin_injections_timepoint,insulin_med_timepoint) %>% 
+  filter(record_id %in% brain$record_id) %>% 
+  dplyr::select(-procedure)
+cov3 <- CROC %>% 
+  filter(procedure=="epic_medications") %>% 
+  dplyr::select(record_id,procedure,epic_glp1ra_1,epic_sglti2_1) %>% 
+  filter(record_id %in% brain$record_id)%>% 
+  dplyr::select(-procedure)
+
+
+#Combine datasets
+dat <- tidylog::left_join(cov1,cov2,by="record_id")
+dat <- tidylog::left_join(dat,cov3,by="record_id")
+dat <- tidylog::left_join(dat,brain,by="record_id")
+dat <- tidylog::left_join(dat,prot,by="record_id")
+dat <- tidylog::left_join(dat,met,by="record_id")
+
+#ALl croc not on glp 1s or sglt2s
+dat_CROC <- dat
+rm(brain,cov1,cov2,cov3,met,prot,dat)
+table1(~age+sex+bmi+ace_inhibitor+angiotensin_receptor_blocker+insulin_injections_timepoint+
+         insulin_med_timepoint+diabetes_duration |group,data=dat_CROC,overall=F)
+
+# #Make Covariates factors
+# dat <- dat %>% 
+#   mutate(diabetes_status=as.factor(ifelse(group=="Lean Control",0,1))) %>% #0 = Lean Control, 1 = Type 1
+#   mutate(sex=as.factor(sex),
+#          race_ethnicity=as.factor(race_ethnicity))
+```
+
+##b. PENGUIN
+```{r}
+#Metabolomics & proteomics
+# #Select metabolomics data
+# met.names <- c("record_id",colnames(PENG)[which(startsWith(colnames(PENG),"c0") | startsWith(colnames(PENG),"c1"))])
+# met <- PENG %>%
+#   filter(procedure == "metabolomics_blood") %>% #Filter to metabolomics measurement
+#   dplyr::select(all_of(met.names)) #Select only metabolite features
+# met <- met %>% #Remove metabolites with missing data
+#   dplyr::select(where(~ !all(is.na(.))))
+# metabolites <- colnames(met)[-1]
+#Select proteomics data
+prot.names <- c("record_id",colnames(PENG)[which(grepl("seq.",colnames(PENG)))])
+prot <- PENG %>%
+  filter(procedure == "metabolomics_blood") %>% #Proteomics available for all measurements, select one arbitrarily)
+  dplyr::select(all_of(prot.names)) #Select only protein features
+#CRC-53 & CRC-60 missing proteomics data
+proteins <- prot.names[-1]
+rm(prot.names)
+# rm(met.names)
+
+#Brain biomarkers
+brain <- PENG %>% 
+  filter(procedure=="neuro_markers") %>% 
+  dplyr::select(record_id,ab40_avg_conc,ab42_avg_conc,
+                tau_avg_conc,nfl_avg_conc,gfap_avg_conc,
+                ptau_181_avg_conc,ptau_217_avg_conc) %>% 
+  filter(!is.na(ab40_avg_conc))
+
+#Select covariates
+# What covariates to adjust for? Age, sex, disease status (controls, type 1 and pkd), maybe ACEi/ARB & RAASi (if controls on these medications, otherwide no)
+#     1. Adjusting 
+#     2. Interaction/stratifying
+cov1 <- PENG %>% 
+  filter(procedure=="physical_exam") %>%
+  dplyr::select(record_id,procedure,diabetes_duration,group,age,sex,bmi,race_ethnicity) %>% 
+  filter(record_id %in% brain$record_id) %>% 
+  dplyr::select(-procedure)
+cov2 <- PENG %>% 
+  filter(procedure=="medications") %>%
+  dplyr::select(record_id,procedure,ace_inhibitor,angiotensin_receptor_blocker,insulin_injections_timepoint,insulin_med_timepoint) %>% 
+  filter(record_id %in% brain$record_id) %>% 
+  dplyr::select(-procedure)
+cov3 <- PENG %>% 
+  filter(procedure=="epic_medications") %>% 
+  dplyr::select(record_id,procedure,epic_glp1ra_1,epic_sglti2_1) %>% 
+  filter(record_id %in% brain$record_id)%>% 
+  dplyr::select(-procedure)
+
+
+#Combine datasets
+dat <- tidylog::left_join(cov1,cov2,by="record_id")
+dat <- tidylog::left_join(dat,cov3,by="record_id")
+dat <- tidylog::left_join(dat,brain,by="record_id")
+dat <- tidylog::left_join(dat,prot,by="record_id")
+# dat <- tidylog::left_join(dat,met,by="record_id")
+
+#ALl croc not on glp 1s or sglt2s
+dat_PENG <- dat
+rm(brain,cov1,cov2,cov3,met,prot,dat)
+table1(~age+sex+bmi+ace_inhibitor+angiotensin_receptor_blocker+insulin_injections_timepoint+
+         insulin_med_timepoint+diabetes_duration |group,data=dat_PENG,overall=F)
+
+
+# #Make Covariates factors
+# dat <- dat %>% 
+#   mutate(diabetes_status=as.factor(ifelse(group=="Lean Control",0,1))) %>% #0 = Lean Control, 1 = Type 1
+#   mutate(sex=as.factor(sex),
+#          race_ethnicity=as.factor(race_ethnicity))
+```
+
+
+##c. RH/RH2
+```{r}
+#Metabolomics & proteomics
+# Select metabolomics data
+met.names <- c("record_id",colnames(RH)[which(startsWith(colnames(RH),"c0") | startsWith(colnames(RH),"c1"))])
+met <- RH %>%
+  filter(procedure == "plasma_metab") %>% #Filter to metabolomics measurement
+  dplyr::select(all_of(met.names)) #Select only metabolite features
+met <- met %>% #Remove metabolites with missing data
+  dplyr::select(where(~ !all(is.na(.))))
+metabolites <- colnames(met)[-1]
+#Select proteomics data
+prot.names <- c("record_id",colnames(RH)[which(grepl("seq.",colnames(RH)))])
+prot <- RH %>%
+  filter(procedure == "plasma_metab") %>% #Proteomics available for all measurements, select one arbitrarily)
+  dplyr::select(all_of(prot.names)) #Select only protein features
+#CRC-53 & CRC-60 missing proteomics data
+proteins <- prot.names[-1]
+rm(prot.names)
+# rm(met.names)
+
+#Brain biomarkers
+brain <- RH2 %>% 
+  filter(procedure=="neuro_markers") %>% 
+  dplyr::select(record_id,ab40_avg_conc,ab42_avg_conc,
+                tau_avg_conc,nfl_avg_conc,gfap_avg_conc,
+                ptau_181_avg_conc,ptau_217_avg_conc) %>% 
+  filter(!is.na(ab40_avg_conc))
+
+#Select covariates
+# What covariates to adjust for? Age, sex, disease status (controls, type 1 and pkd), maybe ACEi/ARB & RAASi (if controls on these medications, otherwide no)
+#     1. Adjusting 
+#     2. Interaction/stratifying
+#Select covariates
+# What covariates to adjust for? Age, sex, disease status (controls, type 1 and pkd), maybe ACEi/ARB & RAASi (if controls on these medications, otherwide no)
+#     1. Adjusting 
+#     2. Interaction/stratifying
+cov1 <- RH %>% 
+  filter(procedure=="physical_exam") %>%
+  dplyr::select(record_id,procedure,diabetes_duration,group,age,sex,bmi,race_ethnicity) %>% 
+  filter(record_id %in% brain$record_id) %>% 
+  dplyr::select(-procedure)
+cov2 <- RH %>% 
+  filter(procedure=="medications") %>%
+  dplyr::select(record_id,procedure,ace_inhibitor,angiotensin_receptor_blocker,insulin_injections_timepoint,insulin_med_timepoint) %>% 
+  filter(record_id %in% brain$record_id) %>% 
+  dplyr::select(-procedure)
+cov3 <- RH %>% 
+  filter(procedure=="epic_medications") %>% 
+  dplyr::select(record_id,procedure,epic_glp1ra_1,epic_sglti2_1) %>% 
+  filter(record_id %in% brain$record_id)%>% 
+  dplyr::select(-procedure)
+
+
+#Combine datasets
+dat <- tidylog::left_join(cov1,cov2,by="record_id")
+dat <- tidylog::left_join(dat,cov3,by="record_id")
+# dat <- tidylog::left_join(dat,brain,by="record_id")
+# dat <- tidylog::left_join(dat,prot,by="record_id")
+# dat <- tidylog::left_join(dat,met,by="record_id")
+
+#ALl croc not on glp 1s or sglt2s
+dat_RH <- dat
+# rm(brain,cov1,cov2,cov3,met,prot,dat)
+table1(~age+sex+bmi+ace_inhibitor+angiotensin_receptor_blocker+insulin_injections_timepoint+
+         insulin_med_timepoint+diabetes_duration |group,data=dat_RH,overall=F)
+
+# #Make Covariates factors
+# dat <- dat %>% 
+#   mutate(diabetes_status=as.factor(ifelse(group=="Lean Control",0,1))) %>% #0 = Lean Control, 1 = Type 1
+#   mutate(sex=as.factor(sex),
+#          race_ethnicity=as.factor(race_ethnicity))
+```
+#5. Analysis
+##a. CROCODILE 
+###i. All points
+```{r}
+exposure <- c(proteins,metabolites)
+outcome  <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
+              "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
+covars <- c("age","sex","group")
+#Log transform all exposure variables: 
+dat_CROC <- dat_CROC %>% 
+  mutate(across(all_of(exposure),~log(.),.names = "{.col}_log"))
+dat_CROC <- dat_CROC %>% 
+  mutate(across(all_of(exposure),~((.-mean(.,na.rm=T))/sd(.,na.rm=T)),.names = "{.col}_scale"))
+exposure_scale <- paste0(exposure,"_scale")
+dat_CROC <- dat_CROC %>% 
+  mutate(across(all_of(exposure_scale),~((.-mean(.,na.rm=T))/sd(.,na.rm=T)),.names = "{.col}_log"))
+
+exposure_log <- paste0(exposure,"_log")
+exposure_log_scale <- paste0(exposure_scale,"_log")
+dat_CROC <- dat_CROC %>% 
+  mutate(across(all_of(outcome),~((.-mean(.,na.rm=T))/sd(.,na.rm=T)),.names = "{.col}_scale"))
+outcome_scale <- paste0(outcome,"_scale")
+
+#No Interaction Term with group
+results <- data.frame()
+for (feature in exposure_log_scale) {
+  for (biomarker in outcome_scale) {
+    M0 <- as.formula(paste0(biomarker,"~",feature,"+",paste(covars,collapse="+")))
+    M1 <- lm(M0,data=dat_CROC)
+    Beta <- summary(M1)$coef[2,1]
+    Pval <- summary(M1)$coef[2,4]
+    lm_results <- data.frame(Feature=feature,Biomarker=biomarker,Beta=Beta,Pval=Pval)
+    results <- rbind(results,lm_results)
+  }
+}
+results <- results %>% 
+  mutate(fdr=p.adjust(Pval,method="fdr")) %>% 
+  mutate(sig=ifelse(fdr<0.05,"*",""))
+write.csv(results,fs::path(dir.results,"Brain_Biomarkers_Proteomics_Metabolomics_Adj_Results_Log_Scale.csv"))
+sig <- results %>% 
+  filter(fdr<0.05)
+write.csv(results,fs::path(dir.results,"Brain_Biomarkers_Proteomics_Metabolomics_Adj_Sig_Results_Log_Scale.csv"))
+
+
+#Make figures
+for (i in 1:length(sig$Feature)) {
+  feature <- sig$Feature[i]
+  biomarker <- sig$Biomarker[i]
+  beta <- round(sig$Beta[i],6)
+  pval <- round(sig$fdr[i],6)
+  p <- ggplot(dat_CROC,aes(x=.data[[feature]],y=.data[[biomarker]])) +
+    geom_point()+
+    geom_smooth(method="lm",se=F)+
+    theme_bw()+
+    labs(title=paste0(biomarker," vs. ",feature),
+         subtitle=paste0("Log Beta = ",beta,", Adj. P-Val =",pval))
+  pdf(fs::path(dir.results,paste0("Log_Scatterplot_",biomarker,"_vs_",feature,".pdf")))
+  print(p)
+  dev.off()
+}
+
+#Interaction Term with group
+results_int <- data.frame()
+covars <- c("age","sex")
+dat_CROC$group <- factor(dat_CROC$group)
+for (feature in exposure) {
+  for (biomarker in outcome) {
+    M0 <- as.formula(paste0(biomarker,"~",feature,"*group +",paste(covars,collapse="+")))
+    M1 <- lm(M0,data=dat_CROC)
+    Beta <- summary(M1)$coef[2,1]
+    Pval <- summary(M1)$coef[2,4]
+    Int <- summary(M1)$coef[6,1]
+    Int_Pval <- summary(M1)$coef[6,4]
+    lm_results <- data.frame(Feature=feature,Biomarker=biomarker,Beta=Beta,Pval=Pval,Int=Int,Int_Pval=Int_Pval)
+    results_int <- rbind(results_int,lm_results)
+  }
+}
+results_int <- results_int %>% 
+  mutate(fdr=p.adjust(Pval,method="fdr")) %>% 
+  mutate(sig=ifelse(fdr<0.1,"*","")) %>% 
+  mutate(fdr_int=p.adjust(Int_Pval,method="fdr")) %>% 
+  mutate(sig_fdr=ifelse(fdr_int<0.1,"*",""))
+write.csv(results_int,fs::path(dir.results,"Brain_Biomarkers_Log_Proteomics_Log_Metabolomics_Interaction_Adj_Results.csv"))
+sig_int <- results_int %>%
+  filter(sig=="*" | sig_fdr=="*")
+write.csv(results,fs::path(dir.results,"Brain_Biomarkers_Log_Proteomics_Log_Metabolomics_Interaction_Adj_Sig_Results.csv"))
+
+
+#Make figures
+for (i in 1:length(sig_int$Feature)) {
+  feature <- sig_int$Feature[i]
+  biomarker <- sig_int$Biomarker[i]
+  beta <- round(sig_int$Beta[i],6)
+  pval <- round(sig_int$fdr[i],6)
+  p <- ggplot(dat_CROC,aes(x=.data[[feature]],y=.data[[biomarker]])) +
+    geom_point()+
+    geom_smooth(method="lm",se=F)+
+    theme_bw()+
+    labs(title=paste0(biomarker," vs. ",feature),
+         subtitle=paste0("Beta = ",beta,", Adj. P-Val =",pval))
+  pdf(fs::path(dir.results,paste0("Log_Scatterplot_",biomarker,"_vs_",feature,"Main_Term.pdf")))
+  print(p_int)
+  dev.off()
+  feature <- sig_int$Feature[i]
+  biomarker <- sig_int$Biomarker[i]
+  beta <- round(sig_int$Int[i],6)
+  pval <- round(sig_int$fdr_int[i],6)
+  p_int <- ggplot(dat_CROC,aes(x=.data[[feature]],y=.data[[biomarker]])) +
+    geom_point()+
+    geom_smooth(method="lm",se=F)+
+    theme_bw()+
+    labs(title=paste0(biomarker," vs. ",feature),
+         subtitle=paste0("Log Interaction Term Beta = ",beta,", Adj. P-Val =",pval))
+  pdf(fs::path(dir.results,paste0("Log_Scatterplot_",biomarker,"_vs_",feature,"Interaction_Term.pdf")))
+  print(p_int)
+  dev.off()
+}
+
+# Ensure Feature and Biomarker are factors to maintain order
+df <- results_int %>%
+  mutate(Feature = factor(Feature, levels = unique(Feature)),
+         Biomarker = factor(Biomarker, levels = unique(Biomarker)))
+sig_data <- sig
+prot <- df %>%
+  filter(grepl("seq.", Feature)) %>%
+  filter(Feature %in% unique(sig_data$Feature)) %>%
+  filter(Biomarker %in% unique(sig_data$Biomarker))
+# Create the heatmap
+heatmap <- ggplot(prot, aes(x = Feature, y = Biomarker, fill = Beta)) +
+  geom_tile(color = "white") +  # White grid lines between tiles
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) + # Color scale for Beta
+  theme_minimal() +
+  labs(title = "Protein-Brain Biomarker Heatmap",
+       x = "Protein",
+       y = "Brain Biomarker",
+       fill = "Beta") +  # Legend title
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for readability
+
+pdf(fs::path(dir.results,"Proteomics_Brain_Heatmap_Log_Scaled.pdf"),width=20,height = 20)
+print(heatmap)
+dev.off()
+
+# Convert data into a matrix format for clustering
+heatmap_data <- prot %>%
+ dplyr::select(Feature, Biomarker, Beta) 
+heatmap
+# Extract row names
+rownames(heatmap_data) <- heatmap_data$Biomarker
+heatmap_data <- heatmap_data[, -1]  # Remove Biomarker column after setting rownames
+
+# Perform hierarchical clustering
+row_dist <- dist(heatmap_data)  # Distance between rows (Biomarkers)
+col_dist <- dist(t(heatmap_data))  # Distance between columns (Features)
+
+row_clust <- hclust(row_dist)  # Hierarchical clustering for rows
+col_clust <- hclust(col_dist)  # Hierarchical clustering for columns
+
+# Reorder rows and columns based on clustering
+ordered_rows <- rownames(heatmap_data)[row_clust$order]
+ordered_cols <- colnames(heatmap_data)[col_clust$order]
+
+# Update factor levels to enforce clustering order
+prot$Biomarker <- factor(prot$Biomarker, levels = ordered_rows)
+prot$Feature <- factor(prot$Feature, levels = ordered_cols)
+
+# Replot heatmap with clustering
+heatmap <- ggplot(prot, aes(x = Feature, y = Biomarker, fill = Beta)) +
+  geom_tile(color = "white") +  # White grid lines between tiles
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) + # Color scale
+  theme_minimal() +
+  labs(title = "Clustered Protein-Brain Biomarker Heatmap",
+       x = "Protein",
+       y = "Brain Biomarker",
+       fill = "Beta") +  # Legend title
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+###ii. Remove potential outliers
+```{r}
+#All >3SD above the mean
+#CRC-38: Nfl = 29.252430
+#CRC-2: Tau = 10.031890
+#CRC-43: Tau = 9.160396
+
+dat_CROC2 <- dat_CROC %>% 
+  mutate(tau_avg_conc=ifelse(tau_avg_conc>=9.160396,NA,tau_avg_conc)) %>% 
+  mutate(nfl_avg_conc=ifelse(nfl_avg_conc>=29.252430,NA,nfl_avg_conc))
+
+exposure <- c(proteins,metabolites)
+outcome  <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
+              "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
+covars <- c("age","sex","group")
+#Log transform all exposure variables: 
+dat_CROC2 <- dat_CROC2 %>% 
+  mutate(across(all_of(exposure),~log(.),.names = "{.col}_log"))
+dat_CROC2 <- dat_CROC2 %>% 
+  mutate(across(all_of(exposure),~((.-mean(.,na.rm=T))/sd(.,na.rm=T)),.names = "{.col}_scale"))
+exposure_scale <- paste0(exposure,"_scale")
+dat_CROC2 <- dat_CROC2 %>% 
+  mutate(across(all_of(exposure_scale),~((.-mean(.,na.rm=T))/sd(.,na.rm=T)),.names = "{.col}_log"))
+
+exposure_log <- paste0(exposure,"_log")
+exposure_log_scale <- paste0(exposure_scale,"_log")
+dat_CROC2 <- dat_CROC2 %>% 
+  mutate(across(all_of(outcome),~((.-mean(.,na.rm=T))/sd(.,na.rm=T)),.names = "{.col}_scale"))
+outcome_scale <- paste0(outcome,"_scale")
+
+#No Interaction Term with group
+results <- data.frame()
+for (feature in exposure_log_scale) {
+  for (biomarker in outcome_scale) {
+    M0 <- as.formula(paste0(biomarker,"~",feature,"+",paste(covars,collapse="+")))
+    M1 <- lm(M0,data=dat_CROC2)
+    Beta <- summary(M1)$coef[2,1]
+    Pval <- summary(M1)$coef[2,4]
+    lm_results <- data.frame(Feature=feature,Biomarker=biomarker,Beta=Beta,Pval=Pval)
+    results <- rbind(results,lm_results)
+  }
+}
+results <- results %>% 
+  mutate(fdr=p.adjust(Pval,method="fdr")) %>% 
+  mutate(sig=ifelse(fdr<0.05,"*",""))
+write.csv(results,fs::path(dir.results,"Brain_Biomarkers_Proteomics_Metabolomics_Adj_Results_Log_Scale_no_outlier.csv"))
+sig <- results %>% 
+  filter(fdr<0.05)
+write.csv(results,fs::path(dir.results,"Brain_Biomarkers_Proteomics_Metabolomics_Adj_Sig_Results_Log_Scale_no_outlier.csv"))
+
+
+#Make figures
+for (i in 1:length(sig$Feature)) {
+  feature <- sig$Feature[i]
+  biomarker <- sig$Biomarker[i]
+  beta <- round(sig$Beta[i],6)
+  pval <- round(sig$fdr[i],6)
+  p <- ggplot(dat_CROC2,aes(x=.data[[feature]],y=.data[[biomarker]])) +
+    geom_point()+
+    geom_smooth(method="lm",se=F)+
+    theme_bw()+
+    labs(title=paste0(biomarker," vs. ",feature),
+         subtitle=paste0("Log Beta = ",beta,", Adj. P-Val =",pval))
+  pdf(fs::path(dir.results,paste0("Log_Scatterplot_",biomarker,"_vs_",feature,"_no_outlier_.pdf")))
+  print(p)
+  dev.off()
+}
+
+#Interaction Term with group
+results_int <- data.frame()
+covars <- c("age","sex")
+dat_CROC$group <- factor(dat_CROC2$group)
+for (feature in exposure) {
+  for (biomarker in outcome) {
+    M0 <- as.formula(paste0(biomarker,"~",feature,"*group +",paste(covars,collapse="+")))
+    M1 <- lm(M0,data=dat_CROC2)
+    Beta <- summary(M1)$coef[2,1]
+    Pval <- summary(M1)$coef[2,4]
+    Int <- summary(M1)$coef[6,1]
+    Int_Pval <- summary(M1)$coef[6,4]
+    lm_results <- data.frame(Feature=feature,Biomarker=biomarker,Beta=Beta,Pval=Pval,Int=Int,Int_Pval=Int_Pval)
+    results_int <- rbind(results_int,lm_results)
+  }
+}
+results_int <- results_int %>% 
+  mutate(fdr=p.adjust(Pval,method="fdr")) %>% 
+  mutate(sig=ifelse(fdr<0.1,"*","")) %>% 
+  mutate(fdr_int=p.adjust(Int_Pval,method="fdr")) %>% 
+  mutate(sig_fdr=ifelse(fdr_int<0.1,"*",""))
+write.csv(results_int,fs::path(dir.results,"Brain_Biomarkers_Log_Proteomics_Log_Metabolomics_Interaction_Adj_Results_no_outlier.csv"))
+sig_int <- results_int %>%
+  filter(sig=="*" | sig_fdr=="*")
+write.csv(results,fs::path(dir.results,"Brain_Biomarkers_Log_Proteomics_Log_Metabolomics_Interaction_Adj_Sig_Results_no_outlier.csv"))
+
+
+#Make figures
+for (i in 1:length(sig_int$Feature)) {
+  feature <- sig_int$Feature[i]
+  biomarker <- sig_int$Biomarker[i]
+  beta <- round(sig_int$Beta[i],6)
+  pval <- round(sig_int$fdr[i],6)
+  p <- ggplot(dat_CROC2,aes(x=.data[[feature]],y=.data[[biomarker]])) +
+    geom_point()+
+    geom_smooth(method="lm",se=F)+
+    theme_bw()+
+    labs(title=paste0(biomarker," vs. ",feature),
+         subtitle=paste0("Beta = ",beta,", Adj. P-Val =",pval))
+  pdf(fs::path(dir.results,paste0("Log_Scatterplot_",biomarker,"_vs_",feature,"Main_Term_no_outlier.pdf")))
+  print(p_int)
+  dev.off()
+  feature <- sig_int$Feature[i]
+  biomarker <- sig_int$Biomarker[i]
+  beta <- round(sig_int$Int[i],6)
+  pval <- round(sig_int$fdr_int[i],6)
+  p_int <- ggplot(dat_CROC2,aes(x=.data[[feature]],y=.data[[biomarker]])) +
+    geom_point()+
+    geom_smooth(method="lm",se=F)+
+    theme_bw()+
+    labs(title=paste0(biomarker," vs. ",feature),
+         subtitle=paste0("Log Interaction Term Beta = ",beta,", Adj. P-Val =",pval))
+  pdf(fs::path(dir.results,paste0("Log_Scatterplot_",biomarker,"_vs_",feature,"Interaction_Term_no_outlier.pdf")))
+  print(p_int)
+  dev.off()
+}
+
+# Ensure Feature and Biomarker are factors to maintain order
+df <- results %>%
+  mutate(Feature = factor(Feature, levels = unique(Feature)),
+         Biomarker = factor(Biomarker, levels = unique(Biomarker)))
+sig_data <- sig
+prot <- df %>%
+  filter(grepl("seq.", Feature)) %>%
+  filter(Feature %in% unique(sig_data$Feature)) %>%
+  filter(Biomarker %in% unique(sig_data$Biomarker))
+# Create the heatmap
+heatmap <- ggplot(prot, aes(x = Feature, y = Biomarker, fill = Beta)) +
+  geom_tile(color = "white") +  # White grid lines between tiles
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) + # Color scale for Beta
+  theme_minimal() +
+  labs(title = "Protein-Brain Biomarker Heatmap",
+       x = "Protein",
+       y = "Brain Biomarker",
+       fill = "Beta") +  # Legend title
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for readability
+
+pdf(fs::path(dir.results,"Proteomics_Brain_Heatmap_Log_Scaled_no_outlier.pdf"),width=20,height = 20)
+print(heatmap)
+dev.off()
+
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+install.packages("dendextend")
+library(dendextend)
+
+# Assuming your dataframe is named df, with 'Feature', 'Biomarker', and 'Beta' columns
+sig_data <- sig
+
+# Filter the data as you have done
+prot <- df %>%
+  filter(grepl("seq.", Feature)) %>%
+  filter(Feature %in% unique(sig_data$Feature)) %>%
+  filter(Biomarker %in% unique(sig_data$Biomarker))
+
+# Prepare data matrix (Beta values) for clustering
+heatmap_data <- prot %>% 
+  dplyr::select(c("Feature","Biomarker","Beta")) %>% 
+  pivot_wider(names_from=Feature,values_from=Beta)
+heatmap_data_p <- prot %>% 
+  dplyr::select(c("Feature","Biomarker","fdr")) %>% 
+  pivot_wider(names_from=Feature,values_from=fdr)
+  
+heatmap_matrix <- heatmap_data %>% 
+  dplyr::select(-Biomarker)
+heatmap_matrix <- as.matrix(heatmap_matrix)
+rownames(heatmap_matrix) <- heatmap_data$Biomarker
+p <- pheatmap(heatmap_matrix,
+         display_numbers = TRUE,
+         number_color = "black", 
+         fontsize_number = 8)
+
+
+pdf(fs::path(dir.results,"Heatmap_with_betas.pdf"),width=10,height=10)
+print(p)
+dev.off()
+
+# Example Beta values for heatmap (replace with your actual matrix)
+heatmap_matrix <- matrix(rnorm(100), nrow = 10)  # Example matrix of Beta values
+
+p_value_matrix <- as.matrix(heatmap_data_p)
+rownames(p_value_matrix) <- heatmap_data$Biomarker
+p_value_matrix <- p_value_matrix[,-1]
+# Create a matrix for significance stars based on p-values
+significance_matrix <- matrix("", nrow = nrow(heatmap_matrix), ncol = ncol(heatmap_matrix))
+rownames(significance_matrix) <- rownames(heatmap_matrix) 
+colnames(significance_matrix) <- colnames(heatmap_matrix)
+
+# Assign stars based on p-value thresholds
+significance_matrix[p_value_matrix < 0.01] <- "**"  # Two stars for p-value < 0.01
+significance_matrix[p_value_matrix >= 0.01 & p_value_matrix < 0.05] <- "*"  # One star for p-value < 0.05
+significance_matrix[p_value_matrix >= 0.05] <- ""  # No significance (NS) for p-value >= 0.05
+
+pdf(fs::path(dir.results,"Heatmap_with_sig.pdf"),width=15,height=10)
+heatmap.2(heatmap_matrix,
+          #main = "Heatmap with heatmap.2",        # Title of the heatmap
+          trace = "none",                        # Remove the trace lines
+          col = colorRampPalette(c("blue", "white", "orange"))(100),  # Color scale
+          #col = colorRampPalette(c("blue", "yellow", "red"))(100),
+          #scale = "row",                         # Scale the data by row
+          dendrogram = "both",                   # Cluster both rows and columns
+          Rowv = TRUE,                           # Cluster rows
+          Colv = TRUE,                           # Cluster columns
+          key = TRUE,                            # Display color key/legend
+          cexRow = 0.8,                          # Adjust row labels size
+          cexCol = 0.8,                          # Adjust column labels size
+          cellnote = significance_matrix,    # Add numeric values inside cells
+          notecol = "black",                     # Color of the numbers inside the cells
+          main = "Heatmap with Annotations",      # Main title
+          margins = c(8, 8)                      # Adjust margins for readability
+)
+dev.off()
+```
+
+
+##a. Prepare Datasets for Analysis 
+```{r Prepare Datasets for Analysis , echo=F, include=F}
+# Define exposure and outcome names
+exposure <- c("diabetes_duration","diabetes_status")
+exposure_dat <- dat[exposure]
+#Scale continuous exposure
+exposure_dat <- exposure_dat %>% 
+  mutate(diabetes_duration=(diabetes_duration-mean(diabetes_duration))/sd(diabetes_duration))
+
+outcome  <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
+              "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
+outcome_dat  <- dat[outcome]
+#Scale outcome variables
+outcome_dat <- outcome_dat %>% 
+  mutate(across(all_of(outcome),~((.-mean(.,na.rm=T))/sd(.,na.rm=T))))
+
+# Get numeric matrix of covariates 
+covars <- c("age","sex","bmi","race_ethnicity")
+covs <- dat[covars]
+covs <- covs %>% 
+  mutate(sex=as.numeric(sex),
+         race_ethnicity=as.numeric(race_ethnicity))
+covs <- as.matrix(covs)
+covs[,c(1,3)] <- scale(covs[,c(1,3)]) #Scale continuous covariates
+
+
+#Create list of omics data 
+metabolomics <- dat[metabolites]
+metabolomics <- metabolomics %>% 
+  mutate(across(all_of(metabolites),~((.-mean(.,na.rm=T))/sd(.,na.rm=T))))
+
+proteomics <- dat[proteins]
+proteomics <- proteomics %>% 
+  mutate(across(all_of(proteins),~((.-mean(.,na.rm=T))/sd(.,na.rm=T))))
+
+omics_lst <- list(proteomics=proteomics,metabolomics = metabolomics)
+```
+
+##b. Exposure Outcome Analysis 
+```{r Analysis, include=FALSE,echo=FALSE}
+
+#1. Exposure - Outcome Analysis 
+# covars.reduced <- c("ma_age","ma_sex","ma_parental_edu","ma_race_eth","ma_CST3","fiber.adj","m_energy_kcal")
+exposure_log <- c("ma_pfos_log","ma_pfoa_log","ma_pfda_log","ma_pfna_log","ma_pfhxs_log",
+                  "ma_pfhps_log","ma_pfpes_log")
+exposure_log_scaled
+exposure <- str_remove(exposure_log,"_log")
+outcome_log <- c("eGFR3_log","mc_creatinine_log","cystatin_c_log")
+# "LCN2_log","mc_CST3_log",
+# outcome_log <- c("eGFR_log","mc_creatinine_log","LCN2_log")
+outcome_log_scaled <- outcome_log_scaled[-c(1,6)]
+covars <- c("ma_age","ma_sex","ma_race_eth","ma_parental_edu","ma_creatinine_scaled2") #"ma_bmi"
+#"ma_creatinine_scaled"
+burden_score <- c("burden_scaled","burden_scaled_pfcas","burden_scaled_pfsas")
+kidney <- c("kidney_binary1")
+pfna <- c("ma_pfna")
+# egfr <- c("eGFR1","eGFR2","eGFR3")
+egfr <- c("eGFR")
+exposures <- c(exposure_log_scaled,"burden_scaled")
+# outcome <- c("eGFR3","mc_creatinine","cystatin_c")
+exposure_scaled <- c(exposure_scaled[-9])
+exposure <- str_remove(exposure_log,"_log")
+exposure <- c(exposure,"eap.pfas")
+outcome <- c("eGFR2_log","cystatin_c_log","mc_creatinine_log")
+# meta_filt <- meta_filt %>%
+#   mutate(across(all_of(burden_score), ~log(.),.names = "{col}_log")) 
+
+meta_filt$kidney_binary1 <- as.factor(meta_filt$kidney_binary1)
+# outcome <- outcome_log_scaled[c(1,3,5)]
+covars2 <- covars[-c(6)]
+covariates <- paste0(covars,collapse=" + ")
+# covariates <- paste0(covars2,collapse=" + ")
+results <- data.frame()
+# pdf(fs::path(dir.results,"PFAS_Kidney_Outcomes_scatterplots_04_04.pdf"))
+for(x in exposures){
+  for (y in outcome){
+    # for(x in burden_score){
+    # for (y in outcome_log_scaled){
+    m1 <- as.formula(paste0(y, "~ ",x," + ",covariates))
+    lm_res <- lm(m1,data = meta_filt)
+    # lm_res <- glm(m1,data = meta_filt,family="binomial")
+    beta <- summary(lm_res)$coef[2,1]
+    pval <- round(summary(lm_res)$coef[2,4],3)
+    SE <- summary(lm_res)$coef[2,2]
+    ll <- (beta - (1.96*SE))
+    ul <- (beta + (1.96*SE))
+    beta <- round(exp(beta),3)
+    ll <- round(exp(ll),3)
+    ul <- round(exp(ul),3)
+    # p <- ggplot(data = meta, 
+    #             aes(x = .data[[x]], y = .data[[y]])) + 
+    #   geom_point() +
+    #   stat_smooth(method = "lm",
+    #               formula = y ~ x ,
+    #               geom = "smooth") +
+    #   xlab(paste0(x)) +
+    #   ylab(paste0(y))+
+    #   labs(subtitle=paste0("Beta = ",beta,", P-value = ",pval))+
+    #   theme_bw()
+    # plot(p)
+    
+    results.data <- data.frame(exposure=x,outcome=y,beta=beta,ll=ll,ul=ul,pval=pval)
+    results <- rbind(results,results.data)
+  }
+}
+sig <- results %>% 
+  filter(pval<0.05)
+# burdenscore.results <- results
+#Coefficient plot
+results$exposure <- str_remove(results$exposure,"ma_")
+# results$exposure <- str_remove(results$exposure,"_log_scaled")
+results$exposure <- str_remove(results$exposure,"_scaled")
+results$exposure <- str_to_upper(results$exposure)
+results$exposure <- str_replace(results$exposure,"PFHPS","PFHpS")
+results$exposure <- str_replace(results$exposure,"PFHXS","PFHxS")
+results$exposure <- str_replace(results$exposure,"PFPES","PFPeS")
+results$exposure <- str_replace(results$exposure,"BURDEN","Burden Score")
+
+results$outcome <- str_remove(results$outcome,"_log")
+results$outcome <- str_replace(results$outcome,"mc_creatinine","Creatinine")
+# results$outcome <- str_replace(results$outcome,"mc_CST3","CST3")
+results$outcome <- str_replace(results$outcome,"cystatin_c","Cystatin-C")
+results$outcome <- str_replace(results$outcome,"eGFR2","eGFR")
+# results$outcome <- str_replace(results$outcome,"Creatinine","Follow-up Creatinine")
+# results$outcome <- factor(results$outcome,levels=c("eGFR"))
+# results <- results %>% 
+#   filter(outcome=="eGFR")
+results$outcome <- factor(results$outcome,levels=unique(c(results$outcome)))
+
+results <- results[order(results$beta),]
+results$exposure <- factor(results$exposure,levels=c("Burden Score","PFHpS","PFNA","PFOS","PFOA","PFHxS","PFPeS","PFDA"))
+
+
+ggplot(aes(beta, exposure), data=results) +
+  geom_errorbarh(aes(xmin = ll, xmax = ul),height=0.4) +
+  geom_point() +
+  # add in a dotted line at zero
+  geom_vline(xintercept = 0, lty = 2) +
+  facet_wrap("outcome",scale="free_x")+
+  labs(
+    x = "Beta Coefficient (95% CI)"
+  )+
+  theme_bw()
+
+results <- results %>% 
+  mutate(beta_perc = ifelse(beta<1,-((1-beta)*100),((beta-1)*100))) %>% 
+  mutate(ll_perc = ifelse(ll<1,-((1-ll)*100),((ll-1)*100))) %>% 
+  mutate(ul_perc = ifelse(ul<1,-((1-ul)*100),((ul-1)*100)))
+
+ggplot(aes(beta_perc, exposure), data=results) +
+  geom_errorbarh(aes(xmin = ll_perc, xmax = ul_perc),height=0.4) +
+  geom_point() +
+  # add in a dotted line at zero
+  geom_vline(xintercept = 0, lty = 2) +
+  facet_wrap("outcome",scale="free_x")+
+  labs(
+    x = "Beta Coefficient (95% CI)",
+    y="Baseline PFAS"
+  )+
+  theme_bw()
+
+alpha = log((100 + 10)/100) 
+beta=-0.165
+exp(alpha*beta)
+1-0.984396831
+0.015603169*100
+1-0.9703649347
+0.0296350653*100
+-(1-exp(alpha*-0.165))*100
+#1.6%
+ll=-0.311
+exp(alpha*ll)
+1-0.9448755964
+0.0551244036*100
+
+ul=-0.019
+exp(alpha*ul)
+1-0.9965418835
+0.0034581165*100
+
+-(1-exp(alpha*-0.019))*100
+
+
+1-0.9950525
+0.0049475*100
+1-.954
+0.046*100
+# dev.off()
+# write.csv(results,fs::path(dir.results,"Results_04_04.csv"))
+
+
+0.243
+beta=0.243
+(exp(alpha*beta)-1)*100
+1.045300222-1
+0.045300222*100 #4.53% increase
+
+#Calculate 10% increase
+alpha = log((100 + 10)/100) 
+results_wide <- results %>% 
+  mutate(beta_est=(ifelse(beta>0,round((exp(alpha*beta)-1)*100,3),round(-(1-exp(alpha*beta))*100,3)))) %>% 
+  mutate(ll_est=(ifelse(beta>0,round((exp(alpha*ll)-1)*100,3),round(-(1-exp(alpha*ll))*100,3)))) %>% 
+  mutate(ul_est=(ifelse(beta>0,round((exp(alpha*ul)-1)*100,3),round(-(1-exp(alpha*ul))*100,3)))) %>% 
+  mutate(sig=ifelse(pval<0.05,"*","")) %>% 
+  mutate(Estimate=paste(beta_est,"% [",ll_est,"%,",ul_est,"%]",sig)) %>% 
+  dplyr::select(-c(beta:sig)) %>% 
+  pivot_wider(names_from=outcome,values_from=Estimate)
+write.csv(results_wide,fs::path(dir.results,"Table_S1.csv"))
+
+
+#PFNA/PFHxS & LCN2
+m1 <- as.formula(paste0("LCN2_log ~ ma_pfna_tert +", covariates))
+lm_res <- lm(m1,data = meta)
+summary(lm_res)
+
+m1 <- as.formula(paste0("LCN2_log ~ ma_pfhxs_tert +", covariates))
+lm_res <- lm(m1,data = meta)
+summary(lm_res)
+
+
+#Mixture Analysis 
+#Exposure mixture
+exposure_names = exposure_log
+colnames_omic_fts <- outcome
+# colnames_omic_fts <- kidney
+
+#OWAS Function - PFAS Mixtures vs. Microbiome Taxa
+out <- owas_qgcomp(df = meta_filt,
+                   expnms = exposure_names,
+                   omics = colnames_omic_fts,
+                   q = 7, 
+                   covars = c("ma_age","ma_sex","ma_parental_edu","ma_race_eth","ma_creatinine_scaled"), 
+                   confidence_level = 0.95,
+                   family="gaussian",
+                   run.qgcomp.boot = FALSE) 
+# write.csv(out,fs::path(dir.results,"Log Mixture PFAS Kidney q_null_scaled.csv"))
+
+#BKMR
+y <- meta_filt$LCN2_log
+X_vars <- meta_filt[covars]
+X_vars$ma_sex <- as.character(X_vars$ma_sex)
+X_vars$ma_sex <- ifelse(X_vars$ma_sex=="male",1,0)
+X_vars$ma_parental_edu <- as.numeric(X_vars$ma_parental_edu)
+X_vars$ma_race_eth <- as.numeric(X_vars$ma_race_eth)
+X <- as.matrix(X_vars)
+Z <- as.matrix(meta_filt[exposure])
+temp <- kmbayes(y = y, Z = Z, X = X, iter = 10000, verbose = FALSE, varsel = TRUE)
+summary(temp)
+ExtractPIPs(temp)
+
+sel<-seq(100,1000,by=1)
+
+#Visualize the overall mixture effect
+pred.resp.univar <- PredictorResponseUnivar(fit=temp, sel=sel,
+                                            method="approx")
+
+pred.resp.bivar  <- PredictorResponseBivar(fit=temp,  min.plot.dist = 1,
+                                           sel=sel,  method="approx")
+
+pred.resp.bivar.levels <- PredictorResponseBivarLevels(pred.resp.df=
+                                                         pred.resp.bivar,   Z = Z, both_pairs=TRUE,
+                                                       qs = c(0.1, 0.5, 0.9))
+
+risks.overall <- OverallRiskSummaries(fit=temp, qs=seq(0.1, 0.9, by=0.05),
+                                      q.fixed = 0.5, method = "approx",
+                                      sel=sel)
+
+risks.singvar <- SingVarRiskSummaries(fit=temp, qs.diff = c(0.1, 0.9),
+                                      q.fixed = c(0.1, 0.50, 0.9),
+                                      method = "approx")
+
+risks.int <- SingVarIntSummaries(fit=temp, qs.diff = c(0.1, 0.9),
+                                 qs.fixed = c(0.1, 0.9))
+
+ggplot(risks.overall, aes(quantile, est, ymin = est - 1.96*sd,
+                          ymax = est + 1.96*sd)) +
+  geom_hline(yintercept=00, linetype="dashed", color="gray") +
+  geom_pointrange() + scale_y_continuous(name="estimate")+
+  theme_bw()
+
+
+# Make exposure outcome associaiton plots for eGFR and LCN2 - x axis mixture effects, y axis pfas
+
+
+```
+
+
+##c. Integrated/Quasi-Mediation 
+```{r Integrated/Quasi-Mediation,echo=F,include=T}
+
+#Convert metabolomics matrices to vector variables
+omics <- colnames(omics_df)
+
+omics2 <- colnames(microbiome)
+#Remove unclassified microbiome features
+# omics2 <- omics2[which(!grepl("unclassified",omics2))] #80 features
+# omics2 <- microbiome_features
+
+# missing <- meta_filt[c(omics,omics2)]
+
+# Impute missing microbiome data before analysis - 42% missingness
+# impute_dat <- data.frame(meta_filt[c("id",exposure_log_scaled,outcome_log_scaled,omics,omics2)])
+# # impute_dat <- data.frame(meta_filt[c("id",exposure_log_scaled[4],outcome_log_scaled[1],omics2)])
+# rownames(impute_dat) <- impute_dat$id
+# impute_dat <- impute_dat %>%
+#   dplyr::select(-id)
+
+# impute_dat_temp <- mice(impute_dat,m=3,seed=500,method="sample") #rf, sample
+# summary(impute_dat_temp)
+# completedData <- complete(impute_dat_temp,1)
+# completedData$id <- rownames(completedData)
+# saveRDS(completedData,fs::path(here::here() %>% dirname() %>% dirname(),"0_Data","Imputed_Data_rel_abundance_reduced_v1.rds"))
+# 
+# completedData <- readRDS(fs::path(here::here() %>% dirname() %>% dirname(),"0_Data","Imputed_Data_rel_abundance_reduced_v1.rds"))
+completedData <- readRDS(fs::path(here::here() %>% dirname() %>% dirname(),"0_Data","Imputed_Data_rel_abundance_v2.rds"))
+microbiome_unscaled <- str_remove(microbiome_scaled,"_scaled")
+#Scale microbime features
+completedData <- completedData %>% 
+  mutate(across(all_of(microbiome_unscaled),~((. - mean(.,na.rm=T)) / sd(.,na.rm=T)),.names = "{col}_scaled")) 
+eGFR_vals <- meta_filt[c("id","eGFR","eGFR2","eGFR3","eGFR_log","eGFR2_log","eGFR3_log","eGFR_log_scaled","eGFR2_log_scaled","eGFR3_log_scaled","burden_scaled")]
+completedData$id <- as.numeric(completedData$id)
+completedData <- tidylog::full_join(completedData,eGFR_vals,by="id")
+completedData <- tidylog::left_join(completedData,nutrients,by="id")
+# completedData <- completedData %>%
+#   filter(!is.na(m_energy_kcal))
+# completedData <- completedData %>%
+#   dplyr::select(-m_energy_kcal)
+```
+
+###i. Sensitivity Analysis
+```{r sensitivity, echo = F}
+omics <- colnames(omics_df)
+
+omics2 <- colnames(microbiome)
+
+meta_sens <- meta_filt %>% 
+  filter(!is.na(Prevotella_9))
+microbiome_unscaled <- str_remove(microbiome_scaled,"_scaled")
+
+full_data <- meta_sens
+# full_data$id <- rownames(full_data)
+# covariates <- meta_filt[c("id",covars)]
+# covariates$id <- as.character(covariates$id)
+# full_data <- tidylog::left_join(full_data,covariates,by="id")
+#PFAS with microbime
+microbiome_scaled
+exposure_log_scaled
+outcome_log_scaled
+
+
+lm_fxn1 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu"))
+  # m1 <- lm(m0,data=meta_filt)
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(PFAS=x,Microbiome=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+
+#PFAS with Microbime
+combinations <- crossing(x = exposure_log_scaled, y = microbiome_scaled)
+# combinations <- crossing(x = burden_score[1], y = microbiome_scaled)
+
+# Apply lm_fxn to each combination
+results1 <- combinations %>%
+  pmap_dfr(~ lm_fxn1(..1, ..2))
+results1 <- results1 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+
+#Microbime with eGFR
+lm_fxn2 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu"))
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(Microbiome=x,Outcome=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+
+combinations <- crossing(x = microbiome_scaled, y=outcome_log_scaled[3])
+# combinations <- crossing(x = microbiome_scaled, y=outcome_log_scaled[2])
+# Apply lm_fxn to each combination
+results2 <- combinations %>%
+  pmap_dfr(~ lm_fxn2(..1, ..2))
+results2 <- results2 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+# results2.sig <- results2 %>%
+#   filter(P_Val<0.05)
+# microbiome_features2 <- unique(results2.sig$Microbiome) #5
+# microbiome_features <- unique(c(microbiome_features1,microbiome_features2))#19
+
+microbiome_results_full <- tidylog::full_join(results1,results2,by=c("Microbiome"))
+microbiome_results_reduced <- microbiome_results_full %>% 
+  mutate(Dir=ifelse((Direction.x=="Positive" & Direction.y=="Negative") | (Direction.x=="Negative" & Direction.y=="Positive"),"Diff","Same"))
+microbiome_results_reduced <- microbiome_results_reduced %>% 
+  filter((Dir=="Diff" & P_Val.x<0.05)|(Dir=="Diff"& P_Val.y<0.05))
+microbiome_features <- unique(microbiome_results_reduced$Microbiome) #18 (15) (3) (17) (15) (10)
+
+#PFAS with Metabolites 
+metabolite <- metabolites$key
+lm_fxn3 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu"))
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(PFAS=x,Metabolites=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+combinations <- crossing(x = exposure_log_scaled, y = metabolite)
+# combinations <- crossing(x = burden_score[1], y = metabolite)
+# combinations <- crossing(x = microbiome, y = metabolite)
+results3 <- combinations %>%
+  pmap_dfr(~ lm_fxn3(..1, ..2)) 
+results3 <- results3 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+# results3.sig <- results3 %>%
+#   filter(P_Val<0.05)
+# metabolite_features1 <- unique(results3.sig$Metabolites) #105 metabolites
+
+#Metabolites with eGFR
+lm_fxn4 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu"))
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(Metabolites=x,Outcome=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+
+# combinations <- crossing(x = metabolite, y = outcome_log_scaled[1])
+# combinations <- crossing(x = metabolite, y = outcome_log_scaled[2])
+combinations <- crossing(x = metabolite, y = outcome_log_scaled[3])
+
+# Apply lm_fxn to each combination
+results4 <- combinations %>%
+  pmap_dfr(~ lm_fxn4(..1, ..2))
+results4 <- results4 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+# results4.sig <- results4 %>%
+#   filter(P_Val<0.05)
+# metabolite_features2 <- unique(results4.sig$Metabolites) #15 metabolites
+# metabolite_features <- unique(c(metabolite_features1,metabolite_features2)) #105
+# metabolite_features <- metabolite_features2
+
+metabolite_results_full <- tidylog::full_join(results3,results4,by=c("Metabolites"))
+metabolite_results_reduced <- metabolite_results_full %>% 
+  mutate(Dir=ifelse((Direction.x=="Positive" & Direction.y=="Negative") | (Direction.x=="Negative" & Direction.y=="Positive"),"Diff","Same"))
+metabolite_results_reduced <- metabolite_results_reduced %>% 
+  filter((Dir=="Diff" & P_Val.x<0.05)|(Dir=="Diff"& P_Val.y<0.05))
+metabolite_features <- unique(metabolite_results_reduced$Metabolites) #100 (97) (44) (92) (97) (94)
+
+
+omics2 <- microbiome_features
+microbiome_features_complete <- full_data[,omics2]
+microbiome_features_complete$id <- rownames(microbiome_features_complete)
+# microbiome_features_complete <- meta_filt[c("id",omics2)]
+
+#Metabolomics
+omics <- metabolite_features
+metabolomics_features_complete <- full_data[c("id",omics)]
+# metabolomics_features_complete <- meta_filt[c("id",omics)]
+
+
+#Exposure-PFAS
+pfas_features_complete <- full_data[c(exposure_log_scaled)]
+# pfas_features_complete <- completedData[c(burden_score[1])]
+# pfas_features_complete <- completedData[c(exposure_log_scaled[4])]
+# pfas_features_complete <- completedData[c("eap.pfas","eap.pfcas","eap.pfsas")]
+rownames(pfas_features_complete) <- NULL
+
+#Outcome-eGFR
+outcome_outcome <- full_data[c(outcome_log_scaled[3])]
+rownames(outcome_outcome) <- NULL
+
+#Create Omics Dataframe
+microbiome_features_complete$id <- as.numeric(microbiome_features_complete$id)
+omics_complete <- tidylog::full_join(microbiome_features_complete,metabolomics_features_complete,by="id")
+
+# omics_complete <- microbiome_features_complete
+omics_complete <- omics_complete %>% 
+  dplyr::select(-id)
+rownames(omics_complete) <- NULL
+
+#Create Omics List
+# omics_lst <- list(microbiome=data.frame(microbiome_features_complete[-19]),metabolomics = data.frame(scale(metabolomics_features_complete[-1])))
+omics_lst <- list(microbiome=data.frame(microbiome_features_complete[-11]),metabolomics = data.frame(scale(metabolomics_features_complete[-c(1,2)])))
+# omics
+
+# Define exposure and outcome name
+exposure <- as.vector(full_data$ma_pfna_log_scaled)
+exposure <- as.vector(full_data$ma_pfhps_log_scaled)
+exposure <- as.vector(full_data$burden_scaled)
+
+# exposure <- meta_filt[exposure_log_scaled]|> as.matrix()
+outcome  <- as.vector(full_data$eGFR3_log_scaled)
+
+# Get numeric matrix of covariates 
+covs <- meta_sens[colnames(covs)]
+
+# create list of omics data 
+# omics_lst <- simulated_data[-which(names(simulated_data) == "phenotype")]
+omics_lst <- omics_lst
+
+
+# Create data frame of omics data
+omics_df <- omics_lst |> 
+  purrr::map(~as_tibble(.x, rownames = "name")) |>
+  purrr::reduce(left_join, by = "name") |>
+  column_to_rownames("name")
+
+# # Transpose list of matrices
+omics_t <- lapply(omics_lst, t)
+
+# Rename omics datasets
+names(omics_t) = names(omics_lst)
+
+#Data reduction step
+jive1 <- jive(omics_t, rankJ = 5, rankA = c(5,5),
+              method = "given",
+              # conv = 1e-04,
+              maxiter = 100,
+              showProgress = FALSE)
+# #
+summary(jive1)
+showVarExplained(jive1)
+```
+
+###ii. Sensitivity Analysis 2 
+```{r Microbiome and Metabolomcs Data Reduction, echo=F, include=F}
+covars <- c("ma_age","ma_sex","ma_race_eth","ma_parental_edu","ma_creatinine_scaled","m_energy_kcal")
+#FUll Data
+full_data <- completedData
+# full_data <- meta_filt %>%
+# filter(!is.na(Prevotella_9))
+# full_data$id <- rownames(full_data)
+covariates <- meta_filt[c("id",covars)]
+# covariates$id <- as.character(covariates$id)
+full_data <- tidylog::left_join(full_data,covariates,by="id")
+#PFAS with microbime
+microbiome_scaled
+exposure_log_scaled
+outcome_log_scaled
+# pfna_exposure <- exposure_log_scaled[4]
+
+lm_fxn1 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu+m_energy_kcal"))
+  # m1 <- lm(m0,data=meta_filt)
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(PFAS=x,Microbiome=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+
+#PFAS with Microbime
+combinations <- crossing(x = exposure_log_scaled, y = microbiome_scaled)
+# combinations <- crossing(x = burden_score[1], y = microbiome_scaled)
+
+# Apply lm_fxn to each combination
+results1 <- combinations %>%
+  pmap_dfr(~ lm_fxn1(..1, ..2))
+results1 <- results1 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+results1.sig <- results1 %>%
+  filter(P_Val<0.05)
+# microbiome_features1 <- unique(results1.sig$Microbiome) #13
+results1_l <- results1 %>% 
+  mutate(P_Val=ifelse(P_Val<0.05,paste0(round(P_Val,3),"*"),paste0(round(P_Val,3)))) %>% 
+  mutate(Estimate=paste(round(Beta,3)," (p = ",P_Val,")",sep=""))
+results1_l <- results1_l %>% 
+  dplyr::select(PFAS,Microbiome,Estimate)
+results1_l <- results1_l %>%
+  pivot_wider(names_from = PFAS,values_from = Estimate)
+# write.csv(results1,fs::path(dir.results,"PFAS_Microbiome_Sensitivity_Results.csv"))
+
+#Microbime with eGFR
+lm_fxn2 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu+m_energy_kcal"))
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(Microbiome=x,Outcome=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+
+combinations <- crossing(x = microbiome_scaled, y=outcome_log_scaled[2])
+# combinations <- crossing(x = microbiome_scaled, y=outcome_log_scaled[2])
+# Apply lm_fxn to each combination
+results2 <- combinations %>%
+  pmap_dfr(~ lm_fxn2(..1, ..2))
+results2 <- results2 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+results2.sig <- results2 %>%
+  filter(P_Val<0.05)
+# results1_l <- results1 %>% 
+#   mutate(P_Val=ifelse(P_Val<0.05,paste0(round(P_Val,3),"*"),paste0(round(P_Val,3)))) %>% 
+#   mutate(Estimate=paste(round(Beta,3)," (p = ",P_Val,")",sep=""))
+# results1_l <- results1_l %>% 
+#   dplyr::select(PFAS,Microbiome,Estimate)
+# results1_l <- results1_l %>%
+#   pivot_wider(names_from = PFAS,values_from = Estimate)
+# write.csv(results1,fs::path(dir.results,"PFAS_Microbiome_Sensitivity_Results.csv"))
+# write.csv(results2.sig,fs::path(dir.results,"Sig_Mic_eGFR_Sens.csv"))
+
+# microbiome_features2 <- unique(results2.sig$Microbiome) #5
+# microbiome_features <- unique(c(microbiome_features1,microbiome_features2))#19
+
+microbiome_results_full <- tidylog::full_join(results1,results2,by=c("Microbiome"))
+microbiome_results_reduced <- microbiome_results_full %>% 
+  mutate(Dir=ifelse((Direction.x=="Positive" & Direction.y=="Negative") | (Direction.x=="Negative" & Direction.y=="Positive"),"Diff","Same"))
+microbiome_results_reduced <- microbiome_results_reduced %>% 
+  filter((Dir=="Diff" & P_Val.x<0.05)|(Dir=="Diff"& P_Val.y<0.05))
+microbiome_features <- unique(microbiome_results_reduced$Microbiome) #18 (15) (3) (17) (15)
+# write.csv(microbiome_results_reduced,fs::path(dir.results,"Microbiome_Feature_Selection_Sensitivity.csv"))
+#PFAS with Metabolites 
+metabolite <- metabolites$key
+lm_fxn3 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu+m_energy_kcal"))
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(PFAS=x,Metabolites=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+combinations <- crossing(x = exposure_log_scaled, y = metabolite)
+# combinations <- crossing(x = burden_score[1], y = metabolite)
+# combinations <- crossing(x = microbiome, y = metabolite)
+results3 <- combinations %>%
+  pmap_dfr(~ lm_fxn3(..1, ..2)) 
+results3 <- results3 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+# results3.sig <- results3 %>%
+#   filter(P_Val<0.05)
+# metabolite_features1 <- unique(results3.sig$Metabolites) #105 metabolites
+
+#Metabolites with eGFR
+lm_fxn4 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu+m_energy_kcal"))
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(Metabolites=x,Outcome=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+
+# combinations <- crossing(x = metabolite, y = outcome_log_scaled[1])
+# combinations <- crossing(x = metabolite, y = outcome_log_scaled[2])
+combinations <- crossing(x = metabolite, y = outcome_log_scaled[2])
+
+# Apply lm_fxn to each combination
+results4 <- combinations %>%
+  pmap_dfr(~ lm_fxn4(..1, ..2))
+results4 <- results4 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+# results4.sig <- results4 %>%
+#   filter(P_Val<0.05)
+# metabolite_features2 <- unique(results4.sig$Metabolites) #15 metabolites
+# metabolite_features <- unique(c(metabolite_features1,metabolite_features2)) #105
+# metabolite_features <- metabolite_features2
+
+metabolite_results_full <- tidylog::full_join(results3,results4,by=c("Metabolites"))
+metabolite_results_reduced <- metabolite_results_full %>% 
+  mutate(Dir=ifelse((Direction.x=="Positive" & Direction.y=="Negative") | (Direction.x=="Negative" & Direction.y=="Positive"),"Diff","Same"))
+metabolite_results_reduced <- metabolite_results_reduced %>% 
+  filter((Dir=="Diff" & P_Val.x<0.05)|(Dir=="Diff"& P_Val.y<0.05))
+metabolite_features <- unique(metabolite_results_reduced$Metabolites) #100 (97) (44) (92) (97)
+
+
+sig.met1 <- metabolite_results_reduced %>% 
+  filter(P_Val.x<0.05)
+
+unique(sig.met1$Metabolites)
+
+sig.met2 <- metabolite_results_reduced %>% 
+  filter(P_Val.y<0.05)
+unique(sig.met2$Metabolites)
+```
+
+
+##d. Microbiome & Metabolomics Data Reduction 
+```{r Microbiome and Metabolomcs Data Reduction, echo=F, include=F}
+
+#FUll Data
+full_data <- completedData
+# full_data <- meta_filt %>%
+# filter(!is.na(Prevotella_9))
+# full_data$id <- rownames(full_data)
+
+covariates <- meta_filt[c("id",covars)]
+# covariates$id <- as.character(covariates$id)
+full_data <- tidylog::left_join(full_data,covariates,by="id")
+#PFAS with microbime
+microbiome_scaled
+exposure_log_scaled
+outcome_log_scaled
+# pfna_exposure <- exposure_log_scaled[4]
+
+lm_fxn1 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu"))
+  # m1 <- lm(m0,data=meta_filt)
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(PFAS=x,Microbiome=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+
+#PFAS with Microbime
+combinations <- crossing(x = exposure_log_scaled, y = microbiome_scaled)
+# combinations <- crossing(x = burden_score[1], y = microbiome_scaled)
+
+# Apply lm_fxn to each combination
+results1 <- combinations %>%
+  pmap_dfr(~ lm_fxn1(..1, ..2))
+results1 <- results1 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+results1.sig <- results1 %>%
+  filter(P_Val<0.05)
+# microbiome_features1 <- unique(results1.sig$Microbiome) #13
+# write.csv(results1.sig,fs::path(dir.results,"Sig_Mic_PFAS_Sens.csv"))
+
+#Microbime with eGFR
+lm_fxn2 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu"))
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(Microbiome=x,Outcome=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+
+combinations <- crossing(x = microbiome_scaled, y=outcome_log_scaled[2])
+# combinations <- crossing(x = microbiome_scaled, y=outcome_log_scaled[2])
+# Apply lm_fxn to each combination
+results2 <- combinations %>%
+  pmap_dfr(~ lm_fxn2(..1, ..2))
+results2 <- results2 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+results2.sig <- results2 %>%
+  filter(P_Val<0.05)
+# write.csv(results2.sig,fs::path(dir.results,"Sig_Mic_eGFR_Sens.csv"))
+
+# microbiome_features2 <- unique(results2.sig$Microbiome) #5
+# microbiome_features <- unique(c(microbiome_features1,microbiome_features2))#19
+
+microbiome_results_full <- tidylog::full_join(results1,results2,by=c("Microbiome"))
+microbiome_results_reduced <- microbiome_results_full %>% 
+  mutate(Dir=ifelse((Direction.x=="Positive" & Direction.y=="Negative") | (Direction.x=="Negative" & Direction.y=="Positive"),"Diff","Same"))
+microbiome_results_reduced <- microbiome_results_reduced %>% 
+  filter((Dir=="Diff" & P_Val.x<0.05)|(Dir=="Diff"& P_Val.y<0.05))
+microbiome_features <- unique(microbiome_results_reduced$Microbiome) #18 (15) (3) (17) (15)
+# write.csv(microbiome_results_reduced,fs::path(dir.results,"Microbiome_Feature_Selection_Sensitivity.csv"))
+#PFAS with Metabolites 
+metabolite <- metabolites$key
+lm_fxn3 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu"))
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(PFAS=x,Metabolites=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+combinations <- crossing(x = exposure_log_scaled, y = metabolite)
+# combinations <- crossing(x = burden_score[1], y = metabolite)
+# combinations <- crossing(x = microbiome, y = metabolite)
+results3 <- combinations %>%
+  pmap_dfr(~ lm_fxn3(..1, ..2)) 
+results3 <- results3 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+# results3.sig <- results3 %>%
+#   filter(P_Val<0.05)
+# metabolite_features1 <- unique(results3.sig$Metabolites) #105 metabolites
+
+#Metabolites with eGFR
+lm_fxn4 <- function(x,y) {
+  m0 <- as.formula(paste0(y,"~",x,"+ma_age+ma_sex+ma_race_eth+ma_parental_edu"))
+  m1 <- lm(m0,data=full_data)
+  beta <- round(summary(m1)$coef[2,1],5)
+  pval <- summary(m1)$coef[2,4]
+  output1 <- data.frame(Metabolites=x,Outcome=y,Beta=beta,P_Val=pval)
+  return(output1)
+}
+
+# combinations <- crossing(x = metabolite, y = outcome_log_scaled[1])
+# combinations <- crossing(x = metabolite, y = outcome_log_scaled[2])
+combinations <- crossing(x = metabolite, y = outcome_log_scaled[2])
+
+# Apply lm_fxn to each combination
+results4 <- combinations %>%
+  pmap_dfr(~ lm_fxn4(..1, ..2))
+results4 <- results4 %>% 
+  mutate(Direction=ifelse(Beta>0,"Positive","Negative"))
+# results4.sig <- results4 %>%
+#   filter(P_Val<0.05)
+# metabolite_features2 <- unique(results4.sig$Metabolites) #15 metabolites
+# metabolite_features <- unique(c(metabolite_features1,metabolite_features2)) #105
+# metabolite_features <- metabolite_features2
+
+metabolite_results_full <- tidylog::full_join(results3,results4,by=c("Metabolites"))
+metabolite_results_reduced <- metabolite_results_full %>% 
+  mutate(Dir=ifelse((Direction.x=="Positive" & Direction.y=="Negative") | (Direction.x=="Negative" & Direction.y=="Positive"),"Diff","Same"))
+metabolite_results_reduced <- metabolite_results_reduced %>% 
+  filter((Dir=="Diff" & P_Val.x<0.05)|(Dir=="Diff"& P_Val.y<0.05))
+metabolite_features <- unique(metabolite_results_reduced$Metabolites) #100 (97) (44) (92) (97)
+
+
+sig.met1 <- metabolite_results_reduced %>% 
+  filter(P_Val.x<0.05)
+
+unique(sig.met1$Metabolites)
+
+sig.met2 <- metabolite_results_reduced %>% 
+  filter(P_Val.y<0.05)
+unique(sig.met2$Metabolites)
+```
+
+
+#Finalize before analysis
+```{r ,echo=FALSE}
+#Create dataframes/matrices for LUCID anlaysis 
+#Microbiome
+omics2 <- microbiome_features
+microbiome_features_complete <- completedData[,omics2]
+microbiome_features_complete$id <- rownames(microbiome_features_complete)
+# microbiome_features_complete <- meta_filt[c("id",omics2)]
+
+#Metabolomics
+omics <- metabolite_features
+metabolomics_features_complete <- completedData[c("id",omics)]
+# metabolomics_features_complete <- meta_filt[c("id",omics)]
+
+
+#Exposure-PFAS
+pfas_features_complete <- completedData[c(exposure_log_scaled)]
+# pfas_features_complete <- completedData[c(burden_score[1])]
+# pfas_features_complete <- completedData[c(exposure_log_scaled[4])]
+# pfas_features_complete <- completedData[c("eap.pfas","eap.pfcas","eap.pfsas")]
+rownames(pfas_features_complete) <- NULL
+
+#Outcome-eGFR
+outcome_outcome <- completedData[c(outcome_log_scaled[1])]
+rownames(outcome_outcome) <- NULL
+
+#Create Omics Dataframe
+microbiome_features_complete$id <- as.numeric(microbiome_features_complete$id)
+omics_complete <- tidylog::full_join(microbiome_features_complete,metabolomics_features_complete,by="id")
+
+# omics_complete <- microbiome_features_complete
+omics_complete <- omics_complete %>% 
+  dplyr::select(-id)
+rownames(omics_complete) <- NULL
+
+#Create Omics List
+# omics_lst <- list(microbiome=data.frame(microbiome_features_complete[-19]),metabolomics = data.frame(scale(metabolomics_features_complete[-1])))
+# omics_lst <- list(microbiome=data.frame(microbiome_features_complete[-18]),metabolomics = data.frame(scale(metabolomics_features_complete[-c(1,2)])))
+# omics_lst <- list(microbiome=data.frame(scale(microbiome_features_complete[-1])))
+
+omics_lst <- list(microbiome=data.frame(microbiome_features_complete[-16]),metabolomics = data.frame(scale(metabolomics_features_complete[-c(1,2)])))
+# omics_lst <- list(microbiome=data.frame(microbiome_features_complete[-17]),metabolomics = data.frame(scale(metabolomics_features_complete[-c(1,2)])))
+
+```
+
+###i. Early Integration 
+```{r Early Integration,echo=F,include=T}
+#Outcome - eGFR
+#pfos, pfoa, pfna, pfhxs, pfpes
+# G = exposure_dat[c("ma_pfos_scaled","ma_pfoa_scaled","ma_pfna_scaled","ma_pfhxs_scaled","ma_pfpes_scaled")] |> as.matrix()
+# G = exposure_dat |> as.matrix()
+G = pfas_features_complete|> as.matrix()
+G = scale(G)
+# Z = omics_complete[1:24] |> as.matrix()
+Z = omics_complete |> as.matrix()
+Z <- scale(Z)
+Y <- eGFR_complete[1]|> as.matrix()
+# Y <- rnorm(78,0,1)|> as.matrix()
+
+fit1 <- estimate_lucid(lucid_model = "early",
+                       G = G,
+                       Z = Z,
+                       Y = Y,
+                       K = 2,
+                       CoY = covs,
+                       CoG = NULL,
+                       Rho_Z_Mu = 1,
+                       Rho_Z_Cov = 0.1,
+                       useY = TRUE,
+                       init_par = "mclust",
+                       family = "normal",
+                       init_omic.data.model = NULL)
+
+fit2 <- reorder_lucid(fit1, "early",2)
+
+# reorder_lucid <- function(lucidus_fit,lucid_model,
+#                                 order = NULL)
+
+# #Outcome - LCN2
+# #pfda, pfna, pfhps, pfpes
+# G = exposure_dat[c("ma_pfda_scaled","ma_pfna_scaled","ma_pfhps_scaled","ma_pfpes_scaled")] |> as.matrix()
+# Z = omics_complete |> as.matrix()
+# Z <- scale(Z)
+# Y <- meta_filt$LCN2_log_scaled
+# 
+# 
+# fit2 <- estimate_lucid(lucid_model = "early",
+#                        G = G,
+#                        Z = Z,
+#                        Y = Y,
+#                        K = 2,
+#                        CoY = covs,
+#                        CoG = NULL,
+#                        Rho_Z_Mu = 0.1,
+#                        Rho_Z_Cov = 0.005,
+#                        useY = TRUE,
+#                        init_par = "mclust",
+#                        family = "normal",
+#                        init_omic.data.model = NULL)
+
+
+#Get PIPs from fit1 
+meta_filt$pips <- fit1$inclusion.p[,2]
+
+
+```
+
+
+###i. Intermediate (Parallel) Integration 
+```{r Intermediate Integration,echo=F,include=T}
+#eGFR
+# G = exposure_dat %>% as.matrix()
+G = pfas_features_complete|> as.matrix()
+# G = exposure_dat[c("ma_pfna_scaled")] |> as.matrix()
+# Z = list(as.matrix(omics2_data)[-1],as.matrix(omics_data)[-1])
+Z = list(as.matrix(microbiome_features_complete[-1]),as.matrix(metabolomics_features_complete[-1]))
+Y = eGFR_complete
+
+fit3 <- estimate_lucid(lucid_model = "parallel",
+                       G = G, 
+                       Z = Z, 
+                       Y = Y,
+                       K = rep(2, length(Z)), 
+                       family = "normal", 
+                       init_par="mclust",
+                       max_itr = 200, 
+                       useY = TRUE, 
+                       init_omic.data.model  = "EII",
+                       Rho_Z_Mu = 0.1,
+                       Rho_Z_Cov = 0.0001) 
+
+# Reorder the clusters
+fit_reordered <- reorder_lucid_parallel(fit3, reference = c(2,2))
+
+# #LCN2
+# G = exposure_dat %>% as.matrix()
+# Z = omics_lst[c(1:2)]
+# Y = outcome_dat[2]
+# 
+# fit4 <- estimate_lucid(lucid_model = "parallel",
+#                        G = G, 
+#                        Z = Z, 
+#                        Y = Y,
+#                        K = rep(2, length(Z)), 
+#                        family = "normal", 
+#                        init_par="mclust",
+#                        max_itr = 200, 
+#                        useY = TRUE, 
+#                        init_omic.data.model  = "EII",
+#                        Rho_Z_Mu = 0.1,
+#                        Rho_Z_Cov = 0.0001) 
+# 
+# # Reorder the clusters
+# fit_reordered2 <- reorder_lucid_parallel(fit4, reference = c(2,2))
+```
+
+
+###i. Late (Serial) Integration 
+```{r Late Integration,echo=F,include=T}
+#eGFR
+set.seed(100)
+# covs[,1] <- scale(covs[,1])
+# covs1 <- covs[,1]
+# G = completedData[exposure] %>% as.matrix()
+# G = exposure_dat[c("ma_pfos_scaled","ma_pfoa_scaled","ma_pfna_scaled","ma_pfhxs_scaled","ma_pfpes_scaled")] |> as.matrix()
+# G = pfas_features_complete|> as.matrix()
+# colnames(G) <- c("PFOS","PFOA","PFNA","PFHxS","PFPeS")
+G = pfas_features_complete[4] |> as.matrix()
+# colnames(G) <- c("PFOS","PFOA","PFNA","PFHxS","PFPeS")
+# G <- G[,c(1,3)]
+G <- scale(G)
+# metabolomics_features_complete2 <- metabolomics_features_complete[sig.metabolites2]
+Z = list(scale(as.matrix(omics_complete[omics2])),scale(as.matrix(omics_complete[omics])))
+# Z = omics_lst
+Y = completedData$eGFR_log_scaled
+Y <- scale(Y)
+
+# Run the LUCID Model  
+fit <- estimate_lucid(lucid_model = "serial",
+                      G = G,
+                      Z = Z,
+                      Y = Y ,
+                      # CoY = NULL,
+                      CoY = covs,
+                      CoG = NULL,
+                      K = list(2,2),
+                      useY = TRUE,
+                      family = "normal", 
+                      init_par="mclust",
+                      # Rho_Z_Mu = 5,
+                      # Rho_Z_Cov = 0.3,
+                      init_omic.data.model = NULL) 
+
+#extract selected Z features to to refit lUCID in serial
+selected_Z = vector(mode = "list", length = length(Z))
+for (i in (1:length(Z))){
+  fiti_select_Z = fit$submodel[[i]]$select$selectZ
+  selected_Z[[i]] = Z[[i]][,fiti_select_Z]
+}
+
+#Refit ther LUCID in serial model with selected Z
+fit <- estimate_lucid(lucid_model = "serial",
+                      G = G,
+                      Z = selected_Z,
+                      Y = Y, 
+                      # CoY = NULL,
+                      CoY = covs,
+                      CoG = NULL,
+                      K = list(2,2),
+                      useY = TRUE,
+                      init_par = "mclust",
+                      family = "normal",
+                      init_omic.data.model = NULL)
+
+# # Rename Exposure
+fit1 <- fit$submodel[[1]]
+# fit1$var.names$Gnames[1] <- "PFAS"
+fit2 <- fit$submodel[[2]]
+fit2$var.names$Gnames[1] <- "<b>Microbiome\nProfile 1</b>"
+# fit3 <- fit$submodel[[3]]
+# fit3$var.names$Gnames[1] <- "<b>Microbiome\nProfile 1</b>"
+
+# fit1$res_Beta #pfas to microbiome
+# fit2$res_Gamma$beta #metabolites to eGFR
+# fit2$res_Beta #microbiome to metabolites
+# 
+fit1$res_Beta #1.874438517 -0.3702220566 -0.02550096442 -0.1810410163 0.2978761659 -0.1169606285
+fit2$res_Gamma$beta #-1.3858956193  0.4320394754 -> -0.9538561439 -0.4320394754
+fit2$res_Beta #1.410956514 -0.2826748594 -> -1.410956514 0.2826748594
+
+fit1 = fit$submodel[[1]]
+fit1 = reorder_lucid(fit1, "early", 2)
+fit2 = fit2 <- fit$submodel[[2]]
+fit2 = reorder_lucid(fit2, "serial_sub_with_sub_before_it_reordered", 2)
+fit2 <- reorder_lucid(fit2, "early", 2)
+
+fit$submodel[[1]] = fit1
+fit$submodel[[2]] = fit2
+
+rm(fit)
+rm(fit1)  
+rm(fit2)
+
+meta_filt_microbiome <- meta_filt_microbiome %>% 
+  filter(!is.na(Dorea_scaled))
+#Just eGFR and microbiome
+# meta_filt_microbiome["eGFR_log_scaled"]
+G = meta_filt_microbiome[exposure_log_scaled]|> as.matrix()
+# G = pfas_features_complete[1] |> as.matrix()
+# colnames(G) <- c("PFOS","PFOA","PFNA","PFHxS","PFPeS")
+# G <- G[,c(1,3)]
+# G <- scale(G)
+
+# Z = list(scale(as.matrix(omics_complete[omics2])),scale(as.matrix(omics_complete[omics])))
+# Z = list(as.matrix(microbiome_features_complete[-1]),as.matrix(metabolomics_features_complete[-1]))
+Z = list(as.matrix(meta_filt_microbiome[microbiome_scaled]))
+# Y = eGFR_complete[1]
+Y = meta_filt_microbiome["eGFR_log_scaled"]
+# Y <- scale(Y)
+
+# Run the LUCID Model  
+fit <- estimate_lucid(lucid_model = "serial",
+                      G = G,
+                      Z = Z,
+                      Y = FALSE ,
+                      # CoY = NULL,
+                      CoY = covs,
+                      CoG = NULL,
+                      K = list(2),
+                      useY = TRUE,
+                      family = "normal", 
+                      init_par="mclust",
+                      # Rho_Z_Mu = 5,
+                      # Rho_Z_Cov = 0.3,
+                      init_omic.data.model = NULL) 
+
+#extract selected Z features to to refit lUCID in serial
+selected_Z = vector(mode = "list", length = length(Z))
+for (i in (1:length(Z))){
+  fiti_select_Z = fit$submodel[[i]]$select$selectZ
+  selected_Z[[i]] = Z[[i]][,fiti_select_Z]
+}
+
+#Refit ther LUCID in serial model with selected Z
+fit <- estimate_lucid(lucid_model = "serial",
+                      G = G,
+                      Z = selected_Z,
+                      Y = Y, 
+                      # CoY = NULL,
+                      CoY = covs,
+                      CoG = NULL,
+                      K = list(2,2),
+                      useY = TRUE,
+                      init_par = "mclust",
+                      family = "normal",
+                      init_omic.data.model = NULL)
+
+# # Rename Exposure
+fit1 <- fit$submodel[[1]]
+# fit1$var.names$Gnames[1] <- "PFAS"
+fit2 <- fit$submodel[[2]]
+fit2$var.names$Gnames[1] <- "<b>Microbiome\nProfile 1</b>"
+```
+
+
+##d. JIVE and Mediation Analysis
+```{r JIVE and Mediation Analysis,echo=F,include=T}
+# Define exposure and outcome name
+# exposure <- as.vector(completedData$ma_pfna_log_scaled)
+# exposure <- as.vector(completedData$ma_pfhps_log_scaled)
+exposure <- as.vector(completedData$burden_scaled)
+
+# exposure <- meta_filt[exposure_log_scaled]|> as.matrix()
+outcome  <- as.vector(completedData$eGFR3_log_scaled)
+
+# Get numeric matrix of covariates 
+# covs <- covs[,-6]
+covs <- covs
+
+# create list of omics data 
+# omics_lst <- simulated_data[-which(names(simulated_data) == "phenotype")]
+omics_lst <- omics_lst
+
+
+# Create data frame of omics data
+omics_df <- omics_lst |> 
+  purrr::map(~as_tibble(.x, rownames = "name")) |>
+  purrr::reduce(left_join, by = "name") |>
+  column_to_rownames("name")
+
+
+
+#Rename metabolites 
+full_metabolites <- metabolites %>% 
+  dplyr::select(name,key)
+full_metabolites <- tidylog::left_join(full_metabolites,conf_ftrs,by="name")
+#Select lower diff rt
+get_min_name <- function(rt_diff, name) {
+  rt_diff_values <- as.numeric(unlist(strsplit(rt_diff, "; ")))
+  name_values <- unlist(strsplit(name, "; "))
+  
+  min_index <- which.min(rt_diff_values)
+  min_name <- name_values[min_index]
+  
+  return(min_name)
+}
+
+# Apply the function to each row and create the new column
+new_names <- mapply(get_min_name, full_metabolites$rt_diff, full_metabolites$name)
+names(new_names) <- NULL
+full_metabolites$new_names <- new_names
+key <- full_metabolites %>% 
+  dplyr::select(new_names,key)  
+key <- key %>% 
+  dplyr::distinct(new_names,.keep_all = T)
+key <- key %>% 
+  rename(feature=key)
+panel_b_dat_top_ft_named <- tidylog::left_join(panel_b_dat_top_ft,key,by="feature")
+panel_b_dat_top_ft_named <- panel_b_dat_top_ft_named %>% 
+  mutate(feature=ifelse(!is.na(new_names),new_names,feature))
+panel_b_dat_top_ft_named <- panel_b_dat_top_ft_named %>% 
+  dplyr::select(-new_names)
+panel_b_dat_top_ft <-panel_b_dat_top_ft_named
+
+# # # Transpose list of matrices
+omics_t <- lapply(omics_lst, t)
+# 
+# # Rename omics datasets
+names(omics_t) = names(omics_lst)
+# 
+# #Data reduction step
+jive1 <- jive(omics_t, rankJ = 5, rankA = c(5,5),
+              method = "given",
+              # conv = 1e-04,
+              maxiter = 100,
+              showProgress = FALSE)
+# #
+summary(jive1)
+showVarExplained(jive1)
+
+summary(result_jive2)
+showVarExplained(result_jive2)
+
+
+# # # Run Analysis
+# result_med_with_latent_fctrs_JIVE <-
+#   lafamum(exposure,
+#           outcome,
+#           omics_lst,
+#           covs = covs,
+#           Y.family = "gaussian",
+#           fdr.level = 0.05,
+#           integration = "intermediate",
+#           jive.rankJ = 5,
+#           jive.rankA = c(5,5))
+# # 
+# result_med_with_latent_fctrs_JIVE <- res
+# plot <- (plot_lafamum(result_med_with_latent_fctrs_JIVE))
+# plot
+# significant_features_cor <- c(microbiome_features,metabolite_features)
+# ggsave(plot=plot,fs::path(dir.results,"Mediation_Ranks5_40_features.jpeg"))
+
+
+#Ranks=2, NULL
+#Ranks=3, Metabolomics_3
+#Ranks=4, Metabolomics_3 & Joint_2, N.S. FDR, 8 metabolites (294,291,288,287,279,277,275,139), 3 taxa(unclassified356, streptococcus, unclassified887), joint alpha = negative, beta = positive, var %>40%, metabolite pc alpha=negative, beta=positive, var>20%
+
+#Ranks=5, Metabolomics_2 & Joint_2, 6 metabolites (88,313,312,214,199,172), 3 taxa (Romboutsia, Oscillibacter, Eubacterium halli), N.S. FDR,alpha=positive, beta=negative joint, alpha = positive, beta=negative metabolite pc,Joint var explains >40%, metabolite >20% 
+
+#Ranks=6, Metabolomics_3 & Joint_2, 4 metabolites, 2 taxa, N.S. FDR, 4 metabolites(88,313,312,139), 2 taxa(unclassified356, streptococcus), joint pc alpha=negative,beta=positive, var explained >40%, met pc alpha=positive, beta=negative, varexplained>20%
+
+#Ranks=7, metabolomics_3, joint_2, 4 metabolites(88,313,312,139), 2 taxa(unclassified356,streptococcus), joint pc alpha=negative, beta=psoitive, var>40%, metab alpha=positive,beta=negative,var>20%, N.S. FDR
+
+#Ranks=8, microbiome_8, metabolomics_8, metabolomics_7, N.S. FDR, alphas and betas all in same directions
+
+#Ranks=9, metabolomics_9
+
+#Ranks=10, metabolomics_10
+
+# 
+# #Select top 30 loadings 
+# head(sort(abs(result_med_with_latent_fctrs_JIVE[["result_ftr_cor_sig_pcs_jive"]]$Joint_2)),20)
+# 
+# #Joint
+# top_40 <- result_med_with_latent_fctrs_JIVE[["result_ftr_cor_sig_pcs_jive"]][order(abs(result_med_with_latent_fctrs_JIVE[["result_ftr_cor_sig_pcs_jive"]]$Joint_2), decreasing = TRUE), ][1:40, ]
+# features <- top_40$feature
+# 
+# #Metabolite
+# top_20_metab <- result_med_with_latent_fctrs_JIVE[["result_ftr_cor_sig_pcs_jive"]][order(abs(result_med_with_latent_fctrs_JIVE[["result_ftr_cor_sig_pcs_jive"]]$metabolomics_2), decreasing = TRUE), ][1:20, ]
+# features_metab <- top_20_metab$feature
+# 
+
+# 
+# selected_metabolites <- top_40 %>% 
+#   filter(grepl("metabolite",feature))
+# selected_metabolites <- unique(selected_metabolites$feature)
+
+
+
+#Select only metabolites & bacteria from jive components
+joint_features <- panel_b_dat_top_ft %>% 
+  filter(lf_num=="Joint_1")
+microbiome_features <- joint_features %>% 
+  filter(omic_layer=="microbiome")
+mic_features <- microbiome_features$feature
+metabolite_features_joint <- joint_features %>% 
+  filter(omic_layer=="metabolomics")
+joint_met_features <- metabolite_features_joint$feature #56
+
+#Pathway analysis:
+#Joint Factor
+joint_factor<- factors_jive$Joint_1
+# joint_factor_B <- factors_jive$Joint_2
+completedData <- completedData %>% 
+  dplyr::select(-metabolite10)
+
+# microbiome_features[microbiome_features %in% panel_b_dat_top_ft$feature]
+# selected_metabolites_matrix <- as.matrix(completedData[selected_metabolites])
+# selected_metabolites_matrix <- as.matrix(completedData[metabolite_features[-1][metabolite_features[-1] %in% panel_b_dat_top_ft$feature]])
+# selected_microbiome_matrix <- as.matrix(completedData[microbiome_features[microbiome_features %in% panel_b_dat_top_ft$feature]])
+
+
+selected_metabolites_matrix <- as.matrix(completedData[joint_met_features])
+selected_microbiome_matrix <- as.matrix(completedData[mic_features])
+
+
+rownames(selected_metabolites_matrix) <- NULL
+# selected_metabolites %in% omics
+#Correlation
+# cor(x, y, method = c("pearson", "kendall", "spearman"))
+# cor.test(x, y, method=c("pearson", "kendall", "spearman"))
+
+results_cor <- data.frame()
+# for (i in 1:length(selected_metabolites)){
+for (i in 1:length(joint_met_features)){
+  correlation <- cor.test(selected_metabolites_matrix[,i],joint_factor,method="pearson")
+  r <- round(correlation$estimate,3)
+  t <- round(correlation$statistic,3)
+  p <- round(correlation$p.value,5)
+  # met <- selected_metabolites[i]
+  met <- joint_met_features[i]
+  corr.results <- data.frame(key=met,r=r,T_stat=t,PVal=p)
+  results_cor <- rbind(results_cor,corr.results)
+}
+
+sig.met1 <- results_cor %>% 
+  filter(PVal<0.05)
+sig_metabolite_features1 <- sig.met1$key
+#Signficiant Metabolites: "metabolite199" "metabolite172" "metabolite214" "metabolite139" "metabolite254" "metabolite96"  "metabolite232" "metabolite251"
+
+# ipa_metabolites <- metabolites %>%
+#   filter(key %in% results_cor$key)
+# ipa_metabolites <- ipa_metabolites[,c(2,5)]
+# metabolite.names <- ipa_metabolites$name
+# ipa_data <- conf_ftrs %>%
+#   filter(name %in% metabolite.names)
+# ipa_data <- ipa_data[,c(12,20,30)] #Select the names and pubchem ids
+# ipa_data <- tidylog::left_join(ipa_data,ipa_metabolites,by="name")
+# ipa_data <- tidylog::left_join(ipa_data,results_cor,by="key")
+
+#Microbiome features with joint facto
+results_cor2 <- data.frame()
+# for (i in 1:length(selected_metabolites)){
+for (i in 1:length(mic_features)){
+  correlation <- cor.test(selected_microbiome_matrix[,i],joint_factor,method="pearson")
+  # r <- round(correlation$estimate,3)
+  t <- round(correlation$statistic,3)
+  p <- round(correlation$p.value,5)
+  # met <- selected_metabolites[i]
+  mic <- mic_features[i]
+  corr.results2 <- data.frame(Taxa=mic,T_stat=t,PVal=p)
+  results_cor2 <- rbind(results_cor2,corr.results2)
+}
+
+sig.mic <- results_cor2 %>% 
+  filter(PVal<0.05)
+sig_microbiome_features <- sig.mic$Taxa
+
+joint_factor_features <- c(sig_metabolite_features1,sig_microbiome_features)
+met_factor_features <- joint_met_features[!joint_met_features %in% joint_factor_features]
+#Metabolomics Factor
+met_factor <- factors_jive$metabolomics_5
+# selected_metabolites_matrix <- as.matrix(completedData[selected_metabolites])
+# selected_metabolites_matrix2 <- as.matrix(completedData[metabolite_features[-1]])
+selected_metabolites_matrix2 <- as.matrix(completedData[met_factor_features])
+
+rownames(selected_metabolites_matrix2) <- NULL
+# selected_metabolites %in% omics
+#Correlation
+# cor(x, y, method = c("pearson", "kendall", "spearman"))
+# cor.test(x, y, method=c("pearson", "kendall", "spearman"))
+results_cor3 <- data.frame()
+# for (i in 1:length(selected_metabolites)){
+for (i in 1:length(met_factor_features)){
+  correlation <- cor.test(selected_metabolites_matrix[,i],met_factor,method="pearson")
+  r <- round(correlation$estimate,3)
+  t <- round(correlation$statistic,3)
+  p <- round(correlation$p.value,5)
+  # met <- selected_metabolites[i]
+  met <- met_factor_features[i]
+  corr.results <- data.frame(key=met,r=r,T_stat2=t,PVal2=p)
+  results_cor3 <- rbind(results_cor3,corr.results)
+}
+
+sig.met2 <- results_cor3 %>%
+  filter(PVal2<0.05)
+sig_metabolite_features2 <- sig.met2$key
+sig_metabolites <- c(sig_metabolite_features1,sig_metabolite_features2)
+key2 <-key %>% 
+  filter(feature %in% sig_metabolites)
+sig_metabolite_names <- key2$new_names
+# significant_features_cor <- c(,sig_metabolite_features2)
+
+sig_met_key <- metabolites %>%
+  filter(key %in% sig_metabolites) %>% 
+  dplyr::select(name,key)
+
+significant_features_cor <- c(sig_microbiome_features,sig_met_key$name)
+significant_features_cor <- str_replace(significant_features_cor,"Succinate; Succinic acid; Methylmalonate; Methylmalonic acid","Succinate")
+significant_features_cor <- str_replace(significant_features_cor,"Ursocholic acid; Allocholic acid; Gama-Muricholic acid","Ursocholic acid")
+
+
+
+
+#Coef plots
+#Joint
+joint_factor_features
+key3 <-key %>% 
+  filter(feature %in% joint_factor_features)
+sig_metabolite_joint <- key3$new_names
+joint_factor_features2 <- c(sig_microbiome_features,sig_metabolite_joint)
+joint_factor_features2  <- str_remove(joint_factor_features2 ,"_scaled")
+joint_factor_features2  <- str_replace(joint_factor_features2 ,"unclassified569","Lachnospiraceae g.569")
+joint_factor_features2  <- str_replace(joint_factor_features2 ,"unclassified356","Oscillospiraceae g.356")
+
+
+joint_results <- panel_b_dat_top_ft %>% 
+  filter(lf_num=="Joint_1") %>% 
+  filter(feature %in% joint_factor_features2) %>% 
+  mutate(Type=ifelse(omic_layer=="microbiome","Microbiome","Metabolome"))
+joint_results$feature <- factor(joint_results$feature,levels=joint_results$feature)
+joint_results$Type <- factor(joint_results$Type,levels=c("Microbiome","Metabolome"))
+
+plot1 <- ggplot(joint_results,aes(x=feature,y=Correlation))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_grid(~Type,scale="free_x",space="free_x")+
+  labs(y="Factor Loadings",
+       x=NULL)
+
+
+#Met
+sig_metabolite_features2
+key4 <-key %>% 
+  filter(feature %in% sig_metabolite_features2)
+sig_metabolite_met<- key4$new_names
+# met_factor_features2 <- c(sig_microbiome_features,sig_metabolite_joint)
+# met_factor_features2  <- str_remove(joint_factor_features2 ,"_scaled")
+# met_factor_features2  <- str_replace(joint_factor_features2 ,"unclassified569","Lachnospiraceae g.569")
+# met_factor_features2  <- str_replace(joint_factor_features2 ,"unclassified356","Oscillospiraceae g.356")
+
+
+met_results <- panel_b_dat_top_ft %>% 
+  filter(lf_num!="Joint_1") %>% 
+  filter(feature %in% sig_metabolite_met) %>% 
+  mutate(Type=ifelse(omic_layer=="microbiome","Microbiome","Metabolome"))
+met_results$feature <- factor(met_results$feature,levels=met_results$feature)
+met_results$Type <- factor(met_results$Type,levels=c("Microbiome","Metabolome"))
+
+plot2 <- ggplot(met_results,aes(x=feature,y=Correlation))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_grid(~Type,scale="free_x",space="free_x")+
+  labs(y="Factor Loadings",
+       x=NULL)
+
+
+#Get pubchem ids
+sig_met_key$name
+key5 <- metabolites %>% 
+  filter(key %in% sig_metabolite_features2)
+key6 <- conf_ftrs %>% 
+  filter(name %in% key5$name)
+key6$pub_chem_cid
+
+key7 <- metabolites %>% 
+  filter(key %in% sig_metabolite_features1)
+key8 <- conf_ftrs %>% 
+  filter(name %in% key7$name)
+key8$pub_chem_cid
+
+
+ipa_data2 <- conf_ftrs %>%
+  filter(name %in% metabolite.names2)
+
+
+sig_met <- c(sig_metabolite_features1)
+sig_met_key <- metabolites %>%
+  filter(key %in% sig_met)
+
+ipa_metabolites2 <- metabolites %>%
+  filter(key %in% results_cor$key)
+ipa_metabolites2 <- sig_met_key[,c(2,5)]
+metabolite.names2 <- ipa_metabolites2$name
+ipa_data2 <- conf_ftrs %>%
+  filter(name %in% metabolite.names2)
+ipa_data2 <- ipa_data2[,c(12,20,30)] #Select the names and pubchem ids
+ipa_data2 <- tidylog::left_join(ipa_data2,ipa_metabolites2,by="name")
+ipa_data2 <- tidylog::left_join(ipa_data2,results_cor2,by="key")
+ipa_formatted_data <- tidylog::full_join(ipa_data,ipa_data2,by=c("name","pub_chem_cid","key","rt_diff"))
+
+#Select smaller delta rt for multiples
+ipa_formatted_data2 <- ipa_formatted_data %>% 
+  separate(rt_diff, c("diff1", "diff2","diff3","diff4","diff5","diff6","diff7"), sep=";",fill="right")
+diff <- c("diff1", "diff2","diff3","diff4","diff5","diff6","diff7")
+ipa_formatted_data2 <- ipa_formatted_data2 %>% 
+  dplyr::mutate(across(diff,~as.numeric(.)))
+
+diff <- ipa_formatted_data2 %>% 
+  dplyr::select(diff1:diff7) 
+
+find_min <- function(row) {
+  min_value <- min(row, na.rm = TRUE)
+  min_name <- names(row)[which.min(ifelse(is.na(row), Inf, row))]
+  return(c(min_value, min_name))
+}
+
+# Apply function to find the minimum value and column name for each row
+result <- t(apply(diff, 1, find_min))
+result_df <- data.frame(min_diff = as.numeric(result[, 1]), diff_name = result[, 2])
+
+# Add the result to the original dataframe
+ipa_formatted_data3 <- cbind(ipa_formatted_data2, result_df)  
+
+ipa_formatted_data3$index <- as.numeric(str_remove(ipa_formatted_data3$diff_name,"diff"))
+ipa_formatted_data4 <- ipa_formatted_data3 %>% 
+  dplyr::select(name) %>% 
+  mutate(new_name=name) %>% 
+  separate(new_name, c("name1", "name2","name3","name4","name5","name6","name7"), sep=";",fill="right",)
+index <- ipa_formatted_data3$index
+ipa_formatted_data4 <- cbind(ipa_formatted_data4,index)
+ipa_formatted_data5 <- ipa_formatted_data4 %>% 
+  mutate(selected_name=case_when(index==1~name1,
+                                 index==2~name2,
+                                 index==3~name3,
+                                 index==4~name4,
+                                 index==5~name5,
+                                 index==6~name6,
+                                 index==7~name7))
+selected_name <- ipa_formatted_data5[,c(1,10)]
+ipa_formatted_data <- tidylog::full_join(ipa_formatted_data,selected_name,by="name")
+ipa_formatted_data <- ipa_formatted_data %>% 
+  dplyr::select(selected_name,pub_chem_cid,T_stat:PVal2)
+
+#Pubchem ids
+ipa_formatted_data6 <- ipa_formatted_data3 %>% 
+  dplyr::select(pub_chem_cid) %>% 
+  mutate(new_pub_chem_cid=pub_chem_cid) %>% 
+  separate(new_pub_chem_cid, c("name1", "name2","name3","name4","name5","name6","name7"), sep=";",fill="right",)
+index <- ipa_formatted_data3$index
+ipa_formatted_data7 <- cbind(ipa_formatted_data6,index)
+ipa_formatted_data8 <- ipa_formatted_data7 %>% 
+  mutate(selected_name=case_when(index==1~name1,
+                                 index==2~name2,
+                                 index==3~name3,
+                                 index==4~name4,
+                                 index==5~name5,
+                                 index==6~name6,
+                                 index==7~name7))
+
+ipa_formatted_data8 <- ipa_formatted_data8 %>% 
+  rename(select_pub_chem_id=selected_name)
+selected_pubchem <- ipa_formatted_data8 %>% 
+  dplyr::select(pub_chem_cid,select_pub_chem_id)
+ipa_formatted_data <- tidylog::full_join(ipa_formatted_data,selected_pubchem,by="pub_chem_cid")
+ipa_formatted_data <- ipa_formatted_data %>% 
+  dplyr::select(selected_name,select_pub_chem_id,T_stat:PVal2)
+
+ipa_formatted_data <- ipa_formatted_data %>% 
+  rename(Metabolite=selected_name) %>% 
+  rename(pub_chem_cid=select_pub_chem_id)
+# write.csv(ipa_formatted_data,fs::path(dir.results,"IPA_Formatted_Data_v2.csv"))
+sig.met <- ipa_formatted_data %>% 
+  filter(PVal<0.05 | PVal2<0.05)
+sig_metabolite_features <- sig.met$Metabolite
+
+# ipa_data <- ipa_data[-8,]
+# hydroxy1 <- data.frame(name="7-Hydroxycholesterol",pub_chem_cid=473141)
+# hydroxy2 <- data.frame(name="7a-Hydroxycholesterol",pub_chem_cid=53477732)
+# ipa_data<- rbind(ipa_data,hydroxy1)
+# ipa_data <- rbind(ipa_data,hydroxy2)
+# write.csv(ipa_data,fs::path(dir.results,"IPA_Formatted_Data_v1.csv"))
+
+
+result_med_with_latent_fctrs_JIVE <- res
+plot <- (plot_lafamum(result_med_with_latent_fctrs_JIVE))
+plot
+
+# significant_features_cor<- c(microbiome_features,metabolite_features)
+```
+
+
+##e. Pathway analysis 
+```{r pathway analysis, echo=F}
+metabolite.data <- KEGG_Id_Data %>% 
+  janitor::clean_names() 
+# na.omit()
+corr.data <- IPA_Formatted_Data_v2 %>% 
+  janitor::clean_names()
+corr.data <- corr.data %>% 
+  dplyr::select(pubchem_id,hmdb:p_value2)
+metabolite.data <- tidylog::left_join(corr.data,metabolite.data,by=c("hmdb","pubchem_id"))
+metabolite.data <- metabolite.data %>% 
+  na.omit() 
+kegg_ids <- metabolite.data %>% 
+  dplyr::select(p_value1,p_value2)
+kegg_ids <- as.matrix(kegg_ids)
+rownames(kegg_ids) <- metabolite.data$kegg
+
+
+# kegg_ids <- kegg_ids %>% 
+#   dplyr::select(-kegg)
+# kegg_ids <- c(metabolite.data$p_value1)
+# names(kegg_ids) <- metabolite.data$kegg
+
+pathways <- keggList("pathway", "hsa")
+metabolic_pathways <- pathways[grep("Metabolic pathways", pathways, ignore.case = TRUE)]
+pathway_id <- "hsa01100"
+#Pathway analysis
+pv.out <- pathview(gene.data = NULL, cpd.data = kegg_ids, pathway.id = pathway_id, species = "hsa",cpd.idtype = "kegg")
+data(demo.paths)
+keggview.graph(plot.data.gene=pv.out$plot.data.gene)
+
+demo.paths$sel.paths[1]
+data(gse16873.d)
+
+pv.out <- pathview(gene.data = gse16873.d[, 1], pathway.id = demo.paths$sel.paths[1],
+                   species = "hsa", out.suffix = "gse16873", kegg.native = T)
+head(pv.out$plot.data.gene)
+
+pathway_info <- pv.out$plot.data.gene
+
+# Use keggview.graph on pathway_info
+keggview.graph(pathway_info,path.graph = pathway_info)
+```
+
+##f. High Dimensional Multiomic Mediation Analysis
+```{r High Dimensional Multiomic Mediation, echo=F}
+# Define exposure and outcome name
+exposure <- as.vector(completedData$ma_pfna_log_scaled)
+# exposure <- meta_filt[exposure_log_scaled]|> as.matrix()
+outcome  <- as.vector(completedData$eGFR_log_scaled)
+
+# Get numeric matrix of covariates 
+covs <- covs
+
+# create list of omics data 
+# omics_lst <- simulated_data[-which(names(simulated_data) == "phenotype")]
+omics_lst <- omics_lst
+
+# Run Analysis
+result_hima_intermediate <- hidimum(omics_lst = omics_lst,
+                                    covs = covs,
+                                    outcome = outcome,
+                                    exposure = exposure,
+                                    n_boot = 12,
+                                    Y.family = "gaussian", 
+                                    integration = "intermediate")
+
+# plot
+plot_hidimum(result_hima_intermediate)
+
+```
+
+
+#g. Mediation Analysis 
+```{r Mediation ANalysis, echo=F}
+# install.packages("mediation")
+library(mediation)
+
+full_data$joint_factor <- factors_jive$Joint_1
+full_data$met_factor <- factors_jive$metabolomics_5
+sd(full_data$joint_factor)
+sd(full_data$met_factor)
+# joint_factor_A <- factors_jive$Joint_2
+# joint_factor_B <- factors_jive$Joint_2
+full_data$ma_creatinine_scaled
+full_data$burden <- meta_filt$eap.pfas
+full_data$ma_pfhps_scaled <- meta_filt$ma_pfhps_scaled
+full_data$ma_pfna_scaled <- meta_filt$ma_pfna_scaled
+
+
+# full_data$burden_scaled <- as.numeric(full_data$burden_scaled)
+# full_data$burden_scaled <- as.numeric(full_data$burden_scaled)
+model.0 <- lm(eGFR3_log_scaled ~ ma_pfna_log_scaled, full_data)
+summary(model.0)
+
+model.M <- lm(joint_factor ~ ma_pfna_log_scaled, full_data)
+summary(model.M)
+
+model.Y <- lm(eGFR3_log_scaled ~ ma_pfna_log_scaled + joint_factor, full_data)
+summary(model.Y)
+
+results <- mediate(model.M, model.Y, treat='ma_pfna_log_scaled', mediator='joint_factor',
+                   boot=F, sims=500)
+plot(results)
+summary(results)
+
+full_data$burden_scaled <- as.numeric(full_data$burden_scaled)
+# devtools::install_github("BS1125/CMAverse",force=T)
+library(CMAverse)
+# full_data$burden_scaled
+# full_data$burden <- meta_filt$eap.pfas
+
+
+full_data$metabolite254
+set.seed(500)
+
+med <- cmest(data=full_data,model="rb",outcome="eGFR2_log",exposure="burden_scaled",a=2,astar=-2,basec = c("ma_age", "ma_sex", "ma_race_eth","ma_parental_edu","ma_creatinine_scaled"),
+             mediator="metabolite254",EMint=F,mval=list(1),mreg = list("linear"), yreg = "linear",
+             estimation = "paramfunc", inference = "bootstrap", nboot =500)
+
+summary(med)
+
+
+med <- cmest(data=full_data,model="rb",outcome="eGFR2_log",exposure="burden_scaled",a=2,astar=-2,basec = c("ma_age", "ma_sex", "ma_race_eth","ma_parental_edu","ma_creatinine_scaled","joint_factor"),
+             mediator="met_factor",EMint=F,mval=list(1),mreg = list("linear"), yreg = "linear",
+             estimation = "paramfunc", inference = "bootstrap", nboot =500)
+
+summary(med)
+
+med <- cmest(data=full_data,model="rb",outcome="eGFR2_log",exposure="burden_scaled",a=2,astar=-2,basec = c("ma_age", "ma_sex", "ma_race_eth","ma_parental_edu","ma_creatinine_scaled","met_factor"),
+             mediator="joint_factor",EMint=F,mval=list(1),mreg = list("linear"), yreg = "linear",
+             estimation = "paramfunc", inference = "bootstrap", nboot =500)
+
+summary(med)
+
+
+#PFHpS
+med <- cmest(data=full_data,model="rb",outcome="eGFR2_log",exposure="ma_pfhps_scaled",a=2,astar=-2,basec = c("ma_age", "ma_sex", "ma_race_eth","ma_parental_edu","ma_creatinine_scaled","joint_factor"),
+             mediator="met_factor",EMint=F,mval=list(1),mreg = list("linear"), yreg = "linear",
+             estimation = "paramfunc", inference = "bootstrap", nboot =500)
+
+summary(med)
+
+med <- cmest(data=full_data,model="rb",outcome="eGFR2_log",exposure="ma_pfhps_scaled",a=2,astar=-2,basec = c("ma_age", "ma_sex", "ma_race_eth","ma_parental_edu","ma_creatinine_scaled","met_factor"),
+             mediator="joint_factor",EMint=F,mval=list(1),mreg = list("linear"), yreg = "linear",
+             estimation = "paramfunc", inference = "bootstrap", nboot =500)
+summary(med)
+
+#PFNA
+med <- cmest(data=full_data,model="rb",outcome="eGFR2_log",exposure="ma_pfna_scaled",a=2,astar=-2,basec = c("ma_age", "ma_sex", "ma_race_eth","ma_parental_edu","ma_creatinine_scaled","joint_factor"),
+             mediator="met_factor",EMint=F,mval=list(1),mreg = list("linear"), yreg = "linear",
+             estimation = "paramfunc", inference = "bootstrap", nboot =500)
+
+summary(med)
+med <- cmest(data=full_data,model="rb",outcome="eGFR2_log",exposure="ma_pfna_scaled",a=2,astar=-2,basec = c("ma_age", "ma_sex", "ma_race_eth","ma_parental_edu","ma_creatinine_scaled","met_factor"),
+             mediator="joint_factor",EMint=F,mval=list(1),mreg = list("linear"), yreg = "linear",
+             estimation = "paramfunc", inference = "bootstrap", nboot =500)
+summary(med)
+
+#Fiber
+full_data$m_total_dietary_fiber_g2 <- covs_complete$m_total_dietary_fiber_g
+
+med <- cmest(data=full_data,model="rb",outcome="eGFR2_log",exposure="burden_scaled",a=2,astar=-2,basec = c("ma_age", "ma_sex", "ma_race_eth","ma_parental_edu","ma_creatinine_scaled","joint_factor","m_total_dietary_fiber_g2"),
+             mediator="met_factor",EMint=F,mval=list(1),mreg = list("linear"), yreg = "linear",
+             estimation = "paramfunc", inference = "bootstrap", nboot =500)
+
+summary(med)
+
+
+med <- cmest(data=full_data,model="rb",outcome="eGFR2_log",exposure="burden_scaled",a=2,astar=-2,basec = c("ma_age", "ma_sex", "ma_race_eth","ma_parental_edu","ma_creatinine_scaled","met_factor","m_total_dietary_fiber_g2"),
+             mediator="joint_factor",EMint=F,mval=list(1),mreg = list("linear"), yreg = "linear",
+             estimation = "paramfunc", inference = "bootstrap", nboot =500)
+
+summary(med)
+
+
+# Create the data frame with the updated data for specific terms
+coefficients <- data.frame(
+  Term = c("te", "tnie", "pnde"),
+  Estimate = c(-4.58004, -0.96006, -3.61998),
+  # Std.error = c(1.82677, 0.67183, 1.94587),
+  CIL = c(-8.14668, -2.34884, -7.67258),
+  CIU = c(-1.035, 0.133, 0.148),
+  P_val=c(0.012,0.076,0.076)
+)
+
+# Ensure the terms are factors for ordered plotting
+coef_data$Term <- factor(coef_data$Term, levels = coef_data$Term)
+coef_data$Significance <- ifelse(coef_data$P.val < 0.05, "Significant", "Not Significant")
+
+# Create the coefficient plot
+ggplot(coef_data, aes(x = Term, y = Estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), width = 0.2) +
+  geom_hline(yintercept = 0, linetype = "dashed",size=0.05) +
+  labs(title = "Coefficient Plot",
+       x = "Terms",
+       y = "Estimate") +
+  theme_bw() +
+  coord_flip()  # Flip coordinates for better readability
+
+p3 <- ggplot(coef_data, aes(x = Term, y = Estimate, color = Significance)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed",color="lightgray") +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), width = 0.2) +
+  scale_color_manual(values = c("Significant" = "red", "Not Significant" = "black")) +
+  labs(title = "Coefficient Plot for Selected Terms",
+       x = "Effects",
+       y = "Estimate",
+       color = "Significance") +
+  theme_bw() +
+  coord_flip() 
+
+
+summary(lm(eGFR3~burden_scaled+ma_age+ma_sex+ma_parental_edu+ma_race_eth,data=full_data))
+
+```
+
+
+###h. Name metabolites
+```{r Key Metabolties,echo=F}
+joint_factor <- factors_jive$Joint_2
+completedData <- completedData %>% 
+  dplyr::select(-metabolite10)
+selected_metabolites_matrix <- as.matrix(completedData[metabolite_features[-1]])
+selected_microbiome_matrix <- as.matrix(completedData[microbiome_features])
+
+rownames(selected_metabolites_matrix) <- NULL
+
+results_cor <- data.frame()
+for (i in 1:length(metabolite_features[-1])){
+  correlation <- cor.test(selected_metabolites_matrix[,i],joint_factor,method="pearson")
+  r <- round(correlation$estimate,3)
+  t <- round(correlation$statistic,3)
+  p <- round(correlation$p.value,5)
+  # met <- selected_metabolites[i]
+  met <- metabolite_features[-1][i]
+  corr.results <- data.frame(key=met,r=r,T_stat=t,PVal=p)
+  results_cor <- rbind(results_cor,corr.results)
+}
+
+sig.met1 <- results_cor %>% 
+  filter(PVal<0.05)
+sig_metabolite_features1 <- sig.met1$key
+
+
+ipa_metabolites <- metabolites %>%
+  filter(key %in% results_cor$key)
+ipa_metabolites <- ipa_metabolites[,c(2,5)]
+metabolite.names <- ipa_metabolites$name
+ipa_data <- conf_ftrs %>%
+  filter(name %in% metabolite.names)
+ipa_data <- ipa_data[,c(12,20,30)] #Select the names and pubchem ids
+ipa_data <- tidylog::left_join(ipa_data,ipa_metabolites,by="name")
+ipa_data <- tidylog::left_join(ipa_data,results_cor,by="key")
+
+#Microbiome features with joint facto
+results_cor2 <- data.frame()
+new_features <- microbiome_features[which(microbiome_features %in% panel_b_dat_top_ft$feature)]
+# for (i in 1:length(selected_metabolites)){
+for (i in 1:length(new_features)){
+  correlation <- cor.test(selected_microbiome_matrix[,i],joint_factor,method="pearson")
+  r <- round(correlation$estimate,3)
+  t <- round(correlation$statistic,3)
+  p <- round(correlation$p.value,5)
+  # met <- selected_metabolites[i]
+  mic <-new_features[i]
+  corr.results2 <- data.frame(Taxa=mic,r=r,T_stat=t,PVal=p)
+  results_cor2 <- rbind(results_cor2,corr.results2)
+}
+
+sig.mic <- results_cor2 %>% 
+  filter(PVal<0.05)
+# sig_microbiome_features <- sig.mic$Taxa[c(4,5)]
+# sig_metabolite_features1
+
+sig_met <- c(sig_metabolite_features1)
+sig_met_key <- metabolites %>% 
+  filter(key %in% sig_met) %>% 
+  mutate(name=str_replace(name,"7-Hydroxycholesterol; 7a-Hydroxycholesterol","7a-Hydroxycholesterol"))
+sig_met_key <- sig_met_key %>% 
+  dplyr::select(name,key)
+Signficiant_Metabolite_results <- tidylog::left_join(sig.met1,sig_met_key,by="key")
+
+Signficiant_Metabolite_results$r <- sort(Signficiant_Metabolite_results$r)
+order <- Signficiant_Metabolite_results$name
+Signficiant_Metabolite_results$name <- factor(Signficiant_Metabolite_results$name,levels=order)
+Signficiant_Metabolite_results <- Signficiant_Metabolite_results %>% 
+  mutate(Type=ifelse(grepl("scaled",name),"Microbiome","Metabolome"))
+results_plot <- Signficiant_Metabolite_results %>% 
+  dplyr::select(-key) %>% 
+  dplyr::select(name,r:PVal)
+sig.mic <- sig.mic %>% 
+  rename(name=Taxa)
+rownames(sig.mic) <- NULL
+results_plot <- rbind(sig.mic,results_plot)
+results_plot <- results_plot %>% 
+  mutate(Type=ifelse(grepl("scaled",name),"Microbiome","Metabolome")) %>% 
+  mutate(name=str_replace(name,"_scaled",""))
+sig.mic <- sig.mic %>%
+  mutate(Type=ifelse(grepl("scaled",name),"Microbiome","Metabolome"))
+Signficiant_Metabolite_results <- Signficiant_Metabolite_results %>% 
+  mutate(Type=ifelse(grepl("scaled",name),"Microbiome","Metabolome"))
+
+results_plot$Type <- factor(results_plot$Type, levels = c("Microbiome", "Metabolome"))
+# results_plot$sign <- ifelse(results_plot$r > 0, "positive", "negative")
+results_plot <- results_plot %>% 
+  mutate(name=str_replace(name,"Eubacterium_siraeum_group","Eubacterium siraeum group"),
+         name=str_replace(name,"Fusicatenibacter","Fusicatenibacter"),
+         name=str_replace(name,"Dorea","Dorea"),
+         name=str_replace(name,"Lachnospiraceae_g__GCA_900066575","GCA 900066575"))
+results_plot$name <- factor(results_plot$name,levels=results_plot$name)
+
+plot1 <- ggplot(results_plot,aes(x=name,y=r))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_grid(~Type,scale="free_x",space="free_x")+
+  labs(y="Factor Loadings",
+       x=NULL)
+# scale_fill_manual(values = c("positive" = "orange", "negative" = "blue"))
+
+a <- ggplot(Signficiant_Metabolite_results,aes(x=name,y=r))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        axis.ticks.y=element_blank(),
+        axis.text.y=element_blank())+
+  facet_wrap("Type")+
+  labs(y=NULL,
+       x=NULL)
+
+sig.mic <- sig.mic %>% 
+  mutate(name=str_replace(name,"Eubacterium_siraeum_group_scaled","Eubacterium siraeum group"),
+         name=str_replace(name,"Fusicatenibacter_scaled","Fusicatenibacter"),
+         name=str_replace(name,"Dorea_scaled","Dorea"),
+         name=str_replace(name,"Lachnospiraceae_g__GCA_900066575_scaled","GCA 900066575"))
+b <-ggplot(sig.mic,aes(x=name,y=r))+
+  geom_bar(stat = "identity",width=0.5)+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_wrap("Type")+
+  labs(y="Factor Loadings",
+       x=NULL)
+# install.packages("ggpubr")
+library(ggpubr)
+# install.packages("patchwork")
+library(patchwork)
+
+combined_plot <- ggarrange(b,a, ncol = 2, nrow = 1)
+gridExtra::grid.arrange(b,a,ncol=2)
+combined_plot <- plot_grid(b,a,rel_widths = c(1,2),rel_heights = c(1.5,1))
+
+
+
+
+
+
+
+
+#Match metabolites to IDs for pathway analysis
+key <- metabolites %>% 
+  dplyr::select(name,key)
+metabolites_matching <- tidylog::left_join(results_cor,key,by="key")
+metabolites_matching <- tidylog::left_join(metabolites_matching,conf_ftrs,by="name") 
+#Select lower diff rt
+get_min_name <- function(rt_diff, name) {
+  rt_diff_values <- as.numeric(unlist(strsplit(rt_diff, "; ")))
+  name_values <- unlist(strsplit(name, "; "))
+  
+  min_index <- which.min(rt_diff_values)
+  min_name <- name_values[min_index]
+  
+  return(min_name)
+}
+
+# Apply the function to each row and create the new column
+new_names <- mapply(get_min_name, metabolites_matching$rt_diff, metabolites_matching$name)
+names(new_names) <- NULL
+metabolites_matching$new_names <- new_names
+
+new_ids <- mapply(get_min_name, metabolites_matching$rt_diff, metabolites_matching$pub_chem_cid)
+names(new_ids) <- NULL
+metabolites_matching$new_pub_chem_cids <- new_ids
+
+
+metabolites_matching <- metabolites_matching %>% 
+  dplyr::select(r:name,pub_chem_cid,new_names,new_pub_chem_cids)
+metabolites_matching <- metabolites_matching %>% 
+  rename(pubchem_id=new_pub_chem_cids,
+         metabolites=new_names) %>% 
+  dplyr::select(metabolites,pubchem_id,r:PVal)
+write.csv(metabolites_matching,fs::path(dir.results,"Pathway_Metabolites.csv"))
+
+```
+
+#New results
+```{r new results,echo=F}
+joint_factor <- factors_jive$Joint_2
+completedData <- completedData %>% 
+  dplyr::select(-metabolite10)
+selected_metabolites_matrix <- as.matrix(completedData[metabolite_features[-1]])
+selected_microbiome_matrix <- as.matrix(completedData[microbiome_features])
+
+rownames(selected_metabolites_matrix) <- NULL
+
+results_cor <- data.frame()
+for (i in 1:length(metabolite_features[-1])){
+  correlation <- cor.test(selected_metabolites_matrix[,i],joint_factor,method="pearson")
+  r <- round(correlation$estimate,3)
+  t <- round(correlation$statistic,3)
+  p <- round(correlation$p.value,5)
+  # met <- selected_metabolites[i]
+  met <- metabolite_features[-1][i]
+  corr.results <- data.frame(key=met,r=r,T_stat=t,PVal=p)
+  results_cor <- rbind(results_cor,corr.results)
+}
+
+sig.met1 <- results_cor %>% 
+  filter(PVal<0.05)
+sig_metabolite_features1 <- sig.met1$key
+
+
+ipa_metabolites <- metabolites %>%
+  filter(key %in% results_cor$key)
+ipa_metabolites <- ipa_metabolites[,c(2,5)]
+metabolite.names <- ipa_metabolites$name
+ipa_data <- conf_ftrs %>%
+  filter(name %in% metabolite.names)
+ipa_data <- ipa_data[,c(12,20,30)] #Select the names and pubchem ids
+ipa_data <- tidylog::left_join(ipa_data,ipa_metabolites,by="name")
+ipa_data <- tidylog::left_join(ipa_data,results_cor,by="key")
+
+#Microbiome features with joint factor
+results_cor2 <- data.frame()
+new_features <- microbiome_features[which(microbiome_features %in% panel_b_dat_top_ft$feature)]
+# for (i in 1:length(selected_metabolites)){
+for (i in 1:length(new_features)){
+  correlation <- cor.test(selected_microbiome_matrix[,i],joint_factor,method="pearson")
+  r <- round(correlation$estimate,3)
+  t <- round(correlation$statistic,3)
+  p <- round(correlation$p.value,5)
+  # met <- selected_metabolites[i]
+  mic <-new_features[i]
+  corr.results2 <- data.frame(Taxa=mic,r=r,T_stat=t,PVal=p)
+  results_cor2 <- rbind(results_cor2,corr.results2)
+}
+
+sig.mic <- results_cor2 %>% 
+  filter(PVal<0.05)
+sig_microbiome_features <- sig.mic$Taxa
+# sig_metabolite_features1
+
+sig_met <- c(sig_metabolite_features1)
+sig_met_key <- metabolites %>% 
+  filter(key %in% sig_met) %>% 
+  mutate(name=str_replace(name,"7-Hydroxycholesterol; 7a-Hydroxycholesterol","7a-Hydroxycholesterol"))
+sig_met_key <- sig_met_key %>% 
+  dplyr::select(name,key)
+Signficiant_Metabolite_results <- tidylog::left_join(sig.met1,sig_met_key,by="key")
+
+
+met_factor <- factors_jive$metabolomics_1
+# completedData <- completedData %>% 
+#   dplyr::select(-metabolite10)
+# selected_metabolites_matrix <- as.matrix(completedData[metabolite_features[-1]])
+# selected_microbiome_matrix <- as.matrix(completedData[microbiome_features])
+
+# rownames(selected_metabolites_matrix) <- NULL
+
+results_cor3 <- data.frame()
+for (i in 1:length(metabolite_features[-1])){
+  correlation <- cor.test(selected_metabolites_matrix[,i],met_factor,method="pearson")
+  r <- round(correlation$estimate,3)
+  t <- round(correlation$statistic,3)
+  p <- round(correlation$p.value,5)
+  # met <- selected_metabolites[i]
+  met <- metabolite_features[-1][i]
+  corr.results3 <- data.frame(key=met,r=r,T_stat=t,PVal=p)
+  results_cor3 <- rbind(results_cor3,corr.results3)
+}
+
+sig.met2 <- results_cor3 %>% 
+  filter(PVal<0.05)
+sig_metabolite_features2 <- sig.met2$key
+
+ipa_metabolites2 <- metabolites %>%
+  filter(key %in% results_cor3$key)
+ipa_metabolites2 <- ipa_metabolites2[,c(2,5)]
+metabolite.names2 <- ipa_metabolites2$name
+ipa_data2 <- conf_ftrs %>%
+  filter(name %in% metabolite.names2)
+ipa_data2 <- ipa_data2[,c(12,20,30)] #Select the names and pubchem ids
+ipa_data2 <- tidylog::left_join(ipa_data2,ipa_metabolites2,by="name")
+ipa_data2 <- tidylog::left_join(ipa_data2,results_cor3,by="key")
+
+sig_met2 <- c(sig_metabolite_features2)
+sig_met_key2 <- metabolites %>% 
+  filter(key %in% sig_met2) 
+# mutate(name=str_replace(name,"7-Hydroxycholesterol; 7a-Hydroxycholesterol","7a-Hydroxycholesterol"))
+sig_met_key2 <- sig_met_key2 %>% 
+  dplyr::select(name,key)
+Signficiant_Metabolite_results2 <- tidylog::left_join(sig.met2,sig_met_key2,by="key")
+Signficiant_Metabolite_results_all <- rbind(Signficiant_Metabolite_results,Signficiant_Metabolite_results2)
+
+sig.mic <- sig.mic %>% 
+  rename(name=Taxa)
+Signficiant_Metabolite_results <- Signficiant_Metabolite_results %>% 
+  dplyr::select(name,r:PVal)
+joint_results <- rbind(sig.mic,Signficiant_Metabolite_results)
+rownames(joint_results) <-NULL 
+joint_results$Type <- ifelse(grepl("scaled",joint_results$name),"Microbiome","Metabolome")
+joint_results$r <- sort(joint_results$r)
+order <- joint_results$name
+joint_results$name <- factor(joint_results$name,levels=order)
+joint_results$Type <- factor(joint_results$Type, levels = c("Microbiome", "Metabolome"))
+
+panel_b_dat_top_ft_joint <- panel_b_dat_top_ft %>% 
+  filter(lf_num=="Joint_2")
+panel_b_dat_top_ft_joint$key <- panel_b_dat_top_ft_joint$feature
+key <- metabolites %>% 
+  dplyr::select(name,key)
+panel_b_dat_top_ft_joint <- tidylog::left_join(panel_b_dat_top_ft_joint,key,by="key")
+
+#Coef plot metabolomics component
+key <- metabolites %>% 
+  dplyr::select(name,key)
+# metabolites_matching <- tidylog::left_join(panel_b_dat_top_ft_joint,key,by=c("key"))
+metabolites_matching <- tidylog::left_join(panel_b_dat_top_ft_joint,conf_ftrs,by="name") 
+metabolites_matching <- metabolites_matching %>% 
+  filter(!is.na(name))
+#Select lower diff rt
+get_min_name <- function(rt_diff, name) {
+  rt_diff_values <- as.numeric(unlist(strsplit(rt_diff, "; ")))
+  name_values <- unlist(strsplit(name, "; "))
+  
+  min_index <- which.min(rt_diff_values)
+  min_name <- name_values[min_index]
+  
+  return(min_name)
+}
+
+# Apply the function to each row and create the new column
+new_names <- mapply(get_min_name, metabolites_matching$rt_diff, metabolites_matching$name)
+names(new_names) <- NULL
+metabolites_matching$new_names <- new_names
+
+# new_ids <- mapply(get_min_name, metabolites_matching$rt_diff, metabolites_matching$pub_chem_cid)
+# names(new_ids) <- NULL
+# metabolites_matching$new_pub_chem_cids <- new_ids
+new <- metabolites_matching %>% 
+  dplyr::select(feature,new_names)
+panel_b_dat_top_ft_joint <- tidylog::left_join(panel_b_dat_top_ft_joint,new,by="feature")
+panel_b_dat_top_ft_joint <- panel_b_dat_top_ft_joint %>% 
+  mutate(feature=ifelse(!is.na(new_names),new_names,feature))
+panel_b_dat_top_ft_joint <- panel_b_dat_top_ft_joint %>% 
+  dplyr::select(-c(key,name,new_names))
+
+
+
+get_names <- metabolites %>% 
+  filter(key %in% sig_metabolite_features1 )
+names <- get_names$name
+names <- str_replace(names,"7-Hydroxycholesterol; 7a-Hydroxycholesterol","7a-Hydroxycholesterol")
+
+filt <- c(sig_microbiome_features,names)
+#Remove non-significant from correlations
+joint_results <- panel_b_dat_top_ft_joint %>% 
+  filter(feature %in% filt)
+joint_results$Type <- ifelse(grepl("scale",joint_results$feature),"Microbiome","Metabolome")
+
+joint_results$Correlation <- sort(joint_results$Correlation)
+order <- joint_results$feature
+joint_results$feature <- factor(joint_results$feature,levels=order)
+joint_results$Type <- factor(joint_results$Type, levels = c("Microbiome", "Metabolome"))
+
+# joint_results <- panel_b_dat_top_ft_joint
+#Coef plot jiont component
+plot1 <- ggplot(joint_results,aes(x=feature,y=Correlation))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_grid(~Type,scale="free_x",space="free_x")+
+  labs(y="Factor Loadings",
+       x=NULL)
+
+
+
+
+
+
+
+
+# Signficiant_Metabolite_results2 <- Signficiant_Metabolite_results2 %>% 
+#   dplyr::select(name,r:PVal)
+met_results <- Signficiant_Metabolite_results2 
+rownames(met_results) <-NULL 
+met_results$Type <- ifelse(grepl("scaled",met_results$new_name),"Microbiome","Metabolome")
+met_results$r <- sort(met_results$r)
+order <- met_results$new_name
+met_results$new_name <- factor(met_results$new_name,levels=order)
+met_results$Type <- factor(met_results$Type, levels = c("Microbiome", "Metabolome"))
+
+#Coef plot jiont component
+plot2 <- ggplot(met_results,aes(x=new_name,y=r))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_grid(~Type,scale="free_x",space="free_x")+
+  labs(y="Factor Loadings",
+       x=NULL)
+
+
+
+
+
+
+
+
+
+
+#Match metabolites to IDs for pathway analysis
+key <- metabolites %>% 
+  dplyr::select(name,key)
+metabolites_matching <- tidylog::left_join(results_cor,key,by="key")
+metabolites_matching <- tidylog::left_join(metabolites_matching,conf_ftrs,by="name") 
+#Select lower diff rt
+get_min_name <- function(rt_diff, name) {
+  rt_diff_values <- as.numeric(unlist(strsplit(rt_diff, "; ")))
+  name_values <- unlist(strsplit(name, "; "))
+  
+  min_index <- which.min(rt_diff_values)
+  min_name <- name_values[min_index]
+  
+  return(min_name)
+}
+
+# Apply the function to each row and create the new column
+new_names <- mapply(get_min_name, metabolites_matching$rt_diff, metabolites_matching$name)
+names(new_names) <- NULL
+metabolites_matching$new_names <- new_names
+
+new_ids <- mapply(get_min_name, metabolites_matching$rt_diff, metabolites_matching$pub_chem_cid)
+names(new_ids) <- NULL
+metabolites_matching$new_pub_chem_cids <- new_ids
+
+
+metabolites_matching <- metabolites_matching %>% 
+  dplyr::select(r:name,pub_chem_cid,new_names,new_pub_chem_cids)
+metabolites_matching <- metabolites_matching %>% 
+  rename(pubchem_id=new_pub_chem_cids,
+         metabolites=new_names) %>% 
+  dplyr::select(metabolites,pubchem_id,r:PVal)
+write.csv(metabolites_matching,fs::path(dir.results,"Pathway_Metabolites_Joint_Component.csv"))
+
+#Match metabolites to IDs for pathway analysis
+key <- metabolites %>% 
+  dplyr::select(name,key)
+metabolites_matching <- tidylog::left_join(results_cor3,key,by="key")
+metabolites_matching <- tidylog::left_join(metabolites_matching,conf_ftrs,by="name") 
+#Select lower diff rt
+get_min_name <- function(rt_diff, name) {
+  rt_diff_values <- as.numeric(unlist(strsplit(rt_diff, "; ")))
+  name_values <- unlist(strsplit(name, "; "))
+  
+  min_index <- which.min(rt_diff_values)
+  min_name <- name_values[min_index]
+  
+  return(min_name)
+}
+
+# Apply the function to each row and create the new column
+new_names <- mapply(get_min_name, metabolites_matching$rt_diff, metabolites_matching$name)
+names(new_names) <- NULL
+metabolites_matching$new_names <- new_names
+
+new_ids <- mapply(get_min_name, metabolites_matching$rt_diff, metabolites_matching$pub_chem_cid)
+names(new_ids) <- NULL
+metabolites_matching$new_pub_chem_cids <- new_ids
+
+
+metabolites_matching <- metabolites_matching %>% 
+  dplyr::select(r:name,pub_chem_cid,new_names,new_pub_chem_cids)
+metabolites_matching <- metabolites_matching %>% 
+  rename(pubchem_id=new_pub_chem_cids,
+         metabolites=new_names) %>% 
+  dplyr::select(metabolites,pubchem_id,r:PVal)
+write.csv(metabolites_matching,fs::path(dir.results,"Pathway_Metabolites_Metabolite_Component.csv"))
+
+
+
+sig_met <- c(sig_metabolite_features1)
+sig_met_key <- key %>%
+  filter(feature %in% sig_met)
+features <- sig_met_key$new_names
+features <- c(features,sig.mic$Taxa)
+
+joint_results <- panel_b_dat_top_ft %>% 
+  filter(feature %in% features) %>% 
+  filter(lf_num=="Joint_1")
+
+joint_results$Correlation <- sort(joint_results$Correlation)
+order <- joint_results$feature
+joint_results$feature <- factor(joint_results$feature,levels=order)
+joint_results$omic_layer <- factor(joint_results$omic_layer, levels = c("microbiome", "metabolomics"))
+
+# joint_results <- panel_b_dat_top_ft_joint
+#Coef plot jiont component
+plot1 <- ggplot(joint_results,aes(x=feature,y=Correlation))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_grid(~omic_layer,scale="free_x",space="free_x")+
+  labs(y="Factor Loadings",
+       x=NULL)
+
+sig_met <- c(sig_metabolite_features2)
+sig_met_key <- key %>%
+  filter(feature %in% sig_met)
+features <- sig_met_key$new_names
+features <- c(features)
+
+met_results <- panel_b_dat_top_ft %>% 
+  filter(feature %in% features) %>% 
+  filter(lf_num=="metabolomics_5")
+
+met_results$Correlation <- sort(met_results$Correlation)
+order <- met_results$feature
+met_results$feature <- factor(met_results$feature,levels=order)
+met_results$omic_layer <- factor(met_results$omic_layer, levels = c("microbiome", "metabolomics"))
+
+# joint_results <- panel_b_dat_top_ft_joint
+#Coef plot jiont component
+plot2 <- ggplot(met_results,aes(x=feature,y=Correlation))+
+  geom_bar(stat = "identity")+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  facet_grid(~omic_layer,scale="free_x",space="free_x")+
+  labs(y="Factor Loadings",
+       x=NULL)
+
+# key <- key %>% 
+#   rename(key=feature)
+# results_cor <- tidylog::left_join(results_cor,key,by="key")
+# results_cpr <- tidylog::left_join(results_cor,conf_ftrs,by="name")
+
+#Rename metabolites 
+full_metabolites <- metabolites %>% 
+  dplyr::select(name,key)
+full_metabolites <- tidylog::left_join(full_metabolites,conf_ftrs,by="name")
+#Select lower diff rt
+get_min_name <- function(rt_diff, name) {
+  rt_diff_values <- as.numeric(unlist(strsplit(rt_diff, "; ")))
+  name_values <- unlist(strsplit(name, "; "))
+  
+  min_index <- which.min(rt_diff_values)
+  min_name <- name_values[min_index]
+  
+  return(min_name)
+}
+
+# Apply the function to each row and create the new column
+new_names <- mapply(get_min_name, full_metabolites$rt_diff, full_metabolites$name)
+names(new_names) <- NULL
+full_metabolites$new_names <- new_names
+
+new_ids <- mapply(get_min_name, full_metabolites$rt_diff, full_metabolites$pub_chem_cid)
+names(new_ids) <- NULL
+full_metabolites$new_ids <- new_ids
+
+key <- full_metabolites %>% 
+  dplyr::select(new_names,new_ids,key)  
+key <- key %>% 
+  dplyr::distinct(new_names,.keep_all = T)
+key 
+results_cor <- tidylog::left_join(results_cor,key,by="key")
+write.csv(results_cor,fs::path(dir.results,"Joint_Component_Correlations.csv"))
+
+results_cor3 <- tidylog::left_join(results_cor3,key,by="key")
+write.csv(results_cor3,fs::path(dir.results,"Metabolite_Component_Correlations.csv"))
+
+```
+
+#6. Missing At Random Test 
+```{r MCAR Test, include=F}
+library(naniar)
+# covs.dat <- meta_filt[c("id",covars)]
+mic <- meta_filt[c(2:108,255:621)]
+mic <- as.data.frame(mic)
+mic <- mic %>% 
+  dplyr::mutate(across(everything(),~as.numeric(.)))
+# dat <- tidylog::full_join(mic,covs.dat,by="id")
+# mcar_test(mic)
+
+mic.name <- colnames(mic[16:107])
+mic <- mic %>% 
+  mutate(across(all_of(mic.name),~ifelse(!is.na(.),1,0)))
+mic2 <- mic[,c(1:16,108:474)]
+mic3 <- mic[,c(1:16)]
+
+mic2 <- mic2 %>%
+  rename(missing=Bifidobacterium)
+mic2$missing <- ifelse(mic2$missing==0,NA,1)
+mic2 <- as.data.frame(mic2)
+# mcar_test(mic2)
+mic3 <- mic3 %>% 
+  rename(missing=Bifidobacterium)
+mic3$missing <- ifelse(mic3$missing==0,NA,1)
+mic3 <- as.data.frame(mic3)
+mcar_test(mic3)
+
+vars <- colnames(mic2)[-16]
+pvals <- data.frame()
+for (x in vars){
+  formula <- as.formula(paste0("missing ~ ",x))
+  m1 <- glm(formula, data = mic2, family = "binomial")
+  p <- summary(m1)$coef[2,4]
+  pvalues <- data.frame(Value = x,P=p)
+  pvals <- rbind(pvals,pvalues)
+}
+
+pvals$fdr <- p.adjust(pvals$P, method = "fdr")
+
+vars <- colnames(mic3)[-9]
+pvals <- data.frame()
+for (x in vars){
+  formula <- as.formula(paste0("missing ~ ",x))
+  m1 <- glm(formula, data = mic3, family = "binomial")
+  p <- summary(m1)$coef[2,4]
+  pvalues <- data.frame(Value = x,P=p)
+  pvals <- rbind(pvals,pvalues)
+}
+
+pvals$fdr <- p.adjust(pvals$P, method = "fdr")
+
+```
+
+#7. Determine Group Differences
+```{r group differences, echo=F}
+# meta_filt <- meta_filt %>% 
+#   mutate(across(everything(),~ifelse(!is.na(.),1,0)))
+meta_filt$mis.group <- ifelse(is.na(meta_filt$Bifidobacterium),0,1)
+
+#Determine if group differences of covariates
+t.test(meta_filt$ma_age~meta_filt$mis.group) #Age is slightly lower among missing
+stu_data <- table(meta_filt$ma_sex, meta_filt$mis.group)
+chisq.test(stu_data) #No difference in sex distribution by missing groups
+stu_data2 <- table(meta_filt$ma_race_eth, meta_filt$mis.group)
+chisq.test(stu_data2) #No difference in race/ethnicity by missing groups
+stu_data3 <- table(meta_filt$ma_parental_edu, meta_filt$mis.group)
+chisq.test(stu_data3) #No difference in parental education by missing groups
+t.test(meta_filt$ma_creatinine_scaled~meta_filt$mis.group) #No difference in creatinine by group
+t.test(meta_filt$m_total_dietary_fiber_g~meta_filt$mis.group) #No difference in dietary fiber/energy by group
+t.test(meta_filt$ma_bmi~meta_filt$mis.group) #No differences in bmi by group
+
+
+
+
+```
+
