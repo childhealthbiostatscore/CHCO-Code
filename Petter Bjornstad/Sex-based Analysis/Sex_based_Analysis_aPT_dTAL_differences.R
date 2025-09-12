@@ -543,4 +543,77 @@ dev.off()
 
 
 
+## Different plotting 
+
+strange_cells <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/aPT_dTAL_cellproportions.txt')
+
+
+
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+
+dat <- harmonized_data %>%
+  arrange(screen_date) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+
+
+
+dat2 <- dat %>% dplyr::select(record_id, mrn, visit, starts_with('eGFR'), starts_with('fsoc_'),
+                              'lc_k2', 'rc_k2', 'lm_k2', 'rm_k2',
+                              'lc_f', 'rc_f', 'lm_f', 'rm_f') %>% filter(visit == 'baseline')
+
+
+tmp_df <- dat2 %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+                                 lc_f, rc_f, lm_f, rm_f)
+avg_c_k2 <- tmp_df %>%
+  dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+
+avg_m_k2 <- tmp_df %>% 
+  dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+
+avg_c_f <- tmp_df %>% 
+  dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+
+avg_m_f <- tmp_df %>% 
+  dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+
+avg_c_k2_f <- avg_c_k2 / avg_c_f
+
+avg_m_k2_f <- avg_m_k2 / avg_m_f
+
+results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                     avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                    'avg_c_k2_f', 'avg_m_k2_f')
+
+dat2 <- dat2 %>% bind_cols(results)
+
+
+strange_cells_full <- strange_cells %>% left_join(dat2)
+
+results_df <- data.frame()
+
+tmp_df2 <- strange_cells_full
+
+tmp_df2$group_labels <- tmp_df2$group_labels %>% 
+  str_replace(pattern = '_Male', ':Male') %>% 
+  str_replace(pattern = '_Female', ':Female')
+tmp_df2 <- tmp_df2 %>% separate(group_labels, into = c('group', 'sex'), sep=':')
+tmp_df2$group_labels <- paste0(tmp_df2$group, '_', tmp_df2$sex)
+
+
+ggplot(tmp_df2, aes(x = aPT_percentage, y = avg_c_k2_f))+geom_point()+
+  geom_smooth(method='lm')+
+  facet_wrap(group ~ sex)+theme_classic()
+
+
+
+ggplot(tmp_df2, aes(x = aPT_percentage, y = fsoc_r_cortex))+geom_point()+
+  geom_smooth(method='lm')+
+  facet_wrap(group ~ sex)+theme_classic()
+
+
 

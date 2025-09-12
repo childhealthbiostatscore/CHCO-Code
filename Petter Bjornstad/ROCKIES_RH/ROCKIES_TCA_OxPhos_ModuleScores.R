@@ -64,16 +64,20 @@ meta.data <- so_subset@meta.data
 
 
 
-VlnPlot(so_subset, features = 'TCA_score1', group.by = 'group',
-        pt.size = 0)
+#VlnPlot(so_subset, features = 'TCA_score1', group.by = 'group',
+#        pt.size = 0)
 
 library(ggplot2)
 
 # Extract the data
 plot_data <- data.frame(
+  record_id = so_subset$record_id,
+  mrn = so_subset$mrn, 
   TCA_score = so_subset$TCA_score1,
   OxPhos_Score = so_subset$OxPhos_score1,
-  condition = so_subset$group
+  condition = so_subset$group,
+  KPMP_celltype = so_subset$KPMP_celltype,
+  celltype2 = so_subset$celltype2
 )
 
 ggplot(plot_data, aes(x = condition, y = TCA_score, fill = condition)) +
@@ -124,7 +128,42 @@ test$epic_sglti2_1 <- NULL
 
 test <- test %>% left_join(dat, by='record_id')
 
+
+
 so_subset@meta.data$epic_sglti2_1 <- test$epic_sglti2_1
+
+
+
+
+
+so_subset$celltype1 <- case_when(grepl("PT-",so_subset$celltype_rpca)~"PT",
+                                 grepl("TAL-",so_subset$celltype_rpca)~"TAL",
+                                 grepl("EC-",so_subset$celltype_rpca)~"EC",
+                                 grepl("POD",so_subset$celltype_rpca)~"POD",
+                                 grepl("MAC",so_subset$celltype_rpca)~"MAC",
+                                 grepl("MON",so_subset$celltype_rpca)~"MON",
+                                 grepl("PC-",so_subset$celltype_rpca)~"PC",
+                                 grepl("FIB",so_subset$celltype_rpca)~"FIB_MC_VSMC",
+                                 grepl("DTL",so_subset$celltype_rpca)~"DTL",
+                                 so_subset$celltype_rpca=="DCT"~"DCT",
+                                 so_subset$celltype_rpca=="ATL"~"ATL",
+                                 so_subset$celltype_rpca=="B"~"B",
+                                 so_subset$celltype_rpca=="T"~"T")
+so_subset$celltype1 <- as.character(so_subset$celltype1)
+
+so_subset$KPMP_celltype2 <- as.character(so_subset$KPMP_celltype)
+so_subset$celltype2 <- ifelse(so_subset$KPMP_celltype=="aPT" | 
+                                so_subset$KPMP_celltype=="PT-S1/S2" | 
+                                so_subset$KPMP_celltype == "PT-S3","PT",
+                              ifelse(grepl("TAL",so_subset$KPMP_celltype),"TAL",
+                                     ifelse(grepl("EC-",so_subset$KPMP_celltype),"EC",so_subset$KPMP_celltype2)))
+
+
+so_subset$DCT_celltype <- ifelse((so_subset$KPMP_celltype=="DCT" | 
+                                    so_subset$KPMP_celltype=="dDCT"), "DCT","Non-DCT")
+
+
+
 
 
 
@@ -150,22 +189,15 @@ library(ggplot2)
 
 # Extract the data
 plot_data <- data.frame(
+  record_id = so_subset$record_id,
+  mrn = so_subset$mrn, 
   TCA_score = so_subset$TCA_score1,
   OxPhos_Score = so_subset$OxPhos_score1,
-  condition = so_subset$group
+  condition = so_subset$group, 
+  sglt2 = so_subset$epic_sglti2_1,
+  KPMP_celltype = so_subset$KPMP_celltype,
+  celltype2 = so_subset$celltype2
 )
-
-ggplot(plot_data, aes(x = condition, y = TCA_score, fill = condition)) +
-  geom_violin(alpha = 0.7) +                    # Violin plot
-  geom_boxplot(width = 0.2, alpha = 0.8) + 
-  scale_x_discrete(labels = c("Lean_Control" = "Lean Control", 
-                              "Type_2_Diabetes" = "Type 2 Diabetes (no SGLT2)")) +
-  scale_fill_discrete(labels = c("Lean_Control" = "Lean Control", 
-                                 "Type_2_Diabetes" = "Type 2 Diabetes (no SGLT2)")) +
-  # Narrow boxplot on top
-  theme_classic() +
-  labs(y = "TCA Module Score", x = "Condition") # Match your original colors
-
 
 write.table(plot_data, 'C:/Users/netio/Documents/UofW/Rockies/Module_scores/T2D_SGLT2_noSGLT2_TCA_OxPhos_ModuleScores.txt', 
             row.names=F, quote=F, sep='\t')
@@ -176,11 +208,28 @@ write.table(plot_data, 'C:/Users/netio/Documents/UofW/Rockies/Module_scores/T2D_
 
 
 
+## Combinations and plots
+
+remove(list=ls())
 
 
+lc_t2d <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Module_scores/LC_vs_T2D_noSGLT2_TCA_OxPhos_ModuleScores.txt')
+t2d_sglt2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Module_scores/T2D_SGLT2_noSGLT2_TCA_OxPhos_ModuleScores.txt')
+
+lc_t2d <- lc_t2d %>% 
+  mutate(condition = ifelse(condition == 'Lean_control', 'LC', 'T2D-No SGLT2'))
+
+t2d_all <- t2d_sglt2 %>% 
+  dplyr::select(record_id, mrn, TCA_score, OxPhos_Score, KPMP_celltype, celltype2)
+t2d_all$condition <- 'T2D-Combined'
+
+t2d_sglt2 <- t2d_sglt2 %>% 
+  anti_join(lc_t2d, by='record_id') %>%
+  mutate(condition = ifelse(sglt2 == 'Yes', 'T2D-SGLT2', 'T2D-No SGLT2')) %>% 
+  dplyr::select(-sglt2)
 
 
-
+full_results <- bind_rows(list(lc_t2d, t2d_all, t2d_sglt2))
 
 
 
