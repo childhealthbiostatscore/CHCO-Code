@@ -7,17 +7,28 @@ editor: visual
 
 ```{r libraries, message = F, warning=F}
 #| include: false
+
 library(future)
 library(future.apply)
-library(tidyverse)
+if (!require("tidyverse", quietly = TRUE))
+    install.packages("tidyverse")
+#library(tidyverse)
 library(colorspace)
-library(patchwork)
-library(ggdendro)
+if (!require("patchwork", quietly = TRUE))
+    install.packages("patchwork")
+#library(patchwork)
+if (!require("ggdendro", quietly = TRUE))
+    install.packages("ggdendro")
+#library(ggdendro)
 library(cowplot)
 library(ggpubr)
 library(rstatix)
 library(arsenal)
-library(Biobase)
+library(BiocManager)
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("Biobase")
+#library(Biobase)
 library(msigdbr)
 library(kableExtra)
 # library(knitr)
@@ -31,24 +42,36 @@ library(enrichR)
 library(WriteXLS)
 library(SAVER)
 library(readxl)
-library(limma)
-library(edgeR)
+BiocManager::install("limma")
+#library(limma)
+BiocManager::install("edgeR")
+#library(edgeR)
 library(BiocGenerics)
-library(GSEABase)
-library(slingshot)
-library(SingleCellExperiment)
-library(MAST)
-library(muscat)
-library(scater)
+BiocManager::install("GSEABase")
+#library(GSEABase)
+BiocManager::install("slingshot")
+#library(slingshot)
+BiocManager::install("SingleCellExperiment")
+#library(SingleCellExperiment)
+BiocManager::install("MAST")
+#library(MAST)
+BiocManager::install("muscat")
+#library(muscat)
+BiocManager::install("scater")
+#library(scater)
 library(Seurat)
 library(jsonlite)
 library(dplyr)
-library(glmmTMB)
+if (!require("glmmTMB", quietly = TRUE))
+    install.packages("glmmTMB")
+#library(glmmTMB)
 library(reshape2)
 library(broom.mixed) 
 library(foreach)
 library(doParallel)
-library(nebula)
+if (!require("nebula", quietly = TRUE))
+    install.packages("nebula")
+#library(nebula)
 library(Matrix)
 library(scran)
 library(DirichletReg)
@@ -56,11 +79,16 @@ library(BiocParallel)
 # library(scDC)
 library(DoubletFinder)
 library(scCustomize)
-source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
+source("/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
 ```
 
 ```{r include = F}
-reticulate::use_python("/mmfs1/gscratch/togo/yejichoi/mypy/bin/python", required = T)
+library(jsonlite)
+
+Sys.setenv(LC_NUMERIC = "C")
+Sys.setenv(LANG = "en_US.UTF-8")
+
+reticulate::use_python("/mmfs1/gscratch/togo/rameshsh/mypy_conda/bin/python", required = T)
 reticulate::repl_python()
 reticulate::py_config()
 # set up Kopah connection
@@ -69,39 +97,184 @@ boto3 <- reticulate::import("boto3")
 pd <- reticulate::import("pandas")
 
 ## Create an S3 client
-keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+keys <- fromJSON("/mmfs1/home/rameshsh/keys.json")
 session <- boto3$session$Session(
   aws_access_key_id = keys$MY_ACCESS_KEY,
   aws_secret_access_key = keys$MY_SECRET_KEY
 )
-
-## Create an S3 client with the session
 s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+#s3$list_directory_buckets
 ```
 
 ```{r}
 temp_file <- tempfile(fileext = ".rds")
 s3$download_file("scrna", 'data_clean/pb90_croc_subset.rds', temp_file)
 croc_so <- readRDS(temp_file)
+
+gabel_croc_data <- read.csv("/mmfs1/gscratch/togo/rameshsh/gabel_croc_subset.csv")
 ```
 
 ```{r}
 # subset CROC Seurat object for Gabe Loeb
 # GL requested age, sex, gfr, uacr, comorbidities, meds, BMI, CKD risk factors, HbA1c on HC only
 croc_so_hc <- subset(croc_so, group == "Lean_Control" & T2D_HC_Phil != "HC_igA")
-
 croc_so_hc_meta <- croc_so_hc@meta.data
-
 length(unique(croc_so_hc_meta$record_id)) # confirmed 12 HC
+
+####### need to pull in bmi and acr_u
+cat("Kit IDs in CSV file:\n")
+sort(unique(gabel_croc_data$kit_id))
+cat("\nKit IDs in Seurat object:\n")
+sort(unique(croc_so_hc@meta.data$kit_id))
+
+# Check overlap
+common_kit_ids <- intersect(croc_so_hc@meta.data$kit_id, gabel_croc_data$kit_id)
+cat("\nCommon kit_ids:", length(common_kit_ids), "\n")
+print(common_kit_ids)
+
+# Create lookup table from CSV data
+lookup_table <- gabel_croc_data %>%
+  select(kit_id, bmi, acr_u) %>%  # rename age_binned to age if needed
+  distinct(kit_id, .keep_all = TRUE)  # Remove any duplicate kit_ids
+
+print(lookup_table)
+
+
 ```
 
 ```{r}
-# need to pull in bmi and acr_u
-croc_so_meta_sub <- croc_so_hc_meta %>%
-  dplyr::select(record_id, age, sex, eGFR_CKD_epi, hba1c)
+# Merge the lookup table with Seurat metadata based on kit_id
+#croc_so_meta_sub <- croc_so_hc_meta %>%
+  #dplyr::select(record_id, age, sex, eGFR_CKD_epi, hba1c)
 
-columns_to_keep <- c("orig.ident", "nCount_RNA", "nFeature_RNA", "record_id", "age", "sex", "eGFR_CKD_epi", "hba1c")
+# Define the columns we want to keep in the final Seurat object
+columns_to_keep <- c("orig.ident", "nCount_RNA", "nFeature_RNA", "record_id", "age", "sex", "eGFR_CKD_epi", "hba1c", "kit_id")
+
+# First, subset the metadata to only keep the desired columns
 croc_so_hc@meta.data <- croc_so_hc@meta.data[, columns_to_keep, drop = FALSE]
+#View(croc_so_hc@meta.data)
 
-View(croc_so_hc@meta.data)
+# Extract metadata as a regular data frame for easier manipulation
+metadata_df <- as.data.frame(croc_so_hc@meta.data)
+metadata_df$cell_id <- rownames(metadata_df)  # Preserve rownames
+
+# Debug: Check metadata before merge
+cat("Metadata before merge - dimensions:", dim(metadata_df), "\n")
+cat("Columns before merge:", colnames(metadata_df), "\n")
+cat("Sample kit_ids in metadata:", head(metadata_df$kit_id), "\n")
+
+# Now merge with the lookup table to add bmi and acr_u
+metadata_merged <- metadata_df %>%
+  left_join(lookup_table, by = "kit_id")
+
+# Debug: Check after merge
+cat("Metadata after merge - dimensions:", dim(metadata_merged), "\n")
+cat("Columns after merge:", colnames(metadata_merged), "\n")
+cat("BMI values after merge:", sum(!is.na(metadata_merged$bmi)), "non-NA out of", nrow(metadata_merged), "\n")
+
+
+# Create age binning
+metadata_final <- metadata_merged %>%
+  mutate(
+    age_binned = case_when(
+      age >= 0 & age <= 2 ~ "0-2 years",
+      age >= 3 & age <= 5 ~ "3-59 years",
+      age >= 6 & age <= 8 ~ "6-8 years",
+      age >= 9 & age <= 11 ~ "9-11 years",
+      age >= 12 & age <= 14 ~ "12-14 years",
+      age >= 15 & age <= 17 ~ "15-17 years",
+      age >= 18 & age <= 20 ~ "18-20 years",
+      age >= 21 & age <= 23 ~ "21-23 years",
+      age >= 24 & age <= 26 ~ "24-26 years",
+      age >= 27 & age <= 29 ~ "27-29 years",
+      age >= 30 & age <= 32 ~ "30-32 years",
+      age >= 33 & age <= 35 ~ "33-35 years",
+      age >= 36 & age <= 38 ~ "36-38 years",
+      age >= 39 & age <= 41 ~ "39-41 years",
+      age >= 42 & age <= 44 ~ "42-44 years",
+      age >= 45 & age <= 47 ~ "45-47 years",
+      age >= 48 & age <= 50 ~ "48-50 years",
+      age >= 51 & age <= 53 ~ "51-53 years",
+      age >= 54 & age <= 56 ~ "54-56 years",
+      age >= 57 & age <= 59 ~ "57-59 years",
+      age >= 60 & age <= 62 ~ "60-62 years",
+      age >= 63 & age <= 65 ~ "63-65 years",
+      age >= 66 & age <= 68 ~ "66-68 years",
+      age >= 69 & age <= 71 ~ "69-71 years"
+      #TRUE ~ paste0(floor(age/10)*10, "-", floor(age/10)*10+9, " years")
+    )
+  ) %>%
+  select(-age) %>%  # Remove original age column
+  rename(age = age_binned)  # Rename age_binned to age
+
+# Debug: Check after age binning
+cat("Age binned values:", table(metadata_final$age_binned, useNA = "ifany"), "\n")
+
+# Remove the temporary cell_id column and restore rownames
+rownames(metadata_final) <- metadata_final$cell_id
+metadata_final$cell_id <- NULL
+
+# Assign back to Seurat object
+croc_so_hc@meta.data <- metadata_final
+
+# Check results
+cat("Missing BMI after merge:", sum(is.na(croc_so_hc@meta.data$bmi)), "\n")
+cat("Missing ACR_U after merge:", sum(is.na(croc_so_hc@meta.data$acr_u)), "\n")
+cat("\nAge binning results:\n")
+table(croc_so_hc@meta.data$age_binned, useNA = "ifany")
+
+# Final metadata structure
+cat("\nFinal metadata columns:\n")
+print(colnames(croc_so_hc@meta.data))
+cat("\nFinal metadata dimensions:", nrow(croc_so_hc@meta.data), "x", ncol(croc_so_hc@meta.data), "\n")
+
+# Verify that croc_so_hc is still a Seurat object
+cat("Object class:", class(croc_so_hc), "\n")
+cat("Is Seurat object:", inherits(croc_so_hc, "Seurat"), "\n")
+
+# Save the updated Seurat object locally
+local_save_path <- "/mmfs1/gscratch/togo/rameshsh/pb90_croc_subset_gabel.rds"
+
+tryCatch({
+  saveRDS(croc_so_hc, local_save_path)
+  cat("Seurat object saved successfully to:", local_save_path, "\n")
+  
+  # Verify the save worked
+  file_size <- file.size(local_save_path)
+  cat("File size:", round(file_size / (1024^2), 2), "MB\n")
+  
+  # Test that it can be read back
+  test_load <- readRDS(local_save_path)
+  cat("File integrity check: PASSED\n")
+  cat("Saved object class:", class(test_load), "\n")
+  cat("Saved object dimensions:", dim(test_load), "\n")
+  
+}, error = function(e) {
+  cat("Save failed:", e$message, "\n")
+})
+
+cat("Seurat object processing completed.\n")
+
+# Check results
+cat("Missing BMI after merge:", sum(is.na(croc_so_hc@meta.data$bmi)), "\n")
+cat("Missing ACR_U after merge:", sum(is.na(croc_so_hc@meta.data$acr_u)), "\n")
+cat("\nAge binning results:\n")
+table(croc_so_hc@meta.data$age_binned, useNA = "ifany")
+
+# Final metadata structure
+cat("\nFinal metadata columns:\n")
+print(colnames(croc_so_hc@meta.data))
+cat("\nFinal metadata dimensions:", nrow(croc_so_hc@meta.data), "x", ncol(croc_so_hc@meta.data), "\n")
+
+# Verify the final structure
+cat("\nSample of final metadata:\n")
+
+```
+
+```{r}
+view((croc_so_hc@meta.data))
+
+temp_file = tempfile(fileext = ".rds")
+saveRDS(croc_so_hc, temp_file) # save the temp file locally (will delete after R session)
+s3$upload_file(temp_file, "scrna", 'data_clean/pb90_croc_subset_gabel.rds')
 ```
