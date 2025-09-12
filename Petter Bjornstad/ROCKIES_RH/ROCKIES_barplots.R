@@ -192,6 +192,7 @@ overall_summary <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Hail
 library(gridExtra)
 
 
+
 # Create summary data for the top panel (totals)
 summary_data <- data.frame(
   Gene_Type = c("TCA", "OxPhos"),
@@ -206,10 +207,12 @@ plot_data <- overall_summary %>%
   mutate(
     gene_type = factor(gene_type, levels = c("TCA", "OxPhos")),
     status = factor(status, levels = c("flipped", "sig")),
-    celltype = factor(celltype, levels = unique(celltype))
+    celltype = factor(celltype, levels = unique(celltype)),
+    # Create a properly formatted interaction factor
+    category_combo = paste(gene_type, status, sep = "_")
   )
 
-main_plot <- ggplot(plot_data, aes(x = celltype, y = count, fill = interaction(gene_type, status))) +
+main_plot <- ggplot(plot_data, aes(x = celltype, y = count, fill = category_combo)) +
   geom_bar(stat = "identity", position = "dodge", width = 0.8) +
   geom_hline(yintercept = 27, color = "#2E86C1", linetype = "solid", size = 1.2, alpha = 0.8) +
   geom_hline(yintercept = 10, color = "#E67E22", linetype = "solid", size = 1.2, alpha = 0.8) +
@@ -219,9 +222,14 @@ main_plot <- ggplot(plot_data, aes(x = celltype, y = count, fill = interaction(g
            hjust = 0, fontface = "bold", size = 3.5) +
   scale_fill_manual(
     name = "Category",
-    values = c("TCA.flipped" = "#5DADE2", "TCA.sig" = "#F8C471",
-               "OxPhos.flipped" = "#2E86C1", "OxPhos.sig" = "#E67E22"),
-    labels = c("TCA Flipped", "TCA Significant", "OxPhos Flipped", "OxPhos Significant")
+    values = c("TCA_flipped" = "#2E86C1",     # Blue for TCA flipped (matches TCA line)
+               "TCA_sig" = "#5DADE2",         # Light blue for TCA significant
+               "OxPhos_flipped" = "#E67E22",  # Orange for OxPhos flipped (matches OxPhos line)
+               "OxPhos_sig" = "#F8C471"),     # Light orange for OxPhos significant
+    labels = c("TCA_flipped" = "TCA Flipped", 
+               "TCA_sig" = "TCA Significant", 
+               "OxPhos_flipped" = "OxPhos Flipped", 
+               "OxPhos_sig" = "OxPhos Significant")
   ) +
   labs(
     title = "TCA and OxPhos Gene Analysis by Cell Type",
@@ -241,12 +249,20 @@ main_plot <- ggplot(plot_data, aes(x = celltype, y = count, fill = interaction(g
   ) +
   guides(fill = guide_legend(nrow = 2, byrow = TRUE))
 
+print(main_plot)
 
-# Alternative version: Save plots separately if needed
-# ggsave("summary_plot.png", summary_plot, width = 8, height = 4, dpi = 300)
-# ggsave("main_plot.png", main_plot, width = 12, height = 8, dpi = 300)
 
-# Display the combined plot
+
+
+
+
+
+
+
+
+
+
+
 
 
 pdf('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/barplots/OverallSummaryplot.pdf', width = 12, height=8)
