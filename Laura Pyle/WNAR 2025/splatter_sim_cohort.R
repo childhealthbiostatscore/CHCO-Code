@@ -45,6 +45,7 @@ simulate_cohort_specific <- function(n_controls = 5,
   return(sim)
 }
 
+# this doesn't seem to allow for different parameter estimates in the groups
 sim_cohort <- simulate_cohort_specific(
   n_controls = 4,
   n_patients = 6,
@@ -59,6 +60,9 @@ sim_cohort <- simulate_cohort_specific(
 
 # Check distribution by disease status
 table(colData(sim_cohort)$DiseaseStatus, colData(sim_cohort)$Individual)
+plot_expression_violin(sim_cohort, group_var = "DiseaseStatus")
+
+
 
 # remaining workflow
 # visualize simulation
