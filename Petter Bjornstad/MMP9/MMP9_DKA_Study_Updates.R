@@ -21,7 +21,9 @@ kidney_data <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/MMP9/Ki
 qcr <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/MMP9/qcr.csv')
 
 
-
+demographics <- final_data %>% 
+  dplyr::select(sex, race, age, height = ht, weight = wt, #bmi, 
+                systolic_bp = sbp, diastolic_bp = dbp, heartrate = hr, )
 
 
 
