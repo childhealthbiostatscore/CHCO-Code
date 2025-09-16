@@ -989,7 +989,7 @@ colnames(ckm_max2) <- c("RELEASEID", "CKM_max2")
 ckm_max <- full_join(ckm_max, ckm_max2, by = "RELEASEID")
 comorb_ckm2 <- full_join(comorb_ckm2, ckm_max, by = "RELEASEID")
 
-# time to progression (first? all?)
+# time to first progression
 # first get follow-up time
 fup <- comorb_ckm %>% select(RELEASEID, fup_time)
 comorb_ckm2 <- full_join(comorb_ckm2, fup)
@@ -998,15 +998,25 @@ max_days <- comorb_ckm2 %>% select(RELEASEID, days) %>% arrange(RELEASEID, desc(
 colnames(max_days) <- c("RELEASEID", "maxdays")
 comorb_ckm2 <- left_join(comorb_ckm2, max_days, by = "RELEASEID")
 comorb_ckm2$fup_time <- ifelse(is.na(comorb_ckm2$fup_time), comorb_ckm2$maxdays, comorb_ckm2$fup_time)
-ckm_prog_time <- comorb_ckm2 %>% select(RELEASEID, days, progress_CKM, progress_CKM2, fup_time)
-ckm_prog_time1 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM)) %>% filter(row_number() == 1) %>% select(-progress_CKM2)
+ckm_prog_time <- comorb_ckm2 %>% select(RELEASEID, days, CKM_syn, CKM_syn_num, progress_CKM, progress_CKM2, fup_time)
+ckm_prog_time1 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM), days) %>% filter(row_number() == 1) %>% select(-progress_CKM2)
 ckm_prog_time1$days_to_ckm_prog <- ifelse(ckm_prog_time1$progress_CKM == 1, ckm_prog_time1$days, ckm_prog_time1$fup_time)
-ckm_prog_time1 <- ckm_prog_time1 %>% select(RELEASEID, days_to_ckm_prog)
-ckm_prog_time2 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM2)) %>% filter(row_number() == 1) %>% select(-progress_CKM)
-ckm_prog_time2$days_to_ckm2_prog <- ifelse(ckm_prog_time2$progress_CKM2 == 1, ckm_prog_time2$days, ckm_prog_time2$fup_time)
-ckm_prog_time2 <- ckm_prog_time2 %>% select(RELEASEID, days_to_ckm2_prog)
-ckm_prog_time_final <- full_join(ckm_prog_time1, ckm_prog_time2, by = "RELEASEID")
-comorb_ckm2 <- full_join(comorb_ckm2, ckm_prog_time_final, by = "RELEASEID")
+ckm_prog_time1 <- ckm_prog_time1 %>% rename(CKM_syn_first_progression = CKM_syn, CKM_syn_num_first_progression = CKM_syn_num)
+ckm_prog_time1 <- ckm_prog_time1 %>% 
+  mutate(CKM_syn_first_progression = case_when(
+    progress_CKM == 1 ~ as.character(CKM_syn_first_progression),
+    progress_CKM == 0 ~ "No progression"
+  )
+)
+ckm_prog_time1$CKM_syn_first_progression <- as.factor(ckm_prog_time1$CKM_syn_first_progression)
+ckm_prog_time1 <- ckm_prog_time1 %>% 
+  mutate(CKM_syn_num_first_progression = case_when(
+    progress_CKM == 1 ~ CKM_syn_num_first_progression,
+    progress_CKM == 0 ~ NA
+  )
+)
+ckm_prog_time1 <- ckm_prog_time1 %>% select(RELEASEID, days_to_ckm_prog, CKM_syn_first_progression, CKM_syn_num_first_progression)
+comorb_ckm2 <- full_join(comorb_ckm2, ckm_prog_time1, by = "RELEASEID")
 
 # number of progressions
 a <- comorb_ckm2 %>% filter(progress_CKM == 1) %>% select(RELEASEID, progress_CKM)
@@ -1067,57 +1077,9 @@ comorb_ckm2_criteria <- comorb_ckm2_criteria %>%
   mutate(across(c(max_clin_cvd, max_hfpef, max_ARRHYTHMIA, max_CAD, max_CHF, max_LVSD, max_MI, max_DVT, max_PAD, max_STROKE, max_TIA, max_ULCER,
                   max_DEATH, max_KDIGO_num, max_HTN, max_TGDLP, max_high_pwv, max_high_bnp), as.factor))
 
-comorb_ckm2 <- comorb_ckm2 %>%
-  mutate(
-    CKM_syn = case_when(
-      # Stage 4: most severe
-      clin_cvd == 1 |
-      hfpef == 1 ~ "Stage4",
-      
-      # Stage 3: elevated biomarkers
-       (high_bnp == 1 |
-    #   high_trop == 1 |
-      high_pwv == 1 |
-       risk_level == "Very high") ~ "Stage3",
-      
-      # Stage 2_plus: risk factors
-      # need to add KDIGO criteria
-      (HTN == 1 |
-       TGDLP == 1 |
-       risk_level %in% c("Moderate", "High")) ~ "Stage2_plus",
-      
-      TRUE ~ "Stage2"
-    )
-  )
-
-# CKM Staging with BMI inclusion
-comorb_ckm2 <- comorb_ckm2 %>%
-  mutate(
-    CKM_syn2 = case_when(
-       # Stage 4: most severe
-      clin_cvd == 1 |
-      hfpef == 1 ~ "Stage4",
-      
-      # Stage 3: elevated biomarkers
-       (high_bnp == 1 |
-#       high_trop == 1 |
-       high_pwv == 1 |
-       risk_level == "Very high") ~ "Stage3",
-      
-      # Stage 2_plus: risk factors
-      # need to add KDIGO criteria
-      (HTN == 1 |
-       TGDLP == 1 |
-       risk_level %in% c("Moderate", "High") |
-       bmi >= 30) ~ "Stage2_plus",
-      
-      TRUE ~ "Stage2"
-    )
-  )
-
 # collapse to a dataset with 1 row per person with baseline CKM, max CKM, time to progression, number of progressions?
 # this is an oversimplification because people progress, regress, progress
-prog_summary <- comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base, CKM_max, progress_CKM,  days_to_ckm_prog, num_prog) %>%
+prog_summary <- comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base, CKM_max, progress_CKM,days_to_ckm_prog, num_prog, CKM_syn_first_progression, CKM_syn_num_first_progression) %>%
   arrange(RELEASEID, desc(progress_CKM)) %>% filter(row_number() == 1)
 prog_summary2 <-  comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base2, CKM_max2, progress_CKM2, days_to_ckm2_prog, num_prog2, -fup_time) %>%
   arrange(RELEASEID, desc(progress_CKM2)) %>% filter(row_number() == 1)
