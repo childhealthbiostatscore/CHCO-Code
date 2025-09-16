@@ -68,28 +68,32 @@ simulate_with_correlation <- function(n_individuals = 8,
                                           n_cell_states = 5,
                                           verbose = TRUE) {
   
+  # Allow batch_facLoc and batch_facScale to be vectors for different groups
+  if(length(batch_facLoc) == 1) {
+    batch_facLoc <- rep(batch_facLoc, n_individuals)
+  } else if(length(batch_facLoc) != n_individuals) {
+    stop("batch_facLoc must be either a single value or a vector of length n_individuals")
+  }
+  
+  if(length(batch_facScale) == 1) {
+    batch_facScale <- rep(batch_facScale, n_individuals)
+  } else if(length(batch_facScale) != n_individuals) {
+    stop("batch_facScale must be either a single value or a vector of length n_individuals")
+  }
+  
   # Handle cell count variability
   if(length(cells_per_ind) == 1) {
-    # Single value provided - generate variable counts
     if(is.null(cells_sd)) {
-      # Default to 30% coefficient of variation if sd not specified
       cells_sd <- cells_per_ind * 0.3
     }
-    
-    # Generate variable cell counts
-    set.seed(123)  # For reproducibility
+    set.seed(123)
     cell_counts <- round(rnorm(n_individuals, 
                                mean = cells_per_ind, 
                                sd = cells_sd))
-    
-    # Apply minimum threshold
     cell_counts[cell_counts < cells_min] <- cells_min
     
   } else if(length(cells_per_ind) == n_individuals) {
-    # Vector of counts provided - use directly
     cell_counts <- cells_per_ind
-    
-    # Still apply minimum threshold
     cell_counts[cell_counts < cells_min] <- cells_min
     
   } else {
@@ -101,8 +105,18 @@ simulate_with_correlation <- function(n_individuals = 8,
     cat("=== Simulation Parameters ===\n")
     cat("Genes:", n_genes, "\n")
     cat("Individuals:", n_individuals, "\n")
-    cat("Batch effect location:", batch_facLoc, "\n")
-    cat("Batch effect scale:", batch_facScale, "\n")
+    if(length(unique(batch_facLoc)) == 1) {
+      cat("Batch effect location:", batch_facLoc[1], "\n")
+    } else {
+      cat("Batch effect location: varies by individual\n")
+      cat("  Range:", min(batch_facLoc), "-", max(batch_facLoc), "\n")
+    }
+    if(length(unique(batch_facScale)) == 1) {
+      cat("Batch effect scale:", batch_facScale[1], "\n")
+    } else {
+      cat("Batch effect scale: varies by individual\n")
+      cat("  Range:", min(batch_facScale), "-", max(batch_facScale), "\n")
+    }
     cat("Within-individual correlation:", within_ind_correlation, "\n")
     cat("Cell states:", n_cell_states, "\n\n")
     
@@ -113,21 +127,34 @@ simulate_with_correlation <- function(n_individuals = 8,
     cat("  Total cells:", sum(cell_counts), "\n\n")
   }
   
-  # Base simulation with variable parameters
-  sim <- splatSimulate(
-    nGenes = n_genes,           # Now customizable
-    batchCells = cell_counts,
-    batch.facLoc = batch_facLoc,    # Now customizable
-    batch.facScale = batch_facScale, # Now customizable
-    verbose = FALSE
-  )
+  # Simulate each individual separately with their own parameters
+  all_sims <- list()
+  
+  for(i in 1:n_individuals) {
+    # Create individual simulation
+    ind_sim <- splatSimulate(
+      nGenes = n_genes,
+      batchCells = cell_counts[i],
+      batch.facLoc = batch_facLoc[i],
+      batch.facScale = batch_facScale[i],
+      verbose = FALSE
+    )
+    
+    # Update the batch label to be unique across individuals
+    colData(ind_sim)$Batch <- factor(paste0("Individual", i))
+    
+    all_sims[[i]] <- ind_sim
+  }
+  
+  # Combine all individuals
+  sim <- do.call(cbind, all_sims)
   
   # Add correlation through shared cell states
   sim <- add_cell_state_correlation(sim, 
                                     n_states = n_cell_states,
                                     state_correlation = within_ind_correlation)
   
-  # Add metadata with actual cell counts
+  # Add metadata
   colData(sim)$Individual <- factor(colData(sim)$Batch,
                                     labels = paste0("Patient_", 1:n_individuals))
   
@@ -148,7 +175,6 @@ simulate_with_correlation <- function(n_individuals = 8,
   
   return(sim)
 }
-
 ###############################
 # FUNCTION TO PLOT EXPRESSION #
 ###############################

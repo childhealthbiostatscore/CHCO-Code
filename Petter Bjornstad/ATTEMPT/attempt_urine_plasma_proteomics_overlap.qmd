@@ -1,0 +1,186 @@
+---
+title: "Urine/Plasma overlap in ATTEMPT"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+    message: false
+    warning: false
+---
+
+```{r echo = F, include = F}
+library(jsonlite)
+library(aws.s3)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(ensr)
+library(kableExtra)
+library(ggrepel)
+library(purrr)
+library(tidyverse)
+library(limma)
+library(arsenal)
+library(fgsea)
+library(correlation)
+library(psych)
+library(openxlsx)
+library(SomaPlotr)
+library(lme4)
+library(lmerTest)
+library(fgsea)
+library(eulerr)
+
+# specify user for paths
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+source(file.path(git_path, "ATTEMPT/attempt_functions.R"))
+source(file.path(git_path, "Resources/YC/R Functions/correlation_function.R"))
+
+bg_path <- file.path(root_path, "GSEA/")
+load(file.path(root_path, "KNIGHT/Somalogic data/analytes.Rdata"))
+
+# load urine creatinine
+urine_creat <- read.xlsx(file.path(root_path, 'ATTEMPT/Data Raw/Urine Proteomics Sample Manifest Jun 25 2025.xlsx'), sheet = "Working")
+names(urine_creat) <- c("position", "record_id", "visit", "box", "creatinine_u_proteomics", "comments")
+# SOMA analytes names/info
+load(file.path(root_path, "Data Harmonization/Combined SomaScan/analytes_2.Rdata"))
+
+```
+
+```{r include = F}
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r}
+# read in urine proteomics
+urine <- read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/urine_cradj_proteomics_res.csv")) %>%
+  mutate(source = "Urine")
+
+# read in plasma proteomics
+plasma <- read.csv(file.path(root_path, "ATTEMPT/Results/Somascan/plasma_proteomics_res.csv")) %>%
+  mutate(source = "Plasma")
+
+View(urine[urine$P.Value < 0.05,])
+
+df_neg <- urine[urine$P.Value < 0.05,] %>%
+  filter(logFC < 0)
+
+df_pos <- urine[urine$P.Value < 0.05,] %>%
+  filter(logFC > 0)
+
+top_pos[top_pos$SeqId %nin% df_pos$SeqId,]
+df_pos[df_pos$SeqId %nin% top_pos$SeqId,]
+
+top_neg
+
+
+
+
+
+plasma[plasma$P.Value < 0.05,]
+
+# rbind the two with a column specifying urine or plasma
+up_combined <- rbind(urine, plasma)
+```
+
+```{r}
+sig_proteins_wide <- up_combined %>%
+  filter(P.Value < 0.05) %>%
+  distinct(SeqId, source) %>%
+  mutate(present = 1) %>%
+  pivot_wider(names_from = source, 
+              values_from = present, 
+              values_fill = 0) %>%
+  mutate(
+    category = case_when(
+      Urine == 1 & Plasma == 1 ~ "Both",
+      Urine == 1 & Plasma == 0 ~ "Urine",
+      Urine == 0 & Plasma == 1 ~ "Plasma"
+    )
+  ) 
+# Count and create euler
+euler_counts <- table(sig_proteins_wide$category)
+euler_fit <- euler(c(
+  "Urine" = euler_counts[["Urine"]],
+  "Plasma" = euler_counts[["Plasma"]], 
+  "Urine&Plasma" = euler_counts[["Both"]]
+))
+
+euler_p <- plot(euler_fit, quantities = T,
+     fills = list(fill = c("#FFD629", "#EDAEAE"), alpha = 0.6),
+     lty = 0)
+```
+
+```{r}
+# 51 overlap - identify further
+up_combined %>%
+  filter(SeqId %in% sig_proteins_wide[sig_proteins_wide$category == "Both",]$SeqId) %>%
+  ggplot(aes(x = SeqId, y = source, fill = logFC)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0)
+
+
+urine_order <- up_combined %>%
+  filter(SeqId %in% sig_proteins_wide[sig_proteins_wide$category == "Both",]$SeqId) %>%
+  select(SeqId, source, logFC) %>%
+  pivot_wider(names_from = source, values_from = logFC, names_prefix = "logFC_") %>%
+  mutate(
+    opposite_direction = sign(logFC_Urine) != sign(logFC_Plasma),
+    # Create ordering: opposite direction first (0), same direction second (1)
+    direction_group = ifelse(opposite_direction, 0, 1)
+  ) %>%
+  # Sort by direction group first, then by urine logFC within each group
+  arrange(desc(direction_group), logFC_Urine) %>%
+  pull(SeqId)
+
+# Create the plot with ordered x-axis
+heat_p <- up_combined %>%
+  filter(SeqId %in% sig_proteins_wide[sig_proteins_wide$category == "Both",]$SeqId) %>%
+  mutate(SeqId = factor(SeqId, levels = urine_order),
+         source = factor(source, levels = c("Urine", "Plasma"))) %>%
+  group_by(SeqId) %>%
+  mutate(
+    urine_logFC = logFC[source == "Urine"],
+    plasma_logFC = logFC[source == "Plasma"],
+    opposite_direction = sign(urine_logFC) != sign(plasma_logFC)) %>%
+  ungroup() %>%
+  ggplot(aes(y = SeqId, x = source, fill = logFC)) +
+  geom_tile() +
+  geom_text(aes(label=EntrezGeneSymbol, x = 1.5, fontface = ifelse(opposite_direction, "bold", "plain"))) +
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  theme_minimal() +
+  theme(axis.text.y = element_blank(),
+        panel.grid = element_blank(),
+        text = element_text(size = 15)) +
+  labs(x = NULL,
+       y = NULL,
+       fill = "logFC")
+
+ggarrange(euler_p, heat_p, ncol = 1, heights = c(1,4), labels = "AUTO")
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Panels/soma_combined_panel.png"), height = 10)
+```
