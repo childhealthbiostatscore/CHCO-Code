@@ -661,7 +661,7 @@ tmp_results <- PET_avg(dat)
 dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
 
 
-#dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
+dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 
 dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
 
