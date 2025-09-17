@@ -31,6 +31,7 @@ library(broom)
 library(openxlsx)
 library(readxl)
 library(knitr)
+library(limma)
 
 # Working directory setup
 getwd()
@@ -1164,25 +1165,37 @@ for (i in 1:length(predictors)) {
 base_log_scale <- base_log_scale %>% rename(RELEASEID = releaseid)
 
 prog_summary_final_soma <- left_join(base_log_scale, prog_summary_final, by = "RELEASEID")
-#prog_summary_final_soma <- left_join(prog_summary_final_soma, baserisk, by = "RELEASEID")
-#prog_summary_final_soma$sex_char <- as.factor(prog_summary_final_soma$sex_char)
 
-# # create another data frame with change in proteins
-# # find follow-up samples
-# fup <- soma %>% anti_join(base, soma, by=c("releaseid","Date.Drawn"))
-# # identify columns corresponding to proteins and convert to numeric
-# fup <- fup %>%
-#        mutate(across(starts_with("seq"),
-#               ~ as.numeric(as.character(.))))
-# # calculate deltas
-# base_for_deltas <- base
-# base_for_deltas <- base_for_deltas %>% filter(releaseid %in% fup$releaseid)
-# fup <- fup
-# %>% filter(releaseid %in% base_for_deltas$releaseid)
-# fup <- fup %>% arrange(releaseid)
-# base_for_deltas <- base_for_deltas %>% arrange(releaseid)
-# # log transform
-# # scale by SD
+# create another data frame with change in proteins
+# find follow-up samples
+fup <- soma %>% anti_join(base, soma, by=c("releaseid","Date.Drawn"))
+# identify columns corresponding to proteins and convert to numeric
+fup <- fup %>%
+       mutate(across(starts_with("seq"),
+              ~ as.numeric(as.character(.))))
+# calculate deltas
+base_for_deltas <- base
+base_for_deltas <- base_for_deltas %>% filter(releaseid %in% fup$releaseid)
+fup <- fup %>% filter(releaseid %in% base_for_deltas$releaseid)
+fup <- fup %>% arrange(releaseid)
+base_for_deltas <- base_for_deltas %>% arrange(releaseid)
+a <- fup %>% select(starts_with("seq"))
+b <- base_for_deltas %>% ungroup() %>% select(starts_with("seq"))
+deltas <- as.data.frame(a) - as.data.frame(b)
+# can't log transform because many delta values are negative
+# scale by SD
+deltas_scale <- deltas
+for (i in 1:length(predictors)) {
+  deltas_scale[,paste0(predictors[i])] <- deltas_scale[,paste0(predictors[i])]/sd(unlist(deltas_scale[,paste0(predictors[i])]))
+}
+# add back in releaseid and progression information
+deltas_scale <- cbind(base_for_deltas$releaseid, deltas_scale)
+colnames(deltas_scale)[1] <- "RELEASEID"
+deltas_scale <- left_join(deltas_scale, prog_summary_final, by = "RELEASEID")
+# create dataframe that is not scaled by SD
+deltas_no_scale <- cbind(base_for_deltas$releaseid, deltas)
+colnames(deltas_no_scale)[1] <- "RELEASEID"
+deltas_no_scale <- left_join(deltas_no_scale, prog_summary_final, by = "RELEASEID")
 ```
 
 # Results and Statistical Analysis
@@ -1306,6 +1319,27 @@ writeData(wb,"Time to CKM Proteins",result_noBMI,rowNames = F)
 addWorksheet(wb,"Time to CKM Clinical")
 writeData(wb,"Time to CKM Clinical",result_clinical,rowNames = F)
 full_path <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline unadjusted.xlsx")
+saveWorkbook(wb, full_path, overwrite = TRUE)
+```
+
+```{r, include=FALSE}
+# compare change in proteins in those who did and did not progress
+delta_contrast <- model.matrix(~ 1 + deltas_no_scale$progress_CKM)
+ymat <- t(deltas_no_scale[predictors])
+fit <- lmFit(ymat,delta_contrast)
+fit <- eBayes(fit)
+results_delta <- topTable(fit,coef = 2,number = nrow(ymat))
+results_delta$AptName <- row.names(results_delta)
+results_delta <- merge(results_delta,analytes,by="AptName",all.x = T, all.y = F)
+results_delta <- results_delta[order(results_delta$P.Value),] 
+```
+
+```{r, include=FALSE}
+# write delta results to file
+wb <- createWorkbook()
+addWorksheet(wb,"Protein delta CKM prog")
+writeData(wb,"Protein delta CKM prog",results_delta,rowNames = F)
+full_path <- file.path(data_path, "CKM/Results/TODAY change in proteins CKM progression.xlsx")
 saveWorkbook(wb, full_path, overwrite = TRUE)
 ```
 
