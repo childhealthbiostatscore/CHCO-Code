@@ -40,13 +40,13 @@ if (user == "laurapyle") {
 scaleFUN <- function(x) sprintf("%.2f", x)
 
 # Volcano plot
-volcano <- function(data, lab = "Target", xcol = "estimate", ycol = "p.value",
-                    top = 11,
+volcano <- function(data, lab = "Target", xcol = "estimate", ycol = "p.value", zcol = "adj.p.value",
+                    top = 11, 
                     xlimit = c(-1, 1), ylimit = c(0, -log10(10e-7)),
                     xlabel = "HR", pCutoff = 0.05, overlaps = 50,
                     log_t = F) {
   data <- as.data.frame(data)
-  t <- data[data[, "adj.p.value"] <= pCutoff, ]
+  t <- data[data[, zcol] <= pCutoff, ]
   if (log_t) {
     t <- t[order(abs(log(t[, ycol])), decreasing = F), ]
   } else {
@@ -82,10 +82,18 @@ full_path <- file.path(data_path, filename)
 ckm_proteins <- read_xlsx(full_path, sheet = "Time to CKM Proteins")
 ckm_clinical <- read_xlsx(full_path, sheet = "Time to CKM Clinical")
 
+# Read in delta results file
+filename <- "CKM/Results/TODAY change in proteins CKM progression.xlsx"
+full_path <- file.path(data_path, filename)
+ckm_proteins_delta <- read_xlsx(full_path, sheet = "Protein delta CKM prog")
 ```
 
+# Cox models of baseline proteins vs. time to first progression of CKM
+
+Protein HECA2:CD is significant after FDR adjustment and is labeled on the volcano plot. Nominally significant proteins are colored in blue.
+
 ```{r include = F}
-v <- volcano(ckm_proteins)
+v <- volcano(ckm_proteins, log_t = T)
 filename <- "CKM/Results/Figures/CKM_protein_volcano.jpg"
 full_path <- file.path(data_path, filename)
 ggsave(
@@ -95,3 +103,18 @@ ggsave(
 ```
 
 ![](CKM_protein_volcano.jpg){width=50%}
+
+
+# Linear models of change in proteins in participants with CKM progression vs. those with no progression
+
+```{r include = F}
+v <- volcano(ckm_proteins_delta, xcol = "logFC", ycol = "P.Value", zcol = "adj.P.Val", log_t = F)
+filename <- "CKM/Results/Figures/CKM_protein_volcano_delta.jpg"
+full_path <- file.path(data_path, filename)
+ggsave(
+  filename = 'CKM_protein_volcano_delta.jpg', plot = v,
+  width = 1600, height = 900, units = "px", scale = 2
+)
+```
+
+![](CKM_protein_volcano_delta.jpg){width=50%}
