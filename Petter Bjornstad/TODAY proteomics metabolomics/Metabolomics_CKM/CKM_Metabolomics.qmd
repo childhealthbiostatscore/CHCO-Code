@@ -1,0 +1,74 @@
+---
+title: "CKM_Metabolomics"
+author: "Darwin Del Castillo"
+date: "`r lubridate::today()`"
+output:
+  html_document:
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+```{r quarto setup}
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE)
+knitr::opts_chunk$set(echo = FALSE)
+
+## Working directory
+knitr::opts_knit$set(root.dir = "/gscratch/togo/ddelcast/")
+
+```
+
+```{r setup, include=FALSE}
+pacman::p_load(limma,
+               caret,
+               purrr,
+               multtest,
+               tidyverse,
+               knitr,
+               EnhancedVolcano)
+```
+
+```{r load data, include=FALSE}
+CKM_outcomes <- read_csv("./CKM_outcomes/CKM stage summary.csv")
+
+# Fixing variable names
+CKM_outcomes <- CKM_outcomes |> janitor::clean_names()
+```
+
+```{r load metabolites data, include = FALSE}
+load("./today_metabolomics/plasma.Rdata")
+load("./today_metabolomics/urine.Rdata")
+```
+
+```{r preparing datasets, include = FALSE}
+# take only the baseline samples
+plasma$Date.Drawn <- as.Date(plasma$Date.Drawn,format = "%m/%d/%Y")
+baseline <- plasma %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
+baseline <- baseline %>% arrange(Date.Drawn)
+
+# merging ckm outcomes with plasma
+cleaned_data <- merge(baseline, CKM_outcomes, by="releaseid",all.x=T, all.y=F)
+```
+
+```{r data manipulation, include = F}
+# identify columns corresponding to proteins
+is_seq <- function(.x) grepl("uM", .x)
+seq <- is_seq(names(cleaned_data))
+
+# convert to numeric
+cleaned_data[,seq] <- apply(cleaned_data[,seq],2,as.numeric)
+
+# log transform
+cleaned_log <- cleaned_data %>% modify_if(is_seq(names(.)), log)
+```
+
+```{r ckm outcomes, include = F}
+# transforming to factor
+cleaned_data$ckm_syn_base_factor
+```
+
+
+
