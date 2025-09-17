@@ -592,10 +592,21 @@ dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
 
 
+aim3_df <- dat_results %>% 
+  dplyr::select(record_id, group, 
+                acprg, airg, #raw_m, 
+                p1_gc_leanm, p1_gc_m, p1_raw_leanm, p1_raw_m,
+                p2_gc_leanm, p2_gc_m, p2_raw_leanm, p2_raw_m,
+                starts_with('avg_c_'))
 
-
-
-
+aim3_df <- aim3_df %>% mutate(p1_DI_leanm = p1_gc_leanm * airg, 
+                              p1_DI = p1_gc_m * airg, 
+                              p1_DI_raw_leanm = p1_raw_leanm * airg, 
+                              p1_DI_raw = p1_raw_m * airg, 
+                              p2_DI_leanm = p2_gc_leanm * airg, 
+                              p2_DI = p2_gc_m * airg, 
+                              p2_DI_raw_leanm = p2_raw_leanm * airg, 
+                              p2_DI_raw = p2_raw_m * airg)
 
 
 
