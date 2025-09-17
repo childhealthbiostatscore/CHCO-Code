@@ -106,14 +106,17 @@ head(long_data)
 plot1 <- ggplot(long_data %>% filter(variable == 'mmp9'), 
                 aes(x=timepoint, y = as.numeric(value_numeric), fill = severity)) +
   geom_boxplot(alpha = 0.7, outlier.shape = NA, position = position_dodge(width = 0.8)) +
-  geom_jitter(position = position_jitterdodge(jitter.width = 0.4), pch = 24, size = 2, alpha = 0.6) +
   labs(x='Time Point', y = 'MMP9') +
   theme_classic()
 
 #Why are there so few data? 
 
 
-
+ggplot(long_data %>% filter(variable == 'mmp9'), 
+       aes(x=timepoint, y = as.numeric(value_numeric), fill = severity)) +
+  geom_violin()+geom_boxplot(width = 0.3, fill = NA)+
+  labs(x='Time Point', y = 'MMP9') +
+  theme_classic()
 
 
 
