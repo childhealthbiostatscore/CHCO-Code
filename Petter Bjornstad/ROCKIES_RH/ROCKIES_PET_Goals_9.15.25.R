@@ -484,10 +484,84 @@ aim2_df <- dat_results %>%
                 aorta_forward_flow, aorta_net_flow, aorta_reverse_flow, aorta_regurgitant_fraction,
                 starts_with('avg_c_'))
 
+library(corrplot)
+
+# Function to calculate correlation p-values with error handling
+cor.mtest <- function(mat, ...) {
+  mat <- as.matrix(mat)
+  n <- ncol(mat)
+  p.mat <- matrix(NA, n, n)
+  diag(p.mat) <- 0
+  
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      # Check if both columns have enough finite observations
+      valid_pairs <- complete.cases(mat[, i], mat[, j])
+      if (sum(valid_pairs) >= 3) {  # Need at least 3 pairs for correlation test
+        tryCatch({
+          tmp <- cor.test(mat[, i], mat[, j], ...)
+          p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+        }, error = function(e) {
+          p.mat[i, j] <<- p.mat[j, i] <<- NA
+        })
+      } else {
+        p.mat[i, j] <- p.mat[j, i] <- NA
+      }
+    }
+  }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+
+# Calculate full correlation matrix and p-values (including NA columns)
+full_corr <- cor(aim2_df[, 3:ncol(aim2_df)], use = 'pairwise.complete.obs')
+full_p_mat <- cor.mtest(aim2_df[, 3:ncol(aim2_df)])
+
+# Subset to your desired rows and columns (this will include NAs where data is missing)
+aim2_corr_df <- full_corr[c(1:9), c(16, 15, 17, 19, 18, 20)]
+aim2_p_mat <- full_p_mat[c(1:9), c(16, 15, 17, 19, 18, 20)]
+
+# Apply your labels
+colnames(aim2_corr_df) <- c('Cortical F', 'Cortical K2', 'Cortical K2/F', 
+                            'Cortical F (voxel)', 'Cortical K2 (voxel)', 'Cortical K2/F (voxel)')
+rownames(aim2_corr_df) <- c('Urine Albumin-Creatinine Ratio', 'GBM Thickness (Arithmetic)', 'GBM Thickness (Harmonic)',
+                            'Mean Hepatic Stiffness', 'Mean Hepatic Stiffness (SD)', 
+                            'Aorta Flow (Forward)', 'Aorta Flow (Net)', 'Aorta Flow (Reverse)', 'Aorta Regurgitant')
+
+# Apply same labels to p-value matrix
+colnames(aim2_p_mat) <- colnames(aim2_corr_df)
+rownames(aim2_p_mat) <- rownames(aim2_corr_df)
+
+# Create plot with "?" for missing data
 
 
+pdf('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim2_PETComparisons.pdf', width = 10, height = 14)
+corrplot(aim2_corr_df, 
+         method = "color", 
+         tl.col = "black",
+         tl.cex = 0.8,
+         p.mat = aim2_p_mat,
+         sig.level = c(0.001, 0.01, 0.05),
+         pch.cex = 1.5,
+         insig = "label_sig",
+         pch.col = "black",
+         na.label = "?",        # Show "?" for NA correlations
+         na.label.col = "black") # Color of the "?" symbols        
+dev.off()
 
-
+png('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim2_PETComparisons.png', width = 1000, height = 1400)
+corrplot(aim2_corr_df, 
+         method = "color", 
+         tl.col = "black",
+         tl.cex = 0.8,
+         p.mat = aim2_p_mat,
+         sig.level = c(0.001, 0.01, 0.05),
+         pch.cex = 1.5,
+         insig = "label_sig",
+         pch.col = "black",
+         na.label = "?",        # Show "?" for NA correlations
+         na.label.col = "black") # Color of the "?" symbols        
+dev.off()
 
 
 
@@ -587,7 +661,7 @@ tmp_results <- PET_avg(dat)
 dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
 
 
-dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
+#dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 
 dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
 
@@ -608,6 +682,85 @@ aim3_df <- aim3_df %>% mutate(p1_DI_leanm = p1_gc_leanm * airg,
                               p2_DI_raw_leanm = p2_raw_leanm * airg, 
                               p2_DI_raw = p2_raw_m * airg)
 
+
+library(corrplot)
+
+# Function to calculate correlation p-values with error handling
+cor.mtest <- function(mat, ...) {
+  mat <- as.matrix(mat)
+  n <- ncol(mat)
+  p.mat <- matrix(NA, n, n)
+  diag(p.mat) <- 0
+  
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      # Check if both columns have enough finite observations
+      valid_pairs <- complete.cases(mat[, i], mat[, j])
+      if (sum(valid_pairs) >= 3) {  # Need at least 3 pairs for correlation test
+        tryCatch({
+          tmp <- cor.test(mat[, i], mat[, j], ...)
+          p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+        }, error = function(e) {
+          p.mat[i, j] <<- p.mat[j, i] <<- NA
+        })
+      } else {
+        p.mat[i, j] <- p.mat[j, i] <- NA
+      }
+    }
+  }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+
+# Calculate full correlation matrix and p-values (including NA columns)
+full_corr <- cor(aim3_df[, 3:ncol(aim3_df)], use = 'pairwise.complete.obs')
+full_p_mat <- cor.mtest(aim3_df[, 3:ncol(aim3_df)])
+
+# Subset to your desired rows and columns (this will include NAs where data is missing)
+aim3_corr_df <- full_corr[c(1:10), c(17, 16, 18, 20, 19, 21)]
+aim3_p_mat <- full_p_mat[c(1:10), c(17, 16, 18, 20, 19, 21)]
+
+# Apply your labels
+colnames(aim3_corr_df) <- c('Cortical F', 'Cortical K2', 'Cortical K2/F', 
+                            'Cortical F (voxel)', 'Cortical K2 (voxel)', 'Cortical K2/F (voxel)')
+rownames(aim3_corr_df) <- c('Acute C-Peptide Response to Glucose', 'Acute Insulin Response to Glucose', 
+                            'Phase 1 GC Lean M-Value', 'Phase 1 GC M-Value', 'Phase 1 Raw Lean M-Value', 'Phase 1 Raw M-Value', 
+                            'Phase 2 GC Lean M-Value', 'Phase 2 GC M-Value', 'Phase 2 Raw Lean M-Value', 'Phase 2 Raw M-Value')
+
+# Apply same labels to p-value matrix
+colnames(aim3_p_mat) <- colnames(aim3_corr_df)
+rownames(aim3_p_mat) <- rownames(aim3_corr_df)
+
+# Create plot with "?" for missing data
+
+
+pdf('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim3_PETComparisons.pdf', width = 10, height = 14)
+corrplot(aim3_corr_df, 
+         method = "color", 
+         tl.col = "black",
+         tl.cex = 0.8,
+         p.mat = aim3_p_mat,
+         sig.level = c(0.001, 0.01, 0.05),
+         pch.cex = 1.5,
+         insig = "label_sig",
+         pch.col = "black",
+         na.label = "?",        # Show "?" for NA correlations
+         na.label.col = "black") # Color of the "?" symbols        
+dev.off()
+
+png('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim3_PETComparisons.png', width = 1000, height = 1400)
+corrplot(aim3_corr_df, 
+         method = "color", 
+         tl.col = "black",
+         tl.cex = 0.8,
+         p.mat = aim3_p_mat,
+         sig.level = c(0.001, 0.01, 0.05),
+         pch.cex = 1.5,
+         insig = "label_sig",
+         pch.col = "black",
+         na.label = "?",        # Show "?" for NA correlations
+         na.label.col = "black") # Color of the "?" symbols        
+dev.off()
 
 
 
