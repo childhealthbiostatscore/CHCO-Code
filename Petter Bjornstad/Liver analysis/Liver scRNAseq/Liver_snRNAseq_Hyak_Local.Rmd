@@ -41,8 +41,8 @@ knitr::opts_knit$set(root.dir = dir.results)
 ## a. Hyak Data Load
 ```{r, Cyberduck setup}
 # knitr::opts_knit$set(root.dir = dir.results)
-# install.packages("reticulate")
-# Sys.setenv(RETICULATE_PYTHON = "/mmfs1/gscratch/togo/hhampson/miniconda3/envs/py310_env/bin/python")
+install.packages("reticulate")
+Sys.setenv(RETICULATE_PYTHON = "/mmfs1/gscratch/togo/hhampson/miniconda3/envs/py310_env/bin/python")
 library(reticulate)
 reticulate::py_config()
 # library(reticulate)
@@ -80,6 +80,13 @@ dim(so_liver_sn)#36601 130124
 nrow(so_liver_sn) #36,601 genes
 ncol(so_liver_sn) # 130,124 nuceli
 invisible(gc())
+
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
+# # meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
+# meta_liver_raw <- read.csv(temp_file)
 ```
 
 ## b. Local Load Seurat Object snRNA
@@ -99,14 +106,14 @@ invisible(gc())
 ## c. Load MetaData, Clean and Merge
 ```{r}
 #Local
-meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
+# meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
 
 #Hyak
-# gc()
-# bucket <- "scrna" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-# s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
-# meta_liver_raw <- read.csv(temp_file)
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
+meta_liver_raw <- read.csv(temp_file)
 
 unique(meta_liver_raw$Kit_Lot)
 unique(meta_liver_raw$StudyID)
@@ -6509,15 +6516,24 @@ for (cell_name in LR_celltypes){
   counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
   
   # List of genes
-  genes_list <- rownames(counts_hvg)[101:750]
+  genes_list <- rownames(counts_hvg)[1001:2000]
   
   # for (var in clinical_variables[1]){
   var <- clinical_variables[1]
     # With parallelization
-    cl <- makeCluster(10)
-    registerDoParallel(cl)
+    # cl <- makeCluster(10)
+    # registerDoParallel(cl)
     
-    start_time <- Sys.time()
+  # # parallel
+  # workers <- 4
+  # workers <- max(1, min(workers, parallel::detectCores(logical = TRUE)))
+  # cl <- parallel::makeCluster(workers)
+  # on.exit(try(parallel::stopCluster(cl), silent = TRUE), add = TRUE)
+  # registerDoParallel(cl)
+  # 
+  # message("Running nebula on ", length(genes), " genes with ", workers, " workers...")
+  start_time <- Sys.time()
+  
     nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
       tryCatch({
         count_gene <- counts_hvg[g, , drop = FALSE]
@@ -6542,7 +6558,7 @@ for (cell_name in LR_celltypes){
       })
     }
     
-    stopCluster(cl)
+    # stopCluster(cl)
     end_time <- Sys.time()
     print(end_time - start_time)
     
@@ -6575,8 +6591,8 @@ for (cell_name in LR_celltypes){
     #Bind results from multiple runs together
     # full_results_full <- full_results
     full_results_full <- rbind(full_results_full,full_results)
-    full_results <- full_results_full
-    rm(full_results_full)
+    # full_results <- full_results_full
+    # rm(full_results_full)
     
     
     nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40|hep_nebula_converged$Convergence_Code==-50|hep_nebula_converged$Convergence_Code==-60)]
@@ -6603,10 +6619,34 @@ for (cell_name in LR_celltypes){
     full_results$variable <- var
     full_results$celltype <- cell_name2
     #Save Results
+    write.csv(full_results,paste0("NEBULA_",cell_name,"_",var,"_unadjusted_2000_pooled_offset.csv"))
     write.csv(full_results,fs::path(dir.results,paste0("NEBULA_",cell_name,"_",var,"_unadjusted_2000_pooled_offset.csv")))
-    
+#       # group_tag <- paste0(gsub("[^A-Za-z0-9]+", "_", paste(unique(celltype_values), collapse = "-")))
+#   # file_stub <- paste0(clinical_var, "__", group_tag, if (!is.null(suffix)) paste0("__", suffix))
+#   out_key <- file.path(paste0("Liver transcriptomics/Results/NEBULA_",cell_name,"_",var,"_unadjusted_2000_pooled_offset.rds"))
+#   tmp <- tempfile(fileext = ".rds")
+#   saveRDS(full_results, tmp)
+#   s3$upload_file(tmp, bucket, out_key)
+#   unlink(tmp)
+#   
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
+# # meta_liver_raw <- read.csv(fs::path(dir.dat,"scRNA","data_clean","liver_biopsy_metadata_PN.csv"))
+# meta_liver_raw <- read.csv(temp_file)
   }
-}
+# }
+  
+  # # save to S3
+  # group_tag <- paste0(gsub("[^A-Za-z0-9]+", "_", paste(unique(celltype_values), collapse = "-")))
+  # file_stub <- paste0(clinical_var, "__", group_tag, if (!is.null(suffix)) paste0("__", suffix))
+  # out_key <- file.path(s3_key_prefix, clinical_var, paste0(file_stub, ".rds"))
+  # tmp <- tempfile(fileext = ".rds")
+  # saveRDS(res_clean, tmp)
+  # s3$upload_file(tmp, s3_bucket, out_key)
+  # unlink(tmp)
+  # 
 
 #Heat Map visualization of results
 total_results <- data.frame()
