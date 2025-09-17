@@ -204,6 +204,15 @@ p_broken <- p_with_stats +
 
 print(p_broken)
 
+pdf('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim1_VoxelPET.pdf')
+print(p_broken)
+dev.off()
+
+
+png('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim1_VoxelPET.png')
+print(p_broken)
+dev.off()
+
 
 #Step 2: uACR associations with PET metabolism (GBM thickness, atherosclerosis)
 
