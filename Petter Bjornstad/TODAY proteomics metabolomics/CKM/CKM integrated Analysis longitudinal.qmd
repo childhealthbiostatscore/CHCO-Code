@@ -1205,7 +1205,7 @@ temp1 <- base_for_deltas %>% rename("RELEASEID" = "releaseid")
 temp2 <- fup %>% rename("RELEASEID" = "releaseid")
 soma_long <- rbind(temp1, temp2) 
 soma_long <- left_join(soma_long, prog_summary_final, by = "RELEASEID")
-
+soma_long_log <- soma_long %>% modify_if(is_seq(names(.)), log)
 
 ```
 
@@ -1335,29 +1335,36 @@ saveWorkbook(wb, full_path, overwrite = TRUE)
 
 ```{r, include=FALSE}
 # compare change in proteins in those who did and did not progress
-delta_contrast <- model.matrix(~ 1 + deltas_no_scale$progress_CKM)
-ymat <- t(deltas_no_scale[predictors])
-fit <- lmFit(ymat,delta_contrast)
+# using limma mixed effects model
+soma_long_log$sample_id <- paste(soma_long_log$RELEASEID, "v", soma_long_log$visit, sep = "")
+protein_cols <- grep("^seq\\.", names(soma_long_log), value = TRUE)
+protein_data <- soma_long_log[, c("sample_id", protein_cols)]
+expression_matrix <- t(protein_data[, -1]) 
+colnames(expression_matrix) <- protein_data$sample_id
+metadata <- soma_long_log[, c("sample_id", "RELEASEID", "visit", "progress_CKM")]
+metadata <- metadata[!duplicated(metadata$sample_id), ]
+rownames(metadata) <- metadata$sample_id
+metadata <- metadata[colnames(expression_matrix), ]
+metadata$visit_factor <- factor(metadata$visit)
+metadata$progress_CKM <- factor(metadata$progress_CKM, levels = c(0, 1))
+design <- model.matrix(~ progress_CKM * visit_factor, data = metadata)
+colnames(design) <- c("Intercept", "ProgressCKM", "Visit2", "ProgressCKM_Visit2")
+block <- factor(metadata$RELEASEID)
+correlation <- duplicateCorrelation(expression_matrix, design, block = block)
+fit <- lmFit(expression_matrix, design, block = block, 
+             correlation = correlation$consensus.correlation)
 fit <- eBayes(fit)
-results_delta <- topTable(fit,coef = 2,number = nrow(ymat))
-results_delta$AptName <- row.names(results_delta)
-results_delta <- merge(results_delta,analytes,by="AptName",all.x = T, all.y = F)
-results_delta <- results_delta[order(results_delta$P.Value),] 
-
-# using paired limma
-RELEASEID <- factor(soma_long$RELEASEID)
-progress_CKM <- factor(soma_long$progress_CKM)
-change_contrast <- model.matrix(~RELEASEID + progress_CKM)
-ymat <- t(soma_long[predictors])
-fit <- lmFit(ymat,change_contrast)
-fit <- eBayes(fit)
+results_interaction <- topTable(fit, coef = "ProgressCKM_Visit2", adjust.method = "BH", number = Inf)
+results_interaction$AptName <- row.names(results_interaction)
+results_interaction <- merge(results_interaction,analytes,by="AptName",all.x = T, all.y = F)
+results_interaction <- results_interaction[order(results_interaction$P.Value),] 
 ```
 
 ```{r, include=FALSE}
-# write delta results to file
+# write DiD results to file
 wb <- createWorkbook()
-addWorksheet(wb,"Protein delta CKM prog")
-writeData(wb,"Protein delta CKM prog",results_delta,rowNames = F)
+addWorksheet(wb,"DiD proteins vs CKM progression")
+writeData(wb,"DiD proteins vs CKM progression",results_interaction,rowNames = F)
 full_path <- file.path(data_path, "CKM/Results/TODAY change in proteins CKM progression.xlsx")
 saveWorkbook(wb, full_path, overwrite = TRUE)
 ```
