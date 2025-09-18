@@ -782,4 +782,129 @@ dev.off()
 
 #Step 7: SGLT2 inhibitor use with K2 and K2/F
 
+remove(list = ls())
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+
+
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  
+  avg_m_k2_f <- avg_m_k2/ avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2_vw', 'avg_m_k2_vw', 'avg_c_f_vw', 'avg_m_f_vw', 
+                      'avg_c_k2_f_vw', 'avg_m_k2_f_vw')
+  
+  return(results)
+  
+}
+
+
+tmp_results_vw <- PET_avg(dat)
+
+
+dat_results <- dat
+
+
+
+
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  
+  avg_m_k2_f <- avg_m_k2 / avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                      'avg_c_k2_f', 'avg_m_k2_f')
+  
+  return(results)
+  
+}
+
+
+tmp_results <- PET_avg(dat)
+
+
+
+dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
+
+
+dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
+
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
+
+
+
+
+
 #Step 8: Modifiers of changes in K2 (OGIS, Tubular sodium, urine metabolites, fumarate/malate)
+
+remove(list=ls())
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+
+#fractional excretion of sodium is FeNA (%) = (Urine Sodium/Plasma Sodium)/(Urine Creatinine/Plasma Creatinine) x 100
+#OGIS uses an excel calculator, need to do more research on this 
+
+aim8_df <- dat %>% 
+  dplyr::select(record_id, group, 
+                malate, fumarate, homa_ir, eGFR_bedside_Schwartz,
+                eGFR_CKD_epi,
+                eGFR_fas_cr,
+                eGFR_fas_cr_cysc,
+                eGFR_Zap,
+                eGFR_Schwartz,
+                sodium_s, sodium_u, creat_u, creat_s
+  )
+
+
+
+
+
+
+
+
+
