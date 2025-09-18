@@ -293,7 +293,7 @@ server <- function(input, output, session) {
       bind_rows(mutate(., group = "Grand Total")) %>%
       group_by(group) %>%
       summarise(
-        `Record ID (N)` = n(),
+        `Record ID (N)` = length(unique(record_id)),
         # Use a check for each column before summarizing to prevent errors
         `Age (avg)` = if("age" %in% names(df_temp)) mean(age, na.rm = TRUE) else NA_real_,
         `BMI (avg)` = if("bmi" %in% names(df_temp)) mean(bmi, na.rm = TRUE) else NA_real_,
@@ -301,7 +301,7 @@ server <- function(input, output, session) {
         `ACR-U (med)` = if("acr_u" %in% names(df_temp)) median(acr_u, na.rm = TRUE) else NA_real_,
         `Female (%)` = if("sex" %in% names(df_temp)) mean(sex == "Female", na.rm = TRUE) * 100 else NA_real_,
         `Hispanic (%)` = if("ethnicity" %in% names(df_temp)) mean(ethnicity == "Hispanic or Latino", na.rm = TRUE) * 100 else NA_real_,
-        `eGFR_CKD_epi (avg)` = if("eGFR_CKD_epi" %in% names(df_temp)) mean(eGFR_CKD_epi, na.rm = TRUE) else NA_real_,
+        `eGFR_CKD_epi (avg)` = if("egfr_ckd_epi" %in% names(df_temp)) mean(egfr_ckd_epi, na.rm = TRUE) else NA_real_,
         `Total Kidney Volume (avg)` = if("total_kidney_volume_ml" %in% names(df_temp)) mean(total_kidney_volume_ml, na.rm = TRUE) else NA_real_,
         `Manual Total Kidney Volume (avg)` = if("total_kidney_volume_ml_manual" %in% names(df_temp)) mean(total_kidney_volume_ml_manual, na.rm = TRUE) else NA_real_,
         `ERPF Raw Plasma (avg)` = if("erpf raw plasma" %in% names(df_temp)) mean(`erpf raw plasma`, na.rm = TRUE) else NA_real_,
@@ -333,7 +333,7 @@ server <- function(input, output, session) {
     # Define the rows and their corresponding calculation logic
     availability_rows <- c(
       "Participants",
-      "Brain_Biomarkers", "Clamp", "Dxa", "MRI", "Ivgtt", "MINMOD",
+      "Brain_Biomarker", "Clamp", "Dxa", "MRI", "Ivgtt", "MINMOD",
       "Kidney Biopsy", "Kidney Morphometris", "PET Scan",
       "Metabolomics - Blood", "Metabolomics - Tissue", "Renal Clearance",
       "Hemodynamic Outcomes", "Proteomics"
@@ -345,11 +345,11 @@ server <- function(input, output, session) {
       
       counts <- c(
         Participants = length(unique(group_data$record_id)),
-        Brain_Biomarkers = length(unique(group_data$record_id[group_data$procedure == "brain_biomarkers"])),
+        Brain_Biomarker = length(unique(group_data$record_id[group_data$procedure == "brain_biomarker"])),
         Clamp = length(unique(group_data$record_id[group_data$procedure == "clamp"])),
         Dxa = length(unique(group_data$record_id[group_data$procedure == "dxa"])),
         MRI = length(unique(group_data$record_id[group_data$procedure %in% c("bold_mri", "cardio_abdominal_mri", "mri", "pc_mri_2d")])),
-        Ivgtt = length(unique(group_data$record_id[group_data$procedure == "ivgtt"])),
+        Ivgtt = length(unique(group_data$record_id[group_data$procedure == "Ivgtt"])),
         MINMOD = {
           vars <- dictionary_data %>% filter(form_name == "ivgtt_minmod") %>% pull(variable_name)
           if(length(vars) > 0) {
@@ -458,14 +458,14 @@ server <- function(input, output, session) {
           bind_rows(mutate(., group = "Grand Total")) %>%
           group_by(group) %>%
           summarise(
-            `Record ID (N)` = n(),
+            `Record ID (N)` = length(unique(record_id)),
             `Age (avg)` = if("age" %in% names(df_temp)) mean(age, na.rm = TRUE) else NA_real_,
             `BMI (avg)` = if("bmi" %in% names(df_temp)) mean(bmi, na.rm = TRUE) else NA_real_,
             `HbA1c (avg)` = if("hba1c" %in% names(df_temp)) mean(hba1c, na.rm = TRUE) else NA_real_,
             `ACR-U (med)` = if("acr_u" %in% names(df_temp)) median(acr_u, na.rm = TRUE) else NA_real_,
             `Female (%)` = if("sex" %in% names(df_temp)) mean(sex == "Female", na.rm = TRUE) * 100 else NA_real_,
             `Hispanic (%)` = if("ethnicity" %in% names(df_temp)) mean(ethnicity == "Hispanic or Latino", na.rm = TRUE) * 100 else NA_real_,
-            `eGFR_CKD_epi (avg)` = if("eGFR_CKD_epi" %in% names(df_temp)) mean(eGFR_CKD_epi, na.rm = TRUE) else NA_real_,
+            `eGFR_CKD_epi (avg)` = if("egfr_ckd_epi" %in% names(df_temp)) mean(egfr_ckd_epi, na.rm = TRUE) else NA_real_,
             `Total Kidney Volume (avg)` = if("total_kidney_volume_ml" %in% names(df_temp)) mean(total_kidney_volume_ml, na.rm = TRUE) else NA_real_,
             `Manual Total Kidney Volume (avg)` = if("total_kidney_volume_ml_manual" %in% names(df_temp)) mean(total_kidney_volume_ml_manual, na.rm = TRUE) else NA_real_,
             `ERPF Raw Plasma (avg)` = if("erpf raw plasma" %in% names(df_temp)) mean(`erpf raw plasma`, na.rm = TRUE) else NA_real_,
@@ -494,7 +494,7 @@ server <- function(input, output, session) {
       df <- filtered_data()
       availability_rows <- c(
         "Participants",
-        "Brain_Biomarkers", "Clamp", "Dxa", "MRI", "Ivgtt", "MINMOD",
+        "Brain_Biomarker", "Clamp", "Dxa", "MRI", "Ivgtt", "MINMOD",
         "Kidney Biopsy", "Kidney Morphometris", "PET Scan",
         "Metabolomics - Blood", "Metabolomics - Tissue", "Renal Clearance",
         "Hemodynamic Outcomes", "Proteomics"
@@ -503,11 +503,11 @@ server <- function(input, output, session) {
         if(nrow(group_data) == 0) return(rep(0, length(availability_rows)))
         counts <- c(
           Participants = length(unique(group_data$record_id)),
-          Brain_Biomarkers = length(unique(group_data$record_id[group_data$procedure == "brain_biomarkers"])),
+          Brain_Biomarker = length(unique(group_data$record_id[group_data$procedure == "brain_biomarker"])),
           Clamp = length(unique(group_data$record_id[group_data$procedure == "clamp"])),
           Dxa = length(unique(group_data$record_id[group_data$procedure == "dxa"])),
           MRI = length(unique(group_data$record_id[group_data$procedure %in% c("bold_mri", "cardio_abdominal_mri", "mri", "pc_mri_2d")])),
-          Ivgtt = length(unique(group_data$record_id[group_data$procedure == "ivgtt"])),
+          Ivgtt = length(unique(group_data$record_id[group_data$procedure == "Ivgtt"])),
           MINMOD = {
             vars <- dictionary_data %>% filter(form_name == "ivgtt_minmod") %>% pull(variable_name)
             if(length(vars) > 0) {
