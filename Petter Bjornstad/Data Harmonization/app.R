@@ -153,12 +153,21 @@ ui <- fluidPage(
                           DTOutput("descriptive_table"),
                           downloadButton("download_descriptive", "Download Table")
                  ),
-                 tabPanel("Data Availability", 
+                 tabPanel("Data Availability",
+                          h4("Procedure Availability"),
                           DTOutput("data_availability_table"),
+                          tags$hr(),
+                          h4("Variable Availability Search"),
+                          textInput("variable_search", "Search for a variable:"),
+                          DTOutput("searched_variable_availability_table"),
+                          tags$hr(),
+                          h4("Variable Availability by Study"),
+                          DTOutput("searched_variable_availability_by_study_table"),
                           downloadButton("download_availability", "Download Table")
                  ),
                  tabPanel("Raw Data Table", 
-                          DTOutput("raw_data_table")
+                          DTOutput("raw_data_table"),
+                          downloadButton("download_raw", "Download Raw Data")
                  ),
                  tabPanel("Data Visuals",
                           textOutput("plot_message"),
@@ -324,8 +333,8 @@ server <- function(input, output, session) {
     datatable(descriptive_table_display, options = list(dom = 't'))
   })
   
-  # Reactive expression to create the data availability table
-  output$data_availability_table <- renderDT({
+  # Reactive expression to create the main data availability table (procedures)
+  main_availability_table <- reactive({
     req(filtered_data())
     
     df <- filtered_data()
@@ -396,7 +405,110 @@ server <- function(input, output, session) {
       tidyr::pivot_wider(names_from = Category, values_from = Count) %>%
       select(Metric, everything())
     
-    datatable(final_table_display, options = list(dom = 't'))
+    final_table_display
+  })
+  
+  # Reactive expression to create the variable-specific data availability table
+  searched_variable_availability <- reactive({
+    req(input$variable_search)
+    df <- filtered_data()
+    
+    if (nchar(input$variable_search) > 0) {
+      # Find variables that match the search term
+      matched_vars <- names(df)[grepl(input$variable_search, names(df), ignore.case = TRUE)]
+      
+      if (length(matched_vars) > 0) {
+        # Calculate availability for each matched variable, grouped by group
+        availability_list <- lapply(matched_vars, function(var) {
+          df %>%
+            group_by(group) %>%
+            summarise(
+              Variable = var,
+              `Participants with Data (N)` = length(unique(record_id[!is.na(get(var))])),
+              .groups = "drop"
+            )
+        })
+        
+        # Combine results into a single data frame
+        result_df <- bind_rows(availability_list) %>%
+          tidyr::pivot_wider(names_from = group, values_from = `Participants with Data (N)`) %>%
+          select(Variable, everything())
+        
+        # Add a grand total column
+        grand_total <- df %>%
+          summarise(
+            Variable = matched_vars,
+            `Grand Total` = sapply(matched_vars, function(var) length(unique(record_id[!is.na(get(var))])))
+          )
+        
+        # Join the grand total to the pivoted table
+        final_table <- left_join(result_df, grand_total, by = "Variable")
+        
+        return(final_table)
+      }
+    }
+    NULL
+  })
+  
+  # New reactive expression for the study-specific data availability table
+  searched_variable_availability_by_study <- reactive({
+    req(input$variable_search)
+    df <- filtered_data()
+    
+    if (nchar(input$variable_search) > 0) {
+      matched_vars <- names(df)[grepl(input$variable_search, names(df), ignore.case = TRUE)]
+      if (length(matched_vars) > 0) {
+        availability_list <- lapply(matched_vars, function(var) {
+          df %>%
+            group_by(study) %>%
+            summarise(
+              Variable = var,
+              `Participants with Data (N)` = length(unique(record_id[!is.na(get(var))])),
+              .groups = "drop"
+            )
+        })
+        
+        result_df <- bind_rows(availability_list) %>%
+          tidyr::pivot_wider(names_from = study, values_from = `Participants with Data (N)`) %>%
+          select(Variable, everything())
+        
+        grand_total <- df %>%
+          summarise(
+            Variable = matched_vars,
+            `Total Participants` = sapply(matched_vars, function(var) length(unique(record_id[!is.na(get(var))])))
+          )
+        
+        final_table <- left_join(result_df, grand_total, by = "Variable")
+        
+        return(final_table)
+      }
+    }
+    NULL
+  })
+  
+  # Render the main availability table (procedures)
+  output$data_availability_table <- renderDT({
+    datatable(main_availability_table(), options = list(dom = 't'))
+  })
+  
+  # Render the variable search availability table
+  output$searched_variable_availability_table <- renderDT({
+    # Only render this table if a search term is present
+    if (!is.null(searched_variable_availability())) {
+      datatable(searched_variable_availability(), options = list(dom = 't'))
+    } else {
+      # Return an empty table if there's no search term
+      return(datatable(data.frame(), options = list(dom = 't')))
+    }
+  })
+  
+  # Render the new variable availability by study table
+  output$searched_variable_availability_by_study_table <- renderDT({
+    if (!is.null(searched_variable_availability_by_study())) {
+      datatable(searched_variable_availability_by_study(), options = list(dom = 't'))
+    } else {
+      datatable(data.frame(), options = list(dom = 't'))
+    }
   })
   
   # Reactive expression to filter columns based on selected form names
@@ -431,14 +543,9 @@ server <- function(input, output, session) {
       options = list(
         pageLength = 10,
         scrollX = TRUE,
-        # 'B' for Buttons
-        dom = 'Bfrtip', 
+        dom = 'Bfrtip',
         buttons = list(
-          'colvis', # Column visibility button
-          list(
-            extend = 'csv',
-            text = 'Download CSV'
-          )
+          'colvis' # Column visibility button
         )
       )
     )
@@ -488,66 +595,32 @@ server <- function(input, output, session) {
   # Server-side download handler for the availability table
   output$download_availability <- downloadHandler(
     filename = function() {
-      paste("data-availability-", Sys.Date(), ".csv", sep = "")
+      if (!is.null(searched_variable_availability_by_study())) {
+        paste("variable-availability-by-study-", Sys.Date(), ".csv", sep = "")
+      } else if (!is.null(searched_variable_availability())) {
+        paste("variable-availability-by-group-", Sys.Date(), ".csv", sep = "")
+      } else {
+        paste("data-availability-", Sys.Date(), ".csv", sep = "")
+      }
     },
     content = function(file) {
-      df <- filtered_data()
-      availability_rows <- c(
-        "Participants",
-        "Brain_Biomarkers", "Clamp", "Dxa", "MRI", "Ivgtt", "MINMOD",
-        "Kidney Biopsy", "Kidney Morphometris", "PET Scan",
-        "Metabolomics - Blood", "Metabolomics - Tissue", "Renal Clearance",
-        "Hemodynamic Outcomes", "Proteomics"
-      )
-      calculate_availability <- function(group_data) {
-        if(nrow(group_data) == 0) return(rep(0, length(availability_rows)))
-        counts <- c(
-          Participants = length(unique(group_data$record_id)),
-          Brain_Biomarkers = length(unique(group_data$record_id[group_data$procedure == "brain_biomarkers"])),
-          Clamp = length(unique(group_data$record_id[group_data$procedure == "clamp"])),
-          Dxa = length(unique(group_data$record_id[group_data$procedure == "dxa"])),
-          MRI = length(unique(group_data$record_id[group_data$procedure %in% c("bold_mri", "cardio_abdominal_mri", "mri", "pc_mri_2d")])),
-          Ivgtt = length(unique(group_data$record_id[group_data$procedure == "ivgtt"])),
-          MINMOD = {
-            vars <- dictionary_data %>% filter(form_name == "ivgtt_minmod") %>% pull(variable_name)
-            if(length(vars) > 0) {
-              matched_cols <- intersect(vars, names(group_data))
-              if(length(matched_cols) > 0) length(unique(group_data$record_id[rowSums(is.na(group_data[, matched_cols, drop = FALSE])) < length(matched_cols)])) else 0
-            } else 0
-          },
-          `Kidney Biopsy` = length(unique(group_data$record_id[group_data$procedure == "kidney_biopsy"])),
-          `Kidney Morphometris` = length(unique(group_data$record_id[grepl("kidney", group_data$procedure, ignore.case = TRUE)])),
-          `PET Scan` = length(unique(group_data$record_id[group_data$procedure %in% c("liver_pet_scan", "pet_scan")])),
-          `Metabolomics - Blood` = length(unique(group_data$record_id[group_data$procedure == "metabolomics_blood"])),
-          `Metabolomics - Tissue` = length(unique(group_data$record_id[group_data$procedure == "metabolomics_tissue"])),
-          `Renal Clearance` = length(unique(group_data$record_id[group_data$procedure == "renal_clearance_testing"])),
-          `Hemodynamic Outcomes` = length(unique(group_data$record_id[grepl("hemodynamic", group_data$procedure, ignore.case = TRUE)])),
-          Proteomics = {
-            vars <- dictionary_data %>% filter(form_name == "proteomics") %>% pull(variable_name)
-            if(length(vars) > 0) {
-              matched_cols <- intersect(vars, names(group_data))
-              if(length(matched_cols) > 0) length(unique(group_data$record_id[rowSums(is.na(group_data[, matched_cols, drop = FALSE])) < length(matched_cols)])) else 0
-            } else 0
-          }
-        )
-        return(counts)
+      if (!is.null(searched_variable_availability_by_study())) {
+        write_csv(searched_variable_availability_by_study(), file)
+      } else if (!is.null(searched_variable_availability())) {
+        write_csv(searched_variable_availability(), file)
+      } else {
+        write_csv(main_availability_table(), file)
       }
-      
-      group_summary <- df %>%
-        group_by(group) %>%
-        summarise(counts = list(calculate_availability(cur_data()))) %>%
-        tidyr::unnest_wider(counts)
-      
-      grand_total_counts <- as.data.frame(t(calculate_availability(df)))
-      grand_total_counts$group <- "Grand Total"
-      
-      final_table <- bind_rows(group_summary, grand_total_counts) %>%
-        rename(Category = group) %>%
-        tidyr::pivot_longer(cols = -Category, names_to = "Metric", values_to = "Count") %>%
-        tidyr::pivot_wider(names_from = Category, values_from = Count) %>%
-        select(Metric, everything())
-      
-      write_csv(final_table, file)
+    }
+  )
+  
+  # New download handler for the raw data table
+  output$download_raw <- downloadHandler(
+    filename = function() {
+      paste("raw-data-", Sys.Date(), ".csv", sep = "")
+    },
+    content = function(file) {
+      write_csv(raw_data_display_columns(), file)
     }
   )
   
