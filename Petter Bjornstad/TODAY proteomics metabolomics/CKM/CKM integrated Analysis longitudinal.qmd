@@ -1123,6 +1123,7 @@ prog_summary_final <- prog_summary_final %>% select(-days)
 prog_summary_final <- left_join(prog_summary_final, death, by = "RELEASEID")
 prog_summary_final$DEATH <- ifelse(is.na(prog_summary_final$DEATH), 0, prog_summary_final$DEATH)
 prog_summary_final <- left_join(prog_summary_final, lab_means, by = "RELEASEID")
+prog_summary_final$visit <- NULL
 
 cols_to_convert <- c("HTN", "TGDLP", "MIC", "MAC", "GLYC", "tx", 
                      "CKM_syn_base", "CKM_max", 
@@ -1173,6 +1174,7 @@ fup <- soma %>% anti_join(base, soma, by=c("releaseid","Date.Drawn"))
 fup <- fup %>%
        mutate(across(starts_with("seq"),
               ~ as.numeric(as.character(.))))
+
 # calculate deltas
 base_for_deltas <- base
 base_for_deltas <- base_for_deltas %>% filter(releaseid %in% fup$releaseid)
@@ -1196,6 +1198,15 @@ deltas_scale <- left_join(deltas_scale, prog_summary_final, by = "RELEASEID")
 deltas_no_scale <- cbind(base_for_deltas$releaseid, deltas)
 colnames(deltas_no_scale)[1] <- "RELEASEID"
 deltas_no_scale <- left_join(deltas_no_scale, prog_summary_final, by = "RELEASEID")
+
+# analyzing the deltas doesn't work well because they can't be log transformed
+# instead, create a long dataset with log transformed proteins and use paired limma
+temp1 <- base_for_deltas %>% rename("RELEASEID" = "releaseid")
+temp2 <- fup %>% rename("RELEASEID" = "releaseid")
+soma_long <- rbind(temp1, temp2) 
+soma_long <- left_join(soma_long, prog_summary_final, by = "RELEASEID")
+
+
 ```
 
 # Results and Statistical Analysis
@@ -1332,6 +1343,14 @@ results_delta <- topTable(fit,coef = 2,number = nrow(ymat))
 results_delta$AptName <- row.names(results_delta)
 results_delta <- merge(results_delta,analytes,by="AptName",all.x = T, all.y = F)
 results_delta <- results_delta[order(results_delta$P.Value),] 
+
+# using paired limma
+RELEASEID <- factor(soma_long$RELEASEID)
+progress_CKM <- factor(soma_long$progress_CKM)
+change_contrast <- model.matrix(~RELEASEID + progress_CKM)
+ymat <- t(soma_long[predictors])
+fit <- lmFit(ymat,change_contrast)
+fit <- eBayes(fit)
 ```
 
 ```{r, include=FALSE}
