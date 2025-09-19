@@ -1079,10 +1079,199 @@ for(i in c(1:length(celltypes))){
 
 
 
+   ### Overall NEBULA Analysis for Top 2,000 genes
+
+library(scran)
+library(future)
+library(future.apply)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(msigdbr)
+library(kableExtra)
+library(knitr)
+library(REDCapR)
+library(data.table)
+library(emmeans)
+library(NMF)
+library(pheatmap)
+library(UpSetR)
+library(enrichR)
+library(WriteXLS)
+library(SAVER)
+library(readxl)
+library(limma)
+library(edgeR)
+library(BiocGenerics)
+library(GSEABase)
+library(slingshot)
+library(SingleCellExperiment)
+library(MAST)
+library(muscat)
+library(scater)
+library(Seurat)
+library(jsonlite)
+library(dplyr)
+library(glmmTMB)
+library(reshape2)
+library(broom.mixed)
+library(nebula)
+library(doParallel)
+
+
+load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
+
+so_subset <- so_kpmp_sc
+remove(so_kpmp_sc)
+
+#dat_groups <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_GroupAssignments.txt')
+#dat_groups <- dat_groups %>% filter(group2 %in% c('Lean Control', 'T2D-No SGLTi2'))
+
+#so_subset <- subset(so_subset, record_id == dat_groups$record_id)
+test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
+
+#load('C:/Users/netio/Downloads/TCA_genes.txt')
+#load('C:/Users/netio/Downloads/OxPhos_genes.txt')
+
+
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/'
+
+
+
+
+
+#Make sure exposure/independent/x variable or group variable is a factor variable
+so_subset$group <- factor(so_subset$group)
+#Make sure to set reference level
+so_subset$group  <- relevel(so_subset$group ,ref="Lean_Control")
+
+counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
+
+# With parallelization
+#TCA Cycle
+# List of genes
+so <- so_subset
+
+remove(so_subset)
+
+
+#Check the number of Mitochondrial genes to start
+sum(grepl("^MT-", rownames(so))) 
+
+# Identify mitochondrial genes (human: start with "MT-")
+mito_genes <- grep("^MT-", rownames(so), value = TRUE)
+so <- subset(so, features = setdiff(rownames(so), mito_genes))
+
+#Check the number of Mitochondrial genes after filtering to ensure filtering step was successful
+sum(grepl("^MT-", rownames(so))) #Should be 0
+
+
+#Ribosomal genes
+# Identify ribosomal genes
+ribo_genes <- c(
+  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
+  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
+  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
+  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
+  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
+  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
+  "RPL10", "RPS4Y1")
+
+so<- subset(so, features = setdiff(rownames(so), ribo_genes))
+# sum(grepl("^MT-", rownames(so_kpmp_sc))) #0
+length(which(rownames(so) %in% ribo_genes)) #0
+ncol(so) #211,218 cells
+nrow(so) #31,242 genes
+
+so <- subset(so, 
+             subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 10)
+
+
+counts_layer <- round(GetAssayData(so, layer = 'counts'))
+library_size <- Matrix::colSums(round(GetAssayData(so, layer = 'counts')))
+so$library_size <- library_size
+sce <- SingleCellExperiment::SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce)
+# View size factors
+sizeFactors(sce)
+## Calculate offset → (size factors)
+so$pooled_offset <- (sizeFactors(sce))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 #Step 5: Gene scores, pathways scores associated with PET variables
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #Step 6: ROCKIES correlations with OGIS, HOMA, tubular sodium with K2 and K2/F
 
