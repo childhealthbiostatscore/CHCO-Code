@@ -6,4 +6,4 @@ sys.path.insert(0, os.path.expanduser('~') +
 from data_harmonization import harmonize_data
 
 clean = harmonize_data()
-clean.to_csv("/Volumes/Peds Endo/Petter Bjornstad/Data Harmonization/Data Clean/harmonized_dataset.csv", index=False)
+clean.to_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW//Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", index=False)

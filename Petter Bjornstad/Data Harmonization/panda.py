@@ -23,8 +23,22 @@ def clean_panda():
     from natsort import natsorted, ns
     from harmonization_functions import combine_checkboxes
     # REDCap project variables
-    tokens = pd.read_csv(
-        "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
+    import getpass
+    user = getpass.getuser()  # safer than os.getlogin(), works in more environments
+
+    if user == "choiyej":
+        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "pylell":
+        base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "shivaniramesh":
+        base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    else:
+        sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
+
+    tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")        #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"
     token = tokens.loc[tokens["Study"] == "PANDA", "Token"].iloc[0]
     proj = redcap.Project(url=uri, token=token)
