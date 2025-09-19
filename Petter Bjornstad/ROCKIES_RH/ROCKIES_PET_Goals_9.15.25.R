@@ -63,9 +63,9 @@ library(nebula)
 
 
 
-harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
+#harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
 
-#harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 
 #date_of_screen
 #screen_date
@@ -122,7 +122,9 @@ dat_results <- dat_results %>% bind_cols(tmp_results)
 
 dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+
+dat_results <- dat_results %>% filter(epic_sglti2_1 != 'Yes')
 
 
 table1::table1(~age + sex + bmi +hba1c +  study + epic_sglti2_1 + avg_c_k2 + avg_c_k2_f | group, 
@@ -159,7 +161,7 @@ p <- ggplot(aim1_long, aes(x = metric, y = value)) +
              size = 1.5, 
              shape = 21, 
              color = "black") +
-  scale_fill_manual(values = c("#c2dfe3", "#fff9ec", "#fcb1a6")) +
+  scale_fill_manual(values = c("#c2dfe3", "#fcb1a6")) +
   labs(title = "Voxel-Based PET Imaging Metrics without Cysts by Group",
        x = "PET Metrics",
        y = "Value",
@@ -171,7 +173,7 @@ p <- ggplot(aim1_long, aes(x = metric, y = value)) +
 # Calculate statistics for annotations
 stat_test <- aim1_long %>%
   group_by(metric) %>%
-  pairwise_wilcox_test(value ~ group, p.adjust.method = "bonferroni") %>%
+  pairwise_wilcox_test(value ~ group, p.adjust.method = "none") %>%
   add_significance() %>%
   add_xy_position(x = "metric", dodge = 0.8)
 
@@ -275,8 +277,8 @@ dat_results <- dat_results %>% bind_cols(tmp_results)
 
 dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
-
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+dat_results <- dat_results %>% filter(epic_sglti2_1 != 'Yes')
 
 aim1_df <- dat_results %>% 
   dplyr::select(record_id, group, avg_c_f, avg_c_k2, avg_c_k2_f)
@@ -307,7 +309,7 @@ p <- ggplot(aim1_long, aes(x = metric, y = value)) +
              size = 1.5, 
              shape = 21, 
              color = "black") +
-  scale_fill_manual(values = c("#c2dfe3", "#fff9ec", "#fcb1a6")) +
+  scale_fill_manual(values = c("#c2dfe3",  "#fcb1a6")) +
   labs(title = "Global PET Imaging Metrics by Group",
        x = "PET Metrics",
        y = "Value",
@@ -319,7 +321,7 @@ p <- ggplot(aim1_long, aes(x = metric, y = value)) +
 # Calculate statistics for annotations
 stat_test <- aim1_long %>%
   group_by(metric) %>%
-  pairwise_wilcox_test(value ~ group, p.adjust.method = "bonferroni") %>%
+  pairwise_wilcox_test(value ~ group, p.adjust.method = "none") %>%
   add_significance() %>%
   add_xy_position(x = "metric", dodge = 0.8)
 
@@ -333,9 +335,7 @@ stat_test_adjusted <- stat_test %>%
   ))
 
 
-stat_test_adjusted$y.position <- c(2.8, 3.0, 3.0, 
-                                   0.28, 0.35, 0.35, 
-                                   0.2, 0.25, 0.28)
+stat_test_adjusted$y.position <- c(2.9, 0.35, 0.40)
 
 # Create plot with statistical annotations
 p_with_stats <- p + 
@@ -365,6 +365,14 @@ dev.off()
 png('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim1_GlobalPET.png')
 print(p_broken)
 dev.off()
+
+
+
+
+
+
+
+
 
 
 
@@ -473,11 +481,83 @@ dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
 
 dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+dat_results$group2 <- NA
+
+need_med_info <- dat_results %>% filter(is.na(group2))
+
+dat2 <- dat_results
+
+RH <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RENALHEIR-SGLT2.csv')
+names(RH) <- c('Subject', 'rep_instr', 'rep_inst', 'SGLT2')
+RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-SGLT2Use.csv')
+names(RH2) <- c('Subject', 'event', 'rep_instr', 'rep_inst', 'mrn', 'SGLT2', 'SGLT2_ever')
+RH2 <- RH2 %>% filter(!is.na(mrn))
+improve <- data.table::fread('C:/Users/netio/Downloads/IMPROVET2D-SGLT2i_DATA_LABELS_2025-08-25_0938.csv')
+names(improve)[5] <- 'SGLT2'
+names(improve)[1] <- 'record_id'
+
+improve <- improve %>% filter(!is.na(SGLT2)) %>%
+filter(SGLT2 != '')
+
+improve_small <- improve %>% filter(record_id %in% need_med_info$record_id)
+RH_small <- RH %>% filter(Subject %in% need_med_info$record_id)
+RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
+
+for(i in c(1:nrow(RH_small))){
+  if(nrow(RH_small) == 0){
+    next
+  }
+if(RH_small$SGLT2[i] == 'No'){
+dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-No SGLTi2'
+dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'No'
+}else if(RH_small$SGLT2[i] == 'Yes'){
+dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-SGLTi2'
+dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'Yes'
+}else{
+next
+}
+}
+
+for(i in c(1:nrow(RH2_small))){
+  if(nrow(RH2_small) == 0){
+    next
+  }
+if(RH2_small$SGLT2[i] == 'No'){
+dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-No SGLTi2'
+dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'No'
+}else if(RH2_small$SGLT2[i] == 'Yes'){
+dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2'
+dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'Yes'
+}else{
+next
+}
+}
+
+for(i in c(1:nrow(improve_small))){
+  if(nrow(improve_small) == 0){
+    next
+  }
+if(improve_small$SGLT2[i] == 'No'){
+dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-No SGLTi2'
+dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'No'
+}else if(improve_small$SGLT2[i] == 'Yes'){
+dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-SGLTi2'
+dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'Yes'
+}else{
+next
+}
+}
 
 
+dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
 
-aim2_df <- dat_results %>% 
+dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
+
+table1::table1()
+
+
+aim2_df <- dat2%>% 
   dplyr::select(record_id, group, 
                 acr_u, gbm_thick_artmean, gbm_thick_harmmean,
                 abd_elasto, abd_stiffness_sd, 
@@ -661,7 +741,7 @@ tmp_results <- PET_avg(dat)
 dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
 
 
-dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
+#dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 
 dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
 
