@@ -21,8 +21,9 @@ casper_token = tokens.loc[tokens["Study"] == "CASPER", "Token"].iloc[0]
 casper = redcap.Project(url=uri, token=casper_token)
 #print(casper)
 casper_metadata = pd.DataFrame(casper.metadata)
-#print(casper_metadata['form_name'].unique())
-#print(casper_metadata['field_label'])
+# print(casper_metadata)
+# forms = casper_metadata["form_name"].unique()
+
 
 coffee_token = tokens.loc[tokens["Study"] == "COFFEE", "Token"].iloc[0]
 coffee = redcap.Project(url=uri, token=coffee_token)
@@ -80,6 +81,14 @@ for study in studies:
             variables.append(variable_name)
 
         
+dictionary['form_name'] = ''  # Initialize the new column
+all_metadata = pd.concat(studies, ignore_index=True)
+for index, row in dictionary.iterrows():
+    matching_row = all_metadata[all_metadata['field_name'] == row['variable_name']]
+    if not matching_row.empty:
+        # Get the form_name for the first match and assign it
+        dictionary.at[index, 'form_name'] = matching_row['form_name'].iloc[0]
+
 dictionary = dictionary.drop_duplicates(subset=['variable_name', 'label'])
 
 # Drop invalid labels (numeric 0, string "0", empty string, NaN)
