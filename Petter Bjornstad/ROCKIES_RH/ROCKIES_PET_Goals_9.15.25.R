@@ -65,7 +65,12 @@ library(nebula)
 
 #harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
 
-harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+
+
+harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
+
+#harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 
 #date_of_screen
 #screen_date
@@ -98,6 +103,43 @@ PET_avg <- function(data){
   
   results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
                        avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2_vw', 'avg_m_k2_vw', 'avg_c_f_vw', 'avg_m_f_vw', 
+                      'avg_c_k2_f_vw', 'avg_m_k2_f_vw')
+  
+  return(results)
+  
+}
+
+
+tmp_results_vw <- PET_avg(dat)
+
+
+dat_results <- dat
+
+
+
+
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  
+  avg_m_k2_f <- avg_m_k2 / avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
   names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
                       'avg_c_k2_f', 'avg_m_k2_f')
   
@@ -109,30 +151,92 @@ PET_avg <- function(data){
 tmp_results <- PET_avg(dat)
 
 
-dat_results <- dat
 
-#if(OneDrive == T){
-#  dat_results$avg_c_k2 <- NULL
-#  dat_results$avg_c_f <- NULL
-#  dat_results$avg_m_k2 <- NULL
-#}
-
-dat_results <- dat_results %>% bind_cols(tmp_results)
+dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
 
 
 dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 
 dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+dat_results$group2 <- NA
 
-dat_results <- dat_results %>% filter(epic_sglti2_1 != 'Yes')
+need_med_info <- dat_results %>% filter(is.na(group2))
+
+dat2 <- dat_results
+
+RH <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RENALHEIR-SGLT2.csv')
+names(RH) <- c('Subject', 'rep_instr', 'rep_inst', 'SGLT2')
+RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-SGLT2Use.csv')
+names(RH2) <- c('Subject', 'event', 'rep_instr', 'rep_inst', 'mrn', 'SGLT2', 'SGLT2_ever')
+RH2 <- RH2 %>% filter(!is.na(mrn))
+improve <- data.table::fread('C:/Users/netio/Downloads/IMPROVET2D-SGLT2i_DATA_LABELS_2025-08-25_0938.csv')
+names(improve)[5] <- 'SGLT2'
+names(improve)[1] <- 'record_id'
+
+improve <- improve %>% filter(!is.na(SGLT2)) %>%
+  filter(SGLT2 != '')
+
+improve_small <- improve %>% filter(record_id %in% need_med_info$record_id)
+RH_small <- RH %>% filter(Subject %in% need_med_info$record_id)
+RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
+
+for(i in c(1:nrow(RH_small))){
+  if(nrow(RH_small) == 0){
+    next
+  }
+  if(RH_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'No'
+  }else if(RH_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'Yes'
+  }else{
+    next
+  }
+}
+
+for(i in c(1:nrow(RH2_small))){
+  if(nrow(RH2_small) == 0){
+    next
+  }
+  if(RH2_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'No'
+  }else if(RH2_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'Yes'
+  }else{
+    next
+  }
+}
+
+for(i in c(1:nrow(improve_small))){
+  if(nrow(improve_small) == 0){
+    next
+  }
+  if(improve_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'No'
+  }else if(improve_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'Yes'
+  }else{
+    next
+  }
+}
+
+
+dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
+
+dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
 
 
 table1::table1(~age + sex + bmi +hba1c +  study + epic_sglti2_1 + avg_c_k2 + avg_c_k2_f | group, 
-               data = dat_results)
+               data = dat2)
 
 
 
-aim1_df <- dat_results %>% 
+aim1_df <- dat2 %>% 
   dplyr::select(record_id, group, avg_c_f, avg_c_k2, avg_c_k2_f)
 
 library(tidyverse)
@@ -186,12 +290,14 @@ stat_test_adjusted <- stat_test %>%
     TRUE ~ y.position
   ))
 
+stat_test_adjusted$y.position <- c(3, 0.28, 0.30) 
+
 # Create plot with statistical annotations
 p_with_stats <- p + 
   stat_pvalue_manual(stat_test_adjusted, 
                      label = "p.adj.signif",
                      tip.length = 0.01,
-                     step.increase = 0.02,
+                     step.increase = 0.005,
                      hide.ns = TRUE)
 
 # Display the regular plot
@@ -201,7 +307,7 @@ print(p_with_stats)
 library(ggbreak)
 
 p_broken <- p_with_stats + 
-  scale_y_break(c(0.30, 0.8), scales = 2) +
+  scale_y_break(c(0.35, 0.75), scales = 2) +
   theme(axis.text.y = element_text(size = 10))
 
 print(p_broken)
@@ -218,70 +324,8 @@ dev.off()
 
 #PET global
 
-harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
-
-#harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
-
-#date_of_screen
-#screen_date
-
-dat <- harmonized_data %>% dplyr::select(-dob) %>% 
-  arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-                   .by = c(record_id, visit))
-
-
-PET_avg <- function(data){
-  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
-                                   lc_f, rc_f, lm_f, rm_f)
-  avg_c_k2 <- tmp_df %>%
-    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
-  
-  avg_m_k2 <- tmp_df %>% 
-    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
-  
-  avg_c_f <- tmp_df %>% 
-    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
-  
-  avg_m_f <- tmp_df %>% 
-    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
-  
-  avg_c_k2_f <- avg_c_k2 / avg_c_f
-  
-  avg_m_k2_f <- avg_m_k2 / avg_m_f
-  
-  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
-                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
-  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
-                      'avg_c_k2_f', 'avg_m_k2_f')
-  
-  return(results)
-  
-}
-
-
-tmp_results <- PET_avg(dat)
-
-
-dat_results <- dat
-
-#if(OneDrive == T){
-#  dat_results$avg_c_k2 <- NULL
-#  dat_results$avg_c_f <- NULL
-#  dat_results$avg_m_k2 <- NULL
-#}
-
-dat_results <- dat_results %>% bind_cols(tmp_results)
-
-
-dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
-
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
-dat_results <- dat_results %>% filter(epic_sglti2_1 != 'Yes')
-
-aim1_df <- dat_results %>% 
-  dplyr::select(record_id, group, avg_c_f, avg_c_k2, avg_c_k2_f)
+aim1_df <- dat2 %>% 
+  dplyr::select(record_id, group, avg_c_f = avg_c_f_vw, avg_c_k2 = avg_c_k2_vw, avg_c_k2_f = avg_c_k2_f_vw)
 
 library(tidyverse)
 library(ggpubr)
@@ -335,7 +379,7 @@ stat_test_adjusted <- stat_test %>%
   ))
 
 
-stat_test_adjusted$y.position <- c(2.9, 0.35, 0.40)
+stat_test_adjusted$y.position <- c(2.9, 0.25, 0.28)
 
 # Create plot with statistical annotations
 p_with_stats <- p + 
@@ -352,7 +396,7 @@ print(p_with_stats)
 library(ggbreak)
 
 p_broken <- p_with_stats + 
-  scale_y_break(c(0.4, 0.70), scales = 2) +
+  scale_y_break(c(0.3, 0.70), scales = 2) +
   theme(axis.text.y = element_text(size = 10))
 
 print(p_broken)
@@ -554,14 +598,13 @@ dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
 
 dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
 
-table1::table1()
+table1::table1(~age + sex + bmi +hba1c +  study + epic_sglti2_1 + acr_u + gbm_thick_artmean + gbm_thick_harmmean | group, 
+               data = dat2)
 
 
 aim2_df <- dat2%>% 
   dplyr::select(record_id, group, 
                 acr_u, gbm_thick_artmean, gbm_thick_harmmean,
-                abd_elasto, abd_stiffness_sd, 
-                aorta_forward_flow, aorta_net_flow, aorta_reverse_flow, aorta_regurgitant_fraction,
                 starts_with('avg_c_'))
 
 library(corrplot)
@@ -598,15 +641,13 @@ full_corr <- cor(aim2_df[, 3:ncol(aim2_df)], use = 'pairwise.complete.obs')
 full_p_mat <- cor.mtest(aim2_df[, 3:ncol(aim2_df)])
 
 # Subset to your desired rows and columns (this will include NAs where data is missing)
-aim2_corr_df <- full_corr[c(1:9), c(16, 15, 17, 19, 18, 20)]
-aim2_p_mat <- full_p_mat[c(1:9), c(16, 15, 17, 19, 18, 20)]
+aim2_corr_df <- full_corr[c(1:3), c(10, 9, 11, 13, 12, 14)]
+aim2_p_mat <- full_p_mat[c(1:3), c(10, 9, 11, 13, 12, 14)]
 
 # Apply your labels
 colnames(aim2_corr_df) <- c('Cortical F', 'Cortical K2', 'Cortical K2/F', 
                             'Cortical F (voxel)', 'Cortical K2 (voxel)', 'Cortical K2/F (voxel)')
-rownames(aim2_corr_df) <- c('Urine Albumin-Creatinine Ratio', 'GBM Thickness (Arithmetic)', 'GBM Thickness (Harmonic)',
-                            'Mean Hepatic Stiffness', 'Mean Hepatic Stiffness (SD)', 
-                            'Aorta Flow (Forward)', 'Aorta Flow (Net)', 'Aorta Flow (Reverse)', 'Aorta Regurgitant')
+rownames(aim2_corr_df) <- c('Urine Albumin-Creatinine Ratio', 'GBM Thickness (Arithmetic)', 'GBM Thickness (Harmonic)')
 
 # Apply same labels to p-value matrix
 colnames(aim2_p_mat) <- colnames(aim2_corr_df)
