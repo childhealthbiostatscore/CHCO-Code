@@ -21,7 +21,23 @@ library(DT)
 library(readr)
 
 # --- 2. Load and Prepare Data ---
-base_data_path <- "~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+
+# specify user for paths
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  base_data_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "pylell") {
+  base_data_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "rameshsh") {
+  base_data_path <- "~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else
+  {
+  stop("Unknown user: please specify root path for this user.")
+}
 
 data_path <- file.path(base_data_path, "Data Harmonization/Data Clean/harmonized_dataset.csv")
 data <- read_csv(data_path)
