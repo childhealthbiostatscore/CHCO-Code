@@ -1140,7 +1140,7 @@ test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!dupl
 #load('C:/Users/netio/Downloads/OxPhos_genes.txt')
 
 
-dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/'
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/'
 
 
 
@@ -1203,10 +1203,441 @@ sizeFactors(sce)
 ## Calculate offset → (size factors)
 so$pooled_offset <- (sizeFactors(sce))
 
+save.image('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Line1206_Aim4.RData')
+load('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Line1206_Aim4.RData')
+
+#meta.data <- so@meta.data
+#meta.data <- meta.data %>% dplyr::select(record_id, group, sex, epic_sglti2_1)
+#table(meta.data$group, meta.data$epic_sglti2_1)
+
+celltypes <- c('PT', 'aPT', 'PT-S1/S2', 'PT-S3')
+
+for(celltype in celltypes){
+  if(celltype == 'PT'){
+   so_celltype <- subset(so, celltype2 == celltype) 
+  }else{
+    so_celltype <- subset(so,KPMP_celltype==celltype)
+  }
+    DefaultAssay(so_celltype) <- "RNA" 
+    
+    nrow(so_celltype) #34 genes
+    ncol(so_celltype) #13534 PT cells
+    
+    celltype2 <- str_replace_all(celltype,"/","_")
+    celltype2 <- str_replace_all(celltype2,"-","_")
+    
+    #Make sure exposure/independent/x variable or group variable is a factor variable
+    so_celltype$group <- factor(so_celltype$group)
+    #Make sure to set reference level
+    so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+    
+    
+    counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+    
+    # With parallelization
+    #TCA Cycle
+    # List of genes
+    genes_list <- tca_genes
+    
+    cl <- makeCluster(1)
+    registerDoParallel(cl)
+    test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
+    t2d_count <- test2 %>% filter(group == 'Type_2_Diabetes') %>% nrow()
+    lc_count <- test2 %>% filter(group == 'Lean_Control') %>% nrow()
+    
+    
+    start_time <- Sys.time()
+    
+        full_analysis <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+        hvgs <- VariableFeatures(full_analysis)
+        full_analysis <- subset(so_celltype, features = hvgs)
+        full_counts <- round(GetAssayData(full_analysis, layer = "counts")) 
+        
+        
+        meta_gene <- full_analysis@meta.data
+        pred_gene <- model.matrix(~group, data = meta_gene)
+        data_g_gene <- list(count = full_analysis, id = meta_gene$record_id, pred = pred_gene)
+        result<- nebula(count = full_counts, id = full_analysis$record_id, pred = data_g_gene$pred, 
+                                  offset = full_analysis$pooled_offset,
+                                  ncore = 1, output_re = T, covariance = T,
+                                  reml = T, model = "NBLMM")
+        
+        result$summary
+        
+    
+    stopCluster(cl)
+    end_time <- Sys.time()
+    print(end_time - start_time)
+    
+    
+    write.csv(result,fs::path(dir.results,paste0("NEBULA_Top2000_",celltype2,"_cells_LC_T2D_NoMed_pooled_offset.csv")))
+    
+  print(paste0(celltype2, ' is done.'))
+  
+  
+  
+}
+
+
+remove(list=ls())
 
 
 
 
+results_files <- list.files(path = 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/', pattern = '\\.csv$')
+
+library(enrichplot)
+library(clusterProfiler)
+library(ReactomePA)
+library(org.Hs.eg.db)  # Human annotation, change for other species
+library(DOSE)
+
+library(ggplot2)
+library(dplyr)
+
+# Alternative libraries for IPA-style analysis
+library(msigdbr)  # For MSigDB gene sets
+library(fgsea)    # Fast GSEA implementation
+
+library(dplyr)
+library(stringr)
+
+
+library(clusterProfiler)
+library(ReactomePA)
+library(org.Hs.eg.db)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(forcats)
+library(msigdbr) # For Hallmark gene sets
+library(enrichplot)
+
+for(i in c(1:length(results_files))){
+  tmp_data <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/', results_files[i]))
+  cell_type <- str_extract(results_files[i], "PT_S1_S2|PT_S3|aPT|PT")
+  
+  deg_data <- tmp_data %>% 
+    dplyr::select(gene_symbol = summary.gene,
+                  log2FC = summary.logFC_groupType_2_Diabetes,
+                  pvalue = summary.p_groupType_2_Diabetes) %>% 
+    filter(pvalue < 0.05)
+  
+  # Skip if no significant genes
+  if(nrow(deg_data) == 0) {
+    cat("No significant genes for", cell_type, "\n")
+    next
+  }
+  
+  gene_symbols <- deg_data$gene_symbol
+  entrez_ids <- bitr(gene_symbols, 
+                     fromType = "SYMBOL", 
+                     toType = "ENTREZID", 
+                     OrgDb = org.Hs.eg.db)
+  
+  # Merge back with original data
+  deg_with_entrez <- deg_data %>%
+    inner_join(entrez_ids, by = c("gene_symbol" = "SYMBOL"))
+  
+  # Create named vector for GSEA (ranked gene list)
+  gene_list <- deg_with_entrez$log2FC
+  names(gene_list) <- deg_with_entrez$ENTREZID
+  gene_list <- sort(gene_list, decreasing = TRUE)
+  
+  # ===============================
+  # GENE SET PREPARATION
+  # ===============================
+  
+  # Get Hallmark gene sets
+  hallmark_sets <- msigdbr(species = "Homo sapiens", category = "H")
+  hallmark_list <- split(x = hallmark_sets$entrez_gene, f = hallmark_sets$gs_name)
+  
+  # Get GO Biological Process gene sets (you can also use "CC" for Cellular Component, "MF" for Molecular Function)
+  go_sets <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP")
+  go_list <- split(x = go_sets$entrez_gene, f = go_sets$gs_name)
+  
+  # ===============================
+  # ENRICHMENT ANALYSES - NO MULTIPLE TEST CORRECTION
+  # ===============================
+  
+  # Reactome Over-Representation Analysis (ORA) - NO CORRECTION
+  reactome_ora <- enrichPathway(gene = names(gene_list)[abs(gene_list) > 1],
+                                pvalueCutoff = 0.05,
+                                pAdjustMethod = "none",
+                                readable = TRUE,
+                                organism = "human")
+  
+  # Reactome Gene Set Enrichment Analysis (GSEA) - NO CORRECTION
+  reactome_gsea <- gsePathway(geneList = gene_list,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "none",
+                              organism = "human")
+  
+  # GO Biological Process ORA - NO CORRECTION
+  go_ora <- enrichGO(gene = names(gene_list)[abs(gene_list) > 1],
+                     OrgDb = org.Hs.eg.db,
+                     ont = "BP",
+                     pAdjustMethod = "none",
+                     pvalueCutoff = 0.05,
+                     readable = TRUE)
+  
+  # GO Biological Process GSEA - NO CORRECTION
+  go_gsea <- gseGO(geneList = gene_list,
+                   OrgDb = org.Hs.eg.db,
+                   ont = "BP",
+                   pAdjustMethod = "none",
+                   pvalueCutoff = 0.05)
+  
+  # Hallmark GSEA - NO CORRECTION
+  hallmark_gsea <- GSEA(geneList = gene_list,
+                        TERM2GENE = data.frame(
+                          term = rep(names(hallmark_list), lengths(hallmark_list)),
+                          gene = unlist(hallmark_list)
+                        ),
+                        pvalueCutoff = 0.05,
+                        pAdjustMethod = "none")
+  
+  # Hallmark ORA - NO CORRECTION
+  hallmark_ora <- enricher(gene = names(gene_list)[abs(gene_list) > 1],
+                           TERM2GENE = data.frame(
+                             term = rep(names(hallmark_list), lengths(hallmark_list)),
+                             gene = unlist(hallmark_list)
+                           ),
+                           pvalueCutoff = 0.05,
+                           pAdjustMethod = "none")
+  
+  # ===============================
+  # CREATE DOTPLOT FUNCTION
+  # ===============================
+  create_dotplot <- function(enrich_obj, plot_title, analysis_type = "ORA") {
+    if (is.null(enrich_obj) || nrow(as.data.frame(enrich_obj)) == 0) {
+      cat("No significant results for", plot_title, "\n")
+      return(NULL)
+    }
+    
+    df <- as.data.frame(enrich_obj)
+    
+    if (analysis_type == "ORA") {
+      plot <- df %>%
+        slice_head(n = 15) %>%
+        mutate(
+          Description = str_wrap(Description, width = 50),
+          Description = str_remove(Description, "^HALLMARK_|^GOBP_|^REACTOME_"), # Clean pathway names
+          Description = forcats::fct_reorder(Description, Count),
+          log_padj = -log10(pvalue) # Using raw p-values instead of adjusted
+        ) %>%
+        ggplot(aes(x = Count, y = Description)) +
+        geom_point(aes(size = Count, color = log_padj)) +
+        scale_color_gradient(low = "lightblue", high = "darkred", 
+                             name = "-log10(Adj. P)") +
+        scale_size_continuous(name = "Gene Count", range = c(2, 10)) +
+        theme_minimal() +
+        theme(
+          axis.text.y = element_text(size = 8, color = "black"),
+          axis.text.x = element_text(size = 10, color = "black"),
+          axis.title = element_text(color = "black"),
+          plot.title = element_text(size = 12, hjust = 0.5, color = "black"),
+          legend.position = "right",
+          legend.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          panel.background = element_rect(fill = "white", color = NA),
+          plot.background = element_rect(fill = "white", color = NA),
+          panel.grid.major = element_line(color = "grey90", size = 0.5),
+          panel.grid.minor = element_line(color = "grey95", size = 0.3)
+        ) +
+        labs(
+          title = plot_title,
+          x = "Gene Count",
+          y = "Pathway"
+        )
+    } else { # GSEA
+      plot <- df %>%
+        slice_head(n = 15) %>%
+        mutate(
+          Description = str_wrap(Description, width = 50),
+          Description = str_remove(Description, "^HALLMARK_|^GOBP_|^REACTOME_"),
+          Description = forcats::fct_reorder(Description, NES),
+          log_padj = -log10(p.adjust),
+          Direction = ifelse(NES > 0, "Upregulated", "Downregulated")
+        ) %>%
+        ggplot(aes(x = NES, y = Description)) +
+        geom_point(aes(size = abs(NES), color = log_padj)) +
+        geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.7, color = "gray50") +
+        scale_color_gradient(low = "lightblue", high = "darkred", 
+                             name = "-log10(P-value)") +
+        scale_size_continuous(name = "Abs(NES)", range = c(2, 10)) +
+        theme_minimal() +
+        theme(
+          axis.text.y = element_text(size = 8, color = "black"),
+          axis.text.x = element_text(size = 10, color = "black"),
+          axis.title = element_text(color = "black"),
+          plot.title = element_text(size = 12, hjust = 0.5, color = "black"),
+          legend.position = "right",
+          legend.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          panel.background = element_rect(fill = "white", color = NA),
+          plot.background = element_rect(fill = "white", color = NA),
+          panel.grid.major = element_line(color = "grey90", size = 0.5),
+          panel.grid.minor = element_line(color = "grey95", size = 0.3)
+        ) +
+        labs(
+          title = plot_title,
+          x = "Normalized Enrichment Score (NES)",
+          y = "Pathway"
+        )
+    }
+    
+    return(plot)
+  }
+  
+  # ===============================
+  # GENERATE ALL PLOTS
+  # ===============================
+  
+  # Reactome plots
+  reactome_ora_plot <- create_dotplot(reactome_ora, 
+                                      paste("Reactome ORA -", cell_type), 
+                                      "ORA")
+  if (!is.null(reactome_ora_plot)) {
+    print(reactome_ora_plot)
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Reactome_ORA_", cell_type, ".png"), 
+           plot = reactome_ora_plot, width = 12, height = 8, dpi = 300)
+  }
+  
+  reactome_gsea_plot <- create_dotplot(reactome_gsea, 
+                                       paste("Reactome GSEA -", cell_type), 
+                                       "GSEA")
+  if (!is.null(reactome_gsea_plot)) {
+    print(reactome_gsea_plot)
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Reactome_GSEA_", cell_type, ".png"), 
+           plot = reactome_gsea_plot, width = 12, height = 8, dpi = 300)
+  }
+  
+  # GO Biological Process plots
+  go_ora_plot <- create_dotplot(go_ora, 
+                                paste("GO BP ORA -", cell_type), 
+                                "ORA")
+  if (!is.null(go_ora_plot)) {
+    print(go_ora_plot)
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/GO_BP_ORA_", cell_type, ".png"), 
+           plot = go_ora_plot, width = 12, height = 8, dpi = 300)
+  }
+  
+  go_gsea_plot <- create_dotplot(go_gsea, 
+                                 paste("GO BP GSEA -", cell_type), 
+                                 "GSEA")
+  if (!is.null(go_gsea_plot)) {
+    print(go_gsea_plot)
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/GO_BP_GSEA_", cell_type, ".png"), 
+           plot = go_gsea_plot, width = 12, height = 8, dpi = 300)
+  }
+  
+  # Hallmark plots
+  hallmark_ora_plot <- create_dotplot(hallmark_ora, 
+                                      paste("Hallmark ORA -", cell_type), 
+                                      "ORA")
+  if (!is.null(hallmark_ora_plot)) {
+    print(hallmark_ora_plot)
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Hallmark_ORA_", cell_type, ".png"), 
+           plot = hallmark_ora_plot, width = 12, height = 8, dpi = 300)
+  }
+  
+  hallmark_gsea_plot <- create_dotplot(hallmark_gsea, 
+                                       paste("Hallmark GSEA -", cell_type), 
+                                       "GSEA")
+  if (!is.null(hallmark_gsea_plot)) {
+    print(hallmark_gsea_plot)
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Hallmark_GSEA_", cell_type, ".png"), 
+           plot = hallmark_gsea_plot, width = 12, height = 8, dpi = 300)
+  }
+  
+  # ===============================
+  # OPTIONAL: COMPARATIVE SUMMARY PLOT
+  # ===============================
+  # Create a summary plot comparing significant pathways across databases
+  
+  create_summary_plot <- function() {
+    summary_data <- data.frame()
+    
+    # Collect significant pathways from each analysis
+    analyses <- list(
+      "Reactome_ORA" = reactome_ora,
+      "Reactome_GSEA" = reactome_gsea,
+      "GO_BP_ORA" = go_ora,
+      "GO_BP_GSEA" = go_gsea,
+      "Hallmark_ORA" = hallmark_ora,
+      "Hallmark_GSEA" = hallmark_gsea
+    )
+    
+    for (analysis_name in names(analyses)) {
+      if (!is.null(analyses[[analysis_name]]) && nrow(as.data.frame(analyses[[analysis_name]])) > 0) {
+        df <- as.data.frame(analyses[[analysis_name]])
+        summary_data <- rbind(summary_data, data.frame(
+          Analysis = analysis_name,
+          Significant_Pathways = nrow(df),
+          Database = case_when(
+            grepl("Reactome", analysis_name) ~ "Reactome",
+            grepl("GO", analysis_name) ~ "Gene Ontology",
+            grepl("Hallmark", analysis_name) ~ "MSigDB Hallmark"
+          ),
+          Method = ifelse(grepl("ORA", analysis_name), "ORA", "GSEA")
+        ))
+      }
+    }
+    
+    if (nrow(summary_data) > 0) {
+      summary_plot <- summary_data %>%
+        ggplot(aes(x = Database, y = Significant_Pathways, fill = Method)) +
+        geom_col(position = "dodge", alpha = 0.8) +
+        scale_fill_manual(values = c("ORA" = "#2166ac", "GSEA" = "#762a83")) +
+        theme_minimal() +
+        theme(
+          axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+          axis.text.y = element_text(color = "black"),
+          axis.title = element_text(color = "black"),
+          plot.title = element_text(hjust = 0.5, color = "black"),
+          legend.text = element_text(color = "black"),
+          legend.title = element_text(color = "black"),
+          panel.background = element_rect(fill = "white", color = NA),
+          plot.background = element_rect(fill = "white", color = NA),
+          panel.grid.major = element_line(color = "grey90", size = 0.5),
+          panel.grid.minor = element_line(color = "grey95", size = 0.3)
+        ) +
+        labs(
+          title = paste("Pathway Analysis Summary -", cell_type),
+          x = "Database",
+          y = "Number of Significant Pathways",
+          fill = "Method"
+        )
+      
+      print(summary_plot)
+      ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Pathway_Summary_", cell_type, ".png"), 
+             plot = summary_plot, width = 10, height = 6, dpi = 300)
+    }
+  }
+  
+  create_summary_plot()
+  
+  # ===============================
+  # SAVE RESULTS (OPTIONAL)
+  # ===============================
+  # Uncomment the lines below to save results as CSV files
+  
+  # if (!is.null(reactome_ora)) write.csv(as.data.frame(reactome_ora), paste0("Reactome_ORA_", cell_type, ".csv"))
+  # if (!is.null(reactome_gsea)) write.csv(as.data.frame(reactome_gsea), paste0("Reactome_GSEA_", cell_type, ".csv"))
+  # if (!is.null(go_ora)) write.csv(as.data.frame(go_ora), paste0("GO_BP_ORA_", cell_type, ".csv"))
+  # if (!is.null(go_gsea)) write.csv(as.data.frame(go_gsea), paste0("GO_BP_GSEA_", cell_type, ".csv"))
+  # if (!is.null(hallmark_ora)) write.csv(as.data.frame(hallmark_ora), paste0("Hallmark_ORA_", cell_type, ".csv"))
+  # if (!is.null(hallmark_gsea)) write.csv(as.data.frame(hallmark_gsea), paste0("Hallmark_GSEA_", cell_type, ".csv"))
+  
+  cat("Completed analysis for", cell_type, "\n")
+}
+
+
+#plots.dir.path <- list.files(tempdir(), pattern="rs-graphics", full.names = TRUE)
+#plots.png.paths <- list.files(plots.dir.path, pattern=".png", full.names = TRUE)
+
+#file.copy(from=plots.png.paths, to="C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/")
 
 
 
