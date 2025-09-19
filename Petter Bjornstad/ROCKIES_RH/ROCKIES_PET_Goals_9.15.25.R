@@ -1302,7 +1302,6 @@ library(fgsea)    # Fast GSEA implementation
 library(dplyr)
 library(stringr)
 
-
 library(clusterProfiler)
 library(ReactomePA)
 library(org.Hs.eg.db)
@@ -1619,18 +1618,47 @@ for(i in c(1:length(results_files))){
   create_summary_plot()
   
   # ===============================
-  # SAVE RESULTS (OPTIONAL)
+  # SAVE PATHWAY RESULTS (CSV FILES)
   # ===============================
-  # Uncomment the lines below to save results as CSV files
   
-  # if (!is.null(reactome_ora)) write.csv(as.data.frame(reactome_ora), paste0("Reactome_ORA_", cell_type, ".csv"))
-  # if (!is.null(reactome_gsea)) write.csv(as.data.frame(reactome_gsea), paste0("Reactome_GSEA_", cell_type, ".csv"))
-  # if (!is.null(go_ora)) write.csv(as.data.frame(go_ora), paste0("GO_BP_ORA_", cell_type, ".csv"))
-  # if (!is.null(go_gsea)) write.csv(as.data.frame(go_gsea), paste0("GO_BP_GSEA_", cell_type, ".csv"))
-  # if (!is.null(hallmark_ora)) write.csv(as.data.frame(hallmark_ora), paste0("Hallmark_ORA_", cell_type, ".csv"))
-  # if (!is.null(hallmark_gsea)) write.csv(as.data.frame(hallmark_gsea), paste0("Hallmark_GSEA_", cell_type, ".csv"))
+  # Save pathway analysis results as CSV files
+  if (!is.null(reactome_ora) && nrow(as.data.frame(reactome_ora)) > 0) {
+    write.csv(as.data.frame(reactome_ora), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Reactome_ORA_", cell_type, ".csv"), 
+              row.names = FALSE)
+  }
   
-  cat("Completed analysis for", cell_type, "\n")
+  if (!is.null(reactome_gsea) && nrow(as.data.frame(reactome_gsea)) > 0) {
+    write.csv(as.data.frame(reactome_gsea), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Reactome_GSEA_", cell_type, ".csv"), 
+              row.names = FALSE)
+  }
+  
+  if (!is.null(go_ora) && nrow(as.data.frame(go_ora)) > 0) {
+    write.csv(as.data.frame(go_ora), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/GO_BP_ORA_", cell_type, ".csv"), 
+              row.names = FALSE)
+  }
+  
+  if (!is.null(go_gsea) && nrow(as.data.frame(go_gsea)) > 0) {
+    write.csv(as.data.frame(go_gsea), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/GO_BP_GSEA_", cell_type, ".csv"), 
+              row.names = FALSE)
+  }
+  
+  if (!is.null(hallmark_ora) && nrow(as.data.frame(hallmark_ora)) > 0) {
+    write.csv(as.data.frame(hallmark_ora), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Hallmark_ORA_", cell_type, ".csv"), 
+              row.names = FALSE)
+  }
+  
+  if (!is.null(hallmark_gsea) && nrow(as.data.frame(hallmark_gsea)) > 0) {
+    write.csv(as.data.frame(hallmark_gsea), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Hallmark_GSEA_", cell_type, ".csv"), 
+              row.names = FALSE)
+  }
+  
+  cat("Completed analysis and saved results for", cell_type, "\n")
 }
 
 
