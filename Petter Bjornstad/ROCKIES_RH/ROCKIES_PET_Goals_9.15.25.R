@@ -1765,48 +1765,51 @@ so_subset$group <- factor(so_subset$group)
 so_subset$group  <- relevel(so_subset$group ,ref="Lean_Control")
 
 
-
-# Install packages if needed
-if (!requireNamespace("BiocManager", quietly = TRUE))
-  install.packages("BiocManager")
-
-BiocManager::install(c("GO.db", "org.Hs.eg.db", "AnnotationDbi"))
-
-# Load libraries
-library(GO.db)
-library(org.Hs.eg.db)
-library(AnnotationDbi)
-
-# Define your GO terms
-insulin_go_terms <- c(
+# Your original terms plus the new recommendations
+insulin_sensitivity_go_terms <- c(
+  # Original insulin-specific terms
   "GO:0032868",  # response to insulin
   "GO:0008286",  # insulin receptor signaling pathway
   "GO:0046627",  # negative regulation of insulin receptor signaling pathway
   "GO:0046628",  # positive regulation of insulin receptor signaling pathway
-  "GO:0005159"   # insulin-like growth factor receptor binding
+  "GO:0005159",  # insulin-like growth factor receptor binding
+  
+  # High priority additions from your data
+  "GO:0055064",  # chloride ion homeostasis
+  "GO:0055075",  # potassium ion homeostasis
+  "GO:0055078",  # sodium ion homeostasis
+  "GO:0055081",  # monoatomic anion homeostasis
+  "GO:0010562",  # positive regulation of phosphorus metabolic process
+  "GO:0045937",  # positive regulation of phosphate metabolic process
+  "GO:0042176",  # regulation of protein catabolic process
+  
+  # Kidney-specific additions
+  "GO:0003096",  # renal sodium ion transport
+  "GO:0070294"   # renal sodium ion absorption
 )
 
-# Function to get gene symbols for each GO term
-get_go_gene_symbols <- function(go_id) {
-  # Get gene information including symbols
-  genes <- AnnotationDbi::select(org.Hs.eg.db, 
-                                 keys = go_id, 
-                                 columns = c("SYMBOL", "ENTREZID", "ENSEMBL"), 
-                                 keytype = "GOALL")
+# Use the same code from before to get gene symbols
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+
+insulin_sensitivity_genes <- list()
+
+for(go_term in insulin_sensitivity_go_terms) {
+  genes <- AnnotationDbi::select(
+    org.Hs.eg.db,
+    keys = go_term,
+    columns = c("SYMBOL", "ENTREZID", "ENSEMBL"),
+    keytype = "GOALL"
+  )
   
-  # Remove rows with missing gene symbols
   genes_clean <- genes[!is.na(genes$SYMBOL) & genes$SYMBOL != "", ]
+  insulin_sensitivity_genes[[go_term]] <- unique(genes_clean$SYMBOL)
   
-  return(genes_clean)
+  cat("GO term:", go_term, "- Genes:", length(insulin_sensitivity_genes[[go_term]]), "\n")
 }
 
-# Get genes for all terms
-insulin_genes <- lapply(insulin_go_terms, get_go_gene_symbols)
-names(insulin_genes) <- insulin_go_terms
-
-# Extract just the gene symbols for each GO term
-insulin_gene_symbols <- lapply(insulin_genes, function(x) unique(x$SYMBOL))
-
+# Get all unique genes
+all_insulin_sensitivity_genes <- unique(unlist(insulin_sensitivity_genes))
 
 
 
@@ -1820,6 +1823,41 @@ so_subset <- AddModuleScore(object = so_subset,
 so_subset <- AddModuleScore(object = so_subset, 
                             features = list(ox_phos_genes),
                             name = 'OxPhos_score')
+
+go_term_names <- c(
+  'GO0032868' = 'Response_to_Insulin',
+  'GO0008286' = 'Insulin_Receptor_Signaling', 
+  'GO0046627' = 'Neg_Reg_Insulin_Signaling',
+  'GO0046628' = 'Pos_Reg_Insulin_Signaling',
+  'GO0005159' = 'IGF_Receptor_Binding',
+  'GO0055064' = 'Chloride_Homeostasis',
+  'GO0055075' = 'Potassium_Homeostasis',
+  'GO0055078' = 'Sodium_Homeostasis',
+  'GO0055081' = 'Anion_Homeostasis',
+  'GO0010562' = 'Pos_Reg_Phosphorus_Metabolism',
+  'GO0045937' = 'Pos_Reg_Phosphate_Metabolism', 
+  'GO0042176' = 'Protein_Catabolic_Regulation',
+  'GO0003096' = 'Renal_Sodium_Transport',
+  'GO0070294' = 'Renal_Sodium_Absorption'
+)
+
+# Loop through and add each module score
+for(i in 1:length(insulin_sensitivity_genes)) {
+  go_id <- names(insulin_sensitivity_genes)[i]
+  score_name <- go_term_names[go_id]
+  
+  so_subset <- AddModuleScore(
+    object = so_subset,
+    features = list(insulin_sensitivity_genes[[i]]),
+    name = score_name
+  )
+  
+  cat("Added module score for", score_name, "with", length(insulin_sensitivity_genes[[i]]), "genes\n")
+}
+
+
+
+
 
 meta.data <- so_subset@meta.data
 
