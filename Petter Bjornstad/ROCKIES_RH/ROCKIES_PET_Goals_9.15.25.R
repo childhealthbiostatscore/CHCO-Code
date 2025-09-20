@@ -1692,11 +1692,136 @@ for(i in c(1:length(results_files))){
 
 #Step 5: Gene scores, pathways scores associated with PET variables
 
+### Module Score Analysis
+library(scran)
+library(future)
+library(future.apply)
+library(tidyverse)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(rstatix)
+library(arsenal)
+library(Biobase)
+library(msigdbr)
+library(kableExtra)
+library(knitr)
+library(REDCapR)
+library(data.table)
+library(emmeans)
+library(NMF)
+library(pheatmap)
+library(UpSetR)
+library(enrichR)
+library(WriteXLS)
+library(SAVER)
+library(readxl)
+library(limma)
+library(edgeR)
+library(BiocGenerics)
+library(GSEABase)
+library(slingshot)
+library(SingleCellExperiment)
+library(MAST)
+library(muscat)
+library(scater)
+library(Seurat)
+library(jsonlite)
+library(dplyr)
+library(glmmTMB)
+library(reshape2)
+library(broom.mixed)
+library(nebula)
+library(doParallel)
+
+
+
+load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
+
+so_subset <- so_kpmp_sc
+remove(so_kpmp_sc)
+
+#dat_groups <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_GroupAssignments.txt')
+#dat_groups <- dat_groups %>% filter(group2 %in% c('Lean Control', 'T2D-No SGLTi2'))
+
+#so_subset <- subset(so_subset, record_id == dat_groups$record_id)
+test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
+
+#load('C:/Users/netio/Downloads/TCA_genes.txt')
+#load('C:/Users/netio/Downloads/OxPhos_genes.txt')
+
+
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/'
 
 
 
 
 
+#Make sure exposure/independent/x variable or group variable is a factor variable
+so_subset$group <- factor(so_subset$group)
+#Make sure to set reference level
+so_subset$group  <- relevel(so_subset$group ,ref="Lean_Control")
+
+
+
+# Install packages if needed
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+
+BiocManager::install(c("GO.db", "org.Hs.eg.db", "AnnotationDbi"))
+
+# Load libraries
+library(GO.db)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+
+# Define your GO terms
+insulin_go_terms <- c(
+  "GO:0032868",  # response to insulin
+  "GO:0008286",  # insulin receptor signaling pathway
+  "GO:0046627",  # negative regulation of insulin receptor signaling pathway
+  "GO:0046628",  # positive regulation of insulin receptor signaling pathway
+  "GO:0005159"   # insulin-like growth factor receptor binding
+)
+
+# Function to get gene symbols for each GO term
+get_go_gene_symbols <- function(go_id) {
+  # Get gene information including symbols
+  genes <- AnnotationDbi::select(org.Hs.eg.db, 
+                                 keys = go_id, 
+                                 columns = c("SYMBOL", "ENTREZID", "ENSEMBL"), 
+                                 keytype = "GOALL")
+  
+  # Remove rows with missing gene symbols
+  genes_clean <- genes[!is.na(genes$SYMBOL) & genes$SYMBOL != "", ]
+  
+  return(genes_clean)
+}
+
+# Get genes for all terms
+insulin_genes <- lapply(insulin_go_terms, get_go_gene_symbols)
+names(insulin_genes) <- insulin_go_terms
+
+# Extract just the gene symbols for each GO term
+insulin_gene_symbols <- lapply(insulin_genes, function(x) unique(x$SYMBOL))
+
+
+
+
+
+
+
+so_subset <- AddModuleScore(object = so_subset, 
+                            features = list(tca_genes), 
+                            name = 'TCA_score')
+
+so_subset <- AddModuleScore(object = so_subset, 
+                            features = list(ox_phos_genes),
+                            name = 'OxPhos_score')
+
+meta.data <- so_subset@meta.data
 
 
 
