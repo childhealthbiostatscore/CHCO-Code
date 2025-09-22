@@ -144,11 +144,400 @@ desc_table1_fixed %>%
 
 
 
+
+
+
+
+
+
+
+data_set$scr_q <- 107.3/data_set$eGFR_crea
+data_set$q <- data_set$screatinine / data_set$scr_q
+data_set$aki <- NA
+data_set$aki <- data_set$scr_q > 1.5
+
+
+
+
+
+
+
+
+
+
+
 #table1::table1( ~ sex_corrected + race + age_years + height + weight + bmi + t1d_status + systolic_bp + diastolic_bp + heartrate + severity + a1c_er + mmp9_0_8hr,
 #               data = demographics)
 
+library(tidyverse)
+library(nlme)
+library(emmeans)
+library(ggpubr)
+library(Hmisc)
+library(nephro)
+library(knitr)
+library(readxl)
+library(ggsignif)
+library(arsenal)
+library(readxl)
 
-#Plotting 
+#Analysis & Plotting 
+
+dat <- read.csv("C:/Users/netio/Documents/UofW/Projects/MMP9/Full_DKA_Data Set_06-26_final.csv")
+dat$male <- 1 - dat$female
+dat$age_y <- dat$age/12
+dat$height_m <- dat$ht/100
+dat$black <- 0
+
+dat$ivinsulinstop <- strptime(dat$ivinsulinstop, format = "%m/%d/%Y %H:%M")
+dat$ivinsulin_start <- strptime(dat$ivinsulin_start, format = "%m/%d/%Y %H:%M")
+
+
+dat$ivinsulin_duration <- as.numeric(dat$ivinsulinstop - dat$ivinsulin_start)
+dat$ivinsdurtile <- cut2(dat$ivinsulin_duration, g=3)
+
+dat$severity <- ""
+
+dat$prev_dka <- F
+dat$prev_dka <- ifelse(dat$prev_dka_1 == "Yes" , T, dat$prev_dka)
+dat$prev_dka <- ifelse(dat$prev_dka_mult == "Yes" , T, dat$prev_dka)
+
+dat$severity[((dat$vbg_1 >= 7.3) & (dat$bmp_1 >= 15))] <- "Mild"
+dat$severity[((dat$vbg_1 < 7.3) | (dat$bmp_1 < 15))] <- "Mild"
+dat$severity[((dat$vbg_1 < 7.2) | (dat$bmp_1 < 10))] <- "Moderate"
+dat$severity[((dat$vbg_1 < 7.1) | (dat$bmp_1 < 5))] <- "Severe"
+dat$severity[dat$severity == ""] <- "Unknown"
+
+dat$t1d_status[dat$t1d_status == 1] <- "New"
+dat$t1d_status[dat$t1d_status == 2] <- "Known"
+
+dat$a1c_er <- as.numeric(gsub(">","",dat$a1c_er))
+
+dat_time_vars <- dat %>% select(record_id, 
+                                t1d_status,
+                                prev_dka,
+                                severity, 
+                                ivinsulin_duration,
+                                ivinsdurtile,
+                                male,
+                                age_y,
+                                black,
+                                vbg_1,
+                                bmp_1,
+                                a1c_er,
+                                contains("3mo"),
+                                contains("0_8"),
+                                contains("08"), 
+                                contains("12_24"),
+                                contains("1224"))
+
+
+names(dat_time_vars) <- gsub("autoab_3mo_fu___0","autoab_gada_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("autoab_3mo_fu___1","autoab_gad65_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("autoab_3mo_fu___2","autoab_miaa_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("autoab_3mo_fu___3","autoab_ia2_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("autoab_3mo_fu___4","autoab_znt8_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("autoab_3mo_fu___5","autoab_ica512_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("12_24","1224", names(dat_time_vars))
+names(dat_time_vars) <- gsub("1224hr","1224", names(dat_time_vars))
+names(dat_time_vars) <- gsub("0_8","08", names(dat_time_vars))
+names(dat_time_vars) <- gsub("08hr","08", names(dat_time_vars))
+names(dat_time_vars) <- gsub("08_hr","08", names(dat_time_vars))
+names(dat_time_vars) <- gsub("3mo_fu","3mo", names(dat_time_vars))
+
+
+threemo <- dat_time_vars %>% select(record_id, 
+                                    t1d_status,
+                                    prev_dka,
+                                    severity, 
+                                    ivinsulin_duration,
+                                    ivinsdurtile,
+                                    male,
+                                    age_y,
+                                    black,
+                                    vbg_1,
+                                    bmp_1,
+                                    a1c_er,
+                                    contains("3mo"))
+zero8 <- dat_time_vars %>% select(record_id, 
+                                  t1d_status,
+                                  prev_dka,
+                                  severity, 
+                                  ivinsulin_duration,
+                                  ivinsdurtile,
+                                  male,
+                                  age_y,
+                                  black,
+                                  vbg_1,
+                                  bmp_1,
+                                  a1c_er,
+                                  contains("08"))
+twelve24 <- dat_time_vars %>% select(record_id, 
+                                     t1d_status,
+                                     prev_dka,
+                                     severity, 
+                                     ivinsulin_duration,
+                                     ivinsdurtile,
+                                     male,
+                                     age_y,
+                                     black,
+                                     vbg_1,
+                                     bmp_1,
+                                     a1c_er,
+                                     contains("1224"))
+
+threemo$time <- "3 months"
+zero8$time <- "0-8 hours"
+twelve24$time <- "12-24 hours"
+
+names(threemo) <- gsub("_3mo","", names(threemo))
+names(zero8) <- gsub("_08","", names(zero8))
+names(twelve24) <- gsub("_1224","", names(twelve24))
+
+merge_set <- merge(merge(zero8,twelve24, all = T),threemo, all = T)
+
+# new variable derivations
+
+merge_set$frac_ua <- (merge_set$uua * merge_set$screatinine) / (merge_set$sua * merge_set$ucreatinine)
+
+
+qcr_df <- read.csv("C:/Users/netio/Documents/UofW/Projects/MMP9/qcr.csv")
+
+get_eGFR <- function(age,sex,creatinine,cystatinc){
+  age_year <- floor(age)
+  qcr <- ifelse(sex == 1, qcr_df$m_qcr[qcr_df$age == age_year],qcr_df$f_qcr[qcr_df$age == age_year])
+  f1 <- creatinine/qcr
+  f2 <- 0.5
+  f3 <- cystatinc/0.82
+  fas <- 107.3 / ((0.5*f1) + (f2*f3))
+  fas
+}
+
+get_eGFR_crea <- function(age,sex,creatinine){
+  age_year <- floor(age)
+  qcr <- ifelse(sex == 1, qcr_df$m_qcr[qcr_df$age == age_year],qcr_df$f_qcr[qcr_df$age == age_year])
+  f1 <- creatinine/qcr
+  fas <- 107.3 / f1
+  fas
+}
+
+
+for (i in 1:nrow(merge_set)){
+  merge_set$eGFR[i] <- get_eGFR(merge_set$age_y[i],merge_set$male[i],merge_set$screatinine[i],merge_set$cystatinc[i])
+}
+
+for (i in 1:nrow(merge_set)){
+  merge_set$eGFR_crea[i] <- get_eGFR_crea(merge_set$age_y[i],merge_set$male[i],merge_set$screatinine[i])
+}
+
+dat <- read.csv("C:/Users/netio/Documents/UofW/Projects/MMP9/Full_DKA_Data Set_06-26_final.csv")
+dat$male <- 1 - dat$female
+dat$age_y <- dat$age/12
+dat$height_m <- dat$ht/100
+dat$black <- 0
+
+dat$ivinsulinstop <- strptime(dat$ivinsulinstop, format = "%m/%d/%Y %H:%M")
+dat$ivinsulin_start <- strptime(dat$ivinsulin_start, format = "%m/%d/%Y %H:%M")
+
+
+dat$ivinsulin_duration <- as.numeric(dat$ivinsulinstop - dat$ivinsulin_start)
+dat$ivinsdurtile <- cut2(dat$ivinsulin_duration, g=3)
+
+dat$severity <- ""
+
+dat$prev_dka <- F
+dat$prev_dka <- ifelse(dat$prev_dka_1 == "Yes" , T, dat$prev_dka)
+dat$prev_dka <- ifelse(dat$prev_dka_mult == "Yes" , T, dat$prev_dka)
+
+dat$severity[((dat$vbg_1 >= 7.3) & (dat$bmp_1 >= 15))] <- "Mild"
+dat$severity[((dat$vbg_1 < 7.3) | (dat$bmp_1 < 15))] <- "Mild"
+dat$severity[((dat$vbg_1 < 7.2) | (dat$bmp_1 < 10))] <- "Moderate"
+dat$severity[((dat$vbg_1 < 7.1) | (dat$bmp_1 < 5))] <- "Severe"
+dat$severity[dat$severity == ""] <- "Unknown"
+
+dat$t1d_status[dat$t1d_status == 1] <- "New"
+dat$t1d_status[dat$t1d_status == 2] <- "Known"
+
+dat$a1c_er <- as.numeric(gsub(">","",dat$a1c_er))
+
+dat_time_vars <- dat %>% select(record_id, 
+                                t1d_status,
+                                prev_dka,
+                                severity, 
+                                ivinsulin_duration,
+                                ivinsdurtile,
+                                male,
+                                age_y,
+                                black,
+                                vbg_1,
+                                bmp_1,
+                                a1c_er,
+                                contains("3mo"),
+                                contains("0_8"),
+                                contains("08"), 
+                                contains("12_24"),
+                                contains("1224"))
+
+
+names(dat_time_vars) <- gsub("autoab_3mo_fu___0","autoab_gada_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("autoab_3mo_fu___1","autoab_gad65_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("autoab_3mo_fu___2","autoab_miaa_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("autoab_3mo_fu___3","autoab_ia2_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("autoab_3mo_fu___4","autoab_znt8_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("autoab_3mo_fu___5","autoab_ica512_3mo", names(dat_time_vars))
+names(dat_time_vars) <- gsub("12_24","1224", names(dat_time_vars))
+names(dat_time_vars) <- gsub("1224hr","1224", names(dat_time_vars))
+names(dat_time_vars) <- gsub("0_8","08", names(dat_time_vars))
+names(dat_time_vars) <- gsub("08hr","08", names(dat_time_vars))
+names(dat_time_vars) <- gsub("08_hr","08", names(dat_time_vars))
+names(dat_time_vars) <- gsub("3mo_fu","3mo", names(dat_time_vars))
+
+
+threemo <- dat_time_vars %>% select(record_id, 
+                                    t1d_status,
+                                    prev_dka,
+                                    severity, 
+                                    ivinsulin_duration,
+                                    ivinsdurtile,
+                                    male,
+                                    age_y,
+                                    black,
+                                    vbg_1,
+                                    bmp_1,
+                                    a1c_er,
+                                    contains("3mo"))
+zero8 <- dat_time_vars %>% select(record_id, 
+                                  t1d_status,
+                                  prev_dka,
+                                  severity, 
+                                  ivinsulin_duration,
+                                  ivinsdurtile,
+                                  male,
+                                  age_y,
+                                  black,
+                                  vbg_1,
+                                  bmp_1,
+                                  a1c_er,
+                                  contains("08"))
+twelve24 <- dat_time_vars %>% select(record_id, 
+                                     t1d_status,
+                                     prev_dka,
+                                     severity, 
+                                     ivinsulin_duration,
+                                     ivinsdurtile,
+                                     male,
+                                     age_y,
+                                     black,
+                                     vbg_1,
+                                     bmp_1,
+                                     a1c_er,
+                                     contains("1224"))
+
+threemo$time <- "3 months"
+zero8$time <- "0-8 hours"
+twelve24$time <- "12-24 hours"
+
+names(threemo) <- gsub("_3mo","", names(threemo))
+names(zero8) <- gsub("_08","", names(zero8))
+names(twelve24) <- gsub("_1224","", names(twelve24))
+
+merge_set <- merge(merge(zero8,twelve24, all = T),threemo, all = T)
+
+# new variable derivations
+
+merge_set$frac_ua <- (merge_set$uua * merge_set$screatinine) / (merge_set$sua * merge_set$ucreatinine)
+
+
+qcr_df <- read.csv("C:/Users/netio/Documents/UofW/Projects/MMP9/qcr.csv")
+
+get_eGFR <- function(age,sex,creatinine,cystatinc){
+  age_year <- floor(age)
+  qcr <- ifelse(sex == 1, qcr_df$m_qcr[qcr_df$age == age_year],qcr_df$f_qcr[qcr_df$age == age_year])
+  f1 <- creatinine/qcr
+  f2 <- 0.5
+  f3 <- cystatinc/0.82
+  fas <- 107.3 / ((0.5*f1) + (f2*f3))
+  fas
+}
+
+get_eGFR_crea <- function(age,sex,creatinine){
+  age_year <- floor(age)
+  qcr <- ifelse(sex == 1, qcr_df$m_qcr[qcr_df$age == age_year],qcr_df$f_qcr[qcr_df$age == age_year])
+  f1 <- creatinine/qcr
+  fas <- 107.3 / f1
+  fas
+}
+
+
+for (i in 1:nrow(merge_set)){
+  merge_set$eGFR[i] <- get_eGFR(merge_set$age_y[i],merge_set$male[i],merge_set$screatinine[i],merge_set$cystatinc[i])
+}
+
+for (i in 1:nrow(merge_set)){
+  merge_set$eGFR_crea[i] <- get_eGFR_crea(merge_set$age_y[i],merge_set$male[i],merge_set$screatinine[i])
+}
+
+data_set <- merge_set
+
+data_set$scr_q <- 107.3/data_set$eGFR_crea
+data_set$q <- data_set$screatinine / data_set$scr_q
+data_set$aki <- NA
+data_set$aki <- data_set$scr_q > 1.5
+
+
+data_set$sngal <- data_set$sngal/1000
+data_set$sykl40 <- data_set$sykl40/1000
+
+aki_frame <- NULL
+for (i in unique(data_set$record_id)){
+  id_row <- data_set %>% filter(record_id == i) %>% filter(time == '0-8 hours' | time == '12-24 hours') %>% select(record_id, time, aki)
+  aki <- sum(id_row$aki, na.rm=T) > 0
+  aki_frame <- rbind(aki_frame, c(i,aki))
+}
+aki_frame <- as.data.frame(aki_frame)
+names(aki_frame) <- c("record_id","aki_0_24")
+
+data_set <- merge(data_set,aki_frame)
+data_set$aki_0_24 <- as.logical(data_set$aki_0_24)
+
+data_set$aki_0_24 <- ifelse(data_set$aki_0_24, "Yes","No")
+
+mmp9_dat <- read_excel("C:/Users/netio/Documents/UofW/Projects/MMP9/16-1403 MMP9 results 2020.xlsx", sheet = 1, skip = 1)
+mmp9_dat <- mmp9_dat %>% select(SID, `Time Point`, `Actual Result`)
+names(mmp9_dat) <- c("record_id", "time", "mmp9_actual")
+mmp9_dat$time[mmp9_dat$time == "Follow-up"] <- "3 months"
+
+data_set <- merge(data_set,mmp9_dat, all = T)
+data_set$mmp9_egfr <- (data_set$mmp9_actual*100) / data_set$eGFR
+data_set$fru[data_set$fru > 100] <- NA
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 plot_df <- mmp_conc %>% left_join(final_data %>% dplyr::select(record_id, severity, ivinsulin_start, ivinsulinstop), 
                                   by = 'record_id')
