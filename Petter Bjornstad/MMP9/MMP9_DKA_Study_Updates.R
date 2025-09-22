@@ -511,13 +511,21 @@ data_set <- merge(data_set,mmp9_dat, all = T)
 data_set$mmp9_egfr <- (data_set$mmp9_actual*100) / data_set$eGFR
 data_set$fru[data_set$fru > 100] <- NA
 
+cd93_dat <- read_excel("C:/Users/netio/Documents/UofW/Projects/MMP9/DKA ELISA cd93 stat.xlsx", sheet = 1)
+names(cd93_dat) <- c("record_id", "time", "cd93")
+
+data_set <- merge(data_set,cd93_dat, all = T)
+data_set$cd93_egfr <- (data_set$cd93*100) / data_set$eGFR
+data_set$fru_crea <- data_set$fru*100/data_set$crea
 
 
 
+library(ggplot2)
 
-
-
-
+graph1 <- ggplot(data_set %>% filter(time %in% c('0-8 hours', '3 months')), aes(x=time, y = mmp9_actual, fill = severity))+
+  geom_boxplot()+
+  theme_classic()+
+  labs(x = '', y = 'MMP9')
 
 
 
