@@ -231,6 +231,97 @@ dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
 dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
 
 
+
+
+
+
+# Fix data types before creating the table
+library(gtsummary)
+library(gt)
+library(dplyr)
+
+# Convert variables to proper data types
+combined_df <- dat2 %>%
+  mutate(
+    # Ensure continuous variables are numeric
+    age = as.numeric(age),
+    bmi = as.numeric(bmi),
+    hba1c = as.numeric(hba1c),
+    
+    # Ensure categorical variables are factors or characters
+    sex = as.factor(sex),
+    race_ethnicity = as.factor(race_ethnicity),
+    study = as.factor(study),
+    group = as.factor(group),
+    epic_sglti2_1 = as.factor(epic_sglti2_1)
+  )
+
+
+
+# Now create the table with proper data types
+desc_table1_fixed <- combined_df %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, group, epic_sglti2_1) %>%
+  tbl_summary(
+    by = group,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      hba1c ~ "continuous",
+      sex ~ "categorical",
+      race_ethnicity ~ "categorical",
+      study ~ "categorical",
+      epic_sglti2_1 ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex", 
+      race_ethnicity ~ "Race/Ethnicity",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      study ~ "Study",
+      epic_sglti2_1 ~ "SGLT2 Inhibitor Use"
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test"
+    # Skip categorical p-values if they cause issues
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Group**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save version with epic
+desc_table1_fixed %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/demographics_aim1_with_epic_final.png", 
+         vwidth = 1200, vheight = 800)
+
+
+
+
+
+
+
+
+
+
 table1::table1(~age + sex + bmi +hba1c +  study + epic_sglti2_1 + avg_c_k2 + avg_c_k2_f | group, 
                data = dat2)
 
@@ -434,8 +525,8 @@ remove(list=ls())
 
 gbm <- readxl::read_xlsx("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Pathology_Reports_Morphometrics_Shared/Morphometrics/CHCO Morphometrics update 10-19-23.xlsx")
 gbm <- gbm %>% 
-  dplyr::select(record_id = ID, gbm_thick_arith = `GBM thickness nm (arithmetic mean)`, gbm_thick_harm = `GBM thickness nm (harmonic mean)`)
-
+  dplyr::select(record_id = ID, gbm_thick_arith = `GBM thickness nm (arithmetic mean)`, 
+                gbm_thick_harm = `GBM thickness nm (harmonic mean)`)
 
 #harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
 
@@ -449,6 +540,8 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(record_id, visit))
+
+gbm <- gbm %>% left_join(dat %>% dplyr::select(record_id, mrn), by='record_id')
 
 
 PET_avg <- function(data){
@@ -519,7 +612,8 @@ PET_avg <- function(data){
 
 tmp_results <- PET_avg(dat)
 
-
+dat_results$avg_c_k2 <- NULL
+dat_results$avg_c_f <- NULL
 
 dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
 
@@ -598,6 +692,18 @@ next
 dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
 
 dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
+
+need_gbm <- dat2 %>% filter(is.na(gbm_thick_artmean))
+
+gbm_small <- gbm %>% semi_join(need_gbm, by='mrn')
+  
+
+
+
+
+
+
+
 
 table1::table1(~age + sex + bmi +hba1c +  study + epic_sglti2_1 + acr_u + gbm_thick_artmean + gbm_thick_harmmean | group, 
                data = dat2)
@@ -688,6 +794,9 @@ dev.off()
 
 
 
+
+
+#####################################################################################################################################
 
 #Step 3: Insulin clamp correlations with PET metabolism
 
@@ -1684,7 +1793,7 @@ for(i in c(1:length(results_files))){
 
 
 
-
+###########################################################################################################################
 
 
 
