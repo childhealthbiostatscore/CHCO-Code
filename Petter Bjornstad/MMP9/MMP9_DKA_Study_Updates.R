@@ -64,18 +64,88 @@ final_data$severity[final_data$severity == ""] <- "Unknown"
 
 #demographics
 demographics <- final_data %>% 
-  dplyr::select(sex, race, age, height = ht, weight = wt, #bmi, 
+  dplyr::select(sex, age, hba1c = a1c_er, height = ht, weight = wt, #bmi, 
                 systolic_bp = sbp, diastolic_bp = dbp, heartrate = hr, a1c_er, a1c_3mo,
                 mmp9_0_8hr, mmp9_12_24hr, mmp9_3mo, t1d_status, severity #DKA severity,
                 ) %>%
   mutate(bmi = (weight / (height/100)^2),
          age_years = age/12,
          sex_corrected = ifelse(sex == 1, 'Male',
-                                ifelse(sex == 2, 'Female', NA))) %>% 
+                                ifelse(sex == 2, 'Female', NA)),
+         new_t1d = ifelse(t1d_status == 1, 'Yes', 'No')) %>% 
   filter(!is.na(age_years))
 
-table1::table1( ~ sex_corrected + race + age_years + height + weight + bmi + t1d_status + systolic_bp + diastolic_bp + heartrate + severity + a1c_er + mmp9_0_8hr,
-               data = demographics)
+demographics$hba1c <- demographics$hba1c %>% str_replace(pattern = '>', replacement = '') %>%
+  as.numeric()
+
+
+
+
+desc_table1_fixed <- demographics %>%
+  select(age_years, sex_corrected, height, weight, bmi, hba1c, new_t1d, systolic_bp, diastolic_bp, heartrate, severity) %>%
+  tbl_summary(
+    type = list(
+      age_years ~ "continuous",
+      bmi ~ "continuous", 
+      weight ~ 'continuous',
+      height ~ 'continuous',
+      hba1c ~ "continuous",
+      sex_corrected ~ "categorical",
+      new_t1d ~ 'categorical', 
+      systolic_bp ~ 'continuous', 
+      diastolic_bp ~ 'continuous',
+      heartrate ~ 'continuous', 
+      severity ~ 'categorical'
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age_years ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age_years ~ "Age (years)",
+      sex_corrected ~ "Sex", 
+      height ~ "Height (cm)",
+      weight ~ "Weight (kg)",
+      bmi ~ "BMI (kg/m²)",
+      new_t1d ~ 'New Type 1 Diabetes Diagnosis',
+      systolic_bp ~ 'Systolic Blood Pressure (mmHg)',
+      diastolic_bp ~ 'Diastolic Blood Pressure (mmHg)',
+      heartrate ~ 'Heart Rate (bpm)',
+      severity ~ 'DKA Severity',
+      hba1c ~ "HbA1c (%)"
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save the table
+desc_table1_fixed %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave("C:/Users/netio/Documents/UofW/Projects/MMP9/MMP9_demographics.png", 
+         vwidth = 1200, vheight = 800)
+
+
+
+
+
+
+
+
+#table1::table1( ~ sex_corrected + race + age_years + height + weight + bmi + t1d_status + systolic_bp + diastolic_bp + heartrate + severity + a1c_er + mmp9_0_8hr,
+#               data = demographics)
 
 
 #Plotting 
