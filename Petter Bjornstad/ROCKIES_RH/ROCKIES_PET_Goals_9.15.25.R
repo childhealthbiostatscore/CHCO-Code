@@ -231,8 +231,99 @@ dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
 dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
 
 
-table1::table1(~age + sex + bmi +hba1c +  study + epic_sglti2_1 + avg_c_k2 + avg_c_k2_f | group, 
-               data = dat2)
+
+
+
+
+# Fix data types before creating the table
+library(gtsummary)
+library(gt)
+library(dplyr)
+
+# Convert variables to proper data types
+combined_df <- dat2 %>%
+  mutate(
+    # Ensure continuous variables are numeric
+    age = as.numeric(age),
+    bmi = as.numeric(bmi),
+    hba1c = as.numeric(hba1c),
+    
+    # Ensure categorical variables are factors or characters
+    sex = as.factor(sex),
+    race_ethnicity = as.factor(race_ethnicity),
+    study = as.factor(study),
+    group = as.factor(group),
+    epic_sglti2_1 = as.factor(epic_sglti2_1)
+  )
+
+
+
+# Now create the table with proper data types
+desc_table1_fixed <- combined_df %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, group, epic_sglti2_1) %>%
+  tbl_summary(
+    by = group,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      hba1c ~ "continuous",
+      sex ~ "categorical",
+      race_ethnicity ~ "categorical",
+      study ~ "categorical",
+      epic_sglti2_1 ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex", 
+      race_ethnicity ~ "Race/Ethnicity",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      study ~ "Study",
+      epic_sglti2_1 ~ "SGLT2 Inhibitor Use"
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test"
+    # Skip categorical p-values if they cause issues
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Group**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save version with epic
+desc_table1_fixed %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/demographics_aim1_with_epic_final.png", 
+         vwidth = 1200, vheight = 800)
+
+
+
+
+
+
+
+
+
+
+#table1::table1(~age + sex + bmi +hba1c +  study + epic_sglti2_1 + avg_c_k2 + avg_c_k2_f | group, 
+#               data = dat2)
 
 
 
@@ -424,7 +515,7 @@ dev.off()
 
 
 
-
+#############################################################################################################################
 
 
 #Step 2: uACR associations with PET metabolism (GBM thickness, atherosclerosis)
@@ -432,13 +523,14 @@ dev.off()
 remove(list=ls())
 
 
+gbm <- readxl::read_xlsx("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Pathology_Reports_Morphometrics_Shared/Morphometrics/CHCO Morphometrics update 10-19-23.xlsx")
+gbm <- gbm %>% 
+  dplyr::select(record_id = ID, gbm_thick_arith = `GBM thickness nm (arithmetic mean)`, 
+                gbm_thick_harm = `GBM thickness nm (harmonic mean)`)
 
+#harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
 
-
-
-harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
-
-#harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 
 #date_of_screen
 #screen_date
@@ -448,6 +540,8 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(record_id, visit))
+
+gbm <- gbm %>% left_join(dat %>% dplyr::select(record_id, mrn), by='record_id')
 
 
 PET_avg <- function(data){
@@ -518,7 +612,8 @@ PET_avg <- function(data){
 
 tmp_results <- PET_avg(dat)
 
-
+dat_results$avg_c_k2 <- NULL
+dat_results$avg_c_f <- NULL
 
 dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
 
@@ -598,8 +693,103 @@ dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
 
 dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
 
-table1::table1(~age + sex + bmi +hba1c +  study + epic_sglti2_1 + acr_u + gbm_thick_artmean + gbm_thick_harmmean | group, 
-               data = dat2)
+need_gbm <- dat2 %>% filter(is.na(gbm_thick_artmean))
+
+gbm_small <- gbm %>% semi_join(need_gbm, by='mrn')
+  
+
+
+
+
+
+# Fix data types before creating the table
+library(gtsummary)
+library(gt)
+library(dplyr)
+
+# Convert variables to proper data types
+combined_df <- dat2 %>%
+  mutate(
+    # Ensure continuous variables are numeric
+    age = as.numeric(age),
+    bmi = as.numeric(bmi),
+    hba1c = as.numeric(hba1c),
+    
+    # Ensure categorical variables are factors or characters
+    sex = as.factor(sex),
+    race_ethnicity = as.factor(race_ethnicity),
+    study = as.factor(study),
+    group = as.factor(group),
+    epic_sglti2_1 = as.factor(epic_sglti2_1)
+  )
+
+
+
+# Now create the table with proper data types
+desc_table1_fixed <- combined_df %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, group, epic_sglti2_1) %>%
+  tbl_summary(
+    by = group,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      hba1c ~ "continuous",
+      sex ~ "categorical",
+      race_ethnicity ~ "categorical",
+      study ~ "categorical",
+      epic_sglti2_1 ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex", 
+      race_ethnicity ~ "Race/Ethnicity",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      study ~ "Study",
+      epic_sglti2_1 ~ "SGLT2 Inhibitor Use"
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test"
+    # Skip categorical p-values if they cause issues
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Group**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save version with epic
+desc_table1_fixed %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/demographics_aim2_with_epic_final.png", 
+         vwidth = 1200, vheight = 800)
+
+
+
+
+
+
+
+
+
+#table1::table1(~age + sex + bmi +hba1c +  study + epic_sglti2_1 + acr_u + gbm_thick_artmean + gbm_thick_harmmean | group, 
+#               data = dat2)
 
 
 aim2_df <- dat2%>% 
@@ -687,6 +877,9 @@ dev.off()
 
 
 
+
+
+#####################################################################################################################################
 
 #Step 3: Insulin clamp correlations with PET metabolism
 
@@ -890,7 +1083,7 @@ dev.off()
 
 
 
-
+##################################################################################################################################
 
 
 
@@ -1191,6 +1384,110 @@ nrow(so) #31,242 genes
 
 so <- subset(so, 
              subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 10)
+
+tmp_meta <- so@meta.data
+
+
+
+
+
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+dat2 <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit)) %>% semi_join(tmp_meta, by='record_id') %>% filter(visit == 'baseline')
+
+
+
+
+# Fix data types before creating the table
+library(gtsummary)
+library(gt)
+library(dplyr)
+
+# Convert variables to proper data types
+combined_df <- dat2 %>%
+  mutate(
+    # Ensure continuous variables are numeric
+    age = as.numeric(age),
+    bmi = as.numeric(bmi),
+    hba1c = as.numeric(hba1c),
+    
+    # Ensure categorical variables are factors or characters
+    sex = as.factor(sex),
+    race_ethnicity = as.factor(race_ethnicity),
+    study = as.factor(study),
+    group = as.factor(group),
+    epic_sglti2_1 = as.factor(epic_sglti2_1)
+  )
+
+
+
+# Now create the table with proper data types
+desc_table1_fixed <- combined_df %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, group, epic_sglti2_1) %>%
+  tbl_summary(
+    by = group,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      hba1c ~ "continuous",
+      sex ~ "categorical",
+      race_ethnicity ~ "categorical",
+      study ~ "categorical",
+      epic_sglti2_1 ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex", 
+      race_ethnicity ~ "Race/Ethnicity",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      study ~ "Study",
+      epic_sglti2_1 ~ "SGLT2 Inhibitor Use"
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test"
+    # Skip categorical p-values if they cause issues
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Group**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save version with epic
+desc_table1_fixed %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/demographics_aim4_with_epic_final.png", 
+         vwidth = 1200, vheight = 800)
+
+
+
+
+
+
+
+
 
 
 counts_layer <- round(GetAssayData(so, layer = 'counts'))
@@ -1683,7 +1980,7 @@ for(i in c(1:length(results_files))){
 
 
 
-
+###########################################################################################################################
 
 
 
@@ -1844,7 +2141,7 @@ go_term_names <- c(
 # Loop through and add each module score
 for(i in 1:length(insulin_sensitivity_genes)) {
   go_id <- names(insulin_sensitivity_genes)[i]
-  score_name <- go_term_names[go_id]
+  score_name <- go_term_names[str_replace(go_id, pattern = ':', replacement = '')]
   
   so_subset <- AddModuleScore(
     object = so_subset,
@@ -1861,11 +2158,844 @@ for(i in 1:length(insulin_sensitivity_genes)) {
 
 meta.data <- so_subset@meta.data
 
+meta.data <- meta.data %>% 
+  dplyr::select(record_id, mrn, group, celltype2, KPMP_celltype, epic_sglti2_1, TCA_score1, OxPhos_score1, Response_to_Insulin1, Insulin_Receptor_Signaling1, Neg_Reg_Insulin_Signaling1, 
+                Pos_Reg_Insulin_Signaling1, IGF_Receptor_Binding1, Chloride_Homeostasis1, Potassium_Homeostasis1, Sodium_Homeostasis1, Anion_Homeostasis1, 
+                Pos_Reg_Phosphorus_Metabolism1, Pos_Reg_Phosphate_Metabolism1, Protein_Catabolic_Regulation1, Renal_Sodium_Transport1, Renal_Sodium_Absorption1)
+
+write.table(meta.data, 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/GO_pathways_modulescores.txt', 
+            row.names=F, quote=F, sep='\t')
+
+remove(list=ls())
+
+
+
+
+#module score graphing 
+module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/GO_pathways_modulescores.txt')
+module_scores$celltype2 <- NULL
+module_scores$KPMP_celltype <- NULL
+
+
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+
+
+
+
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  
+  avg_m_k2_f <- avg_m_k2/ avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2_vw', 'avg_m_k2_vw', 'avg_c_f_vw', 'avg_m_f_vw', 
+                      'avg_c_k2_f_vw', 'avg_m_k2_f_vw')
+  
+  return(results)
+  
+}
+
+
+tmp_results_vw <- PET_avg(dat)
+
+
+dat_results <- dat
+
+
+
+
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  
+  avg_m_k2_f <- avg_m_k2 / avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                      'avg_c_k2_f', 'avg_m_k2_f')
+  
+  return(results)
+  
+}
+
+
+tmp_results <- PET_avg(dat)
+
+dat_results$avg_c_k2 <- NULL
+dat_results$avg_m_k2 <- NULL
+dat_results$avg_c_f <- NULL
+
+
+dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
+
+
+dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
+
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+
+
+dat_results <- dat_results %>% 
+  dplyr::select(record_id, mrn, group, starts_with('avg_c'), age, sex, bmi, hba1c, study, epic_sglti2_1, race_ethnicity)
+
+
+
+
+module_scores_summary <- module_scores %>%
+  group_by(record_id, mrn) %>%
+  summarize(
+    # Calculate mean, median, and SD for all numeric columns
+    across(c(TCA_score1, OxPhos_score1, Response_to_Insulin1, 
+             Insulin_Receptor_Signaling1, Neg_Reg_Insulin_Signaling1, 
+             Pos_Reg_Insulin_Signaling1, IGF_Receptor_Binding1,
+             Chloride_Homeostasis1, Potassium_Homeostasis1,
+             Sodium_Homeostasis1, Anion_Homeostasis1,
+             Pos_Reg_Phosphorus_Metabolism1, Pos_Reg_Phosphate_Metabolism1,
+             Protein_Catabolic_Regulation1, Renal_Sodium_Transport1,
+             Renal_Sodium_Absorption1), 
+           list(mean = ~mean(.x, na.rm = TRUE),
+                median = ~median(.x, na.rm = TRUE), 
+                sd = ~sd(.x, na.rm = TRUE)), 
+           .names = "{.col}_{.fn}"),
+    .groups = 'drop'
+  )
+
+
+combined_df <- module_scores_summary %>% 
+  left_join(dat_results, by=c('mrn'))
+
+combined_df <- combined_df %>% filter(!is.na(avg_c_k2))
+
+combined_df$mrn <- NULL
+
+
+#label(combined_df$hba1c) <- "HbA1c (%)"
+#label(combined_df$age) <- "Age (Years)"
+#label(combined_df$sex) <- "Sex"
+#label(combined_df$race_ethnicity) <- "Race/Ethnicity"
+#label(combined_df$bmi) <- "BMI (kg/m2)"
+#label(combined_df$epic_sglti2_1) <- 'SGLT2 Inhibitor Use'
+
+#table1::table1(~age + sex + race_ethnicity + bmi +hba1c +  study + epic_sglti2_1| group, 
+#               data = combined_df)
+
+
+# Fix data types before creating the table
+library(gtsummary)
+library(gt)
+library(dplyr)
+
+# Convert variables to proper data types
+combined_df <- combined_df %>%
+  mutate(
+    # Ensure continuous variables are numeric
+    age = as.numeric(age),
+    bmi = as.numeric(bmi),
+    hba1c = as.numeric(hba1c),
+    
+    # Ensure categorical variables are factors or characters
+    sex = as.factor(sex),
+    race_ethnicity = as.factor(race_ethnicity),
+    study = as.factor(study),
+    group = as.factor(group),
+    epic_sglti2_1 = as.factor(epic_sglti2_1)
+  )
+
+
+
+# Now create the table with proper data types
+desc_table1_fixed <- combined_df %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, group, epic_sglti2_1) %>%
+  tbl_summary(
+    by = group,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      hba1c ~ "continuous",
+      sex ~ "categorical",
+      race_ethnicity ~ "categorical",
+      study ~ "categorical",
+      epic_sglti2_1 ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex", 
+      race_ethnicity ~ "Race/Ethnicity",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      study ~ "Study",
+      epic_sglti2_1 ~ "SGLT2 Inhibitor Use"
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test"
+    # Skip categorical p-values if they cause issues
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Group**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save version with epic
+desc_table1_fixed %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/demographics_aim5_with_epic_final.png", 
+         vwidth = 1200, vheight = 800)
+
+
+
+#plotting
+analysis_df <- combined_df %>% 
+  dplyr::select(2:49, 51:63)
+
+# Function to create correlation matrix and plot (CORRECTED VERSION)
+create_correlation_heatmap <- function(data, pet_variables, module_variables, stat_type, subset_name = "all", save_plot = TRUE) {
+  
+  # Select the variables we need
+  selected_vars <- c(module_variables, pet_variables)
+  correlation_data <- data[, selected_vars]
+  
+  # Calculate correlation between module scores (rows) and PET variables (columns)
+  # We need to transpose because we want modules as rows and PET as columns
+  corr_matrix <- cor(correlation_data[, module_variables], 
+                     correlation_data[, pet_variables], 
+                     use = 'pairwise.complete.obs')
+  
+  # Calculate p-values for the rectangular correlation matrix
+  n_modules <- length(module_variables)
+  n_pet <- length(pet_variables)
+  p_mat <- matrix(NA, nrow = n_modules, ncol = n_pet)
+  
+  for (i in 1:n_modules) {
+    for (j in 1:n_pet) {
+      valid_pairs <- complete.cases(correlation_data[, module_variables[i]], 
+                                    correlation_data[, pet_variables[j]])
+      if (sum(valid_pairs) >= 3) {
+        tryCatch({
+          tmp <- cor.test(correlation_data[, module_variables[i]], 
+                          correlation_data[, pet_variables[j]])
+          p_mat[i, j] <- tmp$p.value
+        }, error = function(e) {
+          p_mat[i, j] <<- NA
+        })
+      }
+    }
+  }
+  
+  # Set row and column names
+  rownames(corr_matrix) <- module_variables
+  colnames(corr_matrix) <- pet_variables
+  rownames(p_mat) <- module_variables
+  colnames(p_mat) <- pet_variables
+  
+  # Clean up row names (remove _mean, _median, _sd suffixes)
+  clean_row_names <- gsub("_mean$|_median$|_sd$", "", rownames(corr_matrix))
+  clean_row_names <- gsub("1$", "", clean_row_names)  # Remove trailing "1"
+  clean_row_names <- gsub("_", " ", clean_row_names)  # Replace underscores with spaces
+  
+  # Clean up column names for PET variables with specific labels
+  pet_labels <- c(
+    "avg_c_f" = "Cortical F",
+    "avg_c_k2" = "Cortical K2", 
+    "avg_c_k2_f" = "Cortical K2/F",
+    "avg_c_f_vw" = "Cortical F (voxel)",
+    "avg_c_k2_vw" = "Cortical K2 (voxel)",
+    "avg_c_k2_f_vw" = "Cortical K2/F (voxel)"
+  )
+  
+  clean_col_names <- pet_labels[colnames(corr_matrix)]
+  
+  rownames(corr_matrix) <- clean_row_names
+  colnames(corr_matrix) <- clean_col_names
+  rownames(p_mat) <- clean_row_names
+  colnames(p_mat) <- clean_col_names
+  
+  # Create the plot
+  if (save_plot) {
+    png(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/pet_module_correlation_", stat_type, "_", subset_name, ".png"), 
+        width = 1200, height = 800, res = 150)
+  }
+  
+  # Plot with significance indicators - using safer approach
+  # Check if we have any significant correlations
+  has_significant <- any(p_mat < 0.05, na.rm = TRUE)
+  
+  # Create title with subset information
+  title_text <- paste("PET Scan vs Module Scores Correlation -", toupper(stat_type))
+  if (subset_name == "t2d") {
+    title_text <- paste(title_text, "(Type 2 Diabetes Only)")
+  } else if (subset_name == "all") {
+    title_text <- paste(title_text, "(All Participants)")
+  }
+  
+  if (has_significant) {
+    # Plot with significance indicators
+    corrplot(corr_matrix, 
+             method = "color",
+             type = "full",
+             tl.col = "black",
+             tl.cex = 0.8,
+             tl.srt = 45,
+             cl.cex = 0.8,
+             title = title_text,
+             mar = c(0, 0, 2, 0),
+             p.mat = p_mat,
+             sig.level = 0.05,
+             insig = "pch",  # Use pch instead of label_sig
+             pch = 4,        # Use 'x' for non-significant
+             pch.cex = 0.8,
+             pch.col = "white")
+  } else {
+    # Plot without significance indicators if none are significant
+    corrplot(corr_matrix, 
+             method = "color",
+             type = "full",
+             tl.col = "black",
+             tl.cex = 0.8,
+             tl.srt = 45,
+             cl.cex = 0.8,
+             title = title_text,
+             mar = c(0, 0, 2, 0))
+  }
+  
+  if (save_plot) {
+    dev.off()
+    cat("Saved:", paste0("pet_module_correlation_", stat_type, "_", subset_name, ".png\n"))
+  }
+  
+  # Return the matrices for further analysis if needed
+  return(list(correlation = corr_matrix, p_values = p_mat))
+}
+
+# Check what values are in the group variable
+print("Group variable values:")
+print(table(analysis_df$group, useNA = "ifany"))
+
+# Create datasets for analysis
+all_data <- analysis_df
+t2d_data <- analysis_df[analysis_df$group == "Type 2 Diabetes", ]
+
+print(paste("All participants: N =", nrow(all_data)))
+print(paste("T2D participants: N =", nrow(t2d_data)))
+
+# Define PET scan variables (columns)
+pet_vars <- c("avg_c_f", "avg_c_k2", "avg_c_k2_f", "avg_c_f_vw", "avg_c_k2_vw", "avg_c_k2_f_vw")
+
+# Get module score variables for each type
+module_vars <- list(
+  mean = grep("_mean$", names(analysis_df), value = TRUE),
+  median = grep("_median$", names(analysis_df), value = TRUE),
+  sd = grep("_sd$", names(analysis_df), value = TRUE)
+)
+
+# Remove "group" from module variables if it exists
+module_vars <- lapply(module_vars, function(x) x[!grepl("group", x)])
+
+print("Creating correlation heatmaps...")
+
+# === ALL PARTICIPANTS ===
+print("\n=== CREATING HEATMAPS FOR ALL PARTICIPANTS ===")
+
+# 1. Mean correlations - All participants
+print("Creating MEAN correlation heatmap (All participants)...")
+mean_results_all <- create_correlation_heatmap(all_data, pet_vars, module_vars$mean, "mean", "all")
+
+# 2. Median correlations - All participants
+print("Creating MEDIAN correlation heatmap (All participants)...")
+median_results_all <- create_correlation_heatmap(all_data, pet_vars, module_vars$median, "median", "all")
+
+# 3. Standard deviation correlations - All participants
+print("Creating SD correlation heatmap (All participants)...")
+sd_results_all <- create_correlation_heatmap(all_data, pet_vars, module_vars$sd, "sd", "all")
+
+# === TYPE 2 DIABETES PARTICIPANTS ONLY ===
+print("\n=== CREATING HEATMAPS FOR T2D PARTICIPANTS ONLY ===")
+
+# 1. Mean correlations - T2D only
+print("Creating MEAN correlation heatmap (T2D only)...")
+mean_results_t2d <- create_correlation_heatmap(t2d_data, pet_vars, module_vars$mean, "mean", "t2d")
+
+# 2. Median correlations - T2D only
+print("Creating MEDIAN correlation heatmap (T2D only)...")
+median_results_t2d <- create_correlation_heatmap(t2d_data, pet_vars, module_vars$median, "median", "t2d")
+
+# 3. Standard deviation correlations - T2D only
+print("Creating SD correlation heatmap (T2D only)...")
+sd_results_t2d <- create_correlation_heatmap(t2d_data, pet_vars, module_vars$sd, "sd", "t2d")
+
+print("\n=== ALL HEATMAPS CREATED SUCCESSFULLY! ===")
+
+# Summary of files created
+cat("\nFiles created:\n")
+cat("ALL PARTICIPANTS:\n")
+cat("  - pet_module_correlation_mean_all.png\n")
+cat("  - pet_module_correlation_median_all.png\n")
+cat("  - pet_module_correlation_sd_all.png\n")
+cat("\nTYPE 2 DIABETES ONLY:\n")
+cat("  - pet_module_correlation_mean_t2d.png\n")
+cat("  - pet_module_correlation_median_t2d.png\n")
+cat("  - pet_module_correlation_sd_t2d.png\n")
+
+# Optional: Print comparison summary of significant correlations
+print("\n=== COMPARISON OF SIGNIFICANT CORRELATIONS ===")
+
+# Function to count significant correlations
+count_significant <- function(results) {
+  sum(results$p_values < 0.05, na.rm = TRUE)
+}
+
+# Compare results
+cat("\nNumber of significant correlations (p < 0.05):\n")
+cat("MEAN:\n")
+cat("  All participants:", count_significant(mean_results_all), "\n")
+cat("  T2D only:", count_significant(mean_results_t2d), "\n")
+cat("MEDIAN:\n")
+cat("  All participants:", count_significant(median_results_all), "\n")
+cat("  T2D only:", count_significant(median_results_t2d), "\n")
+cat("SD:\n")
+cat("  All participants:", count_significant(sd_results_all), "\n")
+cat("  T2D only:", count_significant(sd_results_t2d), "\n")
+
+
+
+######################################################################################################################
 
 
 
 
 
+
+
+
+### Only PT Cells 
+
+module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/GO_pathways_modulescores.txt')
+module_scores <- module_scores %>% filter(celltype2 == 'PT')
+module_scores$celltype2 <- NULL
+module_scores$KPMP_celltype <- NULL
+
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+
+
+
+
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  
+  avg_m_k2_f <- avg_m_k2/ avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2_vw', 'avg_m_k2_vw', 'avg_c_f_vw', 'avg_m_f_vw', 
+                      'avg_c_k2_f_vw', 'avg_m_k2_f_vw')
+  
+  return(results)
+  
+}
+
+
+tmp_results_vw <- PET_avg(dat)
+
+
+dat_results <- dat
+
+
+
+
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  
+  avg_m_k2_f <- avg_m_k2 / avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                      'avg_c_k2_f', 'avg_m_k2_f')
+  
+  return(results)
+  
+}
+
+
+tmp_results <- PET_avg(dat)
+
+dat_results$avg_c_k2 <- NULL
+dat_results$avg_m_k2 <- NULL
+dat_results$avg_c_f <- NULL
+
+
+dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
+
+
+dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
+
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+
+
+dat_results <- dat_results %>% 
+  dplyr::select(mrn, group, starts_with('avg_c'), age, sex, bmi, hba1c, study, epic_sglti2_1, race_ethnicity)
+
+
+
+
+module_scores_summary <- module_scores %>%
+  group_by(mrn) %>%
+  summarize(
+    # Calculate mean, median, and SD for all numeric columns
+    across(c(TCA_score1, OxPhos_score1, Response_to_Insulin1, 
+             Insulin_Receptor_Signaling1, Neg_Reg_Insulin_Signaling1, 
+             Pos_Reg_Insulin_Signaling1, IGF_Receptor_Binding1,
+             Chloride_Homeostasis1, Potassium_Homeostasis1,
+             Sodium_Homeostasis1, Anion_Homeostasis1,
+             Pos_Reg_Phosphorus_Metabolism1, Pos_Reg_Phosphate_Metabolism1,
+             Protein_Catabolic_Regulation1, Renal_Sodium_Transport1,
+             Renal_Sodium_Absorption1), 
+           list(mean = ~mean(.x, na.rm = TRUE),
+                median = ~median(.x, na.rm = TRUE), 
+                sd = ~sd(.x, na.rm = TRUE)), 
+           .names = "{.col}_{.fn}"),
+    .groups = 'drop'
+  )
+
+
+combined_df <- module_scores_summary %>% 
+  left_join(dat_results, by=c('mrn'))
+
+combined_df <- combined_df %>% filter(!is.na(avg_c_k2))
+
+
+
+#label(combined_df$hba1c) <- "HbA1c (%)"
+#label(combined_df$age) <- "Age (Years)"
+#label(combined_df$sex) <- "Sex"
+#label(combined_df$race_ethnicity) <- "Race/Ethnicity"
+#label(combined_df$bmi) <- "BMI (kg/m2)"
+#label(combined_df$epic_sglti2_1) <- 'SGLT2 Inhibitor Use'
+
+#table1::table1(~age + sex + race_ethnicity + bmi +hba1c +  study + epic_sglti2_1| group, 
+#               data = combined_df)
+
+
+# Fix data types before creating the table
+library(gtsummary)
+library(gt)
+library(dplyr)
+
+# Convert variables to proper data types
+combined_df <- combined_df %>%
+  mutate(
+    # Ensure continuous variables are numeric
+    age = as.numeric(age),
+    bmi = as.numeric(bmi),
+    hba1c = as.numeric(hba1c),
+    
+    # Ensure categorical variables are factors or characters
+    sex = as.factor(sex),
+    race_ethnicity = as.factor(race_ethnicity),
+    study = as.factor(study),
+    group = as.factor(group),
+    epic_sglti2_1 = as.factor(epic_sglti2_1)
+  )
+
+
+
+#plotting
+analysis_df <- combined_df %>% 
+  dplyr::select(2:62)
+
+# Function to create correlation matrix and plot (CORRECTED VERSION)
+create_correlation_heatmap <- function(data, pet_variables, module_variables, stat_type, subset_name = "all", save_plot = TRUE) {
+  
+  # Select the variables we need
+  selected_vars <- c(module_variables, pet_variables)
+  correlation_data <- data[, selected_vars]
+  
+  # Calculate correlation between module scores (rows) and PET variables (columns)
+  # We need to transpose because we want modules as rows and PET as columns
+  corr_matrix <- cor(correlation_data[, module_variables], 
+                     correlation_data[, pet_variables], 
+                     use = 'pairwise.complete.obs')
+  
+  # Calculate p-values for the rectangular correlation matrix
+  n_modules <- length(module_variables)
+  n_pet <- length(pet_variables)
+  p_mat <- matrix(NA, nrow = n_modules, ncol = n_pet)
+  
+  for (i in 1:n_modules) {
+    for (j in 1:n_pet) {
+      valid_pairs <- complete.cases(correlation_data[, module_variables[i]], 
+                                    correlation_data[, pet_variables[j]])
+      if (sum(valid_pairs) >= 3) {
+        tryCatch({
+          tmp <- cor.test(correlation_data[, module_variables[i]], 
+                          correlation_data[, pet_variables[j]])
+          p_mat[i, j] <- tmp$p.value
+        }, error = function(e) {
+          p_mat[i, j] <<- NA
+        })
+      }
+    }
+  }
+  
+  # Set row and column names
+  rownames(corr_matrix) <- module_variables
+  colnames(corr_matrix) <- pet_variables
+  rownames(p_mat) <- module_variables
+  colnames(p_mat) <- pet_variables
+  
+  # Clean up row names (remove _mean, _median, _sd suffixes)
+  clean_row_names <- gsub("_mean$|_median$|_sd$", "", rownames(corr_matrix))
+  clean_row_names <- gsub("1$", "", clean_row_names)  # Remove trailing "1"
+  clean_row_names <- gsub("_", " ", clean_row_names)  # Replace underscores with spaces
+  
+  # Clean up column names for PET variables with specific labels
+  pet_labels <- c(
+    "avg_c_f" = "Cortical F",
+    "avg_c_k2" = "Cortical K2", 
+    "avg_c_k2_f" = "Cortical K2/F",
+    "avg_c_f_vw" = "Cortical F (voxel)",
+    "avg_c_k2_vw" = "Cortical K2 (voxel)",
+    "avg_c_k2_f_vw" = "Cortical K2/F (voxel)"
+  )
+  
+  clean_col_names <- pet_labels[colnames(corr_matrix)]
+  
+  rownames(corr_matrix) <- clean_row_names
+  colnames(corr_matrix) <- clean_col_names
+  rownames(p_mat) <- clean_row_names
+  colnames(p_mat) <- clean_col_names
+  
+  # Create the plot
+  if (save_plot) {
+    png(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/PT_cell_pet_module_correlation_", stat_type, "_", subset_name, ".png"), 
+        width = 1200, height = 800, res = 150)
+  }
+  
+  # Plot with significance indicators - using safer approach
+  # Check if we have any significant correlations
+  has_significant <- any(p_mat < 0.05, na.rm = TRUE)
+  
+  # Create title with subset information
+  title_text <- paste("PET Scan vs Module Scores Correlation in PT Cells -", toupper(stat_type))
+  if (subset_name == "t2d") {
+    title_text <- paste(title_text, "(Type 2 Diabetes Only)")
+  } else if (subset_name == "all") {
+    title_text <- paste(title_text, "(All Participants)")
+  }
+  
+  if (has_significant) {
+    # Plot with significance indicators
+    corrplot(corr_matrix, 
+             method = "color",
+             type = "full",
+             tl.col = "black",
+             tl.cex = 0.8,
+             tl.srt = 45,
+             cl.cex = 0.8,
+             title = title_text,
+             mar = c(0, 0, 2, 0),
+             p.mat = p_mat,
+             sig.level = 0.05,
+             insig = "pch",  # Use pch instead of label_sig
+             pch = 4,        # Use 'x' for non-significant
+             pch.cex = 0.8,
+             pch.col = "white")
+  } else {
+    # Plot without significance indicators if none are significant
+    corrplot(corr_matrix, 
+             method = "color",
+             type = "full",
+             tl.col = "black",
+             tl.cex = 0.8,
+             tl.srt = 45,
+             cl.cex = 0.8,
+             title = title_text,
+             mar = c(0, 0, 2, 0))
+  }
+  
+  if (save_plot) {
+    dev.off()
+    cat("Saved:", paste0("pet_module_correlation_", stat_type, "_", subset_name, ".png\n"))
+  }
+  
+  # Return the matrices for further analysis if needed
+  return(list(correlation = corr_matrix, p_values = p_mat))
+}
+
+# Check what values are in the group variable
+print("Group variable values:")
+print(table(analysis_df$group, useNA = "ifany"))
+
+# Create datasets for analysis
+all_data <- analysis_df
+t2d_data <- analysis_df[analysis_df$group == "Type 2 Diabetes", ]
+
+print(paste("All participants: N =", nrow(all_data)))
+print(paste("T2D participants: N =", nrow(t2d_data)))
+
+# Define PET scan variables (columns)
+pet_vars <- c("avg_c_f", "avg_c_k2", "avg_c_k2_f", "avg_c_f_vw", "avg_c_k2_vw", "avg_c_k2_f_vw")
+
+# Get module score variables for each type
+module_vars <- list(
+  mean = grep("_mean$", names(analysis_df), value = TRUE),
+  median = grep("_median$", names(analysis_df), value = TRUE),
+  sd = grep("_sd$", names(analysis_df), value = TRUE)
+)
+
+# Remove "group" from module variables if it exists
+module_vars <- lapply(module_vars, function(x) x[!grepl("group", x)])
+
+print("Creating correlation heatmaps...")
+
+# === ALL PARTICIPANTS ===
+print("\n=== CREATING HEATMAPS FOR ALL PARTICIPANTS ===")
+
+# 1. Mean correlations - All participants
+print("Creating MEAN correlation heatmap (All participants)...")
+mean_results_all <- create_correlation_heatmap(all_data, pet_vars, module_vars$mean, "mean", "all")
+
+# 2. Median correlations - All participants
+print("Creating MEDIAN correlation heatmap (All participants)...")
+median_results_all <- create_correlation_heatmap(all_data, pet_vars, module_vars$median, "median", "all")
+
+# 3. Standard deviation correlations - All participants
+print("Creating SD correlation heatmap (All participants)...")
+sd_results_all <- create_correlation_heatmap(all_data, pet_vars, module_vars$sd, "sd", "all")
+
+# === TYPE 2 DIABETES PARTICIPANTS ONLY ===
+print("\n=== CREATING HEATMAPS FOR T2D PARTICIPANTS ONLY ===")
+
+# 1. Mean correlations - T2D only
+print("Creating MEAN correlation heatmap (T2D only)...")
+mean_results_t2d <- create_correlation_heatmap(t2d_data, pet_vars, module_vars$mean, "mean", "t2d")
+
+# 2. Median correlations - T2D only
+print("Creating MEDIAN correlation heatmap (T2D only)...")
+median_results_t2d <- create_correlation_heatmap(t2d_data, pet_vars, module_vars$median, "median", "t2d")
+
+# 3. Standard deviation correlations - T2D only
+print("Creating SD correlation heatmap (T2D only)...")
+sd_results_t2d <- create_correlation_heatmap(t2d_data, pet_vars, module_vars$sd, "sd", "t2d")
+
+print("\n=== ALL HEATMAPS CREATED SUCCESSFULLY! ===")
+
+# Summary of files created
+cat("\nFiles created:\n")
+cat("ALL PARTICIPANTS:\n")
+cat("  - pet_module_correlation_mean_all.png\n")
+cat("  - pet_module_correlation_median_all.png\n")
+cat("  - pet_module_correlation_sd_all.png\n")
+cat("\nTYPE 2 DIABETES ONLY:\n")
+cat("  - pet_module_correlation_mean_t2d.png\n")
+cat("  - pet_module_correlation_median_t2d.png\n")
+cat("  - pet_module_correlation_sd_t2d.png\n")
+
+# Optional: Print comparison summary of significant correlations
+print("\n=== COMPARISON OF SIGNIFICANT CORRELATIONS ===")
+
+# Function to count significant correlations
+count_significant <- function(results) {
+  sum(results$p_values < 0.05, na.rm = TRUE)
+}
+
+# Compare results
+cat("\nNumber of significant correlations (p < 0.05):\n")
+cat("MEAN:\n")
+cat("  All participants:", count_significant(mean_results_all), "\n")
+cat("  T2D only:", count_significant(mean_results_t2d), "\n")
+cat("MEDIAN:\n")
+cat("  All participants:", count_significant(median_results_all), "\n")
+cat("  T2D only:", count_significant(median_results_t2d), "\n")
+cat("SD:\n")
+cat("  All participants:", count_significant(sd_results_all), "\n")
+cat("  T2D only:", count_significant(sd_results_t2d), "\n")
 
 
 
