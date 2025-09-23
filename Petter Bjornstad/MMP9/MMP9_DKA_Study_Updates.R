@@ -520,18 +520,347 @@ data_set$fru_crea <- data_set$fru*100/data_set$crea
 
 
 
-library(ggplot2)
 
 graph1 <- ggplot(data_set %>% filter(time %in% c('0-8 hours', '3 months')), aes(x=time, y = mmp9_actual, fill = severity))+
   geom_boxplot()+
   theme_classic()+
-  labs(x = '', y = 'MMP9')
+  scale_fill_manual(values = c("#fff9ec", "#fcb1a6", "#fb6376"))+
+  labs(x = '', y = 'MMP9', fill = 'Severity')+
+  theme(text = element_text(size = 16))
+
+  
+graph2 <- ggplot(data_set %>% filter(time %in% c('0-8 hours', '3 months')), aes(x=time, y = mmp9_actual, fill = ivinsdurtile))+
+  geom_boxplot()+
+  theme_classic()+
+  scale_fill_manual(values = c("#fff9ec", "#fcb1a6", "#fb6376"))+
+  labs(x = '', y = 'MMP9', fill = 'Days IV Insulin')+
+  theme(text = element_text(size = 16))
+
+graph3 <- ggplot(data_set %>% filter(time %in% c('0-8 hours', '3 months')), aes(x=time, y = mmp9_actual, fill = aki_0_24))+
+  geom_boxplot()+
+  theme_classic()+
+  scale_fill_manual(values = c('#4CAF50', '#F44336'))+
+  labs(x = '', y = 'MMP9', fill = 'AKI')+
+  theme(text = element_text(size = 16))
+
+graph4 <- ggplot(data_set %>% filter(time %in% c('0-8 hours', '3 months')), aes(x=time, y = mmp9_actual, fill = t1d_status))+
+  geom_boxplot()+
+  theme_classic()+
+  scale_fill_manual(values = c('#4CAF50', '#F44336'))+
+  labs(x = '', y = 'MMP9', fill = 'T1D Status')+
+  theme(text = element_text(size = 16))
+
+
+
+combined_boxplots <- (graph1 | graph2) / 
+  (graph3 | graph4)
+
+# Add overall title
+combined_boxplots <- combined_boxplots + 
+  plot_annotation(title = "",
+                  tag_levels = 'A', 
+                  theme = theme(plot.title = element_text(size = 14, hjust = 0.5)))
+
+# Display the combined plot
+print(combined_boxplots)
+
+# Save the combined plot
+ggsave("C:/Users/netio/Documents/UofW/Projects/MMP9/MMP9_boxplots_by_groups.png", combined_boxplots,
+       width = 12, height = 10, dpi = 300, units = "in")
+
+
+
+
+##################################################################################### Analysis
+
+# Mixed-Effects Regression Analysis for MMP9 Claims
+library(dplyr)
+library(lme4)      # For mixed-effects models
+library(lmerTest)  # For p-values in mixed models
+library(broom.mixed) # For tidy output of mixed models
+library(emmeans)   # For estimated marginal means
+
+# ============================================================================
+# DATA PREPARATION
+# ============================================================================
+
+# Create analysis dataset
+analysis_data <- data_set %>%
+  filter(time %in% c('0-8 hours', '3 months')) %>%
+  filter(!is.na(mmp9_actual) & !is.na(record_id)) %>%
+  mutate(
+    time_binary = ifelse(time == '0-8 hours', 0, 1),  # 0 = DKA, 1 = 3 months
+    time_factor = factor(time, levels = c('0-8 hours', '3 months'))
+  )
+
+# Check data structure
+cat("Data structure:\n")
+cat("Total observations:", nrow(analysis_data), "\n")
+cat("Unique participants:", length(unique(analysis_data$record_id)), "\n")
+cat("Observations per time point:\n")
+print(table(analysis_data$time))
+
+# Check how many participants have data at both time points
+participant_timepoints <- analysis_data %>%
+  group_by(record_id) %>%
+  summarise(
+    n_timepoints = n(),
+    has_dka = any(time == '0-8 hours'),
+    has_followup = any(time == '3 months'),
+    .groups = 'drop'
+  )
+
+cat("\nParticipant time point coverage:\n")
+cat("Participants with both time points:", sum(participant_timepoints$has_dka & participant_timepoints$has_followup), "\n")
+cat("Participants with DKA only:", sum(participant_timepoints$has_dka & !participant_timepoints$has_followup), "\n")
+cat("Participants with follow-up only:", sum(!participant_timepoints$has_dka & participant_timepoints$has_followup), "\n")
+
+# ============================================================================
+# CLAIM 1: MMP9 concentrations higher during DKA than 3 months follow-up
+# Expected: mean±SE: 1504.6±137 vs. 668.7±159 ng/mL, p=0.0003
+# ============================================================================
+
+# Mixed-effects model for time comparison
+model1 <- lmer(mmp9_egfr ~ time_factor + (1|record_id), data = analysis_data)
+
+# Model summary
+print("Mixed-effects model summary:")
+print(summary(model1))
+
+# Get estimated marginal means (least squares means)
+emm1 <- emmeans(model1, ~ time_factor)
+print("\nEstimated marginal means:")
+print(emm1)
+
+# Pairwise comparisons
+pairs1 <- pairs(emm1)
+print("\nPairwise comparison:")
+print(pairs1)
+
+# Extract coefficients with confidence intervals
+coef1 <- tidy(model1, effects = "fixed", conf.int = TRUE)
+print("\nFixed effects coefficients:")
+print(coef1)
+
+cat("\nExpected from paper: 0-8 hours: 1504.6±137, 3 months: 668.7±159, p=0.0003\n\n")
+
+# ============================================================================
+# CLAIM 2: At 0-8 hours, participants with AKI had higher MMP9
+# Expected: 2256.9±310.1 vs. 1344.7±143.5 ng/mL, p=0.01
+# ============================================================================
+
+cat(rep("=", 70) + "\n")
+cat("CLAIM 2: MMP9 by AKI Status at 0-8 hours\n")
+cat(rep("=", 70) + "\n")
+
+# Filter for DKA time point only and check AKI variable
+dka_data <- analysis_data %>% 
+  filter(time == '0-8 hours', !is.na(aki_0_24))
+
+cat("AKI variable levels at 0-8 hours:", unique(dka_data$aki_0_24), "\n")
+cat("Sample sizes by AKI status:", table(dka_data$aki_0_24), "\n")
+
+if(length(unique(dka_data$aki_0_24)) >= 2) {
+  # Mixed-effects model for AKI comparison (though with single time point, random effect may not be needed)
+  # But keeping it for consistency and in case some participants have multiple DKA measurements
+  model2 <- aov(mmp9_egfr ~ aki_0_24, data = dka_data)
+  
+  print("Mixed-effects model summary for AKI:")
+  print(summary(model2))
+  
+  # Estimated marginal means
+  emm2 <- emmeans(model2, ~ aki_0_24)
+  print("\nEstimated marginal means by AKI status:")
+  print(emm2)
+  
+  # Pairwise comparisons
+  pairs2 <- pairs(emm2)
+  print("\nPairwise comparison:")
+  print(pairs2)
+  
+  # Coefficients
+  coef2 <- tidy(model2, effects = "fixed", conf.int = TRUE)
+  print("\nFixed effects coefficients:")
+  print(coef2)
+  
+} else {
+  cat("Insufficient AKI groups for comparison\n")
+}
+
+#3 months
+dka_data <- analysis_data %>% 
+  filter(time == '3 months', !is.na(aki_0_24))
+
+cat("AKI variable levels at 0-8 hours:", unique(dka_data$aki_0_24), "\n")
+cat("Sample sizes by AKI status:", table(dka_data$aki_0_24), "\n")
+
+
+# Mixed-effects model for AKI comparison (though with single time point, random effect may not be needed)
+# But keeping it for consistency and in case some participants have multiple DKA measurements
+model2 <- aov(mmp9_egfr ~ aki_0_24, data = dka_data)
+
+print("Mixed-effects model summary for AKI:")
+print(summary(model2))
+
+# Estimated marginal means
+emm2 <- emmeans(model2, ~ aki_0_24)
+print("\nEstimated marginal means by AKI status:")
+print(emm2)
+
+# Pairwise comparisons
+pairs2 <- pairs(emm2)
+print("\nPairwise comparison:")
+print(pairs2)
+
+# Coefficients
+coef2 <- tidy(model2, effects = "fixed", conf.int = TRUE)
+print("\nFixed effects coefficients:")
+print(coef2)
 
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+
+
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# Method 1: Keep grouping variables in the analysis
+mmp9_change <- data_set %>%
+  # Keep only the timepoints we need
+  filter(time %in% c("0-8 hours", "3 months")) %>%
+  # Select relevant columns INCLUDING grouping variables
+  select(record_id, time, mmp9_actual, ivinsdurtile, aki_0_24, severity, t1d_status) %>%
+  # Remove rows with missing MMP9 data
+  filter(!is.na(mmp9_actual)) %>%
+  # Group by participant and grouping variables to preserve them
+  group_by(record_id, ivinsdurtile, aki_0_24, severity, t1d_status) %>%
+  # Check that we have both timepoints for this participant
+  filter(n() == 2) %>%
+  # Calculate the change within each group
+  summarise(
+    mmp9_baseline = mmp9_actual[time == "0-8 hours"],
+    mmp9_3months = mmp9_actual[time == "3 months"],
+    mmp9_change = mmp9_3months - mmp9_baseline,
+    .groups = 'drop'
+  )
+
+# View the results
+print("MMP9 change with grouping variables:")
+print(head(mmp9_change))
+
+# Overall density plot
+overall_density <- ggplot(mmp9_change, aes(x = mmp9_change)) + 
+  geom_density() + 
+  theme_classic() +
+  labs(title = "Overall Distribution of MMP9 Changes",
+       x = "MMP9 Change (3 months - baseline)",
+       y = "Density")
+
+print(overall_density)
+
+# Density plot by IV insulin duration
+iv_density <- ggplot(mmp9_change, aes(x = mmp9_change, fill = ivinsdurtile)) + 
+  geom_density(alpha = 0.6) + 
+  theme_classic() +
+  labs(title = "MMP9 Changes by IV Insulin Duration",
+       x = "MMP9 Change (3 months - baseline)",
+       y = "Density",
+       fill = "IV Insulin Duration") +
+  theme(legend.position = "bottom")
+
+print(iv_density)
+
+# Density plot by AKI status
+aki_density <- ggplot(mmp9_change, aes(x = mmp9_change, fill = aki_0_24)) + 
+  geom_density(alpha = 0.6) + 
+  theme_classic() +
+  labs(title = "MMP9 Changes by AKI Status",
+       x = "MMP9 Change (3 months - baseline)",
+       y = "Density",
+       fill = "AKI Status") +
+  theme(legend.position = "bottom")
+
+print(aki_density)
+
+# Density plot by T1D status
+t1d_density <- ggplot(mmp9_change, aes(x = mmp9_change, fill = t1d_status)) + 
+  geom_density(alpha = 0.6) + 
+  theme_classic() +
+  labs(title = "MMP9 Changes by T1D Status",
+       x = "MMP9 Change (3 months - baseline)",
+       y = "Density",
+       fill = "T1D Status") +
+  theme(legend.position = "bottom")
+
+print(t1d_density)
+
+# Density plot by severity
+severity_density <- ggplot(mmp9_change, aes(x = mmp9_change, fill = severity)) + 
+  geom_density(alpha = 0.6) + 
+  theme_classic() +
+  labs(title = "MMP9 Changes by Severity",
+       x = "MMP9 Change (3 months - baseline)",
+       y = "Density",
+       fill = "Severity") +
+  theme(legend.position = "bottom")
+
+print(severity_density)
+
+
+combined_density_plots <- (iv_density | aki_density) / 
+  (severity_density | t1d_density)
+
+# Add overall title
+combined_density_plots <- combined_density_plots + 
+  plot_annotation(title = "MMP9 Changes (3 months - baseline) by Clinical Variables",
+                  theme = theme(plot.title = element_text(size = 14, hjust = 0.5)))
+
+# Display the combined plot
+print(combined_density_plots)
+
+# Save the combined plot
+ggsave("C:/Users/netio/Documents/UofW/Projects/MMP9/MMP9_density_plots_by_groups.png", combined_density_plots, 
+       width = 12, height = 10, dpi = 300, units = "in")
 
 
 
