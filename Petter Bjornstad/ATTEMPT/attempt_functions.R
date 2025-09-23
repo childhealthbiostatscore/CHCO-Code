@@ -2074,10 +2074,10 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
     scale_x_discrete(expand = expansion(mult = c(0.3, 0.3))) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
     theme_minimal(base_size = 15) +
-    theme(panel.background = element_blank(),
+    theme(panel.background = element_rect(fill = "transparent", color = NA),
           legend.position = legend_position,
           legend.justification = c(1, 1),
-          legend.background = element_blank(),
+          legend.background = element_rect(fill = "transparent", color = NA),
           panel.grid = element_blank()) +
     labs(x = "Visit", 
          y = y_axis_title,
@@ -2697,7 +2697,7 @@ plot_fgsea_transpose <- function(fgsea_res,
       axis.title = element_text(size = text3),
       axis.ticks.y = element_blank(), 
       legend.position = c(0.9, 0.2),
-      legend.background = element_blank(),
+      legend.background = element_rect(fill = "transparent", color = NA),
       legend.box.background = element_rect(color = "black"),
       legend.title = element_text(size = text2),
       legend.text = element_text(size = text2),
@@ -5485,7 +5485,10 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
       panel.grid.major.x = element_blank(),
       axis.text.x = element_blank(),
       axis.ticks.x = element_blank(),
-      plot.margin = margin(2, 5, 0, 5)  # Reduced top margin
+      plot.margin = margin(2, 5, 0, 5),  # Reduced top margin
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.background = element_rect(fill = "transparent", color = NA),
+      legend.background = element_rect(fill = "transparent", color = NA)
     )
   
   # Left: dot matrix with colored dots
@@ -5517,7 +5520,10 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
       axis.text.x = element_text(size = 9, angle = 60, hjust = 0,
                                  color = set_colors[order_sets],
                                  face = "bold"),  # Color labels to match
-      plot.margin = margin(0, 5, 5, 5)  # Adjusted margin
+      plot.margin = margin(0, 5, 5, 5),  # Adjusted margin
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.background = element_rect(fill = "transparent", color = NA),
+      legend.background = element_rect(fill = "transparent", color = NA)
     )
   
   # Right: horizontal bars
@@ -5540,7 +5546,10 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
       panel.grid.minor = element_blank(),
       axis.text.y = element_blank(),
       axis.ticks.y = element_blank(),
-      plot.margin = margin(2, 5, 5, 0)  # Reduced top margin
+      plot.margin = margin(2, 5, 5, 0),  # Reduced top margin
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.background = element_rect(fill = "transparent", color = NA),
+      legend.background = element_rect(fill = "transparent", color = NA)
     )
   
   # Apply scale transformations based on scale_type
@@ -5613,13 +5622,17 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
     if (requireNamespace("patchwork", quietly = TRUE)) {
       library(patchwork)
       
-      p_empty <- ggplot() + theme_void()
+      p_empty <- ggplot() + theme_void() + theme(plot.background = element_rect(fill = "transparent", color = NA),
+      panel.background = element_rect(fill = "transparent", color = NA),
+      legend.background = element_rect(fill = "transparent", color = NA))
       
       final <- (p_setsizes | p_empty) / (p_dots | p_bars) +
         plot_layout(widths = c(1, 1.6), heights = c(1, 5))
     } else {
       # Fallback to cowplot with adjusted parameters
-      p_empty <- ggplot() + theme_void()
+      p_empty <- ggplot() + theme_void() + theme(plot.background = element_rect(fill = "transparent", color = NA),
+                                                 panel.background = element_rect(fill = "transparent", color = NA),
+                                                 legend.background = element_rect(fill = "transparent", color = NA))
       
       # Try assembling without align parameter first
       top_row <- cowplot::plot_grid(p_setsizes, p_empty, ncol = 2, rel_widths = c(1, 1.6))
@@ -5641,6 +5654,12 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
       axis = "tb"
     )
   }
+  
+  final <- final + 
+    theme(
+      plot.background = element_rect(fill = "transparent", color = NA),
+      panel.background = element_rect(fill = "transparent", color = NA)
+    )
   
   return(final)
 }
