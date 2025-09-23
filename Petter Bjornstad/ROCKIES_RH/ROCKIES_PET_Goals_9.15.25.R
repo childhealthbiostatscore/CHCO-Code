@@ -1128,9 +1128,13 @@ for(i in c(1:length(celltypes))){
   if(celltype == 'PT'){
     text_size <- 12
     legend_position <- 'right'
+    axis_angle <- 0
+    hjust_val <- 0
   }else{
     text_size <- 15
     legend_position <- 'none'
+    axis_angle <- 45
+    hjust_val <- 1
   }
   
   celltype2 <- str_replace_all(celltype,"/","_")
@@ -1186,7 +1190,7 @@ for(i in c(1:length(celltypes))){
       scale_fill_manual(name = 'Comparison',
                         labels = c('lc' = 'T2D (no SGLT2) vs Lean Controls'),
                         values = c('lc' = '#1f4e79'))+
-      theme_classic()+theme(text = element_text(size = text_size), legend.position = legend_position)
+      theme_classic()+theme(text = element_text(size = text_size), legend.position = legend_position, axis.text.x = element_text(angle = axis_angle, hjust = hjust_val))
     
     pdf(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_', celltype2, '_barplot.pdf'), 
         width = 12, height = 8)
@@ -1251,7 +1255,7 @@ for(i in c(1:length(celltypes))){
       scale_fill_manual(name = 'Comparison',
                         labels = c('lc' = 'T2D (no SGLT2) vs Lean Control'),
                         values = c('lc' = '#1f4e79'))+
-      theme_classic()+theme(text = element_text(size = text_size), legend.position = legend_position)
+      theme_classic()+theme(text = element_text(size = text_size), legend.position = legend_position, axis.text.x = element_text(angle = axis_angle, hjust = hjust_val))
     
     pdf(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_', celltype2, '_barplot.pdf'), 
         width = 12, height = 8)
