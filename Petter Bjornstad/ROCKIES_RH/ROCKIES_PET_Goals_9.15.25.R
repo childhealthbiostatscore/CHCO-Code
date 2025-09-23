@@ -1125,6 +1125,13 @@ overall_summary$OxPhos_sig <- NA
 for(i in c(1:length(celltypes))){
   
   celltype <- celltypes[i]
+  if(celltype == 'PT'){
+    text_size <- 12
+    legend_position <- 'right'
+  }else{
+    text_size <- 15
+    legend_position <- 'none'
+  }
   
   celltype2 <- str_replace_all(celltype,"/","_")
   celltype2 <- str_replace_all(celltype2,"-","_")
@@ -1179,7 +1186,7 @@ for(i in c(1:length(celltypes))){
       scale_fill_manual(name = 'Comparison',
                         labels = c('lc' = 'T2D (no SGLT2) vs Lean Controls'),
                         values = c('lc' = '#1f4e79'))+
-      theme_classic()
+      theme_classic()+theme(text = element_text(size = text_size), legend.position = legend_position)
     
     pdf(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_', celltype2, '_barplot.pdf'), 
         width = 12, height = 8)
@@ -1244,7 +1251,7 @@ for(i in c(1:length(celltypes))){
       scale_fill_manual(name = 'Comparison',
                         labels = c('lc' = 'T2D (no SGLT2) vs Lean Control'),
                         values = c('lc' = '#1f4e79'))+
-      theme_classic()
+      theme_classic()+theme(text = element_text(size = text_size), legend.position = legend_position)
     
     pdf(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_', celltype2, '_barplot.pdf'), 
         width = 12, height = 8)
@@ -1963,6 +1970,91 @@ for(i in c(1:length(results_files))){
 #plots.png.paths <- list.files(plots.dir.path, pattern=".png", full.names = TRUE)
 
 #file.copy(from=plots.png.paths, to="C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/")
+
+
+
+#Combine PNG files 
+
+
+library(cowplot)
+library(magick)
+library(ggplot2)
+
+# Read images - including the main overview plot
+img_main <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_PT_barplot.png")
+img1 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_PT_S1_S2_barplot.png")
+img2 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_PT_S3_barplot.png")
+img3 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_aPT_barplot.png")
+
+# Convert to ggplot objects
+p_main <- ggdraw() + draw_image(img_main)
+p1 <- ggdraw() + draw_image(img1)
+p2 <- ggdraw() + draw_image(img2)
+p3 <- ggdraw() + draw_image(img3)
+
+# Create bottom row with three subplots
+bottom_row <- plot_grid(p1, p2, p3, 
+                        ncol = 3, 
+                        labels = c("B", "C", "D"), 
+                        label_size = 14,
+                        rel_widths = c(1, 1, 1))
+
+# Combine main plot on top with bottom row
+final_plot <- plot_grid(p_main, bottom_row,
+                        ncol = 1,           # 1 column (stack vertically)
+                        nrow = 2,           # 2 rows
+                        labels = c("A", ""), # Label only the main plot
+                        label_size = 16,
+                        rel_heights = c(1, 1.2))  # Bottom row slightly taller
+
+# Save at high resolution
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_PT_complete_layout.png",
+       plot = final_plot,
+       width = 15,          # Width in inches
+       height = 12,         # Height in inches
+       dpi = 300,           # High resolution
+       units = "in")
+
+
+
+# Read images - including the main overview plot
+img_main <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_PT_barplot.png")
+img1 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_PT_S1_S2_barplot.png")
+img2 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_PT_S3_barplot.png")
+img3 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_aPT_barplot.png")
+
+# Convert to ggplot objects
+p_main <- ggdraw() + draw_image(img_main)
+p1 <- ggdraw() + draw_image(img1)
+p2 <- ggdraw() + draw_image(img2)
+p3 <- ggdraw() + draw_image(img3)
+
+# Create bottom row with three subplots
+bottom_row <- plot_grid(p1, p2, p3, 
+                        ncol = 3, 
+                        labels = c("B", "C", "D"), 
+                        label_size = 14,
+                        rel_widths = c(1, 1, 1))
+
+# Combine main plot on top with bottom row
+final_plot <- plot_grid(p_main, bottom_row,
+                        ncol = 1,           # 1 column (stack vertically)
+                        nrow = 2,           # 2 rows
+                        labels = c("A", ""), # Label only the main plot
+                        label_size = 16,
+                        rel_heights = c(1, 1.2))  # Bottom row slightly taller
+
+# Save at high resolution
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_PT_complete_layout.png",
+       plot = final_plot,
+       width = 15,          # Width in inches
+       height = 12,         # Height in inches
+       dpi = 300,           # High resolution
+       units = "in")
+
+
+
+
 
 
 
