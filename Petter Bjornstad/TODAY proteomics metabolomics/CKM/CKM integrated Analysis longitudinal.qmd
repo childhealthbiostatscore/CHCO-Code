@@ -1419,7 +1419,7 @@ ggsave(
 t2b
 ```
 
-```{r, include=FALSE, eval=FALSE}
+```{r, include=FALSE}
 # Run univariable Cox models for time to first progression without BMI
 result_noBMI <- NULL
 predictors <- colnames(base_log[seq])
@@ -1437,25 +1437,43 @@ result_noBMI <- merge(result_noBMI,analytes,by="AptName",all.x = T, all.y = F)
 result_noBMI <- result_noBMI[order(result_noBMI$p.value),] 
 ```
 
-```{r, include=FALSE, eval=FALSE}
-# Run univariable Cox models for time to first progression with BMI
-# result_BMI <- NULL
-# predictors <- colnames(base_log[seq])
-# for (i in 1:length(predictors)) {
-#   form <- paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM2))~",predictors[i])
-#   mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
-#   tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
-#   tidymod <- tidymod[1,]
-#   result_BMI <- rbind(result_BMI,tidymod)
-# }
-# result_BMI$adj.p.value <- p.adjust(result_BMI$p.value, "fdr")
-# result_BMI$AptName <- result_BMI$term
-# result_BMI$term <- NULL
-# result_BMI <- merge(result_BMI,analytes,by="AptName",all.x = T, all.y = F)
-# result_BMI <- result_BMI[order(result_BMI$p.value),] 
+```{r, include=FALSE}
+# Run univariable Cox models for time to first progression for those whose max stage was 3
+result_noBMI_3 <- NULL
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",predictors[i])
+  mod <- coxph(data = prog_summary_final_soma[prog_summary_final_soma$CKM_max == 3,], formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_noBMI_3 <- rbind(result_noBMI_3,tidymod)
+}
+result_noBMI_3$adj.p.value <- p.adjust(result_noBMI_3$p.value, "fdr")
+result_noBMI_3$AptName <- result_noBMI_3$term
+result_noBMI_3$term <- NULL
+result_noBMI_3 <- merge(result_noBMI_3,analytes,by="AptName",all.x = T, all.y = F)
+result_noBMI_3 <- result_noBMI_3[order(result_noBMI_3$p.value),] 
 ```
 
-```{r, include=FALSE, eval=FALSE}
+```{r, include=FALSE}
+# Run univariable Cox models for time to first progression for those whose max stage was 4
+result_noBMI_4 <- NULL
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",predictors[i])
+  mod <- coxph(data = prog_summary_final_soma[prog_summary_final_soma$CKM_max == 4,], formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_noBMI_4 <- rbind(result_noBMI_4,tidymod)
+}
+result_noBMI_4$adj.p.value <- p.adjust(result_noBMI_4$p.value, "fdr")
+result_noBMI_4$AptName <- result_noBMI_4$term
+result_noBMI_4$term <- NULL
+result_noBMI_4 <- merge(result_noBMI_4,analytes,by="AptName",all.x = T, all.y = F)
+result_noBMI_4 <- result_noBMI_4[order(result_noBMI_4$p.value),] 
+```
+
+```{r, include=FALSE}
 # Run univariable Cox models for clinical variables
 result_clinical <- NULL
 predictors <- c("AGEBASE", "sex_char", "bmi", "HbA1c", "sbp", "codi", "si_1_ins0", "GLYC", "mean_a1c", "mean_adipo", "mean_il6", "mean_il1",
@@ -1479,13 +1497,17 @@ result_clinical$VarName <- result_clinical$AptName
 result_clinical <- result_clinical %>% select(VarName, estimate, std.error,	statistic,	p.value,	conf.low,	conf.high, concordance)
 ```
 
-```{r, include=FALSE, eval=FALSE}
+```{r, include=FALSE}
 # write all results to file
 wb <- createWorkbook()
-addWorksheet(wb,"Time to CKM Proteins")
-writeData(wb,"Time to CKM Proteins",result_noBMI,rowNames = F)
-addWorksheet(wb,"Time to CKM Clinical")
-writeData(wb,"Time to CKM Clinical",result_clinical,rowNames = F)
+addWorksheet(wb,"Proteins all stages")
+writeData(wb,"Proteins all stages",result_noBMI,rowNames = F)
+addWorksheet(wb,"Proteins CKM 3")
+writeData(wb,"Proteins CKM 3",result_noBMI_3,rowNames = F)
+addWorksheet(wb,"Proteins CKM 4")
+writeData(wb,"Proteins CKM 4",result_noBMI_4,rowNames = F)
+addWorksheet(wb,"Clinical all stages")
+writeData(wb,"Clinical all stages",result_clinical,rowNames = F)
 full_path <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline unadjusted.xlsx")
 saveWorkbook(wb, full_path, overwrite = TRUE)
 ```
