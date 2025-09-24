@@ -1109,3 +1109,88 @@ ggplot(long_data %>% filter(variable == 'mmp9'),
 
 
 
+# Function to create individual panels with dodged error bars
+create_panel <- function(data, group_var, title, colors) {
+  # Calculate means and standard errors for each group and time point
+  summary_stats <- data %>%
+    group_by(time, !!sym(group_var)) %>%
+    summarise(
+      mean_MMP9 = mean(MMP9, na.rm = TRUE),
+      se_MMP9 = sd(MMP9, na.rm = TRUE) / sqrt(n()),
+      .groups = 'drop'
+    )
+  
+  # Define position dodge width
+  dodge_width <- 0.3
+  
+  ggplot() +
+    # Add individual points with jitter
+    geom_point(data = data, 
+               aes(x = time, y = MMP9, color = !!sym(group_var)), 
+               alpha = 0.4, size = 1.5, 
+               position = position_jitterdodge(dodge.width = dodge_width, 
+                                               jitter.width = 0.15, 
+                                               jitter.height = 0)) +
+    # Add lines connecting means with dodge
+    geom_line(data = summary_stats,
+              aes(x = time, y = mean_MMP9, color = !!sym(group_var), group = !!sym(group_var)),
+              size = 2,
+              position = position_dodge(width = dodge_width)) +
+    # Add error bars with dodge
+    geom_errorbar(data = summary_stats,
+                  aes(x = time, y = mean_MMP9, 
+                      ymin = mean_MMP9 - se_MMP9, ymax = mean_MMP9 + se_MMP9,
+                      color = !!sym(group_var)),
+                  width = 0.05, size = 1.2,
+                  position = position_dodge(width = dodge_width)) +
+    # Add points for the means (optional, makes them more visible)
+    geom_point(data = summary_stats,
+               aes(x = time, y = mean_MMP9, color = !!sym(group_var)),
+               size = 3, shape = 15,  # square shape for means
+               position = position_dodge(width = dodge_width)) +
+    # Customize colors
+    scale_color_manual(values = colors) +
+    # Set scales
+    scale_y_continuous(limits = c(0, 5000), 
+                       breaks = seq(0, 5000, 1000)) +
+    # Theming
+    theme_bw() +
+    theme(
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      legend.position = "bottom",
+      legend.title = element_text(size = 10, face = "bold"),
+      axis.title.x = element_blank(),
+      axis.title.y = element_text(size = 10),
+      plot.title = element_text(size = 11, face = "bold")
+    ) +
+    labs(y = "MMP9", color = title)
+}
+
+# Define colors for each group (matching the original plot)
+severity_colors <- c("All" = "black", "Mild" = "#fff9ec", "Moderate" = "#fcb1a6", "Severe" = "#fb6376")
+insulin_colors <- c("All" = "black", "[1.9,12.5)" = "#fff9ec", "[12.5,18.1)" = "#fcb1a6", "[18.1,∞)" = "#fb6376")
+aki_colors <- c("All" = "black", "No" = "#4CAF50", "Yes" = "#F44336")
+t1d_colors <- c("All" = "black", "Known" = "#4CAF50", "New" = "#F44336")
+# Create individual panels using your actual data
+p1 <- create_panel(final_data, "Severity_group", "Severity", severity_colors)
+p2 <- create_panel(final_data, "IV_Insulin_group", "Days IV Insulin", insulin_colors)
+p3 <- create_panel(final_data, "AKI_group", "AKI", aki_colors)
+p4 <- create_panel(final_data, "T1D_group", "T1D Status", t1d_colors)
+# Combine panels using patchwork
+combined_plot <- (p1 | p2) / (p3 | p4)
+# Display the combined plot
+print(combined_plot)
+
+
+# Save the plot
+ggsave("C:/Users/netio/Documents/UofW/Projects/MMP9/MMP9_multivariate_analysis.png", combined_plot, 
+       width = 12, height = 10, dpi = 300, units = "in")
+
+print("Plot created successfully! Check 'MMP9_multivariate_analysis.png'")
+
+
+
+
+
+
