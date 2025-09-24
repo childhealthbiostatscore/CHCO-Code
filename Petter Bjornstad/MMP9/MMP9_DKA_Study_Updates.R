@@ -3,7 +3,24 @@
 library(dplyr)
 library(stringr)
 library(ggplot2)
+# Mixed-Effects Regression Analysis for MMP9 Claims
+library(dplyr)
+library(lme4)      # For mixed-effects models
+library(lmerTest)  # For p-values in mixed models
+library(broom.mixed) # For tidy output of mixed models
+library(emmeans)   # For estimated marginal means
 
+library(tidyverse)
+library(nlme)
+library(emmeans)
+library(ggpubr)
+library(Hmisc)
+library(nephro)
+library(knitr)
+library(readxl)
+library(ggsignif)
+library(arsenal)
+library(readxl)
 
 
 raw_data <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/MMP9/Full 16-1403 DKA RedCap Raw Data Set_04-24edited.csv')
@@ -721,6 +738,132 @@ print(coef2)
 
 
 
+##################################### Grouping analysis 
+
+
+ngal_model <- lme(mmp9_egfr ~ time*scopeptin, data = data_set,
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+ngal_model <- lme(mmp9_egfr ~ time*sua, data = data_set,
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+
+#aki yes
+ngal_model <- lme(mmp9_egfr ~ time*scopeptin, data = data_set %>% filter(aki_0_24 == 'Yes'),
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+ngal_model <- lme(mmp9_egfr ~ time*sua, data = data_set %>% filter(aki_0_24 == 'Yes'),
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+#aki no
+
+ngal_model <- lme(mmp9_egfr ~ time*scopeptin, data = data_set %>% filter(aki_0_24 == 'No'),
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+ngal_model <- lme(mmp9_egfr ~ time*sua, data = data_set %>% filter(aki_0_24 == 'No'),
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Filter for DKA time point only and check AKI variable
+dka_data <- analysis_data %>% 
+  filter(time == '0-8 hours') %>%
+  filter(aki_0_24 == 'Yes')
+
+  model_aki_baseline <- lm(mmp9_egfr ~ scopeptin, data = dka_data)
+  summary(model_aki_baseline)
+  
+  model_aki_baseline <- lm(mmp9_egfr ~ sua, data = dka_data)
+  summary(model_aki_baseline)
+  
+  # Estimated marginal means
+  emm2 <- emmeans(model_aki_baseline, ~ scopeptin)
+
+  # Pairwise comparisons
+  pairs2 <- pairs(emm2)
+ 
+  
+  # Coefficients
+  coef2 <- tidy(model, effects = "fixed", conf.int = TRUE)
+  print("\nFixed effects coefficients:")
+  print(coef2)
+  
+
+#3 months
+dka_data <- analysis_data %>% 
+  filter(time == '3 months', !is.na(aki_0_24))
+
+cat("AKI variable levels at 0-8 hours:", unique(dka_data$aki_0_24), "\n")
+cat("Sample sizes by AKI status:", table(dka_data$aki_0_24), "\n")
+
+
+# Mixed-effects model for AKI comparison (though with single time point, random effect may not be needed)
+# But keeping it for consistency and in case some participants have multiple DKA measurements
+model2 <- aov(mmp9_egfr ~ aki_0_24, data = dka_data)
+
+print("Mixed-effects model summary for AKI:")
+print(summary(model2))
+
+# Estimated marginal means
+emm2 <- emmeans(model2, ~ aki_0_24)
+print("\nEstimated marginal means by AKI status:")
+print(emm2)
+
+# Pairwise comparisons
+pairs2 <- pairs(emm2)
+print("\nPairwise comparison:")
+print(pairs2)
+
+# Coefficients
+coef2 <- tidy(model2, effects = "fixed", conf.int = TRUE)
+print("\nFixed effects coefficients:")
+print(coef2)
+
+
+
+
 
 
 
@@ -861,6 +1004,18 @@ print(combined_density_plots)
 # Save the combined plot
 ggsave("C:/Users/netio/Documents/UofW/Projects/MMP9/MMP9_density_plots_by_groups.png", combined_density_plots, 
        width = 12, height = 10, dpi = 300, units = "in")
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
