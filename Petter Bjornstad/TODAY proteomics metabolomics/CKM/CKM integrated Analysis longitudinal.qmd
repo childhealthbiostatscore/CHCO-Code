@@ -1022,6 +1022,8 @@ ckm_prog_time1 <- ckm_prog_time1 %>%
 )
 ckm_prog_time1 <- ckm_prog_time1 %>% select(RELEASEID, days_to_first_ckm_prog, CKM_syn_first_progression, CKM_syn_num_first_progression)
 comorb_ckm2 <- full_join(comorb_ckm2, ckm_prog_time1, by = "RELEASEID")
+comorb_ckm2$days_to_first_ckm_prog_nocensor <- ifelse(comorb_ckm2$progress_CKM == 1, comorb_ckm2$days_to_first_ckm_prog, NA)
+comorb_ckm2$years_to_first_ckm_prog_nocensor <- comorb_ckm2$days_to_first_ckm_prog_nocensor / 365.25
 
 # number of progressions
 a <- comorb_ckm2 %>% filter(progress_CKM == 1) %>% select(RELEASEID, progress_CKM)
@@ -1084,7 +1086,7 @@ comorb_ckm2_criteria <- comorb_ckm2_criteria %>%
 
 # collapse to a dataset with 1 row per person with baseline CKM, max CKM, time to progression, number of progressions?
 # this is an oversimplification because people progress, regress, progress
-prog_summary_final <- comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base, CKM_max, progress_CKM, days_to_first_ckm_prog, num_prog, CKM_syn_first_progression, CKM_syn_num_first_progression) %>%
+prog_summary_final <- comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base, CKM_max, progress_CKM, days_to_first_ckm_prog, days_to_first_ckm_prog_nocensor, years_to_first_ckm_prog_nocensor, num_prog, CKM_syn_first_progression, CKM_syn_num_first_progression) %>%
   arrange(RELEASEID, desc(progress_CKM)) %>% filter(row_number() == 1)
 # create character variable corresponding to max stages
 prog_summary_final$CKM_max_char <- case_when(
@@ -1101,6 +1103,7 @@ label(prog_summary_final$CKM_max) <- "Maximum CKM stage"
 label(prog_summary_final$CKM_max_char) <- "Maximum CKM stage"
 label(prog_summary_final$num_prog) <- "Number of progression events"
 label(prog_summary_final$days_to_first_ckm_prog) <- "Days to first progression event"
+label(prog_summary_final$years_to_first_ckm_prog_nocensor) <- "Years to first progression event"
 label(comorb_ckm2_criteria$max_ARRHYTHMIA) <- "ARRHYTHMIA"
 label(comorb_ckm2_criteria$max_clin_cvd) <- "Clinical CVD"
 label(comorb_ckm2_criteria$max_hfpef) <- "HFpEF"
@@ -1295,10 +1298,10 @@ t2a <- t2data %>%
     include = c(
       AGEBASE, sex_char, racedesc, bmi, txdesc, HbA1c, log_trig, sbp, dbp, 
       uacid, si_1_ins0, UAlbCreat, HDL, codi, ALT, AST,
-      HTN, TGDLP, MIC, MAC, GLYC, DEATH, CKM_syn_base, progress_CKM_char, yrs_to_first_ckm_prog, num_prog
+      HTN, TGDLP, MIC, MAC, GLYC, DEATH, CKM_syn_base, progress_CKM_char, years_to_first_ckm_prog_nocensor, num_prog
     ),
     type = list(
-      c(AGEBASE, yrs_to_first_ckm_prog, HbA1c, log_trig, sbp, dbp, 
+      c(AGEBASE, years_to_first_ckm_prog_nocensor, HbA1c, log_trig, sbp, dbp, 
         uacid, si_1_ins0, UAlbCreat, bmi, HDL, codi, ALT, AST) ~ "continuous",
       c(HTN, TGDLP, MIC, MAC, GLYC, DEATH, progress_CKM_char) ~ "dichotomous"
     ),
@@ -1308,8 +1311,8 @@ t2a <- t2data %>%
     ),
     digits = list(
       # Continuous variables
-      AGEBASE ~ 0,
-      yrs_to_first_ckm_prog ~ 0,
+      AGEBASE ~ 1,
+      years_to_first_ckm_prog_nocensor ~ 1,
       codi ~ 3,
       c(HbA1c, log_trig, sbp, dbp, uacid, si_1_ins0, UAlbCreat, bmi, HDL) ~ 1,
       c(ALT, AST) ~ 0,
@@ -1326,11 +1329,12 @@ t2a <- t2data %>%
       progress_CKM_char ~ "Progressed"
     )
   ) %>%
-  gtsummary::add_p(test = list(gtsummary::all_continuous() ~ "kruskal.test",  # or "aov" for ANOVA
+  gtsummary::add_p(test = list(gtsummary::all_continuous() ~ "aov",  # or "aov" for ANOVA
       c(sex_char, HTN, TGDLP, MIC, MAC, GLYC, DEATH) ~ "fisher.test",
       c(racedesc, txdesc, CKM_syn_base ) ~ "chisq.test"  # Use chi-square instead of Fisher's exact
   )) %>%
-  gtsummary::modify_header(label ~ "**Characteristic**")
+  gtsummary::modify_header(label ~ "**Characteristic**") %>%
+  gtsummary::bold_labels()
 
 ```
 
@@ -1346,12 +1350,12 @@ t2b <- t2data %>%
     by = CKM_max_char,
     missing = "no",
     include = c(
-      AGEBASE, sex_char, racedesc, bmi, txdesc, yrs_to_first_ckm_prog, HbA1c, 
+      AGEBASE, sex_char, racedesc, bmi, txdesc, years_to_first_ckm_prog_nocensor, HbA1c, 
       si_1_ins0, UAlbCreat, 
       GLYC, DEATH, num_prog
     ),
     type = list(
-      c(AGEBASE, yrs_to_first_ckm_prog, HbA1c, 
+      c(AGEBASE, years_to_first_ckm_prog_nocensor, HbA1c, 
         si_1_ins0, UAlbCreat, bmi) ~ "continuous",
       c(GLYC, DEATH) ~ "dichotomous"
     ),
@@ -1361,8 +1365,8 @@ t2b <- t2data %>%
     ),
     digits = list(
       # Continuous variables
-      AGEBASE ~ 0,
-      yrs_to_first_ckm_prog ~ 0,
+      AGEBASE ~ 1,
+      years_to_first_ckm_prog_nocensor ~ 1,
       c(HbA1c, UAlbCreat, bmi) ~ 1,
       c(si_1_ins0) ~ 3,
       # Binary variables
@@ -1373,19 +1377,20 @@ t2b <- t2data %>%
       DEATH ~ "1"
     )
   ) %>%
-  gtsummary::add_p(test = list(gtsummary::all_continuous() ~ "kruskal.test",  # or "aov" for ANOVA
+  gtsummary::add_p(test = list(gtsummary::all_continuous() ~ "aov",  # or "aov" for ANOVA
       c(sex_char, GLYC, DEATH, num_prog) ~ "fisher.test",
       c(racedesc, txdesc) ~ "chisq.test"  # Use chi-square instead of Fisher's exact
   )) %>%
   gtsummary::modify_header(label ~ "**Characteristic**") %>%
+  gtsummary::bold_labels() %>%
   as_gt() %>%
   gt::cols_width(
-    label ~ px(250),
+    label ~ px(350),
     stat_1 ~ px(150),  # First group column
     stat_2 ~ px(150),  # Second group column
     stat_3 ~ px(150),  # Third group column (adjust based on your groups)
     p.value ~ px(100)
-  )
+  ) 
 ```
 
 ```{r include=F}
