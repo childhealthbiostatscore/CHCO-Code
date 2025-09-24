@@ -168,10 +168,10 @@ desc_table1_fixed %>%
 
 
 
-data_set$scr_q <- 107.3/data_set$eGFR_crea
-data_set$q <- data_set$screatinine / data_set$scr_q
-data_set$aki <- NA
-data_set$aki <- data_set$scr_q > 1.5
+#data_set$scr_q <- 107.3/data_set$eGFR_crea
+#data_set$q <- data_set$screatinine / data_set$scr_q
+#data_set$aki <- NA
+#data_set$aki <- data_set$scr_q > 1.5
 
 
 
@@ -741,7 +741,7 @@ print(coef2)
 ##################################### Grouping analysis 
 
 
-ngal_model <- lme(mmp9_egfr ~ time*scopeptin, data = data_set,
+ngal_model <- lme(mmp9_egfr ~ time*scopeptin, data = data_set %>% filter(time %in% c('0-8 hours', '3 months')),
                   random = ~1|record_id,
                   na.action = na.omit)
 
@@ -749,7 +749,7 @@ kable(anova(ngal_model))
 kable(summary(ngal_model)$tTable)
 
 
-ngal_model <- lme(mmp9_egfr ~ time*sua, data = data_set,
+ngal_model <- lme(mmp9_egfr ~ time*sua, data = data_set %>% filter(time %in% c('0-8 hours', '3 months')),
                   random = ~1|record_id,
                   na.action = na.omit)
 
@@ -759,7 +759,7 @@ kable(summary(ngal_model)$tTable)
 
 
 #aki yes
-ngal_model <- lme(mmp9_egfr ~ time*scopeptin, data = data_set %>% filter(aki_0_24 == 'Yes'),
+ngal_model <- lme(mmp9_egfr ~ time*scopeptin, data = data_set %>% filter(aki_0_24 == 'Yes') %>% filter(time %in% c('0-8 hours', '3 months')),
                   random = ~1|record_id,
                   na.action = na.omit)
 
@@ -767,7 +767,7 @@ kable(anova(ngal_model))
 kable(summary(ngal_model)$tTable)
 
 
-ngal_model <- lme(mmp9_egfr ~ time*sua, data = data_set %>% filter(aki_0_24 == 'Yes'),
+ngal_model <- lme(mmp9_egfr ~ time*sua, data = data_set %>% filter(aki_0_24 == 'Yes') %>% filter(time %in% c('0-8 hours', '3 months')),
                   random = ~1|record_id,
                   na.action = na.omit)
 
@@ -777,7 +777,7 @@ kable(summary(ngal_model)$tTable)
 
 #aki no
 
-ngal_model <- lme(mmp9_egfr ~ time*scopeptin, data = data_set %>% filter(aki_0_24 == 'No'),
+ngal_model <- lme(mmp9_egfr ~ time*scopeptin, data = data_set %>% filter(aki_0_24 == 'No') %>% filter(time %in% c('0-8 hours', '3 months')),
                   random = ~1|record_id,
                   na.action = na.omit)
 
@@ -785,7 +785,42 @@ kable(anova(ngal_model))
 kable(summary(ngal_model)$tTable)
 
 
-ngal_model <- lme(mmp9_egfr ~ time*sua, data = data_set %>% filter(aki_0_24 == 'No'),
+ngal_model <- lme(mmp9_egfr ~ time*sua, data = data_set %>% filter(aki_0_24 == 'No') %>% filter(time %in% c('0-8 hours', '3 months')),
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+#three-way interaction
+
+ngal_model <- lme(mmp9_egfr ~ time*scopeptin*aki_0_24, data = data_set,
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+ngal_model <- lme(mmp9_egfr ~ time*sua*aki_0_24, data = data_set,
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+#three way but not interaction 
+ngal_model <- lme(mmp9_egfr ~ time + scopeptin*aki_0_24, data = data_set,
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+ngal_model <- lme(mmp9_egfr ~ time + sua*aki_0_24, data = data_set,
                   random = ~1|record_id,
                   na.action = na.omit)
 
@@ -794,7 +829,52 @@ kable(summary(ngal_model)$tTable)
 
 
 
+ggplot(data_set %>% filter(time %in% c('0-8 hours', '3 months')), aes(x=mmp9_egfr, y= sua))+
+  geom_point()+geom_smooth(method='lm') +facet_wrap(time ~ aki_0_24)
 
+
+ggplot(data_set %>% filter(time %in% c('0-8 hours', '3 months')), aes(x=mmp9_egfr, y= scopeptin))+
+  geom_point()+geom_smooth(method='lm') +facet_wrap(time ~ aki_0_24)
+
+
+
+
+
+
+
+#split by time 
+
+ngal_model <- lme(mmp9_egfr ~ scopeptin*aki_0_24, data = data_set %>% filter(time == '0-8 hours'),
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+ngal_model <- lme(mmp9_egfr ~ sua*aki_0_24, data = data_set %>% filter(time == '0-8 hours') ,
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+#3 months
+ngal_model <- lme(mmp9_egfr ~ scopeptin*aki_0_24, data = data_set %>% filter(time == '3 months'),
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
+
+
+ngal_model <- lme(mmp9_egfr ~ sua*aki_0_24, data = data_set %>% filter(time == '3 months') ,
+                  random = ~1|record_id,
+                  na.action = na.omit)
+
+kable(anova(ngal_model))
+kable(summary(ngal_model)$tTable)
 
 
 
