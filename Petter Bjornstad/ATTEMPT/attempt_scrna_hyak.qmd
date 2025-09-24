@@ -209,44 +209,105 @@ View(subset(attempt_so_meta, select = c(subject_id, visit, treatment, Cryostor_I
 temp_file <- tempfile(fileext = ".rds")
 s3$download_file("attempt", 'cleaned_data/attempt_clean_so.rds', temp_file)
 attempt_so <- readRDS(temp_file)
-```
 
+attempt_so$KPMP_celltype_general <- case_when(
+  attempt_so$KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT") ~ "PT",
+  attempt_so$KPMP_celltype %in% c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL") ~ "TAL",
+  attempt_so$KPMP_celltype %in% c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC") ~ "PC",
+  attempt_so$KPMP_celltype %in% c("IC-A", "IC-B", "aIC") ~ "IC",
+  attempt_so$KPMP_celltype %in% c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC") ~ "EC",
+  attempt_so$KPMP_celltype %in% c("MAC", "MON", "cDC", "pDC") ~ "Immune (M)",
+  attempt_so$KPMP_celltype %in% c("CD4+ T", "CD8+ T", "B", "NK") ~ "Immune (L)",
+  attempt_so$KPMP_celltype %in% c("VSMC/P", "FIB") ~ "VSMC/P, FIB",
+  attempt_so$KPMP_celltype %in% c("POD") ~ "POD",
+  TRUE ~ "Other"
+)
+```
 
 ```{r}
 # module scores
 # msigdb Hallmark
 msigdb_hallmark <- msigdbr(category = "H")
 
-inflammatory_response_hallmark <- 
-  msigdb_hallmark[msigdb_hallmark$gs_name == "HALLMARK_INFLAMMATORY_RESPONSE",] %>%
-  pull(gene_symbol)
+hallmark_pathway_sets <- c(
+  HALLMARK_INFLAMMATORY_RESPONSE   = "Inflammatory_Response",
+  HALLMARK_APOPTOSIS               = "Apoptosis",
+  HALLMARK_OXIDATIVE_PHOSPHORYLATION = "OxPhos",
+  HALLMARK_MTORC1_SIGNALING        = "MTORC1_Signaling",
+  HALLMARK_FATTY_ACID_METABOLISM   = "Fatty_Acid_Metabolism",
+  HALLMARK_GLYCOLYSIS              = "Glycolysis",
+  HALLMARK_IL6_JAK_STAT3_SIGNALING = "IL6_JAK_STAT3_Signaling",
+  HALLMARK_HYPOXIA                 = "Hypoxia",
+  HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY = "ROS_Pathway",
+  HALLMARK_PI3K_AKT_MTOR_SIGNALING = "PI3K_AKT_MTOR_Signaling"
+)
 
-apoptosis_response_hallmark <- 
-  msigdb_hallmark[msigdb_hallmark$gs_name == "HALLMARK_APOPTOSIS",] %>%
-  pull(gene_symbol)
+hallmark_groups <- list(
+  Inflammatory = c(
+    "HALLMARK_INFLAMMATORY_RESPONSE",
+    "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+    "HALLMARK_PI3K_AKT_MTOR_SIGNALING"   # overlaps immune/metabolic, but included here
+  ),
+  
+  Metabolic = c(
+    "HALLMARK_OXIDATIVE_PHOSPHORYLATION",
+    "HALLMARK_FATTY_ACID_METABOLISM",
+    "HALLMARK_GLYCOLYSIS",
+    "HALLMARK_MTORC1_SIGNALING"
+  ),
+  
+  Stress_Adaptive = c(   # not purely one or the other
+    "HALLMARK_APOPTOSIS",
+    "HALLMARK_HYPOXIA",
+    "HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY"
+  )
+)
 
-oxphos_hallmark <- 
-  msigdb_hallmark[msigdb_hallmark$gs_name == "HALLMARK_OXIDATIVE_PHOSPHORYLATION",] %>%
-  pull(gene_symbol)
+msigdb_h <- msigdbr(species = "Homo sapiens", category = "H") %>%
+  filter(gs_name %in% names(hallmark_pathway_sets))
 
+# build named list: short keys → character vectors of genes
+kidney_gene_sets <- setNames(
+  lapply(names(hallmark_pathway_sets), \(nm) msigdb_h %>% filter(gs_name == nm) %>% pull(gene_symbol)),
+  unname(hallmark_pathway_sets)
+)
 
-# Curated immune and metabolism gene sets for kidney biology
-kidney_gene_sets <- list(
-  inflammatory_response = inflammatory_response_hallmark,
-  apoptosis = apoptosis_response_hallmark,
-  oxphos = oxphos_hallmark)
+grouped_kidney_gene_sets <- lapply(hallmark_groups, function(gs_vec) {
+  short_names <- unname(hallmark_pathway_sets[gs_vec])
+  unique(unlist(kidney_gene_sets[short_names], use.names = FALSE))
+  }
+)
+
 
 attempt_so <- AddModuleScore(attempt_so, features = kidney_gene_sets, name = names(kidney_gene_sets))
+attempt_so <- AddModuleScore(attempt_so, features = grouped_kidney_gene_sets, name = names(grouped_kidney_gene_sets))
+md_names <- colnames(attempt_so@meta.data)
+
+# Collect both sets of names
+all_gene_set_names <- c(
+  names(kidney_gene_sets),        # e.g. "Inflammatory_Response", "OxPhos", ...
+  names(grouped_kidney_gene_sets)         # e.g. "Inflammatory", "Metabolic", "Stress_Adaptive"
+)
+
+# Build regex pattern
+pattern <- paste0("^(", paste(all_gene_set_names, collapse="|"), ")_?\\d+$")
+
+# Apply renaming
+colnames(attempt_so@meta.data) <- ifelse(
+  grepl(pattern, md_names),
+  sub(pattern, "\\1", md_names),
+  md_names
+)
 ```
 
 ```{r echo = F}
-# Step 1: summarise subject × visit × cell type × score
 score_df <- attempt_so@meta.data %>%
-  group_by(subject_id, treatment, visit, KPMP_celltype) %>%
+  group_by(subject_id, treatment, visit, KPMP_celltype_general) %>%
+  filter(KPMP_celltype_general != "Other") %>%
   summarise(
     across(
-      c(inflammatory_response1, apoptosis2, oxphos3),
-      mean,  # or mean if you prefer
+      (all_gene_set_names),
+      mean,
       .names = "{.col}"
     ),
     .groups = "drop"
@@ -255,15 +316,15 @@ score_df <- attempt_so@meta.data %>%
 # Step 2: pivot longer
 score_long <- score_df %>%
   pivot_longer(
-    cols = c(inflammatory_response1, apoptosis2, oxphos3),
+    cols = (all_gene_set_names),
     names_to = "score_type",
     values_to = "score_value"
   )
 
 # Step 3: compute deltas only if paired
 score_delta <- score_long %>%
-  group_by(subject_id, treatment, KPMP_celltype, score_type) %>%
-  # keep only subjects with 2+ visits
+  group_by(subject_id, treatment, KPMP_celltype_general, score_type) %>%
+  # excludes the 0 deltas
   filter(n() >= 2) %>%
   arrange(visit) %>%
   summarise(
@@ -271,36 +332,126 @@ score_delta <- score_long %>%
     .groups = "drop"
   )
 
-score_delta %>%
-  ggplot(aes(x = treatment, y = score_type, fill = delta)) +
+# Step 1: summarise subject × visit × cell type × score
+# 1) Compute DiD per celltype × score_type
+did_tbl <- score_long %>%
+  group_by(KPMP_celltype_general, visit, score_type, treatment) %>%
+  summarise(mean = mean(score_value, na.rm = TRUE),
+            n = dplyr::n(), .groups = "drop") %>%
+  pivot_wider(names_from = c(treatment, visit), values_from = c(mean, n)) %>%
+  mutate(
+    mean_delta_Dapagliflozin = mean_Dapagliflozin_POST - mean_Dapagliflozin_PRE,
+    mean_delta_Placebo = mean_Placebo_POST - mean_Placebo_PRE,
+    DiD = `mean_delta_Dapagliflozin` - `mean_delta_Placebo`,
+    score_type = gsub("_", " ", score_type)
+  ) %>%
+  pivot_longer(
+    cols = c(starts_with("mean_delta_"), "DiD"),
+    names_to   = "treatment",
+    values_to  = "mean_delta",
+    names_prefix = "mean_delta_"
+  ) %>%
+  dplyr::mutate(treatment = fct_relevel(factor(treatment), "DiD", "Dapagliflozin", "Placebo"),
+                KPMP_celltype_general = fct_relevel(factor(KPMP_celltype_general), "PT", "TAL", "EC", "IC",
+                                                    "POD", "Immune (L)", "Immune (M)", "PC", "VSMC/P, FIB"))
+
+# 4) Rebuild your per-celltype plots (now includes a DiD column)
+plots <- did_tbl %>%
+  split(.$KPMP_celltype_general) %>%
+  purrr::map(~ ggplot(.x, aes(x = treatment, y = score_type, fill = mean_delta)) +
+               geom_tile() +
+               scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+               theme_minimal() +
+               theme(panel.grid = element_blank(),
+                     axis.title.x = element_blank(),
+                     axis.title.y = element_blank(),
+                     axis.text.x = element_text(angle = 60, hjust = 1)) +
+               ggtitle(unique(.x$KPMP_celltype_general))+
+               labs(fill = "\u0394Score")
+  )
+
+plots
+
+did_tbl %>%
+  ggplot(aes(x = treatment, y = score_type, fill = mean_delta)) +
   geom_tile() +
-  facet_wrap(~KPMP_celltype) +
   scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
   theme_minimal() +
-  theme(panel.grid = element_blank())
-# attempt_so@meta.data %>%
-#   filter(KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT")) %>%
-#   ggplot(aes(x = treatment, y = inflammatory_response1, fill = visit)) +
-#   geom_boxplot() +
-#   theme_minimal() +
-#   facet_wrap(~KPMP_celltype)
-# 
-# attempt_so@meta.data %>%
-#   filter(KPMP_celltype %in% c("C-TAL-1", "C-TAL-2", "dTAL")) %>%
-#   ggplot(aes(x = treatment, y = inflammatory_response1, fill = visit)) +
-#   geom_boxplot() +
-#   theme_minimal() +
-#   facet_wrap(~KPMP_celltype)
-# 
-# attempt_so@meta.data %>%
-#   ggplot(aes(x = treatment, y = apoptosis2, fill = visit)) +
-#   geom_boxplot() +
-#   theme_bw()
-# 
-# attempt_so@meta.data %>%
-#   ggplot(aes(x = treatment, y = oxphos3, fill = visit)) +
-#   geom_boxplot() +
-#   theme_bw()
+  theme(panel.grid = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  facet_wrap(~KPMP_celltype_general) +
+  labs(fill = "\u0394Score")
+
+temp_file <- tempfile(fileext = ".png")
+ggsave(temp_file, width = 10, height = 7)
+s3$upload_file(temp_file, "attempt", "Figures/attempt_geneset_scores.png") 
+```
+
+```{r echo = F}
+attempt_so_meta <- attempt_so@meta.data
+
+inflammatory_fit <- lmer(Inflammatory ~ treatment*visit*KPMP_celltype_general + (1|subject_id), data = attempt_so_meta)
+inflammatory_emm <- emmeans(inflammatory_fit, ~treatment*visit | KPMP_celltype_general)
+inflammatory_contrasts <- contrast(inflammatory_emm, interaction = "trt.vs.ctrl", by = "KPMP_celltype_general")
+inflammatory_contrasts_df <- tidy(inflammatory_contrasts)%>%
+  filter(KPMP_celltype_general != "Other") %>%
+  mutate(
+    CI_low = estimate - 1.96*std.error,
+    CI_high = estimate + 1.96*std.error,
+    KPMP_celltype_general = factor(KPMP_celltype_general, levels = rev(inflammatory_contrasts_df$KPMP_celltype_general[order(inflammatory_contrasts_df$estimate)])),
+    sig = case_when(p.value < 0.05 & estimate > 0 ~ "+", 
+                    p.value < 0.05 & estimate < 0 ~ "-", 
+                    T ~ "NS")) 
+
+metabolic_fit <- lmer(Metabolic ~ treatment*visit*KPMP_celltype_general + (1|subject_id), data = attempt_so_meta)
+metabolic_emm <- emmeans(metabolic_fit, ~treatment*visit | KPMP_celltype_general)
+metabolic_contrasts <- contrast(metabolic_emm, interaction = "trt.vs.ctrl", by = "KPMP_celltype_general")
+metabolic_contrasts_df <- tidy(metabolic_contrasts) %>%
+  filter(KPMP_celltype_general != "Other") %>%
+  mutate(
+    CI_low = estimate - 1.96*std.error,
+    CI_high = estimate + 1.96*std.error,
+    KPMP_celltype_general = factor(KPMP_celltype_general, levels = rev(metabolic_contrasts_df$KPMP_celltype_general[order(metabolic_contrasts_df$estimate)])),
+    sig = case_when(p.value < 0.05 & estimate > 0 ~ "+", 
+                    p.value < 0.05 & estimate < 0 ~ "-", 
+                    T ~ "NS")) 
+```
+
+
+```{r}
+inflammatory_contrasts_df %>%
+  ggplot(aes(x = estimate, y = KPMP_celltype_general, color = sig)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "#adb5bd") +
+  geom_point(size = 3, shape = ifelse(inflammatory_contrasts_df$sig != "NS", 15, 0)) +
+  geom_errorbarh(aes(xmin = CI_low, xmax = CI_high), height = 0, size = 0.5) +
+  scale_color_manual(values = c("+" = "#ee7674",
+                                "-" = "#89c2d9",
+                                "NS" = "#adb5bd")) +
+  theme_minimal(base_size = 14) +
+  theme(panel.background = element_blank(),
+        panel.grid.major.y =  element_blank(),
+        panel.grid.minor.x = element_line(linewidth = 0.2, color = "#e9ecef"),
+        panel.grid.major.x = element_line(linewidth = 0.2, color = "#e9ecef"),
+        legend.position = "none") +
+  labs(x = "DiD (Inflammatory score)", y = NULL)
+
+metabolic_contrasts_df %>%
+  ggplot(aes(x = estimate, y = KPMP_celltype_general, color = sig)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "#adb5bd") +
+  geom_point(size = 3, shape = ifelse(metabolic_contrasts_df$sig != "NS", 15, 0)) +
+  geom_errorbarh(aes(xmin = CI_low, xmax = CI_high), height = 0, size = 0.5) +
+  scale_color_manual(values = c("+" = "#ee7674",
+                                "-" = "#89c2d9",
+                                "NS" = "#adb5bd")) +
+  theme_minimal(base_size = 14) +
+  theme(panel.background = element_blank(),
+        panel.grid.major.y =  element_blank(),
+        panel.grid.minor.x = element_line(linewidth = 0.2, color = "#e9ecef"),
+        panel.grid.major.x = element_line(linewidth = 0.2, color = "#e9ecef"),
+        legend.position = "none") +
+  labs(x = "DiD (Metabolic score)", y = NULL)
 ```
 
 ```{r echo = F}
@@ -456,18 +607,7 @@ attempt_so$celltype_general <- case_when(
   attempt_so$celltype %in% c("POD") ~ "POD",
   TRUE ~ "Other - ATL, CNT, DCT, DTL, MC, PEC, lowQ")
 
-attempt_so$KPMP_celltype_general <- case_when(
-  attempt_so$KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT") ~ "PT",
-  attempt_so$KPMP_celltype %in% c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL") ~ "TAL",
-  attempt_so$KPMP_celltype %in% c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC") ~ "PC",
-  attempt_so$KPMP_celltype %in% c("IC-A", "IC-B", "aIC") ~ "IC",
-  attempt_so$KPMP_celltype %in% c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC") ~ "EC",
-  attempt_so$KPMP_celltype %in% c("MAC", "MON", "cDC", "pDC") ~ "Immune (M)",
-  attempt_so$KPMP_celltype %in% c("CD4+ T", "CD8+ T", "B", "NK") ~ "Immune (L)",
-  attempt_so$KPMP_celltype %in% c("VSMC/P", "FIB") ~ "VSMC/P, FIB",
-  attempt_so$KPMP_celltype %in% c("POD") ~ "POD",
-  TRUE ~ "Other"
-)
+
 
 attempt_meta <- attempt_so@meta.data %>%
   mutate(visit_treatment = paste0(visit, " ", treatment))
