@@ -33,6 +33,9 @@ library(openxlsx)
 library(readxl)
 library(knitr)
 library(limma)
+library(gtsummary)
+library(cardx)
+
 
 # Working directory setup
 getwd()
@@ -1019,6 +1022,8 @@ ckm_prog_time1 <- ckm_prog_time1 %>%
 )
 ckm_prog_time1 <- ckm_prog_time1 %>% select(RELEASEID, days_to_first_ckm_prog, CKM_syn_first_progression, CKM_syn_num_first_progression)
 comorb_ckm2 <- full_join(comorb_ckm2, ckm_prog_time1, by = "RELEASEID")
+comorb_ckm2$days_to_first_ckm_prog_nocensor <- ifelse(comorb_ckm2$progress_CKM == 1, comorb_ckm2$days_to_first_ckm_prog, NA)
+comorb_ckm2$years_to_first_ckm_prog_nocensor <- comorb_ckm2$days_to_first_ckm_prog_nocensor / 365.25
 
 # number of progressions
 a <- comorb_ckm2 %>% filter(progress_CKM == 1) %>% select(RELEASEID, progress_CKM)
@@ -1081,7 +1086,7 @@ comorb_ckm2_criteria <- comorb_ckm2_criteria %>%
 
 # collapse to a dataset with 1 row per person with baseline CKM, max CKM, time to progression, number of progressions?
 # this is an oversimplification because people progress, regress, progress
-prog_summary_final <- comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base, CKM_max, progress_CKM, days_to_first_ckm_prog, num_prog, CKM_syn_first_progression, CKM_syn_num_first_progression) %>%
+prog_summary_final <- comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base, CKM_max, progress_CKM, days_to_first_ckm_prog, days_to_first_ckm_prog_nocensor, years_to_first_ckm_prog_nocensor, num_prog, CKM_syn_first_progression, CKM_syn_num_first_progression) %>%
   arrange(RELEASEID, desc(progress_CKM)) %>% filter(row_number() == 1)
 # create character variable corresponding to max stages
 prog_summary_final$CKM_max_char <- case_when(
@@ -1098,6 +1103,7 @@ label(prog_summary_final$CKM_max) <- "Maximum CKM stage"
 label(prog_summary_final$CKM_max_char) <- "Maximum CKM stage"
 label(prog_summary_final$num_prog) <- "Number of progression events"
 label(prog_summary_final$days_to_first_ckm_prog) <- "Days to first progression event"
+label(prog_summary_final$years_to_first_ckm_prog_nocensor) <- "Years to first progression event"
 label(comorb_ckm2_criteria$max_ARRHYTHMIA) <- "ARRHYTHMIA"
 label(comorb_ckm2_criteria$max_clin_cvd) <- "Clinical CVD"
 label(comorb_ckm2_criteria$max_hfpef) <- "HFpEF"
@@ -1116,7 +1122,7 @@ label(comorb_ckm2_criteria$max_HTN) <- "Hypertension"
 label(comorb_ckm2_criteria$max_TGDLP) <- "Hypertriglyceridemia"
 label(comorb_ckm2_criteria$max_high_pwv) <- "Elevated cf-PWV"
 label(comorb_ckm2_criteria$max_high_bnp) <- "Elevated BNP"
-      
+
 # make a descriptive dataset using progression summary data and baseline/comorb info
 prog_summary_final <- left_join(prog_summary_final, comorb, by = "RELEASEID")
 prog_summary_final <- left_join(prog_summary_final, baserisk, by = "RELEASEID") 
@@ -1131,6 +1137,29 @@ cols_to_convert <- c("HTN", "TGDLP", "MIC", "MAC", "GLYC", "tx",
                      "progress_CKM", "DEATH", 
                      "num_prog")
 prog_summary_final[cols_to_convert] <- lapply(prog_summary_final[cols_to_convert], as.factor)
+
+label(prog_summary_final$AGEBASE) <- "Baseline age"
+label(prog_summary_final$sex_char) <- "Sex"
+label(prog_summary_final$racedesc) <- "Race/ethnicity"
+label(prog_summary_final$txdesc) <- "Treatment group"
+label(prog_summary_final$HbA1c) <- "Baseline HbA1c (%)"
+label(prog_summary_final$log_trig) <- "Baseline log(triglycerides) (mg/dL)"
+label(prog_summary_final$sbp) <- "Baseline SBP (mmHg)"
+label(prog_summary_final$dbp) <- "Baseline DBP (mmHg)"
+label(prog_summary_final$uacid) <- "Baseline uric acid (mg/dL)"
+label(prog_summary_final$si_1_ins0) <- "Baseline Si (1/fasting insulin [uU/mL])"
+label(prog_summary_final$UAlbCreat) <- "Baseline UACR"
+label(prog_summary_final$bmi) <- "Baseline BMI (kg/m2)"
+label(prog_summary_final$HDL) <- "Baseline HDL (mg/dL)"
+label(prog_summary_final$codi) <- "Baseline C-peptide oDI (mL/uU * ng/mL per mg/dL)"
+label(prog_summary_final$ALT) <- "Baseline ALT (U/L)"
+label(prog_summary_final$AST) <- "Baseline AST (U/L)"
+label(prog_summary_final$HTN) <- "Hypertension"
+label(prog_summary_final$TGDLP) <- "Hypertriglyceridemia"
+label(prog_summary_final$MIC) <- "Microalbuminuria"
+label(prog_summary_final$MAC) <- "Macroalbuminuria"
+label(prog_summary_final$GLYC) <- "Loss of glycemic control"
+label(prog_summary_final$DEATH) <- "Death"
 
 # write file for other analyses
 filename <- "/CKM/Results/CKM stage summary.csv"
@@ -1226,34 +1255,6 @@ kable(ame_tab)
 kable(ame_pt_tab)
 ```
 
-## CKM stage summary
-
-### Full table
-
-```{r include=F}
-t1data <- prog_summary_final %>% mutate(progress_CKM_char =
-                                          case_when(progress_CKM == 0 ~ "Did not progress",
-                                                    progress_CKM == 1 ~ "Progressed"))
-t1 <- tableby( ~ CKM_syn_base + CKM_max_char + progress_CKM_char + 
-                 num_prog + notest(days_to_first_ckm_prog, "Nmiss", "median", "q1q3"), 
-              data = t1data, total = F)
-```
-
-```{r results='asis'}
-summary(t1,  pfootnote = F)
-```
-
-### Brief table
-
-```{r include=F}
-t1a <- tableby( ~ progress_CKM_char + num_prog + notest(days_to_first_ckm_prog, "Nmiss", "median", "q1q3"), 
-              data = t1data, total = F)
-```
-
-```{r results='asis'}
-summary(t1a,  pfootnote = F)
-```
-
 ## Criteria for CKM stages
 
 ```{r include=F}
@@ -1279,19 +1280,122 @@ summary(t2a,  pfootnote = F)
 
 ## Descriptive statistics by maximum CKM stage
 
+### Full table
+
 ```{r include=F}
-t2 <- tableby(CKM_max_char ~  AGEBASE + sex_char + racedesc + 
-                txdesc + days_to_first_ckm_prog + HTN + TGDLP + MIC + MAC + GLYC + HbA1c +
-                log_trig + sbp + dbp + uacid + si_1_ins0 + UAlbCreat + bmi + HDL + codi + ALT + AST +  DEATH, 
-              data = prog_summary_final, total = F)
+# Complete table with both continuous and binary variables
+t2data <- prog_summary_final %>% dplyr::mutate(age_num = as.numeric(AGEBASE),
+                                               yrs_to_first_ckm_prog = days_to_first_ckm_prog/365.25,
+                                               progress_CKM_char = case_when(progress_CKM == 0 ~ "Did not progress",
+                                                    progress_CKM == 1 ~ "Progressed"))
+label(t2data$yrs_to_first_ckm_prog) <- "Years to first progression event"
+label(t2data$progress_CKM_char) <- "CKM progression"
+
+t2a <- t2data %>%
+  gtsummary::tbl_summary(
+    by = CKM_max_char,
+    missing = "no",
+    include = c(
+      AGEBASE, sex_char, racedesc, bmi, txdesc, HbA1c, log_trig, sbp, dbp, 
+      uacid, si_1_ins0, UAlbCreat, HDL, codi, ALT, AST,
+      HTN, TGDLP, MIC, MAC, GLYC, DEATH, CKM_syn_base, progress_CKM_char, years_to_first_ckm_prog_nocensor, num_prog
+    ),
+    type = list(
+      c(AGEBASE, years_to_first_ckm_prog_nocensor, HbA1c, log_trig, sbp, dbp, 
+        uacid, si_1_ins0, UAlbCreat, bmi, HDL, codi, ALT, AST) ~ "continuous",
+      c(HTN, TGDLP, MIC, MAC, GLYC, DEATH, progress_CKM_char) ~ "dichotomous"
+    ),
+    statistic = list(
+      gtsummary::all_continuous() ~ "{mean} ({sd})",
+      gtsummary::all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      # Continuous variables
+      AGEBASE ~ 1,
+      years_to_first_ckm_prog_nocensor ~ 1,
+      codi ~ 3,
+      c(HbA1c, log_trig, sbp, dbp, uacid, si_1_ins0, UAlbCreat, bmi, HDL) ~ 1,
+      c(ALT, AST) ~ 0,
+      # Binary variables
+      gtsummary::all_categorical() ~ c(0, 1)
+    ),
+    value = list(  # Show only "1" level for binary variables
+      HTN ~ "1",
+      TGDLP ~ "1",
+      MIC ~ "1",
+      MAC ~ "1",
+      GLYC ~ "1",
+      DEATH ~ "1",
+      progress_CKM_char ~ "Progressed"
+    )
+  ) %>%
+  gtsummary::add_p(test = list(gtsummary::all_continuous() ~ "aov",  # or "aov" for ANOVA
+      c(sex_char, HTN, TGDLP, MIC, MAC, GLYC, DEATH) ~ "fisher.test",
+      c(racedesc, txdesc, CKM_syn_base ) ~ "chisq.test"  # Use chi-square instead of Fisher's exact
+  )) %>%
+  gtsummary::modify_header(label ~ "**Characteristic**") %>%
+  gtsummary::bold_labels()
+
 ```
 
-```{r results='asis'}
-summary(t2,  pfootnote = F)
+```{r}
+t2a
+```
+
+### Brief table
+
+```{r include=F, results='hide'}
+t2b <- t2data %>%
+  gtsummary::tbl_summary(
+    by = CKM_max_char,
+    missing = "no",
+    include = c(
+      AGEBASE, sex_char, racedesc, bmi, txdesc, years_to_first_ckm_prog_nocensor, HbA1c, 
+      si_1_ins0, UAlbCreat, 
+      GLYC, DEATH, num_prog
+    ),
+    type = list(
+      c(AGEBASE, years_to_first_ckm_prog_nocensor, HbA1c, 
+        si_1_ins0, UAlbCreat, bmi) ~ "continuous",
+      c(GLYC, DEATH) ~ "dichotomous"
+    ),
+    statistic = list(
+      gtsummary::all_continuous() ~ "{mean} ({sd})",
+      gtsummary::all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      # Continuous variables
+      AGEBASE ~ 1,
+      years_to_first_ckm_prog_nocensor ~ 1,
+      c(HbA1c, UAlbCreat, bmi) ~ 1,
+      c(si_1_ins0) ~ 3,
+      # Binary variables
+      gtsummary::all_categorical() ~ c(0, 1)
+    ),
+    value = list(  # Show only "1" level for binary variables
+      GLYC ~ "1",
+      DEATH ~ "1"
+    )
+  ) %>%
+  gtsummary::add_p(test = list(gtsummary::all_continuous() ~ "aov",  # or "aov" for ANOVA
+      c(sex_char, GLYC, DEATH, num_prog) ~ "fisher.test",
+      c(racedesc, txdesc) ~ "chisq.test"  # Use chi-square instead of Fisher's exact
+  )) %>%
+  gtsummary::modify_header(label ~ "**Characteristic**") %>%
+  gtsummary::bold_labels() %>%
+  as_gt() %>%
+  gt::cols_width(
+    label ~ px(350),
+    stat_1 ~ px(150),  # First group column
+    stat_2 ~ px(150),  # Second group column
+    stat_3 ~ px(150),  # Third group column (adjust based on your groups)
+    p.value ~ px(100)
+  ) 
 ```
 
 ```{r include=F}
 # Sankey diagram for CKM transitions
+# save and incorporate into figures markdown
 df_alluvial <- prog_summary_final %>%
   select(RELEASEID, CKM_syn_base, CKM_max_char) %>%
   mutate(CKM_syn_base = as.factor(CKM_syn_base), CKM_max = as.factor(CKM_max_char))
@@ -1309,6 +1413,10 @@ ggsave(
   filename = 'CKM_sankey.jpg', plot = p_sankey,
   width = 1600, height = 900, units = "px", scale = 2
 )
+```
+
+```{r}
+t2b
 ```
 
 ```{r, include=FALSE}
@@ -1330,21 +1438,39 @@ result_noBMI <- result_noBMI[order(result_noBMI$p.value),]
 ```
 
 ```{r, include=FALSE}
-# Run univariable Cox models for time to first progression with BMI
-# result_BMI <- NULL
-# predictors <- colnames(base_log[seq])
-# for (i in 1:length(predictors)) {
-#   form <- paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM2))~",predictors[i])
-#   mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
-#   tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
-#   tidymod <- tidymod[1,]
-#   result_BMI <- rbind(result_BMI,tidymod)
-# }
-# result_BMI$adj.p.value <- p.adjust(result_BMI$p.value, "fdr")
-# result_BMI$AptName <- result_BMI$term
-# result_BMI$term <- NULL
-# result_BMI <- merge(result_BMI,analytes,by="AptName",all.x = T, all.y = F)
-# result_BMI <- result_BMI[order(result_BMI$p.value),] 
+# Run univariable Cox models for time to first progression for those whose max stage was 3
+result_noBMI_3 <- NULL
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",predictors[i])
+  mod <- coxph(data = prog_summary_final_soma[prog_summary_final_soma$CKM_max == 3,], formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_noBMI_3 <- rbind(result_noBMI_3,tidymod)
+}
+result_noBMI_3$adj.p.value <- p.adjust(result_noBMI_3$p.value, "fdr")
+result_noBMI_3$AptName <- result_noBMI_3$term
+result_noBMI_3$term <- NULL
+result_noBMI_3 <- merge(result_noBMI_3,analytes,by="AptName",all.x = T, all.y = F)
+result_noBMI_3 <- result_noBMI_3[order(result_noBMI_3$p.value),] 
+```
+
+```{r, include=FALSE}
+# Run univariable Cox models for time to first progression for those whose max stage was 4
+result_noBMI_4 <- NULL
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",predictors[i])
+  mod <- coxph(data = prog_summary_final_soma[prog_summary_final_soma$CKM_max == 4,], formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_noBMI_4 <- rbind(result_noBMI_4,tidymod)
+}
+result_noBMI_4$adj.p.value <- p.adjust(result_noBMI_4$p.value, "fdr")
+result_noBMI_4$AptName <- result_noBMI_4$term
+result_noBMI_4$term <- NULL
+result_noBMI_4 <- merge(result_noBMI_4,analytes,by="AptName",all.x = T, all.y = F)
+result_noBMI_4 <- result_noBMI_4[order(result_noBMI_4$p.value),] 
 ```
 
 ```{r, include=FALSE}
@@ -1374,15 +1500,19 @@ result_clinical <- result_clinical %>% select(VarName, estimate, std.error,	stat
 ```{r, include=FALSE}
 # write all results to file
 wb <- createWorkbook()
-addWorksheet(wb,"Time to CKM Proteins")
-writeData(wb,"Time to CKM Proteins",result_noBMI,rowNames = F)
-addWorksheet(wb,"Time to CKM Clinical")
-writeData(wb,"Time to CKM Clinical",result_clinical,rowNames = F)
+addWorksheet(wb,"Proteins all stages")
+writeData(wb,"Proteins all stages",result_noBMI,rowNames = F)
+addWorksheet(wb,"Proteins CKM 3")
+writeData(wb,"Proteins CKM 3",result_noBMI_3,rowNames = F)
+addWorksheet(wb,"Proteins CKM 4")
+writeData(wb,"Proteins CKM 4",result_noBMI_4,rowNames = F)
+addWorksheet(wb,"Clinical all stages")
+writeData(wb,"Clinical all stages",result_clinical,rowNames = F)
 full_path <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline unadjusted.xlsx")
 saveWorkbook(wb, full_path, overwrite = TRUE)
 ```
 
-```{r, include=FALSE}
+```{r, include=FALSE, eval=FALSE}
 # compare change in proteins in those who did and did not progress
 # using limma mixed effects model
 soma_long_log$sample_id <- paste(soma_long_log$RELEASEID, "v", soma_long_log$visit, sep = "")
@@ -1409,7 +1539,7 @@ results_interaction <- merge(results_interaction,analytes,by="AptName",all.x = T
 results_interaction <- results_interaction[order(results_interaction$P.Value),] 
 ```
 
-```{r, include=FALSE}
+```{r, include=FALSE, eval=FALSE}
 # write DiD results to file
 wb <- createWorkbook()
 addWorksheet(wb,"DiD proteins vs CKM progression")
@@ -1418,7 +1548,7 @@ full_path <- file.path(data_path, "CKM/Results/TODAY change in proteins CKM prog
 saveWorkbook(wb, full_path, overwrite = TRUE)
 ```
 
-```{r, include=FALSE}
+```{r, include=FALSE, eval=FALSE}
 # Elastic net Cox models
 
 # filter to top 100 proteins by effect size
@@ -1450,7 +1580,7 @@ source(full_path)
 
 ## Time to CKM
 
-```{r, include=FALSE, comment=""}
+```{r, include=FALSE, comment="", eval=FALSE}
 ckm_without_bmi_endata_nozero <- ckm_without_bmi_endata[!ckm_without_bmi_endata$days_to_first_ckm_prog == 0,]
 seq <- is_seq(names(ckm_without_bmi_endata_nozero))
 
@@ -1472,19 +1602,20 @@ colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 #concordance_df <- as.data.frame(cbind("Severe albuminuria","Proteins",mod$concordance[[6]], mod$concordance[[7]]))
 ```
 
-```{r, include=TRUE, comment=""}
+```{r, include=TRUE, comment="", eval=FALSE}
 kable(moddf, row.names=F)
 ```
 
-There are `r nrow(moddf)` variables in the model.
 
-```{r, include=TRUE, comment=""}
+
+```{r, include=TRUE, comment="", eval=FALSE}
+There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
 ```
 
 ## Model with only age and sex
 
-```{r, include=FALSE, comment=""}
+```{r, include=FALSE, comment="", eval=FALSE}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~sex_char + AGEBASE"))
 mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
 kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
@@ -1498,19 +1629,20 @@ colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 #concordance_df <- rbind(concordance_df, concordance_df_temp)
 ```
 
-```{r, include=TRUE, comment=""}
+```{r, include=TRUE, comment="", eval=FALSE}
 kable(moddf, row.names=F)
 ```
 
-There are `r nrow(moddf)` variables in the model.
 
-```{r, include=TRUE, comment=""}
+
+```{r, include=TRUE, comment="", eval=FALSE}
+There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
 ```
 
 ## Model with age, sex, BMI, HbA1c, SBP
 
-```{r, include=FALSE, comment=""}
+```{r, include=FALSE, comment="", eval=FALSE}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~sex_char + AGEBASE + bmi + HbA1c + sbp"))
 mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
 kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
@@ -1524,19 +1656,20 @@ colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 #concordance_df <- rbind(concordance_df, concordance_df_temp)
 ```
 
-```{r, include=TRUE, comment=""}
+```{r, include=TRUE, comment="", eval=FALSE}
 kable(moddf, row.names=F)
 ```
 
-There are `r nrow(moddf)` variables in the model.
 
-```{r, include=TRUE, comment=""}
+
+```{r, include=TRUE, comment="", eval=FALSE}
+There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
 ```
 
 ## Model with proteins, age, and sex
 
-```{r, include=FALSE, comment=""}
+```{r, include=FALSE, comment="", eval=FALSE}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+"),paste0("+sex_char+AGEBASE")))
 mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
 kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
@@ -1550,19 +1683,20 @@ colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 #concordance_df <- rbind(concordance_df, concordance_df_temp)
 ```
 
-```{r, include=TRUE, comment=""}
+```{r, include=TRUE, comment="", eval=FALSE}
 kable(moddf, row.names=F)
 ```
 
-There are `r nrow(moddf)` variables in the model.
 
-```{r, include=TRUE, comment=""}
+
+```{r, include=TRUE, comment="", eval=FALSE}
+There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
 ```
 
 ## Model with proteins, age, sex, BMI, HbA1c, SBP
 
-```{r, include=FALSE, comment=""}
+```{r, include=FALSE, comment="", eval=FALSE}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+"),paste0("+HbA1c+log_trig+sbp+si_1_ins0+sex_char+bmi+AGEBASE+racedesc")))
 mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
 kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
@@ -1576,12 +1710,13 @@ colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 #concordance_df <- rbind(concordance_df, concordance_df_temp)
 ```
 
-```{r, include=TRUE, comment=""}
+```{r, include=TRUE, comment="", eval=FALSE}
 kable(moddf, row.names=F)
 ```
 
-There are `r nrow(moddf)` variables in the model.
 
-```{r, include=TRUE, comment=""}
+
+```{r, include=TRUE, comment="", eval=FALSE}
+There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
 ```

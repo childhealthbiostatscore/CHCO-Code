@@ -35,6 +35,7 @@ def harmonize_data():
     from panther import clean_panther
     from panda import clean_panda
     from attempt import clean_attempt
+    from rpc2 import clean_rpc2_redcap
     from harmonization_functions import calc_egfr, create_study_id_columns
     # Use individual data functions to import cleaned DFs
     casper = clean_casper()
@@ -47,6 +48,7 @@ def harmonize_data():
     panther = clean_panther()
     panda = clean_panda()
     attempt = clean_attempt()
+    rpc2 = clean_rpc2_redcap()
     # Merge
     harmonized = pd.concat([casper, coffee], join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, crocodile],
@@ -65,13 +67,15 @@ def harmonize_data():
                            join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, attempt],
                            join='outer', ignore_index=True)
+    harmonized = pd.concat([harmonized, rpc2],
+                           join='outer', ignore_index=True)
                            
     # Fix levels of categorical variables
     harmonized["visit"] = \
         pd.Categorical(harmonized["visit"],
                        categories=['screening', 'baseline', 'pre_surgery',
                                    '3_months_post_surgery', '4_months_post', '12_months_post_surgery',
-                                   'year_1', 'year_2', 'year_3', 'year_4'],
+                                   'year_1', 'year_2', 'year_3', 'year_4' ,"phone visit", "Pre-biopsy GFR MRI", "post_biopsy","Post-biopsy GFR MRI","Med Dispense 1", "Med Dispense 2"],
                        ordered=True)
     harmonized["race"].replace(
         ["American Indian or Alaskan Native & White",
@@ -312,7 +316,7 @@ def harmonize_data():
 
     # Sort columns
     id_cols = ["record_id", "casper_id", "coffee_id", "croc_id", "improve_id", 
-                "penguin_id", "rh_id", "rh2_id", "panther_id", "panda_id", "attempt_id",
+                "penguin_id", "rh_id", "rh2_id", "panther_id", "panda_id", "attempt_id", "rpc2_id",
                 "mrn", "co_enroll_id", "study", "dob", "diabetes_dx_date",
                "sex", "race", "ethnicity", "visit", "procedure", "date", "group"]
     other_cols = harmonized.columns.difference(id_cols, sort=False).tolist()
