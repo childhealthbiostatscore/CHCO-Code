@@ -155,6 +155,4 @@ library(CellChat)
 library(speckle)
 # install.packages("doFuture")
 # library(doFuture)
-# remove.packages("nebula")
-# install_github("lhe17/nebula",force=T)
-library(nebula)
+
