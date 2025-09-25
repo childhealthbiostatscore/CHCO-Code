@@ -40,7 +40,7 @@ if (user == "laurapyle") {
 scaleFUN <- function(x) sprintf("%.2f", x)
 
 # Volcano plot
-volcano <- function(data, lab = "Target", xcol = "estimate", ycol = "p.value", zcol = "p.value",
+volcano_old <- function(data, lab = "Target", xcol = "estimate", ycol = "p.value", zcol = "p.value",
                     top = 30, 
                     xlimit = c(-1, 1), ylimit = c(0, -log10(10e-7)),
                     xlabel = "HR", pCutoff = 0.05, overlaps = 30,
@@ -65,6 +65,43 @@ volcano <- function(data, lab = "Target", xcol = "estimate", ycol = "p.value", z
       max.overlaps = overlaps
     ) +
     scale_color_manual(values = c("grey", "#3e6dbf")) +
+    xlab(xlabel) + scale_x_continuous(labels = scaleFUN) +
+    ylab(bquote(~ -Log[10] ~ italic(P))) +
+    theme_bw() +
+    theme(legend.position = "none")
+  return(p)
+}
+
+volcano <- function(data, lab = "Target", xcol = "estimate", ycol = "p.value", zcol = "adj.p.value",
+                    top = 30, 
+                    xlimit = c(-1, 1), ylimit = c(0, -log10(10e-7)),
+                    xlabel = "HR", pCutoff = 0.05, overlaps = 35,
+                    log_t = F) {
+  data <- as.data.frame(data)
+  t <- data[data[, ycol] <= pCutoff, ]
+  if (log_t) {
+    t <- t[order(abs(log(t[, ycol])), decreasing = T), ]
+  } else {
+    t <- t[order(abs(t[, ycol]), decreasing = T), ]
+  }
+  data$top <- data[, "AptName"] %in% t[1:top, "AptName"]
+  #data$top <- data[, "AptName"] %in% t[t$Target %in% top, "AptName"]
+  data$logp <- -log10(data[, ycol])
+  data$fc <- data[, xcol]
+  data <- data %>% mutate(sig = case_when(
+    data[, ycol] >= pCutoff ~ 0,
+    (data[, ycol] < pCutoff) & (data[, zcol] >= pCutoff) ~ 1, 
+    TRUE ~ 2
+  ))
+  data$sig <- as.factor(data$sig)
+  p <- ggplot(data = data, aes(x = fc, y = logp, color = sig)) +
+    geom_hline(yintercept = -log10(pCutoff), linetype = "dashed") +
+    geom_point(size = 2.5) +
+    geom_label_repel(
+      data = data[data$top, ], aes(label = Target), color = "black",
+      max.overlaps = overlaps
+    ) +
+    scale_color_manual(values = c("grey", "#3e6dbf", "coral2")) +
     xlab(xlabel) + scale_x_continuous(labels = scaleFUN) +
     ylab(bquote(~ -Log[10] ~ italic(P))) +
     theme_bw() +
@@ -96,7 +133,7 @@ ckm_proteins_delta <- read_xlsx(full_path, sheet = "DiD proteins vs CKM progress
 
 # Cox models of baseline proteins vs. time to first progression of CKM (all stages)
 
-Nominally significant proteins are colored in blue. Top 30 proteins by p-value are labeled.
+Proteins significant at 5% FDR are colored in coral. Nominally significant proteins are colored in blue. Top 30 proteins by p-value are labeled.
 
 ```{r include = F}
 v <- volcano(ckm_proteins, log_t = T)
@@ -112,7 +149,7 @@ ggsave(
 
 # Cox models of baseline proteins vs. time to first progression of CKM (maximum stage = 3)
 
-Nominally significant proteins are colored in blue. Top 30 proteins by p-value are labeled.
+Proteins significant at 5% FDR are colored in coral. Nominally significant proteins are colored in blue. Top 30 proteins by p-value are labeled.
 
 ```{r include = F}
 v <- volcano(ckm_proteins_3, log_t = T)
@@ -128,7 +165,7 @@ ggsave(
 
 # Cox models of baseline proteins vs. time to first progression of CKM (maximum stage = 4)
 
-Nominally significant proteins are colored in blue. Top 30 proteins by p-value are labeled.
+Proteins significant at 5% FDR are colored in coral. Nominally significant proteins are colored in blue. Top 30 proteins by p-value are labeled.
 
 ```{r include = F}
 v <- volcano(ckm_proteins_4, log_t = T)
@@ -144,7 +181,7 @@ ggsave(
 
 # Mixed-effects models of change in proteins in participants with CKM progression vs. those with no progression
 
-Nominally significant proteins are colored in blue. Top 30 proteins by p-value are labeled.
+Proteins significant at 5% FDR are colored in coral. Nominally significant proteins are colored in blue. Top 30 proteins by p-value are labeled.
 
 ```{r include = F}
 v <- volcano(ckm_proteins_delta, xcol = "logFC", ycol = "P.Value", zcol = "P.Value", log_t = T, xlabel = "logFC")
