@@ -89,8 +89,8 @@ degs_fxn <- function(so,cell,exposure,gene_set,exp_group,ref_group,enrichment,to
   
   #Differential Expression by Group
   if (!is.null(cell)) {
-  Idents(so) <- so$celltype2
-  cell_name <- str_replace_all(cell,"/","_")
+    Idents(so) <- so$celltype2
+    cell_name <- str_replace_all(cell,"/","_")
   }
   # sens_genes <- c(sens_genes,"CDKN1A")
   # de.markers(so, gene_set, "group", id2 = "neither", id1 = "both", "PT", "")
@@ -158,7 +158,7 @@ degs_fxn <- function(so,cell,exposure,gene_set,exp_group,ref_group,enrichment,to
                        boxedLabels = TRUE,
                        max.overlaps=60)
   if (!is.null(cell)){
-  filename <- paste0("DEGs_in_",cell_name,"_cells_for_",condition,".pdf")
+    filename <- paste0("DEGs_in_",cell_name,"_cells_for_",condition,".pdf")
   } else {
     filename <- paste0("Bulk_DEGs_for_",condition,".pdf") 
   }
@@ -231,7 +231,7 @@ degs_fxn <- function(so,cell,exposure,gene_set,exp_group,ref_group,enrichment,to
         plot.title = element_text(size = 14, face = "bold")
       )
     
-  
+    
     if (!is.null(cell)){
       filename <- paste0("GSEA_top_",top_gsea,"_pathways_",cell_name,"_cells_for",condition,".pdf")
     } else {
@@ -245,7 +245,7 @@ degs_fxn <- function(so,cell,exposure,gene_set,exp_group,ref_group,enrichment,to
   #Make sure gene nemaes are in printed file
   deg_results <- m 
   deg_results$Gene <- rownames(deg_results)
-    
+  
   #save results to excel file
   write_multiple_sheets <- function(output_file, sheet_data) {
     # Create a new workbook
@@ -269,21 +269,21 @@ degs_fxn <- function(so,cell,exposure,gene_set,exp_group,ref_group,enrichment,to
   df1 <- deg_results
   
   if (enrichment=="Yes") {
-  df2 <- eaRes
+    df2 <- eaRes
   }
   
   # Specify the file name and data
   if (!is.null(cell)){
-  output_file <- fs::path(dir.results,paste0("Results_",cell_name,"_cells_for_",condition,".xlsx"))  
+    output_file <- fs::path(dir.results,paste0("Results_",cell_name,"_cells_for_",condition,".xlsx"))  
   } else {
-  output_file <- fs::path(dir.results,paste0("Bulk_Results_for_",condition,".xlsx"))
+    output_file <- fs::path(dir.results,paste0("Bulk_Results_for_",condition,".xlsx"))
   }
-
+  
   if (enrichment=="Yes") {
-  sheet_data <- list(
-    "DEG" = df1,
-    "Pathway_Results" = df2
-  )
+    sheet_data <- list(
+      "DEG" = df1,
+      "Pathway_Results" = df2
+    )
   } else {
     sheet_data <- list(
       "DEG" = df1
@@ -420,7 +420,7 @@ degs_fxn_pathway <- function(so,cell,exposure,gene_set,exp_group,ref_group,pathw
   } else {
     title <- paste0(str_to_title(pathway)," Bulk DEGs for ",condition)
   }
-
+  
   # Add a column to classify points based on significance and direction
   m_top$Significance <- ifelse(
     m_top$p_val_adj < 0.05 & m_top$avg_log2FC > 0, "Significant Positive",
@@ -472,7 +472,7 @@ degs_fxn_pathway <- function(so,cell,exposure,gene_set,exp_group,ref_group,pathw
   pdf(fs::path(dir.results,filename),width=10,height=7)
   plot(p2)
   dev.off()
-
+  
   #Make sure gene nemaes are in printed file
   deg_results <- m 
   deg_results$Gene <- rownames(deg_results)
@@ -704,7 +704,7 @@ degs_fxn_sens <- function(so,cell,exposure,gene_set,exp_group,ref_group,enrichme
   # Example usage
   df1 <- deg_results
   if (enrichment=="Yes") {
-  df2 <- eaRes
+    df2 <- eaRes
   } else {
     df2 <- NULL
   }
@@ -1015,7 +1015,7 @@ visualize_function <- function(exposure,cell) {
   }
   draw_venn(up1, up2, up3, down1, down2, down3)
   
- print(paste0("Group 1 = ",group1_title),paste0("Group 2 = ",group2_title),paste0("Group 3 = ",group3_title))
+  print(paste0("Group 1 = ",group1_title),paste0("Group 2 = ",group2_title),paste0("Group 3 = ",group3_title))
 }
 
 ###ii. Bar/Dot plot ----
@@ -1109,62 +1109,62 @@ visualize_cell <- function(exposure,exp_group,ref_group) {
     )
   exposure <- "Treatment"
   # Create the plot
-p <- ggplot(combined_data, aes(x = Cell_Type, y = avg_log2FC)) +
-  # Add the bar chart (range from min to max)
-  #geom_linerange(
-  #  data = range_data,
-  #  aes(x = Cell_Type, ymin = min_log2FC, ymax = max_log2FC),
-  #  color = "lightblue",
-  #  linewidth = 20,
-  #  alpha = 0.5,
-  #  inherit.aes = FALSE  # Disable inheriting global aesthetics
-  #) +
-  geom_rect(
-    data = range_data,
-    aes(
-      xmin = as.numeric(as.factor(Cell_Type)) - 0.4,
-      xmax = as.numeric(as.factor(Cell_Type)) + 0.4,
-      ymin = min_log2FC,
-      ymax = max_log2FC
-    ),
-    fill = "lightblue",
-    color = "black", # Black border
-    alpha = 0.5,
-    inherit.aes = FALSE
-  ) +
-  geom_hline(yintercept = 0, color = "black", linewidth = 0.5)+
-  # Overlay jittered dots
-  geom_jitter(aes(color = sig), width = 0.3, alpha = 0.5, size = 0.3) +
+  p <- ggplot(combined_data, aes(x = Cell_Type, y = avg_log2FC)) +
+    # Add the bar chart (range from min to max)
+    #geom_linerange(
+    #  data = range_data,
+    #  aes(x = Cell_Type, ymin = min_log2FC, ymax = max_log2FC),
+    #  color = "lightblue",
+    #  linewidth = 20,
+    #  alpha = 0.5,
+    #  inherit.aes = FALSE  # Disable inheriting global aesthetics
+    #) +
+    geom_rect(
+      data = range_data,
+      aes(
+        xmin = as.numeric(as.factor(Cell_Type)) - 0.4,
+        xmax = as.numeric(as.factor(Cell_Type)) + 0.4,
+        ymin = min_log2FC,
+        ymax = max_log2FC
+      ),
+      fill = "lightblue",
+      color = "black", # Black border
+      alpha = 0.5,
+      inherit.aes = FALSE
+    ) +
+    geom_hline(yintercept = 0, color = "black", linewidth = 0.5)+
+    # Overlay jittered dots
+    geom_jitter(aes(color = sig), width = 0.3, alpha = 0.5, size = 0.3) +
+    
+    # Custom colors for dots
+    scale_color_manual(values = c("Significant" = "red", "Non-Significant" = "darkblue")) +
+    
+    # Add non-overlapping text labels
+    geom_text_repel(
+      data = top_genes_per_cell_type,
+      aes(label = Gene),
+      color = "black",
+      size = 2,
+      box.padding = 0.35,      # Padding around text boxes
+      point.padding = 0.2,    # Padding around data points
+      segment.color = "gray", # Line color connecting labels to points
+      max.overlaps = 10,       # Allow up to 10 overlaps (adjust as needed)
+      angle = 45 
+    ) +
+    
+    # Adjust theme and labels
+    theme_minimal() +
+    theme_minimal() +
+    labs(
+      title = paste0("Top Senescence Genes by ",exposure," Group (",exp_group," vs. ",ref_group,") by Cell Type"),
+      x = "Cell Type",
+      y = "Average Log2 Fold Change"
+    ) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
   
-  # Custom colors for dots
-  scale_color_manual(values = c("Significant" = "red", "Non-Significant" = "darkblue")) +
-  
-  # Add non-overlapping text labels
-  geom_text_repel(
-    data = top_genes_per_cell_type,
-    aes(label = Gene),
-    color = "black",
-    size = 2,
-    box.padding = 0.35,      # Padding around text boxes
-    point.padding = 0.2,    # Padding around data points
-    segment.color = "gray", # Line color connecting labels to points
-    max.overlaps = 10,       # Allow up to 10 overlaps (adjust as needed)
-    angle = 45 
-  ) +
-  
-  # Adjust theme and labels
-  theme_minimal() +
-  theme_minimal() +
-  labs(
-    title = paste0("Top Senescence Genes by ",exposure," Group (",exp_group," vs. ",ref_group,") by Cell Type"),
-    x = "Cell Type",
-    y = "Average Log2 Fold Change"
-  ) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
-
-pdf(fs::path(dir.results,paste0(exposure,"_",exp_group,"_",ref_group,".pdf")),width=10,height=10)
-plot(p)
-dev.off()
+  pdf(fs::path(dir.results,paste0(exposure,"_",exp_group,"_",ref_group,".pdf")),width=10,height=10)
+  plot(p)
+  dev.off()
 }
 
 #so=so_sens_all
@@ -1180,14 +1180,14 @@ dev.off()
 ##a. All Genes ----
 mast_fxn <- function(so,cell,exposure,covariate,gene_set,batch_size,exp_group,ref_group) {
   DefaultAssay(so) <- "RNA"
-
+  
   #Conidtion names
   if (!is.null(exp_group)) {
-  condition <- paste0(str_to_title(str_replace_all(exposure,"_"," "))," (",exp_group," vs. ",ref_group,")")
+    condition <- paste0(str_to_title(str_replace_all(exposure,"_"," "))," (",exp_group," vs. ",ref_group,")")
   } else {
     condition <- paste0(str_to_title(exposure))
   }
-
+  
   #Filter so to specified cell type
   if (!is.null(cell)){
     so <- subset(so,celltype2==cell)
@@ -1234,7 +1234,7 @@ mast_fxn <- function(so,cell,exposure,covariate,gene_set,batch_size,exp_group,re
     
     #Overall with Hurdle and logFC
     fcHurdle1 <- merge(summary_dt[contrast==exp & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
-                      summary_dt[contrast==exp & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+                       summary_dt[contrast==exp & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
     fcHurdle1[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
     fcHurdle1$component <- "FC_H"
     fcHurdle2 <- merge(summary_dt[contrast==exp & component=='C',.(primerid, `Pr(>Chisq)`)], #hurdle P values
@@ -1260,14 +1260,14 @@ mast_fxn <- function(so,cell,exposure,covariate,gene_set,batch_size,exp_group,re
     combined_results <- rbindlist(list(combined_results, result1), use.names = TRUE, fill = TRUE)
     
   }
-
+  
   # Specify the file name and data
   if (!is.null(cell)){
     output_file <- paste0("Results_",cell_name,"_cells_for_",condition,".xlsx")
   } else {
     output_file <- paste0("Results_for_",condition,".xlsx")
   }
-
+  
   write.csv(combined_results,fs::path(output_file))
   
   # Filter top 10 positive and negative log2FoldChange
@@ -1277,46 +1277,46 @@ mast_fxn <- function(so,cell,exposure,covariate,gene_set,batch_size,exp_group,re
     filter(LogFoldChange>0) %>% 
     arrange(desc(LogFoldChange)) %>%
     dplyr::slice(1:30) 
-    # dplyr::rename(Gene=primerid,
-    #               LogFC=coef)
+  # dplyr::rename(Gene=primerid,
+  #               LogFC=coef)
   
   top_neg <- as.data.frame(combined_results) %>%
     filter(component=="FC_H") %>% 
     filter(fdr<0.05) %>%
     filter(LogFoldChange<0)  %>% 
-      arrange(LogFoldChange) %>%
-      dplyr::slice(1:30) 
-    # dplyr::rename(Gene=primerid,
-    #               LogFC=coef)
+    arrange(LogFoldChange) %>%
+    dplyr::slice(1:30) 
+  # dplyr::rename(Gene=primerid,
+  #               LogFC=coef)
   if(dim(top_pos)[[1]] > 0 | dim(top_neg)[[1]] > 0) {
-  top_pos$Direction <- "Positive"
-  top_neg$Direction <- "Negative"
-  
-  # Combine and prepare for plotting
-  top_genes <- bind_rows(top_pos, top_neg)
-  
-  # Set sorting order: all negative genes first, then all positive genes
-  top_genes <- top_genes %>%
-    mutate(Gene = factor(Gene, levels = Gene[order(Direction, LogFoldChange)]))  # Order by Direction and log2FC
-  
-  # # Bar chart with flipped x and y axes
-  p <- ggplot(top_genes, aes(x = LogFoldChange, y = Gene, fill = Direction)) +
-    geom_bar(stat = "identity") +
-    labs(x = "logFC", y = "Gene",title=paste0(condition,"vs. ",reference," among", cell," cells in youth with Type 2 Diabetes")) +
-    scale_fill_manual(values = c("blue", "red"), labels = c("Lower Expression", "Higher Expression")) +
-    theme_minimal()+
-    theme(element_text(family="Times"))+
-    theme(legend.position="none")
-  
-  if (!is.null(cell)){
-    figure_file<- paste0("MAST_Barchart_",cell_name,"_cells_for_",condition,".pdf")
-  } else {
-    figure_file <- paste0("MAST_Barchart_for_",condition,".pdf")
-  }
-  
-  pdf(fs::path(dir.results,figure_file),width=20,height=20)
-  plot(p)
-  dev.off()
+    top_pos$Direction <- "Positive"
+    top_neg$Direction <- "Negative"
+    
+    # Combine and prepare for plotting
+    top_genes <- bind_rows(top_pos, top_neg)
+    
+    # Set sorting order: all negative genes first, then all positive genes
+    top_genes <- top_genes %>%
+      mutate(Gene = factor(Gene, levels = Gene[order(Direction, LogFoldChange)]))  # Order by Direction and log2FC
+    
+    # # Bar chart with flipped x and y axes
+    p <- ggplot(top_genes, aes(x = LogFoldChange, y = Gene, fill = Direction)) +
+      geom_bar(stat = "identity") +
+      labs(x = "logFC", y = "Gene",title=paste0(condition,"vs. ",reference," among", cell," cells in youth with Type 2 Diabetes")) +
+      scale_fill_manual(values = c("blue", "red"), labels = c("Lower Expression", "Higher Expression")) +
+      theme_minimal()+
+      theme(element_text(family="Times"))+
+      theme(legend.position="none")
+    
+    if (!is.null(cell)){
+      figure_file<- paste0("MAST_Barchart_",cell_name,"_cells_for_",condition,".pdf")
+    } else {
+      figure_file <- paste0("MAST_Barchart_for_",condition,".pdf")
+    }
+    
+    pdf(fs::path(dir.results,figure_file),width=20,height=20)
+    plot(p)
+    dev.off()
   }
 }
 
@@ -1337,62 +1337,62 @@ mast_sens_fxn <- function(so,cell,exposure,covariate,gene_set,exp_group,ref_grou
     DefaultAssay(so) <- "RNA"
   } 
   
-    # Extract the expression data matrix from so (e.g., normalized counts)
-    expression_matrix <- as.matrix(GetAssayData(so, layer = "data"))
-    
-    # Extract metadata
-    cell_metadata <- so@meta.data
-    #cell_metadata[[exposure]] <- factor(cell_metadata[[exposure]])
-    
-    # Create SingleCellAssay object
-    sca <- FromMatrix(exprsArray = expression_matrix, cData = cell_metadata)
-    
-    # Assuming gene_set is a vector of gene names
-    sca_gene_set <- sca[rownames(sca) %in% gene_set, ]
-    
-    #Check for missing data in exposure
-    if (sum(is.na(colData(sca_gene_set)[exposure]))>0) {
-      sca_filtered <- sca_gene_set[, !is.na(colData(sca_gene_set)[exposure])]
-    } else {
-      sca_filtered <- sca_gene_set
-    }
-    #sum(is.na(colData(sca_filtered)[exposure]))
-    
-    #Define the formula
-    model_formula <- as.formula(paste0("~", exposure))
-    exp <- paste0(exposure,exp_group)
-    
-    # Run the linear model with zlm
-    zlm_results <- zlm(formula = model_formula, sca = sca_filtered)
-    
-    # Summarize results and perform likelihood ratio test (LRT) for outcome
-    summary_zlm <- summary(zlm_results, doLRT = exp)
-    
-    # Convert the summary to a data table for easy manipulation
-    summary_dt <- summary_zlm$datatable
-    
-    #Overall with Hurdle and logFC
-    fcHurdle1 <- merge(summary_dt[contrast==exp & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
-                       summary_dt[contrast==exp & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
-    fcHurdle1[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
-    fcHurdle1$component <- "FC_H"
-    fcHurdle2 <- merge(summary_dt[contrast==exp & component=='C',.(primerid, `Pr(>Chisq)`)], #hurdle P values
-                       summary_dt[contrast==exp & component=='C', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
-    fcHurdle2[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
-    fcHurdle2$component <- "C"
-    fcHurdle3 <- merge(summary_dt[contrast==exp & component=='D',.(primerid, `Pr(>Chisq)`)], #hurdle P values
-                       summary_dt[contrast==exp & component=='D', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
-    fcHurdle3[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
-    fcHurdle3$component <- "D"
-    
-    #fcHurdle <- rbind(fcHurdle1,fcHurdle2)
-    #fcHurdle <- rbind(fcHurdle,fcHurdle3)
-    
-    result1 <- fcHurdle1
-    result1 <- result1 %>%
-      filter(fdr<0.05) %>% 
-      dplyr::rename(LogFoldChange=coef) %>% 
-      dplyr::rename(Gene=primerid)
+  # Extract the expression data matrix from so (e.g., normalized counts)
+  expression_matrix <- as.matrix(GetAssayData(so, layer = "data"))
+  
+  # Extract metadata
+  cell_metadata <- so@meta.data
+  #cell_metadata[[exposure]] <- factor(cell_metadata[[exposure]])
+  
+  # Create SingleCellAssay object
+  sca <- FromMatrix(exprsArray = expression_matrix, cData = cell_metadata)
+  
+  # Assuming gene_set is a vector of gene names
+  sca_gene_set <- sca[rownames(sca) %in% gene_set, ]
+  
+  #Check for missing data in exposure
+  if (sum(is.na(colData(sca_gene_set)[exposure]))>0) {
+    sca_filtered <- sca_gene_set[, !is.na(colData(sca_gene_set)[exposure])]
+  } else {
+    sca_filtered <- sca_gene_set
+  }
+  #sum(is.na(colData(sca_filtered)[exposure]))
+  
+  #Define the formula
+  model_formula <- as.formula(paste0("~", exposure))
+  exp <- paste0(exposure,exp_group)
+  
+  # Run the linear model with zlm
+  zlm_results <- zlm(formula = model_formula, sca = sca_filtered)
+  
+  # Summarize results and perform likelihood ratio test (LRT) for outcome
+  summary_zlm <- summary(zlm_results, doLRT = exp)
+  
+  # Convert the summary to a data table for easy manipulation
+  summary_dt <- summary_zlm$datatable
+  
+  #Overall with Hurdle and logFC
+  fcHurdle1 <- merge(summary_dt[contrast==exp & component=='H',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                     summary_dt[contrast==exp & component=='logFC', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+  fcHurdle1[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+  fcHurdle1$component <- "FC_H"
+  fcHurdle2 <- merge(summary_dt[contrast==exp & component=='C',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                     summary_dt[contrast==exp & component=='C', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+  fcHurdle2[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+  fcHurdle2$component <- "C"
+  fcHurdle3 <- merge(summary_dt[contrast==exp & component=='D',.(primerid, `Pr(>Chisq)`)], #hurdle P values
+                     summary_dt[contrast==exp & component=='D', .(primerid, coef, ci.hi, ci.lo)], by='primerid') #logFC coefficients
+  fcHurdle3[,fdr:=p.adjust(`Pr(>Chisq)`, 'fdr')]
+  fcHurdle3$component <- "D"
+  
+  #fcHurdle <- rbind(fcHurdle1,fcHurdle2)
+  #fcHurdle <- rbind(fcHurdle,fcHurdle3)
+  
+  result1 <- fcHurdle1
+  result1 <- result1 %>%
+    filter(fdr<0.05) %>% 
+    dplyr::rename(LogFoldChange=coef) %>% 
+    dplyr::rename(Gene=primerid)
   
   # Specify the file name and data
   if (!is.null(cell)){
@@ -1797,264 +1797,264 @@ ideas_fxn <- function(so, exp_group, ref_group, covariates, var_type, id, method
 # }
 # 
 
-#GSEA Functions ----
-##a. Set up functions ----
-# function for GSEA
-# Set relevant paths
-list.files()
-bg_path <- c(fs::path(dir.dat,"/GSEA/"))
-list.files(bg_path)
-
-# Functions
-## Function: Adjacency matrix to list 
-matrix_to_list <- function(pws){
-  pws.l <- list()
-  for (pw in colnames(pws)) {
-    pws.l[[pw]] <- rownames(pws)[as.logical(pws[, pw])]
-  }
-  return(pws.l)
-}
-
-## Function: prepare_gmt 
-prepare_gmt <- function(gmt_file, genes_in_data, savefile = FALSE){
-  
-  # Read in gmt file
-  gmt <- gmtPathways(gmt_file)
-  hidden <- unique(unlist(gmt))
-  
-  # Convert gmt file to a matrix with the genes as rows and for each go annotation (columns) the values are 0 or 1
-  mat <- matrix(NA, dimnames = list(hidden, names(gmt)),
-                nrow = length(hidden), ncol = length(gmt))
-  for (i in 1:dim(mat)[2]){
-    mat[,i] <- as.numeric(hidden %in% gmt[[i]])
-  }
-  
-  #Subset to the genes that are present in our data to avoid bias
-  hidden1 <- intersect(genes_in_data, hidden)
-  mat <- mat[hidden1, colnames(mat)[which(colSums(mat[hidden1,])>5)]] # filter for gene sets with more than 5 genes annotated
-  # And get the list again
-  final_list <- matrix_to_list(mat) # for this we use the function we previously defined
-  
-  if(savefile){
-    saveRDS(final_list, file = paste0(gsub('.gmt', '', gmt_file), '_subset_', format(Sys.time(), '%d%m'), '.RData'))
-  }
-  
-  print('Wohoo! .gmt conversion successfull!:)')
-  return(final_list)
-}
-
-# List of acronyms to uppercase
-acronyms <- c("rna", "dna", "mtor", "foxo", "ppar", "nmd", "fgfr", "robo", 
-              "bhl", "cov", "jak", "stat", "wnt", "hiv", "bcl", "mapk",
-              "pt", "tal", "pc", "ic", "ec", "fibvsmcp")
-# unique(full_results$Gene))
-special_mixed <- c("rrna", "mrna", "trna", "gtpase", "atpase", "robos", "slits", "fibvsmcp")
-special_replacements <- c("rRNA", "mRNA", "tRNA", "GTPase", "ATPase", "ROBOs", "SLITs", "FIB/VSMC/P")
-
-replace_mixed_case <- function(text, from, to) {
-  for (i in seq_along(from)) {
-    pattern <- paste0("\\b", from[i], "\\b")
-    text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), to[i])
-  }
-  return(text)
-}
-
-capitalize_acronyms <- function(text, terms) {
-  for (term in terms) {
-    pattern <- paste0("\\b", term, "\\b")
-    replacement <- toupper(term)
-    text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), replacement)
-  }
-  return(text)
-}
-
-## b. Fgsea function ----
-plot_fgsea <- function(fgsea_res,
-                       top_n = 30,
-                       title = "Top Enriched Pathways",
-                       xlimit = 3,
-                       xnudge = xlimit/100,
-                       text1 = 6.5,
-                       text2 = 18,
-                       text3 = 20,
-                       face = "plain") {
-  
-  fgsea_res <- fgsea_res %>%
-    arrange(pval) %>%
-    head(top_n) %>%
-    mutate(
-      direction = case_when(NES < 0 ~ "Negative", NES > 0 ~ "Positive"),
-      pathway_clean = str_remove(pathway, "^KEGG_"), 
-      pathway_clean = str_remove(pathway_clean, "^REACTOME_"), 
-      pathway_clean = str_remove(pathway_clean, "^GOBP_"), 
-      pathway_clean = str_remove(pathway_clean, "^GOMF_"), 
-      pathway_clean = str_replace_all(pathway_clean, "_", " "),
-      pathway_clean = str_to_sentence(pathway_clean),
-      pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
-      pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
-      pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
-      pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
-      pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
-      pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
-      pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
-      pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
-      pathway_clean = paste0(pathway_clean, " (", size, ")")
-    ) %>%
-    arrange(pval)
-  
-  fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, fgsea_res$pval)
-  
-  fgsea_res %>%
-    ggplot(aes(x = -log10(pval), y = fct_rev(pathway_clean), label = pathway_clean)) +
-    geom_point(aes(size = abs(NES), color = direction, alpha = 0.8)) +
-    geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-    geom_text(aes(group = pathway_clean, color = direction, fontface = face), 
-              hjust = 0, size = text1, nudge_x = xnudge) +
-    scale_size_binned() +
-    scale_color_manual(values = c("Positive" = "#c75146", "Negative" = "#2c7da0")) +
-    scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
-    scale_y_discrete(expand = expansion(add = 1)) +
-    labs(
-      x = "-log(p-value)",
-      y = "Pathways",
-      color = "Direction",
-      size = "NES",
-      title = title
-    ) +
-    guides(alpha = "none") +
-    theme_bw() +
-    theme(
-      axis.text.y = element_blank(),
-      panel.grid = element_blank(),
-      axis.text.x = element_text(size = text3),
-      axis.title = element_text(size = text3),
-      axis.ticks.y = element_blank(), 
-      legend.position = c(0.9, 0.2),
-      legend.background = element_blank(),
-      legend.box.background = element_rect(color = "black"),
-      legend.title = element_text(size = text2),
-      legend.text = element_text(size = text2),
-      title = element_text(size = text3)
-    )
-}
-##c. Transposed fgsea function ----
-plot_fgsea_transpose <- function(fgsea_res,
-                                 top_n = 30,
-                                 title = "Top Enriched Pathways",
-                                 xlimit = 3,
-                                 xnudge = xlimit/100,
-                                 text1 = 6.5,
-                                 text2 = 18,
-                                 text3 = 20) {
-  
-  fgsea_res <- fgsea_res %>%
-    arrange(pval) %>%
-    head(top_n) %>%
-    mutate(
-      direction = case_when((NES < 0 & pval <= 0.05 ~ "Negative"), 
-                            (NES > 0 & pval <= 0.05 ~ "Positive"),
-                            (NES < 0 & pval > 0.05 ~ "Negative p > 0.05"), 
-                            (NES > 0 & pval > 0.05 ~ "Positive p > 0.05")),
-      face = case_when((NES < 0 & pval <= 0.05 ~ "plain"), 
-                       (NES > 0 & pval <= 0.05 ~ "plain"),
-                       (NES < 0 & pval > 0.05 ~ "plain"), 
-                       (NES > 0 & pval > 0.05 ~ "plain")),
-      pathway_clean = str_remove(pathway, "^KEGG_"), 
-      pathway_clean = str_remove(pathway_clean, "^REACTOME_"), 
-      pathway_clean = str_remove(pathway_clean, "^GOBP_"), 
-      pathway_clean = str_remove(pathway_clean, "^GOMF_"), 
-      pathway_clean = str_replace_all(pathway_clean, "_", " "),
-      pathway_clean = str_to_sentence(pathway_clean),
-      pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
-      pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
-      pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
-      pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
-      pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
-      pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
-      pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
-      pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
-      pathway_clean = paste0(pathway_clean, " (", size, ")")
-    ) %>%
-    arrange(pval)
-  
-  fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, -abs(fgsea_res$NES))
-  
-  fgsea_res %>%
-    ggplot(aes(x = abs(NES), y = fct_rev(pathway_clean), label = pathway_clean)) +
-    geom_point(aes(size = -log10(pval), color = direction, alpha = 0.8)) +
-    # geom_vline(xintercept = 2, linetype = "dashed") +
-    geom_text(aes(group = pathway_clean, color = direction, fontface = face), 
-              hjust = 0, size = text1, nudge_x = xnudge) +
-    scale_size_binned() +
-    scale_color_manual(values = c("Positive" = "#963b32", "Negative" = "#1f566f", 
-                                  "Positive p > 0.05" = "#f1bcb6", "Negative p > 0.05" = "#b3d6e5")) +
-    scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
-    scale_y_discrete(expand = expansion(add = 1)) +
-    labs(
-      x = "NES",
-      y = "Pathways",
-      color = "Direction",
-      size = "-log(p-value)",
-      title = title
-    ) +
-    guides(alpha = "none") +
-    theme_bw() +
-    theme(
-      axis.text.y = element_blank(),
-      panel.grid = element_blank(),
-      axis.text.x = element_text(size = text3),
-      axis.title = element_text(size = text3),
-      axis.ticks.y = element_blank(), 
-      legend.position = c(0.15, 0.5),
-      legend.background = element_blank(),
-      legend.box.background = element_rect(color = "black"),
-      legend.title = element_text(size = text2),
-      legend.text = element_text(size = text2),
-      title = element_text(size = text3)
-    )
-}
-
-#Cell Chat Functions----
-filter_by_celltype_size <- function(seurat_obj, celltype_col = "celltype", min_cells = 50) {
-  # Get celltype 
-  celltypes <- seurat_obj@meta.data[[celltype_col]]
-  
-  # Count
-  cell_counts <- table(celltypes)
-  keep_celltypes <- names(cell_counts[cell_counts >= min_cells])
-  
-  # Subset
-  keep_cells <- rownames(seurat_obj@meta.data)[celltypes %in% keep_celltypes]
-  seurat_obj_filtered <- subset(seurat_obj, cells = keep_cells)
-  
-  return(seurat_obj_filtered)
-}
-
-
-run_cellchat_pipeline <- function(seurat_obj, group_name, group.by = "celltype", assay = "RNA", min_cells = 10) {
-  # future::plan("multisession", workers = n_cores)
-  
-  cellchat <- createCellChat(object = seurat_obj, group.by = group.by, assay = assay)
-  cellchat <- addMeta(cellchat, meta = seurat_obj@meta.data)
-  cellchat <- setIdent(cellchat, ident.use = group.by)
-  
-  CellChatDB <- CellChatDB.human
-  cellchat@DB <- CellChatDB
-  
-  cellchat <- subsetData(cellchat)
-  cellchat <- identifyOverExpressedGenes(cellchat)
-  cellchat <- identifyOverExpressedInteractions(cellchat)
-  cellchat <- computeCommunProb(cellchat, type = "triMean")
-  cellchat <- filterCommunication(cellchat, min.cells = min_cells)
-  cellchat <- computeCommunProbPathway(cellchat)
-  cellchat <- aggregateNet(cellchat)
-  
-  saveRDS(cellchat, file = paste0("cellchat_", group_name, ".rds"))
-  return(cellchat)
-}
-
-
-get_group_size <- function(cellchat_obj) {
-  return(as.numeric(table(cellchat_obj@idents)))
-}
-
+# #GSEA Functions ----
+# ##a. Set up functions ----
+# # function for GSEA
+# # Set relevant paths
+# list.files()
+# bg_path <- c(fs::path(dir.dat,"/GSEA/"))
+# list.files(bg_path)
+# 
+# # Functions
+# ## Function: Adjacency matrix to list 
+# matrix_to_list <- function(pws){
+#   pws.l <- list()
+#   for (pw in colnames(pws)) {
+#     pws.l[[pw]] <- rownames(pws)[as.logical(pws[, pw])]
+#   }
+#   return(pws.l)
+# }
+# 
+# ## Function: prepare_gmt 
+# prepare_gmt <- function(gmt_file, genes_in_data, savefile = FALSE){
+#   
+#   # Read in gmt file
+#   gmt <- gmtPathways(gmt_file)
+#   hidden <- unique(unlist(gmt))
+#   
+#   # Convert gmt file to a matrix with the genes as rows and for each go annotation (columns) the values are 0 or 1
+#   mat <- matrix(NA, dimnames = list(hidden, names(gmt)),
+#                 nrow = length(hidden), ncol = length(gmt))
+#   for (i in 1:dim(mat)[2]){
+#     mat[,i] <- as.numeric(hidden %in% gmt[[i]])
+#   }
+#   
+#   #Subset to the genes that are present in our data to avoid bias
+#   hidden1 <- intersect(genes_in_data, hidden)
+#   mat <- mat[hidden1, colnames(mat)[which(colSums(mat[hidden1,])>5)]] # filter for gene sets with more than 5 genes annotated
+#   # And get the list again
+#   final_list <- matrix_to_list(mat) # for this we use the function we previously defined
+#   
+#   if(savefile){
+#     saveRDS(final_list, file = paste0(gsub('.gmt', '', gmt_file), '_subset_', format(Sys.time(), '%d%m'), '.RData'))
+#   }
+#   
+#   print('Wohoo! .gmt conversion successfull!:)')
+#   return(final_list)
+# }
+# 
+# # List of acronyms to uppercase
+# acronyms <- c("rna", "dna", "mtor", "foxo", "ppar", "nmd", "fgfr", "robo", 
+#               "bhl", "cov", "jak", "stat", "wnt", "hiv", "bcl", "mapk",
+#               "pt", "tal", "pc", "ic", "ec", "fibvsmcp")
+# # unique(full_results$Gene))
+# special_mixed <- c("rrna", "mrna", "trna", "gtpase", "atpase", "robos", "slits", "fibvsmcp")
+# special_replacements <- c("rRNA", "mRNA", "tRNA", "GTPase", "ATPase", "ROBOs", "SLITs", "FIB/VSMC/P")
+# 
+# replace_mixed_case <- function(text, from, to) {
+#   for (i in seq_along(from)) {
+#     pattern <- paste0("\\b", from[i], "\\b")
+#     text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), to[i])
+#   }
+#   return(text)
+# }
+# 
+# capitalize_acronyms <- function(text, terms) {
+#   for (term in terms) {
+#     pattern <- paste0("\\b", term, "\\b")
+#     replacement <- toupper(term)
+#     text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), replacement)
+#   }
+#   return(text)
+# }
+# 
+# ## b. Fgsea function ----
+# plot_fgsea <- function(fgsea_res,
+#                        top_n = 30,
+#                        title = "Top Enriched Pathways",
+#                        xlimit = 3,
+#                        xnudge = xlimit/100,
+#                        text1 = 6.5,
+#                        text2 = 18,
+#                        text3 = 20,
+#                        face = "plain") {
+#   
+#   fgsea_res <- fgsea_res %>%
+#     arrange(pval) %>%
+#     head(top_n) %>%
+#     mutate(
+#       direction = case_when(NES < 0 ~ "Negative", NES > 0 ~ "Positive"),
+#       pathway_clean = str_remove(pathway, "^KEGG_"), 
+#       pathway_clean = str_remove(pathway_clean, "^REACTOME_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOBP_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOMF_"), 
+#       pathway_clean = str_replace_all(pathway_clean, "_", " "),
+#       pathway_clean = str_to_sentence(pathway_clean),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
+#       pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
+#       pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
+#       pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
+#       pathway_clean = paste0(pathway_clean, " (", size, ")")
+#     ) %>%
+#     arrange(pval)
+#   
+#   fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, fgsea_res$pval)
+#   
+#   fgsea_res %>%
+#     ggplot(aes(x = -log10(pval), y = fct_rev(pathway_clean), label = pathway_clean)) +
+#     geom_point(aes(size = abs(NES), color = direction, alpha = 0.8)) +
+#     geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
+#     geom_text(aes(group = pathway_clean, color = direction, fontface = face), 
+#               hjust = 0, size = text1, nudge_x = xnudge) +
+#     scale_size_binned() +
+#     scale_color_manual(values = c("Positive" = "#c75146", "Negative" = "#2c7da0")) +
+#     scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
+#     scale_y_discrete(expand = expansion(add = 1)) +
+#     labs(
+#       x = "-log(p-value)",
+#       y = "Pathways",
+#       color = "Direction",
+#       size = "NES",
+#       title = title
+#     ) +
+#     guides(alpha = "none") +
+#     theme_bw() +
+#     theme(
+#       axis.text.y = element_blank(),
+#       panel.grid = element_blank(),
+#       axis.text.x = element_text(size = text3),
+#       axis.title = element_text(size = text3),
+#       axis.ticks.y = element_blank(), 
+#       legend.position = c(0.9, 0.2),
+#       legend.background = element_blank(),
+#       legend.box.background = element_rect(color = "black"),
+#       legend.title = element_text(size = text2),
+#       legend.text = element_text(size = text2),
+#       title = element_text(size = text3)
+#     )
+# }
+# ##c. Transposed fgsea function ----
+# plot_fgsea_transpose <- function(fgsea_res,
+#                                  top_n = 30,
+#                                  title = "Top Enriched Pathways",
+#                                  xlimit = 3,
+#                                  xnudge = xlimit/100,
+#                                  text1 = 6.5,
+#                                  text2 = 18,
+#                                  text3 = 20) {
+#   
+#   fgsea_res <- fgsea_res %>%
+#     arrange(pval) %>%
+#     head(top_n) %>%
+#     mutate(
+#       direction = case_when((NES < 0 & pval <= 0.05 ~ "Negative"), 
+#                             (NES > 0 & pval <= 0.05 ~ "Positive"),
+#                             (NES < 0 & pval > 0.05 ~ "Negative p > 0.05"), 
+#                             (NES > 0 & pval > 0.05 ~ "Positive p > 0.05")),
+#       face = case_when((NES < 0 & pval <= 0.05 ~ "plain"), 
+#                        (NES > 0 & pval <= 0.05 ~ "plain"),
+#                        (NES < 0 & pval > 0.05 ~ "plain"), 
+#                        (NES > 0 & pval > 0.05 ~ "plain")),
+#       pathway_clean = str_remove(pathway, "^KEGG_"), 
+#       pathway_clean = str_remove(pathway_clean, "^REACTOME_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOBP_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOMF_"), 
+#       pathway_clean = str_replace_all(pathway_clean, "_", " "),
+#       pathway_clean = str_to_sentence(pathway_clean),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
+#       pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
+#       pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
+#       pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
+#       pathway_clean = paste0(pathway_clean, " (", size, ")")
+#     ) %>%
+#     arrange(pval)
+#   
+#   fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, -abs(fgsea_res$NES))
+#   
+#   fgsea_res %>%
+#     ggplot(aes(x = abs(NES), y = fct_rev(pathway_clean), label = pathway_clean)) +
+#     geom_point(aes(size = -log10(pval), color = direction, alpha = 0.8)) +
+#     # geom_vline(xintercept = 2, linetype = "dashed") +
+#     geom_text(aes(group = pathway_clean, color = direction, fontface = face), 
+#               hjust = 0, size = text1, nudge_x = xnudge) +
+#     scale_size_binned() +
+#     scale_color_manual(values = c("Positive" = "#963b32", "Negative" = "#1f566f", 
+#                                   "Positive p > 0.05" = "#f1bcb6", "Negative p > 0.05" = "#b3d6e5")) +
+#     scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
+#     scale_y_discrete(expand = expansion(add = 1)) +
+#     labs(
+#       x = "NES",
+#       y = "Pathways",
+#       color = "Direction",
+#       size = "-log(p-value)",
+#       title = title
+#     ) +
+#     guides(alpha = "none") +
+#     theme_bw() +
+#     theme(
+#       axis.text.y = element_blank(),
+#       panel.grid = element_blank(),
+#       axis.text.x = element_text(size = text3),
+#       axis.title = element_text(size = text3),
+#       axis.ticks.y = element_blank(), 
+#       legend.position = c(0.15, 0.5),
+#       legend.background = element_blank(),
+#       legend.box.background = element_rect(color = "black"),
+#       legend.title = element_text(size = text2),
+#       legend.text = element_text(size = text2),
+#       title = element_text(size = text3)
+#     )
+# }
+# 
+# #Cell Chat Functions----
+# filter_by_celltype_size <- function(seurat_obj, celltype_col = "celltype", min_cells = 50) {
+#   # Get celltype 
+#   celltypes <- seurat_obj@meta.data[[celltype_col]]
+#   
+#   # Count
+#   cell_counts <- table(celltypes)
+#   keep_celltypes <- names(cell_counts[cell_counts >= min_cells])
+#   
+#   # Subset
+#   keep_cells <- rownames(seurat_obj@meta.data)[celltypes %in% keep_celltypes]
+#   seurat_obj_filtered <- subset(seurat_obj, cells = keep_cells)
+#   
+#   return(seurat_obj_filtered)
+# }
+# 
+# 
+# run_cellchat_pipeline <- function(seurat_obj, group_name, group.by = "celltype", assay = "RNA", min_cells = 10) {
+#   # future::plan("multisession", workers = n_cores)
+#   
+#   cellchat <- createCellChat(object = seurat_obj, group.by = group.by, assay = assay)
+#   cellchat <- addMeta(cellchat, meta = seurat_obj@meta.data)
+#   cellchat <- setIdent(cellchat, ident.use = group.by)
+#   
+#   CellChatDB <- CellChatDB.human
+#   cellchat@DB <- CellChatDB
+#   
+#   cellchat <- subsetData(cellchat)
+#   cellchat <- identifyOverExpressedGenes(cellchat)
+#   cellchat <- identifyOverExpressedInteractions(cellchat)
+#   cellchat <- computeCommunProb(cellchat, type = "triMean")
+#   cellchat <- filterCommunication(cellchat, min.cells = min_cells)
+#   cellchat <- computeCommunProbPathway(cellchat)
+#   cellchat <- aggregateNet(cellchat)
+#   
+#   saveRDS(cellchat, file = paste0("cellchat_", group_name, ".rds"))
+#   return(cellchat)
+# }
+# 
+# 
+# get_group_size <- function(cellchat_obj) {
+#   return(as.numeric(table(cellchat_obj@idents)))
+# }
+# 
