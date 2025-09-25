@@ -39,7 +39,7 @@ source("Lambda_Liver_Functions.R")
 
 # 2. Load Data, Pre-Processing & Qualtiy Control
 ```{r, Cyberduck setup}
-install.packages("reticulate")
+# install.packages("reticulate")
 library(reticulate)
 reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
 ## Load boto3 and pandas
@@ -47,7 +47,7 @@ boto3 <- reticulate::import("boto3")
 pd <- reticulate::import("pandas")
 
 ## Create an S3 client
-install.packages("jsonlite")  # Install if not already installed
+# install.packages("jsonlite")  # Install if not already installed
 library(jsonlite)  # Load the package
 
 keys <- fromJSON("/home/hhampson/keys.json") # replace with your Lambda username
@@ -16335,7 +16335,6 @@ plot(volcano_plot_ast)
 ```
 
 #b. TEEN-LABs
-###i. Unadjusted
 ```{r}
 #Proteomics teen labs 
 # load(fs::path(dir.dat,"Teen Labs","Data_Cleaned","analysis_dataset.RData"))
@@ -16343,7 +16342,14 @@ gc()
 bucket <- "harmonized.dataset" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
 s3$download_file(bucket, "analyte_info.rds", temp_file)
-df <- (temp_file)
+analyte_info <- readRDS(temp_file)
+gc()
+
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "df.rds", temp_file)
+df <- readRDS(temp_file)
 gc()
 
 #Remove na values for visit
@@ -16362,7 +16368,8 @@ key <- analyte_info %>%
 
 #Gene Proteins
 genes <- rownames(so_liver_sn)
-gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)] #3770 proteins
+gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)] #7112 proteins
+length(gene_proteins) #7112
 # prot <- df[c("ID","visit",gene_proteins)]
 # protein <- colnames(prot)[-c(1,2)] #3770
 # prot_baseline <- prot %>% 
@@ -16383,42 +16390,45 @@ gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)] #3770 prote
 
 #Merge alt and protein data togeth
 df <- df %>% 
-  dplyr::select(c("ID","visit","SEX","ETHN","bmi","HBA1C","NAFLD0","NAFLD1",
+  dplyr::select(c("ID","visit","age","SEX","ETHN","bmi","HBA1C","NAFLD0","NAFLD1",
                   "NAFLD2","NAFLD3","NAFLD4","NAFLD5","NAFLD6","ALT","AST",all_of(gene_proteins)))
 
 
-# Scatter plot with individual trajectories
-p3 <- ggplot(df, aes(x = seq.10001.7, y = ALT)) +
-  geom_point(aes(color = factor(visit)), alpha = 0.6) +
-  geom_path(aes(group = ID), alpha = 0.2) +
-  geom_smooth(method = "lm", color = "black", linewidth= 0.5,se=F) +
-  scale_color_viridis_d(name = "Time") +
-  theme_minimal() +
-  labs(title = "ALT vs Protein Levels",
-       subtitle = "Lines connect same subject over time",
-       x = "Protein Level",
-       y = "ALT Level") +
-  theme(plot.title = element_text(face = "bold"))
+# # Scatter plot with individual trajectories
+# p3 <- ggplot(df, aes(x = seq.10001.7, y = ALT)) +
+#   geom_point(aes(color = factor(visit)), alpha = 0.6) +
+#   geom_path(aes(group = ID), alpha = 0.2) +
+#   geom_smooth(method = "lm", color = "black", linewidth= 0.5,se=F) +
+#   scale_color_viridis_d(name = "Time") +
+#   theme_minimal() +
+#   labs(title = "ALT vs Protein Levels",
+#        subtitle = "Lines connect same subject over time",
+#        x = "Protein Level",
+#        y = "ALT Level") +
+#   theme(plot.title = element_text(face = "bold"))
+# 
+# print(p3)
+# 
+# # # Basic spaghetti plot
+# ggplot(df, aes(x = visit, y = ALT, group = ID)) +
+#   geom_line(alpha = 0.5, aes(color=ID)) +
+#   geom_point(alpha = 0.5, size = 1.5,color="gray40") +
+#   labs(title = "ALT Values Over Time by Individual",
+#        x = "Visit",
+#        y = "ALT") +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-print(p3)
-
-# # Basic spaghetti plot
-ggplot(df, aes(x = visit, y = ALT, group = ID)) +
-  geom_line(alpha = 0.5, aes(color=ID)) +
-  geom_point(alpha = 0.5, size = 1.5,color="gray40") +
-  labs(title = "ALT Values Over Time by Individual",
-       x = "Visit",
-       y = "ALT") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-library(lme4)
-library(lmerTest)
+# library(lme4)
+# library(lmerTest)
 
 # First, ensure time is numeric for random slopes
 # Convert visit to numeric (assuming ordered visits)
 df$time_numeric <- as.numeric(factor(df$visit)) - 1  # Start at 0 for baseline
 
+```
+###i. Unadjusted
+```{r}
 # Model with random intercept for time
 alt_results <- data.frame()
 for (protein in gene_proteins) {
@@ -16993,30 +17003,6 @@ volcano_plot <- ggplot(results_ratio, aes(x = LogHR, y = PValue10, color = color
 ```
 ###iii. FDR<0.1
 ```{r}
-#Proteomics teen labs 
-load(fs::path(dir.dat,"Teen Labs","Data_Cleaned","analysis_dataset.RData"))
-#Remove na values for visit
-df <- df %>% 
-  filter(!is.na(visit))
-
-#Protein key
-key <- analyte_info %>% 
-  dplyr::select(all_of(c("AptName","SeqId","EntrezGeneSymbol")))
-
-#Gene Proteins
-genes <- rownames(so_liver_sn)
-gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)] #3770 proteins
-
-
-#Merge alt and protein data togeth
-df <- df %>% 
-  dplyr::select(c("ID","visit","age","SEX","ETHN","bmi","HBA1C","NAFLD0","NAFLD1",
-                  "NAFLD2","NAFLD3","NAFLD4","NAFLD5","NAFLD6","ALT","AST",all_of(gene_proteins)))
-
-# First, ensure time is numeric for random slopes
-# Convert visit to numeric (assuming ordered visits)
-df$time_numeric <- as.numeric(factor(df$visit)) - 1  # Start at 0 for baseline
-
 # Model with random intercept for time
 alt_results <- data.frame()
 for (protein in gene_proteins) {
@@ -17130,7 +17116,9 @@ key <- key %>%
 alt_results <- tidylog::left_join(alt_results,key,by="Protein")
 alt_results <- alt_results %>%
   dplyr::rename(Gene=EntrezGeneSymbol)
-write.csv(alt_results,fs::path(dir.results,"TeenLABS_ALT_Adj_Results_Proteomics_FDR_01.csv"))
+# write.csv(alt_results,fs::path(dir.results,"TeenLABS_ALT_Adj_Results_Proteomics_FDR_01.csv"))
+write.csv(alt_results,"/home/hhampson/Results/TeenLABS_ALT_Adj_Results_Proteomics_FDR_01.csv")
+
 
 alt_results$color <- ifelse(alt_results$fdr<0.1 & alt_results$Beta > 0, "#990000",
                             ifelse(alt_results$fdr<0.1 & alt_results$Beta < 0, "#003366", "lightgray"))
@@ -17311,7 +17299,7 @@ ast_results <- ast_results %>%
 ast_results <- tidylog::left_join(ast_results,key,by="Protein")
 ast_results <- ast_results %>%
   dplyr::rename(Gene=EntrezGeneSymbol)
-write.csv(alt_results,fs::path(dir.results,"TeenLABS_AST_Adj_Results_Proteomics_FDR_01.csv"))
+# write.csv(ast_results,"/home/hhampson/Results/TeenLABS_AST_Adj_Results_Proteomics_FDR_01.csv")
 
 # Identify significant points (fdr<0.1)
 # significant_df <- ast_results[ast_results$fdr<0.1, ]
@@ -17376,7 +17364,7 @@ volcano_plot <- ggplot(ast_results, aes(x = Beta, y = -log10(fdr), color = color
 volcano_plot
 
 # volcano_plot_ast
-png(fs::path(dir.results,"AST_Proteins_TeenLabs_Adjusted_FDR_01.png"), width = 2200, height = 2000,res=300)
+png("/home/hhampson/Results/AST_Proteins_TeenLabs_Adjusted_FDR_01.png", width = 2200, height = 2000,res=300)
 print(volcano_plot)
 dev.off()
 # write.csv(ast_results,fs::path(dir.results,"AST_Proteins_Teenlabs.csv"))

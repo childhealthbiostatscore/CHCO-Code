@@ -1462,7 +1462,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
          }) +
     scale_size_continuous(range = c(1, 1.3)) + 
     scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
-    theme_minimal() +
+    # theme_minimal() +
     guides(color = "none", size = "none")  +
     annotate("segment", 
              x=max_fc/8, 
@@ -1497,10 +1497,12 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
           plot.margin = margin(t = 10, r = 20, b = 25, l = 20),
           axis.title.x = element_text(margin = margin(t = x_title_padding_t)),
           plot.caption = element_text(size = caption_size, hjust = 0.5, margin = margin(t = caption_padding)),
-          legend.margin = margin(t = 5, b = 5))
+          legend.margin = margin(t = 5, b = 5),
+          panel.background = element_blank(),
+          legend.background = element_blank())
   
   if (!is.null(output_base_path)) {
-    ggsave(paste0(output_base_path, file_suffix, ".png"), plot = p, width = 7, height = 5)
+    ggsave(paste0(output_base_path, file_suffix, ".png"), bg = "transparent", plot = p, width = 7, height = 5)
   }
   return(p)
 }
@@ -2122,6 +2124,11 @@ create_gene_expression_plots <- function(main_results,
   require(tidyverse)
   require(ggtext)
   require(patchwork)
+  theme_transparent <- theme(
+    plot.background   = element_rect(fill = "transparent", color = NA),
+    panel.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA)
+  )
   
   main_results <- main_results %>%
     filter(abs(!!sym(logfc_col)) < 10)
@@ -2204,7 +2211,7 @@ create_gene_expression_plots <- function(main_results,
   )
   
   # Create dot plot
-  dot_plot <- create_dot_plot(combined_plot_dat, x_colors, text_size = dot_text_size)
+  dot_plot <- create_dot_plot(combined_plot_dat, x_colors, text_size = dot_text_size)  + theme_transparent
   
   # Get main logFC values for the selected genes
   main_logfc_values <- main_results %>%
@@ -2221,7 +2228,7 @@ create_gene_expression_plots <- function(main_results,
   )
   
   # Create bar plot
-  bar_plot <- create_bar_plot(consistency_scores)
+  bar_plot <- create_bar_plot(consistency_scores) + theme_transparent
   
   # Create volcano plot
   volcano_plot <- NULL
@@ -2248,7 +2255,7 @@ create_gene_expression_plots <- function(main_results,
       genes_to_label = volcano_genes,  # All selected significant genes
       volcano_force = volcano_force,
       volcano_box_padding = volcano_box_padding
-    )
+    )  + theme_transparent
   }
   
   # Create heatmap with only significant genes
@@ -2266,11 +2273,12 @@ BCD"
     combined_plot <- bar_plot + dot_plot + volcano_plot + heatmap_plot + 
       plot_layout(design = design,
                   widths  = c(1, 1,  0.1),
-                  heights = c(0.25, 1, 0.5))
+                  heights = c(0.25, 1, 0.5)) &
+      theme(plot.background = element_rect(fill = "transparent", color = NA))
     
     if (save_plots) {
       output_path <- file.path(output_dir, paste0(output_prefix, "_subtypes_nebula_scores_volcano_heat.png"))
-      ggsave(output_path, width = 20, height = 10, plot = combined_plot)
+      ggsave(output_path, width = 20, height = 10, plot = combined_plot, bg = "transparent")
     }
   }
   
@@ -3087,7 +3095,7 @@ plot_slingshot_trajectory <- function(sce_sl,
     geom_point(alpha = 0.3, size = 1) +
     geom_path(data = curve_df, aes(x = PC1, y = PC2), 
               color = "black", size = 1.2, inherit.aes = FALSE) +
-    theme_bw() + 
+    # theme_bw() + 
     theme(panel.grid = element_blank()) + 
     labs(color = NULL, title = title) +
     scale_color_manual(values = custom_colors)
