@@ -281,7 +281,7 @@ run_ancova <- function(data, outcome_var, baseline_var, visit_week) {
   
   ancova_results <- data_filtered %>%
     nest_by(visit) %>%
-   dplyr::mutate(
+    dplyr::mutate(
       model = list(lm(!!outcome_sym ~ treatment + !!baseline_sym, data = data_filtered)),
       tidy_results = list(broom::tidy(model)),
       glance_results = list(broom::glance(model)),
@@ -554,13 +554,13 @@ process_nebula_results <- function(nebula_list,
   # Combine model summary results
   summary_df <- purrr::map_dfr(converged_genes, function(gene_name) {
     nebula_list[[gene_name]]$summary %>%
-     dplyr::mutate(Gene = gene_name)
+      dplyr::mutate(Gene = gene_name)
   })
   
   # Add FDR adjustment
   if (pval_col %in% names(summary_df)) {
     summary_df <- summary_df %>%
-     dplyr::mutate(fdr = p.adjust(.data[[pval_col]], method = "fdr"))
+      dplyr::mutate(fdr = p.adjust(.data[[pval_col]], method = "fdr"))
   } else {
     warning(paste("Column", pval_col, "not found in summary data. FDR not computed."))
     summary_df$fdr <- NA
@@ -585,14 +585,14 @@ process_nebula_results <- function(nebula_list,
 # ===========================================================================
 
 process_nebula_results_clin <- function(cell_type, clinical_var, cell_subtype,
-                                   bucket = "attempt", region = "",
-                                   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/") {
+                                        bucket = "attempt", region = "",
+                                        output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/") {
   
   # Construct file path
   clean_subtype <- paste(
     gsub("[/\\-]", "_",                      # replace / and - with _
-           gsub("\\+", "",                   # remove +
-                gsub("\\s+", "_", cell_subtype) # replace spaces with _
+         gsub("\\+", "",                   # remove +
+              gsub("\\s+", "_", cell_subtype) # replace spaces with _
          )
     ),
     collapse = "_"
@@ -626,7 +626,7 @@ process_nebula_results_clin <- function(cell_type, clinical_var, cell_subtype,
       df <- nebula_res[[gene_name]]$summary
       df <- df %>% 
         filter(gene_name %in% converged_genes$Gene) %>%
-       dplyr::mutate(Gene = gene_name)
+        dplyr::mutate(Gene = gene_name)
       return(df)
     }
   )
@@ -637,7 +637,7 @@ process_nebula_results_clin <- function(cell_type, clinical_var, cell_subtype,
   
   res_combined <- res_combined %>%
     ungroup() %>%
-   dplyr::mutate(fdr_interaction = p.adjust(!!sym(p_col), method = "fdr"))
+    dplyr::mutate(fdr_interaction = p.adjust(!!sym(p_col), method = "fdr"))
   
   # Extract overdispersion information
   res_combined_disp <- map_dfr(
@@ -652,7 +652,7 @@ process_nebula_results_clin <- function(cell_type, clinical_var, cell_subtype,
   # Add treatment direction columns if the data contains treatment interaction terms
   if ("p_treatmentDapagliflozin:visitPOST" %in% names(res_combined)) {
     res_combined <- res_combined %>%
-     dplyr::mutate(
+      dplyr::mutate(
         treatment_direction = case_when(
           `p_treatmentDapagliflozin:visitPOST` < 0.05 &
             `logFC_treatmentDapagliflozin:visitPOST` > 0 ~ "Positive",
@@ -838,7 +838,7 @@ plot_delta_by_category <- function(data,
   # Step 1: Prepare raw data
   summary_df <- data %>%
     group_by(.data[[id_var]]) %>%
-   dplyr::mutate(
+    dplyr::mutate(
       baseline_value = .data[[value_var]][.data[[visit_var]] == visit_baseline],
       baseline_x_value = .data[[as_string(x_sym)]][.data[[visit_var]] == visit_baseline],
       pre_value = .data[[value_var]][.data[[visit_var]] == visit_pre],
@@ -876,12 +876,12 @@ plot_delta_by_category <- function(data,
   # Step 3: Summary for bars
   plot_df <- summary_df %>%
     group_by(.data[[bin_var_name]], .data[[treatment_var]]) %>%
-   dplyr::summarise(
+    dplyr::summarise(
       mean_delta = mean(delta_value, na.rm = TRUE),
       se = sd(delta_value, na.rm = TRUE) / sqrt(n()),
       .groups = "drop"
     ) %>%
-   dplyr::mutate(
+    dplyr::mutate(
       ci_lower = mean_delta - 1.96 * se,
       ci_upper = mean_delta + 1.96 * se
     )
@@ -890,11 +890,11 @@ plot_delta_by_category <- function(data,
   # Step 4: Paired t-test per bin × treatment
   sig_df <- summary_df %>%
     group_by(.data[[bin_var_name]], .data[[treatment_var]]) %>%
-   dplyr::summarise(
+    dplyr::summarise(
       p_val = tryCatch(t.test(post_value, pre_value, paired = TRUE)$p.value, error = function(e) NA_real_),
       .groups = "drop"
     ) %>%
-   dplyr::mutate(
+    dplyr::mutate(
       stars = case_when(
         is.na(p_val) ~ "",
         p_val < 0.001 ~ "***",
@@ -906,7 +906,7 @@ plot_delta_by_category <- function(data,
   
   plot_df <- plot_df %>%
     left_join(sig_df, by = c(bin_var_name, treatment_var)) %>%
-   dplyr::mutate(y_position = ifelse(ci_upper > 0, ci_upper + 0.5, 0.5)) 
+    dplyr::mutate(y_position = ifelse(ci_upper > 0, ci_upper + 0.5, 0.5)) 
   
   # Adding DiD bars
   # Ensure treatment factor levels (matches function's colors)
@@ -928,7 +928,7 @@ plot_delta_by_category <- function(data,
   
   # Convert to dataframe and add CI + stars
   bin_contrasts_df <- as.data.frame(bin_contrasts) %>%
-   dplyr::mutate(
+    dplyr::mutate(
       ci_lower = estimate - 1.96 * SE,
       ci_upper = estimate + 1.96 * SE,
       stars = case_when(
@@ -1039,17 +1039,17 @@ make_comp_plot <- function(attempt_df,
   df_attempt <- attempt_df %>%
     dplyr::rename(p_fdr = fdr,
                   FC    = FC) %>%
-   dplyr::mutate(direction = case_when(p_fdr < attempt_p_cut & FC < 0 ~ "-",
-                                 p_fdr < attempt_p_cut & FC > 0 ~ "+"),
-           source = "ATTEMPT") %>%
+    dplyr::mutate(direction = case_when(p_fdr < attempt_p_cut & FC < 0 ~ "-",
+                                        p_fdr < attempt_p_cut & FC > 0 ~ "+"),
+                  source = "ATTEMPT") %>%
     dplyr::select(Gene, direction, p_fdr, source, FC)
   
   df_croc <- croc_df %>%
     dplyr::rename(p_fdr = p_groupType_1_Diabetes,
                   FC    = logFC_groupType_1_Diabetes) %>%
-   dplyr::mutate(direction = case_when(p_fdr < croc_p_cut & FC < 0 ~ "-",
-                                 p_fdr < croc_p_cut & FC > 0 ~ "+"),
-           source = "CROCODILE") %>%
+    dplyr::mutate(direction = case_when(p_fdr < croc_p_cut & FC < 0 ~ "-",
+                                        p_fdr < croc_p_cut & FC > 0 ~ "+"),
+                  source = "CROCODILE") %>%
     dplyr::select(Gene, direction, p_fdr, source, FC)
   
   pt_comp_df <- bind_rows(df_attempt, df_croc) %>%
@@ -1061,16 +1061,16 @@ make_comp_plot <- function(attempt_df,
     pivot_wider(names_from  = source,
                 values_from = direction) %>%
     filter(!is.na(ATTEMPT) & !is.na(CROCODILE)) %>%
-   dplyr::mutate(effect = case_when(
+    dplyr::mutate(effect = case_when(
       (ATTEMPT == "+" & CROCODILE == "+") | 
         (ATTEMPT == "-" & CROCODILE == "-") ~ "Inconsistent",
       ATTEMPT == "+" & CROCODILE == "-" ~ "Reversed towards +\n(T1D depleted)",
       ATTEMPT == "-" & CROCODILE == "+" ~ "Reversed towards -\n(T1D elevated)"
     )) %>%
-   dplyr::mutate(effect = factor(effect,
-                           levels = c("Inconsistent",
-                                      "Reversed towards +\n(T1D depleted)",
-                                      "Reversed towards -\n(T1D elevated)")))
+    dplyr::mutate(effect = factor(effect,
+                                  levels = c("Inconsistent",
+                                             "Reversed towards +\n(T1D depleted)",
+                                             "Reversed towards -\n(T1D elevated)")))
   
   ## Count inconsistent genes for caption
   n_inconsistent <- sum(pt_comp_df_wide$effect == "Inconsistent", na.rm = TRUE)
@@ -1080,7 +1080,7 @@ make_comp_plot <- function(attempt_df,
   if (!is.null(csv_path)) {
     inconsistent_genes <- pt_comp_df_wide %>%
       filter(effect == "Inconsistent") %>%
-     dplyr::mutate(consistency_type = case_when(
+      dplyr::mutate(consistency_type = case_when(
         ATTEMPT == "+" & CROCODILE == "+" ~ "Both_upregulated",
         ATTEMPT == "-" & CROCODILE == "-" ~ "Both_downregulated"
       )) %>%
@@ -1129,7 +1129,7 @@ make_comp_plot <- function(attempt_df,
   
   pt_gene_color_df <- pt_comp_df_wide %>%
     filter(str_detect(effect, "Reversed")) %>%
-   dplyr::mutate(Gene_label = ifelse(
+    dplyr::mutate(Gene_label = ifelse(
       str_detect(effect, "depleted"),
       paste0("<span style='color:", reversed_cols[1], "'>", Gene, "</span>"),
       paste0("<span style='color:", reversed_cols[2], "'>", Gene, "</span>")
@@ -1141,9 +1141,9 @@ make_comp_plot <- function(attempt_df,
     pt_comp_dot <- pt_comp_df %>%
       left_join(pt_gene_color_df, by = "Gene") %>%
       filter(Gene %in% pt_gene_color_df$Gene) %>%
-     dplyr::mutate(group = ifelse(source == "ATTEMPT",
-                            "Dapa vs. Placebo", "T1D vs. HC"),
-             Gene_label = dplyr::coalesce(Gene_label, Gene)) %>%
+      dplyr::mutate(group = ifelse(source == "ATTEMPT",
+                                   "Dapa vs. Placebo", "T1D vs. HC"),
+                    Gene_label = dplyr::coalesce(Gene_label, Gene)) %>%
       ggplot(aes(x = group, y = Gene_label,
                  color = direction, size = abs(FC))) +
       geom_point() +
@@ -1183,11 +1183,11 @@ make_plot_df <- function(res_df, celltype_label, pos_genes, neg_genes) {
                   logFC = `logFC_treatmentDapagliflozin:visitPOST`, 
                   pval = `p_treatmentDapagliflozin:visitPOST`, 
                   fdr = fdr) %>%
-   dplyr::mutate(celltype = celltype_label,
-           direction = case_when(
-             logFC > 0 ~ "+",
-             logFC < 0 ~ "-"
-           )) %>%
+    dplyr::mutate(celltype = celltype_label,
+                  direction = case_when(
+                    logFC > 0 ~ "+",
+                    logFC < 0 ~ "-"
+                  )) %>%
     filter(Gene %in% c(pos_genes, neg_genes))
 }
 
@@ -1228,12 +1228,12 @@ plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axi
     slice_head(n=top_n)
   
   data <- data %>%
-   dplyr::mutate(top_color = case_when(data$AptName %in% top_pos$AptName ~ "#f28482",
-                                 data$AptName %in% top_neg$AptName ~ "#457b9d",
-                                 TRUE ~ "#ced4da"),
-           top_size = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), 1.3, 1),
-           EntrezGeneSymbol = if_else(data$EntrezGeneSymbol == "", data$Target, data$EntrezGeneSymbol),
-           top_lab  = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), EntrezGeneSymbol, ""))
+    dplyr::mutate(top_color = case_when(data$AptName %in% top_pos$AptName ~ "#f28482",
+                                        data$AptName %in% top_neg$AptName ~ "#457b9d",
+                                        TRUE ~ "#ced4da"),
+                  top_size = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), 1.3, 1),
+                  EntrezGeneSymbol = if_else(data$EntrezGeneSymbol == "", data$Target, data$EntrezGeneSymbol),
+                  top_lab  = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), EntrezGeneSymbol, ""))
   
   # Max and min for annotation arrows
   max_fc <- max(data[[fc]], na.rm = TRUE)
@@ -1519,11 +1519,11 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix,
   
   # Add treatment effect directions
   treatment_results <- treatment_results %>%
-   dplyr::mutate(treatment_direction = case_when(`p_treatmentDapagliflozin:visitPOST` < 0.05 &
-                                             `logFC_treatmentDapagliflozin:visitPOST` > 0 ~ "Up w/ Dapagliflozin",
-                                           `p_treatmentDapagliflozin:visitPOST` < 0.05 &
-                                             `logFC_treatmentDapagliflozin:visitPOST` < 0 ~ "Down w/ Dapagliflozin",
-                                           TRUE ~ "NS"))
+    dplyr::mutate(treatment_direction = case_when(`p_treatmentDapagliflozin:visitPOST` < 0.05 &
+                                                    `logFC_treatmentDapagliflozin:visitPOST` > 0 ~ "Up w/ Dapagliflozin",
+                                                  `p_treatmentDapagliflozin:visitPOST` < 0.05 &
+                                                    `logFC_treatmentDapagliflozin:visitPOST` < 0 ~ "Down w/ Dapagliflozin",
+                                                  TRUE ~ "NS"))
   
   # Genes significant in both models
   sig_clin_genes <- clin_results %>%
@@ -1580,7 +1580,7 @@ plot_volcano_associations <- function(clin_results, fc, p_col, title_suffix,
   message("Number of labeled genes: ", length(top_label_genes))
   
   clin_results <- clin_results %>%
-   dplyr::mutate(shape_var_plot = case_when(
+    dplyr::mutate(shape_var_plot = case_when(
       Gene %in% sig_both_genes & !!sym(fc) < 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Up w/ Dapagliflozin" ~ "Left_Pos",
       Gene %in% sig_both_genes & !!sym(fc) < 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Down w/ Dapagliflozin" ~ "Left_Neg",
       Gene %in% sig_both_genes & !!sym(fc) > 0 & treatment_results$treatment_direction[match(Gene, treatment_results$Gene)] == "Up w/ Dapagliflozin" ~ "Right_Pos",
@@ -1953,7 +1953,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
                                visits_to_plot = c(-4, 0, 4, 16, 18),
                                covariates = NULL,
                                test_method = "lmer_covars") { # test method can be "lmer", "ancova", "lmer_covars"
-
+  
   dodge_val <- 0.08
   y_sym <- rlang::ensym(y_var)
   y_name <- rlang::as_name(y_sym)
@@ -1972,7 +1972,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
   # --- Mean ± 95% CI ---
   mean_dat <- data %>%
     group_by(treatment, visit) %>%
-   dplyr::summarise(
+    dplyr::summarise(
       n = sum(!is.na(!!y_sym)),
       mean_y = mean(!!y_sym, na.rm = TRUE),
       sd_y = sd(!!y_sym, na.rm = TRUE),
@@ -1989,7 +1989,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
         ancova <- run_ancova(data, outcome_var = y_name, baseline_var = baseline_var, visit_week = v)
         ancova$contrasts %>%
           filter(contrast == "Placebo - Dapagliflozin 5mg") %>%
-         dplyr::mutate(visit = v)
+          dplyr::mutate(visit = v)
         
       } else if (test_method == "lmer_covars") {
         model <- lmer(
@@ -2000,7 +2000,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
         contrast(emm, method = "revpairwise", by = "visit", adjust = "bonferroni") %>%
           as_tibble() %>% 
           filter(visit == v) %>% 
-         dplyr::mutate(contrast = contrast, estimate = estimate, p.value = p.value)
+          dplyr::mutate(contrast = contrast, estimate = estimate, p.value = p.value)
         
       } else if (test_method == "lmer_covars_site") {
         model <- lmer(
@@ -2022,7 +2022,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
         contrast(emm, method = "revpairwise", by = "visit", adjust = "bonferroni") %>%
           as_tibble() %>% 
           filter(visit == v) %>% 
-         dplyr::mutate(contrast = contrast, estimate = estimate, p.value = p.value)
+          dplyr::mutate(contrast = contrast, estimate = estimate, p.value = p.value)
       }
     }, error = function(e) {
       message(glue::glue("Significance test failed for visit {v}: {e$message}"))
@@ -2030,7 +2030,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
              conf.low = NA, conf.high = NA, contrast = NA)
     })
   }) %>%
-   dplyr::mutate(
+    dplyr::mutate(
       stars = case_when(
         p.value < 0.001 ~ "***",
         p.value < 0.01  ~ "**",
@@ -2044,11 +2044,11 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
     left_join(
       mean_dat %>% 
         group_by(visit) %>%
-       dplyr::summarise(max_upper = max(upper, na.rm = TRUE), .groups = "drop"),
+        dplyr::summarise(max_upper = max(upper, na.rm = TRUE), .groups = "drop"),
       by = "visit"
     ) %>%
-   dplyr::mutate(y_position = max_upper + 0.05 * max_upper)
-
+    dplyr::mutate(y_position = max_upper + 0.05 * max_upper)
+  
   print(contrast_results)
   # --- Plot ---
   p <- data %>%
@@ -2386,7 +2386,7 @@ calculate_weighted_consistency_scores <- function(plot_data, main_logfc_values, 
       },
       .groups = "drop"
     ) %>%
-   dplyr::mutate(
+    dplyr::mutate(
       direction = case_when(main_logFC < 0 ~ "-", main_logFC > 0 ~ "+"),
       bar_color = ifelse(has_mismatch, "gray", direction),
       Gene = factor(Gene, levels = c(neg_genes, pos_genes))
@@ -2641,7 +2641,7 @@ plot_fgsea_transpose <- function(fgsea_res,
   fgsea_res <- fgsea_res %>%
     dplyr::arrange(pval) %>%
     head(top_n) %>%
-   dplyr::mutate(
+    dplyr::mutate(
       direction = case_when((NES < 0 & pval <= 0.05 ~ "Negative"), 
                             (NES > 0 & pval <= 0.05 ~ "Positive"),
                             (NES < 0 & pval > 0.05 ~ "Negative p > 0.05"), 
@@ -2754,7 +2754,7 @@ trt_run_cell_type_analysis <- function(cell_type,
       df <- res[[gene_name]]$summary
       df <- df %>% 
         filter(gene_name %in% res_converged$Gene) %>%
-       dplyr::mutate(Gene = gene_name)
+        dplyr::mutate(Gene = gene_name)
       return(df)
     }
   )
@@ -2762,7 +2762,7 @@ trt_run_cell_type_analysis <- function(cell_type,
   # Calculate FDR
   res_combined <- res_combined %>%
     ungroup() %>%
-   dplyr::mutate(fdr = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
+    dplyr::mutate(fdr = p.adjust(`p_treatmentDapagliflozin:visitPOST`, method = "fdr"))
   
   res_combined <- subset(res_combined, abs(`logFC_treatmentDapagliflozin:visitPOST`) < 10)
   
@@ -2820,7 +2820,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
       df <- res[[gene_name]]$summary
       df <- df %>% 
         filter(gene_name %in% res_converged$Gene) %>%
-       dplyr::mutate(Gene = gene_name)
+        dplyr::mutate(Gene = gene_name)
       return(df)
     }
   )
@@ -2828,7 +2828,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
   # Calculate FDR
   res_combined <- res_combined %>%
     ungroup() %>%
-   dplyr::mutate(fdr = p.adjust(p_groupType_1_Diabetes, method = "fdr"))
+    dplyr::mutate(fdr = p.adjust(p_groupType_1_Diabetes, method = "fdr"))
   
   res_combined <- subset(res_combined, abs(logFC_groupType_1_Diabetes) < 10)
   # Save results
@@ -2839,7 +2839,7 @@ t1dhc_run_cell_type_analysis <- function(cell_type,
   
   # Add direction columns for visualization
   res_combined <- res_combined %>%
-   dplyr::mutate(group_direction = case_when(
+    dplyr::mutate(group_direction = case_when(
       p_groupType_1_Diabetes < 0.05 & logFC_groupType_1_Diabetes > 0 ~ "Positive",
       p_groupType_1_Diabetes < 0.05 & logFC_groupType_1_Diabetes < 0 ~ "Negative",
       TRUE ~ "NS"
@@ -3144,7 +3144,7 @@ plot_pseudotime_violin <- function(df, s3_folder = "slingshot",
   # Calculate medians
   median_df <- pseudotime_df %>%
     group_by(visit_treatment) %>%
-   dplyr::summarise(median_pt = median(pseudotime, na.rm = TRUE), .groups = "drop")
+    dplyr::summarise(median_pt = median(pseudotime, na.rm = TRUE), .groups = "drop")
   
   # Define colors
   fill_colors <- c("PRE Placebo" = "#fbc4ab", "POST Placebo" = "#f4978e",
@@ -3235,7 +3235,7 @@ plot_and_test_pseudotime_distribution <- function(df,
   p <- ggplot(df, aes(x = .data[[pseudotime_var]],
                       fill = .data[[visit_treatment_var]],
                       color = .data[[visit_treatment_var]])) +
-    geom_density(alpha = 0.3) +
+    geom_density(aes(weight = weight_per_cell), alpha = 0.3) + 
     theme_minimal() +
     labs(x = "Pseudotime", y = "Density", fill = NULL, color = NULL) +
     theme(
@@ -3246,7 +3246,8 @@ plot_and_test_pseudotime_distribution <- function(df,
       text = element_text(size = 15)
     ) +
     scale_fill_manual(values = group_colors) +
-    scale_color_manual(values = group_colors)
+    scale_color_manual(values = group_colors) +
+    facet_wrap(~treatment, nrow = 2, ncol = 1)
   
   # Save and upload
   temp_file <- tempfile(fileext = ".png")
@@ -3275,14 +3276,14 @@ plot_pseudotime_density_faceted_by_treatment <- function(df,
   raw_summary <- df %>%
     as.data.frame() %>%
     group_by(.data[[treatment_col]], .data[[visit_col]]) %>%
-   dplyr::summarise(
+    dplyr::summarise(
       p25 = quantile(.data[[pseudotime_var]], probs = 0.25, na.rm = TRUE),
       p50 = quantile(.data[[pseudotime_var]], probs = 0.5, na.rm = TRUE),
       p75 = quantile(.data[[pseudotime_var]], probs = 0.75, na.rm = TRUE),
       n = n(),
       .groups = "drop"
     ) %>%
-   dplyr::mutate(visit_treatment = paste(.data[[visit_col]], .data[[treatment_col]]))
+    dplyr::mutate(visit_treatment = paste(.data[[visit_col]], .data[[treatment_col]]))
   
   # Color palette
   fill_colors <- c("PRE Placebo" = "#fbc4ab", 
@@ -3292,7 +3293,7 @@ plot_pseudotime_density_faceted_by_treatment <- function(df,
   
   # Plot
   p <- ggplot(df, aes(x = .data[[pseudotime_var]], fill = .data[[visit_treatment_col]])) +
-    geom_density(alpha = 0.5, aes(color = .data[[visit_treatment_col]])) +
+    geom_density(alpha = 0.5, aes(color = .data[[visit_treatment_col]], weight = weight_per_cell)) +
     facet_wrap(vars(.data[[treatment_col]]), strip.position = "bottom") +
     geom_vline(data = raw_summary, aes(xintercept = p25, color = visit_treatment), linetype = "dashed") +
     geom_vline(data = raw_summary, aes(xintercept = p50, color = visit_treatment), linetype = "dashed") +
@@ -3338,7 +3339,7 @@ plot_delta_percentile_heatmap <- function(df,
                  names_prefix = percentile_prefix,
                  values_to = "value") %>%
     pivot_wider(names_from = .data[[visit_col]], values_from = value) %>%
-   dplyr::mutate(delta = POST - PRE)
+    dplyr::mutate(delta = POST - PRE)
   
   # Plot
   p <- ggplot(heatmap_df, aes(x = .data[[treatment_col]], y = q, fill = delta)) +
@@ -3383,7 +3384,8 @@ analyze_pseudotime_by_clinvar <- function(df,
                                           caption_clinical_var = "",
                                           bucket = "attempt",
                                           celltype_suffix = "",
-                                          filesuffix = "") {
+                                          filesuffix = "",
+                                          plot_by_visit_direction = TRUE) {  # New parameter
   
   clinical_var <- ensym(clinical_var)
   pseudotime_var <- ensym(pseudotime_var)
@@ -3392,7 +3394,7 @@ analyze_pseudotime_by_clinvar <- function(df,
   # Step 1: Calculate subject-level delta of the clinical variable
   delta_df <- df %>%
     group_by(.data[[subject_id]]) %>%
-   dplyr::summarise(
+    dplyr::summarise(
       delta_value = mean(.data[[clinical_var_chr]][.data[[visit_col]] == post_label], na.rm = TRUE) -
         mean(.data[[clinical_var_chr]][.data[[visit_col]] == pre_label], na.rm = TRUE),
       .groups = "drop"
@@ -3402,25 +3404,38 @@ analyze_pseudotime_by_clinvar <- function(df,
   df <- df %>%
     left_join(delta_df, by = subject_id)
   
-  # Step 3: Bin the clinical variable by quantiles
+  # Step 3: Add direction column based on delta
+  df <- df %>%
+    dplyr::mutate(direction = case_when(
+      .data[[clinical_var_chr]] > 0 ~ "+",
+      .data[[clinical_var_chr]] < 0 ~ "-",
+      .data[[clinical_var_chr]] == 0 ~ "No Change",
+      TRUE ~ NA_character_
+    ))
+  
+  # Step 4: Create visit_direction combination
+  df <- df %>%
+    dplyr::mutate(visit_direction = paste0(.data[[visit_col]], "/", direction))
+  
+  # Step 5: Bin the clinical variable by quantiles (original binning)
   df_binned <- if (identical(bin_probs, "direction")) {
     df %>%
-     dplyr::mutate(clinical_bin = case_when(
+      dplyr::mutate(clinical_bin = case_when(
         .data[[clinical_var_chr]] > 0 ~ "+",
         .data[[clinical_var_chr]] < 0 ~ "-",
-        .data[[clinical_var_chr]] == 0 ~  "No Change"
+        .data[[clinical_var_chr]] == 0 ~ "No Change"
       )) %>%
-     dplyr::mutate(clinical_bin = factor(clinical_bin, levels = c("-", "No Change", "+")))
+      dplyr::mutate(clinical_bin = factor(clinical_bin, levels = c("-", "No Change", "+")))
   } else {
     df %>%
-     dplyr::mutate(clinical_bin = cut(.data[[clinical_var_chr]],
-                                breaks = quantile(.data[[clinical_var_chr]], 
-                                                  probs = seq(0, 1, 1/bin_probs), na.rm = TRUE),
-                                include.lowest = TRUE)) %>%
+      dplyr::mutate(clinical_bin = cut(.data[[clinical_var_chr]],
+                                       breaks = quantile(.data[[clinical_var_chr]], 
+                                                         probs = seq(0, 1, 1/bin_probs), na.rm = TRUE),
+                                       include.lowest = TRUE)) %>%
       filter(!is.na(clinical_bin))
   }
   
-  # Step 4: Plot density of pseudotime by clinical bins
+  # Step 6: Plot density of pseudotime by clinical bins (original plot)
   n_bins <- nlevels(droplevels(df_binned$clinical_bin))
   custom_colors <- NULL
   if (n_bins == 2) {
@@ -3428,40 +3443,121 @@ analyze_pseudotime_by_clinvar <- function(df,
     names(custom_colors) <- levels(droplevels(df_binned$clinical_bin))
   }
   
-  p <- df_binned %>%
+  p_original <- df_binned %>%
     filter(!is.na(clinical_bin)) %>%
     ggplot(aes(x = !!pseudotime_var, fill = clinical_bin)) +
-    geom_density(alpha = 0.5) +
+    geom_density(aes(weight = weight_per_cell), alpha = 0.5) +
     theme_minimal() +
     labs(
       y = "Density", x = "Pseudotime", fill = NULL, color = NULL,
       caption = paste0(caption_clinical_var, " across pseudotime")) +
     theme(panel.grid = element_blank(), 
           text = element_text(size = 15),
-          legend.position = c(0.5,0.95),
+          legend.position = c(0.5, 0.95),
           legend.direction = "horizontal") +
     {
       if (!is.null(custom_colors)) {
-        list(
-          scale_fill_manual(values = custom_colors)
-        )
+        list(scale_fill_manual(values = custom_colors))
       } else {
         NULL
       }
     }
   
-  if (!is.null(bucket)) {
-    temp_file <- tempfile(fileext = ".png") # need to create a temporary file
-    ggsave(filename = temp_file, width = 7, height = 5)
-    s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_density_", 
-                                             tolower(celltype_suffix), "_", clinical_var, 
-                                             filesuffix,
-                                             "_slingshot.png"))
+  # Step 7: New plot - density by visit and direction
+  p_visit_direction <- NULL
+  if (plot_by_visit_direction) {
+    # Define colors for visit/direction combinations
+    visit_dir_colors <- c(
+      "PRE/+" = "#d6604d",    # Dark red
+      "PRE/-" = "#2166ac",    # Dark blue
+      "POST/+" = "#f4a582",   # Light red
+      "POST/-" = "#92c5de",   # Light blue
+      "PRE/No Change" = "#888888",   # Gray
+      "POST/No Change" = "#bbbbbb"   # Light gray
+    )
+    
+    # Filter to valid combinations
+    df_visit_dir <- df_binned %>%
+      filter(!is.na(direction), !is.na(.data[[visit_col]]))
+    
+    # Get actual levels present in data
+    actual_levels <- unique(df_visit_dir$visit_direction)
+    colors_to_use <- visit_dir_colors[names(visit_dir_colors) %in% actual_levels]
+    
+    p_visit_direction <- df_visit_dir %>%
+      ggplot(aes(x = !!pseudotime_var, fill = visit_direction)) +
+      geom_density(aes(weight = weight_per_cell), alpha = 0.5) +
+      theme_minimal() +
+      labs(
+        y = "Density", 
+        x = "Pseudotime", 
+        fill = "Visit/Direction", 
+        color = NULL,
+        caption = paste0("Pseudotime density by visit and ", caption_clinical_var, " direction")
+      ) +
+      scale_fill_manual(values = colors_to_use) +
+      theme(
+        panel.grid = element_blank(), 
+        text = element_text(size = 14),
+        legend.position = "right",
+      )
+    
+    # Optionally add faceting for clearer visualization
+    p_visit_direction_faceted <- df_visit_dir %>%
+      ggplot(aes(x = !!pseudotime_var, fill = visit)) +
+      geom_density(aes(weight = weight_per_cell), alpha = 0.6) + 
+      facet_wrap(~ direction, ncol = 1) +
+      theme_minimal() +
+      labs(
+        y = "Density", 
+        x = "Pseudotime", 
+        fill = "Direction", 
+        color = NULL,
+        caption = paste0("Pseudotime density by visit and ", caption_clinical_var, " direction")
+      ) +
+      scale_fill_manual(values = c("POST" = "#f28482", "PRE" = "#457b9d", "No Change" = "#888888")) +
+      theme(
+        panel.grid = element_blank(), 
+        text = element_text(size = 14),
+        legend.position = "top",
+        strip.text = element_text(size = 12, face = "bold")
+      )
+    
+    # Save the visit/direction plot if bucket is specified
+    if (!is.null(bucket)) {
+      temp_file_vd <- tempfile(fileext = ".png")
+      ggsave(p_visit_direction, filename = temp_file_vd, width = 9, height = 6)
+      s3$upload_file(temp_file_vd, bucket, 
+                     paste0("slingshot/attempt_density_visitdir_", 
+                            tolower(celltype_suffix), "_", clinical_var_chr, 
+                            filesuffix, "_slingshot.png"))
+      
+      # Save faceted version too
+      temp_file_vd_facet <- tempfile(fileext = ".png")
+      ggsave(p_visit_direction_faceted, filename = temp_file_vd_facet, width = 8, height = 8)
+      s3$upload_file(temp_file_vd_facet, bucket, 
+                     paste0("slingshot/attempt_density_visitdir_faceted_", 
+                            tolower(celltype_suffix), "_", clinical_var_chr, 
+                            filesuffix, "_slingshot.png"))
+    }
+    
+    # Print both new plots
+    print(p_visit_direction)
+    print(p_visit_direction_faceted)
   }
   
-  print(p)
+  # Save original plot if bucket is specified
+  if (!is.null(bucket)) {
+    temp_file <- tempfile(fileext = ".png")
+    ggsave(p_original, filename = temp_file, width = 7, height = 5)
+    s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_density_", 
+                                             tolower(celltype_suffix), "_", clinical_var_chr, 
+                                             filesuffix, "_slingshot.png"))
+  }
   
-  # Step 5: KS test between selected bin levels
+  print(p_original)
+  
+  # Step 8: KS test between selected bin levels (original functionality)
   bin_levels <- levels(droplevels(df_binned$clinical_bin))
   if (length(bin_levels) >= max(bin_levels_to_compare)) {
     pt1 <- df_binned %>%
@@ -3479,7 +3575,65 @@ analyze_pseudotime_by_clinvar <- function(df,
     ks <- NULL
   }
   
-  return(list(plot = p, ks_test = ks, delta_df = delta_df))
+  # Step 9: Additional KS tests for visit/direction comparisons
+  ks_visit_direction <- NULL
+  if (plot_by_visit_direction) {
+    # Compare PRE/+ vs PRE/-
+    df_pre_pos <- df_binned %>% 
+      filter(.data[[visit_col]] == pre_label, direction == "+")
+    df_pre_neg <- df_binned %>% 
+      filter(.data[[visit_col]] == pre_label, direction == "-")
+    
+    if (nrow(df_pre_pos) > 0 && nrow(df_pre_neg) > 0) {
+      ks_pre <- ks.test(
+        df_pre_pos %>% pull(!!pseudotime_var),
+        df_pre_neg %>% pull(!!pseudotime_var)
+      )
+      cat("\nKS test PRE/+ vs PRE/-:\n")
+      print(ks_pre)
+    }
+    
+    # Compare POST/+ vs POST/-
+    df_post_pos <- df_binned %>% 
+      filter(.data[[visit_col]] == post_label, direction == "+")
+    df_post_neg <- df_binned %>% 
+      filter(.data[[visit_col]] == post_label, direction == "-")
+    
+    if (nrow(df_post_pos) > 0 && nrow(df_post_neg) > 0) {
+      ks_post <- ks.test(
+        df_post_pos %>% pull(!!pseudotime_var),
+        df_post_neg %>% pull(!!pseudotime_var)
+      )
+      cat("\nKS test POST/+ vs POST/-:\n")
+      print(ks_post)
+    }
+    
+    # Compare across visits for same direction
+    if (nrow(df_pre_pos) > 0 && nrow(df_post_pos) > 0) {
+      ks_pos_visits <- ks.test(
+        df_pre_pos %>% pull(!!pseudotime_var),
+        df_post_pos %>% pull(!!pseudotime_var)
+      )
+      cat("\nKS test PRE/+ vs POST/+:\n")
+      print(ks_pos_visits)
+    }
+    
+    ks_visit_direction <- list(
+      pre_comparison = if(exists("ks_pre")) ks_pre else NULL,
+      post_comparison = if(exists("ks_post")) ks_post else NULL,
+      positive_visits = if(exists("ks_pos_visits")) ks_pos_visits else NULL
+    )
+  }
+  
+  return(list(
+    plot_original = p_original, 
+    plot_visit_direction = p_visit_direction,
+    plot_visit_direction_faceted = if(exists("p_visit_direction_faceted")) p_visit_direction_faceted else NULL,
+    ks_test = ks,
+    ks_visit_direction = ks_visit_direction,
+    delta_df = delta_df, 
+    df_binned = df_binned
+  ))
 }
 
 # ===========================================================================
@@ -3553,7 +3707,13 @@ analyze_pseudotime_by_celltype <- function(so,
   sce_df <- as.data.frame(colData(sce_sl)[, no_s4]) %>%
     dplyr::mutate(visit_treatment = factor(paste(visit, treatment), 
                                            levels = c("PRE Placebo", "POST Placebo",
-                                                      "PRE Dapagliflozin", "POST Dapagliflozin")))
+                                                      "PRE Dapagliflozin", "POST Dapagliflozin"))) %>%
+    group_by(subject_id, visit) %>%
+    mutate(weight_per_cell = 1/n()) %>%
+    ungroup()
+  
+  sce_sl$weight_per_cell <- sce_df$weight_per_cell
+  pseudotime_df$weight_per_cell <- sce_df$weight_per_cell
   
   log_step("Step 10: Running quantile regression...")
   
@@ -3587,7 +3747,8 @@ analyze_pseudotime_by_celltype <- function(so,
     "weight_delta" = "\u0394Weight", 
     "mgfr_jodal_delta" = "\u0394mGFR",
     "mgfr_jodal_bsa_delta" = "\u0394mGFR (BSA)",
-    "tir_delta" = "\u0394TIR"
+    "tir_delta" = "\u0394TIR",
+    "avg_ketones_delta" =  "\u0394Ketones"
   )
   
   for (clin_var in names(clin_vars)) {
@@ -3638,17 +3799,18 @@ analyze_pseudotime_by_celltype <- function(so,
   
   log_step("Step 13: Running delta clinical variable analyses...")
   
-  
+  clin_var_res <- list()
   for (clin_var in names(clin_vars)) {
     message(sprintf("   [%s]   Analyzing %s...", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), clin_var))
-    clin_var_res <- analyze_pseudotime_by_clinvar(sce_df, 
-                                  !!sym(clin_var), 
-                                  slingPseudotime_1,
-                                  bin_probs = "direction",
-                                  caption_clinical_var = clin_vars[clin_var],
-                                  celltype_suffix = suffix,
-                                  filesuffix = "delta",
-                                  bucket = "attempt")
+    res <- analyze_pseudotime_by_clinvar(sce_df, 
+                                         !!sym(clin_var), 
+                                         slingPseudotime_1,
+                                         bin_probs = "direction",
+                                         caption_clinical_var = clin_vars[clin_var],
+                                         celltype_suffix = suffix,
+                                         filesuffix = "delta",
+                                         bucket = "attempt")
+    clin_var_res[[clin_var]] <- res
   }
   
   log_step("All steps completed successfully!")
@@ -3816,7 +3978,7 @@ plot_clinvar_pseudotime_arrows <- function(df,
   # Step 1: Pseudotime percentiles
   med <- df %>%
     group_by(.data[[subject_col]], .data[[visit_col]]) %>%
-   dplyr::summarise(across(
+    dplyr::summarise(across(
       .data[[pseudotime_var_chr]],
       list("25" = ~quantile(., 0.25, na.rm = TRUE),
            "50" = ~quantile(., 0.50, na.rm = TRUE),
@@ -3836,14 +3998,14 @@ plot_clinvar_pseudotime_arrows <- function(df,
       names_prefix = "pseudotime_",
       values_to = "pseudotime"
     ) %>%
-   dplyr::mutate(percentile = as.numeric(percentile))
+    dplyr::mutate(percentile = as.numeric(percentile))
   
   # Step 3: Format wide for arrow plot
   arrow_df <- plot_df %>%
     dplyr::select(all_of(c(subject_col, treatment_col, clinical_var_chr, "percentile", visit_col, "pseudotime", visit_treatment_col))) %>%
     pivot_wider(names_from = .data[[visit_col]],
                 values_from = c(pseudotime, !!clinical_var, !!visit_treatment_col)) %>%
-   dplyr::mutate(expectations = case_when(
+    dplyr::mutate(expectations = case_when(
       pseudotime_POST - pseudotime_PRE > 0 & !!sym(paste0(clinical_var_chr, "_POST")) - !!sym(paste0(clinical_var_chr, "_PRE")) > 0 ~ "Consistent",
       pseudotime_POST - pseudotime_PRE < 0 & !!sym(paste0(clinical_var_chr, "_POST")) - !!sym(paste0(clinical_var_chr, "_PRE")) < 0 ~ "Consistent",
       TRUE ~ "Inconsistent"
@@ -3922,7 +4084,7 @@ plot_clinvar_pseudotime_arrows_delta <- function(df,
   # Step 1: Pseudotime percentiles
   med <- df %>%
     group_by(.data[[subject_col]], .data[[visit_col]]) %>%
-   dplyr::summarise(across(
+    dplyr::summarise(across(
       .data[[pseudotime_var_chr]],
       list("25" = ~quantile(., 0.25, na.rm = TRUE),
            "50" = ~quantile(., 0.50, na.rm = TRUE),
@@ -3942,14 +4104,14 @@ plot_clinvar_pseudotime_arrows_delta <- function(df,
       names_prefix = "pseudotime_",
       values_to = "pseudotime"
     ) %>%
-   dplyr::mutate(percentile = as.numeric(percentile))
+    dplyr::mutate(percentile = as.numeric(percentile))
   
   # Step 3: Format wide for arrow plot
   arrow_df <- plot_df %>%
     dplyr::select(all_of(c(subject_col, treatment_col, clinical_var_chr, "percentile", visit_col, "pseudotime", visit_treatment_col))) %>%
     pivot_wider(names_from = .data[[visit_col]],
                 values_from = c(pseudotime, !!clinical_var, !!visit_treatment_col)) %>%
-   dplyr::mutate(expectations = case_when(
+    dplyr::mutate(expectations = case_when(
       pseudotime_POST - pseudotime_PRE < 0 ~ "Healthy state",
       TRUE ~ "Injured state"
     ))
@@ -4053,24 +4215,24 @@ create_croc_attempt_df <- function(attempt_df,
 # ===========================================================================
 
 plot_croc_attempt_volcano <- function(attempt_df,
-                                              croc_df,
-                                              cell_type = "PT",
-                                              FC_attempt = "logFC_treatmentDapagliflozin:visitPOST",
-                                              FC_croc = "logFC_groupType_1_Diabetes",
-                                              p_attempt = "fdr",
-                                              p_croc = "p_groupType_1_Diabetes",
-                                              top_n = 20,
-                                              attempt_p_cut = 0.05,
-                                              croc_p_cut = 0.05,
-                                              width = 7,
-                                              height = 5,
-                                              caption = T, 
-                                              positive_text = "Upregulated in T1D compared to HC",
-                                              negative_text = "Downregulated in T1D compared to HC",
-                                              x_axis = "logFC_groupT1D",
-                                              y_axis = "-log10(p-value)",
-                                              save_path = NULL,
-                                              return_df = FALSE) {
+                                      croc_df,
+                                      cell_type = "PT",
+                                      FC_attempt = "logFC_treatmentDapagliflozin:visitPOST",
+                                      FC_croc = "logFC_groupType_1_Diabetes",
+                                      p_attempt = "fdr",
+                                      p_croc = "p_groupType_1_Diabetes",
+                                      top_n = 20,
+                                      attempt_p_cut = 0.05,
+                                      croc_p_cut = 0.05,
+                                      width = 7,
+                                      height = 5,
+                                      caption = T, 
+                                      positive_text = "Upregulated in T1D compared to HC",
+                                      negative_text = "Downregulated in T1D compared to HC",
+                                      x_axis = "logFC_groupT1D",
+                                      y_axis = "-log10(p-value)",
+                                      save_path = NULL,
+                                      return_df = FALSE) {
   
   # Create the joined dataframe
   joined_df <- create_croc_attempt_df(
@@ -4297,8 +4459,8 @@ soma_corr <- function(
   
   corr_mat <- corr_mat %>%
     left_join(analytes_info %>% 
-               dplyr::mutate(AptName = paste0(AptName, feature_suffix)), by = "AptName") %>%
-   dplyr::mutate(Target_apt = paste0(Target, " (", AptName, ")")) %>%
+                dplyr::mutate(AptName = paste0(AptName, feature_suffix)), by = "AptName") %>%
+    dplyr::mutate(Target_apt = paste0(Target, " (", AptName, ")")) %>%
     column_to_rownames("Target_apt") %>%
     dplyr::arrange(p.value)
   
@@ -4317,7 +4479,7 @@ soma_corr <- function(
     cutoff = 0.05,
     top_n = top_n,
     x.lab = paste0(proper_name, " Spearman Correlation"))
-
+  
   
   list(
     correlation_table = corr_mat,
@@ -4384,7 +4546,7 @@ soma_plot_corr_volcano <- function (data,
       in_pos_did = AptName %in% pos_did$AptName,
       in_neg_did = AptName %in% neg_did$AptName,
       DiD_status = case_when(in_pos_did | in_neg_did ~ "DiD",
-                       T ~ "not-DiD"),
+                             T ~ "not-DiD"),
       # Create label for DiD entries
       did_label = case_when(
         in_pos_did ~ "DiD +",
@@ -4392,7 +4554,7 @@ soma_plot_corr_volcano <- function (data,
         T ~ "not-DiD"
       ),
       
-
+      
       # Flag for significant entries
       is_significant = -log10(.data[[p.value]]) >= -log10(cutoff),
       sig_face = case_when(is_significant ~ "bold",
@@ -4425,7 +4587,7 @@ soma_plot_corr_volcano <- function (data,
     c("DiD +", "DiD -", "not-DiD")
   )
   plot_df$did_label = factor(plot_df$did_label, levels = c("DiD +", "DiD -", "not-DiD"))
-
+  
   n_sig = nrow(plot_df %>% filter(is_significant))
   n_pos_sig = nrow(plot_df %>% filter(significance_status == "Significant (+)"))
   n_neg_sig = nrow(plot_df %>% filter(significance_status == "Significant (-)"))
@@ -4464,7 +4626,7 @@ soma_plot_corr_volcano <- function (data,
                           "\nCorrelations & positive DiD n: ", n_pos_did,
                           " | Correlations & negative DiD n: ", n_neg_did,
                           "\n\nUp to top ", top_n, " proteins are labeled."))
-    p
+  p
   
   return(p)
 }
@@ -4876,7 +5038,7 @@ process_enrichr_data <- function(enrichr_result, response_type, top_n = 20) {
   data_clean <- data %>%
     filter(Adjusted.P.value < 0.05) %>%  # Filter significant pathways
     head(top_n) %>%
-   dplyr::mutate(
+    dplyr::mutate(
       neg_log_p = -log10(P.value),
       neg_log_adj_p = -log10(Adjusted.P.value),
       gene_count = as.numeric(str_extract(Overlap, "\\d+")),
@@ -4978,7 +5140,7 @@ perform_concordance_analysis <- function(
     sig_transcript_down <- subset(transcript_data, fdr < fdr_cutoff & transcript_data[transcript_logfc_col] < 0)$Gene
     
     protein_data <- protein_data %>%
-     dplyr::mutate(
+      dplyr::mutate(
         label = case_when(
           !!sym(gene_col) %in% subset(transcript_data, fdr < fdr_cutoff)$Gene & 
             !!sym(adj_p_col) < adj_p_cutoff ~ !!sym(gene_col),
@@ -5002,7 +5164,7 @@ perform_concordance_analysis <- function(
     # If conc_class exists, make sure we have label for plotting
     if (!"label" %in% colnames(protein_data)) {
       protein_data <- protein_data %>%
-       dplyr::mutate(
+        dplyr::mutate(
           label = case_when(
             !!sym(gene_col) %in% subset(transcript_data, fdr < fdr_cutoff)$Gene & 
               !!sym(adj_p_col) < adj_p_cutoff ~ !!sym(gene_col),
@@ -5019,7 +5181,7 @@ perform_concordance_analysis <- function(
       sig_transcript_down <- subset(transcript_data, fdr < fdr_cutoff & transcript_data[transcript_logfc_col] < 0)$Gene
       
       protein_data <- protein_data %>%
-       dplyr::mutate(
+        dplyr::mutate(
           transcript_direction = case_when(
             !!sym(gene_col) %in% sig_transcript_up ~ "+",
             !!sym(gene_col) %in% sig_transcript_down ~ "-", 
@@ -5039,7 +5201,7 @@ perform_concordance_analysis <- function(
   
   # Calculate counts
   counts <- protein_data %>%
-   dplyr::summarise(
+    dplyr::summarise(
       n_pos_conc = sum(conc_class == "Concordant (+/+)", na.rm = TRUE),
       n_neg_conc = sum(conc_class == "Concordant (-/-)", na.rm = TRUE),
       n_disconc  = sum(conc_class %in% c("Discordant (+/-)", "Discordant (-/+)"), na.rm = TRUE),
@@ -5273,7 +5435,7 @@ prepare_pathway_data_generic <- function(enrichment_results, database_name) {
         processed_data <- data %>%
           filter(Adjusted.P.value < 0.05) %>%
           head(20) %>%
-         dplyr::mutate(
+          dplyr::mutate(
             response_type = case_when(
               response_type == "negative" ~ "Negative",
               response_type == "positive" ~ "Positive", 
@@ -5382,11 +5544,11 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
   # Ensure 0/1 membership matrix
   m <- df %>%
     dplyr::select(all_of(sets)) %>%
-   dplyr::mutate(across(everything(), ~ as.integer(.x > 0)))
+    dplyr::mutate(across(everything(), ~ as.integer(.x > 0)))
   
   # Map each row to a combination string (e.g., "A & C"), drop rows with no set membership
   row_combos <- m %>%
-   dplyr::mutate(.row = dplyr::row_number()) %>%
+    dplyr::mutate(.row = dplyr::row_number()) %>%
     tidyr::pivot_longer(all_of(sets), names_to = "set", values_to = "present") %>%
     dplyr::group_by(.row) %>%
     dplyr::summarise(
@@ -5623,8 +5785,8 @@ vertical_upset <- function(df, sets, top_n = Inf, min_size = 1,
       library(patchwork)
       
       p_empty <- ggplot() + theme_void() + theme(plot.background = element_rect(fill = "transparent", color = NA),
-      panel.background = element_rect(fill = "transparent", color = NA),
-      legend.background = element_rect(fill = "transparent", color = NA))
+                                                 panel.background = element_rect(fill = "transparent", color = NA),
+                                                 legend.background = element_rect(fill = "transparent", color = NA))
       
       final <- (p_setsizes | p_empty) / (p_dots | p_bars) +
         plot_layout(widths = c(1, 1.6), heights = c(1, 5))
@@ -6077,4 +6239,116 @@ plot_gsea_results <- function(gsea_list,
   }
   
   return(p)
+}
+
+# ===========================================================================
+# Function: calculate_celltype_proportions
+# ===========================================================================
+
+calculate_celltype_proportions <- function(data, bin_width = 10, group_by = "KPMP_celltype") {
+  
+  # Create pseudotime bins
+  data_with_bins <- data %>%
+    dplyr::mutate(
+      bin_start = floor(slingPseudotime_1 / bin_width) * bin_width,
+      bin_end = bin_start + bin_width,
+      bin_label = paste0(bin_start, "-", bin_end)
+    )
+  
+  # Calculate proportions for each bin
+  proportions <- data_with_bins %>%
+    group_by(bin_label, bin_start, !!sym(group_by)) %>%
+    dplyr::summarise(n = n(), .groups = "drop_last") %>%
+    dplyr::mutate(
+      total_in_bin = sum(n),
+      proportion = (n / total_in_bin) * 100
+    ) %>%
+    ungroup()
+  
+  # Ensure all groups are represented in each bin
+  all_bins <- unique(proportions$bin_label)
+  all_groups <- unique(data[[group_by]])
+  
+  complete_proportions <- proportions %>%
+    complete(
+      bin_label = all_bins,
+      !!sym(group_by) := all_groups,
+      fill = list(n = 0, proportion = 0)
+    ) %>%
+    group_by(bin_label) %>%
+    dplyr::mutate(
+      bin_start = min(bin_start, na.rm = TRUE),
+      total_in_bin = sum(n)
+    ) %>%
+    ungroup() %>%
+    arrange(bin_start, !!sym(group_by))
+  
+  return(complete_proportions)
+}
+
+# ===========================================================================
+# Function: create_pie_chart
+# ===========================================================================
+
+# Function to create a single pie chart for a given bin
+# Requires: library(dplyr); library(ggplot2); library(ggtext); library(tidyr); library(rlang)
+create_pie_chart <- function(data,
+                             bin_value,
+                             color_palette,
+                             group_by = "KPMP_celltype",
+                             caption_groups = NULL,
+                             digits = 1) {
+  
+  grp <- rlang::sym(group_by)
+  
+  bin_data <- data %>%
+    dplyr::filter(bin_start == bin_value)
+  
+  if (nrow(bin_data) == 0) {
+    stop(sprintf("No rows found for bin_start == %s", bin_value))
+  }
+  if (!group_by %in% names(bin_data)) {
+    stop(sprintf("Column '%s' not found in data.", group_by))
+  }
+  
+  # Build caption table (one row per group)
+  cap_df <- bin_data %>%
+    dplyr::select(!!grp, proportion) %>%
+    dplyr::group_by(!!grp) %>%
+    dplyr::summarise(proportion = sum(proportion, na.rm = TRUE), .groups = "drop") %>%
+    dplyr::arrange(dplyr::desc(proportion))
+  
+  # Optional: enforce caption order/subset
+  if (!is.null(caption_groups)) {
+    cap_df <- cap_df %>%
+      dplyr::filter(!!grp %in% caption_groups) %>%
+      dplyr::mutate(!!grp := factor(!!grp, levels = caption_groups)) %>%
+      dplyr::arrange(!!grp)
+    
+    # also apply to plotting data so legend/order matches
+    bin_data[[group_by]] <- factor(bin_data[[group_by]], levels = caption_groups)
+  }
+  
+  # Caption HTML
+  caption_text <- paste(
+    vapply(seq_len(nrow(cap_df)), function(i) {
+      g   <- as.character(cap_df[[group_by]][i])
+      pct <- round(cap_df$proportion[i], digits)
+      col <- if (!is.null(color_palette[[g]])) color_palette[[g]] else "#000000"
+      sprintf("<span style='color:%s'>%s: %s%%</span>", col, g, pct)
+    }, character(1)),
+    collapse = "<br>"
+  )
+  
+  # Limit palette to groups present
+  present_groups <- unique(as.character(bin_data[[group_by]]))
+  pal_used <- color_palette[names(color_palette) %in% present_groups]
+  
+  ggplot(bin_data, aes(x = "", y = proportion, fill = !!grp)) +
+    geom_bar(stat = "identity", width = 1) +
+    coord_polar("y") +
+    theme_void() +
+    labs(fill = NULL, caption = caption_text) +
+    theme(plot.caption = ggtext::element_markdown(hjust = 0.5, face = "bold")) +
+    scale_fill_manual(values = pal_used)
 }
