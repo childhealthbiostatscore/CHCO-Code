@@ -155,4 +155,9 @@ library(CellChat)
 library(speckle)
 # install.packages("doFuture")
 # library(doFuture)
-
+# install.packages("reticulate")
+library(reticulate)
+# reticulate::py_install("boto3")
+# reticulate::py_install("pandas")
+# install.packages("jsonlite")  # Install if not already installed
+library(jsonlite)  # Load the package
