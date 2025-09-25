@@ -49,6 +49,9 @@ if (user == "laurapyle") {
 } else if (user == "lpyle") {
   data_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
   github_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "pylell") {
+  data_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
+  github_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -1594,7 +1597,7 @@ saveWorkbook(wb, full_path, overwrite = TRUE)
 # filter to top 100 proteins by effect size
 f <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline unadjusted.xlsx")
 
-# CKM without BMI
+# CKM first progression to any stage
 ckm_without_bmi_keep = read_excel(f,sheet = "Proteins all stages")
 ckm_without_bmi_keep <- arrange(ckm_without_bmi_keep,adj.p.value)
 ckm_without_bmi_drop <- ckm_without_bmi_keep[101:nrow(ckm_without_bmi_keep),"AptName"]
@@ -1602,13 +1605,21 @@ rownames(ckm_without_bmi_drop) <- ckm_without_bmi_drop$AptName
 ckm_without_bmi_drop <- as.data.frame(t(ckm_without_bmi_drop))
 ckm_without_bmi_endata <- prog_summary_final_soma %>% select(-colnames(ckm_without_bmi_drop))
 
-# CKM with BMI
-# ckm_with_bmi_keep = read_excel(f,sheet = "CKM with BMI CPH")
-# ckm_with_bmi_keep <- arrange(ckm_with_bmi_keep,adj.p.value)
-# ckm_with_bmi_drop <- ckm_with_bmi_keep[101:nrow(ckm_with_bmi_keep),"AptName"]
-# rownames(ckm_with_bmi_drop) <- ckm_with_bmi_drop$AptName
-# ckm_with_bmi_drop <- as.data.frame(t(ckm_with_bmi_drop))
-# ckm_with_bmi_endata <- prog_summary_final_soma %>% select(-colnames(ckm_with_bmi_drop))
+# CKM time to progression for those who progressed to stage 3
+ckm_stage3_keep = read_excel(f,sheet = "Proteins CKM 3")
+ckm_stage3_keep <- arrange(ckm_stage3_keep,adj.p.value)
+ckm_stage3_drop <- ckm_stage3_keep[101:nrow(ckm_stage3_keep),"AptName"]
+rownames(ckm_stage3_drop) <- ckm_stage3_drop$AptName
+ckm_stage3_drop <- as.data.frame(t(ckm_stage3_drop))
+ckm_stage3_endata <- prog_summary_final_soma %>% select(-colnames(ckm_stage3_drop))
+
+# CKM time to progression for those who progressed to stage 4
+ckm_stage4_keep = read_excel(f,sheet = "Proteins CKM 4")
+ckm_stage4_keep <- arrange(ckm_stage4_keep,adj.p.value)
+ckm_stage4_drop <- ckm_stage4_keep[101:nrow(ckm_stage4_keep),"AptName"]
+rownames(ckm_stage4_drop) <- ckm_stage4_drop$AptName
+ckm_stage4_drop <- as.data.frame(t(ckm_stage4_drop))
+ckm_stage4_endata <- prog_summary_final_soma %>% select(-colnames(ckm_stage4_drop))
 
 set.seed(3654)
 filename <- "TODAY proteomics metabolomics/Proteomics analyses/Elastic net/easy_elasticnet.R"
@@ -1618,7 +1629,9 @@ source(full_path)
 
 # Elastic net models
 
-## Time to CKM
+## Time to CKM progression, any stage
+
+### Proteins
 
 ```{r, include=FALSE, comment=""}
 ckm_without_bmi_endata_nozero <- ckm_without_bmi_endata[!ckm_without_bmi_endata$days_to_first_ckm_prog == 0,]
@@ -1651,7 +1664,7 @@ There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
 ```
 
-## Model with only age and sex
+### Model with only age and sex
 
 ```{r, include=FALSE, comment=""}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~sex_char + AGEBASE"))
@@ -1676,7 +1689,7 @@ There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
 ```
 
-## Model with age, sex, BMI, HbA1c, SBP
+### Model with age, sex, BMI, HbA1c, SBP
 
 ```{r, include=FALSE, comment=""}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~sex_char + AGEBASE + bmi + HbA1c + sbp"))
@@ -1701,7 +1714,7 @@ There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
 ```
 
-## Model with proteins, age, and sex
+### Model with proteins, age, and sex
 
 ```{r, include=FALSE, comment=""}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+"),paste0("+sex_char+AGEBASE")))
@@ -1727,7 +1740,7 @@ There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
 ```
 
-## Model with proteins, age, sex, BMI, HbA1c, SBP
+### Model with proteins, age, sex, BMI, HbA1c, SBP
 
 ```{r, include=FALSE, comment=""}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+"),paste0("+HbA1c+log_trig+sbp+si_1_ins0+sex_char+bmi+AGEBASE+racedesc")))
@@ -1740,6 +1753,143 @@ moddf[1:(nrow(moddf)-10),]$term <- analytes[analytes$AptName %in% moddf$term, ]$
 moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
 colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 concordance_df_temp <- as.data.frame(cbind("Time to CKM progression","Proteins + all covariates",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+## Time to CKM progression, for those who reached stage 3
+
+### Proteins
+
+```{r, include=FALSE, comment=""}
+ckm_stage3_endata_nozero <- ckm_stage3_endata[!ckm_stage3_endata$days_to_first_ckm_stage3_prog == 0,]
+seq <- is_seq(names(ckm_stage3_endata_nozero))
+
+ckm_stage3_select = easy_elasticnet(data = ckm_stage3_endata_nozero,outcome = "progress_CKM_stage3",
+                           predictors = ckm_stage3_endata_nozero[,seq], out = "min.error",
+                           model_type = "cox",time = "days_to_first_ckm_stage3_prog", cv_method="kfold", folds = 10)
+retained_vars = analytes[analytes$AptName %in% ckm_stage3_select, c("Target","TargetFullName")]
+
+form = as.formula(paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~",paste0(ckm_stage3_select,collapse = "+")))
+mod = coxph(formula = form,data = ckm_stage3_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df <- as.data.frame(cbind("Time to CKM progression, stage 3","Proteins",mod$concordance[[6]], mod$concordance[[7]]))
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with only age and sex
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~sex_char + AGEBASE"))
+mod = coxph(formula = form,data = ckm_stage3_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 3","Age, sex",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with age, sex, BMI, HbA1c, SBP
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~sex_char + AGEBASE + bmi + HbA1c + sbp"))
+mod = coxph(formula = form,data = ckm_stage3_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 3","Age, sex, BMI, HbA1c, SBP",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with proteins, age, and sex
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~",paste0(ckm_stage3_select,collapse = "+"),paste0("+sex_char+AGEBASE")))
+mod = coxph(formula = form,data = ckm_stage3_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf[1:(nrow(moddf)-2),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 3","Proteins, age, sex",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with proteins, age, sex, BMI, HbA1c, SBP
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~",paste0(ckm_stage3_select,collapse = "+"),paste0("+HbA1c+log_trig+sbp+si_1_ins0+sex_char+bmi+AGEBASE+racedesc")))
+mod = coxph(formula = form,data = ckm_stage3_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf[1:(nrow(moddf)-10),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 3","Proteins + all covariates",mod$concordance[[6]], mod$concordance[[7]]))
 concordance_df <- rbind(concordance_df, concordance_df_temp)
 ```
 
