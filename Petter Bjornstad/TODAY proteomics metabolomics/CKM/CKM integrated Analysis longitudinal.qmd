@@ -136,6 +136,8 @@ cbl_1 <- read.csv(full_path)
 cbl_1$TIMEPOINT <- "1"
 # remove R visits
 cbl_1 <- cbl_1 %>% filter(!mvisit == "R")
+# for any baseline visits with days < 0, recode to 0 to avoid having two baseline records later
+cbl_1$days <- ifelse(cbl_1$days < 0, 0, cbl_1$days)
 
 #cbl_2 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/CBL_TODAY2.csv")
 filename <- "/Clinical data/TODAY2/CBL.csv"
@@ -157,13 +159,14 @@ addcbl_1 <- read.csv(full_path)
 addcbl_1$TIMEPOINT <- "1"
 # LP: remove R visits
 addcbl_1 <- addcbl_1 %>% filter(!mvisit == "R")
+# for any baseline visits with days < 0, recode to 0 to avoid having two baseline records later
+addcbl_1$days <- ifelse(addcbl_1$days < 0, 0, addcbl_1$days)
 
 #addcbl_2 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ADDCBL_TODAY2.csv")
 filename <- "/Clinical data/TODAY2/ADDCBL.csv"
 full_path <- file.path(data_path, filename)
 addcbl_2 <- read.csv(full_path)
 addcbl_2$TIMEPOINT <- "2"
-# ONCE WE HAVE CORRECTED DATA FROM DCC, MAY NEED TO RENAME COLUMNS TO MATCH TODAY
 
 # Specialized datasets
 #speckle <- read.csv('/Users/jpcortes/Documents/Temp_files_TODAY/SPECKLE.csv')
@@ -979,6 +982,18 @@ comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>%
   )
 comorb_ckm2$progress_CKM <- ifelse(comorb_ckm2$CKM_syn_num > comorb_ckm2$CKM_syn_lag, 1, 0)
 comorb_ckm2$progress_CKM_stages <- pmax(0, comorb_ckm2$CKM_syn_num - comorb_ckm2$CKM_syn_lag)
+comorb_ckm2 <- comorb_ckm2 %>% mutate(progress_CKM_stage3 = case_when(
+  is.na(progress_CKM) ~ NA,
+  !is.na(progress_CKM) & progress_CKM == 1 & CKM_syn == "Stage 3" ~ 1,
+  TRUE~ 0
+  )
+)
+comorb_ckm2 <- comorb_ckm2 %>% mutate(progress_CKM_stage4 = case_when(
+  is.na(progress_CKM) ~ NA,
+  !is.na(progress_CKM) & progress_CKM == 1 & CKM_syn == "Stage 4" ~ 1,
+  TRUE~ 0
+  )
+)
 comorb_ckm2$regress_CKM <- ifelse(comorb_ckm2$CKM_syn_num < comorb_ckm2$CKM_syn_lag, 1, 0)
 comorb_ckm2$regress_CKM_stages <- pmax(0, comorb_ckm2$CKM_syn_lag - comorb_ckm2$CKM_syn_num)
 comorb_ckm2$progress_CKM2 <- ifelse(comorb_ckm2$CKM_syn_num2 > comorb_ckm2$CKM_syn2_lag, 1, 0)
@@ -1003,7 +1018,8 @@ max_days <- comorb_ckm2 %>% select(RELEASEID, days) %>% arrange(RELEASEID, desc(
 colnames(max_days) <- c("RELEASEID", "maxdays")
 comorb_ckm2 <- left_join(comorb_ckm2, max_days, by = "RELEASEID")
 comorb_ckm2$fup_time <- ifelse(is.na(comorb_ckm2$fup_time), comorb_ckm2$maxdays, comorb_ckm2$fup_time)
-ckm_prog_time <- comorb_ckm2 %>% select(RELEASEID, days, CKM_syn, CKM_syn_num, progress_CKM, progress_CKM2, fup_time)
+ckm_prog_time <- comorb_ckm2 %>% select(RELEASEID, days, CKM_syn, CKM_syn_num, progress_CKM, progress_CKM_stage3, progress_CKM_stage4, progress_CKM2, fup_time)
+# find time to first progression
 ckm_prog_time1 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM), days) %>% filter(row_number() == 1) %>% select(-progress_CKM2)
 ckm_prog_time1$days_to_first_ckm_prog <- ifelse(ckm_prog_time1$progress_CKM == 1, ckm_prog_time1$days, ckm_prog_time1$fup_time)
 ckm_prog_time1 <- ckm_prog_time1 %>% rename(CKM_syn_first_progression = CKM_syn, CKM_syn_num_first_progression = CKM_syn_num)
@@ -1024,6 +1040,20 @@ ckm_prog_time1 <- ckm_prog_time1 %>% select(RELEASEID, days_to_first_ckm_prog, C
 comorb_ckm2 <- full_join(comorb_ckm2, ckm_prog_time1, by = "RELEASEID")
 comorb_ckm2$days_to_first_ckm_prog_nocensor <- ifelse(comorb_ckm2$progress_CKM == 1, comorb_ckm2$days_to_first_ckm_prog, NA)
 comorb_ckm2$years_to_first_ckm_prog_nocensor <- comorb_ckm2$days_to_first_ckm_prog_nocensor / 365.25
+# find time to progress to stage 3
+ckm_prog_time3 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM_stage3), days) %>% filter(row_number() == 1) %>% select(-progress_CKM, -progress_CKM2, -progress_CKM_stage4)
+ckm_prog_time3$days_to_first_ckm_stage3_prog <- ifelse(ckm_prog_time3$progress_CKM_stage3 == 1, ckm_prog_time3$days, ckm_prog_time3$fup_time)
+ckm_prog_time3 <- ckm_prog_time3 %>% select(RELEASEID, days_to_first_ckm_stage3_prog)
+comorb_ckm2 <- full_join(comorb_ckm2, ckm_prog_time3, by = "RELEASEID")
+comorb_ckm2$days_to_first_ckm_stage3_prog_nocensor <- ifelse(comorb_ckm2$progress_CKM_stage3 == 1, comorb_ckm2$days_to_first_ckm_stage3_prog, NA)
+comorb_ckm2$years_to_first_ckm_stage3_prog_nocensor <- comorb_ckm2$days_to_first_ckm_stage3_prog_nocensor / 365.25
+# find time to progress to stage 4
+ckm_prog_time4 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM_stage4), days) %>% filter(row_number() == 1) %>% select(-progress_CKM, -progress_CKM2, -progress_CKM_stage3)
+ckm_prog_time4$days_to_first_ckm_stage4_prog <- ifelse(ckm_prog_time4$progress_CKM_stage4 == 1, ckm_prog_time4$days, ckm_prog_time4$fup_time)
+ckm_prog_time4 <- ckm_prog_time4 %>% select(RELEASEID, days_to_first_ckm_stage4_prog)
+comorb_ckm2 <- full_join(comorb_ckm2, ckm_prog_time4, by = "RELEASEID")
+comorb_ckm2$days_to_first_ckm_stage4_prog_nocensor <- ifelse(comorb_ckm2$progress_CKM_stage4 == 1, comorb_ckm2$days_to_first_ckm_stage4_prog, NA)
+comorb_ckm2$years_to_first_ckm_stage4_prog_nocensor <- comorb_ckm2$days_to_first_ckm_stage4_prog_nocensor / 365.25
 
 # number of progressions
 a <- comorb_ckm2 %>% filter(progress_CKM == 1) %>% select(RELEASEID, progress_CKM)
@@ -1047,7 +1077,8 @@ comorb_ckm2$DEATH <- ifelse(is.na(comorb_ckm2$DEATH), 0, comorb_ckm2$DEATH)
 # convert to factors
 cols_to_convert <- c("HTN", "TGDLP", "high_pwv", "hfpef",
                      "high_trop", "CKM_syn_base", "CKM_max", "CKM_syn_base2", "CKM_max2",
-                     "progress_CKM", "progress_CKM2", "regress_CKM", "regress_CKM_stages", "regress_CKM2", "regress_CKM2_stages", "DEATH", 
+                     "progress_CKM", "progress_CKM2", "progress_CKM_stage3", "progress_CKM_stage4",
+                     "regress_CKM", "regress_CKM_stages", "regress_CKM2", "regress_CKM2_stages", "DEATH", 
                      "num_prog", "num_prog2")
 comorb_ckm2[cols_to_convert] <- lapply(comorb_ckm2[cols_to_convert], as.factor)
 
@@ -1086,8 +1117,17 @@ comorb_ckm2_criteria <- comorb_ckm2_criteria %>%
 
 # collapse to a dataset with 1 row per person with baseline CKM, max CKM, time to progression, number of progressions?
 # this is an oversimplification because people progress, regress, progress
-prog_summary_final <- comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base, CKM_max, progress_CKM, days_to_first_ckm_prog, days_to_first_ckm_prog_nocensor, years_to_first_ckm_prog_nocensor, num_prog, CKM_syn_first_progression, CKM_syn_num_first_progression) %>%
+prog_summary_final <- comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base, CKM_max, progress_CKM, days_to_first_ckm_prog, days_to_first_ckm_prog_nocensor, years_to_first_ckm_prog_nocensor, 
+                                             days_to_first_ckm_stage3_prog, days_to_first_ckm_stage3_prog_nocensor, years_to_first_ckm_stage3_prog_nocensor,
+                                             days_to_first_ckm_stage4_prog, days_to_first_ckm_stage4_prog_nocensor, years_to_first_ckm_stage4_prog_nocensor, num_prog, 
+                                             CKM_syn_first_progression, CKM_syn_num_first_progression) %>%
   arrange(RELEASEID, desc(progress_CKM)) %>% filter(row_number() == 1)
+# merge in variables for progression to stage 3
+prog_summary_stage3 <- comorb_ckm2 %>% select(RELEASEID, progress_CKM_stage3) %>% arrange(RELEASEID, desc(progress_CKM_stage3)) %>% filter(row_number() == 1)
+prog_summary_final <- left_join(prog_summary_final, prog_summary_stage3, by = "RELEASEID")
+# merge in variables for progression to stage 4
+prog_summary_stage4 <- comorb_ckm2 %>% select(RELEASEID, progress_CKM_stage4) %>% arrange(RELEASEID, desc(progress_CKM_stage4)) %>% filter(row_number() == 1)
+prog_summary_final <- left_join(prog_summary_final, prog_summary_stage4, by = "RELEASEID")
 # create character variable corresponding to max stages
 prog_summary_final$CKM_max_char <- case_when(
   prog_summary_final$CKM_max == 1 ~ "Stage 2",
@@ -1606,8 +1646,6 @@ colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 kable(moddf, row.names=F)
 ```
 
-
-
 ```{r, include=TRUE, comment="", eval=FALSE}
 There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
@@ -1632,8 +1670,6 @@ colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 ```{r, include=TRUE, comment="", eval=FALSE}
 kable(moddf, row.names=F)
 ```
-
-
 
 ```{r, include=TRUE, comment="", eval=FALSE}
 There are `r nrow(moddf)` variables in the model.
@@ -1660,8 +1696,6 @@ colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 kable(moddf, row.names=F)
 ```
 
-
-
 ```{r, include=TRUE, comment="", eval=FALSE}
 There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
@@ -1687,8 +1721,6 @@ colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 kable(moddf, row.names=F)
 ```
 
-
-
 ```{r, include=TRUE, comment="", eval=FALSE}
 There are `r nrow(moddf)` variables in the model.
 kable(round(mod$concordance,digits=3))
@@ -1713,8 +1745,6 @@ colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
 ```{r, include=TRUE, comment="", eval=FALSE}
 kable(moddf, row.names=F)
 ```
-
-
 
 ```{r, include=TRUE, comment="", eval=FALSE}
 There are `r nrow(moddf)` variables in the model.
