@@ -161,3 +161,8 @@ library(reticulate)
 # reticulate::py_install("pandas")
 # install.packages("jsonlite")  # Install if not already installed
 library(jsonlite)  # Load the package
+# install.packages("tidyverse")
+library(tidyverse)
+library(tidyr)
+# install.packages("tidylog")
+library(tidylog)
