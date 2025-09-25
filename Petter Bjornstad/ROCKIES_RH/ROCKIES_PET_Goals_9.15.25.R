@@ -831,13 +831,13 @@ full_corr <- cor(aim2_df[, 3:ncol(aim2_df)], use = 'pairwise.complete.obs')
 full_p_mat <- cor.mtest(aim2_df[, 3:ncol(aim2_df)])
 
 # Subset to your desired rows and columns (this will include NAs where data is missing)
-aim2_corr_df <- full_corr[c(1:3), c(10, 9, 11, 13, 12, 14)]
-aim2_p_mat <- full_p_mat[c(1:3), c(10, 9, 11, 13, 12, 14)]
+aim2_corr_df <- full_corr[c(1:3), c(10, 11, 12, 13, 14, 15)]
+aim2_p_mat <- full_p_mat[c(1:3), c(10, 11, 12, 13, 14, 15)]
 
 # Apply your labels
-colnames(aim2_corr_df) <- c('Cortical F', 'Cortical K2', 'Cortical K2/F', 
-                            'Cortical F (voxel)', 'Cortical K2 (voxel)', 'Cortical K2/F (voxel)')
-rownames(aim2_corr_df) <- c('Urine Albumin-Creatinine Ratio', 'GBM Thickness (Arithmetic)', 'GBM Thickness (Harmonic)')
+#colnames(aim2_corr_df) <- c('Cortical F', 'Cortical K2', 'Cortical K2/F', 
+#                            'Cortical F (voxel)', 'Cortical K2 (voxel)', 'Cortical K2/F (voxel)')
+#rownames(aim2_corr_df) <- c('Urine Albumin-Creatinine Ratio', 'GBM Thickness (Arithmetic)', 'GBM Thickness (Harmonic)')
 
 # Apply same labels to p-value matrix
 colnames(aim2_p_mat) <- colnames(aim2_corr_df)
@@ -3437,58 +3437,67 @@ dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
 
 
 
-ion_df <- dat %>% filter(mrn %in% dat2$mrn) %>% 
-  dplyr::select(mrn, cl_base, k_base, na_s, na_u, 
+#ion_df <- dat %>% filter(mrn %in% dat2$mrn) %>% 
+#  dplyr::select(mrn, cl_base, k_base, na_s, na_u, 
+#                sodium_base, sodium_s, sodium_u, 
+#                u24_na, phosphate_tissue, n_acetyl_glucosamine_1_phosphate_h_tissue)
+
+
+
+#combined_df <- dat2 %>% left_join(ion_df, by='mrn')
+
+
+combined_df <- dat2 %>% 
+  dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f, 
+                avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
+                acr_u,
+                cl_base, k_base, na_s, na_u, 
                 sodium_base, sodium_s, sodium_u, 
                 u24_na, phosphate_tissue, n_acetyl_glucosamine_1_phosphate_h_tissue)
 
 
+colSums(is.na(combined_df))
 
-combined_df <- dat2 %>% left_join(ion_df, by='mrn')
-
-
-
-
-
-
-# Check what your column indices correspond to
-row_vars <- colnames(numeric_cols)[c(66, 69:73)]
-col_vars <- colnames(numeric_cols)[c(55, 56, 57, 58, 59, 60)]
-print("Row variables:")
-print(row_vars)
-print("Column variables:")
-print(col_vars)
-
-
-combined_df <- combined_df %>% left_join(ion_df, by='mrn')
-
-
+combined_df <- combined_df %>% 
+  dplyr::select(avg_c_k2, avg_c_f, avg_c_k2_f, 
+                avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
+                acr_u,
+                sodium_s, sodium_u, phosphate_tissue, n_acetyl_glucosamine_1_phosphate_h_tissue)
 
 library(corrplot)
 
-# Select only numeric columns
-numeric_cols <- combined_df[,c(2:79)][sapply(combined_df[,c(2:79)], is.numeric)]
+# Select only numeric columns and remove rows with all NA
+combined_df_clean <- combined_df[complete.cases(combined_df), ]
 
-colSums(is.na(numeric_cols))
+# Calculate correlations
+combined_df_corr <- cor(combined_df_clean, use = 'pairwise.complete.obs')
 
-combined_df_corr <- cor(numeric_cols, use = 'pairwise.complete.obs')
+# Calculate p-values using cor.mtest
+p_values <- cor.mtest(combined_df_clean)
 
 # Create subset for plotting
-corr_subset <- combined_df_corr[c(66, 69:73), c(55, 56, 57, 58, 59, 60)]
+corr_subset <- combined_df_corr[c(7:11), c(1:6)]
+p_subset <- p_values$p[c(7:11), c(1:6)]
 
-rownames(corr_subset) <- c('Serum Sodium', 'Serum Sodium', 'Urine Sodium', 
-                           'Urine Sodium @ 24 hours', 'Phosphate', 'N-Acetyl-glucosamine 1-phosphate -H')
+# Add meaningful names
+rownames(corr_subset) <- c('Urine Albumin-Creatinine Ratio', 'Serum Sodium', 'Urine Sodium', 'Phosphate (Tissue)', 'N-Acetyl-glucosamine 1-phosphate -H')
 colnames(corr_subset) <- c('Cortical K2', 'Cortical F', 'Cortical K2/F', 
                            'Cortical K2 (voxel)', 'Cortical F (voxel)', 'Cortical K2/F (voxel)')
 
+# Apply same names to p-value matrix
+rownames(p_subset) <- rownames(corr_subset)
+colnames(p_subset) <- colnames(corr_subset)
 
 pdf('C:/Users/netio/Downloads/Correlations.pdf', width = 20, height = 20)
 corrplot(corr_subset, 
-         method = "color",        # hide non-significant correlations
-         addCoef.col = "black",  # add correlation coefficients
-         number.cex = 1.2,       # size of correlation numbers
-         tl.cex = 1.5,          # size of variable names
-         cl.cex = 1.2)          # size of color legend
+         method = "color",
+         p.mat = p_subset,           # Add p-values
+         sig.level = 0.05,           # Significance level
+         insig = "label_sig",        # Show significance markers (* for p<0.05, ** for p<0.01, etc.)
+         number.cex = 1.2,           # size of correlation numbers
+         tl.cex = 1.5,
+         tl.col = 'black',
+         cl.cex = 1.2)              # size of color legend
 dev.off()
 
 
