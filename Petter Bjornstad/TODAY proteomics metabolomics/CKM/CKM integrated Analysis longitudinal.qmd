@@ -35,7 +35,7 @@ library(knitr)
 library(limma)
 library(gtsummary)
 library(cardx)
-
+library(forestploter)
 
 # Working directory setup
 getwd()
@@ -1552,7 +1552,7 @@ full_path <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled basel
 saveWorkbook(wb, full_path, overwrite = TRUE)
 ```
 
-```{r, include=FALSE, eval=FALSE}
+```{r, include=FALSE}
 # compare change in proteins in those who did and did not progress
 # using limma mixed effects model
 soma_long_log$sample_id <- paste(soma_long_log$RELEASEID, "v", soma_long_log$visit, sep = "")
@@ -1579,7 +1579,7 @@ results_interaction <- merge(results_interaction,analytes,by="AptName",all.x = T
 results_interaction <- results_interaction[order(results_interaction$P.Value),] 
 ```
 
-```{r, include=FALSE, eval=FALSE}
+```{r, include=FALSE}
 # write DiD results to file
 wb <- createWorkbook()
 addWorksheet(wb,"DiD proteins vs CKM progression")
@@ -1588,14 +1588,14 @@ full_path <- file.path(data_path, "CKM/Results/TODAY change in proteins CKM prog
 saveWorkbook(wb, full_path, overwrite = TRUE)
 ```
 
-```{r, include=FALSE, eval=FALSE}
+```{r, include=FALSE}
 # Elastic net Cox models
 
 # filter to top 100 proteins by effect size
 f <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline unadjusted.xlsx")
 
 # CKM without BMI
-ckm_without_bmi_keep = read_excel(f,sheet = "Time to CKM Proteins")
+ckm_without_bmi_keep = read_excel(f,sheet = "Proteins all stages")
 ckm_without_bmi_keep <- arrange(ckm_without_bmi_keep,adj.p.value)
 ckm_without_bmi_drop <- ckm_without_bmi_keep[101:nrow(ckm_without_bmi_keep),"AptName"]
 rownames(ckm_without_bmi_drop) <- ckm_without_bmi_drop$AptName
@@ -1620,7 +1620,7 @@ source(full_path)
 
 ## Time to CKM
 
-```{r, include=FALSE, comment="", eval=FALSE}
+```{r, include=FALSE, comment=""}
 ckm_without_bmi_endata_nozero <- ckm_without_bmi_endata[!ckm_without_bmi_endata$days_to_first_ckm_prog == 0,]
 seq <- is_seq(names(ckm_without_bmi_endata_nozero))
 
@@ -1638,22 +1638,22 @@ moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 
 moddf$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
 moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
 colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
-
-#concordance_df <- as.data.frame(cbind("Severe albuminuria","Proteins",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- as.data.frame(cbind("Time to CKM progression","Proteins",mod$concordance[[6]], mod$concordance[[7]]))
 ```
 
-```{r, include=TRUE, comment="", eval=FALSE}
+```{r, include=TRUE, comment=""}
 kable(moddf, row.names=F)
 ```
 
-```{r, include=TRUE, comment="", eval=FALSE}
 There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
 kable(round(mod$concordance,digits=3))
 ```
 
 ## Model with only age and sex
 
-```{r, include=FALSE, comment="", eval=FALSE}
+```{r, include=FALSE, comment=""}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~sex_char + AGEBASE"))
 mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
 kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
@@ -1662,23 +1662,23 @@ kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
 moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
 moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
 colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
-
-#concordance_df_temp <- as.data.frame(cbind("Severe albuminuria","Covariates",mod$concordance[[6]], mod$concordance[[7]]))
-#concordance_df <- rbind(concordance_df, concordance_df_temp)
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression","Age, sex",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
 ```
 
-```{r, include=TRUE, comment="", eval=FALSE}
+```{r, include=TRUE, comment=""}
 kable(moddf, row.names=F)
 ```
 
-```{r, include=TRUE, comment="", eval=FALSE}
 There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
 kable(round(mod$concordance,digits=3))
 ```
 
 ## Model with age, sex, BMI, HbA1c, SBP
 
-```{r, include=FALSE, comment="", eval=FALSE}
+```{r, include=FALSE, comment=""}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~sex_char + AGEBASE + bmi + HbA1c + sbp"))
 mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
 kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
@@ -1687,23 +1687,23 @@ kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
 moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
 moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
 colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
-
-#concordance_df_temp <- as.data.frame(cbind("Severe albuminuria","Covariates",mod$concordance[[6]], mod$concordance[[7]]))
-#concordance_df <- rbind(concordance_df, concordance_df_temp)
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression","Age, sex, BMI, HbA1c, SBP",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
 ```
 
-```{r, include=TRUE, comment="", eval=FALSE}
+```{r, include=TRUE, comment=""}
 kable(moddf, row.names=F)
 ```
 
-```{r, include=TRUE, comment="", eval=FALSE}
 There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
 kable(round(mod$concordance,digits=3))
 ```
 
 ## Model with proteins, age, and sex
 
-```{r, include=FALSE, comment="", eval=FALSE}
+```{r, include=FALSE, comment=""}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+"),paste0("+sex_char+AGEBASE")))
 mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
 kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
@@ -1713,22 +1713,23 @@ moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 
 moddf[1:(nrow(moddf)-2),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
 moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
 colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
-#concordance_df_temp <- as.data.frame(cbind("Moderate albuminuria","Proteins + covariates",mod$concordance[[6]], mod$concordance[[7]]))
-#concordance_df <- rbind(concordance_df, concordance_df_temp)
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression","Proteins, age, sex",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
 ```
 
-```{r, include=TRUE, comment="", eval=FALSE}
+```{r, include=TRUE, comment=""}
 kable(moddf, row.names=F)
 ```
 
-```{r, include=TRUE, comment="", eval=FALSE}
 There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
 kable(round(mod$concordance,digits=3))
 ```
 
 ## Model with proteins, age, sex, BMI, HbA1c, SBP
 
-```{r, include=FALSE, comment="", eval=FALSE}
+```{r, include=FALSE, comment=""}
 form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+"),paste0("+HbA1c+log_trig+sbp+si_1_ins0+sex_char+bmi+AGEBASE+racedesc")))
 mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
 kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
@@ -1738,15 +1739,43 @@ moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 
 moddf[1:(nrow(moddf)-10),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
 moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
 colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
-#concordance_df_temp <- as.data.frame(cbind("Moderate albuminuria","Proteins + covariates",mod$concordance[[6]], mod$concordance[[7]]))
-#concordance_df <- rbind(concordance_df, concordance_df_temp)
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression","Proteins + all covariates",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
 ```
 
-```{r, include=TRUE, comment="", eval=FALSE}
+```{r, include=TRUE, comment=""}
 kable(moddf, row.names=F)
 ```
 
-```{r, include=TRUE, comment="", eval=FALSE}
 There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
 kable(round(mod$concordance,digits=3))
+```
+
+```{r, include=TRUE, comment=""}
+colnames(concordance_df) <- c("Outcome","Model","Concordance","SE")
+concordance_df$Concordance <- as.numeric(concordance_df$Concordance)
+concordance_df$SE <- as.numeric(concordance_df$SE)
+concordance_df$ci_low <- concordance_df$Concordance - (1.96*concordance_df$SE)
+concordance_df$ci_high <- concordance_df$Concordance + (1.96*concordance_df$SE)
+concordance_df[,c("Concordance","SE","ci_low", "ci_high")] <- round(concordance_df[,c("Concordance","SE","ci_low", "ci_high")],2)
+colnames(concordance_df) <- c("Outcome","Model","Concordance","SE","Lower bound 95% CI","Upper bound 95% CI")
+#concordance_df <- rbind(concordance_df[5,],concordance_df[7,],
+#                            concordance_df[1,],
+#                            concordance_df[4,],concordance_df[6,])
+concordance_df <- concordance_df[,-1]
+colnames(concordance_df) <- c("Model","Concordance","SE","Lower bound 95% CI","Upper bound 95% CI")
+
+# forest plot of concordance
+concordance_df_for_plot <- concordance_df
+concordance_df_for_plot$` ` <- paste(rep(" ", 40), collapse = " ")
+concordance_df_for_plot$`Concordance (95% CI)` <- sprintf("%.2f (%.2f to %.2f)",
+                                     concordance_df_for_plot$Concordance, concordance_df_for_plot$`Lower bound 95% CI`, concordance_df_for_plot$`Upper bound 95% CI`)
+p <- forest(concordance_df_for_plot[, c(1, 6:7)], est = concordance_df_for_plot$Concordance, lower = concordance_df_for_plot$`Lower bound 95% CI`,
+       upper = concordance_df_for_plot$`Upper bound 95% CI`, ci_column = 2, xlim = c(0,1))
+#p$widths <- unit(c(1,100,50,50), "mm")
+png('forest_plot_elastic_net_concordance.png', res = 300, width = 9, height = 3, units = "in")
+p
+dev.off()
 ```
