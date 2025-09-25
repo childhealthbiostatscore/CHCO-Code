@@ -90,20 +90,19 @@ invisible(gc())
 ```
 
 ```{r, Cyberduck setup}
-reticulate::py_config()
-# library(reticulate)
-# reticulate::use_condaenv("py310_env", required = TRUE)
-# reticulate::py_config()
-# Sys.setenv(LD_LIBRARY_PATH = "/usr/lib/x86_64-linux-gnu")
-# reticulate::use_python("/home/hailey/miniconda3/bin/python")
-# reticulate::use_condaenv("base", required = TRUE)
 
+install.packages("reticulate")
+library(reticulate)
+reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
 ## Load boto3 and pandas
 boto3 <- reticulate::import("boto3")
 pd <- reticulate::import("pandas")
 
 ## Create an S3 client
-keys <- fromJSON("/Home/hhampson/keys.json") # replace with your Lambda username
+install.packages("jsonlite")  # Install if not already installed
+library(jsonlite)  # Load the package
+
+keys <- fromJSON("/home/hhampson/keys.json") # replace with your Lambda username
 session <- boto3$session$Session(
   aws_access_key_id = keys$MY_ACCESS_KEY,
   aws_secret_access_key = keys$MY_SECRET_KEY
@@ -111,14 +110,12 @@ session <- boto3$session$Session(
 
 ## Create an S3 client with the session
 s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
-```
 
-## b. Local Load Seurat Object snRNA
-```{r, include = F, fig.height=7,fig.width=10}
-# Liver snRNA data processing
-invisible(gc())
-#Local
-so_liver_sn <- readRDS(fs::path(dir.dat,"scRNA","data_raw","NoRef_PetterLiver_ClinData_Labels_Char_041924.RDS"))
+# read file
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket,"Liver transcriptomics/Single nucleus RNA seq/NoRef_PetterLiver_ClinData_Labels_Char_041924.rds", temp_file)
+so_liver_sn <- readRDS(temp_file)
 
 DefaultAssay(so_liver_sn) <- "RNA"
 dim(so_liver_sn)#36601 130124
