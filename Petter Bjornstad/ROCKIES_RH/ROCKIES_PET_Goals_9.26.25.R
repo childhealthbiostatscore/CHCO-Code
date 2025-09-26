@@ -709,320 +709,6 @@ for(i in c(1:length(celltypes))){
 }
 
 
-
-
-
-### Overall NEBULA Analysis for Top 2,000 genes
-
-library(scran)
-library(future)
-library(future.apply)
-library(tidyverse)
-library(colorspace)
-library(patchwork)
-library(ggdendro)
-library(cowplot)
-library(ggpubr)
-library(rstatix)
-library(arsenal)
-library(Biobase)
-library(msigdbr)
-library(kableExtra)
-library(knitr)
-library(REDCapR)
-library(data.table)
-library(emmeans)
-library(NMF)
-library(pheatmap)
-library(UpSetR)
-library(enrichR)
-library(WriteXLS)
-library(SAVER)
-library(readxl)
-library(limma)
-library(edgeR)
-library(BiocGenerics)
-library(GSEABase)
-library(slingshot)
-library(SingleCellExperiment)
-library(MAST)
-library(muscat)
-library(scater)
-library(Seurat)
-library(jsonlite)
-library(dplyr)
-library(glmmTMB)
-library(reshape2)
-library(broom.mixed)
-library(nebula)
-library(doParallel)
-
-
-load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
-
-so_subset <- so_kpmp_sc
-remove(so_kpmp_sc)
-
-#dat_groups <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_GroupAssignments.txt')
-#dat_groups <- dat_groups %>% filter(group2 %in% c('Lean Control', 'T2D-No SGLTi2'))
-
-#so_subset <- subset(so_subset, record_id == dat_groups$record_id)
-test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
-
-#load('C:/Users/netio/Downloads/TCA_genes.txt')
-#load('C:/Users/netio/Downloads/OxPhos_genes.txt')
-
-
-dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/'
-
-
-
-
-
-#Make sure exposure/independent/x variable or group variable is a factor variable
-so_subset$group <- factor(so_subset$group)
-#Make sure to set reference level
-so_subset$group  <- relevel(so_subset$group ,ref="Lean_Control")
-
-counts_path <- round(GetAssayData(so_subset, layer = "counts")) # load counts and round
-
-# With parallelization
-#TCA Cycle
-# List of genes
-so <- so_subset
-
-remove(so_subset)
-
-
-#Check the number of Mitochondrial genes to start
-sum(grepl("^MT-", rownames(so))) 
-
-# Identify mitochondrial genes (human: start with "MT-")
-mito_genes <- grep("^MT-", rownames(so), value = TRUE)
-so <- subset(so, features = setdiff(rownames(so), mito_genes))
-
-#Check the number of Mitochondrial genes after filtering to ensure filtering step was successful
-sum(grepl("^MT-", rownames(so))) #Should be 0
-
-
-#Ribosomal genes
-# Identify ribosomal genes
-ribo_genes <- c(
-  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
-  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
-  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
-  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
-  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
-  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
-  "RPL10", "RPS4Y1")
-
-so<- subset(so, features = setdiff(rownames(so), ribo_genes))
-# sum(grepl("^MT-", rownames(so_kpmp_sc))) #0
-length(which(rownames(so) %in% ribo_genes)) #0
-ncol(so) #211,218 cells
-nrow(so) #31,242 genes
-
-so <- subset(so, 
-             subset = nFeature_RNA > 500 & nFeature_RNA < 5000 & percent.mt < 10)
-
-tmp_meta <- so@meta.data
-
-
-
-
-
-
-harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
-
-dat2 <- harmonized_data %>% dplyr::select(-dob) %>% 
-  arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-                   .by = c(record_id, visit)) %>% semi_join(tmp_meta, by='record_id') %>% filter(visit == 'baseline')
-
-
-
-
-# Fix data types before creating the table
-library(gtsummary)
-library(gt)
-library(dplyr)
-
-# Convert variables to proper data types
-combined_df <- dat2 %>%
-  mutate(
-    # Ensure continuous variables are numeric
-    age = as.numeric(age),
-    bmi = as.numeric(bmi),
-    hba1c = as.numeric(hba1c),
-    
-    # Ensure categorical variables are factors or characters
-    sex = as.factor(sex),
-    race_ethnicity = as.factor(race_ethnicity),
-    study = as.factor(study),
-    group = as.factor(group),
-    epic_sglti2_1 = as.factor(epic_sglti2_1)
-  )
-
-
-
-# Now create the table with proper data types
-desc_table1_fixed <- combined_df %>%
-  select(age, sex, race_ethnicity, bmi, hba1c, study, group, epic_sglti2_1) %>%
-  tbl_summary(
-    by = group,
-    type = list(
-      age ~ "continuous",
-      bmi ~ "continuous", 
-      hba1c ~ "continuous",
-      sex ~ "categorical",
-      race_ethnicity ~ "categorical",
-      study ~ "categorical",
-      epic_sglti2_1 ~ "categorical"
-    ),
-    statistic = list(
-      all_continuous() ~ "{mean} ({sd})",
-      all_categorical() ~ "{n} ({p}%)"
-    ),
-    digits = list(
-      age ~ 1,
-      bmi ~ 1,
-      hba1c ~ 2,
-      all_categorical() ~ c(0, 1)
-    ),
-    label = list(
-      age ~ "Age, years",
-      sex ~ "Sex", 
-      race_ethnicity ~ "Race/Ethnicity",
-      bmi ~ "BMI, kg/m²",
-      hba1c ~ "HbA1c, %",
-      study ~ "Study",
-      epic_sglti2_1 ~ "SGLT2 Inhibitor Use"
-    ),
-    missing_text = "Missing"
-  ) %>%
-  add_p(test = list(
-    all_continuous() ~ "t.test"
-    # Skip categorical p-values if they cause issues
-  )) %>%
-  add_overall(col_label = "**Overall**\nN = {N}") %>%
-  modify_header(label ~ "**Characteristic**") %>%
-  modify_spanning_header(all_stat_cols() ~ "**Group**") %>%
-  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
-
-# Save version with epic
-desc_table1_fixed %>%
-  as_gt() %>%
-  tab_options(
-    table.font.size = 11,
-    heading.title.font.size = 14,
-    column_labels.font.size = 12
-  ) %>%
-  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/demographics_aim4_with_epic_final.png", 
-         vwidth = 1200, vheight = 800)
-
-
-
-
-
-
-
-
-
-
-counts_layer <- round(GetAssayData(so, layer = 'counts'))
-library_size <- Matrix::colSums(round(GetAssayData(so, layer = 'counts')))
-so$library_size <- library_size
-sce <- SingleCellExperiment::SingleCellExperiment(assays = list(counts = counts_layer))
-sce <- computeSumFactors(sce)
-# View size factors
-sizeFactors(sce)
-## Calculate offset → (size factors)
-so$pooled_offset <- (sizeFactors(sce))
-
-save.image('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/Line1206_Aim4.RData')
-load('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/Line1206_Aim4.RData')
-
-#meta.data <- so@meta.data
-#meta.data <- meta.data %>% dplyr::select(record_id, group, sex, epic_sglti2_1)
-#table(meta.data$group, meta.data$epic_sglti2_1)
-
-celltypes <- c('PT', 'aPT', 'PT-S1/S2', 'PT-S3')
-
-for(celltype in celltypes){
-  if(celltype == 'PT'){
-    so_celltype <- subset(so, celltype2 == celltype) 
-  }else{
-    so_celltype <- subset(so,KPMP_celltype==celltype)
-  }
-  DefaultAssay(so_celltype) <- "RNA" 
-  
-  nrow(so_celltype) #34 genes
-  ncol(so_celltype) #13534 PT cells
-  
-  celltype2 <- str_replace_all(celltype,"/","_")
-  celltype2 <- str_replace_all(celltype2,"-","_")
-  
-  #Make sure exposure/independent/x variable or group variable is a factor variable
-  so_celltype$group <- factor(so_celltype$group)
-  #Make sure to set reference level
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
-  
-  
-  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-  
-  # With parallelization
-  #TCA Cycle
-  # List of genes
-  genes_list <- tca_genes
-  
-  cl <- makeCluster(1)
-  registerDoParallel(cl)
-  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-  t2d_count <- test2 %>% filter(group == 'Type_2_Diabetes') %>% nrow()
-  lc_count <- test2 %>% filter(group == 'Lean_Control') %>% nrow()
-  
-  
-  start_time <- Sys.time()
-  
-  full_analysis <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-  hvgs <- VariableFeatures(full_analysis)
-  full_analysis <- subset(so_celltype, features = hvgs)
-  full_counts <- round(GetAssayData(full_analysis, layer = "counts")) 
-  
-  
-  meta_gene <- full_analysis@meta.data
-  pred_gene <- model.matrix(~group, data = meta_gene)
-  data_g_gene <- list(count = full_analysis, id = meta_gene$record_id, pred = pred_gene)
-  result<- nebula(count = full_counts, id = full_analysis$record_id, pred = data_g_gene$pred, 
-                  offset = full_analysis$pooled_offset,
-                  ncore = 1, output_re = T, covariance = T,
-                  reml = T, model = "NBLMM")
-  
-  result$summary
-  
-  
-  stopCluster(cl)
-  end_time <- Sys.time()
-  print(end_time - start_time)
-  
-  
-  write.csv(result,fs::path(dir.results,paste0("NEBULA_Top2000_",celltype2,"_cells_LC_T2D_NoMed_pooled_offset.csv")))
-  
-  print(paste0(celltype2, ' is done.'))
-  
-  
-  
-}
-
-
-remove(list=ls())
-
-
-
-
-results_files <- list.files(path = 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/', pattern = '\\.csv$')
-
 library(enrichplot)
 library(clusterProfiler)
 library(ReactomePA)
@@ -1049,99 +735,6 @@ library(forcats)
 library(msigdbr) # For Hallmark gene sets
 library(enrichplot)
 
-for(i in c(1:length(results_files))){
-  tmp_data <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/', results_files[i]))
-  cell_type <- str_extract(results_files[i], "PT_S1_S2|PT_S3|aPT|PT")
-  
-  deg_data <- tmp_data %>% 
-    dplyr::select(gene_symbol = summary.gene,
-                  log2FC = summary.logFC_groupType_2_Diabetes,
-                  pvalue = summary.p_groupType_2_Diabetes) %>% 
-    filter(pvalue < 0.05)
-  
-  # Skip if no significant genes
-  if(nrow(deg_data) == 0) {
-    cat("No significant genes for", cell_type, "\n")
-    next
-  }
-  
-  gene_symbols <- deg_data$gene_symbol
-  entrez_ids <- bitr(gene_symbols, 
-                     fromType = "SYMBOL", 
-                     toType = "ENTREZID", 
-                     OrgDb = org.Hs.eg.db)
-  
-  # Merge back with original data
-  deg_with_entrez <- deg_data %>%
-    inner_join(entrez_ids, by = c("gene_symbol" = "SYMBOL"))
-  
-  # Create named vector for GSEA (ranked gene list)
-  gene_list <- deg_with_entrez$log2FC
-  names(gene_list) <- deg_with_entrez$ENTREZID
-  gene_list <- sort(gene_list, decreasing = TRUE)
-  
-  # ===============================
-  # GENE SET PREPARATION
-  # ===============================
-  
-  # Get Hallmark gene sets
-  hallmark_sets <- msigdbr(species = "Homo sapiens", category = "H")
-  hallmark_list <- split(x = hallmark_sets$entrez_gene, f = hallmark_sets$gs_name)
-  
-  # Get GO Biological Process gene sets (you can also use "CC" for Cellular Component, "MF" for Molecular Function)
-  go_sets <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP")
-  go_list <- split(x = go_sets$entrez_gene, f = go_sets$gs_name)
-  
-  # ===============================
-  # ENRICHMENT ANALYSES - NO MULTIPLE TEST CORRECTION
-  # ===============================
-  
-  # Reactome Over-Representation Analysis (ORA) - NO CORRECTION
-  reactome_ora <- enrichPathway(gene = names(gene_list)[abs(gene_list) > 1],
-                                pvalueCutoff = 0.05,
-                                pAdjustMethod = "none",
-                                readable = TRUE,
-                                organism = "human")
-  
-  # Reactome Gene Set Enrichment Analysis (GSEA) - NO CORRECTION
-  reactome_gsea <- gsePathway(geneList = gene_list,
-                              pvalueCutoff = 0.05,
-                              pAdjustMethod = "none",
-                              organism = "human")
-  
-  # GO Biological Process ORA - NO CORRECTION
-  go_ora <- enrichGO(gene = names(gene_list)[abs(gene_list) > 1],
-                     OrgDb = org.Hs.eg.db,
-                     ont = "BP",
-                     pAdjustMethod = "none",
-                     pvalueCutoff = 0.05,
-                     readable = TRUE)
-  
-  # GO Biological Process GSEA - NO CORRECTION
-  go_gsea <- gseGO(geneList = gene_list,
-                   OrgDb = org.Hs.eg.db,
-                   ont = "BP",
-                   pAdjustMethod = "none",
-                   pvalueCutoff = 0.05)
-  
-  # Hallmark GSEA - NO CORRECTION
-  hallmark_gsea <- GSEA(geneList = gene_list,
-                        TERM2GENE = data.frame(
-                          term = rep(names(hallmark_list), lengths(hallmark_list)),
-                          gene = unlist(hallmark_list)
-                        ),
-                        pvalueCutoff = 0.05,
-                        pAdjustMethod = "none")
-  
-  # Hallmark ORA - NO CORRECTION
-  hallmark_ora <- enricher(gene = names(gene_list)[abs(gene_list) > 1],
-                           TERM2GENE = data.frame(
-                             term = rep(names(hallmark_list), lengths(hallmark_list)),
-                             gene = unlist(hallmark_list)
-                           ),
-                           pvalueCutoff = 0.05,
-                           pAdjustMethod = "none")
-  
   # ===============================
   # CREATE DOTPLOT FUNCTION
   # ===============================
@@ -1229,176 +822,7 @@ for(i in c(1:length(results_files))){
   # ===============================
   # GENERATE ALL PLOTS
   # ===============================
-  
-  # Reactome plots
-  reactome_ora_plot <- create_dotplot(reactome_ora, 
-                                      paste("Reactome ORA -", cell_type), 
-                                      "ORA")
-  if (!is.null(reactome_ora_plot)) {
-    print(reactome_ora_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Reactome_ORA_", cell_type, ".png"), 
-           plot = reactome_ora_plot, width = 12, height = 8, dpi = 300)
-  }
-  
-  reactome_gsea_plot <- create_dotplot(reactome_gsea, 
-                                       paste("Reactome GSEA -", cell_type), 
-                                       "GSEA")
-  if (!is.null(reactome_gsea_plot)) {
-    print(reactome_gsea_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Reactome_GSEA_", cell_type, ".png"), 
-           plot = reactome_gsea_plot, width = 12, height = 8, dpi = 300)
-  }
-  
-  # GO Biological Process plots
-  go_ora_plot <- create_dotplot(go_ora, 
-                                paste("GO BP ORA -", cell_type), 
-                                "ORA")
-  if (!is.null(go_ora_plot)) {
-    print(go_ora_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/GO_BP_ORA_", cell_type, ".png"), 
-           plot = go_ora_plot, width = 12, height = 8, dpi = 300)
-  }
-  
-  go_gsea_plot <- create_dotplot(go_gsea, 
-                                 paste("GO BP GSEA -", cell_type), 
-                                 "GSEA")
-  if (!is.null(go_gsea_plot)) {
-    print(go_gsea_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/GO_BP_GSEA_", cell_type, ".png"), 
-           plot = go_gsea_plot, width = 12, height = 8, dpi = 300)
-  }
-  
-  # Hallmark plots
-  hallmark_ora_plot <- create_dotplot(hallmark_ora, 
-                                      paste("Hallmark ORA -", cell_type), 
-                                      "ORA")
-  if (!is.null(hallmark_ora_plot)) {
-    print(hallmark_ora_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Hallmark_ORA_", cell_type, ".png"), 
-           plot = hallmark_ora_plot, width = 12, height = 8, dpi = 300)
-  }
-  
-  hallmark_gsea_plot <- create_dotplot(hallmark_gsea, 
-                                       paste("Hallmark GSEA -", cell_type), 
-                                       "GSEA")
-  if (!is.null(hallmark_gsea_plot)) {
-    print(hallmark_gsea_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Hallmark_GSEA_", cell_type, ".png"), 
-           plot = hallmark_gsea_plot, width = 12, height = 8, dpi = 300)
-  }
-  
-  # ===============================
-  # OPTIONAL: COMPARATIVE SUMMARY PLOT
-  # ===============================
-  # Create a summary plot comparing significant pathways across databases
-  
-  create_summary_plot <- function() {
-    summary_data <- data.frame()
-    
-    # Collect significant pathways from each analysis
-    analyses <- list(
-      "Reactome_ORA" = reactome_ora,
-      "Reactome_GSEA" = reactome_gsea,
-      "GO_BP_ORA" = go_ora,
-      "GO_BP_GSEA" = go_gsea,
-      "Hallmark_ORA" = hallmark_ora,
-      "Hallmark_GSEA" = hallmark_gsea
-    )
-    
-    for (analysis_name in names(analyses)) {
-      if (!is.null(analyses[[analysis_name]]) && nrow(as.data.frame(analyses[[analysis_name]])) > 0) {
-        df <- as.data.frame(analyses[[analysis_name]])
-        summary_data <- rbind(summary_data, data.frame(
-          Analysis = analysis_name,
-          Significant_Pathways = nrow(df),
-          Database = case_when(
-            grepl("Reactome", analysis_name) ~ "Reactome",
-            grepl("GO", analysis_name) ~ "Gene Ontology",
-            grepl("Hallmark", analysis_name) ~ "MSigDB Hallmark"
-          ),
-          Method = ifelse(grepl("ORA", analysis_name), "ORA", "GSEA")
-        ))
-      }
-    }
-    
-    if (nrow(summary_data) > 0) {
-      summary_plot <- summary_data %>%
-        ggplot(aes(x = Database, y = Significant_Pathways, fill = Method)) +
-        geom_col(position = "dodge", alpha = 0.8) +
-        scale_fill_manual(values = c("ORA" = "#2166ac", "GSEA" = "#762a83")) +
-        theme_minimal() +
-        theme(
-          axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
-          axis.text.y = element_text(color = "black"),
-          axis.title = element_text(color = "black"),
-          plot.title = element_text(hjust = 0.5, color = "black"),
-          legend.text = element_text(color = "black"),
-          legend.title = element_text(color = "black"),
-          panel.background = element_rect(fill = "white", color = NA),
-          plot.background = element_rect(fill = "white", color = NA),
-          panel.grid.major = element_line(color = "grey90", size = 0.5),
-          panel.grid.minor = element_line(color = "grey95", size = 0.3)
-        ) +
-        labs(
-          title = paste("Pathway Analysis Summary -", cell_type),
-          x = "Database",
-          y = "Number of Significant Pathways",
-          fill = "Method"
-        )
-      
-      print(summary_plot)
-      ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Pathway_Summary_", cell_type, ".png"), 
-             plot = summary_plot, width = 10, height = 6, dpi = 300)
-    }
-  }
-  
-  create_summary_plot()
-  
-  # ===============================
-  # SAVE PATHWAY RESULTS (CSV FILES)
-  # ===============================
-  
-  # Save pathway analysis results as CSV files
-  if (!is.null(reactome_ora) && nrow(as.data.frame(reactome_ora)) > 0) {
-    write.csv(as.data.frame(reactome_ora), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Reactome_ORA_", cell_type, ".csv"), 
-              row.names = FALSE)
-  }
-  
-  if (!is.null(reactome_gsea) && nrow(as.data.frame(reactome_gsea)) > 0) {
-    write.csv(as.data.frame(reactome_gsea), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Reactome_GSEA_", cell_type, ".csv"), 
-              row.names = FALSE)
-  }
-  
-  if (!is.null(go_ora) && nrow(as.data.frame(go_ora)) > 0) {
-    write.csv(as.data.frame(go_ora), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/GO_BP_ORA_", cell_type, ".csv"), 
-              row.names = FALSE)
-  }
-  
-  if (!is.null(go_gsea) && nrow(as.data.frame(go_gsea)) > 0) {
-    write.csv(as.data.frame(go_gsea), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/GO_BP_GSEA_", cell_type, ".csv"), 
-              row.names = FALSE)
-  }
-  
-  if (!is.null(hallmark_ora) && nrow(as.data.frame(hallmark_ora)) > 0) {
-    write.csv(as.data.frame(hallmark_ora), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Hallmark_ORA_", cell_type, ".csv"), 
-              row.names = FALSE)
-  }
-  
-  if (!is.null(hallmark_gsea) && nrow(as.data.frame(hallmark_gsea)) > 0) {
-    write.csv(as.data.frame(hallmark_gsea), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Hallmark_GSEA_", cell_type, ".csv"), 
-              row.names = FALSE)
-  }
-  
-  cat("Completed analysis and saved results for", cell_type, "\n")
-}
-
-
+ 
 #plots.dir.path <- list.files(tempdir(), pattern="rs-graphics", full.names = TRUE)
 #plots.png.paths <- list.files(plots.dir.path, pattern=".png", full.names = TRUE)
 
@@ -1509,6 +933,7 @@ ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/T
 
 
 
+remove(list=ls())
 
 
 
@@ -1586,36 +1011,60 @@ so_subset$group <- factor(so_subset$group)
 #Make sure to set reference level
 so_subset$group  <- relevel(so_subset$group ,ref="Lean_Control")
 
+# Load required libraries
+library(msigdbr)
+library(Seurat)
 
-# Your original terms plus the new recommendations
+# Your original GO terms (keep if you want both analyses)
 insulin_sensitivity_go_terms <- c(
-  # Original insulin-specific terms
   "GO:0032868",  # response to insulin
   "GO:0008286",  # insulin receptor signaling pathway
   "GO:0046627",  # negative regulation of insulin receptor signaling pathway
   "GO:0046628",  # positive regulation of insulin receptor signaling pathway
-  "GO:0005159",  # insulin-like growth factor receptor binding
-  
-  # High priority additions from your data
-  "GO:0055064",  # chloride ion homeostasis
-  "GO:0055075",  # potassium ion homeostasis
-  "GO:0055078",  # sodium ion homeostasis
-  "GO:0055081",  # monoatomic anion homeostasis
-  "GO:0010562",  # positive regulation of phosphorus metabolic process
-  "GO:0045937",  # positive regulation of phosphate metabolic process
-  "GO:0042176",  # regulation of protein catabolic process
-  
-  # Kidney-specific additions
-  "GO:0003096",  # renal sodium ion transport
-  "GO:0070294"   # renal sodium ion absorption
+  "GO:0005159"   # insulin-like growth factor receptor binding
 )
 
-# Use the same code from before to get gene symbols
+# Kidney-relevant HALLMARK pathways
+kidney_hallmark_terms <- c(
+  # Metabolism-related
+  "HALLMARK_OXIDATIVE_PHOSPHORYLATION",
+  "HALLMARK_FATTY_ACID_METABOLISM", 
+  "HALLMARK_GLYCOLYSIS",
+  "HALLMARK_MTORC1_SIGNALING",
+  "HALLMARK_ADIPOGENESIS",
+  "HALLMARK_PEROXISOME",
+  
+  # Immune/Inflammatory
+  "HALLMARK_INFLAMMATORY_RESPONSE",
+  "HALLMARK_INTERFERON_GAMMA_RESPONSE",
+  "HALLMARK_INTERFERON_ALPHA_RESPONSE", 
+  "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+  "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+  "HALLMARK_COMPLEMENT",
+  "HALLMARK_ALLOGRAFT_REJECTION",
+  
+  # Cross-cutting (Metabolism-Immune)
+  "HALLMARK_HYPOXIA",
+  "HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY",
+  "HALLMARK_PI3K_AKT_MTOR_SIGNALING"
+)
+
+# Get HALLMARK gene sets from MSigDB
+hallmark_sets <- msigdbr(species = "Homo sapiens", category = "H")
+
+# Extract genes for your specific HALLMARK pathways
+kidney_hallmark_genes <- list()
+for(pathway in kidney_hallmark_terms) {
+  genes <- hallmark_sets[hallmark_sets$gs_name == pathway, "gene_symbol"]
+  kidney_hallmark_genes[[pathway]] <- unique(genes)
+  
+  cat("HALLMARK pathway:", pathway, "- Genes:", length(kidney_hallmark_genes[[pathway]]), "\n")
+}
+
+# Optional: Keep your GO analysis
 library(org.Hs.eg.db)
 library(AnnotationDbi)
-
 insulin_sensitivity_genes <- list()
-
 for(go_term in insulin_sensitivity_go_terms) {
   genes <- AnnotationDbi::select(
     org.Hs.eg.db,
@@ -1630,40 +1079,57 @@ for(go_term in insulin_sensitivity_go_terms) {
   cat("GO term:", go_term, "- Genes:", length(insulin_sensitivity_genes[[go_term]]), "\n")
 }
 
-# Get all unique genes
-all_insulin_sensitivity_genes <- unique(unlist(insulin_sensitivity_genes))
-
-
-
-
-
-
+# Add your existing TCA and OxPhos scores
 so_subset <- AddModuleScore(object = so_subset, 
                             features = list(tca_genes), 
                             name = 'TCA_score')
-
 so_subset <- AddModuleScore(object = so_subset, 
                             features = list(ox_phos_genes),
                             name = 'OxPhos_score')
 
+# Create clean names for HALLMARK pathways
+hallmark_names <- c(
+  'HALLMARK_OXIDATIVE_PHOSPHORYLATION' = 'OxPhos_Hallmark',
+  'HALLMARK_FATTY_ACID_METABOLISM' = 'Fatty_Acid_Metabolism',
+  'HALLMARK_GLYCOLYSIS' = 'Glycolysis',
+  'HALLMARK_MTORC1_SIGNALING' = 'mTORC1_Signaling',
+  'HALLMARK_ADIPOGENESIS' = 'Adipogenesis',
+  'HALLMARK_PEROXISOME' = 'Peroxisome',
+  'HALLMARK_INFLAMMATORY_RESPONSE' = 'Inflammatory_Response',
+  'HALLMARK_INTERFERON_GAMMA_RESPONSE' = 'IFN_Gamma_Response',
+  'HALLMARK_INTERFERON_ALPHA_RESPONSE' = 'IFN_Alpha_Response',
+  'HALLMARK_IL6_JAK_STAT3_SIGNALING' = 'IL6_JAK_STAT3',
+  'HALLMARK_TNFA_SIGNALING_VIA_NFKB' = 'TNFa_NF_kB',
+  'HALLMARK_COMPLEMENT' = 'Complement',
+  'HALLMARK_ALLOGRAFT_REJECTION' = 'Allograft_Rejection',
+  'HALLMARK_HYPOXIA' = 'Hypoxia',
+  'HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY' = 'ROS_Pathway',
+  'HALLMARK_PI3K_AKT_MTOR_SIGNALING' = 'PI3K_AKT_mTOR'
+)
+
+# Add HALLMARK module scores
+for(pathway in kidney_hallmark_terms) {
+  score_name <- hallmark_names[pathway]
+  
+  so_subset <- AddModuleScore(
+    object = so_subset,
+    features = list(kidney_hallmark_genes[[pathway]]),
+    name = score_name
+  )
+  
+  cat("Added HALLMARK module score for", score_name, "with", length(kidney_hallmark_genes[[pathway]]), "genes\n")
+}
+
+# Optional: Keep GO term analysis
 go_term_names <- c(
   'GO0032868' = 'Response_to_Insulin',
   'GO0008286' = 'Insulin_Receptor_Signaling', 
   'GO0046627' = 'Neg_Reg_Insulin_Signaling',
   'GO0046628' = 'Pos_Reg_Insulin_Signaling',
-  'GO0005159' = 'IGF_Receptor_Binding',
-  'GO0055064' = 'Chloride_Homeostasis',
-  'GO0055075' = 'Potassium_Homeostasis',
-  'GO0055078' = 'Sodium_Homeostasis',
-  'GO0055081' = 'Anion_Homeostasis',
-  'GO0010562' = 'Pos_Reg_Phosphorus_Metabolism',
-  'GO0045937' = 'Pos_Reg_Phosphate_Metabolism', 
-  'GO0042176' = 'Protein_Catabolic_Regulation',
-  'GO0003096' = 'Renal_Sodium_Transport',
-  'GO0070294' = 'Renal_Sodium_Absorption'
+  'GO0005159' = 'IGF_Receptor_Binding'
 )
 
-# Loop through and add each module score
+# Loop through and add each GO module score
 for(i in 1:length(insulin_sensitivity_genes)) {
   go_id <- names(insulin_sensitivity_genes)[i]
   score_name <- go_term_names[str_replace(go_id, pattern = ':', replacement = '')]
@@ -1674,25 +1140,32 @@ for(i in 1:length(insulin_sensitivity_genes)) {
     name = score_name
   )
   
-  cat("Added module score for", score_name, "with", length(insulin_sensitivity_genes[[i]]), "genes\n")
+  cat("Added GO module score for", score_name, "with", length(insulin_sensitivity_genes[[i]]), "genes\n")
 }
 
 
 
 
-
 meta.data <- so_subset@meta.data
-
 meta.data <- meta.data %>% 
-  dplyr::select(record_id, mrn, group, celltype2, KPMP_celltype, epic_sglti2_1, TCA_score1, OxPhos_score1, Response_to_Insulin1, Insulin_Receptor_Signaling1, Neg_Reg_Insulin_Signaling1, 
-                Pos_Reg_Insulin_Signaling1, IGF_Receptor_Binding1, Chloride_Homeostasis1, Potassium_Homeostasis1, Sodium_Homeostasis1, Anion_Homeostasis1, 
-                Pos_Reg_Phosphorus_Metabolism1, Pos_Reg_Phosphate_Metabolism1, Protein_Catabolic_Regulation1, Renal_Sodium_Transport1, Renal_Sodium_Absorption1)
+  dplyr::select(record_id, mrn, group, celltype2, KPMP_celltype, epic_sglti2_1, 
+                # Original custom scores
+                TCA_score1, OxPhos_score1, 
+                # GO terms (optional - if you kept them)
+                Response_to_Insulin1, Insulin_Receptor_Signaling1, Neg_Reg_Insulin_Signaling1, 
+                Pos_Reg_Insulin_Signaling1, IGF_Receptor_Binding1,
+                # HALLMARK pathway scores - Metabolism
+                OxPhos_Hallmark1, Fatty_Acid_Metabolism1, Glycolysis1, mTORC1_Signaling1, 
+                Adipogenesis1, Peroxisome1,
+                # HALLMARK pathway scores - Immune/Inflammatory  
+                Inflammatory_Response1, IFN_Gamma_Response1, IFN_Alpha_Response1, 
+                IL6_JAK_STAT31, TNFa_NF_kB1, Complement1, Allograft_Rejection1,
+                # HALLMARK pathway scores - Cross-cutting
+                Hypoxia1, ROS_Pathway1, PI3K_AKT_mTOR1)
 
-write.table(meta.data, 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/GO_pathways_modulescores.txt', 
+write.table(meta.data, 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/HALLMARK_GO_pathways_modulescores.txt', 
             row.names=F, quote=F, sep='\t')
-
 remove(list=ls())
-
 
 
 
