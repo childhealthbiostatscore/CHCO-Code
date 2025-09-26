@@ -68,9 +68,9 @@ library(nebula)
 
 
 
-harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
+#harmonized_data <- read.csv("", na = '')
 
-#harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 
 #date_of_screen
 #screen_date
@@ -2973,7 +2973,7 @@ dev.off()
 
 
 
-######################################################## Investigating ions, proteins
+######################################################## Investigating UACR in Obese, T2D, and LC 
 
 
 
@@ -3152,19 +3152,97 @@ dat2$epic_sglti2_1[which(dat2$group == 'Obese Control')] <- 'No'
 dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
 
 
+# Fix data types before creating the table
+library(gtsummary)
+library(gt)
+library(dplyr)
+
+dat2$group[which(dat2$record_id == 'RH2-39-O')] <- 'Obese Control'
+
+# Convert variables to proper data types
+combined_df <- dat2 %>%
+  mutate(
+    # Ensure continuous variables are numeric
+    age = as.numeric(age),
+    bmi = as.numeric(bmi),
+    hba1c = as.numeric(hba1c),
+    
+    # Ensure categorical variables are factors or characters
+    sex = as.factor(sex),
+    race_ethnicity = as.factor(race_ethnicity),
+    study = as.factor(study),
+    group = as.factor(group),
+    epic_sglti2_1 = as.factor(epic_sglti2_1)
+  )
 
 
-#ion_df <- dat %>% filter(mrn %in% dat2$mrn) %>% 
-#  dplyr::select(mrn, cl_base, k_base, na_s, na_u, 
-#                sodium_base, sodium_s, sodium_u, 
-#                u24_na, phosphate_tissue, n_acetyl_glucosamine_1_phosphate_h_tissue)
+
+# Now create the table with proper data types
+desc_table1_fixed <- combined_df %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, group, epic_sglti2_1) %>%
+  tbl_summary(
+    by = group,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      hba1c ~ "continuous",
+      sex ~ "categorical",
+      race_ethnicity ~ "categorical",
+      study ~ "categorical",
+      epic_sglti2_1 ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex", 
+      race_ethnicity ~ "Race/Ethnicity",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      study ~ "Study",
+      epic_sglti2_1 ~ "SGLT2 Inhibitor Use"
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test"
+    # Skip categorical p-values if they cause issues
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Group**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save version with epic
+desc_table1_fixed %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/demographics_OC_LC_T2D_with_epic_final.png", 
+         vwidth = 1200, vheight = 800)
 
 
 
-#combined_df <- dat2 %>% left_join(ion_df, by='mrn')
 
 
-combined_df <- dat2 %>% 
+
+
+### All groups
+
+
+
+combined_df <- dat2 %>% #filter(group %in% c('Type 2 Diabetes', 'Obese Control')) %>% 
   dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f, 
                 avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
                 acr_u)
@@ -3198,19 +3276,94 @@ colnames(corr_subset) <- c('Cortical K2', 'Cortical F', 'Cortical K2/F',
 rownames(p_subset) <- rownames(corr_subset)
 colnames(p_subset) <- colnames(corr_subset)
 
-pdf('/Users/netio/Downloads/Correlations.pdf', width = 20, height = 20)
+pdf('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/LC_OC_T2D_Correlations.pdf', 
+    width = 15, height = 5)
+
+# Plot without p-values first
 corrplot(corr_subset, 
          method = "color",
-         p.mat = p_subset,           # Add p-values
-         sig.level = 0.05,           # Significance level
-         insig = "label_sig",        # Show significance markers (* for p<0.05, ** for p<0.01, etc.)
-         number.cex = 1.2,           # size of correlation numbers
+         number.cex = 1.2,           
          tl.cex = 1.5,
          tl.col = 'black',
-         cl.cex = 1.2)              # size of color legend
+         cl.cex = 1.2)
+
+# Add significance stars manually
+sig_stars <- ifelse(p_subset < 0.001, "***",
+                    ifelse(p_subset < 0.01, "**",
+                           ifelse(p_subset < 0.05, "*", "")))
+
+# Add the stars (you may need to adjust x,y positions)
+for(i in 1:6) {
+  if(sig_stars[1,i] != "") {
+    text(i, 1, sig_stars[1,i], cex = 2, col = "red")
+  }
+}
+
 dev.off()
 
 
+
+
+#### Obese Controls and T2D 
+
+combined_df <- dat2 %>% filter(group %in% c('Type 2 Diabetes', 'Obese Control')) %>% 
+  dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f, 
+                avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
+                acr_u)
+
+
+colSums(is.na(combined_df))
+
+combined_df <- combined_df %>% 
+  dplyr::select(avg_c_k2, avg_c_f, avg_c_k2_f, 
+                avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
+                acr_u)
+
+library(corrplot)
+
+# Calculate correlations
+combined_df_corr <- cor(combined_df, use = 'pairwise.complete.obs', method = 'spearman')
+
+# Calculate p-values using cor.mtest
+p_values <- cor.mtest(combined_df, method = 'spearman')
+
+# Create subset for plotting
+corr_subset <- as.matrix(combined_df_corr[c(7), c(1:6), drop = F])
+p_subset <- as.matrix(p_values$p[c(7), c(1:6), drop = F])
+
+# Add meaningful names
+rownames(corr_subset) <- c('Urine Albumin-Creatinine Ratio')
+colnames(corr_subset) <- c('Cortical K2', 'Cortical F', 'Cortical K2/F', 
+                           'Cortical K2 (voxel)', 'Cortical F (voxel)', 'Cortical K2/F (voxel)')
+
+# Apply same names to p-value matrix
+rownames(p_subset) <- rownames(corr_subset)
+colnames(p_subset) <- colnames(corr_subset)
+
+pdf('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/OC_T2D_Correlations.pdf', 
+    width = 15, height = 5)
+
+# Plot without p-values first
+corrplot(corr_subset, 
+         method = "color",
+         number.cex = 1.2,           
+         tl.cex = 1.5,
+         tl.col = 'black',
+         cl.cex = 1.2)
+
+# Add significance stars manually
+sig_stars <- ifelse(p_subset < 0.001, "***",
+                    ifelse(p_subset < 0.01, "**",
+                           ifelse(p_subset < 0.05, "*", "")))
+
+# Add the stars (you may need to adjust x,y positions)
+for(i in 1:6) {
+  if(sig_stars[1,i] != "") {
+    text(i, 1, sig_stars[1,i], cex = 2, col = "red")
+  }
+}
+
+dev.off()
 
 
 #### Testing for just T2D 
