@@ -1050,16 +1050,24 @@ kidney_hallmark_terms <- c(
 )
 
 # Get HALLMARK gene sets from MSigDB
+library(dplyr)
+
+# Get HALLMARK gene sets from MSigDB
 hallmark_sets <- msigdbr(species = "Homo sapiens", category = "H")
 
-# Extract genes for your specific HALLMARK pathways
+# Extract genes properly using dplyr
 kidney_hallmark_genes <- list()
 for(pathway in kidney_hallmark_terms) {
-  genes <- hallmark_sets[hallmark_sets$gs_name == pathway, "gene_symbol"]
+  genes <- hallmark_sets %>%
+    filter(gs_name == pathway) %>%
+    pull(gene_symbol)
+  
   kidney_hallmark_genes[[pathway]] <- unique(genes)
   
   cat("HALLMARK pathway:", pathway, "- Genes:", length(kidney_hallmark_genes[[pathway]]), "\n")
 }
+
+
 
 # Optional: Keep your GO analysis
 library(org.Hs.eg.db)
@@ -1107,19 +1115,51 @@ hallmark_names <- c(
   'HALLMARK_PI3K_AKT_MTOR_SIGNALING' = 'PI3K_AKT_mTOR'
 )
 
-# Add HALLMARK module scores
+# Get available genes in your Seurat object
+available_genes <- rownames(so_subset)
+cat("Total genes in dataset:", length(available_genes), "\n")
+
+# Function to filter gene sets to only include available genes
+filter_geneset <- function(geneset, available_genes, min_genes = 5) {
+  overlap_genes <- intersect(geneset, available_genes)
+  cat("Original:", length(geneset), "genes | Found:", length(overlap_genes), "genes")
+  
+  if(length(overlap_genes) >= min_genes) {
+    cat(" ✓ KEEP\n")
+    return(overlap_genes)
+  } else {
+    cat(" ✗ SKIP (too few genes)\n") 
+    return(NULL)
+  }
+}
+
+# Filter all HALLMARK gene sets
+filtered_hallmark_genes <- list()
+cat("\nFiltering HALLMARK pathways:\n")
+
 for(pathway in kidney_hallmark_terms) {
+  cat(pathway, ": ")
+  filtered_genes <- filter_geneset(kidney_hallmark_genes[[pathway]], available_genes)
+  
+  if(!is.null(filtered_genes)) {
+    filtered_hallmark_genes[[pathway]] <- filtered_genes
+  }
+}
+
+# Now add module scores using filtered gene sets
+cat("\nAdding module scores:\n")
+
+for(pathway in names(filtered_hallmark_genes)) {
   score_name <- hallmark_names[pathway]
   
   so_subset <- AddModuleScore(
     object = so_subset,
-    features = list(kidney_hallmark_genes[[pathway]]),
+    features = list(filtered_hallmark_genes[[pathway]]),
     name = score_name
   )
   
-  cat("Added HALLMARK module score for", score_name, "with", length(kidney_hallmark_genes[[pathway]]), "genes\n")
+  cat("✓", score_name, ":", length(filtered_hallmark_genes[[pathway]]), "genes\n")
 }
-
 # Optional: Keep GO term analysis
 go_term_names <- c(
   'GO0032868' = 'Response_to_Insulin',
