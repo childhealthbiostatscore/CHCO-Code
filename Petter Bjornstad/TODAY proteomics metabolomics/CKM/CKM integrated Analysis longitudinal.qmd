@@ -36,6 +36,7 @@ library(limma)
 library(gtsummary)
 library(cardx)
 library(forestploter)
+library(forcats)
 
 # Working directory setup
 getwd()
@@ -46,12 +47,15 @@ user <- Sys.info()[["user"]]
 if (user == "laurapyle") {
   data_path <- "/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
   github_path <- "/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  root_path <- "/Users/laurapyle/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
 } else if (user == "lpyle") {
   data_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
   github_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  root_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
 } else if (user == "pylell") {
   data_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
   github_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -59,6 +63,8 @@ if (user == "laurapyle") {
 filename <- "/TODAY proteomics metabolomics/CKM/CKM functions.R"
 full_path <- file.path(github_path, filename)
 source(full_path)
+
+
 ```
 
 ```{r include = F}
@@ -1420,10 +1426,10 @@ t2b <- t2data %>%
       DEATH ~ "1"
     )
   ) %>%
-  gtsummary::add_p(test = list(gtsummary::all_continuous() ~ "aov",  # or "aov" for ANOVA
-      c(sex_char, GLYC, DEATH, num_prog) ~ "fisher.test",
-      c(racedesc, txdesc) ~ "chisq.test"  # Use chi-square instead of Fisher's exact
-  )) %>%
+  #gtsummary::add_p(test = list(gtsummary::all_continuous() ~ "aov",  # or "aov" for ANOVA
+   #   c(sex_char, GLYC, DEATH, num_prog) ~ "fisher.test",
+  #    c(racedesc, txdesc) ~ "chisq.test"  # Use chi-square instead of Fisher's exact
+  #))   %>%
   gtsummary::modify_header(label ~ "**Characteristic**") %>%
   gtsummary::bold_labels() %>%
   as_gt() %>%
@@ -1431,8 +1437,9 @@ t2b <- t2data %>%
     label ~ px(350),
     stat_1 ~ px(150),  # First group column
     stat_2 ~ px(150),  # Second group column
-    stat_3 ~ px(150),  # Third group column (adjust based on your groups)
-    p.value ~ px(100)
+    stat_3 ~ px(150)
+    #,  # Third group column (adjust based on your groups)
+    #p.value ~ px(100)
   ) 
 ```
 
@@ -2131,4 +2138,113 @@ dev.off()
 concordance_df <- NULL
 concordance_df_temp <- NULL
 concordance_df_for_plot <- NULL
+```
+
+```{r include=FALSE}
+# GSEA for any progression
+bg_path <- file.path(root_path, "GSEA/")
+soma_fgsea <- run_fgsea_analysis(bg_path = bg_path,
+                                     results_annotated = ckm_without_bmi_keep,
+                                     stat_col = "statistic")
+soma_fgsea$summary
+```
+
+```{r echo = F}
+# KEGG
+plot_fgsea_transpose(soma_fgsea$kegg, 
+                     title = "SOMA Top 30 KEGG",
+                     xmax = 30)
+ggsave("plasma_SOMA_KEGG.png",
+       width = 27.5, height = 14, scale = 1)
+# REACTOME
+plot_fgsea_transpose(soma_fgsea$reactome, 
+                     title = "SOMA Top 30 REACTOME", 
+                     xmax = 30)
+ggsave("plasma_SOMA_REACTOME.png",
+       width = 27.5, height = 14, scale = 1)
+# GO
+plot_fgsea_transpose(soma_fgsea$go, 
+                     title = "SOMA Top 30 GO", 
+                     xmax = 30)
+ggsave("plasma_SOMA_GO.png",
+       width = 27.5, height = 14, scale = 1)
+# HALLMARK
+plot_fgsea_transpose(soma_fgsea$hallmark, 
+                     title = "SOMA Top 30 Hallmark", 
+                     xmax = 30)
+ggsave("plasma_SOMA_Hallmark.png",
+       width = 27.5, height = 14, scale = 1)
+```
+
+
+```{r include=FALSE}
+# GSEA for progression to stage 3
+bg_path <- file.path(root_path, "GSEA/")
+soma_fgsea_stage3 <- run_fgsea_analysis(bg_path = bg_path,
+                                     results_annotated = ckm_stage3_keep,
+                                     stat_col = "statistic")
+soma_fgsea_stage3$summary
+```
+
+```{r echo = F}
+# KEGG
+plot_fgsea_transpose(soma_fgsea_stage3$kegg, 
+                     title = "SOMA Top 30 KEGG, Stage 3",
+                     xmax = 30)
+ggsave("plasma_SOMA_KEGG_stage3.png",
+       width = 27.5, height = 14, scale = 1)
+# REACTOME
+plot_fgsea_transpose(soma_fgsea_stage3$reactome, 
+                     title = "SOMA Top 30 REACTOME, Stage 3", 
+                     xmax = 30)
+ggsave("plasma_SOMA_REACTOME_stage3.png",
+       width = 27.5, height = 14, scale = 1)
+# GO
+plot_fgsea_transpose(soma_fgsea_stage3$go, 
+                     title = "SOMA Top 30 GO, Stage 3", 
+                     xmax = 30)
+ggsave("plasma_SOMA_GO_stage3.png",
+       width = 27.5, height = 14, scale = 1)
+# HALLMARK
+plot_fgsea_transpose(soma_fgsea_stage3$hallmark, 
+                     title = "SOMA Top 30 Hallmark, stage 3", 
+                     xmax = 30)
+ggsave("plasma_SOMA_Hallmark_stage3.png",
+       width = 27.5, height = 14, scale = 1)
+```
+
+```{r include=FALSE}
+# GSEA for progression to stage 4
+bg_path <- file.path(root_path, "GSEA/")
+soma_fgsea_stage4 <- run_fgsea_analysis(bg_path = bg_path,
+                                     results_annotated = ckm_stage4_keep,
+                                     stat_col = "statistic")
+soma_fgsea_stage4$summary
+```
+
+```{r echo = F}
+# KEGG
+plot_fgsea_transpose(soma_fgsea_stage4$kegg, 
+                     title = "SOMA Top 30 KEGG, Stage 4",
+                     xmax = 30)
+ggsave("plasma_SOMA_KEGG_stage4.png",
+       width = 27.5, height = 14, scale = 1)
+# REACTOME
+plot_fgsea_transpose(soma_fgsea_stage4$reactome, 
+                     title = "SOMA Top 30 REACTOME, Stage 4", 
+                     xmax = 30)
+ggsave("plasma_SOMA_REACTOME_stage4.png",
+       width = 27.5, height = 14, scale = 1)
+# GO
+plot_fgsea_transpose(soma_fgsea_stage4$go, 
+                     title = "SOMA Top 30 GO, Stage 4", 
+                     xmax = 30)
+ggsave("plasma_SOMA_GO_stage4.png",
+       width = 27.5, height = 14, scale = 1)
+# HALLMARK
+plot_fgsea_transpose(soma_fgsea_stage4$hallmark, 
+                     title = "SOMA Top 30 Hallmark, stage 4", 
+                     xmax = 30)
+ggsave("plasma_SOMA_Hallmark_stage4.png",
+       width = 27.5, height = 14, scale = 1)
 ```
