@@ -75,7 +75,7 @@ def harmonize_data():
         pd.Categorical(harmonized["visit"],
                        categories=['screening', 'baseline', 'pre_surgery',
                                    '3_months_post_surgery', '4_months_post', '12_months_post_surgery',
-                                   'year_1', 'year_2', 'year_3', 'year_4' ,"phone visit", "Pre-biopsy GFR MRI", "post_biopsy","Post-biopsy GFR MRI","Med Dispense 1", "Med Dispense 2"],
+                                   'year_1', 'year_2', 'year_3', 'year_4' , "post_biopsy","Post-biopsy GFR MRI","Med Dispense 1", "Med Dispense 2"],
                        ordered=True)
     harmonized["race"].replace(
         ["American Indian or Alaskan Native & White",
@@ -113,6 +113,11 @@ def harmonize_data():
     harmonized = pd.concat([harmonized, disease_duration], axis=1)
     harmonized.rename({0: "diabetes_duration"}, axis=1, inplace=True)
     # eGFR
+    if "age" in harmonized.columns:
+        harmonized = harmonized.loc[:, ~harmonized.columns.duplicated()]
+        harmonized["age"] = pd.to_numeric(harmonized["age"], errors="coerce")
+    else:
+        print("WARNING: 'age' column not found in harmonized data.")
     harmonized["age"] = pd.to_numeric(harmonized["age"], errors="coerce")
     harmonized["creatinine_s"] = pd.to_numeric(harmonized["creatinine_s"], errors="coerce")
     harmonized["cystatin_c_s"] = pd.to_numeric(harmonized["cystatin_c_s"], errors="coerce")

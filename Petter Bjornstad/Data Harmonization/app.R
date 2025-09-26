@@ -57,6 +57,10 @@ unique_studies <- sort(unique(data$study))
 # Get unique form names from the dictionary
 unique_form_names <- sort(unique(dictionary_data$form_name))
 
+# Get all data variable names for manual selection (excluding key IDs that are always shown)
+vars_to_exclude_from_selector <- c("record_id", "visit", "procedure", "study")
+all_data_variables_for_selection <- sort(setdiff(names(data), vars_to_exclude_from_selector))
+
 # Calculate overall statistics
 total_studies <- length(unique_studies)
 total_rows <- nrow(data)
@@ -107,11 +111,21 @@ ui <- fluidPage(
       ),
       
       # Dynamic filters for group and sex
-      # Age filter has been removed as requested.
       uiOutput("dynamic_filters"),
       
       # New dynamic filter for procedure
       uiOutput("procedure_ui"),
+      
+      # --- Variable Categories Section (Moved Back to Sidebar) ---
+      tags$hr(),
+      h2("Select Variable Categories", class = "text-xl font-bold mb-2"),
+      checkboxGroupInput(
+        "selected_form_names",
+        NULL,
+        choices = unique_form_names,
+        selected = character(0)
+      ),
+      # --- End Variable Categories Section ---
       
       # --- Visuals Section ---
       tags$hr(),
@@ -128,18 +142,7 @@ ui <- fluidPage(
       uiOutput("plot_variable_ui"),
       uiOutput("y_variable_ui"),
       
-      # New section for variable categories from the data dictionary
-      tags$hr(),
-      h2("Select Variable Categories", class = "text-xl font-bold mb-2"),
-      checkboxGroupInput(
-        "selected_form_names",
-        NULL,
-        choices = unique_form_names,
-        selected = character(0)
-      ),
-      
       # This will be used to hold PET variables for backwards compatibility
-      # and will be dynamically populated in the server.
       uiOutput("pet_variables_ui")
     ),
     
@@ -186,7 +189,23 @@ ui <- fluidPage(
                           DTOutput("searched_variable_availability_by_study_table"),
                           downloadButton("download_availability", "Download Table")
                  ),
-                 tabPanel("Raw Data Table", 
+                 tabPanel("Raw Data Table",
+                          
+                          # --- START: Manual Variable Search Kept Here ---
+                          tags$div(class = "card p-4 mb-4 bg-gray-50 border border-gray-200",
+                                   h3("Manual Variable Selection", class = "text-xl font-semibold mb-2 text-indigo-700"),
+                                   p("Use the search bar below to add specific variables to the table, in addition to the categories selected in the sidebar.", class="text-sm text-gray-600 mb-4"),
+                                   selectizeInput(
+                                     "manual_variables_select",
+                                     "Type or Select Specific Variables:",
+                                     choices = all_data_variables_for_selection,
+                                     multiple = TRUE,
+                                     selected = character(0),
+                                     options = list(placeholder = "Start typing variable names...")
+                                   )
+                          ),
+                          # --- END: Manual Variable Search Kept Here ---
+                          
                           DTOutput("raw_data_table"),
                           downloadButton("download_raw", "Download Raw Data")
                  ),
@@ -570,16 +589,30 @@ server <- function(input, output, session) {
     }
   })
   
-  # Reactive expression to filter columns based on selected form names
+  # Reactive expression to filter columns based on selected form names AND manual selection
   raw_data_display_columns <- reactive({
     df_filtered <- filtered_data()
     
-    # Get the variables from the selected forms
+    # 1. Get variables from selected forms (categories)
+    # This comes from the sidebar
     vars_from_forms <- selected_form_variables()
     
-    if (length(vars_from_forms) > 0) {
-      # Ensure 'record_id', 'visit', and 'procedure' are always included
-      columns_to_keep <- unique(c("record_id", "visit", "procedure", vars_from_forms))
+    # 2. Get variables from manual search/selection
+    # This comes from the Raw Data Table tab
+    vars_from_manual <- input$manual_variables_select
+    if (is.null(vars_from_manual)) {
+      vars_from_manual <- character(0)
+    }
+    
+    # Combine the two sets of selected variables
+    selected_variables <- unique(c(vars_from_forms, vars_from_manual))
+    
+    # Define mandatory key columns to always be included
+    mandatory_cols <- c("record_id", "study", "group", "sex", "visit", "procedure")
+    
+    if (length(selected_variables) > 0) {
+      # Include mandatory columns and selected variables
+      columns_to_keep <- unique(c(mandatory_cols, selected_variables))
       
       # Select only the columns that exist in the filtered dataframe
       existing_columns <- intersect(columns_to_keep, names(df_filtered))
@@ -587,8 +620,9 @@ server <- function(input, output, session) {
       # Return the dataframe with the selected columns
       return(df_filtered %>% select(all_of(existing_columns)))
     } else {
-      # If no form names are selected, return the entire filtered dataframe
-      return(df_filtered)
+      # If no categories or manual variables are selected, return a default set of key columns
+      default_cols <- intersect(mandatory_cols, names(df_filtered))
+      return(df_filtered %>% select(all_of(default_cols)))
     }
   })
   
