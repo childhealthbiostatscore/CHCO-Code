@@ -1210,6 +1210,29 @@ remove(list=ls())
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ##############module score graphing 
 module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/HALLMARK_GO_pathways_modulescores.txt')
 module_scores$celltype2 <- NULL
@@ -2559,52 +2582,42 @@ cat("  T2D only:", count_significant(sd_results_t2d), "\n")
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-######################################################## Investigating ions, proteins
-
-
+################ Plotting Correlations with PET variables 
 
 remove(list=ls())
 
+module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/HALLMARK_GO_pathways_modulescores.txt')
+module_scores$celltype2 <- NULL
+module_scores$KPMP_celltype <- NULL
 
-#gbm <- readxl::read_xlsx("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Pathology_Reports_Morphometrics_Shared/Morphometrics/CHCO Morphometrics update 10-19-23.xlsx")
-#gbm <- gbm %>% 
-#  dplyr::select(record_id = ID, gbm_thick_arith = `GBM thickness nm (arithmetic mean)`, 
-#                gbm_thick_harm = `GBM thickness nm (harmonic mean)`)
 
-#harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
+
+
+
+module_scores_summary <- module_scores %>%
+  group_by(record_id, mrn, group) %>%
+  summarize(
+    # Calculate mean for all numeric module score columns
+    across(c(TCA_score1, OxPhos_score1, 
+             # GO terms
+             Response_to_Insulin1, Insulin_Receptor_Signaling1, 
+             Neg_Reg_Insulin_Signaling1, Pos_Reg_Insulin_Signaling1, 
+             IGF_Receptor_Binding1,
+             # HALLMARK pathways - Metabolism
+             OxPhos_Hallmark1, Fatty_Acid_Metabolism1, Glycolysis1, 
+             mTORC1_Signaling1, Adipogenesis1, Peroxisome1,
+             # HALLMARK pathways - Immune/Inflammatory
+             Inflammatory_Response1, IFN_Gamma_Response1, IFN_Alpha_Response1,
+             IL6_JAK_STAT31, TNFa_NF_kB1, Complement1, Allograft_Rejection1,
+             # HALLMARK pathways - Cross-cutting
+             Hypoxia1, ROS_Pathway1, PI3K_AKT_mTOR1), 
+           list(mean = ~mean(.x, na.rm = TRUE)),
+           .names = "{.col}_{.fn}"),
+    .groups = 'drop'
+  )
+
+
+
 
 harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 
@@ -2770,6 +2783,375 @@ dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
 dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
 
 
+# Function to get pathway colors (same as before)
+get_pathway_color <- function(pathway_name) {
+  custom_scores <- c("TCA", "OxPhos")
+  go_terms <- c("Response to Insulin", "Insulin Receptor Signaling", 
+                "Negative Regulation of Insulin Signaling", "Positive Regulation of Insulin Signaling", 
+                "IGF Receptor Binding")
+  metabolism_hallmark <- c("OxPhos (Hallmark)", "Fatty Acid Metabolism", "Glycolysis", 
+                           "mTORC1 Signaling", "Adipogenesis", "Peroxisome")
+  immune_inflammatory <- c("Inflammatory Response", "IFN Gamma Response", "IFN Alpha Response",
+                           "IL6 JAK/STAT3", "TNFa NF kB1", "Complement", "Allograft Rejection")
+  cross_cutting <- c("Hypoxia", "ROS Pathway", "PI3K AKT mTOR1")
+  
+  if(pathway_name %in% custom_scores) {
+    return("#2E8B57")  # Sea Green
+  } else if(pathway_name %in% go_terms) {
+    return("#4169E1")  # Royal Blue
+  } else if(pathway_name %in% metabolism_hallmark) {
+    return("#FF6347")  # Tomato Red
+  } else if(pathway_name %in% immune_inflammatory) {
+    return("#8A2BE2")  # Blue Violet
+  } else if(pathway_name %in% cross_cutting) {
+    return("#FF8C00")  # Dark Orange
+  } else {
+    return("#000000")  # Black for unknown
+  }
+}
+
+combined_df <- module_scores_summary %>% left_join(dat2 %>% 
+                                                     dplyr::select(mrn, avg_c_k2, avg_c_f, avg_c_k2_f, 
+                                                                   avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw), by= 'mrn')
+
+combined_df <- combined_df %>% dplyr::select(-record_id, -mrn, -group) %>%
+  filter(!is.na(avg_c_k2))
+
+library(corrplot)
+
+# Calculate correlations
+combined_df_corr <- cor(combined_df, use = 'pairwise.complete.obs', method = 'spearman')
+
+# Calculate p-values using cor.mtest
+p_values <- cor.mtest(combined_df, method = 'spearman')
+
+# Create subset for plotting
+corr_subset <- as.matrix(combined_df_corr[c(1:23), c(24:29), drop = F])
+p_subset <- as.matrix(p_values$p[c(1:23), c(24:29), drop = F])
+
+# Add meaningful names
+row_names <- c('TCA', 'OxPhos', 'Response to Insulin', 
+               'Insulin Receptor Signaling', 'Negative Regulation of Insulin Signaling', 
+               'Positive Regulation of Insulin Signaling', 'IGF Receptor Binding', 
+               'OxPhos (Hallmark)', 'Fatty Acid Metabolism', 'Glycolysis', 'mTORC1 Signaling', 
+               'Adipogenesis', 'Peroxisome', 'Inflammatory Response', 'IFN Gamma Response', 
+               'IFN Alpha Response', 'IL6 JAK/STAT3', 'TNFa NF kB1', 'Complement', 
+               'Allograft Rejection', 'Hypoxia', 'ROS Pathway', 'PI3K AKT mTOR1')
+
+col_names <- c('Cortical K2', 'Cortical F', 'Cortical K2/F', 
+               'Cortical K2 (voxel)', 'Cortical F (voxel)', 'Cortical K2/F (voxel)')
+
+rownames(corr_subset) <- row_names
+colnames(corr_subset) <- col_names
+
+# Apply same names to p-value matrix
+rownames(p_subset) <- rownames(corr_subset)
+colnames(p_subset) <- colnames(corr_subset)
+
+# Create color vector for row names based on pathway classification
+row_colors <- sapply(row_names, get_pathway_color)
+
+# Create black color vector for column names
+col_colors <- rep("black", length(col_names))
+
+
+# Create color vector for row names based on pathway classification
+row_colors <- sapply(row_names, get_pathway_color)
+
+pdf('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/modulecomparisons_allparticipants_wPET_spearman.pdf', 
+    width = 20, height = 20)
+
+corrplot(corr_subset, 
+         method = "color",
+         p.mat = p_subset,           
+         sig.level = 0.05,           
+         insig = "label_sig",        
+         number.cex = 1.2,           
+         tl.cex = 1.5,
+         tl.col = "black",           # Set all labels to black first
+         cl.cex = 1.2)              
+
+dev.off()
+
+png('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/modulecomparisons_allparticipants_wPET_spearman.png', 
+    width = 20, height = 20, units = 'in', res = 300)
+corrplot(corr_subset, 
+         method = "color",
+         p.mat = p_subset,           
+         sig.level = 0.05,           
+         insig = "label_sig",        
+         number.cex = 1.2,           
+         tl.cex = 1.5,
+         tl.col = "black",           # Set all labels to black first
+         cl.cex = 1.2)              
+
+dev.off()
+
+
+
+
+
+########### Only T2D 
+
+combined_df <- module_scores_summary %>% left_join(dat2 %>% 
+                                                     dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f, 
+                                                                   avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw)) %>% 
+  filter(group == 'Type_2_Diabetes')
+
+combined_df <- combined_df %>% dplyr::select(-record_id, -mrn, -group) %>%
+  filter(!is.na(avg_c_k2))
+
+library(corrplot)
+
+# Calculate correlations
+combined_df_corr <- cor(combined_df, use = 'pairwise.complete.obs', method = 'spearman')
+
+# Calculate p-values using cor.mtest
+p_values <- cor.mtest(combined_df, method = 'spearman')
+
+# Create subset for plotting
+corr_subset <- as.matrix(combined_df_corr[c(1:23), c(24:29), drop = F])
+p_subset <- as.matrix(p_values$p[c(1:23), c(24:29), drop = F])
+
+# Add meaningful names
+row_names <- c('TCA', 'OxPhos', 'Response to Insulin', 
+               'Insulin Receptor Signaling', 'Negative Regulation of Insulin Signaling', 
+               'Positive Regulation of Insulin Signaling', 'IGF Receptor Binding', 
+               'OxPhos (Hallmark)', 'Fatty Acid Metabolism', 'Glycolysis', 'mTORC1 Signaling', 
+               'Adipogenesis', 'Peroxisome', 'Inflammatory Response', 'IFN Gamma Response', 
+               'IFN Alpha Response', 'IL6 JAK/STAT3', 'TNFa NF kB1', 'Complement', 
+               'Allograft Rejection', 'Hypoxia', 'ROS Pathway', 'PI3K AKT mTOR1')
+
+col_names <- c('Cortical K2', 'Cortical F', 'Cortical K2/F', 
+               'Cortical K2 (voxel)', 'Cortical F (voxel)', 'Cortical K2/F (voxel)')
+
+rownames(corr_subset) <- row_names
+colnames(corr_subset) <- col_names
+
+# Apply same names to p-value matrix
+rownames(p_subset) <- rownames(corr_subset)
+colnames(p_subset) <- colnames(corr_subset)
+
+pdf('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/modulecomparisons_T2Dparticipants_wPET_spearman.pdf', 
+    width = 20, height = 20)
+
+corrplot(corr_subset, 
+         method = "color",
+         p.mat = p_subset,           
+         sig.level = 0.05,           
+         insig = "label_sig",        
+         number.cex = 1.2,           
+         tl.cex = 1.5,
+         tl.col = "black",           # Set all labels to black first
+         cl.cex = 1.2)              
+
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+######################################################## Investigating ions, proteins
+
+
+
+remove(list=ls())
+
+
+#gbm <- readxl::read_xlsx("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Pathology_Reports_Morphometrics_Shared/Morphometrics/CHCO Morphometrics update 10-19-23.xlsx")
+#gbm <- gbm %>% 
+#  dplyr::select(record_id = ID, gbm_thick_arith = `GBM thickness nm (arithmetic mean)`, 
+#                gbm_thick_harm = `GBM thickness nm (harmonic mean)`)
+
+#harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+#date_of_screen
+#screen_date
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+
+#gbm <- gbm %>% left_join(dat %>% dplyr::select(record_id, mrn), by='record_id')
+
+
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  
+  avg_m_k2_f <- avg_m_k2/ avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2_vw', 'avg_m_k2_vw', 'avg_c_f_vw', 'avg_m_f_vw', 
+                      'avg_c_k2_f_vw', 'avg_m_k2_f_vw')
+  
+  return(results)
+  
+}
+
+
+tmp_results_vw <- PET_avg(dat)
+
+
+dat_results <- dat
+
+
+
+
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  
+  avg_m_k2_f <- avg_m_k2 / avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                      'avg_c_k2_f', 'avg_m_k2_f')
+  
+  return(results)
+  
+}
+
+
+tmp_results <- PET_avg(dat)
+
+dat_results$avg_c_k2 <- NULL
+dat_results$avg_c_f <- NULL
+
+dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
+
+
+dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
+
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
+dat_results$group2 <- NA
+
+need_med_info <- dat_results %>% filter(is.na(group2))
+
+dat2 <- dat_results
+
+RH <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RENALHEIR-SGLT2.csv')
+names(RH) <- c('Subject', 'rep_instr', 'rep_inst', 'SGLT2')
+RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-SGLT2Use.csv')
+names(RH2) <- c('Subject', 'event', 'rep_instr', 'rep_inst', 'mrn', 'SGLT2', 'SGLT2_ever')
+RH2 <- RH2 %>% filter(!is.na(mrn))
+improve <- data.table::fread('C:/Users/netio/Downloads/IMPROVET2D-SGLT2i_DATA_LABELS_2025-08-25_0938.csv')
+names(improve)[5] <- 'SGLT2'
+names(improve)[1] <- 'record_id'
+
+improve <- improve %>% filter(!is.na(SGLT2)) %>%
+  filter(SGLT2 != '')
+
+improve_small <- improve %>% filter(record_id %in% need_med_info$record_id)
+RH_small <- RH %>% filter(Subject %in% need_med_info$record_id)
+RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
+
+for(i in c(1:nrow(RH_small))){
+  if(nrow(RH_small) == 0){
+    next
+  }
+  if(RH_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'No'
+  }else if(RH_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'Yes'
+  }else{
+    next
+  }
+}
+
+for(i in c(1:nrow(RH2_small))){
+  if(nrow(RH2_small) == 0){
+    next
+  }
+  if(RH2_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'No'
+  }else if(RH2_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'Yes'
+  }else{
+    next
+  }
+}
+
+for(i in c(1:nrow(improve_small))){
+  if(nrow(improve_small) == 0){
+    next
+  }
+  if(improve_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'No'
+  }else if(improve_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'Yes'
+  }else{
+    next
+  }
+}
+
+
+dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
+dat2$epic_sglti2_1[which(dat2$group == 'Obese Control')] <- 'No'
+
+dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
+
+
 
 
 #ion_df <- dat %>% filter(mrn %in% dat2$mrn) %>% 
@@ -2785,10 +3167,7 @@ dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
 combined_df <- dat2 %>% 
   dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f, 
                 avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
-                acr_u,
-                cl_base, k_base, na_s, na_u, 
-                sodium_base, sodium_s, sodium_u, 
-                u24_na, phosphate_tissue, n_acetyl_glucosamine_1_phosphate_h_tissue)
+                acr_u)
 
 
 colSums(is.na(combined_df))
