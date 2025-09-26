@@ -1,0 +1,218 @@
+---
+title: "ATTEMPT Spatial Proteomics"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+    message: false
+    warning: false
+---
+
+```{r echo = F, include = F}
+library(jsonlite)
+library(aws.s3)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+library(ensr)
+library(kableExtra)
+library(ggrepel)
+library(purrr)
+library(tidyverse)
+library(limma)
+library(arsenal)
+library(fgsea)
+library(correlation)
+library(psych)
+library(openxlsx)
+library(SomaPlotr)
+library(lme4)
+library(lmerTest)
+library(fgsea)
+
+# specify user for paths
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+source(file.path(git_path, "ATTEMPT/attempt_functions.R"))
+source(file.path(git_path, "Resources/YC/R Functions/correlation_function.R"))
+
+bg_path <- file.path(root_path, "GSEA/")
+load(file.path(root_path, "KNIGHT/Somalogic data/analytes.Rdata"))
+
+# load urine creatinine
+urine_creat <- read.xlsx(file.path(root_path, 'ATTEMPT/Data Raw/Urine Proteomics Sample Manifest Jun 25 2025.xlsx'), sheet = "Working")
+names(urine_creat) <- c("position", "record_id", "visit", "box", "creatinine_u_proteomics", "comments")
+# SOMA analytes names/info
+load(file.path(root_path, "Data Harmonization/Combined SomaScan/analytes_2.Rdata"))
+
+```
+
+```{r include = F}
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r}
+alias_map <- c(
+  "KRT19"    = "CK19",
+  "VIM"      = "VMT",
+  "CYCS"     = "Cyt-c",
+  "GSK3B"    = "p-GSK3b",
+  "SMAD2"    = "p-SMAD2",
+  "JAK2"     = "pJAK2",
+  "MAPK1"    = "p-ERK1-2",   # could also map to MAPK3 depending on antibody
+  "PRKAA1"   = "p-AMPKa",    # could also map to PRKAA2
+  "HSPA5"    = "GRP78",
+  "FN1"      = "FN",
+  "PSMB8"    = "LMP7",
+  "AIF1"     = "IBA1",
+  "TJP1"     = "ZO-1",
+  "HIST1H3A" = "H3",         # representative histone H3 gene
+  "HIST1H3B" = "H3",
+  "H3F3A"    = "H3",
+  "HIST1H2BC"= "u-H2B",       # representative histone H2B gene
+  "CD3D"     = "CD3",
+  "CD3E"     = "CD3",
+  "CD3G"     = "CD3",
+  "EZR"      = "pERM",
+  "RDX"      = "pERM",
+  "MSN"      = "pERM",
+  "RAB7A"    = "RAB7",
+  "HIST1H2BC"= "u-H2B",
+  "H2BC21"   = "u-H2B"
+)
+
+did_res_urine_mixed <- s3readRDS("Proteomics/urine_cradj_proteomics_res.RDS", "attempt", region = "")$results_annotated %>%
+  mutate(alias_entrez = recode(EntrezGeneSymbol, !!!alias_map),
+         source = "urine") %>%
+  dplyr::select(source, logFC, P.Value, adj.P.Val, markers = alias_entrez, EntrezGeneSymbol, SeqId)
+did_res_plasma_mixed <- s3readRDS("Proteomics/plasma_proteomics_res.RDS", "attempt", region = "")$results_annotated %>%
+  mutate(alias_entrez = recode(EntrezGeneSymbol, !!!alias_map),
+         source = "plasma") %>%
+  dplyr::select(source, logFC, P.Value, adj.P.Val, markers = alias_entrez, EntrezGeneSymbol, SeqId)
+spatial_proteomics <- read.csv(file.path(root_path, "ATTEMPT/Data Clean/VP_spatial_proteomics_clusters.csv"))
+```
+
+```{r}
+# clean spatial proteomics clusters file
+spatial_proteomics_long <- spatial_proteomics %>%
+  separate_rows(markers, intensities, log2fc, sep = ", ") %>%
+  mutate(
+    intensities = as.numeric(intensities),
+    log2fc = as.numeric(log2fc),
+    group = as.factor(group)
+  )
+# spatial_proteomics_long$markers[spatial_proteomics_long$markers %in% did_res_plasma_mixed$alias_entrez]
+# unique(spatial_proteomics_long$markers[spatial_proteomics_long$markers %nin% did_res_plasma_mixed$alias_entrez])
+
+spatial_proteomics_urine <- spatial_proteomics_long %>% left_join(did_res_urine_mixed, relationship = "many-to-many")  %>%
+  mutate(urine_comp = case_when(is.na(source) ~ "not found",
+                                log2fc > 0 & logFC > 0 ~ "+",
+                                log2fc < 0 & logFC < 0 ~ "-",
+                                log2fc != logFC ~ "mismatch"),
+         urine_comp = factor(urine_comp, levels = c("+", "-", "mismatch", "not found")),
+         markers_unique = case_when(!is.na(SeqId) ~ paste0(markers, ":", SeqId), T ~ markers)) %>%
+  arrange(urine_comp) 
+# %>%
+#   group_by(group) %>%
+#   mutate(n = row_number())
+
+# spatial_proteomics_urine %>%
+#   ggplot(aes(x = n, y = group, color = urine_comp)) +
+#   geom_text(aes(label = markers_unique)) +
+#   theme_minimal() +
+#   scale_color_manual(values = c("+" = "#6e9887",
+#                                 "-" = "#6e9887",
+#                                 "mismatch" = "#eb6424",
+#                                 "not found" = "lightgrey"))
+
+# (prop.table(table(spatial_proteomics_urine$group, spatial_proteomics_urine$urine_comp), 1) * 100) %>% as.data.frame() %>%
+#   dplyr::rename(group = Var1, urine_comp = Var2, percent = Freq) %>%
+#   ggplot(aes(x = factor(group), y = percent, fill = urine_comp)) +
+#   geom_col() +
+#   labs(x = "Group", y = "Percentage", fill = "Urine comparison") +
+#   theme_minimal()
+
+prop.table(table(spatial_proteomics_urine$group, 
+                 spatial_proteomics_urine$urine_comp), 1) * 100
+```
+
+```{r}
+spatial_proteomics_plasma <- spatial_proteomics_long %>% left_join(did_res_plasma_mixed, relationship = "many-to-many") %>%
+  mutate(plasma_comp = case_when(is.na(source) ~ "not found",
+                                log2fc > 0 & logFC > 0 ~ "+",
+                                log2fc < 0 & logFC < 0 ~ "-",
+                                log2fc != logFC ~ "mismatch"),
+         plasma_comp = factor(plasma_comp, levels = c("+", "-", "mismatch", "not found")),
+         markers_unique = case_when(!is.na(SeqId) ~ paste0(markers, ":", SeqId), T ~ markers)) %>%
+  arrange(plasma_comp) 
+```
+
+```{r}
+collapse_safe <- function(x) {
+  x <- na.omit(x)
+  if (length(x) == 0) NA_character_ else paste(unique(x), collapse = ", ")
+}
+```
+
+```{r}
+urine_collapsed <- spatial_proteomics_urine %>%
+  group_by(group) %>%
+  summarise(
+    markers_seq = collapse_safe(markers_unique),
+    logFC_urine          = collapse_safe(round(logFC, 3)),
+    P_value_urine        = collapse_safe(round(`P.Value`, 3)),   # use backticks for P.Value
+    pos_markers       = collapse_safe(markers_unique[urine_comp == "+"]),
+    # neg_markers      = collapse_safe(markers_unique[urine_comp == "-"]),
+    mismatch_markers    = collapse_safe(markers_unique[urine_comp == "mismatch"]),
+    notfound_markers   = collapse_safe(markers_unique[urine_comp == "not found"]),
+    .groups = "drop"
+  ) %>%
+  mutate(group = as.integer(group))
+
+plasma_collapsed <- spatial_proteomics_plasma %>%
+  group_by(group) %>%
+  summarise(
+    markers_seq = collapse_safe(markers_unique),
+    logFC_plasma          = collapse_safe(round(logFC, 3)),
+    P_value_plasma        = collapse_safe(round(`P.Value`, 3)),   # use backticks for P.Value
+    pos_markers       = collapse_safe(markers_unique[plasma_comp == "+"]),
+    # neg_markers      = collapse_safe(markers_unique[plasma_comp == "-"]),
+    mismatch_markers    = collapse_safe(markers_unique[plasma_comp == "mismatch"]),
+    notfound_markers   = collapse_safe(markers_unique[plasma_comp == "not found"]),
+    .groups = "drop"
+  ) %>%
+  mutate(group = as.integer(group))
+
+urine_spatial_combined <- spatial_proteomics %>%
+  left_join(urine_collapsed)
+
+plasma_spatial_combined <- spatial_proteomics %>%
+  left_join(plasma_collapsed)
+
+write.csv(urine_spatial_combined, file.path(root_path, "ATTEMPT/Data Clean/Urine_SP_Combined.csv"), row.names = F, na = "")
+write.csv(plasma_spatial_combined, file.path(root_path, "ATTEMPT/Data Clean/Plasma_SP_Combined.csv"), row.names = F, na = "")
+```
