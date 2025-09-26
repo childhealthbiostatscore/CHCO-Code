@@ -1209,137 +1209,656 @@ remove(list=ls())
 
 
 
-#module score graphing 
-module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/GO_pathways_modulescores.txt')
+
+##############module score graphing 
+module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/HALLMARK_GO_pathways_modulescores.txt')
 module_scores$celltype2 <- NULL
 module_scores$KPMP_celltype <- NULL
 
 
 
-harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
-
-dat <- harmonized_data %>% dplyr::select(-dob) %>% 
-  arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-                   .by = c(record_id, visit))
-
-
-
-
-PET_avg <- function(data){
-  tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
-                                   lc_f, rc_f, lm_f, rm_f)
-  avg_c_k2 <- tmp_df %>%
-    dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
-  
-  avg_m_k2 <- tmp_df %>% 
-    dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
-  
-  avg_c_f <- tmp_df %>% 
-    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
-  
-  avg_m_f <- tmp_df %>% 
-    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
-  
-  avg_c_k2_f <- avg_c_k2 / avg_c_f
-  
-  avg_m_k2_f <- avg_m_k2/ avg_m_f
-  
-  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
-                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
-  names(results) <- c('avg_c_k2_vw', 'avg_m_k2_vw', 'avg_c_f_vw', 'avg_m_f_vw', 
-                      'avg_c_k2_f_vw', 'avg_m_k2_f_vw')
-  
-  return(results)
-  
-}
-
-
-tmp_results_vw <- PET_avg(dat)
-
-
-dat_results <- dat
-
-
-
-
-PET_avg <- function(data){
-  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
-                                   lc_f, rc_f, lm_f, rm_f)
-  avg_c_k2 <- tmp_df %>%
-    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
-  
-  avg_m_k2 <- tmp_df %>% 
-    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
-  
-  avg_c_f <- tmp_df %>% 
-    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
-  
-  avg_m_f <- tmp_df %>% 
-    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
-  
-  avg_c_k2_f <- avg_c_k2 / avg_c_f
-  
-  avg_m_k2_f <- avg_m_k2 / avg_m_f
-  
-  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
-                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
-  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
-                      'avg_c_k2_f', 'avg_m_k2_f')
-  
-  return(results)
-  
-}
-
-
-tmp_results <- PET_avg(dat)
-
-dat_results$avg_c_k2 <- NULL
-dat_results$avg_m_k2 <- NULL
-dat_results$avg_c_f <- NULL
-
-
-dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
-
-
-dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
-
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
-
-
-dat_results <- dat_results %>% 
-  dplyr::select(record_id, mrn, group, starts_with('avg_c'), age, sex, bmi, hba1c, study, epic_sglti2_1, race_ethnicity)
-
-
 
 
 module_scores_summary <- module_scores %>%
-  group_by(record_id, mrn) %>%
+  group_by(record_id, mrn, group) %>%
   summarize(
-    # Calculate mean, median, and SD for all numeric columns
-    across(c(TCA_score1, OxPhos_score1, Response_to_Insulin1, 
-             Insulin_Receptor_Signaling1, Neg_Reg_Insulin_Signaling1, 
-             Pos_Reg_Insulin_Signaling1, IGF_Receptor_Binding1,
-             Chloride_Homeostasis1, Potassium_Homeostasis1,
-             Sodium_Homeostasis1, Anion_Homeostasis1,
-             Pos_Reg_Phosphorus_Metabolism1, Pos_Reg_Phosphate_Metabolism1,
-             Protein_Catabolic_Regulation1, Renal_Sodium_Transport1,
-             Renal_Sodium_Absorption1), 
-           list(mean = ~mean(.x, na.rm = TRUE),
-                median = ~median(.x, na.rm = TRUE), 
-                sd = ~sd(.x, na.rm = TRUE)), 
+    # Calculate mean for all numeric module score columns
+    across(c(TCA_score1, OxPhos_score1, 
+             # GO terms
+             Response_to_Insulin1, Insulin_Receptor_Signaling1, 
+             Neg_Reg_Insulin_Signaling1, Pos_Reg_Insulin_Signaling1, 
+             IGF_Receptor_Binding1,
+             # HALLMARK pathways - Metabolism
+             OxPhos_Hallmark1, Fatty_Acid_Metabolism1, Glycolysis1, 
+             mTORC1_Signaling1, Adipogenesis1, Peroxisome1,
+             # HALLMARK pathways - Immune/Inflammatory
+             Inflammatory_Response1, IFN_Gamma_Response1, IFN_Alpha_Response1,
+             IL6_JAK_STAT31, TNFa_NF_kB1, Complement1, Allograft_Rejection1,
+             # HALLMARK pathways - Cross-cutting
+             Hypoxia1, ROS_Pathway1, PI3K_AKT_mTOR1), 
+           list(mean = ~mean(.x, na.rm = TRUE)),
            .names = "{.col}_{.fn}"),
     .groups = 'drop'
   )
 
 
-combined_df <- module_scores_summary %>% 
-  left_join(dat_results, by=c('mrn'))
 
-combined_df <- combined_df %>% filter(!is.na(avg_c_k2))
+combined_df <- module_scores_summary
+
+
+########## Creating panel tables with new HALLMARK pathways
+
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(ggpubr)
+library(broom)
+
+# Function to perform statistical tests and add significance annotations
+add_significance <- function(data, variable, group_col = "group") {
+  # Filter out NA values in both variable and group columns
+  clean_data <- data %>% filter(!is.na(.data[[group_col]]) & !is.na(.data[[variable]]))
+  
+  # Check if we have enough data points
+  if(nrow(clean_data) < 3) {
+    return(list(significant = FALSE, p_value = NA))
+  }
+  
+  # Get unique groups
+  groups <- unique(clean_data[[group_col]])
+  
+  # If only one group, can't do statistical test
+  if(length(groups) < 2) {
+    return(list(significant = FALSE, p_value = NA))
+  }
+  
+  # If exactly two groups, perform t-test
+  if(length(groups) == 2) {
+    group1_data <- clean_data[clean_data[[group_col]] == groups[1], variable]
+    group2_data <- clean_data[clean_data[[group_col]] == groups[2], variable]
+    
+    # Perform unpaired t-test (assuming unequal variances)
+    t_result <- t.test(group1_data, group2_data, var.equal = FALSE)
+    
+    return(list(significant = t_result$p.value < 0.05, p_value = t_result$p.value))
+  }
+  
+  # If more than two groups, perform ANOVA (uncorrected)
+  if(length(groups) > 2) {
+    aov_result <- aov(as.formula(paste(variable, "~", group_col)), data = clean_data)
+    p_value <- summary(aov_result)[[1]][["Pr(>F)"]][1]
+    
+    return(list(significant = p_value < 0.05, p_value = p_value))
+  }
+}
+
+# Function to get pathway classification and color
+get_pathway_color <- function(pathway_name) {
+  custom_scores <- c("TCA_score", "OxPhos_score")
+  go_terms <- c("Response_to_Insulin", "Insulin_Receptor_Signaling", 
+                "Neg_Reg_Insulin_Signaling", "Pos_Reg_Insulin_Signaling", 
+                "IGF_Receptor_Binding")
+  metabolism_hallmark <- c("OxPhos_Hallmark", "Fatty_Acid_Metabolism", "Glycolysis", 
+                           "mTORC1_Signaling", "Adipogenesis", "Peroxisome")
+  immune_inflammatory <- c("Inflammatory_Response", "IFN_Gamma_Response", "IFN_Alpha_Response",
+                           "IL6_JAK_STAT3", "TNFa_NF_kB", "Complement", "Allograft_Rejection")
+  cross_cutting <- c("Hypoxia", "ROS_Pathway", "PI3K_AKT_mTOR")
+  
+  # Define colors for each category
+  if(pathway_name %in% custom_scores) {
+    return("#2E8B57")  # Sea Green for custom
+  } else if(pathway_name %in% go_terms) {
+    return("#4169E1")  # Royal Blue for GO terms
+  } else if(pathway_name %in% metabolism_hallmark) {
+    return("#FF6347")  # Tomato Red for metabolism
+  } else if(pathway_name %in% immune_inflammatory) {
+    return("#8A2BE2")  # Blue Violet for immune/inflammatory
+  } else if(pathway_name %in% cross_cutting) {
+    return("#FF8C00")  # Dark Orange for cross-cutting
+  } else {
+    return("#000000")  # Black for unknown
+  }
+}
+
+# Function to create a single boxplot with significance
+create_boxplot <- function(data, variable, title = NULL) {
+  # Filter out NA values for plotting
+  plot_data <- data %>% filter(!is.na(group) & !is.na(.data[[variable]]))
+  
+  # Check if we have enough data
+  if(nrow(plot_data) < 3) {
+    return(ggplot() + 
+             theme_void() + 
+             labs(title = paste("Insufficient data:", title)) +
+             theme(plot.title = element_text(size = 10, hjust = 0.5, color = "gray")))
+  }
+  
+  # Get significance results
+  sig_results <- add_significance(data, variable)
+  
+  # Clean up title and get pathway classification
+  clean_title <- if(is.null(title)) gsub("1_mean", "", variable) else title
+  pathway_name <- gsub("_", " ", gsub("1_mean", "", variable))
+  
+  # Extract pathway name for color classification (remove spaces and formatting)
+  pathway_for_color <- gsub(" ", "_", clean_title)
+  pathway_for_color <- gsub("_Hallmark", "_Hallmark", pathway_for_color)  # Keep Hallmark suffix for classification
+  if(pathway_for_color == "OxPhos") pathway_for_color <- "OxPhos_Hallmark"  # Handle the shortened version
+  
+  title_color <- get_pathway_color(pathway_for_color)
+  
+  # Create base plot
+  p <- ggplot(plot_data, aes(x = group, y = .data[[variable]], fill = group)) +
+    geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+    geom_jitter(width = 0.2, alpha = 0.5, size = 1) +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      axis.title.x = element_blank(),
+      plot.title = element_text(size = 10, hjust = 0.5, color = title_color),
+      legend.position = "none"
+    ) +
+    labs(title = clean_title,
+         y = "Score") +
+    scale_fill_manual(values = c("Lean_Control" = "#619CFF", "Type_2_Diabetes" = "#F8766D"))
+  
+  # Add significance annotation if significant
+  if(!is.na(sig_results$p_value) && sig_results$significant) {
+    p <- p + annotate("text", x = Inf, y = Inf, 
+                      label = paste0("p = ", round(sig_results$p_value, 4), "*"), 
+                      hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+  }
+  
+  return(p)
+}
+
+# Function to create a legend plot
+create_color_legend <- function() {
+  legend_data <- data.frame(
+    Category = c("Custom Scores", "GO Terms", "Metabolism", "Immune/Inflammatory", "Cross-cutting"),
+    Color = c("#2E8B57", "#4169E1", "#FF6347", "#8A2BE2", "#FF8C00"),
+    x = 1,
+    y = c(5, 4, 3, 2, 1)
+  )
+  
+  legend_plot <- ggplot(legend_data, aes(x = x, y = y)) +
+    geom_text(aes(label = Category, color = Color), 
+              size = 4, hjust = 0, fontface = "bold") +
+    scale_color_identity() +
+    xlim(0.5, 3) +
+    ylim(0.5, 5.5) +
+    theme_void() +
+    labs(title = "Pathway Categories") +
+    theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold"))
+  
+  return(legend_plot)
+}
+
+# Function to create pathway-specific layouts
+create_pathway_layout <- function(data, pathway_group = "all", include_legend = TRUE) {
+  
+  # Define pathway groups
+  custom_scores <- c("TCA_score", "OxPhos_score")
+  
+  go_terms <- c("Response_to_Insulin", "Insulin_Receptor_Signaling", 
+                "Neg_Reg_Insulin_Signaling", "Pos_Reg_Insulin_Signaling", 
+                "IGF_Receptor_Binding")
+  
+  metabolism_hallmark <- c("OxPhos_Hallmark", "Fatty_Acid_Metabolism", "Glycolysis", 
+                           "mTORC1_Signaling", "Adipogenesis", "Peroxisome")
+  
+  immune_inflammatory <- c("Inflammatory_Response", "IFN_Gamma_Response", "IFN_Alpha_Response",
+                           "IL6_JAK_STAT3", "TNFa_NF_kB", "Complement", "Allograft_Rejection")
+  
+  cross_cutting <- c("Hypoxia", "ROS_Pathway", "PI3K_AKT_mTOR")
+  
+  # Select traits based on pathway group
+  if(pathway_group == "all") {
+    traits <- c(custom_scores, go_terms, metabolism_hallmark, immune_inflammatory, cross_cutting)
+    plot_title <- "All Gene Set Enrichment Scores by Group - MEAN"
+    ncols <- 5  # 5x5 grid for all pathways (23 pathways + 2 empty slots = 25)
+    nrows <- 5
+  } else if(pathway_group == "custom") {
+    traits <- custom_scores
+    plot_title <- "Custom Gene Set Scores - MEAN"
+    ncols <- 2
+    nrows <- 1
+  } else if(pathway_group == "go_terms") {
+    traits <- go_terms
+    plot_title <- "GO Term Enrichment Scores - MEAN"
+    ncols <- 3
+    nrows <- 2
+  } else if(pathway_group == "metabolism") {
+    traits <- metabolism_hallmark
+    plot_title <- "Metabolism HALLMARK Pathways - MEAN"
+    ncols <- 3
+    nrows <- 2
+  } else if(pathway_group == "immune") {
+    traits <- immune_inflammatory
+    plot_title <- "Immune/Inflammatory HALLMARK Pathways - MEAN"
+    ncols <- 3
+    nrows <- 3
+  } else if(pathway_group == "cross_cutting") {
+    traits <- cross_cutting
+    plot_title <- "Cross-cutting HALLMARK Pathways - MEAN"
+    ncols <- 3
+    nrows <- 1
+  }
+  
+  # Create column names (assuming mean statistics)
+  columns <- paste0(traits, "1_mean")
+  
+  # Create list of plots
+  plots <- vector("list", length(traits))
+  
+  for(i in 1:length(traits)) {
+    if(columns[i] %in% names(data)) {
+      # Clean up title by removing underscores and making more readable
+      clean_title <- gsub("_", " ", traits[i])
+      clean_title <- gsub("Hallmark$", "", clean_title)  # Remove "Hallmark" suffix if present
+      
+      plots[[i]] <- create_boxplot(data, columns[i], title = clean_title)
+    } else {
+      # Create an empty placeholder plot for missing variables
+      plots[[i]] <- ggplot() + 
+        theme_void() + 
+        labs(title = paste("Missing:", gsub("_", " ", traits[i]))) +
+        theme(plot.title = element_text(size = 10, hjust = 0.5, color = "gray"))
+    }
+  }
+  
+  # Remove any NULL elements
+  plots <- plots[!sapply(plots, is.null)]
+  
+  # Fill remaining slots for even grid if needed
+  total_slots <- ncols * nrows
+  if(length(plots) < total_slots) {
+    for(i in (length(plots)+1):total_slots) {
+      plots[[i]] <- ggplot() + theme_void()
+    }
+  }
+  
+  # Add legend if requested and if showing all pathways
+  if(include_legend && pathway_group == "all") {
+    legend_plot <- create_color_legend()
+    
+    # Create the main plots grid first
+    main_plot <- wrap_plots(plots, ncol = ncols, nrow = nrows)
+    
+    # Combine main plot with legend using different approach
+    final_plot <- main_plot | legend_plot
+    final_plot <- final_plot + 
+      plot_layout(widths = c(4, 1)) +
+      plot_annotation(title = plot_title,
+                      theme = theme(plot.title = element_text(size = 16, hjust = 0.5)))
+  } else {
+    # Combine into grid without legend
+    combined_plot <- wrap_plots(plots, ncol = ncols, nrow = nrows)
+    
+    # Just add title without legend
+    final_plot <- combined_plot + 
+      plot_annotation(title = plot_title,
+                      theme = theme(plot.title = element_text(size = 16, hjust = 0.5)))
+  }
+  
+  return(final_plot)
+}
+
+
+
+all_pathways_plot <- create_pathway_layout(combined_df, 'all')
+
+
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/allpathways_panel_comparisons.pdf", 
+       all_pathways_plot, width = 25, height = 25, dpi = 300)
+
+
+
+###############################################################################Graph again but with only PT cells 
+
+#module score graphing 
+module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/HALLMARK_GO_pathways_modulescores.txt')
+module_scores <- module_scores %>% 
+  filter(celltype2 == 'PT')
+module_scores$celltype2 <- NULL
+module_scores$KPMP_celltype <- NULL
+
+
+
+
+module_scores_summary <- module_scores %>%
+  group_by(record_id, mrn, group) %>%
+  summarize(
+    # Calculate mean for all numeric module score columns
+    across(c(TCA_score1, OxPhos_score1, 
+             # GO terms
+             Response_to_Insulin1, Insulin_Receptor_Signaling1, 
+             Neg_Reg_Insulin_Signaling1, Pos_Reg_Insulin_Signaling1, 
+             IGF_Receptor_Binding1,
+             # HALLMARK pathways - Metabolism
+             OxPhos_Hallmark1, Fatty_Acid_Metabolism1, Glycolysis1, 
+             mTORC1_Signaling1, Adipogenesis1, Peroxisome1,
+             # HALLMARK pathways - Immune/Inflammatory
+             Inflammatory_Response1, IFN_Gamma_Response1, IFN_Alpha_Response1,
+             IL6_JAK_STAT31, TNFa_NF_kB1, Complement1, Allograft_Rejection1,
+             # HALLMARK pathways - Cross-cutting
+             Hypoxia1, ROS_Pathway1, PI3K_AKT_mTOR1), 
+           list(mean = ~mean(.x, na.rm = TRUE)),
+           .names = "{.col}_{.fn}"),
+    .groups = 'drop'
+  )
+
+
+
+combined_df <- module_scores_summary
+
+#combined_df <- combined_df %>% filter(!is.na(avg_c_k2))
 
 combined_df$mrn <- NULL
+
+
+########## Creating panel tables with new HALLMARK pathways
+
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(ggpubr)
+library(broom)
+
+# Function to perform statistical tests and add significance annotations
+add_significance <- function(data, variable, group_col = "group") {
+  # Filter out NA values in both variable and group columns
+  clean_data <- data %>% filter(!is.na(.data[[group_col]]) & !is.na(.data[[variable]]))
+  
+  # Check if we have enough data points
+  if(nrow(clean_data) < 3) {
+    return(list(significant = FALSE, p_value = NA))
+  }
+  
+  # Get unique groups
+  groups <- unique(clean_data[[group_col]])
+  
+  # If only one group, can't do statistical test
+  if(length(groups) < 2) {
+    return(list(significant = FALSE, p_value = NA))
+  }
+  
+  # If exactly two groups, perform t-test
+  if(length(groups) == 2) {
+    group1_data <- clean_data[clean_data[[group_col]] == groups[1], variable]
+    group2_data <- clean_data[clean_data[[group_col]] == groups[2], variable]
+    
+    # Perform unpaired t-test (assuming unequal variances)
+    t_result <- t.test(group1_data, group2_data, var.equal = FALSE)
+    
+    return(list(significant = t_result$p.value < 0.05, p_value = t_result$p.value))
+  }
+  
+  # If more than two groups, perform ANOVA (uncorrected)
+  if(length(groups) > 2) {
+    aov_result <- aov(as.formula(paste(variable, "~", group_col)), data = clean_data)
+    p_value <- summary(aov_result)[[1]][["Pr(>F)"]][1]
+    
+    return(list(significant = p_value < 0.05, p_value = p_value))
+  }
+}
+
+# Function to get pathway classification and color
+get_pathway_color <- function(pathway_name) {
+  custom_scores <- c("TCA_score", "OxPhos_score")
+  go_terms <- c("Response_to_Insulin", "Insulin_Receptor_Signaling", 
+                "Neg_Reg_Insulin_Signaling", "Pos_Reg_Insulin_Signaling", 
+                "IGF_Receptor_Binding")
+  metabolism_hallmark <- c("OxPhos_Hallmark", "Fatty_Acid_Metabolism", "Glycolysis", 
+                           "mTORC1_Signaling", "Adipogenesis", "Peroxisome")
+  immune_inflammatory <- c("Inflammatory_Response", "IFN_Gamma_Response", "IFN_Alpha_Response",
+                           "IL6_JAK_STAT3", "TNFa_NF_kB", "Complement", "Allograft_Rejection")
+  cross_cutting <- c("Hypoxia", "ROS_Pathway", "PI3K_AKT_mTOR")
+  
+  # Define colors for each category
+  if(pathway_name %in% custom_scores) {
+    return("#2E8B57")  # Sea Green for custom
+  } else if(pathway_name %in% go_terms) {
+    return("#4169E1")  # Royal Blue for GO terms
+  } else if(pathway_name %in% metabolism_hallmark) {
+    return("#FF6347")  # Tomato Red for metabolism
+  } else if(pathway_name %in% immune_inflammatory) {
+    return("#8A2BE2")  # Blue Violet for immune/inflammatory
+  } else if(pathway_name %in% cross_cutting) {
+    return("#FF8C00")  # Dark Orange for cross-cutting
+  } else {
+    return("#000000")  # Black for unknown
+  }
+}
+
+# Function to create a single boxplot with significance
+create_boxplot <- function(data, variable, title = NULL) {
+  # Filter out NA values for plotting
+  plot_data <- data %>% filter(!is.na(group) & !is.na(.data[[variable]]))
+  
+  # Check if we have enough data
+  if(nrow(plot_data) < 3) {
+    return(ggplot() + 
+             theme_void() + 
+             labs(title = paste("Insufficient data:", title)) +
+             theme(plot.title = element_text(size = 10, hjust = 0.5, color = "gray")))
+  }
+  
+  # Get significance results
+  sig_results <- add_significance(data, variable)
+  
+  # Clean up title and get pathway classification
+  clean_title <- if(is.null(title)) gsub("1_mean", "", variable) else title
+  pathway_name <- gsub("_", " ", gsub("1_mean", "", variable))
+  
+  # Extract pathway name for color classification (remove spaces and formatting)
+  pathway_for_color <- gsub(" ", "_", clean_title)
+  pathway_for_color <- gsub("_Hallmark", "_Hallmark", pathway_for_color)  # Keep Hallmark suffix for classification
+  if(pathway_for_color == "OxPhos") pathway_for_color <- "OxPhos_Hallmark"  # Handle the shortened version
+  
+  title_color <- get_pathway_color(pathway_for_color)
+  
+  # Create base plot
+  p <- ggplot(plot_data, aes(x = group, y = .data[[variable]], fill = group)) +
+    geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+    geom_jitter(width = 0.2, alpha = 0.5, size = 1) +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      axis.title.x = element_blank(),
+      plot.title = element_text(size = 10, hjust = 0.5, color = title_color),
+      legend.position = "none"
+    ) +
+    labs(title = clean_title,
+         y = "Score") +
+    scale_fill_manual(values = c("Lean_Control" = "#619CFF", "Type_2_Diabetes" = "#F8766D"))
+  
+  # Add significance annotation if significant
+  if(!is.na(sig_results$p_value) && sig_results$significant) {
+    p <- p + annotate("text", x = Inf, y = Inf, 
+                      label = paste0("p = ", round(sig_results$p_value, 4), "*"), 
+                      hjust = 1.1, vjust = 1.1, size = 3, color = "red")
+  }
+  
+  return(p)
+}
+
+# Function to create a legend plot
+create_color_legend <- function() {
+  legend_data <- data.frame(
+    Category = c("Custom Scores", "GO Terms", "Metabolism", "Immune/Inflammatory", "Cross-cutting"),
+    Color = c("#2E8B57", "#4169E1", "#FF6347", "#8A2BE2", "#FF8C00"),
+    x = 1,
+    y = c(5, 4, 3, 2, 1)
+  )
+  
+  legend_plot <- ggplot(legend_data, aes(x = x, y = y)) +
+    geom_text(aes(label = Category, color = Color), 
+              size = 4, hjust = 0, fontface = "bold") +
+    scale_color_identity() +
+    xlim(0.5, 3) +
+    ylim(0.5, 5.5) +
+    theme_void() +
+    labs(title = "Pathway Categories") +
+    theme(plot.title = element_text(size = 12, hjust = 0.5, face = "bold"))
+  
+  return(legend_plot)
+}
+
+# Function to create pathway-specific layouts
+create_pathway_layout <- function(data, pathway_group = "all", include_legend = TRUE) {
+  
+  # Define pathway groups
+  custom_scores <- c("TCA_score", "OxPhos_score")
+  
+  go_terms <- c("Response_to_Insulin", "Insulin_Receptor_Signaling", 
+                "Neg_Reg_Insulin_Signaling", "Pos_Reg_Insulin_Signaling", 
+                "IGF_Receptor_Binding")
+  
+  metabolism_hallmark <- c("OxPhos_Hallmark", "Fatty_Acid_Metabolism", "Glycolysis", 
+                           "mTORC1_Signaling", "Adipogenesis", "Peroxisome")
+  
+  immune_inflammatory <- c("Inflammatory_Response", "IFN_Gamma_Response", "IFN_Alpha_Response",
+                           "IL6_JAK_STAT3", "TNFa_NF_kB", "Complement", "Allograft_Rejection")
+  
+  cross_cutting <- c("Hypoxia", "ROS_Pathway", "PI3K_AKT_mTOR")
+  
+  # Select traits based on pathway group
+  if(pathway_group == "all") {
+    traits <- c(custom_scores, go_terms, metabolism_hallmark, immune_inflammatory, cross_cutting)
+    plot_title <- "All Gene Set Enrichment Scores by Group - MEAN"
+    ncols <- 5  # 5x5 grid for all pathways (23 pathways + 2 empty slots = 25)
+    nrows <- 5
+  } else if(pathway_group == "custom") {
+    traits <- custom_scores
+    plot_title <- "Custom Gene Set Scores - MEAN"
+    ncols <- 2
+    nrows <- 1
+  } else if(pathway_group == "go_terms") {
+    traits <- go_terms
+    plot_title <- "GO Term Enrichment Scores - MEAN"
+    ncols <- 3
+    nrows <- 2
+  } else if(pathway_group == "metabolism") {
+    traits <- metabolism_hallmark
+    plot_title <- "Metabolism HALLMARK Pathways - MEAN"
+    ncols <- 3
+    nrows <- 2
+  } else if(pathway_group == "immune") {
+    traits <- immune_inflammatory
+    plot_title <- "Immune/Inflammatory HALLMARK Pathways - MEAN"
+    ncols <- 3
+    nrows <- 3
+  } else if(pathway_group == "cross_cutting") {
+    traits <- cross_cutting
+    plot_title <- "Cross-cutting HALLMARK Pathways - MEAN"
+    ncols <- 3
+    nrows <- 1
+  }
+  
+  # Create column names (assuming mean statistics)
+  columns <- paste0(traits, "1_mean")
+  
+  # Create list of plots
+  plots <- vector("list", length(traits))
+  
+  for(i in 1:length(traits)) {
+    if(columns[i] %in% names(data)) {
+      # Clean up title by removing underscores and making more readable
+      clean_title <- gsub("_", " ", traits[i])
+      clean_title <- gsub("Hallmark$", "", clean_title)  # Remove "Hallmark" suffix if present
+      
+      plots[[i]] <- create_boxplot(data, columns[i], title = clean_title)
+    } else {
+      # Create an empty placeholder plot for missing variables
+      plots[[i]] <- ggplot() + 
+        theme_void() + 
+        labs(title = paste("Missing:", gsub("_", " ", traits[i]))) +
+        theme(plot.title = element_text(size = 10, hjust = 0.5, color = "gray"))
+    }
+  }
+  
+  # Remove any NULL elements
+  plots <- plots[!sapply(plots, is.null)]
+  
+  # Fill remaining slots for even grid if needed
+  total_slots <- ncols * nrows
+  if(length(plots) < total_slots) {
+    for(i in (length(plots)+1):total_slots) {
+      plots[[i]] <- ggplot() + theme_void()
+    }
+  }
+  
+  # Add legend if requested and if showing all pathways
+  if(include_legend && pathway_group == "all") {
+    legend_plot <- create_color_legend()
+    
+    # Create the main plots grid first
+    main_plot <- wrap_plots(plots, ncol = ncols, nrow = nrows)
+    
+    # Combine main plot with legend using different approach
+    final_plot <- main_plot | legend_plot
+    final_plot <- final_plot + 
+      plot_layout(widths = c(4, 1)) +
+      plot_annotation(title = plot_title,
+                      theme = theme(plot.title = element_text(size = 16, hjust = 0.5)))
+  } else {
+    # Combine into grid without legend
+    combined_plot <- wrap_plots(plots, ncol = ncols, nrow = nrows)
+    
+    # Just add title without legend
+    final_plot <- combined_plot + 
+      plot_annotation(title = plot_title,
+                      theme = theme(plot.title = element_text(size = 16, hjust = 0.5)))
+  }
+  
+  return(final_plot)
+}
+
+
+
+all_pathways_plot <- create_pathway_layout(combined_df, 'all')
+
+
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/allpathways_panel_comparisons_PTCells.pdf", 
+       all_pathways_plot, width = 25, height = 25, dpi = 300)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+############################################## Gene module scores with PET variables 
+
+
+
+
+
+
+
 
 
 #label(combined_df$hba1c) <- "HbA1c (%)"
@@ -2058,132 +2577,6 @@ cat("  T2D only:", count_significant(sd_results_t2d), "\n")
 
 
 
-
-
-
-
-
-#Step 6: ROCKIES correlations with OGIS, HOMA, tubular sodium with K2 and K2/F
-
-#Step 7: SGLT2 inhibitor use with K2 and K2/F
-
-remove(list = ls())
-
-harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
-
-dat <- harmonized_data %>% dplyr::select(-dob) %>% 
-  arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-                   .by = c(record_id, visit))
-
-
-PET_avg <- function(data){
-  tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
-                                   lc_f, rc_f, lm_f, rm_f)
-  avg_c_k2 <- tmp_df %>%
-    dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
-  
-  avg_m_k2 <- tmp_df %>% 
-    dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
-  
-  avg_c_f <- tmp_df %>% 
-    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
-  
-  avg_m_f <- tmp_df %>% 
-    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
-  
-  avg_c_k2_f <- avg_c_k2 / avg_c_f
-  
-  avg_m_k2_f <- avg_m_k2/ avg_m_f
-  
-  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
-                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
-  names(results) <- c('avg_c_k2_vw', 'avg_m_k2_vw', 'avg_c_f_vw', 'avg_m_f_vw', 
-                      'avg_c_k2_f_vw', 'avg_m_k2_f_vw')
-  
-  return(results)
-  
-}
-
-
-tmp_results_vw <- PET_avg(dat)
-
-
-dat_results <- dat
-
-
-
-
-PET_avg <- function(data){
-  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
-                                   lc_f, rc_f, lm_f, rm_f)
-  avg_c_k2 <- tmp_df %>%
-    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
-  
-  avg_m_k2 <- tmp_df %>% 
-    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
-  
-  avg_c_f <- tmp_df %>% 
-    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
-  
-  avg_m_f <- tmp_df %>% 
-    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
-  
-  avg_c_k2_f <- avg_c_k2 / avg_c_f
-  
-  avg_m_k2_f <- avg_m_k2 / avg_m_f
-  
-  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
-                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
-  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
-                      'avg_c_k2_f', 'avg_m_k2_f')
-  
-  return(results)
-  
-}
-
-
-tmp_results <- PET_avg(dat)
-
-
-
-dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
-
-
-dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
-
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
-
-
-
-
-
-#Step 8: Modifiers of changes in K2 (OGIS, Tubular sodium, urine metabolites, fumarate/malate)
-
-remove(list=ls())
-
-harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
-
-dat <- harmonized_data %>% dplyr::select(-dob) %>% 
-  arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-                   .by = c(record_id, visit))
-
-#fractional excretion of sodium is FeNA (%) = (Urine Sodium/Plasma Sodium)/(Urine Creatinine/Plasma Creatinine) x 100
-#OGIS uses an excel calculator, need to do more research on this 
-
-aim8_df <- dat %>% 
-  dplyr::select(record_id, group, 
-                malate, fumarate, homa_ir, eGFR_bedside_Schwartz,
-                eGFR_CKD_epi,
-                eGFR_fas_cr,
-                eGFR_fas_cr_cysc,
-                eGFR_Zap,
-                eGFR_Schwartz,
-                sodium_s, sodium_u, creat_u, creat_s
-  )
 
 
 
