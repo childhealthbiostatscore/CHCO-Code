@@ -3096,14 +3096,17 @@ plot_slingshot_trajectory <- function(sce_sl,
     geom_path(data = curve_df, aes(x = PC1, y = PC2), 
               color = "black", size = 1.2, inherit.aes = FALSE) +
     # theme_bw() + 
-    theme(panel.grid = element_blank()) + 
+    theme(panel.grid = element_blank(),
+          panel.background = element_blank(),
+          legend.background = element_blank(),
+          plot.background = element_blank()) + 
     labs(color = NULL, title = title) +
     scale_color_manual(values = custom_colors)
   
   # Save if bucket is provided
   if (!is.null(bucket)) {
     temp_file <- tempfile(fileext = ".png")
-    ggsave(filename = temp_file, plot = p, width = 7, height = 5)
+    ggsave(filename = temp_file, plot = p, width = 7, height = 5, bg = "transparent")
     s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_pca_", tolower(celltype_suffix), "_slingshot.png"))
   }
   
@@ -3394,7 +3397,11 @@ analyze_pseudotime_by_clinvar <- function(df,
                                           celltype_suffix = "",
                                           filesuffix = "",
                                           plot_by_visit_direction = TRUE) {  # New parameter
-  
+  theme_transparent <- theme(
+    plot.background   = element_rect(fill = "transparent", color = NA),
+    panel.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA)
+  )
   clinical_var <- ensym(clinical_var)
   pseudotime_var <- ensym(pseudotime_var)
   clinical_var_chr <- rlang::as_string(clinical_var)
@@ -3463,6 +3470,7 @@ analyze_pseudotime_by_clinvar <- function(df,
           text = element_text(size = 15),
           legend.position = c(0.5, 0.95),
           legend.direction = "horizontal") +
+    theme_transparent + 
     {
       if (!is.null(custom_colors)) {
         list(scale_fill_manual(values = custom_colors))
@@ -3508,7 +3516,8 @@ analyze_pseudotime_by_clinvar <- function(df,
         panel.grid = element_blank(), 
         text = element_text(size = 14),
         legend.position = "right",
-      )
+      ) +
+      theme_transparent
     
     # Optionally add faceting for clearer visualization
     p_visit_direction_faceted <- df_visit_dir %>%
@@ -3529,7 +3538,8 @@ analyze_pseudotime_by_clinvar <- function(df,
         text = element_text(size = 14),
         legend.position = "top",
         strip.text = element_text(size = 12, face = "bold")
-      )
+      ) +
+      theme_transparent
     
     # Save the visit/direction plot if bucket is specified
     if (!is.null(bucket)) {
