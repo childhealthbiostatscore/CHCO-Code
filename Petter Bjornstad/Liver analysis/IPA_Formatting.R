@@ -160,19 +160,21 @@ ipa_plot_enhanced <- function(data,
 ast <- readxl::read_xls(fs::path(dir.dat,"Today_AST_log2_ipa.xls"), skip = 1)
 
 ast <- ast %>% arrange(desc("-log(p-value)")) 
-ast_keep <- ast[1:40,]
+ast_keep <- ast[1:30,]
+ast_keep <- ast_keep %>%
+  mutate(`z-score`=ifelse(is.na(`z-score`),0,`z-score`))
 
 ast_plot <- ipa_plot(ast_keep)
 ast_plot 
-png(fs::path(dir.results,"AST_pathways_TeenLabs.png"),width=3000,height=2000,res=300)
-plot(ast_plot)
-dev.off()
+# png(fs::path(dir.results,"AST_pathways_TODAY.png"),width=3000,height=2000,res=300)
+# plot(ast_plot)
+# dev.off()
 
-ast2 <- ipa_plot(ast, 
+ast2 <- ipa_plot_enhanced(ast_keep, 
                         title = "AST-Associated Canonical Pathways",
                         subtitle = "Pathway activation analysis",
                         n_pathways = 30)
-png(fs::path(dir.results,"AST_pathways_TeenLabs.png"),width=3500,height=3000,res=300)
+png(fs::path(dir.results,"AST_pathways_TODAY.png"),width=3500,height=3000,res=300)
 plot(ast2)
 dev.off()
 
@@ -180,19 +182,21 @@ dev.off()
 alt <- readxl::read_xls(fs::path(dir.dat,"Today_ALT_log2_ipa.xls"), skip = 1)
 
 alt <- alt %>% arrange(desc("-log(p-value)")) 
-alt_keep <- alt[1:40,]
+alt_keep <- alt[1:30,]
+alt_keep <- alt_keep %>%
+  mutate(`z-score`=ifelse(is.na(`z-score`),0,`z-score`))
 
 alt_plot <- ipa_plot(alt_keep)
 alt_plot 
-png(fs::path(dir.results,"ALT_pathways_TeenLabs.png"),width=3000,height=2000,res=300)
-plot(alt_plot)
-dev.off()
+# png(fs::path(dir.results,"ALT_pathways_TODAY.png"),width=3000,height=2000,res=300)
+# plot(alt_plot)
+# dev.off()
 
-alt2 <- ipa_plot(alt, 
+alt2 <- ipa_plot_enhanced(alt_keep, 
                  title = "ALT-Associated Canonical Pathways",
                  subtitle = "Pathway activation analysis",
                  n_pathways = 30)
-png(fs::path(dir.results,"ALT_pathways_TeenLabs.png"),width=3500,height=3000,res=300)
+png(fs::path(dir.results,"ALT_pathways_TODAY.png"),width=3500,height=3000,res=300)
 plot(alt2)
 dev.off()
 
@@ -204,15 +208,15 @@ ratio_keep <- ratio[1:30,]
 
 ratio_plot <- ipa_plot(ratio_keep)
 ratio_plot 
-png(fs::path(dir.results,"AST_ALT_Ratio_pathways_TeenLabs.png"),width=3000,height=2000,res=300)
-plot(ratio_plot)
-dev.off()
+# png(fs::path(dir.results,"AST_ALT_Ratio_pathways_TeenLabs.png"),width=3000,height=2000,res=300)
+# plot(ratio_plot)
+# dev.off()
 
-ratio2 <- ipa_plot(ratio, 
+ratio2 <- ipa_plot_enhanced(ratio, 
                  title = "AST/ALT-Associated Canonical Pathways",
                  subtitle = "Pathway activation analysis",
                  n_pathways = 30)
-png(fs::path(dir.results,"AST_ALT_ratio_pathways_TeenLabs.png"),width=3500,height=3000,res=300)
+png(fs::path(dir.results,"AST_ALT_ratio_pathways_TODAY.png"),width=3500,height=3000,res=300)
 plot(ratio2)
 dev.off()
 
