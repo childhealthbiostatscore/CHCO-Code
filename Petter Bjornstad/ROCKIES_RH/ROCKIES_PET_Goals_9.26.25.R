@@ -310,7 +310,7 @@ desc_table1_fixed %>%
     heading.title.font.size = 14,
     column_labels.font.size = 12
   ) %>%
-  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/demographics_aim1_with_epic_final.png", 
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/demographics_aim1_with_epic_final.png", 
          vwidth = 1200, vheight = 800)
 
 
@@ -403,12 +403,12 @@ p_broken <- p_with_stats +
 
 print(p_broken)
 
-pdf('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim1_VoxelPET.pdf')
+pdf('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/Aim1_VoxelPET.pdf')
 print(p_broken)
 dev.off()
 
 
-png('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim1_VoxelPET.png')
+png('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/Aim1_VoxelPET.png')
 print(p_broken)
 dev.off()
 
@@ -477,7 +477,7 @@ p_with_stats <- p +
   stat_pvalue_manual(stat_test_adjusted, 
                      label = "p.adj.signif",
                      tip.length = 0.01,
-#                    step.increase = 0.02,
+                     #                    step.increase = 0.02,
                      hide.ns = TRUE)
 
 # Display the regular plot
@@ -492,589 +492,18 @@ p_broken <- p_with_stats +
 
 print(p_broken)
 
-pdf('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim1_GlobalPET.pdf')
+pdf('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/Aim1_GlobalPET.pdf')
 print(p_broken)
 dev.off()
 
 
-png('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim1_GlobalPET.png')
+png('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/Aim1_GlobalPET.png')
 print(p_broken)
 dev.off()
 
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-#############################################################################################################################
-
-
-#Step 2: uACR associations with PET metabolism (GBM thickness, atherosclerosis)
-
-remove(list=ls())
-
-
-gbm <- readxl::read_xlsx("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Pathology_Reports_Morphometrics_Shared/Morphometrics/CHCO Morphometrics update 10-19-23.xlsx")
-gbm <- gbm %>% 
-  dplyr::select(record_id = ID, gbm_thick_arith = `GBM thickness nm (arithmetic mean)`, 
-                gbm_thick_harm = `GBM thickness nm (harmonic mean)`)
-
-#harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
-
-harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
-
-#date_of_screen
-#screen_date
-
-dat <- harmonized_data %>% dplyr::select(-dob) %>% 
-  arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-                   .by = c(record_id, visit))
-
-gbm <- gbm %>% left_join(dat %>% dplyr::select(record_id, mrn), by='record_id')
-
-
-PET_avg <- function(data){
-  tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
-                                   lc_f, rc_f, lm_f, rm_f)
-  avg_c_k2 <- tmp_df %>%
-    dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
-  
-  avg_m_k2 <- tmp_df %>% 
-    dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
-  
-  avg_c_f <- tmp_df %>% 
-    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
-  
-  avg_m_f <- tmp_df %>% 
-    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
-  
-  avg_c_k2_f <- avg_c_k2 / avg_c_f
-  
-  avg_m_k2_f <- avg_m_k2/ avg_m_f
-  
-  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
-                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
-  names(results) <- c('avg_c_k2_vw', 'avg_m_k2_vw', 'avg_c_f_vw', 'avg_m_f_vw', 
-                      'avg_c_k2_f_vw', 'avg_m_k2_f_vw')
-  
-  return(results)
-  
-}
-
-
-tmp_results_vw <- PET_avg(dat)
-
-
-dat_results <- dat
-
-
-
-
-PET_avg <- function(data){
-  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
-                                   lc_f, rc_f, lm_f, rm_f)
-  avg_c_k2 <- tmp_df %>%
-    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
-  
-  avg_m_k2 <- tmp_df %>% 
-    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
-  
-  avg_c_f <- tmp_df %>% 
-    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
-  
-  avg_m_f <- tmp_df %>% 
-    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
-  
-  avg_c_k2_f <- avg_c_k2 / avg_c_f
-  
-  avg_m_k2_f <- avg_m_k2 / avg_m_f
-  
-  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
-                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
-  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
-                      'avg_c_k2_f', 'avg_m_k2_f')
-  
-  return(results)
-  
-}
-
-
-tmp_results <- PET_avg(dat)
-
-dat_results$avg_c_k2 <- NULL
-dat_results$avg_c_f <- NULL
-
-dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
-
-
-dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
-
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
-dat_results$group2 <- NA
-
-need_med_info <- dat_results %>% filter(is.na(group2))
-
-dat2 <- dat_results
-
-RH <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RENALHEIR-SGLT2.csv')
-names(RH) <- c('Subject', 'rep_instr', 'rep_inst', 'SGLT2')
-RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-SGLT2Use.csv')
-names(RH2) <- c('Subject', 'event', 'rep_instr', 'rep_inst', 'mrn', 'SGLT2', 'SGLT2_ever')
-RH2 <- RH2 %>% filter(!is.na(mrn))
-improve <- data.table::fread('C:/Users/netio/Downloads/IMPROVET2D-SGLT2i_DATA_LABELS_2025-08-25_0938.csv')
-names(improve)[5] <- 'SGLT2'
-names(improve)[1] <- 'record_id'
-
-improve <- improve %>% filter(!is.na(SGLT2)) %>%
-filter(SGLT2 != '')
-
-improve_small <- improve %>% filter(record_id %in% need_med_info$record_id)
-RH_small <- RH %>% filter(Subject %in% need_med_info$record_id)
-RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
-
-for(i in c(1:nrow(RH_small))){
-  if(nrow(RH_small) == 0){
-    next
-  }
-if(RH_small$SGLT2[i] == 'No'){
-dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-No SGLTi2'
-dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'No'
-}else if(RH_small$SGLT2[i] == 'Yes'){
-dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-SGLTi2'
-dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'Yes'
-}else{
-next
-}
-}
-
-for(i in c(1:nrow(RH2_small))){
-  if(nrow(RH2_small) == 0){
-    next
-  }
-if(RH2_small$SGLT2[i] == 'No'){
-dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-No SGLTi2'
-dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'No'
-}else if(RH2_small$SGLT2[i] == 'Yes'){
-dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2'
-dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'Yes'
-}else{
-next
-}
-}
-
-for(i in c(1:nrow(improve_small))){
-  if(nrow(improve_small) == 0){
-    next
-  }
-if(improve_small$SGLT2[i] == 'No'){
-dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-No SGLTi2'
-dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'No'
-}else if(improve_small$SGLT2[i] == 'Yes'){
-dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-SGLTi2'
-dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'Yes'
-}else{
-next
-}
-}
-
-
-dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
-
-dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
-
-need_gbm <- dat2 %>% filter(is.na(gbm_thick_artmean))
-
-gbm_small <- gbm %>% semi_join(need_gbm, by='mrn')
-  
-
-
-
-
-
-# Fix data types before creating the table
-library(gtsummary)
-library(gt)
-library(dplyr)
-
-# Convert variables to proper data types
-combined_df <- dat2 %>%
-  mutate(
-    # Ensure continuous variables are numeric
-    age = as.numeric(age),
-    bmi = as.numeric(bmi),
-    hba1c = as.numeric(hba1c),
-    
-    # Ensure categorical variables are factors or characters
-    sex = as.factor(sex),
-    race_ethnicity = as.factor(race_ethnicity),
-    study = as.factor(study),
-    group = as.factor(group),
-    epic_sglti2_1 = as.factor(epic_sglti2_1)
-  )
-
-
-
-# Now create the table with proper data types
-desc_table1_fixed <- combined_df %>%
-  select(age, sex, race_ethnicity, bmi, hba1c, study, group, epic_sglti2_1) %>%
-  tbl_summary(
-    by = group,
-    type = list(
-      age ~ "continuous",
-      bmi ~ "continuous", 
-      hba1c ~ "continuous",
-      sex ~ "categorical",
-      race_ethnicity ~ "categorical",
-      study ~ "categorical",
-      epic_sglti2_1 ~ "categorical"
-    ),
-    statistic = list(
-      all_continuous() ~ "{mean} ({sd})",
-      all_categorical() ~ "{n} ({p}%)"
-    ),
-    digits = list(
-      age ~ 1,
-      bmi ~ 1,
-      hba1c ~ 2,
-      all_categorical() ~ c(0, 1)
-    ),
-    label = list(
-      age ~ "Age, years",
-      sex ~ "Sex", 
-      race_ethnicity ~ "Race/Ethnicity",
-      bmi ~ "BMI, kg/m²",
-      hba1c ~ "HbA1c, %",
-      study ~ "Study",
-      epic_sglti2_1 ~ "SGLT2 Inhibitor Use"
-    ),
-    missing_text = "Missing"
-  ) %>%
-  add_p(test = list(
-    all_continuous() ~ "t.test"
-    # Skip categorical p-values if they cause issues
-  )) %>%
-  add_overall(col_label = "**Overall**\nN = {N}") %>%
-  modify_header(label ~ "**Characteristic**") %>%
-  modify_spanning_header(all_stat_cols() ~ "**Group**") %>%
-  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
-
-# Save version with epic
-desc_table1_fixed %>%
-  as_gt() %>%
-  tab_options(
-    table.font.size = 11,
-    heading.title.font.size = 14,
-    column_labels.font.size = 12
-  ) %>%
-  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/demographics_aim2_with_epic_final.png", 
-         vwidth = 1200, vheight = 800)
-
-
-
-
-
-
-
-
-
-#table1::table1(~age + sex + bmi +hba1c +  study + epic_sglti2_1 + acr_u + gbm_thick_artmean + gbm_thick_harmmean | group, 
-#               data = dat2)
-
-
-aim2_df <- dat2%>% 
-  dplyr::select(record_id, group, 
-                acr_u, gbm_thick_artmean, gbm_thick_harmmean,
-                starts_with('avg_c_'))
-
-library(corrplot)
-
-# Function to calculate correlation p-values with error handling
-cor.mtest <- function(mat, ...) {
-  mat <- as.matrix(mat)
-  n <- ncol(mat)
-  p.mat <- matrix(NA, n, n)
-  diag(p.mat) <- 0
-  
-  for (i in 1:(n - 1)) {
-    for (j in (i + 1):n) {
-      # Check if both columns have enough finite observations
-      valid_pairs <- complete.cases(mat[, i], mat[, j])
-      if (sum(valid_pairs) >= 3) {  # Need at least 3 pairs for correlation test
-        tryCatch({
-          tmp <- cor.test(mat[, i], mat[, j], ...)
-          p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
-        }, error = function(e) {
-          p.mat[i, j] <<- p.mat[j, i] <<- NA
-        })
-      } else {
-        p.mat[i, j] <- p.mat[j, i] <- NA
-      }
-    }
-  }
-  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
-  p.mat
-}
-
-# Calculate full correlation matrix and p-values (including NA columns)
-full_corr <- cor(aim2_df[, 3:ncol(aim2_df)], use = 'pairwise.complete.obs')
-full_p_mat <- cor.mtest(aim2_df[, 3:ncol(aim2_df)])
-
-# Subset to your desired rows and columns (this will include NAs where data is missing)
-aim2_corr_df <- full_corr[c(1:3), c(10, 11, 12, 13, 14, 15)]
-aim2_p_mat <- full_p_mat[c(1:3), c(10, 11, 12, 13, 14, 15)]
-
-# Apply your labels
-#colnames(aim2_corr_df) <- c('Cortical F', 'Cortical K2', 'Cortical K2/F', 
-#                            'Cortical F (voxel)', 'Cortical K2 (voxel)', 'Cortical K2/F (voxel)')
-#rownames(aim2_corr_df) <- c('Urine Albumin-Creatinine Ratio', 'GBM Thickness (Arithmetic)', 'GBM Thickness (Harmonic)')
-
-# Apply same labels to p-value matrix
-colnames(aim2_p_mat) <- colnames(aim2_corr_df)
-rownames(aim2_p_mat) <- rownames(aim2_corr_df)
-
-# Create plot with "?" for missing data
-
-
-pdf('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim2_PETComparisons.pdf', width = 10, height = 14)
-corrplot(aim2_corr_df, 
-         method = "color", 
-         tl.col = "black",
-         tl.cex = 0.8,
-         p.mat = aim2_p_mat,
-         sig.level = c(0.001, 0.01, 0.05),
-         pch.cex = 1.5,
-         insig = "label_sig",
-         pch.col = "black",
-         na.label = "?",        # Show "?" for NA correlations
-         na.label.col = "black") # Color of the "?" symbols        
-dev.off()
-
-png('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim2_PETComparisons.png', width = 1000, height = 1400)
-corrplot(aim2_corr_df, 
-         method = "color", 
-         tl.col = "black",
-         tl.cex = 0.8,
-         p.mat = aim2_p_mat,
-         sig.level = c(0.001, 0.01, 0.05),
-         pch.cex = 1.5,
-         insig = "label_sig",
-         pch.col = "black",
-         na.label = "?",        # Show "?" for NA correlations
-         na.label.col = "black") # Color of the "?" symbols        
-dev.off()
-
-
-
-
-
-
-#####################################################################################################################################
-
-#Step 3: Insulin clamp correlations with PET metabolism
-
-remove(list=ls())
-
-
-
-
-harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
-
-#harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
-
-#date_of_screen
-#screen_date
-
-dat <- harmonized_data %>% dplyr::select(-dob) %>% 
-  arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-                   .by = c(record_id, visit))
-
-
-PET_avg <- function(data){
-  tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
-                                   lc_f, rc_f, lm_f, rm_f)
-  avg_c_k2 <- tmp_df %>%
-    dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
-  
-  avg_m_k2 <- tmp_df %>% 
-    dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
-  
-  avg_c_f <- tmp_df %>% 
-    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
-  
-  avg_m_f <- tmp_df %>% 
-    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
-  
-  avg_c_k2_f <- avg_c_k2 / avg_c_f
-  
-  avg_m_k2_f <- avg_m_k2/ avg_m_f
-  
-  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
-                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
-  names(results) <- c('avg_c_k2_vw', 'avg_m_k2_vw', 'avg_c_f_vw', 'avg_m_f_vw', 
-                      'avg_c_k2_f_vw', 'avg_m_k2_f_vw')
-  
-  return(results)
-  
-}
-
-
-tmp_results_vw <- PET_avg(dat)
-
-
-dat_results <- dat
-
-
-
-
-PET_avg <- function(data){
-  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
-                                   lc_f, rc_f, lm_f, rm_f)
-  avg_c_k2 <- tmp_df %>%
-    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
-  
-  avg_m_k2 <- tmp_df %>% 
-    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
-  
-  avg_c_f <- tmp_df %>% 
-    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
-  
-  avg_m_f <- tmp_df %>% 
-    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
-  
-  avg_c_k2_f <- avg_c_k2 / avg_c_f
-  
-  avg_m_k2_f <- avg_m_k2 / avg_m_f
-  
-  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
-                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
-  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
-                      'avg_c_k2_f', 'avg_m_k2_f')
-  
-  return(results)
-  
-}
-
-
-tmp_results <- PET_avg(dat)
-
-
-
-dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
-
-
-#dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
-
-dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
-
-
-aim3_df <- dat_results %>% 
-  dplyr::select(record_id, group, 
-                acprg, airg, #raw_m, 
-                p1_gc_leanm, p1_gc_m, p1_raw_leanm, p1_raw_m,
-                p2_gc_leanm, p2_gc_m, p2_raw_leanm, p2_raw_m,
-                starts_with('avg_c_'))
-
-aim3_df <- aim3_df %>% mutate(p1_DI_leanm = p1_gc_leanm * airg, 
-                              p1_DI = p1_gc_m * airg, 
-                              p1_DI_raw_leanm = p1_raw_leanm * airg, 
-                              p1_DI_raw = p1_raw_m * airg, 
-                              p2_DI_leanm = p2_gc_leanm * airg, 
-                              p2_DI = p2_gc_m * airg, 
-                              p2_DI_raw_leanm = p2_raw_leanm * airg, 
-                              p2_DI_raw = p2_raw_m * airg)
-
-
-library(corrplot)
-
-# Function to calculate correlation p-values with error handling
-cor.mtest <- function(mat, ...) {
-  mat <- as.matrix(mat)
-  n <- ncol(mat)
-  p.mat <- matrix(NA, n, n)
-  diag(p.mat) <- 0
-  
-  for (i in 1:(n - 1)) {
-    for (j in (i + 1):n) {
-      # Check if both columns have enough finite observations
-      valid_pairs <- complete.cases(mat[, i], mat[, j])
-      if (sum(valid_pairs) >= 3) {  # Need at least 3 pairs for correlation test
-        tryCatch({
-          tmp <- cor.test(mat[, i], mat[, j], ...)
-          p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
-        }, error = function(e) {
-          p.mat[i, j] <<- p.mat[j, i] <<- NA
-        })
-      } else {
-        p.mat[i, j] <- p.mat[j, i] <- NA
-      }
-    }
-  }
-  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
-  p.mat
-}
-
-# Calculate full correlation matrix and p-values (including NA columns)
-full_corr <- cor(aim3_df[, 3:ncol(aim3_df)], use = 'pairwise.complete.obs')
-full_p_mat <- cor.mtest(aim3_df[, 3:ncol(aim3_df)])
-
-# Subset to your desired rows and columns (this will include NAs where data is missing)
-aim3_corr_df <- full_corr[c(1:10), c(17, 16, 18, 20, 19, 21)]
-aim3_p_mat <- full_p_mat[c(1:10), c(17, 16, 18, 20, 19, 21)]
-
-# Apply your labels
-colnames(aim3_corr_df) <- c('Cortical F', 'Cortical K2', 'Cortical K2/F', 
-                            'Cortical F (voxel)', 'Cortical K2 (voxel)', 'Cortical K2/F (voxel)')
-rownames(aim3_corr_df) <- c('Acute C-Peptide Response to Glucose', 'Acute Insulin Response to Glucose', 
-                            'Phase 1 GC Lean M-Value', 'Phase 1 GC M-Value', 'Phase 1 Raw Lean M-Value', 'Phase 1 Raw M-Value', 
-                            'Phase 2 GC Lean M-Value', 'Phase 2 GC M-Value', 'Phase 2 Raw Lean M-Value', 'Phase 2 Raw M-Value')
-
-# Apply same labels to p-value matrix
-colnames(aim3_p_mat) <- colnames(aim3_corr_df)
-rownames(aim3_p_mat) <- rownames(aim3_corr_df)
-
-# Create plot with "?" for missing data
-
-
-pdf('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim3_PETComparisons.pdf', width = 10, height = 14)
-corrplot(aim3_corr_df, 
-         method = "color", 
-         tl.col = "black",
-         tl.cex = 0.8,
-         p.mat = aim3_p_mat,
-         sig.level = c(0.001, 0.01, 0.05),
-         pch.cex = 1.5,
-         insig = "label_sig",
-         pch.col = "black",
-         na.label = "?",        # Show "?" for NA correlations
-         na.label.col = "black") # Color of the "?" symbols        
-dev.off()
-
-png('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Aim3_PETComparisons.png', width = 1000, height = 1400)
-corrplot(aim3_corr_df, 
-         method = "color", 
-         tl.col = "black",
-         tl.cex = 0.8,
-         p.mat = aim3_p_mat,
-         sig.level = c(0.001, 0.01, 0.05),
-         pch.cex = 1.5,
-         insig = "label_sig",
-         pch.col = "black",
-         na.label = "?",        # Show "?" for NA correlations
-         na.label.col = "black") # Color of the "?" symbols        
-dev.off()
 
 
 
@@ -1094,10 +523,6 @@ library(ggplot2)
 library(dplyr)
 library(stringr)
 library(tidyr)
-
-
-
-
 
 
 
@@ -1158,29 +583,31 @@ for(i in c(1:length(celltypes))){
   
   tca_full <- tca_lc %>% left_join(tca_t2d)
   
-  tca_full_sig <- tca_full
+  tca_full_sig <- tca_full %>% 
+    mutate(direction = ifelse(logFC_lc < 0, 'Down', 
+                              ifelse(logFC_lc > 0, 'Up', NA)))
   
- # significant_traits <- tca_full %>% filter(pvalue_lc < 0.05 | pvalue_t2d < 0.05)
-#  opposite_1 <- tca_full %>% filter(logFC_lc > 0 & logFC_t2d < 0)
-#  opposite_2 <- tca_full %>% filter(logFC_lc < 0 & logFC_t2d > 0)
+  # significant_traits <- tca_full %>% filter(pvalue_lc < 0.05 | pvalue_t2d < 0.05)
+  #  opposite_1 <- tca_full %>% filter(logFC_lc > 0 & logFC_t2d < 0)
+  #  opposite_2 <- tca_full %>% filter(logFC_lc < 0 & logFC_t2d > 0)
   
-#  tca_full_sig <- bind_rows(list(significant_traits, opposite_1, opposite_2)) %>% 
-#    filter(!duplicated(gene))
+  #  tca_full_sig <- bind_rows(list(significant_traits, opposite_1, opposite_2)) %>% 
+  #    filter(!duplicated(gene))
   
-#  overall_summary$TCA_flipped[i] <- tca_full_sig %>% filter((logFC_lc > 0 & logFC_t2d < 0) | (logFC_lc < 0 & logFC_t2d > 0)) %>% 
-#    nrow()
-#  overall_summary$TCA_sig[i] <- tca_full_sig %>% filter(pvalue_lc < 0.05 | pvalue_t2d < 0.05) %>% nrow()
+  #  overall_summary$TCA_flipped[i] <- tca_full_sig %>% filter((logFC_lc > 0 & logFC_t2d < 0) | (logFC_lc < 0 & logFC_t2d > 0)) %>% 
+  #    nrow()
+  #  overall_summary$TCA_sig[i] <- tca_full_sig %>% filter(pvalue_lc < 0.05 | pvalue_t2d < 0.05) %>% nrow()
   
   
   if(nrow(tca_full_sig) > 0){
     plot_df <- tca_full_sig %>% 
-      gather(key = 'metric_condition', value = 'value', -gene) %>% 
+      gather(key = 'metric_condition', value = 'value', -gene, -direction) %>% 
       separate(metric_condition, into = c('metric', 'condition'), sep = '_') %>% 
       spread(key = metric, value = value) %>% mutate(Significance = ifelse(pvalue < 0.05, '*', ''))
     
     plot_df <- plot_df %>% filter(condition =='lc')
     
-    tmp_plot <- ggplot(plot_df, aes(x=gene, y=logFC, fill=condition))+
+    tmp_plot <- ggplot(plot_df, aes(x=gene, y=logFC, fill=direction))+
       geom_bar(stat='identity', position='dodge')+
       geom_text(aes(label = Significance), 
                 position = position_dodge(width = 0.9),
@@ -1188,16 +615,16 @@ for(i in c(1:length(celltypes))){
                 size = 4)+
       labs(x='Gene', y='LogFC', title = paste0('TCA Gene Comparison in ', celltype2, ' Cells'))+
       scale_fill_manual(name = 'Comparison',
-                        labels = c('lc' = 'T2D (no SGLT2) vs Lean Controls'),
-                        values = c('lc' = '#1f4e79'))+
+                        labels = c('Up' = 'Up-regulated', 'Down' = 'Down-regulated'),
+                        values = c('Down' = '#d73027', 'Up' = '#4575b4'))+
       theme_classic()+theme(text = element_text(size = text_size), legend.position = legend_position, axis.text.x = element_text(angle = axis_angle, hjust = hjust_val))
     
-    pdf(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_', celltype2, '_barplot.pdf'), 
+    pdf(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/TCA_', celltype2, '_barplot.pdf'), 
         width = 12, height = 8)
     print(tmp_plot)
     dev.off()
     
-    png(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_', celltype2, '_barplot.png'), 
+    png(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/TCA_', celltype2, '_barplot.png'), 
         width = 1200, height = 800)
     print(tmp_plot)
     dev.off()
@@ -1223,29 +650,31 @@ for(i in c(1:length(celltypes))){
   
   oxphos_full <- oxphos_lc %>% left_join(oxphos_t2d)
   
- # significant_traits <- oxphos_full %>% filter(pvalue_lc < 0.05 | pvalue_t2d < 0.05)
-#  opposite_1 <- oxphos_full %>% filter(logFC_lc > 0 & logFC_t2d < 0)
-#  opposite_2 <- oxphos_full %>% filter(logFC_lc < 0 & logFC_t2d > 0)
+  # significant_traits <- oxphos_full %>% filter(pvalue_lc < 0.05 | pvalue_t2d < 0.05)
+  #  opposite_1 <- oxphos_full %>% filter(logFC_lc > 0 & logFC_t2d < 0)
+  #  opposite_2 <- oxphos_full %>% filter(logFC_lc < 0 & logFC_t2d > 0)
   
- # oxphos_full_sig <- bind_rows(list(significant_traits, opposite_1, opposite_2)) %>% 
+  # oxphos_full_sig <- bind_rows(list(significant_traits, opposite_1, opposite_2)) %>% 
   #  filter(!duplicated(gene))
   
   
   #overall_summary$OxPhos_flipped[i] <- oxphos_full_sig %>% filter((logFC_lc > 0 & logFC_t2d < 0) | (logFC_lc < 0 & logFC_t2d > 0)) %>% 
-   # nrow()
+  # nrow()
   #overall_summary$OxPhos_sig[i] <- oxphos_full_sig %>% filter(pvalue_lc < 0.05 | pvalue_t2d < 0.05) %>% nrow()
   
-  oxphos_full_sig <- oxphos_full
+  oxphos_full_sig <- oxphos_full %>% 
+    mutate(direction = ifelse(logFC_lc < 0, 'Down', 
+                              ifelse(logFC_lc > 0, 'Up', NA)))
   
   if(nrow(oxphos_full_sig) > 0){
     plot_df <- oxphos_full_sig %>% 
-      gather(key = 'metric_condition', value = 'value', -gene) %>% 
+      gather(key = 'metric_condition', value = 'value', -gene, -direction) %>% 
       separate(metric_condition, into = c('metric', 'condition'), sep = '_') %>% 
       spread(key = metric, value = value) %>% mutate(Significance = ifelse(pvalue < 0.05, '*', ''))
     
     plot_df <- plot_df %>% filter(condition =='lc')
     
-    tmp_plot <- ggplot(plot_df, aes(x=gene, y=logFC, fill=condition))+
+    tmp_plot <- ggplot(plot_df, aes(x=gene, y=logFC, fill=direction))+
       geom_bar(stat='identity', position='dodge')+
       geom_text(aes(label = Significance), 
                 position = position_dodge(width = 0.9),
@@ -1253,16 +682,16 @@ for(i in c(1:length(celltypes))){
                 size = 4)+
       labs(x='Gene', y='LogFC', title = paste0('OxPhos Gene Comparison in ', celltype2, ' Cells'))+
       scale_fill_manual(name = 'Comparison',
-                        labels = c('lc' = 'T2D (no SGLT2) vs Lean Control'),
-                        values = c('lc' = '#1f4e79'))+
+                        labels = c('Up' = 'Up-regulated', 'Down' = 'Down-regulated'),
+                        values = c('Down' = '#d73027', 'Up' = '#4575b4'))+
       theme_classic()+theme(text = element_text(size = text_size), legend.position = legend_position, axis.text.x = element_text(angle = axis_angle, hjust = hjust_val))
     
-    pdf(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_', celltype2, '_barplot.pdf'), 
+    pdf(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/oxphos_', celltype2, '_barplot.pdf'), 
         width = 12, height = 8)
     print(tmp_plot)
     dev.off()
     
-    png(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_', celltype2, '_barplot.png'), 
+    png(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/oxphos_', celltype2, '_barplot.png'), 
         width = 1200, height = 800)
     print(tmp_plot)
     dev.off()
@@ -1283,7 +712,7 @@ for(i in c(1:length(celltypes))){
 
 
 
-   ### Overall NEBULA Analysis for Top 2,000 genes
+### Overall NEBULA Analysis for Top 2,000 genes
 
 library(scran)
 library(future)
@@ -1344,7 +773,7 @@ test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!dupl
 #load('C:/Users/netio/Downloads/OxPhos_genes.txt')
 
 
-dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/'
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/'
 
 
 
@@ -1489,7 +918,7 @@ desc_table1_fixed %>%
     heading.title.font.size = 14,
     column_labels.font.size = 12
   ) %>%
-  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/demographics_aim4_with_epic_final.png", 
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/demographics_aim4_with_epic_final.png", 
          vwidth = 1200, vheight = 800)
 
 
@@ -1511,8 +940,8 @@ sizeFactors(sce)
 ## Calculate offset → (size factors)
 so$pooled_offset <- (sizeFactors(sce))
 
-save.image('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Line1206_Aim4.RData')
-load('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/Line1206_Aim4.RData')
+save.image('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/Line1206_Aim4.RData')
+load('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/Line1206_Aim4.RData')
 
 #meta.data <- so@meta.data
 #meta.data <- meta.data %>% dplyr::select(record_id, group, sex, epic_sglti2_1)
@@ -1522,64 +951,64 @@ celltypes <- c('PT', 'aPT', 'PT-S1/S2', 'PT-S3')
 
 for(celltype in celltypes){
   if(celltype == 'PT'){
-   so_celltype <- subset(so, celltype2 == celltype) 
+    so_celltype <- subset(so, celltype2 == celltype) 
   }else{
     so_celltype <- subset(so,KPMP_celltype==celltype)
   }
-    DefaultAssay(so_celltype) <- "RNA" 
-    
-    nrow(so_celltype) #34 genes
-    ncol(so_celltype) #13534 PT cells
-    
-    celltype2 <- str_replace_all(celltype,"/","_")
-    celltype2 <- str_replace_all(celltype2,"-","_")
-    
-    #Make sure exposure/independent/x variable or group variable is a factor variable
-    so_celltype$group <- factor(so_celltype$group)
-    #Make sure to set reference level
-    so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
-    
-    
-    counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
-    
-    # With parallelization
-    #TCA Cycle
-    # List of genes
-    genes_list <- tca_genes
-    
-    cl <- makeCluster(1)
-    registerDoParallel(cl)
-    test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
-    t2d_count <- test2 %>% filter(group == 'Type_2_Diabetes') %>% nrow()
-    lc_count <- test2 %>% filter(group == 'Lean_Control') %>% nrow()
-    
-    
-    start_time <- Sys.time()
-    
-        full_analysis <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-        hvgs <- VariableFeatures(full_analysis)
-        full_analysis <- subset(so_celltype, features = hvgs)
-        full_counts <- round(GetAssayData(full_analysis, layer = "counts")) 
-        
-        
-        meta_gene <- full_analysis@meta.data
-        pred_gene <- model.matrix(~group, data = meta_gene)
-        data_g_gene <- list(count = full_analysis, id = meta_gene$record_id, pred = pred_gene)
-        result<- nebula(count = full_counts, id = full_analysis$record_id, pred = data_g_gene$pred, 
-                                  offset = full_analysis$pooled_offset,
-                                  ncore = 1, output_re = T, covariance = T,
-                                  reml = T, model = "NBLMM")
-        
-        result$summary
-        
-    
-    stopCluster(cl)
-    end_time <- Sys.time()
-    print(end_time - start_time)
-    
-    
-    write.csv(result,fs::path(dir.results,paste0("NEBULA_Top2000_",celltype2,"_cells_LC_T2D_NoMed_pooled_offset.csv")))
-    
+  DefaultAssay(so_celltype) <- "RNA" 
+  
+  nrow(so_celltype) #34 genes
+  ncol(so_celltype) #13534 PT cells
+  
+  celltype2 <- str_replace_all(celltype,"/","_")
+  celltype2 <- str_replace_all(celltype2,"-","_")
+  
+  #Make sure exposure/independent/x variable or group variable is a factor variable
+  so_celltype$group <- factor(so_celltype$group)
+  #Make sure to set reference level
+  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
+  
+  
+  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+  
+  # With parallelization
+  #TCA Cycle
+  # List of genes
+  genes_list <- tca_genes
+  
+  cl <- makeCluster(1)
+  registerDoParallel(cl)
+  test2 <- test %>% filter(record_id %in% unique(so_celltype@meta.data$record_id))
+  t2d_count <- test2 %>% filter(group == 'Type_2_Diabetes') %>% nrow()
+  lc_count <- test2 %>% filter(group == 'Lean_Control') %>% nrow()
+  
+  
+  start_time <- Sys.time()
+  
+  full_analysis <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+  hvgs <- VariableFeatures(full_analysis)
+  full_analysis <- subset(so_celltype, features = hvgs)
+  full_counts <- round(GetAssayData(full_analysis, layer = "counts")) 
+  
+  
+  meta_gene <- full_analysis@meta.data
+  pred_gene <- model.matrix(~group, data = meta_gene)
+  data_g_gene <- list(count = full_analysis, id = meta_gene$record_id, pred = pred_gene)
+  result<- nebula(count = full_counts, id = full_analysis$record_id, pred = data_g_gene$pred, 
+                  offset = full_analysis$pooled_offset,
+                  ncore = 1, output_re = T, covariance = T,
+                  reml = T, model = "NBLMM")
+  
+  result$summary
+  
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  
+  write.csv(result,fs::path(dir.results,paste0("NEBULA_Top2000_",celltype2,"_cells_LC_T2D_NoMed_pooled_offset.csv")))
+  
   print(paste0(celltype2, ' is done.'))
   
   
@@ -1592,7 +1021,7 @@ remove(list=ls())
 
 
 
-results_files <- list.files(path = 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/', pattern = '\\.csv$')
+results_files <- list.files(path = 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/', pattern = '\\.csv$')
 
 library(enrichplot)
 library(clusterProfiler)
@@ -1621,7 +1050,7 @@ library(msigdbr) # For Hallmark gene sets
 library(enrichplot)
 
 for(i in c(1:length(results_files))){
-  tmp_data <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/', results_files[i]))
+  tmp_data <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/', results_files[i]))
   cell_type <- str_extract(results_files[i], "PT_S1_S2|PT_S3|aPT|PT")
   
   deg_data <- tmp_data %>% 
@@ -1807,7 +1236,7 @@ for(i in c(1:length(results_files))){
                                       "ORA")
   if (!is.null(reactome_ora_plot)) {
     print(reactome_ora_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Reactome_ORA_", cell_type, ".png"), 
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Reactome_ORA_", cell_type, ".png"), 
            plot = reactome_ora_plot, width = 12, height = 8, dpi = 300)
   }
   
@@ -1816,7 +1245,7 @@ for(i in c(1:length(results_files))){
                                        "GSEA")
   if (!is.null(reactome_gsea_plot)) {
     print(reactome_gsea_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Reactome_GSEA_", cell_type, ".png"), 
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Reactome_GSEA_", cell_type, ".png"), 
            plot = reactome_gsea_plot, width = 12, height = 8, dpi = 300)
   }
   
@@ -1826,7 +1255,7 @@ for(i in c(1:length(results_files))){
                                 "ORA")
   if (!is.null(go_ora_plot)) {
     print(go_ora_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/GO_BP_ORA_", cell_type, ".png"), 
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/GO_BP_ORA_", cell_type, ".png"), 
            plot = go_ora_plot, width = 12, height = 8, dpi = 300)
   }
   
@@ -1835,7 +1264,7 @@ for(i in c(1:length(results_files))){
                                  "GSEA")
   if (!is.null(go_gsea_plot)) {
     print(go_gsea_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/GO_BP_GSEA_", cell_type, ".png"), 
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/GO_BP_GSEA_", cell_type, ".png"), 
            plot = go_gsea_plot, width = 12, height = 8, dpi = 300)
   }
   
@@ -1845,7 +1274,7 @@ for(i in c(1:length(results_files))){
                                       "ORA")
   if (!is.null(hallmark_ora_plot)) {
     print(hallmark_ora_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Hallmark_ORA_", cell_type, ".png"), 
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Hallmark_ORA_", cell_type, ".png"), 
            plot = hallmark_ora_plot, width = 12, height = 8, dpi = 300)
   }
   
@@ -1854,7 +1283,7 @@ for(i in c(1:length(results_files))){
                                        "GSEA")
   if (!is.null(hallmark_gsea_plot)) {
     print(hallmark_gsea_plot)
-    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Hallmark_GSEA_", cell_type, ".png"), 
+    ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Hallmark_GSEA_", cell_type, ".png"), 
            plot = hallmark_gsea_plot, width = 12, height = 8, dpi = 300)
   }
   
@@ -1918,7 +1347,7 @@ for(i in c(1:length(results_files))){
         )
       
       print(summary_plot)
-      ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Pathway_Summary_", cell_type, ".png"), 
+      ggsave(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Pathway_Summary_", cell_type, ".png"), 
              plot = summary_plot, width = 10, height = 6, dpi = 300)
     }
   }
@@ -1932,37 +1361,37 @@ for(i in c(1:length(results_files))){
   # Save pathway analysis results as CSV files
   if (!is.null(reactome_ora) && nrow(as.data.frame(reactome_ora)) > 0) {
     write.csv(as.data.frame(reactome_ora), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Reactome_ORA_", cell_type, ".csv"), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Reactome_ORA_", cell_type, ".csv"), 
               row.names = FALSE)
   }
   
   if (!is.null(reactome_gsea) && nrow(as.data.frame(reactome_gsea)) > 0) {
     write.csv(as.data.frame(reactome_gsea), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Reactome_GSEA_", cell_type, ".csv"), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Reactome_GSEA_", cell_type, ".csv"), 
               row.names = FALSE)
   }
   
   if (!is.null(go_ora) && nrow(as.data.frame(go_ora)) > 0) {
     write.csv(as.data.frame(go_ora), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/GO_BP_ORA_", cell_type, ".csv"), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/GO_BP_ORA_", cell_type, ".csv"), 
               row.names = FALSE)
   }
   
   if (!is.null(go_gsea) && nrow(as.data.frame(go_gsea)) > 0) {
     write.csv(as.data.frame(go_gsea), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/GO_BP_GSEA_", cell_type, ".csv"), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/GO_BP_GSEA_", cell_type, ".csv"), 
               row.names = FALSE)
   }
   
   if (!is.null(hallmark_ora) && nrow(as.data.frame(hallmark_ora)) > 0) {
     write.csv(as.data.frame(hallmark_ora), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Hallmark_ORA_", cell_type, ".csv"), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Hallmark_ORA_", cell_type, ".csv"), 
               row.names = FALSE)
   }
   
   if (!is.null(hallmark_gsea) && nrow(as.data.frame(hallmark_gsea)) > 0) {
     write.csv(as.data.frame(hallmark_gsea), 
-              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/Hallmark_GSEA_", cell_type, ".csv"), 
+              paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/Hallmark_GSEA_", cell_type, ".csv"), 
               row.names = FALSE)
   }
   
@@ -1973,7 +1402,7 @@ for(i in c(1:length(results_files))){
 #plots.dir.path <- list.files(tempdir(), pattern="rs-graphics", full.names = TRUE)
 #plots.png.paths <- list.files(plots.dir.path, pattern=".png", full.names = TRUE)
 
-#file.copy(from=plots.png.paths, to="C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/NEBULA/")
+#file.copy(from=plots.png.paths, to="C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/NEBULA/")
 
 
 
@@ -1985,10 +1414,10 @@ library(magick)
 library(ggplot2)
 
 # Read images - including the main overview plot
-img_main <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_PT_barplot.png")
-img1 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_PT_S1_S2_barplot.png")
-img2 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_PT_S3_barplot.png")
-img3 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_aPT_barplot.png")
+img_main <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/oxphos_PT_barplot.png")
+img1 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/oxphos_PT_S1_S2_barplot.png")
+img2 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/oxphos_PT_S3_barplot.png")
+img3 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/oxphos_aPT_barplot.png")
 
 # Convert to ggplot objects
 p_main <- ggdraw() + draw_image(img_main)
@@ -2012,7 +1441,7 @@ final_plot <- plot_grid(p_main, bottom_row,
                         rel_heights = c(1, 1.2))  # Bottom row slightly taller
 
 # Save at high resolution
-ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/oxphos_PT_complete_layout.png",
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/oxphos_PT_complete_layout.png",
        plot = final_plot,
        width = 15,          # Width in inches
        height = 12,         # Height in inches
@@ -2022,10 +1451,10 @@ ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/o
 
 
 # Read images - including the main overview plot
-img_main <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_PT_barplot.png")
-img1 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_PT_S1_S2_barplot.png")
-img2 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_PT_S3_barplot.png")
-img3 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_aPT_barplot.png")
+img_main <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/TCA_PT_barplot.png")
+img1 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/TCA_PT_S1_S2_barplot.png")
+img2 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/TCA_PT_S3_barplot.png")
+img3 <- image_read("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/TCA_aPT_barplot.png")
 
 # Convert to ggplot objects
 p_main <- ggdraw() + draw_image(img_main)
@@ -2049,7 +1478,7 @@ final_plot <- plot_grid(p_main, bottom_row,
                         rel_heights = c(1, 1.2))  # Bottom row slightly taller
 
 # Save at high resolution
-ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/barplots/TCA_PT_complete_layout.png",
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/barplots/TCA_PT_complete_layout.png",
        plot = final_plot,
        width = 15,          # Width in inches
        height = 12,         # Height in inches
@@ -2146,7 +1575,7 @@ test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!dupl
 #load('C:/Users/netio/Downloads/OxPhos_genes.txt')
 
 
-dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/'
+dir.results <- 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/'
 
 
 
@@ -2259,7 +1688,7 @@ meta.data <- meta.data %>%
                 Pos_Reg_Insulin_Signaling1, IGF_Receptor_Binding1, Chloride_Homeostasis1, Potassium_Homeostasis1, Sodium_Homeostasis1, Anion_Homeostasis1, 
                 Pos_Reg_Phosphorus_Metabolism1, Pos_Reg_Phosphate_Metabolism1, Protein_Catabolic_Regulation1, Renal_Sodium_Transport1, Renal_Sodium_Absorption1)
 
-write.table(meta.data, 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/GO_pathways_modulescores.txt', 
+write.table(meta.data, 'C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/GO_pathways_modulescores.txt', 
             row.names=F, quote=F, sep='\t')
 
 remove(list=ls())
@@ -2268,7 +1697,7 @@ remove(list=ls())
 
 
 #module score graphing 
-module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/GO_pathways_modulescores.txt')
+module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/GO_pathways_modulescores.txt')
 module_scores$celltype2 <- NULL
 module_scores$KPMP_celltype <- NULL
 
@@ -2486,7 +1915,7 @@ desc_table1_fixed %>%
     heading.title.font.size = 14,
     column_labels.font.size = 12
   ) %>%
-  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/demographics_aim5_with_epic_final.png", 
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/demographics_aim5_with_epic_final.png", 
          vwidth = 1200, vheight = 800)
 
 
@@ -2559,7 +1988,7 @@ create_correlation_heatmap <- function(data, pet_variables, module_variables, st
   
   # Create the plot
   if (save_plot) {
-    png(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/pet_module_correlation_", stat_type, "_", subset_name, ".png"), 
+    png(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/pet_module_correlation_", stat_type, "_", subset_name, ".png"), 
         width = 1200, height = 800, res = 150)
   }
   
@@ -2716,7 +2145,7 @@ cat("  T2D only:", count_significant(sd_results_t2d), "\n")
 
 ### Only PT Cells 
 
-module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/GO_pathways_modulescores.txt')
+module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/GO_pathways_modulescores.txt')
 module_scores <- module_scores %>% filter(celltype2 == 'PT')
 module_scores$celltype2 <- NULL
 module_scores$KPMP_celltype <- NULL
@@ -2949,7 +2378,7 @@ create_correlation_heatmap <- function(data, pet_variables, module_variables, st
   
   # Create the plot
   if (save_plot) {
-    png(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/PT_cell_pet_module_correlation_", stat_type, "_", subset_name, ".png"), 
+    png(paste0("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/PT_cell_pet_module_correlation_", stat_type, "_", subset_name, ".png"), 
         width = 1200, height = 800, res = 150)
   }
   
@@ -3264,10 +2693,10 @@ aim8_df <- dat %>%
 remove(list=ls())
 
 
-gbm <- readxl::read_xlsx("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Pathology_Reports_Morphometrics_Shared/Morphometrics/CHCO Morphometrics update 10-19-23.xlsx")
-gbm <- gbm %>% 
-  dplyr::select(record_id = ID, gbm_thick_arith = `GBM thickness nm (arithmetic mean)`, 
-                gbm_thick_harm = `GBM thickness nm (harmonic mean)`)
+#gbm <- readxl::read_xlsx("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Pathology_Reports_Morphometrics_Shared/Morphometrics/CHCO Morphometrics update 10-19-23.xlsx")
+#gbm <- gbm %>% 
+#  dplyr::select(record_id = ID, gbm_thick_arith = `GBM thickness nm (arithmetic mean)`, 
+#                gbm_thick_harm = `GBM thickness nm (harmonic mean)`)
 
 #harmonized_data <- read.csv("C:/Users/netio/Documents/Harmonized_data/harmonized_dataset.csv", na = '')
 
@@ -3282,7 +2711,7 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(record_id, visit))
 
-gbm <- gbm %>% left_join(dat %>% dplyr::select(record_id, mrn), by='record_id')
+#gbm <- gbm %>% left_join(dat %>% dplyr::select(record_id, mrn), by='record_id')
 
 
 PET_avg <- function(data){
@@ -3472,8 +2901,8 @@ combined_df_corr <- cor(combined_df, use = 'pairwise.complete.obs', method = 'sp
 p_values <- cor.mtest(combined_df, method = 'spearman')
 
 # Create subset for plotting
-corr_subset <- combined_df_corr[c(7), c(1:6)]
-p_subset <- p_values$p[c(7), c(1:6)]
+corr_subset <- as.matrix(combined_df_corr[c(7), c(1:6), drop = F])
+p_subset <- as.matrix(p_values$p[c(7), c(1:6), drop = F])
 
 # Add meaningful names
 rownames(corr_subset) <- c('Urine Albumin-Creatinine Ratio')
@@ -3484,7 +2913,7 @@ colnames(corr_subset) <- c('Cortical K2', 'Cortical F', 'Cortical K2/F',
 rownames(p_subset) <- rownames(corr_subset)
 colnames(p_subset) <- colnames(corr_subset)
 
-pdf('C:/Users/netio/Downloads/Correlations.pdf', width = 20, height = 20)
+pdf('/Users/netio/Downloads/Correlations.pdf', width = 20, height = 20)
 corrplot(corr_subset, 
          method = "color",
          p.mat = p_subset,           # Add p-values
@@ -3562,11 +2991,17 @@ dev.off()
 
 
 
+
+
+
+
+
+
 ###### Module score comparisons by group 
 
 
 
-module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/GO_pathways_modulescores.txt')
+module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/GO_pathways_modulescores.txt')
 module_scores <- module_scores %>% filter(celltype2 == 'PT')
 module_scores$celltype2 <- NULL
 module_scores$KPMP_celltype <- NULL
@@ -3846,16 +3281,16 @@ print(median_plot)
 print(sd_plot)
 
 # Save the plots
-ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/gene_scores_mean_4x4.pdf", mean_plot, width = 16, height = 12, dpi = 300)
-ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/gene_scores_median_4x4.pdf", median_plot, width = 16, height = 12, dpi = 300)
-ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/gene_scores_sd_4x4.pdf", sd_plot, width = 16, height = 12, dpi = 300)
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/gene_scores_mean_4x4.pdf", mean_plot, width = 16, height = 12, dpi = 300)
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/gene_scores_median_4x4.pdf", median_plot, width = 16, height = 12, dpi = 300)
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/gene_scores_sd_4x4.pdf", sd_plot, width = 16, height = 12, dpi = 300)
 
 
 
 # Save as high-quality PNG files
-ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/gene_scores_mean_4x4.png", mean_plot, width = 16, height = 12, dpi = 300)
-ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/gene_scores_median_4x4.png", median_plot, width = 16, height = 12, dpi = 300)
-ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.16.25/module_scores/gene_scores_sd_4x4.png", sd_plot, width = 16, height = 12, dpi = 300)
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/gene_scores_mean_4x4.png", mean_plot, width = 16, height = 12, dpi = 300)
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/gene_scores_median_4x4.png", median_plot, width = 16, height = 12, dpi = 300)
+ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/gene_scores_sd_4x4.png", sd_plot, width = 16, height = 12, dpi = 300)
 
 
 
