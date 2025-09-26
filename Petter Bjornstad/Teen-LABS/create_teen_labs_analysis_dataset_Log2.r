@@ -12,8 +12,9 @@ dir.dat <- c(paste0("/Users/",user,"/Library/CloudStorage/OneDrive-SharedLibrari
 
 # Clinical Data
 clinical <- read.sas7bdat(fs::path(dir.dat,"/Data_Cleaned/bjornstad_03_15_2023.sas7bdat"))
+
 # Proteomics data
-soma <- read_adat("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Data_Raw/WUS_22_007_v4.1_EDTAPlasma.hybNorm.medNormInt.plateScale.calibrate.anmlQC.qcCheck.anmlSMP.adat")
+soma <- read_adat(fs::path(dir.dat,"/Data_Raw/WUS_22_007_v4.1_EDTAPlasma.hybNorm.medNormInt.plateScale.calibrate.anmlQC.qcCheck.anmlSMP.adat"))
 soma <- soma %>%
   # Remove flagged rows, QC samples, and excluded samples
   filter(
@@ -22,8 +23,9 @@ soma <- soma %>%
   ) %>%
   # Remove unnecessary columns
   select(SampleDescription, contains("seq."))
-# Log transform
-soma[,grep("seq",colnames(soma))] = lapply(soma[,grep("seq",colnames(soma))],log)
+# Log 2 transform
+soma[,grep("seq",colnames(soma))] = lapply(soma[,grep("seq",colnames(soma))],log2)
+
 # analytes
 analytes <- getAnalyteInfo(soma)
 analytes <- analytes %>% select(AptName,SeqId,SeqIdVersion,SomaId,TargetFullName,Target,UniProt,EntrezGeneID,EntrezGeneSymbol,Organism,Units,Type)
@@ -58,6 +60,7 @@ df <- df %>%
     T ~ "Other"
   )) %>%
   group_by(ID) %>% mutate(diab_baseline = first(na.omit(diab))) %>% ungroup()
+
 # Categorical data
 df$SEX <- factor(df$SEX, levels = 1:2, labels = c("Male", "Female"))
 df$ETHN <- factor(df$ETHN,
@@ -155,7 +158,7 @@ label(df$eGFR.fas_cr_cysc) <- "eGFR FAS Cr Cys-C"
 label(df$eGFR.fas_cr) <- "eGFR FAS Cr"
 
 # read in NAFLD data
-nafld <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/Pyle NAFLD 02_06_24.csv")
+nafld <- read.csv(fs::path(dir.dat,"/Data_Cleaned/Pyle NAFLD 02_06_24.csv"))
 nafld <- unique(nafld)
 nafld <- nafld %>%
   mutate(visit = case_when(
@@ -167,7 +170,7 @@ nafld <- nafld %>%
 df <- left_join(df, nafld, by = c("ID", "visit"))
 
 # read in diabetes data
-diabetes <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/Teen-LABS_DM.csv')
+diabetes <- read.csv(fs::path(dir.dat,"/Data_Cleaned/Teen-LABS_DM.csv"))
 diabetes <- unique(diabetes)
 diabetes$visit <- diabetes$Visit
 diabetes$Visit <- NULL
@@ -190,7 +193,7 @@ diabetes <- diabetes %>% select("ID", "visit", "DBTOTAL", "diabetes_duration")
 df <- left_join(df, diabetes, by = c("ID", "visit"))
 
 # read in ALT/AST data - "-5" means not done
-alt_ast <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/Teen-LABS_AST_ALT.csv', na.strings = c("-5"))
+alt_ast <- read.csv(fs::path(dir.dat,"/Data_Cleaned/Teen-LABS_AST_ALT.csv"), na.strings = c("-5"))
 # "-7" means below lower limit of detection. Waiting to hear from Hailey what that is....for now, I will just put in a 1
 alt_ast$AST <- ifelse(alt_ast$AST == "-7", 1, alt_ast$AST)
 alt_ast$ALT <- ifelse(alt_ast$ALT == "-7", 1, alt_ast$ALT)
@@ -214,8 +217,8 @@ alt_ast <- alt_ast %>%
 df <- left_join(df, alt_ast, by = c("ID", "visit"))
 
 # read in Olink data
-olink <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Olink data/TL_baseline_proteomics_processed_wide.csv")
-linking_file <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Olink data/Pyle 01_19_24.csv")
+olink <- read.csv(fs::path(dir.dat,"/Olink data/TL_baseline_proteomics_processed_wide.csv"))
+linking_file <- read.csv(fs::path(dir.dat,"/Olink data/Pyle 01_19_24.csv"))
 linking_file <- linking_file %>% filter(visit == 1)
 # drop NIH ID because we don't have that information in the Olink file
 linking_file <- linking_file %>% select(key, visit, TLID)
@@ -226,7 +229,7 @@ olink$visit <- ifelse(olink$visit == 1, "Month 1", olink$visit)
 df <- left_join(df, olink, by = c("ID", "visit"))
 
 # Labels
-dict <- read_excel("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/DataDictionary.xlsx")
+dict <- read_excel(fs::path(dir.dat,"/Data_Cleaned/DataDictionary.xlsx"))
 analytes <- getAnalytes(soma)
 analyte_info <- getAnalyteInfo(soma)
 labels <- dict$Description[match(names(df), dict$Name)]
@@ -242,7 +245,7 @@ label(df$diab_baseline) = "Diabetes at Baseline"
 # As regular dataframe
 df <- as.data.frame(df)
 # Save
-save(df,analyte_info, file = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/analysis_dataset.RData")
+save(df,analyte_info, file = fs::path(dir.dat,"/Data_Cleaned/analysis_dataset_log2.RData"))
 # write list of IDs
-write.csv(unique(df$ID), file = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Data_Cleaned/id_list.csv",
+write.csv(unique(df$ID), file = fs::path(dir.dat,"/Data_Cleaned/id_list.csv"),
           row.names = F)
