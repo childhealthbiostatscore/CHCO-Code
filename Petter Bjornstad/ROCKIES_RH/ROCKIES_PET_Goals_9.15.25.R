@@ -1977,7 +1977,7 @@ for(i in c(1:length(results_files))){
 
 
 
-#Combine PNG files 
+########################################################## Combine PNG files 
 
 
 library(cowplot)
@@ -3461,23 +3461,22 @@ colSums(is.na(combined_df))
 combined_df <- combined_df %>% 
   dplyr::select(avg_c_k2, avg_c_f, avg_c_k2_f, 
                 avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
-                acr_u,
-                sodium_s, sodium_u, phosphate_tissue, n_acetyl_glucosamine_1_phosphate_h_tissue)
+                acr_u)
 
 library(corrplot)
 
 # Calculate correlations
-combined_df_corr <- cor(combined_df, use = 'pairwise.complete.obs')
+combined_df_corr <- cor(combined_df, use = 'pairwise.complete.obs', method = 'spearman')
 
 # Calculate p-values using cor.mtest
-p_values <- cor.mtest(combined_df)
+p_values <- cor.mtest(combined_df, method = 'spearman')
 
 # Create subset for plotting
-corr_subset <- combined_df_corr[c(7:11), c(1:6)]
-p_subset <- p_values$p[c(7:11), c(1:6)]
+corr_subset <- combined_df_corr[c(7), c(1:6)]
+p_subset <- p_values$p[c(7), c(1:6)]
 
 # Add meaningful names
-rownames(corr_subset) <- c('Urine Albumin-Creatinine Ratio', 'Serum Sodium', 'Urine Sodium', 'Phosphate (Tissue)', 'N-Acetyl-glucosamine 1-phosphate -H')
+rownames(corr_subset) <- c('Urine Albumin-Creatinine Ratio')
 colnames(corr_subset) <- c('Cortical K2', 'Cortical F', 'Cortical K2/F', 
                            'Cortical K2 (voxel)', 'Cortical F (voxel)', 'Cortical K2/F (voxel)')
 
@@ -3496,6 +3495,73 @@ corrplot(corr_subset,
          tl.col = 'black',
          cl.cex = 1.2)              # size of color legend
 dev.off()
+
+
+
+
+#### Testing for just T2D 
+
+test_df <- dat2 %>% 
+  dplyr::select(record_id, group, avg_c_k2, avg_c_f, avg_c_k2_f, 
+                avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
+                acr_u) %>% 
+  filter(group == 'Type 2 Diabetes') %>% 
+  dplyr::select(-record_id, -group)
+
+library(corrplot)
+
+# Calculate correlations
+combined_df_corr <- cor(test_df, use = 'pairwise.complete.obs', method = 'spearman')
+
+# Calculate p-values using cor.mtest
+p_values <- cor.mtest(test_df, method = 'spearman')
+
+# Create subset for plotting
+corr_subset <- combined_df_corr[c(7), c(1:6)]
+p_subset <- p_values$p[c(7), c(1:6)]
+
+# Add meaningful names
+rownames(corr_subset) <- c('Urine Albumin-Creatinine Ratio')
+colnames(corr_subset) <- c('Cortical K2', 'Cortical F', 'Cortical K2/F', 
+                           'Cortical K2 (voxel)', 'Cortical F (voxel)', 'Cortical K2/F (voxel)')
+
+# Apply same names to p-value matrix
+rownames(p_subset) <- rownames(corr_subset)
+colnames(p_subset) <- colnames(corr_subset)
+
+pdf('C:/Users/netio/Downloads/Correlations.pdf', width = 20, height = 20)
+corrplot(corr_subset, 
+         method = "color",
+         p.mat = p_subset,           # Add p-values
+         sig.level = 0.05,           # Significance level
+         insig = "label_sig",        # Show significance markers (* for p<0.05, ** for p<0.01, etc.)
+         number.cex = 1.2,           # size of correlation numbers
+         tl.cex = 1.5,
+         tl.col = 'black',
+         cl.cex = 1.2)              # size of color legend
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3599,7 +3665,7 @@ dat_results$avg_c_f <- NULL
 dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
 
 
-dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
+#dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 
 dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
 
