@@ -35,12 +35,17 @@ if (user == "choiyej") {
   base_data_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
 } else
-  {
+{
   stop("Unknown user: please specify root path for this user.")
 }
 
 data_path <- file.path(base_data_path, "Data Harmonization/Data Clean/harmonized_dataset.csv")
 data <- read_csv(data_path)
+
+# NEW FIX: Trim whitespace from the study column to ensure correct filtering.
+data <- data %>%
+  mutate(study = trimws(as.character(study)))
+
 dictionary_path <- file.path(base_data_path, "Data Harmonization/data_dictionary_master.csv")
 dictionary_data <- read_csv(dictionary_path)
 
@@ -51,6 +56,10 @@ unique_studies <- sort(unique(data$study))
 
 # Get unique form names from the dictionary
 unique_form_names <- sort(unique(dictionary_data$form_name))
+
+# Get all data variable names for manual selection (excluding key IDs that are always shown)
+vars_to_exclude_from_selector <- c("record_id", "visit", "procedure", "study")
+all_data_variables_for_selection <- sort(setdiff(names(data), vars_to_exclude_from_selector))
 
 # Calculate overall statistics
 total_studies <- length(unique_studies)
@@ -64,7 +73,7 @@ ui <- fluidPage(
   tags$head(
     tags$style(HTML("
       @import url('https://fonts.google.com/specimen/Inter');
-      body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; color: #374151; }
+      body { font-family: 'Inter', sans-serif; background-color: #f3f4e6; color: #374151; }
       .main-header { background-color: #4f46e5; color: white; padding: 1rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
       .card { background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); padding: 24px; }
       .sidebar { background-color: #ffffff; border-right: 1px solid #e5e7eb; border-radius: 12px; padding: 24px; }
@@ -101,12 +110,22 @@ ui <- fluidPage(
         "Search by Record ID:"
       ),
       
-      # Dynamic filters for group, sex, and age
-      # These will only appear if the columns exist in the data
+      # Dynamic filters for group and sex
       uiOutput("dynamic_filters"),
       
       # New dynamic filter for procedure
       uiOutput("procedure_ui"),
+      
+      # --- Variable Categories Section (Moved Back to Sidebar) ---
+      tags$hr(),
+      h2("Select Variable Categories", class = "text-xl font-bold mb-2"),
+      checkboxGroupInput(
+        "selected_form_names",
+        NULL,
+        choices = unique_form_names,
+        selected = character(0)
+      ),
+      # --- End Variable Categories Section ---
       
       # --- Visuals Section ---
       tags$hr(),
@@ -123,18 +142,7 @@ ui <- fluidPage(
       uiOutput("plot_variable_ui"),
       uiOutput("y_variable_ui"),
       
-      # New section for variable categories from the data dictionary
-      tags$hr(),
-      h2("Select Variable Categories", class = "text-xl font-bold mb-2"),
-      checkboxGroupInput(
-        "selected_form_names",
-        NULL,
-        choices = unique_form_names,
-        selected = character(0)
-      ),
-      
       # This will be used to hold PET variables for backwards compatibility
-      # and will be dynamically populated in the server.
       uiOutput("pet_variables_ui")
     ),
     
@@ -181,7 +189,23 @@ ui <- fluidPage(
                           DTOutput("searched_variable_availability_by_study_table"),
                           downloadButton("download_availability", "Download Table")
                  ),
-                 tabPanel("Raw Data Table", 
+                 tabPanel("Raw Data Table",
+                          
+                          # --- START: Manual Variable Search Kept Here ---
+                          tags$div(class = "card p-4 mb-4 bg-gray-50 border border-gray-200",
+                                   h3("Manual Variable Selection", class = "text-xl font-semibold mb-2 text-indigo-700"),
+                                   p("Use the search bar below to add specific variables to the table, in addition to the categories selected in the sidebar.", class="text-sm text-gray-600 mb-4"),
+                                   selectizeInput(
+                                     "manual_variables_select",
+                                     "Type or Select Specific Variables:",
+                                     choices = all_data_variables_for_selection,
+                                     multiple = TRUE,
+                                     selected = character(0),
+                                     options = list(placeholder = "Start typing variable names...")
+                                   )
+                          ),
+                          # --- END: Manual Variable Search Kept Here ---
+                          
                           DTOutput("raw_data_table"),
                           downloadButton("download_raw", "Download Raw Data")
                  ),
@@ -189,6 +213,10 @@ ui <- fluidPage(
                           textOutput("plot_message"),
                           plotOutput("data_plot"),
                           downloadButton("download_plot", "Download Plot")
+                 ),
+                 # New tab for the data dictionary table
+                 tabPanel("Data Dictionary",
+                          DTOutput("dictionary_table")
                  )
                )
       )
@@ -198,6 +226,12 @@ ui <- fluidPage(
 
 # --- 4. Define the Server Logic ---
 server <- function(input, output, session) {
+  
+  # Observe changes in selected study for debugging
+  observe({
+    print("--- User Input Debug ---")
+    print(paste("Selected studies:", paste(input$selected_study, collapse = ", ")))
+  })
   
   # Reactive expression to dynamically create filters based on data columns
   output$dynamic_filters <- renderUI({
@@ -216,15 +250,6 @@ server <- function(input, output, session) {
           "Select Sex:",
           choices = sort(unique(data$sex)),
           selected = character(0)
-        )
-      },
-      if ("age" %in% names(data)) {
-        sliderInput(
-          "selected_age",
-          "Select Age Range:",
-          min = floor(min(data$age, na.rm = TRUE)),
-          max = ceiling(max(data$age, na.rm = TRUE)),
-          value = c(floor(min(data$age, na.rm = TRUE)), ceiling(max(data$age, na.rm = TRUE)))
         )
       }
     )
@@ -259,43 +284,63 @@ server <- function(input, output, session) {
   
   # Reactive expression to filter data based on user inputs
   filtered_data <- reactive({
+    
+    # --- DEBUGGING START ---
+    print("--- Filtered Data Reactive Expression Started ---")
     data_filtered <- data
+    print(paste("Initial number of rows:", nrow(data_filtered)))
+    # --- DEBUGGING END ---
     
     # Filter by selected record ID
     if (!is.null(input$selected_record_id) && input$selected_record_id != "") {
       data_filtered <- data_filtered %>%
         filter(record_id == input$selected_record_id)
+      # --- DEBUGGING START ---
+      print(paste("Number of rows after record ID filter:", nrow(data_filtered)))
+      # --- DEBUGGING END ---
     }
     
     # Filter by selected studies
-    if (!is.null(input$selected_study)) {
+    # This filter is only applied if a study is selected
+    if (length(input$selected_study) > 0) {
       data_filtered <- data_filtered %>%
         filter(study %in% input$selected_study)
+      # --- DEBUGGING START ---
+      print(paste("Number of rows after study filter:", nrow(data_filtered)))
+      # --- DEBUGGING END ---
     }
     
     # Filter by selected groups (if filter exists)
-    if (!is.null(input$selected_group)) {
+    if (length(input$selected_group) > 0) {
       data_filtered <- data_filtered %>%
         filter(group %in% input$selected_group)
+      # --- DEBUGGING START ---
+      print(paste("Number of rows after group filter:", nrow(data_filtered)))
+      # --- DEBUGGING END ---
     }
     
     # Filter by selected sex (if filter exists)
-    if (!is.null(input$selected_sex)) {
+    if (length(input$selected_sex) > 0) {
       data_filtered <- data_filtered %>%
         filter(sex %in% input$selected_sex)
-    }
-    
-    # Filter by age range (if filter exists)
-    if (!is.null(input$selected_age)) {
-      data_filtered <- data_filtered %>%
-        filter(age >= input$selected_age[1] & age <= input$selected_age[2])
+      # --- DEBUGGING START ---
+      print(paste("Number of rows after sex filter:", nrow(data_filtered)))
+      # --- DEBUGGING END ---
     }
     
     # Filter by selected procedures (if filter exists)
-    if (!is.null(input$selected_procedure)) {
+    if (length(input$selected_procedure) > 0) {
       data_filtered <- data_filtered %>%
         filter(procedure %in% input$selected_procedure)
+      # --- DEBUGGING START ---
+      print(paste("Number of rows after procedure filter:", nrow(data_filtered)))
+      # --- DEBUGGING END ---
     }
+    
+    # --- DEBUGGING START ---
+    print("--- Filtered Data Reactive Expression Finished ---")
+    print(paste("Final number of rows:", nrow(data_filtered)))
+    # --- DEBUGGING END ---
     
     data_filtered
   })
@@ -306,6 +351,9 @@ server <- function(input, output, session) {
     
     # Create a local copy to avoid repeated function calls
     df_temp <- filtered_data()
+    
+    # NEW FIX: Handle NA group values
+    df_temp$group[is.na(df_temp$group)] <- "NA Group"
     
     # Check if 'group' column exists before grouping
     if (!"group" %in% names(df_temp)) {
@@ -354,6 +402,9 @@ server <- function(input, output, session) {
     req(filtered_data())
     
     df <- filtered_data()
+    
+    # NEW FIX: Handle NA group values
+    df$group[is.na(df$group)] <- "NA Group"
     
     # Define the rows and their corresponding calculation logic
     availability_rows <- c(
@@ -434,6 +485,9 @@ server <- function(input, output, session) {
       matched_vars <- names(df)[grepl(input$variable_search, names(df), ignore.case = TRUE)]
       
       if (length(matched_vars) > 0) {
+        # NEW FIX: Handle NA group values
+        df$group[is.na(df$group)] <- "NA Group"
+        
         # Calculate availability for each matched variable, grouped by group
         availability_list <- lapply(matched_vars, function(var) {
           df %>%
@@ -472,6 +526,7 @@ server <- function(input, output, session) {
     df <- filtered_data()
     
     if (nchar(input$variable_search) > 0) {
+      df$group[is.na(df$group)] <- "NA Group"
       matched_vars <- names(df)[grepl(input$variable_search, names(df), ignore.case = TRUE)]
       if (length(matched_vars) > 0) {
         availability_list <- lapply(matched_vars, function(var) {
@@ -495,6 +550,13 @@ server <- function(input, output, session) {
           )
         
         final_table <- left_join(result_df, grand_total, by = "Variable")
+        
+        # Filter to keep only columns where at least one value is greater than 0
+        cols_to_keep <- c("Variable", "Total Participants")
+        numeric_cols <- names(final_table)[sapply(final_table, is.numeric)]
+        numeric_cols_to_keep <- numeric_cols[sapply(final_table[, numeric_cols], function(col) any(col > 0, na.rm = TRUE))]
+        
+        final_table <- final_table[, c(cols_to_keep, numeric_cols_to_keep)]
         
         return(final_table)
       }
@@ -527,16 +589,30 @@ server <- function(input, output, session) {
     }
   })
   
-  # Reactive expression to filter columns based on selected form names
+  # Reactive expression to filter columns based on selected form names AND manual selection
   raw_data_display_columns <- reactive({
     df_filtered <- filtered_data()
     
-    # Get the variables from the selected forms
+    # 1. Get variables from selected forms (categories)
+    # This comes from the sidebar
     vars_from_forms <- selected_form_variables()
     
-    if (length(vars_from_forms) > 0) {
-      # Ensure 'record_id', 'visit', and 'procedure' are always included
-      columns_to_keep <- unique(c("record_id", "visit", "procedure", vars_from_forms))
+    # 2. Get variables from manual search/selection
+    # This comes from the Raw Data Table tab
+    vars_from_manual <- input$manual_variables_select
+    if (is.null(vars_from_manual)) {
+      vars_from_manual <- character(0)
+    }
+    
+    # Combine the two sets of selected variables
+    selected_variables <- unique(c(vars_from_forms, vars_from_manual))
+    
+    # Define mandatory key columns to always be included
+    mandatory_cols <- c("record_id", "study", "group", "sex", "visit", "procedure")
+    
+    if (length(selected_variables) > 0) {
+      # Include mandatory columns and selected variables
+      columns_to_keep <- unique(c(mandatory_cols, selected_variables))
       
       # Select only the columns that exist in the filtered dataframe
       existing_columns <- intersect(columns_to_keep, names(df_filtered))
@@ -544,8 +620,9 @@ server <- function(input, output, session) {
       # Return the dataframe with the selected columns
       return(df_filtered %>% select(all_of(existing_columns)))
     } else {
-      # If no form names are selected, return the entire filtered dataframe
-      return(df_filtered)
+      # If no categories or manual variables are selected, return a default set of key columns
+      default_cols <- intersect(mandatory_cols, names(df_filtered))
+      return(df_filtered %>% select(all_of(default_cols)))
     }
   })
   
@@ -567,6 +644,31 @@ server <- function(input, output, session) {
     )
   })
   
+  # Reactive expression to create the data dictionary table with the new 'location' column
+  dictionary_with_location <- reactive({
+    # Get the column names from the harmonized data
+    harmonized_vars <- names(data)
+    
+    # Add the 'location' column to the dictionary data
+    dictionary_data %>%
+      mutate(location = if_else(variable_name %in% harmonized_vars, "harmonized", "REDCap"))
+  })
+  
+  # Render the new data dictionary table
+  output$dictionary_table <- renderDT({
+    datatable(
+      dictionary_with_location(),
+      extensions = 'Buttons',
+      options = list(
+        pageLength = 10,
+        dom = 'Bfrtip',
+        buttons = list(
+          list(extend = 'csv', text = 'Download Dictionary')
+        )
+      )
+    )
+  })
+  
   # Server-side download handler for the descriptive table
   output$download_descriptive <- downloadHandler(
     filename = function() {
@@ -577,6 +679,8 @@ server <- function(input, output, session) {
       if (!"group" %in% names(df_temp)) {
         descriptive_summary <- data.frame("Note" = "Group column not found in filtered data.")
       } else {
+        # NEW FIX: Handle NA group values
+        df_temp$group[is.na(df_temp$group)] <- "NA Group"
         descriptive_summary <- df_temp %>%
           bind_rows(mutate(., group = "Grand Total")) %>%
           group_by(group) %>%

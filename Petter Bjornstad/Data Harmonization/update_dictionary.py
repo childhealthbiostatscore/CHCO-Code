@@ -98,6 +98,8 @@ dictionary = dictionary[~dictionary['label'].isin(invalid_labels)]
 dictionary = dictionary.dropna(subset=['label'])
       
 dictionary = dictionary.drop_duplicates(subset=['variable_name', 'label'])
+
+harmonized = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv")
 tocsv_path = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv"
 dictionary.to_csv(tocsv_path, index=False)
 
