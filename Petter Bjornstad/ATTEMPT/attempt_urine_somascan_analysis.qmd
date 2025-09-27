@@ -1092,11 +1092,64 @@ for (cell in unlist(celltype_groups))  {
 
 
 ```{r echo = F}
+# nebula results (looking at associations between transcript/protein)
 pt_urine_raw <- s3readRDS("Proteomics/pt_nebula_urine_soma_res_kpmp.rds", "attempt", region = "")
-pt_urine_raw$results$ISG15_seq.14148.2_urine_cradj
 pt_urine <- process_nebula_results(pt_urine_raw$results, pval_col = "p_log2(protein)")$results
 pt_urine <- pt_urine %>%
   mutate(Gene = sub("_.*", "", Gene))
+pt_urine_genes <- pt_urine %>%
+  filter(`p_log2(protein)` < 0.05) %>%
+  pull(Gene)
+
+# urine DiD results
+did_res_urine_mixed <- s3readRDS("Proteomics/urine_cradj_proteomics_res.RDS", "attempt", region = "")
+
+did_urine_pt <- did_res_urine_mixed$results_annotated %>%
+  filter(EntrezGeneSymbol %in% pt_urine_genes) %>%
+  dplyr::select(Gene = EntrezGeneSymbol, SeqId, logFC_urine = logFC, p.value_urine = P.Value)
+
+did_trans_pt_u <- pt_kpmp %>%
+  filter(Gene %in% pt_urine_genes) %>%
+  dplyr::select(Gene, logFC_transcript = `logFC_treatmentDapagliflozin:visitPOST`, p.value_transcript = `p_treatmentDapagliflozin:visitPOST`)
+
+urine_pt_merge <- full_join(did_urine_pt, did_trans_pt_u) %>%
+  mutate(direction = case_when(logFC_urine > 0 & p.value_urine < 0.05 & logFC_transcript > 0 & p.value_transcript < 0.05 ~ "U+/T+",
+                               logFC_urine < 0 & p.value_urine < 0.05 & logFC_transcript < 0 & p.value_transcript < 0.05 ~ "U-/T-",
+                               logFC_urine > 0 & p.value_urine < 0.05 & logFC_transcript < 0 & p.value_transcript < 0.05 ~ "U+/T-",
+                               logFC_urine < 0 & p.value_urine < 0.05 & logFC_transcript > 0 & p.value_transcript < 0.05 ~ "U-/T+",
+                               T ~ "NS"))
+
+
+theme_transparent <- theme(
+  plot.background   = element_rect(fill = "transparent", color = NA),
+  panel.background  = element_rect(fill = "transparent", color = NA),
+  legend.background = element_rect(fill = "transparent", color = NA)
+)
+
+pos_labels <- urine_pt_merge %>%
+  filter(direction != "NS" & logFC_urine > 0) %>%
+  arrange(p.value_urine) %>%
+  head(20)
+neg_labels <- urine_pt_merge %>%
+  filter(direction != "NS" & logFC_urine < 0) %>%
+  arrange(p.value_urine) %>%
+  head(20)
+labels_dat <- rbind(pos_labels, neg_labels)
+
+urine_pt_merge %>%
+  ggplot(aes(x = logFC_urine, y = -log10(p.value_urine), color = direction)) +
+  geom_hline(yintercept = -log10(0.05), color = "darkgrey", linetype = "dashed") +
+  geom_point(alpha = 0.5) +
+  geom_text_repel(data = labels_dat, aes(label = Gene, color = direction), alpha = 0.8,
+                    max.overlaps = Inf) +
+  scale_color_manual(values = c("U+/T+" = "#588157",
+                                "U-/T-" = "#588157",
+                                "U+/T-" = "#457b9d",
+                                "U-/T+" = "#f28482",
+                                "NS" = "lightgrey")) +
+  theme_transparent +
+  labs(x = "logFC(Urine proteomics)", y = "-log10(P.Value)",
+       color = "Urine/Transcript")
 ```
 
 ```{r echo = F}
