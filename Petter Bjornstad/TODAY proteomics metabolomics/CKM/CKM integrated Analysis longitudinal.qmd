@@ -1,6 +1,7 @@
 ---
 title: "CKM in the TODAY study"
 author: "Laura Pyle / Jairo A Pinzon"
+date: "`r lubridate::today()`"
 format: html
 editor: visual
 echo: FALSE
@@ -57,6 +58,7 @@ if (user == "laurapyle") {
   data_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
   github_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  teen_labs_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/"
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -2261,4 +2263,57 @@ plot_fgsea_transpose(soma_fgsea_stage4$hallmark,
                      xmax = 30)
 ggsave("plasma_SOMA_Hallmark_stage4.png",
        width = 27.5, height = 14, scale = 1)
+```
+
+```{r clean data,echo=FALSE}
+# Read in Teen-LABS data
+# source("/Users/timvigers/GitHub/CHCO-Code/Petter Bjornstad/Teen-LABS/create_teen_labs_analysis_dataset.R")
+filename <- "Data_Cleaned/analysis_dataset.RData"
+full_path <- file.path(teen_labs_path, filename)
+load(full_path)
+tldata <- df
+
+# keep top proteins
+#load("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/Proteomics and DKD/Data_Cleaned/analysis_dataset.RData")
+#df <- df %>% filter(visit == "baseline")
+# select top 20 aptamers
+#top_glyc_df <- top_glyc_df %>% arrange(adj.p.value) %>% slice_head(n = 10)
+#seq_include <- top_glyc_df$AptName 
+
+seq_include <- analyte_info %>% filter(AptName %in% c("seq.9116.28","seq.18386.36","seq.4135.84","seq.6918.183", "seq.24975.3"))
+apt_keep <- seq_include$AptName
+
+# read in estimated marginal means
+filename <- "Results/Teen LABS emmeans.xlsx"
+full_path <- file.path(teen_labs_path, filename)
+emmdf <- read_xlsx(full_path)
+emmdf_keep <- emmdf %>% filter(AptName %in% apt_keep)
+emmdf_keep$uniqname <- paste0(emmdf_keep$Target,"_",emmdf_keep$AptName)  
+```
+
+```{r,echo=FALSE}
+p <- ggplot(emmdf_keep, aes(x=visit, y=emmean, colour=Target, group=uniqname)) +
+    geom_line() + 
+    geom_errorbar(aes(ymin=emmean-SE, ymax=emmean+SE), width=.1) +  
+    xlab("") +
+    ylab("Estimated marginal mean") + theme_bw() 
+png('Teen-LABS_changes_top_TODAY_CKM_proteins.png', res = 300, width = 10, height = 10, units = "in")
+p
+dev.off()
+
+p <- NULL
+# loop through top 10 proteins and make separate plot for each
+for (i in apt_keep) {
+  p[[i]] <- ggplot(emmdf_keep[emmdf_keep$AptName == i,], aes(x=visit, y=emmean, colour=Target, group=uniqname)) +
+    geom_line(size = 1.5) + 
+    geom_errorbar(aes(ymin=emmean-SE, ymax=emmean+SE), width=.2) +  
+    xlab("") +
+    ylab("Mean") + theme_bw() + theme(legend.position = "top") + scale_color_discrete(name="")
+}
+
+panel_p <- ggarrange(p[["seq.9116.28"]],p[["seq.18386.36"]],p[["seq.4135.84"]],p[["seq.6918.183"]],p[["seq.24975.3"]],
+                     ncol = 2, nrow = 5)
+png('Teen-LABS_changes_top_TODAY_CKM_proteins.png', res = 300, width = 8, height = 10, units = "in")
+panel_p
+dev.off()
 ```
