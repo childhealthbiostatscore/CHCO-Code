@@ -1,0 +1,1268 @@
+---
+title: "Renal HEIRitage vs. CROCODILE"
+author: "Ye Ji Choi"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    theme: default
+    page-layout: full
+    embed-resources: true
+editor: visual
+---
+
+```{r, include = F}
+library(dplyr)
+library(tidyr)
+library(table1)
+library(Hmisc)
+library(rstatix)
+library(purrr)
+library(kableExtra)
+library(knitr)
+library(superheat)
+library(ggplot2)
+library(hrbrthemes)
+library(viridis)
+library(ggpubr)
+```
+
+```{r, include = F}
+pvalue_kw_func <- function(x, ...) {
+  # Construct vectors of data y, and groups (strata) g
+  y <- unlist(x)
+  g <- factor(rep(1:length(x), times=sapply(x, length)))
+  
+  # Skip variables with only one level
+  if (length(levels(g)) < 2) return("NA")
+  
+  if (is.numeric(y)) {
+    # For numeric variables, perform a standard 2-sample t-test
+    p <- kruskal.test(y ~ g, na.action = na.omit)$p.value
+  } else {
+    # For categorical variables, perform a chi-squared test of independence
+    p <- chisq.test(table(y, g))$p.value
+  }
+  
+  # Format the p-value, using an HTML entity for the less-than sign.
+  # The initial empty string places the output on the line below the variable label.
+  c("", sub("<", "&lt;", format.pval(p, digits=3, eps=0.001)))
+}
+
+pvalue_func <- function(x, ...) {
+  # Construct vectors of data y, and groups (strata) g
+  y <- unlist(x)
+  g <- factor(rep(1:length(x), times=sapply(x, length)))
+  
+  # Skip variables with only one level
+  if (length(levels(g)) < 2) return("NA")
+  
+  if (is.numeric(y)) {
+    # For numeric variables, perform a standard 2-sample t-test
+    p <- t.test(y ~ g, na.action = na.omit)$p.value
+  } else {
+    # For categorical variables, perform a chi-squared test of independence
+    p <- chisq.test(table(y, g))$p.value
+  }
+  
+  # Format the p-value, using an HTML entity for the less-than sign.
+  # The initial empty string places the output on the line below the variable label.
+  c("", sub("<", "&lt;", format.pval(p, digits=3, eps=0.001)))
+}
+
+pvalueANOVA <- function(x, ...) {
+  # Construct vectors of data y, and groups (strata) g
+  y <- unlist(x)
+  g <- factor(rep(1:length(x), times=sapply(x, length)))
+  
+  if (is.numeric(y)) {
+    # For numeric variables, perform ANOVA
+    ano <- aov(y ~ g)
+    p <- summary(ano)[[1]][[5]][1]
+    
+  } else {
+    # For categorical variables, perform a chi-squared test of independence
+    p <- chisq.test(table(y, g))$p.value
+  }
+  # Format the p-value, using an HTML entity for the less-than sign.
+  # The initial empty string places the output on the line below the variable label.
+  c("", sub("<", "&lt;", format.pval(p, digits=3, eps=0.001)))
+}
+```
+
+```{r, include = F}
+dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = c(" ", "", "-9999",-9999))
+dict <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv", na.strings = c(" ", "", "-9999",-9999)) %>%
+  dplyr::select(variable_name, label)
+vw_CRC = read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PENGUIN/Background/voxelwise_means_combined.csv")
+vw_rh2 = read.csv("/Users/choiyej/GitHub/YC_CHCO/RH2/rh2_voxelwise_means_combined.csv")
+vw <- full_join(vw_CRC, vw_rh2) %>%
+  mutate_at(vars(!starts_with("record")), as.numeric)
+
+dat <- left_join(dat, vw)
+
+dat <- dat %>%
+  filter(study == "CROCODILE" | study == "RENAL-HEIRitage") %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  ungroup() %>%
+  filter((participation_status=="Participated" & study == "CROCODILE") | study == "RENAL-HEIRitage") %>%
+  filter((group=="Lean Control" & study == "CROCODILE") | (group != "Lean Control" & study == "RENAL-HEIRitage")) %>%
+  dplyr::mutate(group_RH2 = case_when(group == "Type 2 Diabetes" | group == "Obese Control" ~ "T2D/Obese",
+                               T~group)) %>%
+  filter(visit == "baseline") %>%
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" & 
+                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                              race == "Black or African American" & 
+                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                              ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                              T ~ "Not Hispanic or Latino Other")) %>%
+  rowwise() %>%
+  dplyr::mutate(lc_k2_f = lc_k2/lc_f,
+         rc_k2_f = rc_k2/rc_f,
+         lm_k2_f = lm_k2/lm_f,
+         rm_k2_f = rm_k2/rm_f,
+         lc_k2_k1 = lc_k2/lc_k1,
+         rc_k2_k1 = rc_k2/rc_k1,
+         lm_k2_k1 = lm_k2/lm_k1,
+         rm_k2_k1 = rm_k2/rm_k1,
+         avg_c_k2_k1 = mean(c_across(c(lc_k2_k1, rc_k2_k1)), na.rm = T),
+         avg_m_k2_k1 = mean(c_across(c(lm_k2_k1, rm_k2_k1)), na.rm = T),
+         avg_c_k2_f = mean(c_across(c(lc_k2_f, rc_k2_f)), na.rm = T),
+         avg_m_k2_f = mean(c_across(c(lm_k2_f, rm_k2_f)), na.rm = T),
+         avg_c_f = mean(c_across(c(lc_f, rc_f)), na.rm = T),
+         avg_m_f = mean(c_across(c(lm_f, rm_f)), na.rm = T),
+         avg_c_k2 = mean(c_across(c(lc_k2, rc_k2)), na.rm = T),
+         avg_m_k2 = mean(c_across(c(lm_k2, rm_k2)), na.rm = T),
+         avg_c_vb = mean(c_across(c(lc_vb, rc_vb)), na.rm = T),
+         avg_m_vb = mean(c_across(c(lm_vb, rm_vb)), na.rm = T),
+         avg_c_k1 = mean(c_across(c(lc_k1, rc_k1)), na.rm = T),
+         avg_m_k1 = mean(c_across(c(lm_k1, rm_k1)), na.rm = T),
+         avg_k1_wo_cyst = mean(c_across(c(ltot_k1_wo_cyst, rtot_k1_wo_cyst)), na.rm = T),
+         avg_k2_wo_cyst = mean(c_across(c(ltot_k2_wo_cyst, rtot_k2_wo_cyst)), na.rm = T)) %>%
+  ungroup() %>%
+  filter(!is.na(rc_k1))
+
+dict <- setNames(data.frame(t(dict[ , - 1])), dict[ , 1])
+dict %<>%
+  mutate(elevated_albuminuria = "Elevated Albuminuria") %>%
+  mutate(m_i = "M/I") %>%
+  mutate(race_ethnicity_condensed = "Race/Ethnicity") %>%
+  mutate(lc_k2_f = "Left Cortex K2/F (g/min)") %>%
+  mutate(rc_k2_f = "Right Cortex K2/F (g/min)") %>%
+  mutate(lm_k2_f = "Left Medulla K2/F (g/min)") %>%
+  mutate(rm_k2_f = "Right Medulla K2/F (g/min)") %>%
+  mutate(avg_c_f = "Average Cortex F (ml/min/g)") %>%
+  mutate(avg_m_f = "Average Medulla F (ml/min/g)") %>%
+  mutate(avg_c_k2 = "Average Cortex K2 (1/min) ") %>%
+  mutate(avg_m_k2 = "Average Medulla K2 (1/min) ") %>%
+  mutate(avg_c_vb = "Average Cortex vb") %>%
+  mutate(avg_m_vb = "Average Medulla vb") %>%
+  mutate(avg_c_k1 = "Average Cortex k1 (ml/g/min)") %>%
+  mutate(avg_m_k1 = "Average Medulla k1 (ml/g/min)") %>%
+  mutate(rtot_k1_wo_cyst = "Voxel-wise right k1") %>%
+  mutate(ltot_k1_wo_cyst = "Voxel-wise left k1") %>%
+  mutate(rtot_k2_wo_cyst = "Voxel-wise right k2") %>%
+  mutate(ltot_k2_wo_cyst = "Voxel-wise left k2") %>%
+  mutate(avg_k1_wo_cyst = "Voxel-wise Average k1") %>%
+  mutate(avg_k2_wo_cyst = "Voxel-wise Average k2") %>%
+  mutate(avg_c_k2_f = "Average Cortex k2/F") %>%
+  mutate(avg_c_k2_k1 = "Average Cortex k2/k1")
+
+
+dict <- dict[intersect(names(dat), names(dict))]
+dict[setdiff(names(dat), names(dict))] <- ""
+Hmisc::label(dat) = dict[match(names(dat), names(dict))]
+```
+
+# Descriptive Table
+
+## Participant characteristics
+
+```{r, include=F}
+participant_table_1 <- table1::table1(~age + sex + hba1c + eGFR_CKD_epi + acr_u + elevated_albuminuria|
+                    group_RH2, data = dat, overall = F)
+participant_table_2 <- table1::table1(~ diabetes_duration  |
+                    group_RH2, data = dat, overall = F)
+```
+
+```{r}
+participant_table_1
+kruskal.test(acr_u ~ group_RH2, data=dat)
+participant_table_2
+```
+
+## PET parameters
+
+### By group (Lean vs. Obese/T2D)
+KW test
+```{r, include=F}
+table_one <- table1(~ lc_f + rc_f +  
+                          lc_k1 +  rc_k1 +  
+                          lc_k2 +  rc_k2 +  
+                          lc_vb + rc_vb +  
+                          rtot_k1_wo_cyst + 	
+                          ltot_k1_wo_cyst + 	
+                          rtot_k2_wo_cyst + 	
+                          ltot_k2_wo_cyst +  
+                          avg_c_f +  avg_c_k1 +  avg_c_k2 +  avg_c_vb +   
+                          avg_k1_wo_cyst + avg_k2_wo_cyst +  
+                          avg_c_k2_f +  avg_c_k2_k1 +
+                          rm_f + rm_k2 + rm_vb + rm_k1 +
+                          lm_f + lm_k2 + lm_vb + lm_k1 + 
+                          lm_k2_f + rm_k2_f  | 
+                      group_RH2, data = dat, overall = F, extra.col=list("p-value"=pvalue_kw_func))
+```
+
+```{r}
+table_one
+```
+
+### By group (Obese vs. T2D)
+
+```{r, include=F}
+table_one_ob_t2d <- table1(~ lc_f + rc_f +  
+                          lc_k1 +  rc_k1 +  
+                          lc_k2 +  rc_k2 +  
+                          lc_vb + rc_vb +  
+                          rtot_k1_wo_cyst + 	
+                          ltot_k1_wo_cyst + 	
+                          rtot_k2_wo_cyst + 	
+                          ltot_k2_wo_cyst +  
+                          avg_c_f +  avg_c_k1 +  avg_c_k2 +  avg_c_vb +   
+                          avg_k1_wo_cyst + avg_k2_wo_cyst +  
+                          avg_c_k2_f +  avg_c_k2_k1 +
+                          rm_f + rm_k2 + rm_vb + rm_k1 +
+                          lm_f + lm_k2 + lm_vb + lm_k1 + 
+                          lm_k2_f + rm_k2_f  | 
+                      group, data = subset(dat, group!="Lean Control"), overall = F, 
+                      extra.col=list("p-value"=pvalue_kw_func))
+
+```
+
+```{r}
+table_one_ob_t2d
+```
+
+### By elevated albuminuria (T2D/Obese only)
+
+Excluding 6 participants with missing albuminuria
+KW test
+```{r, include=F}
+missing_acr_dat <- dat %>%
+  filter(is.na(elevated_albuminuria)) %>%
+  dplyr::select(record_id)
+
+data_elevated_alb <- dat %>%
+  filter(group_RH2=="T2D/Obese") %>%
+  filter(!is.na(elevated_albuminuria))
+table_one_alb <- table1(~ lc_f + rc_f +  
+                          lc_k1 +  rc_k1 +  
+                          lc_k2 +  rc_k2 +  
+                          lc_vb + rc_vb +  
+                          rtot_k1_wo_cyst + 	
+                          ltot_k1_wo_cyst + 	
+                          rtot_k2_wo_cyst + 	
+                          ltot_k2_wo_cyst +  
+                          avg_c_f +  avg_c_k1 +  avg_c_k2 +  avg_c_vb +   
+                          avg_k1_wo_cyst + avg_k2_wo_cyst +  
+                          avg_c_k2_f +  avg_c_k2_k1 +
+                          rm_f + rm_k2 + rm_vb + rm_k1 +
+                          lm_f + lm_k2 + lm_vb + lm_k1 + 
+                          lm_k2_f + rm_k2_f | 
+                      elevated_albuminuria, data = data_elevated_alb, overall = F, extra.col=list("p-value"=pvalue_kw_func))
+```
+
+```{r}
+table_one_alb
+```
+
+# PET Correlations
+
+## Pooled
+
+```{r include = F}
+# Select relevant variables for the correlation matrix
+dat_correlation <- dat %>%
+  dplyr::select(acr_u,
+         rc_f, 
+         rc_k2, 
+         rc_vb, 
+         rc_k1,
+         lc_f, 
+         lc_k2, 
+         lc_vb, 
+         lc_k1,
+         rm_f, 
+         rm_k2, 
+         rm_vb, 
+         rm_k1,
+         lm_f, 
+         lm_k2, 
+         lm_vb, 
+         lm_k1,
+         lc_k2_f, 
+         rc_k2_f, 
+         lm_k2_f, 
+         rm_k2_f)
+
+# Correlation matrix in table format
+M_table <- as.data.frame(cor(y = dat_correlation[,1:1],
+                             x=dat_correlation[,2:ncol(dat_correlation)], 
+                             use = "pairwise.complete.obs",
+                             method = "spearman")) 
+
+# Compute p-values to add to matrix table
+res2 <- rcorr(as.matrix(dat_correlation), type = "spearman")
+corr_pval <- as.data.frame(res2$P) %>%
+  dplyr::select(acr_u) %>%
+  sapply(scales::pvalue) 
+corr_pval <- as.data.frame(corr_pval) 
+colnames(corr_pval) <- rep("p_value", ncol(corr_pval))
+
+# Add p-values to matrix table
+corr_pval = corr_pval[2:nrow(corr_pval),]
+M_table_p <- bind_cols(M_table, corr_pval) %>%
+  relocate(map(1:ncol(M_table), ~ c(.x, .x + ncol(M_table))) %>% unlist())
+
+# Label variables
+dict_corr <- dict %>%
+  mutate(lc_f = "Left Cortex F") %>%
+  mutate(rc_f = "Right Cortex F") %>%
+  mutate(lc_k1 = "Left Cortex K1") %>%
+  mutate(rc_k1 = "Right Cortex K1") %>%
+  mutate(lc_k2 = "Left Cortex k2") %>%
+  mutate(rc_k2 = "Right Cortex k2")
+dict_corr <- dict_corr[intersect(names(M_table_p), names(dict_corr))]
+dict_corr[setdiff(names(M_table_p), names(dict_corr))] <- "p-value"
+Hmisc::label(M_table_p) = dict_corr[match(names(M_table_p), names(dict_corr))]
+
+row.names(M_table_p) <- dict[match(row.names(M_table_p), names(dict))]
+```
+
+```{r}
+## Correlation matrix (table)
+# Matrix table with p-values
+kable(M_table_p, 
+      col.names = rep(c("Correlation", "p-value"), ncol(M_table_p)/2), 
+      caption = "Correlation", 
+      digits = c(1,4),
+      align = rep("r", ncol(M_table_p))) %>%
+  kable_styling(bootstrap_options = c("hover"),
+            full_width = F, 
+            fixed_thead = T) %>%
+  add_header_above(header = c(" "=1, 
+                     setNames(2, Hmisc::label(M_table_p)[1]))) %>%
+  column_spec(1, width_min = "5in", border_right=T, bold = T)
+```
+
+
+```{r include = F}
+# Select relevant variables for the correlation matrix
+dat_correlation <- dat %>%
+  filter(record_id != "CRC-55") %>%
+  dplyr::select(acr_u,
+                avg_c_k2, 
+                avg_c_k1,
+                avg_c_f,
+                avg_c_k2_f,
+                avg_c_k2_k1) 
+
+# Correlation matrix in table format
+M_table <- as.data.frame(cor(y = dat_correlation[,1:1],
+                             x=dat_correlation[,2:ncol(dat_correlation)], 
+                             use = "pairwise.complete.obs",
+                             method = "spearman")) 
+
+# Compute p-values to add to matrix table
+res2 <- rcorr(as.matrix(dat_correlation), type = "spearman")
+corr_pval <- as.data.frame(res2$P) %>%
+  dplyr::select(acr_u) %>%
+  sapply(scales::pvalue) 
+corr_pval <- as.data.frame(corr_pval) 
+colnames(corr_pval) <- rep("p_value", ncol(corr_pval))
+
+# Add p-values to matrix table
+corr_pval = corr_pval[2:nrow(corr_pval),]
+M_table_p <- bind_cols(M_table, corr_pval) %>%
+  relocate(map(1:ncol(M_table), ~ c(.x, .x + ncol(M_table))) %>% unlist())
+
+# Label variables
+dict_corr <- dict %>%
+  mutate(lc_f = "Left Cortex F") %>%
+  mutate(rc_f = "Right Cortex F") %>%
+  mutate(lc_k1 = "Left Cortex K1") %>%
+  mutate(rc_k1 = "Right Cortex K1") %>%
+  mutate(lc_k2 = "Left Cortex k2") %>%
+  mutate(rc_k2 = "Right Cortex k2")
+dict_corr <- dict_corr[intersect(names(M_table_p), names(dict_corr))]
+dict_corr[setdiff(names(M_table_p), names(dict_corr))] <- "p-value"
+Hmisc::label(M_table_p) = dict_corr[match(names(M_table_p), names(dict_corr))]
+
+row.names(M_table_p) <- dict[match(row.names(M_table_p), names(dict))]
+```
+
+```{r}
+## Correlation matrix (table)
+# Matrix table with p-values
+kable(M_table_p, 
+      col.names = rep(c("Correlation", "p-value"), ncol(M_table_p)/2), 
+      caption = "Correlation", 
+      digits = c(1,4),
+      align = rep("r", ncol(M_table_p))) %>%
+  kable_styling(bootstrap_options = c("hover"),
+            full_width = F, 
+            fixed_thead = T) %>%
+  add_header_above(header = c(" "=1, 
+                     setNames(2, Hmisc::label(M_table_p)[1]))) %>%
+  column_spec(1, width_min = "5in", border_right=T, bold = T)
+```
+
+```{r include = F}
+plot_correlation <- function(x, y, group, data) {
+  # Convert variable names to character
+  x <- as.character(substitute(x))
+  y <- as.character(substitute(y))
+  group <- as.character(substitute(group))
+  
+  # Create plot
+  ggplot(data, aes_string(x = x, y = y)) +
+    ggtitle(paste0(Hmisc::label(data)[x], " vs. ", Hmisc::label(data)[y])) +
+    geom_point(aes(color = !!as.name(group))) +
+    stat_cor(method = "pearson", label.x = 0.1,  label.y = 0, label.sep = "=", color = "coral") +
+    geom_smooth(method = lm, se = FALSE, linetype = "dashed", color = "coral") +
+    stat_cor(method = "spearman", label.x = 0.1,  label.y = 0.1, label.sep = "=", color = "darkgreen") +
+    geom_smooth(method = "loess", se = FALSE, color = "darkgreen") +
+    scale_color_manual(values = c('deeppink', 'steelblue')) +
+    xlab(Hmisc::label(data)[x]) +
+    ylab(Hmisc::label(data)[y]) +
+    theme_bw()
+}
+
+```
+
+### Right Cortex
+
+```{r layout="[[2,2]]", warning=F, message=F}
+plot_correlation(x=acr_u, y=rc_f, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=rc_k2, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=rc_vb, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=rc_k1, group = group_RH2, data= dat)
+```
+
+### Left Cortex
+
+```{r layout="[[2,2]]", warning=F, message=F}
+plot_correlation(x=acr_u, y=lc_f, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=lc_k2, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=lc_vb, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=lc_k1, group = group_RH2, data= dat)
+```
+
+### Right Medulla
+
+```{r layout="[[2,2]]", warning=F, message=F}
+plot_correlation(x=acr_u, y=rm_f, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=rm_k2, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=rm_vb, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=rm_k1, group = group_RH2, data= dat)
+```
+
+### Left Medulla
+
+```{r layout="[[2,2]]", warning=F, message=F}
+plot_correlation(x=acr_u, y=lm_f, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=lm_k2, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=lm_vb, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=lm_k1, group = group_RH2, data= dat)
+```
+
+### K2/F
+
+```{r layout="[[2,2]]", warning=F, message=F}
+plot_correlation(x=acr_u, y=lc_k2_f, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=rc_k2_f, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=lm_k2_f, group = group_RH2, data= dat)
+plot_correlation(x=acr_u, y=rm_k2_f, group = group_RH2, data= dat)
+```
+
+## All T2D/Obese
+
+```{r, include=F}
+# Select relevant variables for the correlation matrix
+dat_correlation <- dat %>%
+  filter(group_RH2=="T2D/Obese") %>%
+  dplyr::select(acr_u,
+         rc_f, 
+         rc_k2, 
+         rc_vb, 
+         rc_k1,
+         lc_f, 
+         lc_k2, 
+         lc_vb, 
+         lc_k1,
+         rm_f, 
+         rm_k2, 
+         rm_vb, 
+         rm_k1,
+         lm_f, 
+         lm_k2, 
+         lm_vb, 
+         lm_k1,
+         lc_k2_f, 
+         rc_k2_f, 
+         lm_k2_f, 
+         rm_k2_f)
+
+# Correlation matrix in table format
+M_table <- as.data.frame(cor(y = dat_correlation[,1:1],
+                             x=dat_correlation[,2:ncol(dat_correlation)], 
+                             use = "pairwise.complete.obs",
+                             method = "spearman")) 
+
+# Compute p-values to add to matrix table
+res2 <- rcorr(as.matrix(dat_correlation), type = "spearman")
+corr_pval <- as.data.frame(res2$P) %>%
+  dplyr::select(acr_u) %>%
+  sapply(scales::pvalue) 
+corr_pval <- as.data.frame(corr_pval) 
+colnames(corr_pval) <- rep("p_value", ncol(corr_pval))
+
+# Add p-values to matrix table
+corr_pval = corr_pval[2:nrow(corr_pval),]
+M_table_p <- bind_cols(M_table, corr_pval) %>%
+  relocate(map(1:ncol(M_table), ~ c(.x, .x + ncol(M_table))) %>% unlist())
+
+# Label variables
+dict_corr <- dict %>%
+  mutate(lc_f = "Left Cortex F") %>%
+  mutate(rc_f = "Right Cortex F") %>%
+  mutate(lc_k1 = "Left Cortex K1") %>%
+  mutate(rc_k1 = "Right Cortex K1") %>%
+  mutate(lc_k2 = "Left Cortex k2") %>%
+  mutate(rc_k2 = "Right Cortex k2")
+dict_corr <- dict_corr[intersect(names(M_table_p), names(dict_corr))]
+dict_corr[setdiff(names(M_table_p), names(dict_corr))] <- "p-value"
+Hmisc::label(M_table_p) = dict_corr[match(names(M_table_p), names(dict_corr))]
+
+row.names(M_table_p) <- dict[match(row.names(M_table_p), names(dict))]
+```
+
+```{r}
+## Correlation matrix (table)
+# Matrix table with p-values
+kable(M_table_p, 
+      col.names = rep(c("Correlation", "p-value"), ncol(M_table_p)/2), 
+      caption = "Correlation", 
+      digits = c(1,4),
+      align = rep("r", ncol(M_table_p))) %>%
+  kable_styling(bootstrap_options = c("hover"),
+            full_width = F, 
+            fixed_thead = T) %>%
+  add_header_above(header = c(" "=1, 
+                     setNames(2, Hmisc::label(M_table_p)[1]))) %>%
+  column_spec(1, width_min = "5in", border_right=T, bold = T)
+```
+
+### Right Cortex
+
+```{r layout="[[2,2]]", warning=F, message=F}
+plot_correlation(x=acr_u, y=rc_f, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=rc_k2, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=rc_vb, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=rc_k1, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+```
+
+### Left Cortex
+
+```{r layout="[[2,2]]", warning=F, message=F}
+plot_correlation(x=acr_u, y=lc_f, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=lc_k2, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=lc_vb, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=lc_k1, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+```
+
+### Right Medulla
+
+```{r layout="[[2,2]]", warning=F, message=F}
+plot_correlation(x=acr_u, y=rm_f, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=rm_k2, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=rm_vb, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=rm_k1, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+```
+
+### Left Medulla
+
+```{r layout="[[2,2]]", warning=F, message=F}
+plot_correlation(x=acr_u, y=lm_f, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=lm_k2, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=lm_vb, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=lm_k1, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+```
+
+### K2/F
+
+```{r layout="[[2,2]]", warning=F, message=F}
+plot_correlation(x=acr_u, y=lc_k2_f, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=rc_k2_f, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=lm_k2_f, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+plot_correlation(x=acr_u, y=rm_k2_f, group =elevated_albuminuria, data= subset(dat, group_RH2 == "T2D/Obese"))
+```
+
+### Elevated albuminuria population (T2D/Obese)
+
+```{r, include=F}
+# ggplot(df_R, aes(lc_f, glom_tuft_area)) +
+#   ggtitle("Left F vs. Glomerular tuft area") +
+#   geom_point(aes(color=group)) +
+#   geom_smooth(method=lm, se=F) +
+#   stat_cor(method = "pearson") +
+#   scale_color_manual(values=c('deeppink', 'steelblue'))
+# 
+# ggplot(df_R, aes(acr_u, glom_tuft_area)) +
+#   ggtitle("ASL Left vs. Glomerular tuft area") +
+#   geom_point(aes(color=group)) +
+#   geom_smooth(method=lm, se=F) +
+#   stat_cor(method = "pearson") +
+#   scale_color_manual(values=c('deeppink', 'steelblue'))
+
+
+# Select relevant variables for the correlation matrix
+dat_correlation <- dat %>%
+  filter(group_RH2=="T2D/Obese") %>%
+  filter(elevated_albuminuria=="Yes") %>%
+  select(acr_u,
+         rc_f, 
+         rc_k2, 
+         rc_vb, 
+         rc_k1,
+         lc_f, 
+         lc_k2, 
+         lc_vb, 
+         lc_k1,
+         rm_f, 
+         rm_k2, 
+         rm_vb, 
+         rm_k1,
+         lm_f, 
+         lm_k2, 
+         lm_vb, 
+         lm_k1,
+         lc_k2_f, 
+         rc_k2_f, 
+         lm_k2_f, 
+         rm_k2_f)
+
+# Correlation matrix in table format
+M_table <- as.data.frame(cor(y = dat_correlation[,1:1],
+                             x=dat_correlation[,2:ncol(dat_correlation)], 
+                             use = "pairwise.complete.obs",
+                             method = "spearman")) 
+
+# Compute p-values to add to matrix table
+res2 <- rcorr(as.matrix(dat_correlation), type = "spearman")
+corr_pval <- as.data.frame(res2$P) %>%
+  select(acr_u) %>%
+  sapply(scales::pvalue) 
+corr_pval <- as.data.frame(corr_pval) 
+colnames(corr_pval) <- rep("p_value", ncol(corr_pval))
+
+# Add p-values to matrix table
+corr_pval = corr_pval[2:nrow(corr_pval),]
+M_table_p <- bind_cols(M_table, corr_pval) %>%
+  relocate(map(1:ncol(M_table), ~ c(.x, .x + ncol(M_table))) %>% unlist())
+
+# Label variables
+dict_corr <- dict %>%
+  mutate(lc_f = "Left Cortex F") %>%
+  mutate(rc_f = "Right Cortex F") %>%
+  mutate(lc_k1 = "Left Cortex K1") %>%
+  mutate(rc_k1 = "Right Cortex K1") %>%
+  mutate(lc_k2 = "Left Cortex k2") %>%
+  mutate(rc_k2 = "Right Cortex k2")
+dict_corr <- dict_corr[intersect(names(M_table_p), names(dict_corr))]
+dict_corr[setdiff(names(M_table_p), names(dict_corr))] <- "p-value"
+Hmisc::label(M_table_p) = dict_corr[match(names(M_table_p), names(dict_corr))]
+
+row.names(M_table_p) <- dict[match(row.names(M_table_p), names(dict))]
+```
+
+```{r}
+## Correlation matrix (table)
+# Matrix table with p-values
+kable(M_table_p, 
+      col.names = rep(c("Correlation", "p-value"), ncol(M_table_p)/2), 
+      caption = "Correlation", 
+      digits = c(1,4),
+      align = rep("r", ncol(M_table_p))) %>%
+  kable_styling(bootstrap_options = c("hover"),
+            full_width = F, 
+            fixed_thead = T) %>%
+  add_header_above(header = c(" "=1, 
+                     setNames(2, Hmisc::label(M_table_p)[1]))) %>%
+  column_spec(1, width_min = "5in", border_right=T, bold = T)
+```
+
+### Non-elevated albuminuria population (T2D/Obese)
+
+```{r, include=F}
+# ggplot(df_R, aes(lc_f, glom_tuft_area)) +
+#   ggtitle("Left F vs. Glomerular tuft area") +
+#   geom_point(aes(color=group)) +
+#   geom_smooth(method=lm, se=F) +
+#   stat_cor(method = "pearson") +
+#   scale_color_manual(values=c('deeppink', 'steelblue'))
+# 
+# ggplot(df_R, aes(acr_u, glom_tuft_area)) +
+#   ggtitle("ASL Left vs. Glomerular tuft area") +
+#   geom_point(aes(color=group)) +
+#   geom_smooth(method=lm, se=F) +
+#   stat_cor(method = "pearson") +
+#   scale_color_manual(values=c('deeppink', 'steelblue'))
+
+
+# Select relevant variables for the correlation matrix
+dat_correlation <- dat %>%
+  filter(group_RH2=="T2D/Obese") %>%
+  filter(elevated_albuminuria=="No") %>%
+  select(acr_u,
+         rc_f, 
+         rc_k2, 
+         rc_vb, 
+         rc_k1,
+         lc_f, 
+         lc_k2, 
+         lc_vb, 
+         lc_k1,
+         rm_f, 
+         rm_k2, 
+         rm_vb, 
+         rm_k1,
+         lm_f, 
+         lm_k2, 
+         lm_vb, 
+         lm_k1,
+         lc_k2_f, 
+         rc_k2_f, 
+         lm_k2_f, 
+         rm_k2_f)
+
+# Correlation matrix in table format
+M_table <- as.data.frame(cor(y = dat_correlation[,1:1],
+                             x=dat_correlation[,2:ncol(dat_correlation)], 
+                             use = "pairwise.complete.obs",
+                             method = "spearman")) 
+
+# Compute p-values to add to matrix table
+res2 <- rcorr(as.matrix(dat_correlation), type = "spearman")
+corr_pval <- as.data.frame(res2$P) %>%
+  select(acr_u) %>%
+  sapply(scales::pvalue) 
+corr_pval <- as.data.frame(corr_pval) 
+colnames(corr_pval) <- rep("p_value", ncol(corr_pval))
+
+# Add p-values to matrix table
+corr_pval = corr_pval[2:nrow(corr_pval),]
+M_table_p <- bind_cols(M_table, corr_pval) %>%
+  relocate(map(1:ncol(M_table), ~ c(.x, .x + ncol(M_table))) %>% unlist())
+
+# Label variables
+dict_corr <- dict %>%
+  mutate(lc_f = "Left Cortex F") %>%
+  mutate(rc_f = "Right Cortex F") %>%
+  mutate(lc_k1 = "Left Cortex K1") %>%
+  mutate(rc_k1 = "Right Cortex K1") %>%
+  mutate(lc_k2 = "Left Cortex k2") %>%
+  mutate(rc_k2 = "Right Cortex k2")
+dict_corr <- dict_corr[intersect(names(M_table_p), names(dict_corr))]
+dict_corr[setdiff(names(M_table_p), names(dict_corr))] <- "p-value"
+Hmisc::label(M_table_p) = dict_corr[match(names(M_table_p), names(dict_corr))]
+
+row.names(M_table_p) <- dict[match(row.names(M_table_p), names(dict))]
+```
+
+```{r}
+## Correlation matrix (table)
+# Matrix table with p-values
+kable(M_table_p, 
+      col.names = rep(c("Correlation", "p-value"), ncol(M_table_p)/2), 
+      caption = "Correlation", 
+      digits = c(1,4),
+      align = rep("r", ncol(M_table_p))) %>%
+  kable_styling(bootstrap_options = c("hover"),
+            full_width = F, 
+            fixed_thead = T) %>%
+  add_header_above(header = c(" "=1, 
+                     setNames(2, Hmisc::label(M_table_p)[1]))) %>%
+  column_spec(1, width_min = "5in", border_right=T, bold = T)
+```
+
+# Box plots for F, k2, vB, and K1
+
+### Perfusion \[F\]
+
+```{r layout="[[2,2]]", warning=F, message=F}
+# F
+dat %>%
+  ggplot(aes(x=group_RH2, y=avg_c_f, fill=group_RH2)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    theme_ipsum() +
+    theme(
+      legend.position="none",
+      axis.title.y = element_text(size=14, hjust=0.5),
+      axis.text.x = element_text(size=14),
+      plot.title = element_text(size=14, hjust=0.5)
+    ) +
+  geom_jitter() +
+  ylab(Hmisc::label(dat["avg_c_f"])) +
+  ggtitle("Average cortex F by group") +
+  xlab("") +
+  stat_compare_means(method = "t.test",   label.x.npc = "center")
+
+dat %>%
+  ggplot(aes(x=group_RH2, y=avg_m_f, fill=group_RH2)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    theme_ipsum() +
+    theme(
+      legend.position="none",
+      axis.title.y = element_text(size=14, hjust=0.5),
+      axis.text.x = element_text(size=14),
+      plot.title = element_text(size=14, hjust=0.5)
+    ) +
+  geom_jitter() +
+  ylab(Hmisc::label(dat["avg_m_f"])) +
+    ggtitle("Average medulla F by group") +
+    xlab("") +
+  stat_compare_means(method = "t.test",   label.x.npc = "center")
+```
+
+### Oxidation rate \[k2\]
+
+```{r layout="[[2,2]]", warning=F, message=F}
+# K2
+dat %>%
+  ggplot(aes(x=group_RH2, y=avg_c_k2, fill=group_RH2)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    theme_ipsum() +
+    theme(
+      legend.position="none",
+      axis.title.y = element_text(size=14, hjust=0.5),
+      axis.text.x = element_text(size=14),
+      plot.title = element_text(size=14, hjust=0.5)
+    ) +
+  geom_jitter() +
+  ylab(Hmisc::label(dat["avg_c_k2"])) +
+    ggtitle("Average cortex k2 by group") +
+    xlab("") +
+  stat_compare_means(method = "t.test",   label.x.npc = "center")
+
+dat %>%
+  ggplot(aes(x=group_RH2, y=avg_m_k2, fill=group_RH2)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    theme_ipsum() +
+    theme(
+      legend.position="none",
+      axis.title.y = element_text(size=14, hjust=0.5),
+      axis.text.x = element_text(size=14),
+      plot.title = element_text(size=14, hjust=0.5)
+    ) +
+  geom_jitter() +
+  ylab(Hmisc::label(dat["avg_m_k2"])) +
+    ggtitle("Average medulla k2 by group") +
+    xlab("") +
+  stat_compare_means(method = "t.test",   label.x.npc = "center")
+```
+
+### k2/F
+
+```{r layout="[[2,2]]", warning=F, message=F}
+# k2/F
+dat %>%
+  ggplot(aes(x=group_RH2, y=avg_c_k2_f, fill=group_RH2)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    theme_ipsum() +
+    theme(
+      legend.position="none",
+      axis.title.y = element_text(size=14, hjust=0.5),
+      axis.text.x = element_text(size=14),
+      plot.title = element_text(size=14, hjust=0.5)
+    ) +
+  geom_jitter() +
+  ylab(Hmisc::label(dat["avg_c_k2_f"])) +
+    ggtitle("Average cortex k2/F by group") +
+    xlab("") +
+  stat_compare_means(method = "t.test",   label.x.npc = "center")
+
+dat %>%
+  ggplot(aes(x=group_RH2, y=avg_m_k2_f, fill=group_RH2)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    theme_ipsum() +
+    theme(
+      legend.position="none",
+      axis.title.y = element_text(size=14, hjust=0.5),
+      axis.text.x = element_text(size=14),
+      plot.title = element_text(size=14, hjust=0.5)
+    ) +
+  geom_jitter() +
+  ylab(Hmisc::label(dat["avg_m_k2_f"])) +
+    ggtitle("Average medulla k2/F by group") +
+    xlab("") +
+  stat_compare_means(method = "t.test",   label.x.npc = "center")
+```
+
+### Blood volume fraction \[vB\]
+
+```{r layout="[[2,2]]", warning=F, message=F}
+# vb
+dat %>%
+  ggplot(aes(x=group_RH2, y=avg_c_f, fill=group_RH2)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    theme_ipsum() +
+    theme(
+      legend.position="none",
+      axis.title.y = element_text(size=14, hjust=0.5),
+      axis.text.x = element_text(size=14),
+      plot.title = element_text(size=14, hjust=0.5)
+    ) +
+  geom_jitter() +
+  ylab(Hmisc::label(dat["avg_c_f"])) +
+    ggtitle("Average cortex vB by group") +
+    xlab("") +
+  stat_compare_means(method = "t.test",   label.x.npc = "center")
+
+dat %>%
+  ggplot(aes(x=group_RH2, y=avg_m_vb, fill=group_RH2)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    theme_ipsum() +
+    theme(
+      legend.position="none",
+      axis.title.y = element_text(size=14, hjust=0.5),
+      axis.text.x = element_text(size=14),
+      plot.title = element_text(size=14, hjust=0.5)
+    ) +
+  geom_jitter() +
+  ylab(Hmisc::label(dat["avg_m_vb"])) +
+    ggtitle("Average medulla vB by group") +
+    xlab("") +
+  stat_compare_means(method = "t.test",   label.x.npc = "center")
+```
+
+### Tracer uptake rate \[K1\]
+
+```{r layout="[[2,2]]", warning=F, message=F}
+# K1
+dat %>%
+  ggplot(aes(x=group_RH2, y=avg_c_k1, fill=group_RH2)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    theme_ipsum() +
+    theme(
+      legend.position="none",
+      axis.title.y = element_text(size=14, hjust=0.5),
+      axis.text.x = element_text(size=14),
+      plot.title = element_text(size=14, hjust=0.5)
+    ) +
+  geom_jitter() +
+  ylab(Hmisc::label(dat["avg_c_k1"])) +
+    ggtitle("Average cortex K1 by group") +
+    xlab("") +
+  stat_compare_means(method = "t.test",   label.x.npc = "center")
+
+dat %>%
+  ggplot(aes(x=group_RH2, y=avg_m_k1, fill=group_RH2)) +
+    geom_boxplot() +
+    scale_fill_viridis(discrete = TRUE, alpha=0.6) +
+    theme_ipsum() +
+    theme(
+      legend.position="none",
+      axis.title.y = element_text(size=14, hjust=0.5),
+      axis.text.x = element_text(size=14),
+      plot.title = element_text(size=14, hjust=0.5)
+    ) +
+  geom_jitter() +
+  ylab(Hmisc::label(dat["avg_m_k1"])) +
+    ggtitle("Average medulla K1 by group") +
+    xlab("") +
+  stat_compare_means(method = "t.test",   label.x.npc = "center")
+```
+
+# Voxelwise Activity Analysis
+
+*Missing excluded*
+
+## Cortex K1 activity
+
+```{r layout="[[1,1]]"}
+# Subset of Left Cortex Kidney K1
+lc_k1_vw_df <- dat %>%
+  arrange(lc_k1_wo_cyst_percent_avg) %>%
+  select(lc_k1_wo_cyst_percent_low,	lc_k1_wo_cyst_percent_avg,	lc_k1_wo_cyst_percent_high) %>%
+  filter(!is.na(lc_k1_wo_cyst_percent_avg)) %>%
+  rename("Low" = "lc_k1_wo_cyst_percent_low",
+          "Average" = "lc_k1_wo_cyst_percent_avg",
+         "High" = "lc_k1_wo_cyst_percent_high") %>%
+  mutate_all(as.numeric)
+lc_k1_group <- dat %>%
+  arrange(lc_k1_wo_cyst_percent_avg) %>%
+  filter(!is.na(lc_k1_wo_cyst_percent_avg))
+
+# Heatmap of voxelwise
+superheat(lc_k1_vw_df, 
+          title = "Left Cortex K1 Activity",
+          scale = F,
+          membership.rows = lc_k1_group$group_RH2[!is.na(lc_k1_group$lc_k1_wo_cyst_percent_avg)],
+          heat.na.col = "white",
+          heat.pal = c("#fdfbfb", "#d9534f"),
+          heat.pal.values = c(0, 1),
+          grid.hline.col = "black",
+          grid.vline.col = "black",
+          left.label.col = c("white","white"),
+          bottom.label.col = c("white","white", "white"),
+          left.label.text.size = 4,
+          bottom.label.text.size = 4,
+          grid.hline = T,
+          grid.vline = T
+          )
+
+# Subset of Right Cortex Kidney K1
+rc_k1_vw_df <- dat %>%
+  arrange(rc_k1_wo_cyst_percent_avg) %>%
+  select(rc_k1_wo_cyst_percent_low,	rc_k1_wo_cyst_percent_avg,	rc_k1_wo_cyst_percent_high) %>%
+  filter(!is.na(rc_k1_wo_cyst_percent_avg)) %>%
+  rename("Low" = "rc_k1_wo_cyst_percent_low",
+          "Average" = "rc_k1_wo_cyst_percent_avg",
+         "High" = "rc_k1_wo_cyst_percent_high") %>%
+  mutate_all(as.numeric)
+rc_k1_group <- dat %>%
+  arrange(rc_k1_wo_cyst_percent_avg) %>%
+  filter(!is.na(rc_k1_wo_cyst_percent_avg))
+
+# Heatmap of voxelwise
+superheat(rc_k1_vw_df, 
+          title = "Right Cortex K1 Activity",
+          scale = F,
+          membership.rows = rc_k1_group$group_RH2[!is.na(rc_k1_group$rc_k1_wo_cyst_percent_avg)],
+          heat.na.col = "white",
+          heat.pal = c("#fdfbfb", "#d9534f"),
+          heat.pal.values = c(0, 1),
+          grid.hline.col = "black",
+          grid.vline.col = "black",
+          left.label.col = c("white","white"),
+          bottom.label.col = c("white","white", "white"),
+          left.label.text.size = 4,
+          bottom.label.text.size = 4,
+          grid.hline = T,
+          grid.vline = T
+          )
+
+```
+
+## Medulla K1 activity
+
+```{r layout="[[1,1]]"}
+# Subset of Left Medulla Kidney K1
+lm_k1_vw_df <- dat %>%
+  arrange(lm_k1_wo_cyst_percent_avg) %>%
+  select(lm_k1_wo_cyst_percent_low,	lm_k1_wo_cyst_percent_avg,	lm_k1_wo_cyst_percent_high) %>%
+  filter(!is.na(lm_k1_wo_cyst_percent_avg)) %>%
+  rename("Low" = "lm_k1_wo_cyst_percent_low",
+          "Average" = "lm_k1_wo_cyst_percent_avg",
+         "High" = "lm_k1_wo_cyst_percent_high") %>%
+  mutate_all(as.numeric)
+lm_k1_group <- dat %>%
+  arrange(lm_k1_wo_cyst_percent_avg) %>%
+  filter(!is.na(lm_k1_wo_cyst_percent_avg))
+
+# Heatmap of voxelwise
+superheat(lm_k1_vw_df, 
+          title = "Left Medulla K1 Activity",
+          scale = F,
+          membership.rows = lm_k1_group$group_RH2[!is.na(lm_k1_group$lm_k1_wo_cyst_percent_avg)],
+          heat.na.col = "white",
+          heat.pal = c("#fdfbfb", "#d9534f"),
+          heat.pal.values = c(0, 1),
+          grid.hline.col = "black",
+          grid.vline.col = "black",
+          left.label.col = c("white","white"),
+          bottom.label.col = c("white","white", "white"),
+          left.label.text.size = 4,
+          bottom.label.text.size = 4,
+          grid.hline = T,
+          grid.vline = T
+          )
+
+# Subset of Right Medulla Kidney K1
+rm_k1_vw_df <- dat %>%
+  arrange(rm_k1_wo_cyst_percent_avg) %>%
+  select(rm_k1_wo_cyst_percent_low,	rm_k1_wo_cyst_percent_avg,	rm_k1_wo_cyst_percent_high) %>%
+  filter(!is.na(rm_k1_wo_cyst_percent_avg)) %>%
+  rename("Low" = "rm_k1_wo_cyst_percent_low",
+          "Average" = "rm_k1_wo_cyst_percent_avg",
+         "High" = "rm_k1_wo_cyst_percent_high") %>%
+  mutate_all(as.numeric)
+rm_k1_group <- dat %>%
+  arrange(rm_k1_wo_cyst_percent_avg) %>%
+  filter(!is.na(rm_k1_wo_cyst_percent_avg))
+
+# Heatmap of voxelwise
+superheat(rm_k1_vw_df, 
+          title = "Right Medulla K1 Activity",
+          scale = F,
+          membership.rows = rm_k1_group$group_RH2[!is.na(rm_k1_group$rm_k1_wo_cyst_percent_avg)],
+          heat.na.col = "white",
+          heat.pal = c("#fdfbfb", "#d9534f"),
+          heat.pal.values = c(0, 1),
+          grid.hline.col = "black",
+          grid.vline.col = "black",
+          left.label.col = c("white","white"),
+          bottom.label.col = c("white","white", "white"),
+          left.label.text.size = 4,
+          bottom.label.text.size = 4,
+          grid.hline = T,
+          grid.vline = T
+          )
+```
+
+## Cortex k2 activity
+
+```{r layout="[[1,1]]"}
+# Subset of Left Cortex Kidney k2
+lc_k2_vw_df <- dat %>%
+  arrange(lc_k2_wo_cyst_percent_avg) %>%
+  select(lc_k2_wo_cyst_percent_low,	lc_k2_wo_cyst_percent_avg,	lc_k2_wo_cyst_percent_high) %>%
+  filter(!is.na(lc_k2_wo_cyst_percent_avg)) %>%
+  rename("Low" = "lc_k2_wo_cyst_percent_low",
+          "Average" = "lc_k2_wo_cyst_percent_avg",
+         "High" = "lc_k2_wo_cyst_percent_high") %>%
+  mutate_all(as.numeric)
+lc_k2_group <- dat %>%
+  arrange(lc_k2_wo_cyst_percent_avg) %>%
+  filter(!is.na(lc_k2_wo_cyst_percent_avg))
+
+# Heatmap of voxelwise
+superheat(lc_k2_vw_df, 
+          title = "Left Cortex k2 Activity",
+          scale = F,
+          membership.rows = lc_k2_group$group_RH2[!is.na(lc_k2_group$lc_k2_wo_cyst_percent_avg)],
+          heat.na.col = "white",
+          heat.pal = c("#fdfbfb", "#d9534f"),
+          heat.pal.values = c(0, 1),
+          grid.hline.col = "black",
+          grid.vline.col = "black",
+          left.label.col = c("white","white"),
+          bottom.label.col = c("white","white", "white"),
+          left.label.text.size = 4,
+          bottom.label.text.size = 4,
+          grid.hline = T,
+          grid.vline = T
+          )
+
+# Subset of Right Cortex Kidney k2
+rc_k2_vw_df <- dat %>%
+  arrange(rc_k2_wo_cyst_percent_avg) %>%
+  select(rc_k2_wo_cyst_percent_low,	rc_k2_wo_cyst_percent_avg,	rc_k2_wo_cyst_percent_high) %>%
+  filter(!is.na(rc_k2_wo_cyst_percent_avg)) %>%
+  rename("Low" = "rc_k2_wo_cyst_percent_low",
+          "Average" = "rc_k2_wo_cyst_percent_avg",
+         "High" = "rc_k2_wo_cyst_percent_high") %>%
+  mutate_all(as.numeric)
+rc_k2_group <- dat %>%
+  arrange(rc_k2_wo_cyst_percent_avg) %>%
+  filter(!is.na(rc_k2_wo_cyst_percent_avg))
+
+# Heatmap of voxelwise
+superheat(rc_k2_vw_df, 
+          title = "Right Cortex k2 Activity",
+          scale = F,
+          membership.rows = rc_k2_group$group_RH2[!is.na(rc_k2_group$rc_k2_wo_cyst_percent_avg)],
+          heat.na.col = "white",
+          heat.pal = c("#fdfbfb", "#d9534f"),
+          heat.pal.values = c(0, 1),
+          grid.hline.col = "black",
+          grid.vline.col = "black",
+          left.label.col = c("white","white"),
+          bottom.label.col = c("white","white", "white"),
+          left.label.text.size = 4,
+          bottom.label.text.size = 4,
+          grid.hline = T,
+          grid.vline = T
+          )
+
+```
+
+## Medulla k2 activity
+
+```{r layout="[[1,1]]"}
+# Subset of Left Medulla Kidney k2
+lm_k2_vw_df <- dat %>%
+  arrange(lm_k2_wo_cyst_percent_avg) %>%
+  select(lm_k2_wo_cyst_percent_low,	lm_k2_wo_cyst_percent_avg,	lm_k2_wo_cyst_percent_high) %>%
+  filter(!is.na(lm_k2_wo_cyst_percent_avg)) %>%
+  rename("Low" = "lm_k2_wo_cyst_percent_low",
+          "Average" = "lm_k2_wo_cyst_percent_avg",
+         "High" = "lm_k2_wo_cyst_percent_high") %>%
+  mutate_all(as.numeric)
+lm_k2_group <- dat %>%
+  arrange(lm_k2_wo_cyst_percent_avg) %>%
+  filter(!is.na(lm_k2_wo_cyst_percent_avg))
+
+# Heatmap of voxelwise
+superheat(lm_k2_vw_df, 
+          title = "Left Medulla k2 Activity",
+          scale = F,
+          membership.rows = lm_k2_group$group_RH2[!is.na(lm_k2_group$lm_k2_wo_cyst_percent_avg)],
+          heat.na.col = "white",
+          heat.pal = c("#fdfbfb", "#d9534f"),
+          heat.pal.values = c(0, 1),
+          grid.hline.col = "black",
+          grid.vline.col = "black",
+          left.label.col = c("white","white"),
+          bottom.label.col = c("white","white", "white"),
+          left.label.text.size = 4,
+          bottom.label.text.size = 4,
+          grid.hline = T,
+          grid.vline = T
+          )
+
+# Subset of Right Medulla Kidney k2
+rm_k2_vw_df <- dat %>%
+  arrange(rm_k2_wo_cyst_percent_avg) %>%
+  select(rm_k2_wo_cyst_percent_low,	rm_k2_wo_cyst_percent_avg,	rm_k2_wo_cyst_percent_high) %>%
+  filter(!is.na(rm_k2_wo_cyst_percent_avg)) %>%
+  rename("Low" = "rm_k2_wo_cyst_percent_low",
+          "Average" = "rm_k2_wo_cyst_percent_avg",
+         "High" = "rm_k2_wo_cyst_percent_high") %>%
+  mutate_all(as.numeric)
+rm_k2_group <- dat %>%
+  arrange(rm_k2_wo_cyst_percent_avg) %>%
+  filter(!is.na(rm_k2_wo_cyst_percent_avg))
+
+# Heatmap of voxelwise
+superheat(rm_k2_vw_df, 
+          title = "Right Medulla k2 Activity",
+          scale = F,
+          membership.rows = rm_k2_group$group_RH2[!is.na(rm_k2_group$rm_k2_wo_cyst_percent_avg)],
+          heat.na.col = "white",
+          heat.pal = c("#fdfbfb", "#d9534f"),
+          heat.pal.values = c(0, 1),
+          grid.hline.col = "black",
+          grid.vline.col = "black",
+          left.label.col = c("white","white"),
+          bottom.label.col = c("white","white", "white"),
+          left.label.text.size = 4,
+          bottom.label.text.size = 4,
+          grid.hline = T,
+          grid.vline = T
+          )
+```
