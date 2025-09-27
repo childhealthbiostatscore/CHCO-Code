@@ -1536,6 +1536,12 @@ ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_sco
        all_pathways_plot, width = 25, height = 25, dpi = 300)
 
 
+png("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/allpathways_panel_comparisons.png", 
+       width = 25, height = 25, units = 'in', res = 300)
+print(all_pathways_plot)
+dev.off()
+
+
 
 ###############################################################################Graph again but with only PT cells 
 
