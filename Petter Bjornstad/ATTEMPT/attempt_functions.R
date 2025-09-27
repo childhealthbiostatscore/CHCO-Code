@@ -1300,6 +1300,116 @@ plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axi
 
 
 # ===========================================================================
+# Function: create_directional_volcano (for transcripts)
+# ===========================================================================
+
+create_directional_volcano <- function(rna_data, protein_data, cell_type_name, 
+                                       rna_logfc_col = "logFC_treatmentDapagliflozin:visitPOST",
+                                       rna_p_col = "p_treatmentDapagliflozin:visitPOST",
+                                       protein_logfc_col = "logFC_log2(protein)", 
+                                       protein_p_col = "p_log2(protein)",
+                                       p_threshold = 0.05,
+                                       top_n = 20) {
+  # Add epsilon for log transformation
+  epsilon <- 1e-300
+  
+  # Calculate -log10(p) with epsilon
+  protein_data <- protein_data %>%
+    mutate(neg_log_p = -log10(!!sym(protein_p_col) + epsilon))
+  
+  theme_transparent <- theme(
+    plot.background   = element_rect(fill = "transparent", color = NA),
+    panel.background  = element_rect(fill = "transparent", color = NA),
+    legend.background = element_rect(fill = "transparent", color = NA)
+  )
+  # Create gene direction from RNA data
+  gene_dir <- rna_data %>%
+    mutate(gene_dir = case_when(!!sym(rna_logfc_col) < 0 & !!sym(rna_p_col) < p_threshold ~ "-",
+                                !!sym(rna_logfc_col) > 0 & !!sym(rna_p_col) < p_threshold ~ "+")) %>%
+    dplyr::select(Gene, gene_dir) %>%
+    filter(!is.na(gene_dir))
+  
+  # Create protein direction from protein data
+  protein_dir <- protein_data %>%
+    mutate(protein_dir = case_when(!!sym(protein_logfc_col) < 0 & !!sym(protein_p_col) < p_threshold ~ "-",
+                                   !!sym(protein_logfc_col) > 0 & !!sym(protein_p_col) < p_threshold ~ "+")) %>%
+    dplyr::select(Gene, protein_dir) %>%
+    filter(!is.na(protein_dir))
+  
+  # Merge and find matches
+  dir_merged <- full_join(gene_dir, protein_dir, by = "Gene")
+  
+  dir_match <- dir_merged %>%
+    mutate(match = case_when(protein_dir == gene_dir ~ "match", 
+                             TRUE ~ "non-match")) %>%
+    filter(match == "match")
+  
+  dir_match_genes <- dir_match$Gene
+  
+  # Calculate positive and negative counts
+  pos_n <- dir_match %>%
+    filter(protein_dir == "+") %>%
+    distinct(Gene) %>%
+    nrow()
+  
+  neg_n <- dir_match %>%
+    filter(protein_dir == "-") %>%
+    distinct(Gene) %>%
+    nrow()
+  
+  # Prepare data for plotting
+  plot_data <- protein_data %>%
+    filter(Gene %in% dir_merged$Gene) %>%
+    group_by(Gene) %>%
+    slice_min(!!sym(protein_p_col), n = 1) %>%
+    ungroup()
+  
+  # Create label data - top N from each direction
+  label_data <- plot_data %>%
+    filter(Gene %in% dir_match_genes) %>%
+    mutate(direction = case_when(
+      !!sym(protein_logfc_col) < 0 ~ "down",
+      !!sym(protein_logfc_col) > 0 ~ "up"
+    )) %>%
+    group_by(direction) %>%
+    slice_min(!!sym(protein_p_col), n = top_n) %>%
+    ungroup()
+  
+  # Create the plot
+  plot <- plot_data %>%
+    ggplot(aes(x = !!sym(protein_logfc_col), y = neg_log_p)) +
+    geom_hline(yintercept = -log10(p_threshold), color = "darkgrey", linetype = "dashed") +
+    geom_point(aes(color = case_when(
+      Gene %in% dir_match_genes & !!sym(protein_logfc_col) < 0 ~ "match_down",
+      Gene %in% dir_match_genes & !!sym(protein_logfc_col) > 0 ~ "match_up",
+      TRUE ~ "non-match"
+    )), alpha = 0.3, size = 2) +
+    geom_text_repel(data = label_data,
+                    aes(label = Gene, color = case_when(
+                      !!sym(protein_logfc_col) < 0 ~ "match_down",
+                      !!sym(protein_logfc_col) > 0 ~ "match_up",
+                      TRUE ~ "non-match"
+                    )), alpha = 0.8,
+                    max.overlaps = Inf) +
+    theme(legend.title = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = 15, family = "Arial"),
+          legend.position = "none",
+          plot.caption = element_text(size = 8.5, hjust = 0.5, margin = margin(t = 15)),
+          panel.background = element_blank()) + 
+    scale_color_manual(values = c("match_down" = "#457b9d",
+                                  "match_up" = "#f28482",
+                                  "non-match" = "#e5e5e5")) +
+    labs(x = "logFC log2(protein)", 
+         y = "-log10(p.value)",
+         caption = paste0("Formula: log2(protein) + treatment + (1|subject)\nCell type: ", cell_type_name, 
+                          " | Positive n = ", pos_n, " | Negative n = ", neg_n)) +
+    theme_transparent
+  
+  return(plot)
+}
+
+# ===========================================================================
 # Function: plot_volcano (for transcripts)
 # ===========================================================================
 plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suffix, p_thresh = 0.05,
