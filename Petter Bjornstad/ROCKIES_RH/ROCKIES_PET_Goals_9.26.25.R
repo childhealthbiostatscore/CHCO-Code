@@ -3405,17 +3405,35 @@ comparison_data <- combined_df %>%
   select(record_id, group, avg_c_k2)
 
 # Statistical test
-wilcox.test(avg_c_k2f ~ group, data = comparison_data)
+wilcox.test(avg_c_k2 ~ group, data = comparison_data)
 
 # Visualization
 ggplot(comparison_data, aes(x = group, y = avg_c_k2, fill = group)) +
   geom_boxplot() +
   geom_jitter(width = 0.2, size = 3) +
   stat_compare_means(method = "wilcox.test") +
-  labs(title = "T2D Shifts Metabolic Function Lower",
-       subtitle = "But maintains the same gene-function relationship",
-       y = "Cortical K2/F (voxel)") +
+  labs(
+       y = "Cortical K2") +
   theme_minimal()
+
+
+comparison_data <- combined_df %>%
+  filter(!is.na(avg_c_k2)) %>%
+  select(record_id, group, avg_c_k2_f)
+
+# Statistical test
+wilcox.test(avg_c_k2_f ~ group, data = comparison_data)
+
+# Visualization
+ggplot(comparison_data, aes(x = group, y = avg_c_k2_f, fill = group)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, size = 3) +
+  stat_compare_means(method = "wilcox.test") +
+  labs(
+       y = "Cortical K2/f") +
+  theme_minimal()
+
+
 
 
 
@@ -4339,6 +4357,16 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(record_id, visit))
+
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+                   .by = c(record_id, visit))
+
+
+
 
 #gbm <- gbm %>% left_join(dat %>% dplyr::select(record_id, mrn), by='record_id')
 

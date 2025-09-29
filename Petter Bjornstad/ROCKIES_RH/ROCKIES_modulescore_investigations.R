@@ -881,6 +881,28 @@ cat("  - qr_combined_heatmap.pdf (NEW!)\n")
 
 
 
+# Test interaction between group and gene expression
+library(lme4)
+
+interaction_data <- combined_df %>%
+  filter(!is.na(avg_c_k2f)) %>%
+  select(record_id, group, OxPhos_score1, avg_c_k2f)
+
+# Linear model with interaction
+model <- lm(avg_c_k2f ~ OxPhos_score1 * group, data = interaction_data)
+summary(model)
+
+# Visualize
+ggplot(interaction_data, aes(x = OxPhos_score1, y = avg_c_k2f, color = group)) +
+  geom_point(size = 4) +
+  geom_smooth(method = "lm", se = TRUE) +
+  stat_cor(method = "spearman", aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~"))) +
+  scale_color_manual(values = c("Lean_Control" = "blue", "Type_2_Diabetes" = "red")) +
+  labs(title = "Do Lean and T2D Have Different Slopes?",
+       subtitle = "Testing for interaction between group and gene expression",
+       x = "OxPhos Module Score",
+       y = "Cortical K2/F (voxel)") +
+  theme_minimal()
 
 
 
