@@ -2643,8 +2643,18 @@ cat("  T2D only:", count_significant(sd_results_t2d), "\n")
 remove(list=ls())
 
 module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/HALLMARK_GO_pathways_modulescores.txt')
-#module_scores <- module_scores %>% 
-#  filter(celltype2 == 'PT')
+
+celltype <- 'PT'
+
+
+
+if(celltype == 'PT'){
+module_scores <- module_scores %>% 
+  filter(celltype2 == 'PT')
+cell_text <- 'PT'
+}else{
+  cell_text <- 'All'
+}
 module_scores$celltype2 <- NULL
 module_scores$KPMP_celltype <- NULL
 
@@ -2872,11 +2882,20 @@ combined_df <- module_scores_summary %>% left_join(dat2 %>%
                                                      dplyr::select(mrn, avg_c_k2, avg_c_f, avg_c_k2_f, 
                                                                    avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw), by= 'mrn')
 
-t2d_only <- combined_df %>% filter(group == 'Type_2_Diabetes') %>%
+
+
+
+# Filter to T2D only
+t2d_only <- combined_df %>% 
+  filter(group == 'Type_2_Diabetes') %>%
   filter(!is.na(avg_c_k2))
 
-combined_df <- combined_df %>% dplyr::select(-record_id, -mrn, -group) %>%
+lc_only <- combined_df %>% 
+  filter(group == 'Lean_Control') %>%
   filter(!is.na(avg_c_k2))
+
+combined_df <- combined_df %>% dplyr::select(-record_id, -mrn, -group)
+
 
 library(corrplot)
 
@@ -2919,7 +2938,7 @@ col_colors <- rep("black", length(col_names))
 # Create color vector for row names based on pathway classification
 row_colors <- sapply(row_names, get_pathway_color)
 
-pdf('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/PT_cell_modulecomparisons_allparticipants_wPET_spearman.pdf', 
+pdf(paste0('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/', cell_text, '_cell_modulecomparisons_allparticipants_wPET_spearman.pdf'), 
     width = 20, height = 20)
 
 corrplot(corr_subset, 
@@ -2934,7 +2953,7 @@ corrplot(corr_subset,
 
 dev.off()
 
-png('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/modulecomparisons_allparticipants_wPET_spearman.png', 
+png(paste0('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/', cell_text, '_modulecomparisons_allparticipants_wPET_spearman.png'), 
     width = 20, height = 20, units = 'in', res = 300)
 corrplot(corr_subset, 
          method = "color",
@@ -2954,77 +2973,478 @@ dev.off()
 
 
 library(corrplot)
+library(dplyr)
 
-combined_df <- t2d_only %>% dplyr::select(-record_id, -mrn, -group) %>%
-  filter(!is.na(avg_c_k2))
+
+# Check sample size
+cat("Number of T2D participants:", nrow(t2d_only), "\n")
+
+# Select relevant columns (remove ID columns)
+t2d_data <- t2d_only %>% 
+  dplyr::select(-record_id, -mrn, -group)
 
 # Calculate correlations
-combined_df_corr <- cor(combined_df, use = 'pairwise.complete.obs', method = 'spearman')
+t2d_corr <- cor(t2d_data, use = 'pairwise.complete.obs', method = 'spearman')
 
-# Calculate p-values using cor.mtest
-p_values <- cor.mtest(combined_df, method = 'spearman')
+# Calculate p-values
+p_values <- cor.mtest(t2d_data, method = 'spearman')
 
 # Create subset for plotting
-corr_subset <- as.matrix(combined_df_corr[c(1:23), c(24:29), drop = F])
-p_subset <- as.matrix(p_values$p[c(1:23), c(24:29), drop = F])
+corr_subset <- as.matrix(t2d_corr[c(1:23), c(24:29), drop = FALSE])
+p_subset <- as.matrix(p_values$p[c(1:23), c(24:29), drop = FALSE])
 
 # Add meaningful names
 row_names <- c('TCA', 'OxPhos', 'Response to Insulin', 
                'Insulin Receptor Signaling', 'Negative Regulation of Insulin Signaling', 
                'Positive Regulation of Insulin Signaling', 'IGF Receptor Binding', 
-               'OxPhos (Hallmark)', 'Fatty Acid Metabolism', 'Glycolysis', 'mTORC1 Signaling', 
-               'Adipogenesis', 'Peroxisome', 'Inflammatory Response', 'IFN Gamma Response', 
-               'IFN Alpha Response', 'IL6 JAK/STAT3', 'TNFa NF kB1', 'Complement', 
-               'Allograft Rejection', 'Hypoxia', 'ROS Pathway', 'PI3K AKT mTOR1')
+               'OxPhos (Hallmark)', 'Fatty Acid Metabolism', 'Glycolysis', 
+               'mTORC1 Signaling', 'Adipogenesis', 'Peroxisome', 
+               'Inflammatory Response', 'IFN Gamma Response', 'IFN Alpha Response', 
+               'IL6 JAK/STAT3', 'TNFa NF kB1', 'Complement', 'Allograft Rejection', 
+               'Hypoxia', 'ROS Pathway', 'PI3K AKT mTOR1')
 
 col_names <- c('Cortical K2', 'Cortical F', 'Cortical K2/F', 
                'Cortical K2 (voxel)', 'Cortical F (voxel)', 'Cortical K2/F (voxel)')
 
 rownames(corr_subset) <- row_names
 colnames(corr_subset) <- col_names
+rownames(p_subset) <- row_names
+colnames(p_subset) <- col_names
 
-# Apply same names to p-value matrix
-rownames(p_subset) <- rownames(corr_subset)
-colnames(p_subset) <- colnames(corr_subset)
+# Check how many significant correlations exist
+cat("Number of correlations with p < 0.05:", sum(p_subset < 0.05, na.rm = TRUE), "\n")
+cat("Minimum p-value:", min(p_subset, na.rm = TRUE), "\n")
 
-# Create color vector for row names based on pathway classification
-row_colors <- sapply(row_names, get_pathway_color)
+# OPTION 1: Plot without significance markers (cleanest for n=6)
+pdf(paste0('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/', cell_text, '_modulecomparisons_T2Dparticipants_wPET_spearman.pdf'), 
+    width = 12, height = 16)
 
-# Create black color vector for column names
-col_colors <- rep("black", length(col_names))
-
-
-# Create color vector for row names based on pathway classification
-row_colors <- sapply(row_names, get_pathway_color)
-
-pdf('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/modulecomparisons_T2Dparticipants_wPET_spearman.pdf', 
-    width = 20, height = 20)
-
-corrplot(corr_subset, 
+tmp_plot1 <- corrplot(corr_subset, 
          method = "color",
-         p.mat = p_subset,           
-         sig.level = 0.05,           
-         insig = "label_sig",        
-         number.cex = 1.2,           
-         tl.cex = 1.5,
-         tl.col = "black",           # Set all labels to black first
-         cl.cex = 1.2)              
+         col = colorRampPalette(c("red", "white", "blue"))(200),
+         tl.cex = 1.2,
+         tl.col = "black",
+         cl.cex = 1.0,
+         addCoef.col = "black",  # Add correlation coefficients
+         number.cex = 0.8,
+         title = "T2D Only: Pathway Correlations with PET Metrics",
+         mar = c(0,0,2,0))
+print(tmp_plot1)
 
 dev.off()
 
-png('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/modulecomparisons_T2Dparticipants_wPET_spearman.png', 
+
+
+png(paste0('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/', cell_text, '_modulecomparisons_T2Dparticipants_wPET_spearman.png'), 
     width = 20, height = 20, units = 'in', res = 300)
-corrplot(corr_subset, 
-         method = "color",
-         p.mat = p_subset,           
-         sig.level = 0.05,           
-         insig = "label_sig",        
-         number.cex = 1.2,           
-         tl.cex = 1.5,
-         tl.col = "black",           # Set all labels to black first
-         cl.cex = 1.2)              
+tmp_plot1 <- corrplot(corr_subset, 
+                      method = "color",
+                      col = colorRampPalette(c("red", "white", "blue"))(200),
+                      tl.cex = 1.2,
+                      tl.col = "black",
+                      cl.cex = 1.0,
+                      addCoef.col = "black",  # Add correlation coefficients
+                      number.cex = 0.8,
+                      title = "T2D Only: Pathway Correlations with PET Metrics",
+                      mar = c(0,0,2,0))
+print(tmp_plot1)
+
 
 dev.off()
+
+
+
+########## Only LC 
+
+
+
+
+library(corrplot)
+library(dplyr)
+
+
+# Check sample size
+cat("Number of lc participants:", nrow(lc_only), "\n")
+
+# Select relevant columns (remove ID columns)
+lc_data <- lc_only %>% 
+  dplyr::select(-record_id, -mrn, -group)
+
+# Calculate correlations
+lc_corr <- cor(lc_data, use = 'pairwise.complete.obs', method = 'spearman')
+
+# Calculate p-values
+p_values <- cor.mtest(lc_data, method = 'spearman')
+
+# Create subset for plotting
+corr_subset <- as.matrix(lc_corr[c(1:23), c(24:29), drop = FALSE])
+p_subset <- as.matrix(p_values$p[c(1:23), c(24:29), drop = FALSE])
+
+# Add meaningful names
+row_names <- c('TCA', 'OxPhos', 'Response to Insulin', 
+               'Insulin Receptor Signaling', 'Negative Regulation of Insulin Signaling', 
+               'Positive Regulation of Insulin Signaling', 'IGF Receptor Binding', 
+               'OxPhos (Hallmark)', 'Fatty Acid Metabolism', 'Glycolysis', 
+               'mTORC1 Signaling', 'Adipogenesis', 'Peroxisome', 
+               'Inflammatory Response', 'IFN Gamma Response', 'IFN Alpha Response', 
+               'IL6 JAK/STAT3', 'TNFa NF kB1', 'Complement', 'Allograft Rejection', 
+               'Hypoxia', 'ROS Pathway', 'PI3K AKT mTOR1')
+
+col_names <- c('Cortical K2', 'Cortical F', 'Cortical K2/F', 
+               'Cortical K2 (voxel)', 'Cortical F (voxel)', 'Cortical K2/F (voxel)')
+
+rownames(corr_subset) <- row_names
+colnames(corr_subset) <- col_names
+rownames(p_subset) <- row_names
+colnames(p_subset) <- col_names
+
+# Check how many significant correlations exist
+cat("Number of correlations with p < 0.05:", sum(p_subset < 0.05, na.rm = TRUE), "\n")
+cat("Minimum p-value:", min(p_subset, na.rm = TRUE), "\n")
+
+# OPTION 1: Plot without significance markers (cleanest for n=6)
+pdf(paste0('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/', cell_text, '_modulecomparisons_LCparticipants_wPET_spearman.pdf'), 
+    width = 12, height = 16)
+
+tmp_plot1 <- corrplot(corr_subset, 
+                      method = "color",
+                      col = colorRampPalette(c("red", "white", "blue"))(200),
+                      tl.cex = 1.2,
+                      tl.col = "black",
+                      cl.cex = 1.0,
+                      addCoef.col = "black",  # Add correlation coefficients
+                      number.cex = 0.8,
+                      title = "LC Only: Pathway Correlations with PET Metrics",
+                      mar = c(0,0,2,0))
+print(tmp_plot1)
+
+dev.off()
+
+
+
+png(paste0('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/', cell_text, '_modulecomparisons_LCparticipants_wPET_spearman.png'), 
+    width = 20, height = 20, units = 'in', res = 300)
+tmp_plot1 <- corrplot(corr_subset, 
+                      method = "color",
+                      col = colorRampPalette(c("red", "white", "blue"))(200),
+                      tl.cex = 1.2,
+                      tl.col = "black",
+                      cl.cex = 1.0,
+                      addCoef.col = "black",  # Add correlation coefficients
+                      number.cex = 0.8,
+                      title = "LC Only: Pathway Correlations with PET Metrics",
+                      mar = c(0,0,2,0))
+print(tmp_plot1)
+
+
+dev.off()
+
+
+
+
+
+
+
+
+
+############## Test Differences in slope or shift 
+
+
+
+
+
+remove(list=ls())
+
+module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/HALLMARK_GO_pathways_modulescores.txt')
+
+celltype <- 'PT'
+
+
+
+if(celltype == 'PT'){
+  module_scores <- module_scores %>% 
+    filter(celltype2 == 'PT')
+  cell_text <- 'PT'
+}else{
+  cell_text <- 'All'
+}
+module_scores$celltype2 <- NULL
+module_scores$KPMP_celltype <- NULL
+
+
+
+
+
+module_scores_summary <- module_scores %>%
+  group_by(record_id, mrn, group) %>%
+  summarize(
+    # Calculate mean for all numeric module score columns
+    across(c(TCA_score1, OxPhos_score1, 
+             # GO terms
+             Response_to_Insulin1, Insulin_Receptor_Signaling1, 
+             Neg_Reg_Insulin_Signaling1, Pos_Reg_Insulin_Signaling1, 
+             IGF_Receptor_Binding1,
+             # HALLMARK pathways - Metabolism
+             OxPhos_Hallmark1, Fatty_Acid_Metabolism1, Glycolysis1, 
+             mTORC1_Signaling1, Adipogenesis1, Peroxisome1,
+             # HALLMARK pathways - Immune/Inflammatory
+             Inflammatory_Response1, IFN_Gamma_Response1, IFN_Alpha_Response1,
+             IL6_JAK_STAT31, TNFa_NF_kB1, Complement1, Allograft_Rejection1,
+             # HALLMARK pathways - Cross-cutting
+             Hypoxia1, ROS_Pathway1, PI3K_AKT_mTOR1), 
+           list(mean = ~mean(.x, na.rm = TRUE)),
+           .names = "{.col}_{.fn}"),
+    .groups = 'drop'
+  )
+
+
+
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+#date_of_screen
+#screen_date
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+                   .by = c(record_id, visit))
+
+#gbm <- gbm %>% left_join(dat %>% dplyr::select(record_id, mrn), by='record_id')
+
+
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  
+  avg_m_k2_f <- avg_m_k2/ avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2_vw', 'avg_m_k2_vw', 'avg_c_f_vw', 'avg_m_f_vw', 
+                      'avg_c_k2_f_vw', 'avg_m_k2_f_vw')
+  
+  return(results)
+  
+}
+
+
+tmp_results_vw <- PET_avg(dat)
+
+
+dat_results <- dat
+
+
+
+
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  
+  avg_m_k2_f <- avg_m_k2 / avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                      'avg_c_k2_f', 'avg_m_k2_f')
+  
+  return(results)
+  
+}
+
+
+tmp_results <- PET_avg(dat)
+
+dat_results$avg_c_k2 <- NULL
+dat_results$avg_c_f <- NULL
+
+dat_results <- dat_results %>% bind_cols(tmp_results, tmp_results_vw)
+
+
+dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
+
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+dat_results$group2 <- NA
+
+need_med_info <- dat_results %>% filter(is.na(group2))
+
+dat2 <- dat_results
+
+RH <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RENALHEIR-SGLT2.csv')
+names(RH) <- c('Subject', 'rep_instr', 'rep_inst', 'SGLT2')
+RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-SGLT2Use.csv')
+names(RH2) <- c('Subject', 'event', 'rep_instr', 'rep_inst', 'mrn', 'SGLT2', 'SGLT2_ever')
+RH2 <- RH2 %>% filter(!is.na(mrn))
+improve <- data.table::fread('C:/Users/netio/Downloads/IMPROVET2D-SGLT2i_DATA_LABELS_2025-08-25_0938.csv')
+names(improve)[5] <- 'SGLT2'
+names(improve)[1] <- 'record_id'
+
+improve <- improve %>% filter(!is.na(SGLT2)) %>%
+  filter(SGLT2 != '')
+
+improve_small <- improve %>% filter(record_id %in% need_med_info$record_id)
+RH_small <- RH %>% filter(Subject %in% need_med_info$record_id)
+RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
+
+for(i in c(1:nrow(RH_small))){
+  if(nrow(RH_small) == 0){
+    next
+  }
+  if(RH_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'No'
+  }else if(RH_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'Yes'
+  }else{
+    next
+  }
+}
+
+for(i in c(1:nrow(RH2_small))){
+  if(nrow(RH2_small) == 0){
+    next
+  }
+  if(RH2_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'No'
+  }else if(RH2_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'Yes'
+  }else{
+    next
+  }
+}
+
+for(i in c(1:nrow(improve_small))){
+  if(nrow(improve_small) == 0){
+    next
+  }
+  if(improve_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'No'
+  }else if(improve_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'Yes'
+  }else{
+    next
+  }
+}
+
+
+dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
+
+dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
+
+
+# Function to get pathway colors (same as before)
+get_pathway_color <- function(pathway_name) {
+  custom_scores <- c("TCA", "OxPhos")
+  go_terms <- c("Response to Insulin", "Insulin Receptor Signaling", 
+                "Negative Regulation of Insulin Signaling", "Positive Regulation of Insulin Signaling", 
+                "IGF Receptor Binding")
+  metabolism_hallmark <- c("OxPhos (Hallmark)", "Fatty Acid Metabolism", "Glycolysis", 
+                           "mTORC1 Signaling", "Adipogenesis", "Peroxisome")
+  immune_inflammatory <- c("Inflammatory Response", "IFN Gamma Response", "IFN Alpha Response",
+                           "IL6 JAK/STAT3", "TNFa NF kB1", "Complement", "Allograft Rejection")
+  cross_cutting <- c("Hypoxia", "ROS Pathway", "PI3K AKT mTOR1")
+  
+  if(pathway_name %in% custom_scores) {
+    return("#2E8B57")  # Sea Green
+  } else if(pathway_name %in% go_terms) {
+    return("#4169E1")  # Royal Blue
+  } else if(pathway_name %in% metabolism_hallmark) {
+    return("#FF6347")  # Tomato Red
+  } else if(pathway_name %in% immune_inflammatory) {
+    return("#8A2BE2")  # Blue Violet
+  } else if(pathway_name %in% cross_cutting) {
+    return("#FF8C00")  # Dark Orange
+  } else {
+    return("#000000")  # Black for unknown
+  }
+}
+
+combined_df <- module_scores_summary %>% left_join(dat2 %>% 
+                                                     dplyr::select(mrn, avg_c_k2, avg_c_f, avg_c_k2_f, 
+                                                                   avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw), by= 'mrn')
+
+
+
+
+
+
+comparison_data <- combined_df %>%
+  filter(!is.na(avg_c_k2)) %>%
+  select(record_id, group, avg_c_k2)
+
+# Statistical test
+wilcox.test(avg_c_k2f ~ group, data = comparison_data)
+
+# Visualization
+ggplot(comparison_data, aes(x = group, y = avg_c_k2, fill = group)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, size = 3) +
+  stat_compare_means(method = "wilcox.test") +
+  labs(title = "T2D Shifts Metabolic Function Lower",
+       subtitle = "But maintains the same gene-function relationship",
+       y = "Cortical K2/F (voxel)") +
+  theme_minimal()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
