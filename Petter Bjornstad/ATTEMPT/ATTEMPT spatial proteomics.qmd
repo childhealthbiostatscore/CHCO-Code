@@ -75,6 +75,7 @@ Sys.setenv(
 )
 ```
 
+
 ```{r}
 alias_map <- c(
   "KRT19"    = "CK19",
@@ -215,4 +216,218 @@ plasma_spatial_combined <- spatial_proteomics %>%
 
 write.csv(urine_spatial_combined, file.path(root_path, "ATTEMPT/Data Clean/Urine_SP_Combined.csv"), row.names = F, na = "")
 write.csv(plasma_spatial_combined, file.path(root_path, "ATTEMPT/Data Clean/Plasma_SP_Combined.csv"), row.names = F, na = "")
+```
+
+# scRNA
+
+```{r echo = F, eval = T}
+# Read in clean seurat object saved
+attempt_so <- s3readRDS(bucket = "attempt", 'cleaned_data/attempt_clean_so.rds', region = "")
+``` 
+
+```{r}
+# map to gene IDs
+protein_to_gene <- c(
+  "CK19" = "KRT19",        # Cytokeratin 19
+  "VMT" = "VIM",           # Vimentin (assuming this is what VMT stands for)
+  "Cyt-c" = "CYCS",        # Cytochrome c
+  "p-GSK3b" = "GSK3B",     # Phospho-GSK3 beta
+  "p-SMAD2" = "SMAD2",     # Phospho-SMAD2
+  "pJAK2" = "JAK2",        # Phospho-JAK2
+  "LTL" = "TERT",          # Likely telomerase (if this is telomere length)
+  "H3" = "HIST1H3A",       # Histone H3 (using H3A as representative)
+  "u-H2B" = "HIST1H2BA",   # Ubiquitinated histone H2B (using H2BA as representative)
+  "ZO-1" = "TJP1",         # Tight junction protein 1
+  "IBA1" = "AIF1",         # Ionized calcium binding adaptor molecule 1
+  "pERM" = "EZR",          # Phospho-ERM (using ezrin as representative)
+  "p-AMPKa" = "PRKAA1",    # Phospho-AMPK alpha (using alpha1 subunit)
+  "FN" = "FN1",            # Fibronectin 1
+  "CD3" = "CD3D",          # CD3 delta (using as representative of CD3 complex)
+  "p-ERK1-2" = "MAPK1",    # Phospho-ERK1/2 (using ERK2/MAPK1 as representative)
+  "LMP7" = "PSMB8",        # Proteasome subunit beta 8
+  "DRAQ5" = "DRAQ5"        # DNA stain, not a gene - keep as is
+)
+spatial_proteomics_long_gene <- spatial_proteomics_long %>% 
+  mutate(Gene = ifelse(spatial_proteomics_long$markers %in% names(protein_to_gene), 
+                       protein_to_gene[spatial_proteomics_long$markers], 
+                       spatial_proteomics_long$markers))
+
+# Get unique markers
+markers <- unique(spatial_proteomics_long_gene$markers)
+total_markers <- length(markers)
+
+# Calculate markers per panel (aim for even distribution)
+markers_per_panel <- ceiling(total_markers / 6)
+
+# Split markers into 6 groups
+marker_groups <- split(markers, ceiling(seq_along(markers) / markers_per_panel))
+
+# Create 6 feature plots
+panel_plots <- list()
+
+for(i in 1:6) {
+  cat(paste("Panel", i, "- Markers:", length(marker_groups[[i]]), "\n"))
+  cat(paste("Features:", paste(marker_groups[[i]], collapse = ", "), "\n\n"))
+  
+  panel_plots[[i]] <- Seurat::FeaturePlot(
+    attempt_so, 
+    features = marker_groups[[i]], 
+    raster = FALSE, 
+    reduction = "umap.harmony"
+  )
+}
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Spatial Proteomics/scRNA_FeaturePlot1.jpeg"), panel_plots[[1]], width = 10, height = 10)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Spatial Proteomics/scRNA_FeaturePlot2.jpeg"), panel_plots[[2]], width = 10, height = 10)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Spatial Proteomics/scRNA_FeaturePlot3.jpeg"), panel_plots[[3]], width = 10, height = 10)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Spatial Proteomics/scRNA_FeaturePlot4.jpeg"), panel_plots[[4]], width = 10, height = 10)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Spatial Proteomics/scRNA_FeaturePlot5.jpeg"), panel_plots[[5]], width = 10, height = 10)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Spatial Proteomics/scRNA_FeaturePlot6.jpeg"), panel_plots[[6]], width = 10, height = 10)
+
+# Identify markers/genes that are not found in our so
+unique(spatial_proteomics_long_gene$markers[spatial_proteomics_long_gene$Gene %nin% rownames(attempt_so)])
+```
+
+```{r}
+map_celltype_to_general <- function(celltype, celltype_groups) {
+  for (group_name in names(celltype_groups)) {
+    if (celltype %in% celltype_groups[[group_name]]) {
+      return(group_name)
+    }
+  }
+  return("Other")  # For any celltype not found in groups
+}
+
+# Create the new variable in your Seurat object
+attempt_so$KPMP_celltype_general <- sapply(attempt_so$KPMP_celltype, 
+                                          map_celltype_to_general, 
+                                          celltype_groups = celltype_groups)
+  
+Seurat::DotPlot(
+  attempt_so, 
+  features = unique(spatial_proteomics_long_gene$markers),
+  group.by = "KPMP_celltype_general", scale = FALSE
+) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+  scale_color_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0)
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Spatial Proteomics/scRNA_DotPlot.jpeg"), width = 10)
+
+Seurat::DimPlot(attempt_so, group.by = "KPMP_celltype", label = T, raster = F, reduction = "umap.harmony")
+ggsave(file.path(root_path, "ATTEMPT/Results/Figures/Spatial Proteomics/scRNA_UMAP.jpeg"), width = 15, height = 10)
+```
+
+```{r}
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK"),
+  Immune_myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD"
+)
+
+## read mixed model results dataframe (rendered in Hyak)
+# process and read all results from ATTEMPT
+for (cell in names(celltype_groups))  {
+  print(paste0("Processing: ", cell))
+  cell <- gsub("/", "_", cell)
+  
+  annotated_df <- read.csv(file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_res.csv")))
+  colnames(annotated_df) <- gsub("\\.", ":", colnames(annotated_df))
+  cell <- gsub("-", "_", cell)
+  cell <- gsub("\\+\\s", "_", cell)
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_kpmp")
+  print(var_name)
+  assign(var_name, annotated_df)
+}
+
+```
+
+```{r}
+# Define the cell type groups (assuming you have data objects for each)
+celltype_data_objects <- list(
+  "pt" = pt_kpmp,
+  "tal" = tal_kpmp,
+  "pc" = pc_kpmp,      # assuming these exist
+  "ec" = ec_kpmp,      
+  "ic" = ic_kpmp,      
+  "pod" = pod_kpmp,    
+  "immune" = immune_kpmp,
+  "immune_myeloid" = immune_myeloid_kpmp,
+  "immune_lymphoid" = immune_lymphoid_kpmp,
+  "vsmc_p_fib" = vsmc_p_fib_kpmp
+)
+
+# Function to extract data for each cell type
+extract_celltype_data <- function(data_obj, celltype_name, markers, protein_to_gene) {
+  
+  # Create column names with celltype prefix
+  logfc_col <- paste0(celltype_name, "_logFC")
+  pval_col <- paste0(celltype_name, "_p.value")
+  
+  # Extract and process data
+  result <- data_obj %>%
+    dplyr::select(
+      Gene, 
+      !!logfc_col := `logFC_treatmentDapagliflozin:visitPOST`, 
+      !!pval_col := `p_treatmentDapagliflozin:visitPOST`
+    ) %>%
+    filter(Gene %in% markers) %>%
+    mutate(markers = case_when(
+      Gene %in% names(protein_to_gene) ~ protein_to_gene[Gene], 
+      TRUE ~ Gene
+    ))
+  
+  return(result)
+}
+
+# Extract data for all cell types
+celltype_results <- list()
+
+for (celltype in names(celltype_data_objects)) {
+  if (exists(paste0(celltype, "_kpmp"))) {  # Check if object exists
+    cat("Processing", celltype, "...\n")
+    
+    celltype_results[[celltype]] <- extract_celltype_data(
+      data_obj = celltype_data_objects[[celltype]],
+      celltype_name = celltype,
+      markers = markers,
+      protein_to_gene = protein_to_gene
+    )
+  } else {
+    cat("Warning:", paste0(celltype, "_kpmp"), "object not found\n")
+  }
+}
+
+if (length(celltype_results) > 0) {
+  combined_data <- celltype_results %>%
+    purrr::reduce(full_join, by = c("Gene", "markers"))
+  
+  cat("Combined data created with", nrow(combined_data), "rows and", ncol(combined_data), "columns\n")
+  print(head(combined_data))
+}
+
+scrna_combined_data <- spatial_proteomics_long %>% left_join(combined_data)
+
+logFC_cols <- names(scrna_combined_data)[grepl("_logFC$", names(scrna_combined_data))]
+pvalue_cols <- names(scrna_combined_data)[grepl("_p\\.value$", names(scrna_combined_data))]
+
+collapsed_data <- scrna_combined_data %>%
+  group_by(group) %>%  # assuming you have a 'group' column
+  summarise(
+    markers = collapse_safe(markers),
+    Genes_identified = collapse_safe(Gene),
+    # Dynamically collapse all logFC columns
+    across(all_of(logFC_cols), ~ collapse_safe(round(.x, 3)), .names = "{.col}"),
+    # Dynamically collapse all p-value columns  
+    across(all_of(pvalue_cols), ~ collapse_safe(round(.x, 3)), .names = "{.col}"),
+    .groups = "drop"
+  ) %>%
+  mutate(group = as.integer(group))
+
+write.csv(collapsed_data, file.path(root_path, "ATTEMPT/Data Clean/scRNA_SP_Combined.csv"), row.names = F, na = "")
 ```

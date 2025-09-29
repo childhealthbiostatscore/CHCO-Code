@@ -243,6 +243,7 @@ summary(tableby(group ~ avg_pcasl3d + avg_bl_cortex , data = subset(rh2, group !
 # pairs(lsmeans((lm(avg_fsoc_medulla ~ group + weight, data = subset(rh2, group != "Lean Control"))), specs=c("group")))
 
 ```
+
 # Changes over time
 
 ## GFR
@@ -316,14 +317,50 @@ ggplot(rh_rh2, aes(x = date_diff, y = total_kidney_volume_ml_merged)) +
 ## Correlations
 
 ```{r echo = F}
+corr_plot_modified <- function(data, X, Y, cor_method = "pearson", dict = dict,
+                             method = "color", insig = "pch", coef_col = NULL,
+                             pch = 4, pch.col = "black", pch.cex = 0) {
+  n_cols = length(Y)
+  M <- cor(y = subset(data, select = Y),
+           x = subset(data, select = X),
+           use = "pairwise.complete.obs",
+           method = cor_method)
+  colnames(M) = as.list(dict[match(colnames(M), names(dict))])
+  rownames(M) = as.list(dict[match(rownames(M), names(dict))])
+  
+  correlation_p_value <- correlation_p_value_matrix(data, relevant_vars = c(Y, X), n_cols = n_cols, cor_method = cor_method)
+  
+  corrplot(M,
+           p.mat = correlation_p_value,
+           method = method,
+           tl.col = "black",
+           tl.srt = 45,
+           tl.cex = .8,
+           insig = insig,
+           addCoef.col = coef_col,
+           addgrid.col = 'lightgray',
+           number.digits = 2,
+           pch.col = pch.col, 
+           pch = pch,
+           pch.cex = pch.cex)$corrPos -> p1
+  p1_sub <- subset(p1, p.value <= 0.05)
+  p1_sub2 <- subset(p1, p.value <= 0.05 & abs(corr) >= 0.9)
+  if (nrow(p1_sub) > 0) {
+    graphics::text(p1_sub$x, p1_sub$y, sprintf("%.2f", p1_sub$corr))
+  }
+  if (nrow(p1_sub2) > 0) {
+    graphics::text(p1_sub2$x, p1_sub2$y, sprintf("%.2f", p1_sub2$corr), col = "white")
+  }
+}
 # source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/label_harmonized_function.R")
 # source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 # 
 # #png(height = 1000, width = 1100, file = "/Users/choiyej/GitHub/YC_CHCO/RH/correlation4.png", res = 170)
-# corr_plot_modified(data = dat, 
-#                    X = c("acr_u"),
-#                    Y = c("avg_c_k2",
-#                          "avg_m_k2"), 
-#                    cor_method = "spearman")
+corr_plot_modified(data = subset(dat, group == "Type 2 Diabetes" & visit == "baseline" & elevated_albuminuria == "No"),
+                   X = c("acr_u"),
+                   Y = c("avg_c_k2",
+                         "avg_c_k1",
+                         "avg_c_f"),
+                   cor_method = "spearman")
 ##dev.off()
 ```
