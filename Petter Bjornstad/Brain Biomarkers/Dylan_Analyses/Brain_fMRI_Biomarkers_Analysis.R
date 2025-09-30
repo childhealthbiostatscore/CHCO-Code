@@ -1,33 +1,41 @@
 ############ Brain Biomarkers Analysis 
 
 
+if (!require("oro.nifti")) install.packages("oro.nifti")
+if (!require("neurobase")) install.packages("neurobase")
+if (!require("R.matlab")) install.packages("R.matlab")
 
-# fMRI Group Comparison Analysis with Proteomic Integration
-# Required packages
-library(neurobase)      # Neuroimaging analysis
-library(oro.nifti)      # NIfTI file handling
-library(ANTsR)          # Advanced normalization tools
-library(igraph)         # Network analysis
-library(brainGraph)     # Brain network analysis
-library(ggplot2)        # Visualization
-library(dplyr)          # Data manipulation
-library(corrplot)       # Correlation plotting
-library(lme4)           # Mixed models
-library(psych)          # Statistical tools
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("dplyr")) install.packages("dplyr")
+if (!require("corrplot")) install.packages("corrplot")
+if (!require("psych")) install.packages("psych")
+if (!require("pls")) install.packages("pls")
+if (!require("caret")) install.packages("caret")
+if (!require("randomForest")) install.packages("randomForest")
+
+ if (!require("igraph")) install.packages("igraph")
+ if (!require("brainGraph")) install.packages("brainGraph")
+
+# Load libraries
+library(oro.nifti)  
+library(neurobase)  
+library(R.matlab)    
+library(ggplot2)     
+library(dplyr)       
+library(corrplot)   
+library(psych)        
+library(pls)  
+library(caret) 
+library(randomForest) 
+library(igraph)
+library(brainGraph)
+library(R.matlab)
 
 
 
+#Identifying groups for analysis 
 
-library(dplyr)
-library(stringr)
-library(tidyr)
-
-
-
-
-
-
-harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+harmonized_data <- read.csv("/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 
 
 dat <- harmonized_data %>%
@@ -38,19 +46,74 @@ dat <- harmonized_data %>%
 
 
 
+mri_ids <- c('CRC-10', 'CRC-11', 'CRC-12', 'CRC-13', 'CRC-26', 'CRC-39', 'CRC-46', 'CRC-51', 'CRC-53', 
+             'CRC-55', 'CRC-58', 'CRC-60', 
+             'RH2-01-O', 'RH2-03-O', 'RH2-08-T', 'RH2-10-L', 'RH2-11-O', 'RH2-13-O', 'RH2-16-O', 'RH2-17-L', 
+             'RH2-18-O', 'RH2-19-T', 'RH2-22-T', 'RH2-24-L', 'RH2-27-L', 'RH2-28-L', 'RH2-29-L', 'RH2-33-L', 
+             'RH2-34-O', 'RH2-35-T', 'RH2-38-O', 'RH2-39-O', 'RH2-41-T', 'RH2-42-T', 'RH2-43-T', 
+             'RH2-44-T', 'RH2-45-T', 'RH2-48-T', 'RH2-49-T', 'RH2-50-L', 'RH2-52-T', 'RH2-53-T', 
+             'RH2-55-T')
 
 
-# ============================================================================
-# 1. LOAD AND PREPROCESS fMRI DATA
-# ============================================================================
 
-# Function to load preprocessed fMRI time series
-load_fmri_timeseries <- function(file_path, roi_atlas) {
-  # Load 4D fMRI data
-  fmri_img <- readNIfTI(file_path)
+
+
+
+
+
+qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
+            "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
+
+
+# Set your base directory
+base_dir <- "/brain.mir/Brain_Functional_Connectivity_Analysis/MRI_preprocess/Analysis"
+
+# Function to get all participant folders
+get_participant_folders <- function(base_dir) {
+  all_folders <- list.dirs(base_dir, recursive = FALSE, full.names = TRUE)
+  # Filter for folders that contain connectivity data
+  participant_folders <- all_folders[grepl("conn_project|RH2_", basename(all_folders))]
+  return(participant_folders)
+}
+
+# Function to load connectivity matrix from .mat file
+load_connectivity_from_mat <- function(participant_folder) {
+  # Look for .mat files in the folder
+  mat_files <- list.files(participant_folder, pattern = "\\.mat$", full.names = TRUE)
   
-  # Extract time series from ROIs (regions of interest)
-  # Assuming roi_atlas is a 3D image with labeled regions
+  if (length(mat_files) > 0) {
+    # Load the first .mat file found
+    mat_data <- readMat(mat_files[1])
+    # Extract connectivity matrix (adjust field name based on your .mat structure)
+    # Common field names: 'conn', 'connectivity', 'corr', 'Z', 'data'
+    conn_matrix <- mat_data[[1]]  # Adjust this based on your .mat file structure
+    return(conn_matrix)
+  } else {
+    warning(paste("No .mat file found in", participant_folder))
+    return(NULL)
+  }
+}
+
+# Function to load preprocessed fMRI time series from .nii.gz
+load_fmri_timeseries <- function(participant_folder, roi_atlas = NULL) {
+  # Look for .nii.gz files
+  nii_files <- list.files(participant_folder, pattern = "\\.nii\\.gz$", 
+                          full.names = TRUE, recursive = TRUE)
+  
+  if (length(nii_files) == 0) {
+    warning(paste("No .nii.gz files found in", participant_folder))
+    return(NULL)
+  }
+  
+  # Load the first 4D fMRI file
+  fmri_img <- readNIfTI(nii_files[1])
+  
+  if (is.null(roi_atlas)) {
+    # If no atlas provided, return the full 4D data
+    return(fmri_img)
+  }
+  
+  # Extract time series from ROIs
   n_timepoints <- dim(fmri_img)[4]
   n_rois <- max(roi_atlas, na.rm = TRUE)
   
@@ -65,36 +128,84 @@ load_fmri_timeseries <- function(file_path, roi_atlas) {
   return(timeseries_matrix)
 }
 
-# Load data for both groups
-# Example structure: list of subjects per group
-group1_files <- list.files("path/to/group1", pattern = "*.nii.gz", full.names = TRUE)
-group2_files <- list.files("path/to/group2", pattern = "*.nii.gz", full.names = TRUE)
+# Get all participant folders
+all_participants <- get_participant_folders(base_dir)
 
-# Load ROI atlas (e.g., AAL, Schaefer, or custom)
-roi_atlas <- readNIfTI("path/to/roi_atlas.nii.gz")
-n_rois <- max(roi_atlas, na.rm = TRUE)
+# Define your groups (you'll need to specify which participants belong to which group)
+# Option 1: Based on folder naming convention
+group1_pattern <- "conn_project01|conn_project02"  # Adjust pattern
+group2_pattern <- "conn_project03|RH2_"            # Adjust pattern
 
-# Extract time series for all subjects
-group1_ts <- lapply(group1_files, load_fmri_timeseries, roi_atlas = roi_atlas)
-group2_ts <- lapply(group2_files, load_fmri_timeseries, roi_atlas = roi_atlas)
+group1_folders <- all_participants[grepl(group1_pattern, all_participants)]
+group2_folders <- all_participants[grepl(group2_pattern, all_participants)]
+
+# Option 2: Load from a CSV file with participant IDs and group labels
+# participant_info <- read.csv("participant_groups.csv")
+# group1_folders <- all_participants[basename(all_participants) %in% 
+#                                    participant_info$ID[participant_info$Group == 1]]
+# group2_folders <- all_participants[basename(all_participants) %in% 
+#                                    participant_info$ID[participant_info$Group == 2]]
+
+cat("Found", length(group1_folders), "participants in Group 1\n")
+cat("Found", length(group2_folders), "participants in Group 2\n")
+
+# Load connectivity matrices if already computed
+group1_conn <- lapply(group1_folders, load_connectivity_from_mat)
+group2_conn <- lapply(group2_folders, load_connectivity_from_mat)
+
+# Remove NULL entries (participants without data)
+group1_conn <- group1_conn[!sapply(group1_conn, is.null)]
+group2_conn <- group2_conn[!sapply(group2_conn, is.null)]
+
+# If you need to compute connectivity from raw time series:
+# Load ROI atlas if available
+# roi_atlas <- readNIfTI("path/to/your/atlas.nii.gz")
+# group1_ts <- lapply(group1_folders, load_fmri_timeseries, roi_atlas = roi_atlas)
+# group2_ts <- lapply(group2_folders, load_fmri_timeseries, roi_atlas = roi_atlas)
+
+# For now, let's work with the connectivity matrices
+# If matrices are correlation values, we'll work with them directly
+# Check if we need Fisher Z-transformation
+cat("\nLoaded", length(group1_conn), "connectivity matrices for Group 1\n")
+cat("Loaded", length(group2_conn), "connectivity matrices for Group 2\n")
+
+# Determine number of ROIs from connectivity matrix
+if (length(group1_conn) > 0) {
+  n_rois <- nrow(group1_conn[[1]])
+  cat("Number of ROIs:", n_rois, "\n")
+}
 
 # ============================================================================
 # 2. NETWORK ANALYSIS: FUNCTIONAL CONNECTIVITY
 # ============================================================================
 
-# Compute correlation matrices (functional connectivity)
+# Compute correlation matrices (functional connectivity) if needed
 compute_fc_matrix <- function(timeseries) {
   cor(timeseries, use = "pairwise.complete.obs")
 }
 
 # Fisher Z-transformation for statistical testing
 fisher_z <- function(r) {
-  0.5 * log((1 + r) / (1 - r))
+  # Set diagonal to 0 to avoid Inf values
+  diag(r) <- 0
+  # Apply Fisher Z transformation
+  z <- 0.5 * log((1 + r) / (1 - r))
+  # Handle edge cases
+  z[is.infinite(z)] <- NA
+  z[is.nan(z)] <- NA
+  return(z)
 }
 
-# Compute FC for all subjects
-group1_fc <- lapply(group1_ts, compute_fc_matrix)
-group2_fc <- lapply(group2_ts, compute_fc_matrix)
+# If connectivity matrices are already computed, use them directly
+# Otherwise compute from time series
+if (exists("group1_ts") && !is.null(group1_ts[[1]])) {
+  group1_fc <- lapply(group1_ts, compute_fc_matrix)
+  group2_fc <- lapply(group2_ts, compute_fc_matrix)
+} else {
+  # Assume connectivity matrices are already loaded
+  group1_fc <- group1_conn
+  group2_fc <- group2_conn
+}
 
 # Apply Fisher Z-transformation
 group1_fc_z <- lapply(group1_fc, fisher_z)
@@ -172,33 +283,41 @@ compute_lag_matrix <- function(timeseries, max_lag = 5) {
   return(list(lags = lag_matrix, strengths = strength_matrix))
 }
 
-# Compute lags for all subjects
-group1_lags <- lapply(group1_ts, compute_lag_matrix)
-group2_lags <- lapply(group2_ts, compute_lag_matrix)
-
-# Compare lag distributions
-compare_lags <- function(group1_lags, group2_lags) {
-  n_rois <- nrow(group1_lags[[1]]$lags)
-  t_matrix <- matrix(NA, n_rois, n_rois)
-  p_matrix <- matrix(NA, n_rois, n_rois)
+# Only compute lags if time series data is available
+if (exists("group1_ts") && !is.null(group1_ts[[1]])) {
+  cat("\nComputing lag analysis...\n")
+  # Compute lags for all subjects
+  group1_lags <- lapply(group1_ts, compute_lag_matrix)
+  group2_lags <- lapply(group2_ts, compute_lag_matrix)
   
-  for (i in 1:n_rois) {
-    for (j in 1:n_rois) {
-      if (i != j) {
-        g1_lags <- sapply(group1_lags, function(x) x$lags[i, j])
-        g2_lags <- sapply(group2_lags, function(x) x$lags[i, j])
-        
-        test_result <- t.test(g1_lags, g2_lags)
-        t_matrix[i, j] <- test_result$statistic
-        p_matrix[i, j] <- test_result$p.value
+  # Compare lag distributions
+  compare_lags <- function(group1_lags, group2_lags) {
+    n_rois <- nrow(group1_lags[[1]]$lags)
+    t_matrix <- matrix(NA, n_rois, n_rois)
+    p_matrix <- matrix(NA, n_rois, n_rois)
+    
+    for (i in 1:n_rois) {
+      for (j in 1:n_rois) {
+        if (i != j) {
+          g1_lags <- sapply(group1_lags, function(x) x$lags[i, j])
+          g2_lags <- sapply(group2_lags, function(x) x$lags[i, j])
+          
+          test_result <- t.test(g1_lags, g2_lags)
+          t_matrix[i, j] <- test_result$statistic
+          p_matrix[i, j] <- test_result$p.value
+        }
       }
     }
+    
+    return(list(t_stats = t_matrix, p_values = p_matrix))
   }
   
-  return(list(t_stats = t_matrix, p_values = p_matrix))
+  lag_comparison <- compare_lags(group1_lags, group2_lags)
+  cat("Lag analysis complete.\n")
+} else {
+  cat("\nSkipping lag analysis - time series data not available.\n")
+  cat("Lag analysis requires raw time series data (.nii.gz files).\n")
 }
-
-lag_comparison <- compare_lags(group1_lags, group2_lags)
 
 # ============================================================================
 # 4. VOLUMETRIC ANALYSIS
@@ -425,16 +544,3 @@ write.csv(integrated_data, "integrated_dataset.csv")
 ggsave("volumetric_differences.pdf", width = 10, height = 6)
 
 cat("Analysis complete! Results saved.\n")
-
-
-
-
-
-
-
-
-
-
-
-
-
