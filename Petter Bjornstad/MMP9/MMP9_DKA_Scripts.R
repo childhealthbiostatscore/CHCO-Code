@@ -3,16 +3,13 @@
 library(dplyr)
 library(stringr)
 library(ggplot2)
-# Mixed-Effects Regression Analysis for MMP9 Claims
-library(dplyr)
-library(lme4)      # For mixed-effects models
-library(lmerTest)  # For p-values in mixed models
-library(broom.mixed) # For tidy output of mixed models
-library(emmeans)   # For estimated marginal means
+library(lme4)     
+library(lmerTest) 
+library(broom.mixed) 
+library(emmeans) 
 
 library(tidyverse)
 library(nlme)
-library(emmeans)
 library(ggpubr)
 library(Hmisc)
 library(nephro)
@@ -21,54 +18,45 @@ library(readxl)
 library(ggsignif)
 library(arsenal)
 library(readxl)
+library(gtsummary)
+library(gt)
+library(tidyr)
+library(patchwork)
+library(ggsignif)
 
 
-raw_data <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/MMP9/Full 16-1403 DKA RedCap Raw Data Set_04-24edited.csv')
+
+
+
+working_folder <- '/Users/netio/Documents/UofW/Projects/MMP9/'
+
+setwd(working_folder)
+
+raw_data <- data.table::fread('Full 16-1403 DKA RedCap Raw Data Set_04-24edited.csv')
 
 
 names_rawdata <- names(raw_data)
 mmp9_index <- str_which(names_rawdata, 'mmp9')
 
-data_dictionary <- readxl::read_xlsx('C:/Users/netio/Documents/UofW/Projects/MMP9/Full 16-1403 DKA RedCap Data Key_04-24edited.xlsx')
+data_dictionary <- readxl::read_xlsx('Full 16-1403 DKA RedCap Data Key_04-24edited.xlsx')
 
 
-final_data <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/MMP9/Full_DKA_Data Set_06-26_final.csv')
-kidney_data <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/MMP9/Kidney_DATA_2020-12-03_1614.csv')
+final_data <- data.table::fread('Full_DKA_Data Set_06-26_final.csv')
+kidney_data <- data.table::fread('Kidney_DATA_2020-12-03_1614.csv')
 
-qcr <- data.table::fread('C:/Users/netio/Documents/UofW/Projects/MMP9/qcr.csv')
+qcr <- data.table::fread('qcr.csv')
 
-mmp_conc <- readxl::read_xlsx("C:/Users/netio/Documents/UofW/Projects/MMP9/16-1403 MMP9 results 2020.xlsx", skip = 1)
-names(mmp_conc) <- c('record_id', 'delete', 'delete1', 'mrn', 'collection_dat', 'time_point', 'dilution', 'raw_result', 
-                     'result', 'units')
-mmp_conc <- mmp_conc %>% dplyr::select(-delete, -delete1)
+#mmp_conc <- readxl::read_xlsx("16-1403 MMP9 results 2020.xlsx", skip = 1)
+#names(mmp_conc) <- c('record_id', 'delete', 'delete1', 'mrn', 'collection_dat', 'time_point', 'dilution', 'raw_result', 
+ #                    'result', 'units')
+#mmp_conc <- mmp_conc %>% dplyr::select(-delete, -delete1)
+
+
+mmp_conc <- data.table::fread('16-1403 MMP9 results 2020.csv')
+
 
 mmp_conc$time_point[which(mmp_conc$time_point == 'Follow-up')] <- '3 months'
 
-ggplot(mmp_conc, aes(x=time_point, y = result))+geom_boxplot()+theme_classic()+
-  labs(x = 'Time Point', y = 'MMP9 Concentration')
-
-
-
-#find variable
-
-# Apply table() to each column and display results
-#lapply(final_data, table)
-
-# Or to see them more clearly one by one:
-#for(col in names(final_data)) {
-#  cat("\nColumn:", col, "\n")
-#  print(table(final_data[[col]]))
-#}
-
-# To find columns with specific counts (16, 15, 9):
-##target_counts <- c(16, 15, 9)
-#for(col in names(final_data)) {
-#  tab <- table(final_data[[col]])
-#  if(any(tab %in% target_counts)) {
-#    cat("\nColumn", col, "has target counts:\n")
-#    print(tab)
-#  }
-#}
 
 
 final_data$severity <- ""
@@ -84,7 +72,7 @@ demographics <- final_data %>%
   dplyr::select(sex, age, hba1c = a1c_er, height = ht, weight = wt, #bmi, 
                 systolic_bp = sbp, diastolic_bp = dbp, heartrate = hr, a1c_er, a1c_3mo,
                 mmp9_0_8hr, mmp9_12_24hr, mmp9_3mo, t1d_status, severity #DKA severity,
-                ) %>%
+  ) %>%
   mutate(bmi = (weight / (height/100)^2),
          age_years = age/12,
          sex_corrected = ifelse(sex == 1, 'Male',
@@ -151,56 +139,14 @@ desc_table1_fixed %>%
     heading.title.font.size = 14,
     column_labels.font.size = 12
   ) %>%
-  gtsave("C:/Users/netio/Documents/UofW/Projects/MMP9/MMP9_demographics.png", 
+  gtsave("MMP9_demographics.png", 
          vwidth = 1200, vheight = 800)
 
 
 
+##Analysis & Plotting 
 
-
-
-
-
-
-
-
-
-
-
-
-#data_set$scr_q <- 107.3/data_set$eGFR_crea
-#data_set$q <- data_set$screatinine / data_set$scr_q
-#data_set$aki <- NA
-#data_set$aki <- data_set$scr_q > 1.5
-
-
-
-
-
-
-
-
-
-
-
-#table1::table1( ~ sex_corrected + race + age_years + height + weight + bmi + t1d_status + systolic_bp + diastolic_bp + heartrate + severity + a1c_er + mmp9_0_8hr,
-#               data = demographics)
-
-library(tidyverse)
-library(nlme)
-library(emmeans)
-library(ggpubr)
-library(Hmisc)
-library(nephro)
-library(knitr)
-library(readxl)
-library(ggsignif)
-library(arsenal)
-library(readxl)
-
-#Analysis & Plotting 
-
-dat <- read.csv("C:/Users/netio/Documents/UofW/Projects/MMP9/Full_DKA_Data Set_06-26_final.csv")
+dat <- read.csv("Full_DKA_Data Set_06-26_final.csv")
 dat$male <- 1 - dat$female
 dat$age_y <- dat$age/12
 dat$height_m <- dat$ht/100
@@ -318,7 +264,7 @@ merge_set <- merge(merge(zero8,twelve24, all = T),threemo, all = T)
 merge_set$frac_ua <- (merge_set$uua * merge_set$screatinine) / (merge_set$sua * merge_set$ucreatinine)
 
 
-qcr_df <- read.csv("C:/Users/netio/Documents/UofW/Projects/MMP9/qcr.csv")
+qcr_df <- read.csv("qcr.csv")
 
 get_eGFR <- function(age,sex,creatinine,cystatinc){
   age_year <- floor(age)
@@ -347,7 +293,7 @@ for (i in 1:nrow(merge_set)){
   merge_set$eGFR_crea[i] <- get_eGFR_crea(merge_set$age_y[i],merge_set$male[i],merge_set$screatinine[i])
 }
 
-dat <- read.csv("C:/Users/netio/Documents/UofW/Projects/MMP9/Full_DKA_Data Set_06-26_final.csv")
+dat <- read.csv("Full_DKA_Data Set_06-26_final.csv")
 dat$male <- 1 - dat$female
 dat$age_y <- dat$age/12
 dat$height_m <- dat$ht/100
@@ -465,7 +411,7 @@ merge_set <- merge(merge(zero8,twelve24, all = T),threemo, all = T)
 merge_set$frac_ua <- (merge_set$uua * merge_set$screatinine) / (merge_set$sua * merge_set$ucreatinine)
 
 
-qcr_df <- read.csv("C:/Users/netio/Documents/UofW/Projects/MMP9/qcr.csv")
+qcr_df <- read.csv("qcr.csv")
 
 get_eGFR <- function(age,sex,creatinine,cystatinc){
   age_year <- floor(age)
@@ -519,7 +465,7 @@ data_set$aki_0_24 <- as.logical(data_set$aki_0_24)
 
 data_set$aki_0_24 <- ifelse(data_set$aki_0_24, "Yes","No")
 
-mmp9_dat <- read_excel("C:/Users/netio/Documents/UofW/Projects/MMP9/16-1403 MMP9 results 2020.xlsx", sheet = 1, skip = 1)
+mmp9_dat <- read_excel("16-1403 MMP9 results 2020.xlsx", sheet = 1, skip = 1)
 mmp9_dat <- mmp9_dat %>% select(SID, `Time Point`, `Actual Result`)
 names(mmp9_dat) <- c("record_id", "time", "mmp9_actual")
 mmp9_dat$time[mmp9_dat$time == "Follow-up"] <- "3 months"
@@ -528,7 +474,7 @@ data_set <- merge(data_set,mmp9_dat, all = T)
 data_set$mmp9_egfr <- (data_set$mmp9_actual*100) / data_set$eGFR
 data_set$fru[data_set$fru > 100] <- NA
 
-cd93_dat <- read_excel("C:/Users/netio/Documents/UofW/Projects/MMP9/DKA ELISA cd93 stat.xlsx", sheet = 1)
+cd93_dat <- read_excel("DKA ELISA cd93 stat.xlsx", sheet = 1)
 names(cd93_dat) <- c("record_id", "time", "cd93")
 
 data_set <- merge(data_set,cd93_dat, all = T)
@@ -536,70 +482,288 @@ data_set$cd93_egfr <- (data_set$cd93*100) / data_set$eGFR
 data_set$fru_crea <- data_set$fru*100/data_set$crea
 
 
+###### Plotting
 
+library(ggplot2)
+library(patchwork)
+library(nlme)
+library(emmeans)
+library(dplyr)
+library(ggsignif)
 
-graph1 <- ggplot(data_set %>% filter(time %in% c('0-8 hours', '3 months')), aes(x=time, y = mmp9_actual, fill = severity))+
-  geom_boxplot()+
-  theme_classic()+
-  scale_fill_manual(values = c("#fff9ec", "#fcb1a6", "#fb6376"))+
-  labs(x = '', y = 'MMP9', fill = 'Severity')+
-  theme(text = element_text(size = 16))
-
+# Function to run mixed effects model and get pairwise comparisons
+get_mixed_model_pvalues <- function(data, grouping_var) {
+  formula_str <- paste0("mmp9_actual ~ time * ", grouping_var)
   
-graph2 <- ggplot(data_set %>% filter(time %in% c('0-8 hours', '3 months')), aes(x=time, y = mmp9_actual, fill = ivinsdurtile))+
-  geom_boxplot()+
-  theme_classic()+
-  scale_fill_manual(values = c("#fff9ec", "#fcb1a6", "#fb6376"))+
-  labs(x = '', y = 'MMP9', fill = 'Days IV Insulin')+
-  theme(text = element_text(size = 16))
+  model <- lme(as.formula(formula_str), 
+               random = ~1|record_id,  # Change to your subject ID variable
+               data = data,
+               na.action = na.omit)
+  
+  # Within-timepoint comparisons (compare groups at each time)
+  emm_within <- emmeans(model, specs = as.formula(paste0("~ ", grouping_var, " | time")))
+  within_time <- pairs(emm_within, adjust = "none")  # Changed from "tukey"
+  
+  # Across-time comparisons (compare times within each group)
+  emm_across <- emmeans(model, specs = as.formula(paste0("~ time | ", grouping_var)))
+  across_time <- pairs(emm_across, adjust = "none")  # Changed from "tukey"
+  
+  return(list(
+    within_time = within_time,
+    across_time = across_time,
+    model = model
+  ))
+}
 
-graph3 <- ggplot(data_set %>% filter(time %in% c('0-8 hours', '3 months')), aes(x=time, y = mmp9_actual, fill = aki_0_24))+
-  geom_boxplot()+
-  theme_classic()+
-  scale_fill_manual(values = c('#4CAF50', '#F44336'))+
-  labs(x = '', y = 'MMP9', fill = 'AKI')+
-  theme(text = element_text(size = 16))
+# Function to get significance stars
+get_sig_stars <- function(p) {
+  ifelse(p < 0.001, "***",
+         ifelse(p < 0.01, "**",
+                ifelse(p < 0.05, "*", "ns")))
+}
 
-graph4 <- ggplot(data_set %>% filter(time %in% c('0-8 hours', '3 months')), aes(x=time, y = mmp9_actual, fill = t1d_status))+
-  geom_boxplot()+
-  theme_classic()+
-  scale_fill_manual(values = c('#4CAF50', '#F44336'))+
-  labs(x = '', y = 'MMP9', fill = 'T1D Status')+
-  theme(text = element_text(size = 16))
+# Function to create plot with significance brackets
+create_plot_with_brackets <- function(data, grouping_var, results, 
+                                      fill_colors, legend_title) {
+  
+  # Get groups and create position mapping
+  groups <- sort(unique(data[[grouping_var]]))
+  n_groups <- length(groups)
+  times <- c("0-8 hours", "3 months")
+  
+  # Base plot
+  p <- ggplot(data, aes(x = time, y = mmp9_actual, fill = .data[[grouping_var]])) +
+    geom_boxplot(position = position_dodge(0.8)) +
+    theme_classic() +
+    scale_fill_manual(values = fill_colors) +
+    labs(x = '', y = 'MMP9', fill = legend_title) +
+    theme(text = element_text(size = 16))
+  
+  # Calculate y positions
+  y_max <- max(data$mmp9_actual, na.rm = TRUE)
+  y_range <- diff(range(data$mmp9_actual, na.rm = TRUE))
+  y_step <- y_range * 0.12
+  current_y <- y_max + y_step * 0.5
+  
+  # Convert to data frames and get proper structure
+  within_df <- as.data.frame(results$within_time)
+  across_df <- as.data.frame(results$across_time)
+  
+  # Debug output
+  cat("\n--- Processing", legend_title, "---\n")
+  cat("Groups:", paste(groups, collapse = ", "), "\n")
+  cat("Row names of within comparisons:\n")
+  print(head(rownames(within_df)))
+  
+  # For within-time comparisons, the emmeans object with | time creates sections
+  # We need to manually track which rows belong to which timepoint
+  # Typically the first n_comparisons rows are for first timepoint, next n for second
+  n_groups_actual <- length(groups)
+  n_comparisons_per_time <- n_groups_actual * (n_groups_actual - 1) / 2
+  
+  # Add within-time comparisons
+  for (t_idx in 1:length(times)) {
+    time_point <- times[t_idx]
+    
+    # Calculate which rows correspond to this timepoint
+    start_row <- (t_idx - 1) * n_comparisons_per_time + 1
+    end_row <- t_idx * n_comparisons_per_time
+    
+    if (end_row <= nrow(within_df)) {
+      cat("\nTimepoint:", time_point, "- Rows", start_row, "to", end_row, "\n")
+      
+      for (row_idx in start_row:end_row) {
+        p_val <- within_df$p.value[row_idx]
+        sig <- get_sig_stars(p_val)
+        contrast_text <- as.character(within_df$contrast[row_idx])
+        
+        cat("  Comparison:", contrast_text, "- p =", p_val, "- sig:", sig, "\n")
+        
+        if (sig != "ns") {
+          # Parse contrast to get group names
+          parts <- strsplit(contrast_text, " - ")[[1]]
+          group1 <- trimws(parts[1])
+          group2 <- trimws(parts[2])
+          
+          # Find group indices
+          g1_idx <- which(groups == group1)
+          g2_idx <- which(groups == group2)
+          
+          if (length(g1_idx) > 0 && length(g2_idx) > 0) {
+            # Calculate x positions
+            dodge_width <- 0.8
+            x_base <- t_idx
+            x1 <- x_base + (g1_idx - (n_groups + 1)/2) * (dodge_width/n_groups)
+            x2 <- x_base + (g2_idx - (n_groups + 1)/2) * (dodge_width/n_groups)
+            
+            cat("    Adding bracket: x1 =", x1, ", x2 =", x2, ", y =", current_y, "\n")
+            
+            # Add bracket
+            p <- p + 
+              annotate("segment", x = x1, xend = x1, 
+                       y = current_y, yend = current_y + y_step*0.3,
+                       color = "black", linewidth = 0.8) +
+              annotate("segment", x = x1, xend = x2, 
+                       y = current_y + y_step*0.3, yend = current_y + y_step*0.3,
+                       color = "black", linewidth = 0.8) +
+              annotate("segment", x = x2, xend = x2, 
+                       y = current_y + y_step*0.3, yend = current_y,
+                       color = "black", linewidth = 0.8) +
+              annotate("text", x = (x1 + x2)/2, y = current_y + y_step*0.55,
+                       label = sig, size = 5, fontface = "bold")
+            
+            current_y <- current_y + y_step
+          }
+        }
+      }
+    }
+  }
+  
+  # Add across-time comparisons
+  # Each row in across_df corresponds to one group
+  cat("\nAcross-time comparisons:\n")
+  for (row_idx in 1:min(nrow(across_df), length(groups))) {
+    group_name <- groups[row_idx]
+    p_val <- across_df$p.value[row_idx]
+    sig <- get_sig_stars(p_val)
+    
+    cat("Group:", group_name, "- p =", p_val, "- sig:", sig, "\n")
+    
+    if (sig != "ns") {
+      # Calculate x positions for this group across both timepoints
+      dodge_width <- 0.8
+      x1 <- 1 + (row_idx - (n_groups + 1)/2) * (dodge_width/n_groups)
+      x2 <- 2 + (row_idx - (n_groups + 1)/2) * (dodge_width/n_groups)
+      
+      cat("  Adding bracket: x1 =", x1, ", x2 =", x2, ", y =", current_y, "\n")
+      
+      # Add bracket
+      p <- p + 
+        annotate("segment", x = x1, xend = x1, 
+                 y = current_y, yend = current_y + y_step*0.3,
+                 color = "black", linewidth = 0.8) +
+        annotate("segment", x = x1, xend = x2, 
+                 y = current_y + y_step*0.3, yend = current_y + y_step*0.3,
+                 color = "black", linewidth = 0.8) +
+        annotate("segment", x = x2, xend = x2, 
+                 y = current_y + y_step*0.3, yend = current_y,
+                 color = "black", linewidth = 0.8) +
+        annotate("text", x = (x1 + x2)/2, y = current_y + y_step*0.55,
+                 label = sig, size = 5, fontface = "bold")
+      
+      current_y <- current_y + y_step
+    }
+  }
+  
+  # Expand y-axis to show brackets
+  p <- p + coord_cartesian(ylim = c(0, current_y + y_step * 0.5))
+  
+  return(p)
+}
 
+# Filter data
+data_filtered <- data_set %>% filter(time %in% c('0-8 hours', '3 months'))
 
+# Run models with specific filtering for each variable
+# Severity - remove Unknown and NAs
+data_severity <- data_filtered %>% 
+  filter(!is.na(mmp9_actual), !is.na(severity), severity != "Unknown")
+results_severity <- get_mixed_model_pvalues(data_severity, "severity")
 
-combined_boxplots <- (graph1 | graph2) / 
-  (graph3 | graph4)
+# IV Insulin - remove NAs only
+data_insulin <- data_filtered %>% 
+  filter(!is.na(mmp9_actual), !is.na(ivinsdurtile))
+results_insulin <- get_mixed_model_pvalues(data_insulin, "ivinsdurtile")
 
-# Add overall title
-combined_boxplots <- combined_boxplots + 
-  plot_annotation(title = "",
-                  tag_levels = 'A', 
+# AKI - remove NAs only
+data_aki <- data_filtered %>% 
+  filter(!is.na(mmp9_actual), !is.na(aki_0_24))
+results_aki <- get_mixed_model_pvalues(data_aki, "aki_0_24")
+
+# T1D Status - remove NAs only
+data_t1d <- data_filtered %>% 
+  filter(!is.na(mmp9_actual), !is.na(t1d_status))
+results_t1d <- get_mixed_model_pvalues(data_t1d, "t1d_status")
+
+# Print results
+cat("\n=== SEVERITY MODEL ===\n")
+cat("\nWithin-Timepoint Comparisons:\n")
+print(results_severity$within_time)
+cat("\nAcross-Time Comparisons:\n")
+print(results_severity$across_time)
+
+cat("\n=== IV INSULIN MODEL ===\n")
+cat("\nWithin-Timepoint Comparisons:\n")
+print(results_insulin$within_time)
+cat("\nAcross-Time Comparisons:\n")
+print(results_insulin$across_time)
+
+cat("\n=== AKI MODEL ===\n")
+cat("\nWithin-Timepoint Comparisons:\n")
+print(results_aki$within_time)
+cat("\nAcross-Time Comparisons:\n")
+print(results_aki$across_time)
+
+cat("\n=== T1D STATUS MODEL ===\n")
+cat("\nWithin-Timepoint Comparisons:\n")
+print(results_t1d$within_time)
+cat("\nAcross-Time Comparisons:\n")
+print(results_t1d$across_time)
+
+# Create plots with brackets
+graph1 <- create_plot_with_brackets(data_filtered, "severity", results_severity,
+                                    c("#fff9ec", "#fcb1a6", "#fb6376"), "Severity")
+
+graph2 <- create_plot_with_brackets(data_filtered, "ivinsdurtile", results_insulin,
+                                    c("#fff9ec", "#fcb1a6", "#fb6376"), "Days IV Insulin")
+
+graph3 <- create_plot_with_brackets(data_filtered, "aki_0_24", results_aki,
+                                    c('#4CAF50', '#F44336'), "AKI")
+
+graph4 <- create_plot_with_brackets(data_filtered, "t1d_status", results_t1d,
+                                    c('#4CAF50', '#F44336'), "T1D Status")
+
+# Create scatter plots with regression lines
+graph5 <- ggplot(data_filtered %>% filter(!is.na(scopeptin)), 
+                 aes(x = scopeptin, y = mmp9_actual, color = time)) +
+  geom_point(size = 2.5, alpha = 0.7) +
+  geom_smooth(method = 'lm', se = TRUE, linewidth = 1) +
+  theme_classic() +
+  scale_color_manual(values = c("0-8 hours" = "#2E86AB", "3 months" = "#A23B72"),
+                     name = "Time") +
+  labs(x = 'Serum Copeptin', y = 'MMP9') +
+  theme(text = element_text(size = 16),
+        legend.position = "bottom")
+
+graph6 <- ggplot(data_filtered %>% filter(!is.na(sua)), 
+                 aes(x = sua, y = mmp9_actual, color = time)) +
+  geom_point(size = 2.5, alpha = 0.7) +
+  geom_smooth(method = 'lm', se = TRUE, linewidth = 1) +
+  theme_classic() +
+  scale_color_manual(values = c("0-8 hours" = "#2E86AB", "3 months" = "#A23B72"),
+                     name = "Time") +
+  labs(x = 'Serum Uric Acid', y = 'MMP9') +
+  theme(text = element_text(size = 16),
+        legend.position = "bottom")
+
+# Combine all 6 plots (3 rows x 2 columns)
+combined_all_plots <- (graph1 | graph2) / 
+  (graph3 | graph4) /
+  (graph5 | graph6)
+
+combined_all_plots <- combined_all_plots + 
+  plot_annotation(tag_levels = 'A', 
                   theme = theme(plot.title = element_text(size = 14, hjust = 0.5)))
 
-# Display the combined plot
-print(combined_boxplots)
+print(combined_all_plots)
 
-# Save the combined plot
-ggsave("C:/Users/netio/Documents/UofW/Projects/MMP9/MMP9_boxplots_by_groups.png", combined_boxplots,
-       width = 12, height = 10, dpi = 300, units = "in")
+ggsave("MMP9_all_plots.png", combined_all_plots,
+       width = 14, height = 18, dpi = 300, units = "in")
 
 
 
 
 ##################################################################################### Analysis
-
-# Mixed-Effects Regression Analysis for MMP9 Claims
-library(dplyr)
-library(lme4)      # For mixed-effects models
-library(lmerTest)  # For p-values in mixed models
-library(broom.mixed) # For tidy output of mixed models
-library(emmeans)   # For estimated marginal means
-
-# ============================================================================
-# DATA PREPARATION
-# ============================================================================
 
 # Create analysis dataset
 analysis_data <- data_set %>%
@@ -610,32 +774,7 @@ analysis_data <- data_set %>%
     time_factor = factor(time, levels = c('0-8 hours', '3 months'))
   )
 
-# Check data structure
-cat("Data structure:\n")
-cat("Total observations:", nrow(analysis_data), "\n")
-cat("Unique participants:", length(unique(analysis_data$record_id)), "\n")
-cat("Observations per time point:\n")
-print(table(analysis_data$time))
 
-# Check how many participants have data at both time points
-participant_timepoints <- analysis_data %>%
-  group_by(record_id) %>%
-  summarise(
-    n_timepoints = n(),
-    has_dka = any(time == '0-8 hours'),
-    has_followup = any(time == '3 months'),
-    .groups = 'drop'
-  )
-
-cat("\nParticipant time point coverage:\n")
-cat("Participants with both time points:", sum(participant_timepoints$has_dka & participant_timepoints$has_followup), "\n")
-cat("Participants with DKA only:", sum(participant_timepoints$has_dka & !participant_timepoints$has_followup), "\n")
-cat("Participants with follow-up only:", sum(!participant_timepoints$has_dka & participant_timepoints$has_followup), "\n")
-
-# ============================================================================
-# CLAIM 1: MMP9 concentrations higher during DKA than 3 months follow-up
-# Expected: mean±SE: 1504.6±137 vs. 668.7±159 ng/mL, p=0.0003
-# ============================================================================
 
 # Mixed-effects model for time comparison
 model1 <- lmer(mmp9_egfr ~ time_factor + (1|record_id), data = analysis_data)
@@ -649,6 +788,9 @@ emm1 <- emmeans(model1, ~ time_factor)
 print("\nEstimated marginal means:")
 print(emm1)
 
+as.data.frame(emm1)
+
+
 # Pairwise comparisons
 pairs1 <- pairs(emm1)
 print("\nPairwise comparison:")
@@ -659,13 +801,6 @@ coef1 <- tidy(model1, effects = "fixed", conf.int = TRUE)
 print("\nFixed effects coefficients:")
 print(coef1)
 
-cat("\nExpected from paper: 0-8 hours: 1504.6±137, 3 months: 668.7±159, p=0.0003\n\n")
-
-# ============================================================================
-# CLAIM 2: At 0-8 hours, participants with AKI had higher MMP9
-# Expected: 2256.9±310.1 vs. 1344.7±143.5 ng/mL, p=0.01
-# ============================================================================
-
 
 
 # Filter for DKA time point only and check AKI variable
@@ -673,30 +808,32 @@ dka_data <- analysis_data %>%
   filter(time == '0-8 hours', !is.na(aki_0_24))
 
 
-  # Mixed-effects model for AKI comparison (though with single time point, random effect may not be needed)
-  # But keeping it for consistency and in case some participants have multiple DKA measurements
-  model2 <- aov(mmp9_egfr ~ aki_0_24, data = dka_data)
-  
-  print("Mixed-effects model summary for AKI:")
-  print(summary(model2))
-  
-  # Estimated marginal means
-  emm2 <- emmeans(model2, ~ aki_0_24)
-  print("\nEstimated marginal means by AKI status:")
-  print(emm2)
-  
-  # Pairwise comparisons
-  pairs2 <- pairs(emm2)
-  print("\nPairwise comparison:")
-  print(pairs2)
-  
-  # Coefficients
-  coef2 <- tidy(model2, effects = "fixed", conf.int = TRUE)
-  print("\nFixed effects coefficients:")
-  print(coef2)
-  
 
-#3 months
+
+
+model2 <- aov(mmp9_egfr ~ aki_0_24, data = dka_data)
+
+print("Mixed-effects model summary for AKI:")
+print(summary(model2))
+
+# Estimated marginal means
+emm2 <- emmeans(model2, ~ aki_0_24)
+print("\nEstimated marginal means by AKI status:")
+print(emm2)
+as.data.frame(emm2)
+
+# Pairwise comparisons
+pairs2 <- pairs(emm2)
+print("\nPairwise comparison:")
+print(pairs2)
+
+# Coefficients
+coef2 <- tidy(model2, effects = "fixed", conf.int = TRUE)
+print("\nFixed effects coefficients:")
+print(coef2)
+
+
+##### 3 months
 dka_data <- analysis_data %>% 
   filter(time == '3 months', !is.na(aki_0_24))
 
@@ -713,6 +850,8 @@ print(summary(model2))
 emm2 <- emmeans(model2, ~ aki_0_24)
 print("\nEstimated marginal means by AKI status:")
 print(emm2)
+as.data.frame(emm2)
+
 
 # Pairwise comparisons
 pairs2 <- pairs(emm2)
@@ -723,6 +862,8 @@ print(pairs2)
 coef2 <- tidy(model2, effects = "fixed", conf.int = TRUE)
 print("\nFixed effects coefficients:")
 print(coef2)
+
+
 
 
 
@@ -882,24 +1023,24 @@ dka_data <- analysis_data %>%
   filter(time == '0-8 hours') %>%
   filter(aki_0_24 == 'Yes')
 
-  model_aki_baseline <- lm(mmp9_egfr ~ scopeptin, data = dka_data)
-  summary(model_aki_baseline)
-  
-  model_aki_baseline <- lm(mmp9_egfr ~ sua, data = dka_data)
-  summary(model_aki_baseline)
-  
-  # Estimated marginal means
-  emm2 <- emmeans(model_aki_baseline, ~ scopeptin)
+model_aki_baseline <- lm(mmp9_egfr ~ scopeptin, data = dka_data)
+summary(model_aki_baseline)
 
-  # Pairwise comparisons
-  pairs2 <- pairs(emm2)
- 
-  
-  # Coefficients
-  coef2 <- tidy(model, effects = "fixed", conf.int = TRUE)
-  print("\nFixed effects coefficients:")
-  print(coef2)
-  
+model_aki_baseline <- lm(mmp9_egfr ~ sua, data = dka_data)
+summary(model_aki_baseline)
+
+# Estimated marginal means
+emm2 <- emmeans(model_aki_baseline, ~ scopeptin)
+
+# Pairwise comparisons
+pairs2 <- pairs(emm2)
+
+
+# Coefficients
+coef2 <- tidy(model, effects = "fixed", conf.int = TRUE)
+print("\nFixed effects coefficients:")
+print(coef2)
+
 
 #3 months
 dka_data <- analysis_data %>% 
@@ -930,336 +1071,6 @@ print(pairs2)
 coef2 <- tidy(model2, effects = "fixed", conf.int = TRUE)
 print("\nFixed effects coefficients:")
 print(coef2)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-
-
-
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-
-# Method 1: Keep grouping variables in the analysis
-mmp9_change <- data_set %>%
-  # Keep only the timepoints we need
-  filter(time %in% c("0-8 hours", "3 months")) %>%
-  # Select relevant columns INCLUDING grouping variables
-  select(record_id, time, mmp9_actual, ivinsdurtile, aki_0_24, severity, t1d_status) %>%
-  # Remove rows with missing MMP9 data
-  filter(!is.na(mmp9_actual)) %>%
-  # Group by participant and grouping variables to preserve them
-  group_by(record_id, ivinsdurtile, aki_0_24, severity, t1d_status) %>%
-  # Check that we have both timepoints for this participant
-  filter(n() == 2) %>%
-  # Calculate the change within each group
-  summarise(
-    mmp9_baseline = mmp9_actual[time == "0-8 hours"],
-    mmp9_3months = mmp9_actual[time == "3 months"],
-    mmp9_change = mmp9_3months - mmp9_baseline,
-    .groups = 'drop'
-  )
-
-# View the results
-print("MMP9 change with grouping variables:")
-print(head(mmp9_change))
-
-# Overall density plot
-overall_density <- ggplot(mmp9_change, aes(x = mmp9_change)) + 
-  geom_density() + 
-  theme_classic() +
-  labs(title = "Overall Distribution of MMP9 Changes",
-       x = "MMP9 Change (3 months - baseline)",
-       y = "Density")
-
-print(overall_density)
-
-# Density plot by IV insulin duration
-iv_density <- ggplot(mmp9_change, aes(x = mmp9_change, fill = ivinsdurtile)) + 
-  geom_density(alpha = 0.6) + 
-  theme_classic() +
-  labs(title = "MMP9 Changes by IV Insulin Duration",
-       x = "MMP9 Change (3 months - baseline)",
-       y = "Density",
-       fill = "IV Insulin Duration") +
-  theme(legend.position = "bottom")
-
-print(iv_density)
-
-# Density plot by AKI status
-aki_density <- ggplot(mmp9_change, aes(x = mmp9_change, fill = aki_0_24)) + 
-  geom_density(alpha = 0.6) + 
-  theme_classic() +
-  labs(title = "MMP9 Changes by AKI Status",
-       x = "MMP9 Change (3 months - baseline)",
-       y = "Density",
-       fill = "AKI Status") +
-  theme(legend.position = "bottom")
-
-print(aki_density)
-
-# Density plot by T1D status
-t1d_density <- ggplot(mmp9_change, aes(x = mmp9_change, fill = t1d_status)) + 
-  geom_density(alpha = 0.6) + 
-  theme_classic() +
-  labs(title = "MMP9 Changes by T1D Status",
-       x = "MMP9 Change (3 months - baseline)",
-       y = "Density",
-       fill = "T1D Status") +
-  theme(legend.position = "bottom")
-
-print(t1d_density)
-
-# Density plot by severity
-severity_density <- ggplot(mmp9_change, aes(x = mmp9_change, fill = severity)) + 
-  geom_density(alpha = 0.6) + 
-  theme_classic() +
-  labs(title = "MMP9 Changes by Severity",
-       x = "MMP9 Change (3 months - baseline)",
-       y = "Density",
-       fill = "Severity") +
-  theme(legend.position = "bottom")
-
-print(severity_density)
-
-
-combined_density_plots <- (iv_density | aki_density) / 
-  (severity_density | t1d_density)
-
-# Add overall title
-combined_density_plots <- combined_density_plots + 
-  plot_annotation(title = "MMP9 Changes (3 months - baseline) by Clinical Variables",
-                  theme = theme(plot.title = element_text(size = 14, hjust = 0.5)))
-
-# Display the combined plot
-print(combined_density_plots)
-
-# Save the combined plot
-ggsave("C:/Users/netio/Documents/UofW/Projects/MMP9/MMP9_density_plots_by_groups.png", combined_density_plots, 
-       width = 12, height = 10, dpi = 300, units = "in")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-plot_df <- mmp_conc %>% left_join(final_data %>% dplyr::select(record_id, severity, ivinsulin_start, ivinsulinstop), 
-                                  by = 'record_id')
-
-ggplot(plot_df, aes(x=time_point, y = result, fill = severity))+geom_boxplot()+theme_classic()+
-  labs(x = 'Time Point', y = 'MMP9 Concentration', )
-
-
-
-
-#analysis dataframe
-
-analysis_df <- final_data %>% 
-  dplyr::select(record_id, scopeptin_0_8hr, scopeptin_3mo, 
-                serum_uric_0_8hr = sua_0_8hr, serum_uric_3mo = sua_3mo,  
-                urine_uric_0_8hr = uua_0_8_hr, urine_uric_3mo = uua_3mo, 
-                ivinsulin_start, ivinsulinstop, severity)
-
-# Reshape the data
-library(dplyr)
-library(tidyr)
-
-long_data <- analysis_df %>%
-  # Convert all measurement columns to character to handle mixed types
-  mutate(across(ends_with(c("_0_8hr", "_3mo")), as.character)) %>%
-  pivot_longer(
-    cols = -c(record_id, ivinsulin_start, ivinsulinstop, severity),  # Add severity here
-    names_to = c("variable", "timepoint"), 
-    names_pattern = "(.+)_(0_8hr|3mo)",
-    values_to = "value"
-  ) %>%
-  mutate(
-    timepoint = factor(timepoint, levels = c("0_8hr", "3mo"), 
-                       labels = c("0-8 hours", "3 months")),
-    # Convert back to numeric where possible, keeping character for ">1600" etc.
-    value_numeric = as.numeric(value)
-  )
-
-# Handle the >1600 values
-long_data$value_numeric[which(long_data$value == '>1600')] <- 1600
-
-# View the result
-head(long_data)
-
-
-
-
-plot1 <- ggplot(long_data %>% filter(variable == 'mmp9'), 
-                aes(x=timepoint, y = as.numeric(value_numeric), fill = severity)) +
-  geom_boxplot(alpha = 0.7, outlier.shape = NA, position = position_dodge(width = 0.8)) +
-  labs(x='Time Point', y = 'MMP9') +
-  theme_classic()
-
-#Why are there so few data? 
-
-
-ggplot(long_data %>% filter(variable == 'mmp9'), 
-       aes(x=timepoint, y = as.numeric(value_numeric), fill = severity)) +
-  geom_violin()+geom_boxplot(width = 0.3, fill = NA)+
-  labs(x='Time Point', y = 'MMP9') +
-  theme_classic()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# Function to create individual panels with dodged error bars
-create_panel <- function(data, group_var, title, colors) {
-  # Calculate means and standard errors for each group and time point
-  summary_stats <- data %>%
-    group_by(time, !!sym(group_var)) %>%
-    summarise(
-      mean_MMP9 = mean(MMP9, na.rm = TRUE),
-      se_MMP9 = sd(MMP9, na.rm = TRUE) / sqrt(n()),
-      .groups = 'drop'
-    )
-  
-  # Define position dodge width
-  dodge_width <- 0.3
-  
-  ggplot() +
-    # Add individual points with jitter
-    geom_point(data = data, 
-               aes(x = time, y = MMP9, color = !!sym(group_var)), 
-               alpha = 0.4, size = 1.5, 
-               position = position_jitterdodge(dodge.width = dodge_width, 
-                                               jitter.width = 0.15, 
-                                               jitter.height = 0)) +
-    # Add lines connecting means with dodge
-    geom_line(data = summary_stats,
-              aes(x = time, y = mean_MMP9, color = !!sym(group_var), group = !!sym(group_var)),
-              size = 2,
-              position = position_dodge(width = dodge_width)) +
-    # Add error bars with dodge
-    geom_errorbar(data = summary_stats,
-                  aes(x = time, y = mean_MMP9, 
-                      ymin = mean_MMP9 - se_MMP9, ymax = mean_MMP9 + se_MMP9,
-                      color = !!sym(group_var)),
-                  width = 0.05, size = 1.2,
-                  position = position_dodge(width = dodge_width)) +
-    # Add points for the means (optional, makes them more visible)
-    geom_point(data = summary_stats,
-               aes(x = time, y = mean_MMP9, color = !!sym(group_var)),
-               size = 3, shape = 15,  # square shape for means
-               position = position_dodge(width = dodge_width)) +
-    # Customize colors
-    scale_color_manual(values = colors) +
-    # Set scales
-    scale_y_continuous(limits = c(0, 5000), 
-                       breaks = seq(0, 5000, 1000)) +
-    # Theming
-    theme_bw() +
-    theme(
-      panel.grid.minor = element_blank(),
-      panel.grid.major.x = element_blank(),
-      legend.position = "bottom",
-      legend.title = element_text(size = 10, face = "bold"),
-      axis.title.x = element_blank(),
-      axis.title.y = element_text(size = 10),
-      plot.title = element_text(size = 11, face = "bold")
-    ) +
-    labs(y = "MMP9", color = title)
-}
-
-# Define colors for each group (matching the original plot)
-severity_colors <- c("All" = "black", "Mild" = "#fff9ec", "Moderate" = "#fcb1a6", "Severe" = "#fb6376")
-insulin_colors <- c("All" = "black", "[1.9,12.5)" = "#fff9ec", "[12.5,18.1)" = "#fcb1a6", "[18.1,∞)" = "#fb6376")
-aki_colors <- c("All" = "black", "No" = "#4CAF50", "Yes" = "#F44336")
-t1d_colors <- c("All" = "black", "Known" = "#4CAF50", "New" = "#F44336")
-# Create individual panels using your actual data
-p1 <- create_panel(final_data, "Severity_group", "Severity", severity_colors)
-p2 <- create_panel(final_data, "IV_Insulin_group", "Days IV Insulin", insulin_colors)
-p3 <- create_panel(final_data, "AKI_group", "AKI", aki_colors)
-p4 <- create_panel(final_data, "T1D_group", "T1D Status", t1d_colors)
-# Combine panels using patchwork
-combined_plot <- (p1 | p2) / (p3 | p4)
-# Display the combined plot
-print(combined_plot)
-
-
-# Save the plot
-ggsave("C:/Users/netio/Documents/UofW/Projects/MMP9/MMP9_multivariate_analysis.png", combined_plot, 
-       width = 12, height = 10, dpi = 300, units = "in")
-
-print("Plot created successfully! Check 'MMP9_multivariate_analysis.png'")
-
-
 
 
 
