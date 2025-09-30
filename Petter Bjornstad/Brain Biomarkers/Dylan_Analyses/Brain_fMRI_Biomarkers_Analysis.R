@@ -50,9 +50,110 @@ mri_ids <- c('CRC-10', 'CRC-11', 'CRC-12', 'CRC-13', 'CRC-26', 'CRC-39', 'CRC-46
              'CRC-55', 'CRC-58', 'CRC-60', 
              'RH2-01-O', 'RH2-03-O', 'RH2-08-T', 'RH2-10-L', 'RH2-11-O', 'RH2-13-O', 'RH2-16-O', 'RH2-17-L', 
              'RH2-18-O', 'RH2-19-T', 'RH2-22-T', 'RH2-24-L', 'RH2-27-L', 'RH2-28-L', 'RH2-29-L', 'RH2-33-L', 
-             'RH2-34-O', 'RH2-35-T', 'RH2-38-O', 'RH2-39-O', 'RH2-41-T', 'RH2-42-T', 'RH2-43-T', 
+             'RH2-34-O', 'RH2-35-T', 'RH2-38-T', 'RH2-39-O', 'RH2-41-T', 'RH2-42-T', 'RH2-43-T', 
              'RH2-44-T', 'RH2-45-T', 'RH2-48-T', 'RH2-49-T', 'RH2-50-L', 'RH2-52-T', 'RH2-53-T', 
              'RH2-55-T')
+
+
+small_dat <- dat %>% 
+  filter(record_id %in% mri_ids)
+
+#find missing
+#mri_ids[which(!mri_ids %in% small_dat$record_id)]
+
+#missing_dat <- dat %>% filter(rh2_id == 'RH2-38-O')
+
+
+small_dat$group[which(small_dat$record_id == 'RH2-38-T')] <- 'Obese Control'
+small_dat$record_id[which(small_dat$record_id == 'RH2-38-T')] <- 'RH2-38-O'
+
+
+
+
+
+qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
+            "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
+
+
+
+# Now create the table with proper data types
+desc_table1_fixed <- small_dat %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, group, ab40_avg_conc, ab42_avg_conc, 
+         tau_avg_conc, nfl_avg_conc, gfap_avg_conc, ptau_181_avg_conc, ptau_217_avg_conc) %>%
+  tbl_summary(
+    by = group,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      hba1c ~ "continuous",
+      sex ~ "categorical",
+      race_ethnicity ~ "categorical",
+      study ~ "categorical",
+      ab40_avg_conc ~ 'continuous', 
+      ab42_avg_conc ~ 'continuous', 
+      tau_avg_conc ~ 'continuous', 
+      nfl_avg_conc ~ 'continuous', 
+      gfap_avg_conc ~ 'continuous',
+      ptau_181_avg_conc ~ 'continuous', 
+      ptau_217_avg_conc ~ 'continuous'
+      
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex", 
+      race_ethnicity ~ "Race/Ethnicity",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      study ~ "Study",
+      ab40_avg_conc ~ 'Ab40 (pg/mL)', 
+      ab42_avg_conc ~ 'Ab42 (pg/mL)', 
+      tau_avg_conc ~ 'Tau (pg/mL)', 
+      nfl_avg_conc ~ 'NFL (pg/mL)', 
+      gfap_avg_conc ~ 'GFAP (pg/mL)',
+      ptau_181_avg_conc ~ 'pTau 181 (pg/mL)', 
+      ptau_217_avg_conc ~ 'pTau 217 (pg/mL)'
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test"
+    # Skip categorical p-values if they cause issues
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Group**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save version with epic
+desc_table1_fixed %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/demographics_OC_LC_T2D_with_epic_final.png", 
+         vwidth = 1200, vheight = 800)
+
+
+
+
+
+
+
+
+
+
 
 
 
