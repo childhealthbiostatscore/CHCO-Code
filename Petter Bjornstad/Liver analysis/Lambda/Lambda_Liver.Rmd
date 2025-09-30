@@ -6467,7 +6467,7 @@ dev.off()
 ```{r}
 #Filter to celltype 
 LR_celltypes <- unique(so_liver_sn$celltype_LR)[1]
-clinical_variables <- c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage","fibrosis_cat","steatosis_grade")
+clinical_variables <- c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage","steatosis_grade")
 #Filter to celltype 
 # LR_celltypes <- unique(so_liver_sn$celltype)
 #  [1] Hep-2        Hep-5        Hep-4        EC-2         Stellate-2   Hep-3        Cholang     
@@ -6506,8 +6506,8 @@ cell_name <- LR_celltypes
   # List of genes
   genes_list <- rownames(counts_hvg)
   
-  for (var in clinical_variables[10:11]) {
-  # var <- clinical_variables[4]
+  # for (var in clinical_variables[10]) {
+  var <- clinical_variables[10]
     so_celltype[[var]] <- as.numeric(unlist(so_celltype[[var]][1]))
     
     # With parallelization
@@ -6597,7 +6597,7 @@ cell_name <- LR_celltypes
     #Save Results
     write.csv(full_results,paste0("/home/hhampson/Results/NEBULA_",cell_name2,"_",var,"_unadjusted_2000_pooled_offset.csv"))
     
-  }
+  # }
 # }
 
 #Heat Map visualization of results
@@ -6697,143 +6697,143 @@ summary_stats <- total_results %>%
   )
 
 # Create the faceted volcano plot matching your style
-# volcano_plots <- ggplot(total_results, aes(x = log_fc, y = PValue10, color = color)) +
-#   geom_point(alpha = 0.7) +  # Plot points with transparency
-#   scale_color_identity() +  # Use the color column directly
-#   
-#   # Add labels for significant points
-#   geom_text(data = total_results[total_results$fdr < 0.05, ], 
-#             aes(label = Gene),
-#             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black") +
-#   
-#   # Facet by cell type
-#   facet_wrap(~ Celltype, 
-#              ncol = 2,  # Adjust as needed
-#              scales = "free_y") +  # Free y-scale but fixed x-scale
-#   
-#   # Set x-axis limits matching your original
-#   xlim(-2.5, 2.5) +
-#   
-#   # Labels and theme matching your style
-#   labs(
-#     title = paste0("Gene Expression vs. ",var),
-#     subtitle = "2000 HVGs, Unadjusted",
-#     x = "Log Fold Change",
-#     y = "-log10(P-Value)"
-#   ) +
-#   
-#   theme_minimal() +
-#   theme(
-#     plot.title = element_text(hjust = 0),
-#     axis.text.x = element_text(angle = 0, hjust = 1),
-#     strip.text = element_text(face = "bold", size = 10),
-#     strip.background = element_rect(fill = "gray95", color = NA),
-#     panel.border = element_rect(color = "gray80", fill = NA)
-#   )
+volcano_plots <- ggplot(total_results, aes(x = log_fc, y = PValue10, color = color)) +
+  geom_point(alpha = 0.7) +  # Plot points with transparency
+  scale_color_identity() +  # Use the color column directly
+
+  # Add labels for significant points
+  geom_text(data = total_results[total_results$fdr < 0.05, ],
+            aes(label = Gene),
+            vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black") +
+
+  # Facet by cell type
+  facet_wrap(~ Celltype,
+             ncol = 2,  # Adjust as needed
+             scales = "free_y") +  # Free y-scale but fixed x-scale
+
+  # Set x-axis limits matching your original
+  xlim(-2.5, 2.5) +
+
+  # Labels and theme matching your style
+  labs(
+    title = paste0("Gene Expression vs. ",var),
+    subtitle = "2000 HVGs, Unadjusted",
+    x = "Log Fold Change",
+    y = "-log10(P-Value)"
+  ) +
+
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0),
+    axis.text.x = element_text(angle = 0, hjust = 1),
+    strip.text = element_text(face = "bold", size = 10),
+    strip.background = element_rect(fill = "gray95", color = NA),
+    panel.border = element_rect(color = "gray80", fill = NA)
+  )+facet_wrap(~variable)
+
+# Display the plot
+print(volcano_plots)
+png("/home/hhampson/Results/Volcano_Plots_NEBULA_Other_Celltypess_LR_unadjusted_pooled_offset_Clinical_vars.png",
+    width = 6000, height = 4000, res = 300)
+print(volcano_plots)
+dev.off()
 # 
-# # Display the plot
-# print(volcano_plots)
-# png(fs::path(dir.results, "Volcano_Plots_NEBULA_Other_Celltypess_LR_unadjusted_pooled_offset_Clinical_vars.png"),
-#     width = 5000, height = 3000, res = 300)
-# print(volcano_plots)
-# dev.off()
-# 
-# var <- "bmi"
-for (var in clinical_variables){
-  results <- total_results %>% 
-    filter(variable == var)
-  Genes <- length(unique(results$Gene))
-  results$p_value10 <- round(as.numeric(results$p_value10),3)
-  results$fdr <- as.numeric(results$fdr)
-  significant_df <- results[results$fdr < 0.05, ]
-  
-  celltype_limits <- results %>%
-    group_by(Celltype) %>%
-    summarise(
-      min = min(log_fc, na.rm = TRUE),
-      max = max(log_fc, na.rm = TRUE)
-    )
-  
-  # Join back to results
-  results <- results %>%
-    left_join(celltype_limits, by = "Celltype")
-  
-  results <- results %>% 
-    na.omit()
-  
-  # # Create the faceted volcano plot matching your style
-  # volcano_plot <- ggplot(results, aes(x = log_fc, y = p_value10, color = color)) +
-  #   geom_point(alpha = 0.7) +  # Plot points with transparency
-  #   scale_color_identity() +  # Use the color column directly
-  #   theme_bw() +  # Minimal theme
-  #   # Facet by cell type
-  #   facet_wrap(~ Celltype,
-  #              ncol = 5,  # Adjust as needed
-  #              scales = "free_y") +  # Free y-scale but fixed x-scale
-  #   theme(
-  #     plot.title = element_text(hjust = 0),
-  #     axis.text.x = element_text(angle = 0, hjust = 1)
-  #   )+
-  #   labs(title=paste0("Gene Expression vs. ",var))+
-  #   xlim(-1,1)+
-  #   # # Add labels for significant points
-  #   geom_text(data = significant_df, aes(label =Gene),
-  #             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
-  volcano_plot <- ggplot(results, aes(x = log_fc, y = p_value10, color = color)) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity() +
-    theme_bw() +
-    facet_wrap(~ Celltype, ncol = 5, scales = "free_y") +
-    theme(
-      plot.title = element_text(hjust = 0),
-      axis.text.x = element_text(angle = 0, hjust = 1)
-    ) +
-    labs(title = paste0("Gene Expression vs. ", var)) +
-    xlim(-1, 1) +
-    # Use geom_text_repel instead
-    geom_text_repel(
-      data = significant_df, 
-      aes(label = Gene),
-      size = 3, 
-      color = "black", 
-      box.padding = 0.5,
-      point.padding = 0.3,
-      segment.color = "grey50",
-      max.overlaps = 20,
-      force = 2,
-      nudge_y = 0.5  # Nudge labels up slightly
-    )
-  # Add labels for significant points with ggrepel
-  # geom_text_repel(data = significant_df, aes(label = Gene),
-  #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
-  
-  # volcano_plot
-  
-  # Display the plot
-  # print(volcano_plot)
-  png(fs::path(dir.results, paste0("Volcano_Plots_NEBULA_",var,"_All_Celltypes_LR_unadjusted_pooled_offset.png")),
-      width = 4000, height = 1500, res = 300)
-  print(volcano_plot)
-  dev.off()
-}
+# # var <- "bmi"
+# for (var in clinical_variables){
+#   results <- total_results %>% 
+#     filter(variable == var)
+#   Genes <- length(unique(results$Gene))
+#   results$p_value10 <- round(as.numeric(results$p_value10),3)
+#   results$fdr <- as.numeric(results$fdr)
+#   significant_df <- results[results$fdr < 0.05, ]
+#   
+#   celltype_limits <- results %>%
+#     group_by(Celltype) %>%
+#     summarise(
+#       min = min(log_fc, na.rm = TRUE),
+#       max = max(log_fc, na.rm = TRUE)
+#     )
+#   
+#   # Join back to results
+#   results <- results %>%
+#     left_join(celltype_limits, by = "Celltype")
+#   
+#   results <- results %>% 
+#     na.omit()
+#   
+#   # # Create the faceted volcano plot matching your style
+#   # volcano_plot <- ggplot(results, aes(x = log_fc, y = p_value10, color = color)) +
+#   #   geom_point(alpha = 0.7) +  # Plot points with transparency
+#   #   scale_color_identity() +  # Use the color column directly
+#   #   theme_bw() +  # Minimal theme
+#   #   # Facet by cell type
+#   #   facet_wrap(~ Celltype,
+#   #              ncol = 5,  # Adjust as needed
+#   #              scales = "free_y") +  # Free y-scale but fixed x-scale
+#   #   theme(
+#   #     plot.title = element_text(hjust = 0),
+#   #     axis.text.x = element_text(angle = 0, hjust = 1)
+#   #   )+
+#   #   labs(title=paste0("Gene Expression vs. ",var))+
+#   #   xlim(-1,1)+
+#   #   # # Add labels for significant points
+#   #   geom_text(data = significant_df, aes(label =Gene),
+#   #             vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+#   volcano_plot <- ggplot(results, aes(x = log_fc, y = p_value10, color = color)) +
+#     geom_point(alpha = 0.7) +
+#     scale_color_identity() +
+#     theme_bw() +
+#     facet_wrap(~ Celltype, ncol = 5, scales = "free_y") +
+#     theme(
+#       plot.title = element_text(hjust = 0),
+#       axis.text.x = element_text(angle = 0, hjust = 1)
+#     ) +
+#     labs(title = paste0("Gene Expression vs. ", var)) +
+#     xlim(-1, 1) +
+#     # Use geom_text_repel instead
+#     geom_text_repel(
+#       data = significant_df, 
+#       aes(label = Gene),
+#       size = 3, 
+#       color = "black", 
+#       box.padding = 0.5,
+#       point.padding = 0.3,
+#       segment.color = "grey50",
+#       max.overlaps = 20,
+#       force = 2,
+#       nudge_y = 0.5  # Nudge labels up slightly
+#     )
+#   # Add labels for significant points with ggrepel
+#   # geom_text_repel(data = significant_df, aes(label = Gene),
+#   #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+#   
+#   # volcano_plot
+#   
+#   # Display the plot
+#   # print(volcano_plot)
+#   png(paste0("/home/hhampson/ResultsVolcano_Plots_NEBULA_",var,"_All_Celltypes_LR_unadjusted_pooled_offset.png"),
+#       width = 4000, height = 1500, res = 300)
+#   print(volcano_plot)
+#   dev.off()
+# }
 ##GSEA
 for (var in clinical_variables){
   results <- total_results %>% 
     filter(variable == var)
-  for (celltype in LR_celltypes) {
-    cell_results <- results %>% 
-      filter(Celltype %in% celltype)
+  # for (celltype in LR_celltypes) {
+    # results <- results 
+    #   filter(Celltype %in% celltype)
     # Filter out the gmt files for KEGG, Reactome and GOBP
     list.files(bg_path)
     gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
     gmt_files
-    kegg_legacy <- prepare_gmt(gmt_files[1], unique(cell_results$Gene), savefile = FALSE)
-    reactome <- prepare_gmt(gmt_files[3], unique(cell_results$Gene), savefile = FALSE)
-    go <- prepare_gmt(gmt_files[4], unique(cell_results$Gene), savefile = FALSE)
+    kegg_legacy <- prepare_gmt(gmt_files[1], unique(results$Gene), savefile = FALSE)
+    reactome <- prepare_gmt(gmt_files[3], unique(results$Gene), savefile = FALSE)
+    go <- prepare_gmt(gmt_files[4], unique(results$Gene), savefile = FALSE)
     
     # rank genes by t-stats in DiD
-    rankings_dHep <- cell_results$log_fc
-    names(rankings_dHep) <- cell_results$Gene
+    rankings_dHep <- results$log_fc
+    names(rankings_dHep) <- results$Gene
     rankings_dHep <- sort(rankings_dHep, decreasing = TRUE)
     plot(rankings_dHep)
     min(rankings_dHep)
@@ -6890,7 +6890,7 @@ for (var in clinical_variables){
     ggsave(fs::path(dir.results,paste0(celltype,"_",var,"top30_pathways_unadjusted.jpeg")),
            width = 15, height = 20, scale = 1)
   }
-}
+# }
 ```
 ### ii. LR GSEA
 ```{r echo = F}
