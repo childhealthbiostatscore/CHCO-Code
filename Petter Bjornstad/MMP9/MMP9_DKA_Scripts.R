@@ -465,7 +465,7 @@ data_set$aki_0_24 <- as.logical(data_set$aki_0_24)
 
 data_set$aki_0_24 <- ifelse(data_set$aki_0_24, "Yes","No")
 
-mmp9_dat <- read_excel("16-1403 MMP9 results 2020.xlsx", sheet = 1, skip = 1)
+mmp9_dat <- read_excel("16-1403 MMP9 results 2020.csv", sheet = 1, skip = 1)
 mmp9_dat <- mmp9_dat %>% select(SID, `Time Point`, `Actual Result`)
 names(mmp9_dat) <- c("record_id", "time", "mmp9_actual")
 mmp9_dat$time[mmp9_dat$time == "Follow-up"] <- "3 months"
