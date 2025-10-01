@@ -75,11 +75,28 @@ harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - B
 #date_of_screen
 #screen_date
 
+#dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+#  arrange(date_of_screen) %>% 
+#  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+#                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+#                   .by = c(record_id, visit))
+
+
+
 dat <- harmonized_data %>% dplyr::select(-dob) %>% 
   arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
                    .by = c(record_id, visit))
+
+
+
+
+
+
+
+
+
 
 
 PET_avg <- function(data){
@@ -326,9 +343,8 @@ desc_table1_fixed %>%
 #               data = dat2)
 
 
-
 aim1_df <- dat2 %>% 
-  dplyr::select(record_id, group, avg_c_f, avg_c_k2, avg_c_k2_f)
+  dplyr::select(record_id, group, avg_c_f = avg_c_f_vw, avg_c_k2 = avg_c_k2_vw, avg_c_k2_f = avg_c_k2_f_vw)
 
 library(tidyverse)
 library(ggpubr)
@@ -416,7 +432,7 @@ dev.off()
 #PET global
 
 aim1_df <- dat2 %>% 
-  dplyr::select(record_id, group, avg_c_f = avg_c_f_vw, avg_c_k2 = avg_c_k2_vw, avg_c_k2_f = avg_c_k2_f_vw)
+  dplyr::select(record_id, group, avg_c_f, avg_c_k2, avg_c_k2_f)
 
 library(tidyverse)
 library(ggpubr)
@@ -4352,11 +4368,11 @@ harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - B
 #date_of_screen
 #screen_date
 
-dat <- harmonized_data %>% dplyr::select(-dob) %>% 
-  arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
-                   .by = c(record_id, visit))
+#dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+#  arrange(date_of_screen) %>% 
+#  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
+#                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+#                   .by = c(record_id, visit))
 
 
 dat <- harmonized_data %>% dplyr::select(-dob) %>% 
