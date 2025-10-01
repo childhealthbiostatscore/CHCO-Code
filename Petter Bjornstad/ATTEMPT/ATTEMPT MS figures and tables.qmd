@@ -45,6 +45,7 @@ library(gridExtra)
 library(grid)
 library(gtable)
 library(extrafont)
+library(readxl)
 ```
 
 ```{r include = F}
@@ -95,7 +96,8 @@ table_labs <- list(
   height = "Height (cm)",
   bmi = "BMI (kg/m²)",
   hba1c = "HbA1c (%)",
-  emu_urine_acr_mean = "Urine ACR (mg/g)",
+  emu_urine_acr_mean = "Urine ACR (mg/mmol)",
+  emu_urine_acr_mean_mgg = "Urine ACR (mg/g)",
   creatinine_s = "Serum creatinine (mg/dL)",
   cystatin_c_s = "Serum cystatin C (mg/L)",
   albumin_serum_gl = "Serum albumin (g/L)",
@@ -275,32 +277,92 @@ for (cell in names(celltype_groups))  {
 #| label: tbl-full-baseline
 #| tbl-cap: "Participant characteristics at baseline."
 
+# kable(summary(arsenal::tableby(
+#   treatment ~ 
+#     age + 
+#     sex + 
+#     weight + 
+#     height + 
+#     bmi + 
+#     hba1c + 
+#     kwt(emu_urine_acr_mean, "medianq1q3") + 
+#     creatinine_s + 
+#     cystatin_c_s + 
+#     albumin_serum_gl + 
+#     cgm_tir + 
+#     diabetes_dx_duration + 
+#     anova(sbp, digits = 0) + 
+#     anova(dbp, digits = 0) + 
+#     cholesterol_serum_mmoll + 
+#     triglycerides_serum_mmoll + 
+#     anova(pulse, digits = 0) + 
+#     ldl_serum_mmoll + 
+#     hdl_serum_mmoll +
+#     anova(mgfr_jodal_bsa, digits = 0) + 
+#     anova(mgfr_jodal, digits = 0) + 
+#     avg_c_r2 + avg_k_r2, 
+#   data = subset(attempt_dat, visit == 0),
+#   control = table_controls, test = F
+# )), digits = 1)
+
+# Remove < signs
+attempt_dat$emu_urine_acr_mean_pooled_numeric <- gsub("<", "", attempt_dat$emu_urine_acr_mean_pooled)
+
+# Convert to numeric
+attempt_dat$emu_urine_acr_mean_pooled_numeric <- as.numeric(attempt_dat$emu_urine_acr_mean_pooled_numeric)
+
+attempt_dat$emu_urine_acr_mean_pooled_na <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, as.numeric(gsub("<", "", attempt_dat$emu_urine_acr_mean_pooled)))
+
+attempt_dat$emu_urine_acr_mean_manual <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, rowMeans(
+  attempt_dat[, c("emu_1_acr_mgmmol", "emu_2_acr_mgmmol", "emu_3_acr_mgmmol")],
+  na.rm = T))
+
+attempt_dat$emu_urine_acr_1_manual <- attempt_dat$emu_1_albumin_mgl / (attempt_dat$emu_1_creatinine_umoll/1000)
+attempt_dat$emu_urine_acr_2_manual <- attempt_dat$emu_2_albumin_mgl / (attempt_dat$emu_2_creatinine_umoll/1000)
+attempt_dat$emu_urine_acr_3_manual <- attempt_dat$emu_3_albumin_mgl / (attempt_dat$emu_3_creatinine_umoll/1000)
+attempt_dat$emu_urine_acr_mean_manual2 <- rowMeans(
+  attempt_dat[, c("emu_urine_acr_1_manual", "emu_urine_acr_2_manual", "emu_urine_acr_3_manual")],
+  na.rm = T)
+
+
+attempt_dat$emu_urine_acr_1_manual3 <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, attempt_dat$emu_1_albumin_mgl / (attempt_dat$emu_1_creatinine_umoll/1000))
+attempt_dat$emu_urine_acr_2_manual3 <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, attempt_dat$emu_2_albumin_mgl / (attempt_dat$emu_2_creatinine_umoll/1000))
+attempt_dat$emu_urine_acr_3_manual3 <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, attempt_dat$emu_3_albumin_mgl / (attempt_dat$emu_3_creatinine_umoll/1000))
+attempt_dat$emu_urine_acr_mean_manual3 <- rowMeans(
+  attempt_dat[, c("emu_urine_acr_1_manual3", "emu_urine_acr_2_manual3", "emu_urine_acr_3_manual3")],
+  na.rm = T)
+
+
+attempt_dat$emu_albumin_pooled <- rowMeans(
+  attempt_dat[, c("emu_1_albumin_mgl", "emu_2_albumin_mgl", "emu_3_albumin_mgl")],
+  na.rm = T)
+
+attempt_dat$emu_cr_pooled <- rowMeans(
+  attempt_dat[, c("emu_1_creatinine_umoll", "emu_2_creatinine_umoll", "emu_3_creatinine_umoll")],
+  na.rm = T)/1000
+
+attempt_dat$emu_urine_acr_mean_pooled_manual <- (attempt_dat$emu_albumin_pooled)/(attempt_dat$emu_cr_pooled)
+
+
 kable(summary(arsenal::tableby(
-  treatment ~ 
-    age + 
-    sex + 
-    weight + 
-    height + 
-    bmi + 
-    hba1c + 
-    kwt(emu_urine_acr_mean, "medianq1q3") + 
-    creatinine_s + 
-    cystatin_c_s + 
-    albumin_serum_gl + 
-    cgm_tir + 
-    diabetes_dx_duration + 
-    anova(sbp, digits = 0) + 
-    anova(dbp, digits = 0) + 
-    cholesterol_serum_mmoll + 
-    triglycerides_serum_mmoll + 
-    anova(pulse, digits = 0) + 
-    ldl_serum_mmoll + 
+  treatment ~
+    weight +
+    height +
+    kwt(emu_urine_acr_mean, "medianq1q3", digits = 2) +
+    creatinine_s +
+    cystatin_c_s +
+    albumin_serum_gl +
+    cgm_tir +
+    anova(sbp, digits = 0) +
+    anova(dbp, digits = 0) +
+    cholesterol_serum_mmoll +
+    triglycerides_serum_mmoll +
+    anova(pulse, digits = 0) +
+    ldl_serum_mmoll +
     hdl_serum_mmoll +
-    anova(mgfr_jodal_bsa, digits = 0) + 
-    anova(mgfr_jodal, digits = 0) + 
-    avg_c_r2 + avg_k_r2, 
+    avg_c_r2 + avg_k_r2,
   data = subset(attempt_dat, visit == 0),
-  control = table_controls
+  control = table_controls, test = F
 )), digits = 1)
 ```
 
@@ -319,7 +381,7 @@ kable(summary(arsenal::tableby(
     height + 
     bmi + 
     hba1c + 
-    kwt(emu_urine_acr_mean, "medianq1q3") + 
+    kwt(emu_urine_acr_mean, "medianq1q3", digits = 2) + 
     creatinine_s + 
     cystatin_c_s + 
     albumin_serum_gl + 
@@ -336,7 +398,7 @@ kable(summary(arsenal::tableby(
     anova(mgfr_jodal, digits = 0) +
     avg_c_r2 + avg_k_r2 + avg_m_r2 + tkv, 
   data = subset(attempt_dat, visit == 0 & site == "Denver"),
-  control = table_controls
+  control = table_controls, test = F
 )), digits = 1)
 ```
 
@@ -374,7 +436,7 @@ kable(summary(arsenal::tableby(
     `GBM thickening` + 
     `Tubular atrophy` + `Vessel pathology`, 
   data = subset(attempt_dat, visit == 0 & site == "Denver" & biopsy_yn == "Yes"),
-  control = table_controls
+  control = table_controls, test = F
 )), digits = 1)
 
 ```
@@ -420,7 +482,9 @@ mgfr_jodal_bsa_category_bars <- plot_delta_by_category(
   bin_by_tertiles = F,
   bin_breaks = c(-Inf, 90, 110, Inf),
   bin_labels = c("<90", "90-110", "\u2265110"),
-  proper_name =  "mGFR (BSA)",
+  y_label = expression(Delta~"mGFR (mL/min/1.73"~m^2*")"),
+  x_label = expression("\nBaseline mGFR (mL/min/1.73"~m^2*")"),
+  proper_name =  expression("mGFR (mL/min/1.73"~m^2*")"),
   treatment_levels = c("Dapagliflozin", "Placebo"),
   fill_colors = c("Placebo" = "#f8ae9d", 
                   "Dapagliflozin" = "#a7b298",
@@ -668,23 +732,23 @@ croc_r2_p <- plot_df %>%
     panel.grid  = element_blank()
   ) +
   guides(fill = "none") +
-  labs(x = NULL, y = "\u0394Medulla R2*") +
+  labs(x = NULL, y = expression("\u0394 Medulla R2* ("~s^-1*")")) +
   scale_fill_manual(values = fill_colors) +
   scale_y_continuous(expand = expansion(mult = c(0.1, 0.1)))
 ```
 
 
 ```{r echo = F, eval = F}
-ggarrange(mgfr_jodal_bsa_category_bars, delta_avg_k_r2_overtime, avg_k_r2_by_mgfr_category_bars, croc_r2_p,
-          ncol=2, nrow=2, common.legend = TRUE, legend="bottom", labels = "AUTO")
+ggarrange(mgfr_jodal_bsa_category_bars, delta_avg_k_r2_overtime, croc_r2_p,
+          ncol=3, nrow=1, common.legend = TRUE, legend="bottom", labels = "AUTO", widths = c(2,2,1))
 
-ggsave(file.path(base_path, "Panels/full_mgfr_r2.png"), width = 10, height = 8, dpi = 600)
+ggsave(file.path(base_path, "Panels/full_mgfr_r2.png"), width = 10, height = 5, dpi = 600)
 ```
 
 
 ```{r, out.width="100%"}
 #| label: fig-mgfr-tertiles-panel
-#| fig-cap: "Clinical endpoints of full cohort. (A) Mean change in mGFR stratified by baseline mGFR categories. Participants were categorized by baseline mGFR. Bars show mean change from baseline to week 16 with 95% CI, and individual dots represent participant-level changes. Paired t-tests assessed within-arm change. Difference-in-differences (DiD) between dapagliflozin and placebo within each category was estimated using pairwise contrasts from a linear model including treatment, baseline category, and their interaction (emmeans framework). (B) Longitudinal change in kidney R2* by treatment. Visit-specific means and 95% CIs are shown for dapagliflozin and placebo at baseline and week 16. Stars above panels indicate between-arm differences at each visit from a linear mixed-effects model with treatment × visit interaction, age, sex, diabetes duration, BMI, site, and subject-level random intercepts (emmeans pairwise contrasts; * P<0.05, ** P<0.01, *** P<0.001). (C) Mean change in kidney R2* stratified by baseline kidney R2* categories. Participants were categorized by baseline kidney R2*. Same methods applied as (A)."
+#| fig-cap: "Clinical endpoints of full cohort. (A) Mean change in mGFR stratified by baseline mGFR categories. Participants were categorized by baseline mGFR. Bars show mean change from baseline to week 16 with 95% CI, and individual dots represent participant-level changes. Paired t-tests assessed within-arm change. Difference-in-differences (DiD) between dapagliflozin and placebo within each category was estimated using pairwise contrasts from a linear model including treatment, baseline category, and their interaction (estimated marginal means using R package emmeans). (B) Longitudinal change in kidney R2* by treatment. Visit-specific means and 95% CIs are shown for dapagliflozin and placebo at baseline and week 16. Stars above panels indicate between-arm differences at each visit from a linear mixed-effects model with treatment × visit interaction, age, sex, diabetes duration, BMI, site, and subject-level random intercepts (emmeans pairwise contrasts; * P<0.05, ** P<0.01, *** P<0.001). (C) CROCODILE reversal analysis. Medulla R2* showed reversal post treatment towards healthy state."
 
 knitr::include_graphics(file.path(base_path, "Panels/full_mgfr_r2.png")) 
 ```
@@ -827,7 +891,7 @@ ggsave(file.path(base_path, "Panels/upset_plot_panel.png"), p, dpi = 600, height
 
 ```{r, out.width="100%", out.height = NULL}
 #| label: fig-upset
-#| fig-cap: "(A) UpSet plot showing the overlap of differentially expressed genes across kidney cell types. Only intersections with size > 3 are displayed. Intersections corresponding to genes unique to a single cell type are omitted for clarity. Bars representing overlaps across ≥ 3 cell types are highlighted in steel blue. (B) Bar plot showing the frequency of differentially expressed genes by cell type, separated by direction of effect (DiD > 0 in red, DiD < 0 in blue). (C) Scatter plot of DiD values for each gene, grouped by cell type. Points above zero indicate positive DiD, and points below zero indicate negative DiD."
+#| fig-cap: "(A) UpSet plot illustrating the overlap of differentially expressed genes across kidney cell types. The vertical bars indicate the size of each set (genes significant in a given cell type), while the connected dots and horizontal bars indicate the number of genes shared between cell types. Only intersections with size > 3 are displayed, and intersections corresponding to genes unique to a single cell type are omitted for clarity. Bars representing overlaps across ≥ 3 cell types are highlighted in teal. The overlaps reflect significant DiD results regardless of direction. (B) Bar plot showing the frequency of differentially expressed genes by cell type, separated by direction of effect (DiD > 0 in red, DiD < 0 in blue). (C) Scatter plot of DiD values for each gene, grouped by cell type. Points above zero indicate positive DiD, and points below zero indicate negative DiD."
 #| fig-dpi: 600
 knitr::include_graphics(file.path(base_path, "Panels/upset_plot_panel.png"))
 ```
@@ -840,7 +904,7 @@ knitr::include_graphics(file.path(base_path, "Pathways and transcripts in ATTEMP
 ```
 
 
-```{r eval = F}
+```{r eval = T}
 pt_plots <- create_gene_expression_plots(
   main_results = pt_hvg_kpmp,
   subtype_results_list = list(
