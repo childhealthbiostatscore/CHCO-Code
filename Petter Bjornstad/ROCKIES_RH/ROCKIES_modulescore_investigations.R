@@ -217,7 +217,7 @@ dev.off()
 remove(list=ls())
 
 
-celltypes <- c('PT-S1/S2', 'PT-S3', 'aPT')
+celltypes <- c('All', 'PT', 'TAL', 'EC', 'PT-S1/S2', 'PT-S3', 'aPT')
 
 
 for(celltype in celltypes){
@@ -235,7 +235,14 @@ for(celltype in celltypes){
   
   module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/HALLMARK_GO_pathways_modulescores.txt')
   
-  module_scores <- module_scores %>% filter(KPMP_celltype == celltype)
+  if(celltype == 'All'){
+    module_scores <- module_scores
+  }else if(celltype %in% c('PT', 'TAL', 'EC')){
+    module_scores <- module_scores %>% 
+      filter(celltype2 == celltype)
+  }else{
+    module_scores <- module_scores %>% filter(KPMP_celltype == celltype) 
+  }
   
   
   
@@ -305,7 +312,7 @@ for(celltype in celltypes){
   
   
   write.table(group_results, 
-              paste0('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/LMER_', celltype2, 'Cells_T2DvsLC_Results.txt'), 
+              paste0('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/new_analyses/LMER_', celltype2, 'Cells_T2DvsLC_Results.txt'), 
               row.names=F, quote=F, sep='\t')
   
   
@@ -319,7 +326,7 @@ for(celltype in celltypes){
   
   
   
-  png(paste0('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/LMER_', celltype2, 'Cells_T2DvsLC_Results_Volcanoplot.png'))
+  png(paste0('/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/new_analyses/LMER_', celltype2, 'Cells_T2DvsLC_Results_Volcanoplot.png'))
   
   tmp_graph <- ggplot(group_results, aes(x = estimate, y = -log10(p_value))) +
     geom_point(aes(color = p_value < 0.05), alpha = 0.6, size = 3) +
@@ -353,7 +360,7 @@ remove(list=ls())
 
 module_scores <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_scores/HALLMARK_GO_pathways_modulescores.txt')
 
-celltypes <- c('All', 'PT', 'PT-S1/S2', 'PT-S3', 'aPT')
+celltypes <- c('All', 'PT', 'TAL', 'EC', 'PT-S1/S2', 'PT-S3', 'aPT')
 
 
 
@@ -367,7 +374,7 @@ for(celltype in celltypes){
   
   if(celltype == 'All'){
     module_scores <- module_scores
-  }else if(celltype == 'PT'){
+  }else if(celltype %in% c('PT', 'TAL', 'EC')){
     module_scores <- module_scores %>% 
       filter(celltype2 == 'PT')
   }else{
