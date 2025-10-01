@@ -66,6 +66,15 @@ Sys.setenv(
 ## read mixed model results dataframe (rendered in Hyak)
 # process and read all results from ATTEMPT
 
+# Define genes to exclude by cell type
+genes_to_exclude <- list(
+  IC = c("SLC12A1", "UMOD", "GSTA1", "GSTA2", "TAGLN", "SLC22A2", "AC104041.1", "CASR", "AC068051.1"),
+  POD = c("PCDH7", "CNTN4"),
+  Immune = c("CA2", "KL", "GPX3"),
+  Immune_lymphoid = c("CA2"),
+  Immune_myeloid = c("CA2", "KL", "GPX3")
+)
+
 celltype_groups <- list(
   PT = c("PT-S1/S2", "PT-S3", "aPT"),
   TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
@@ -77,37 +86,31 @@ celltype_groups <- list(
   Immune_lymphoid = c("CD4+ T", "CD8+ T", "B", "NK"),
   VSMC_P_FIB = c("VSMC/P", "FIB"),
   POD = "POD"
-  # DCT = c("DCT", "dDCT"),  # Distal convoluted tubule
-  # CD = c("CCD-PC", "dCCD-PC", "CNT-PC", "tPC-IC", "MC", "aIC", "IC-A", "IC-B", "CNT"),  # Collecting duct & connecting tubule
-  # Glom  = c("POD", "MC", "M-PC"),
-  # VSMC        = c("VSMC/P", "EC/VSMC")
 )
 
-# celltype_groups$Combined_p <- c(
-#   celltype_groups$EC,
-#   celltype_groups$Glom,
-#   celltype_groups$VSMC,
-#   celltype_groups$Immune
-# )
-# 
-# celltype_groups$Combined_u <- c(
-#   celltype_groups$PT,
-#   celltype_groups$TAL,
-#   celltype_groups$DCT,
-#   celltype_groups$CD,
-#   celltype_groups$POD
-# )
-
 ## read mixed model results dataframe (rendered in Hyak)
-# process and read all results from ATTEMPT
-mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl") # to join full name description
+mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
 
 # Top 2000 HVG
 for (cell in names(celltype_groups))  {
   input_path <- paste0("grouped/", cell, "/HVG/nebula/", "grouped_", tolower(cell), "_kpmp_attempt_nebula_res_reml_pooled.rds")
   cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
-
   processed <- process_nebula_results(cell_df)
+  
+  # Filter out contaminating genes BEFORE annotation
+  if (cell %in% names(genes_to_exclude)) {
+    n_before <- nrow(processed$results)
+    processed$results <- processed$results %>%
+      filter(!Gene %in% genes_to_exclude[[cell]])
+    n_after <- nrow(processed$results)
+    n_removed <- n_before - n_after
+    if (n_removed > 0) {
+      message(sprintf("%s: Removed %d contaminating genes: %s", 
+                      cell, n_removed, 
+                      paste(genes_to_exclude[[cell]][genes_to_exclude[[cell]] %in% unique(processed$results$Gene)], collapse = ", ")))
+    }
+  }
+  
   # Get gene symbols
   gene_symbols <- processed$results$Gene
   
@@ -123,7 +126,7 @@ for (cell in names(celltype_groups))  {
   # Join annotation
   annotated_df <- processed$results %>%
     left_join(gene_info, by = "Gene")
-
+  
   # Assign to variable dynamically
   var_name <- paste0(tolower(cell), "_hvg_kpmp")
   assign(var_name, annotated_df, envir = .GlobalEnv)
@@ -134,9 +137,9 @@ for (cell in names(celltype_groups))  {
 # Top 2000 HVG subtypes
 for (cell in unlist(celltype_groups))  {
   print(paste0("Processing: ", cell))
-  cell <- gsub("/", "_", cell)
-  input_path <- paste0("individual/", cell, "/HVG/nebula/individual_", 
-                       tolower(cell),
+  cell_clean <- gsub("/", "_", cell)
+  input_path <- paste0("individual/", cell_clean, "/HVG/nebula/individual_", 
+                       tolower(cell_clean),
                        "_kpmp_attempt_nebula_res_reml_pooled.rds")
   cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
   
@@ -148,8 +151,29 @@ for (cell in unlist(celltype_groups))  {
     next
   }
   
+  # Determine which exclusion list(s) to use based on parent cell type(s)
+  parent_cells <- names(celltype_groups)[sapply(celltype_groups, function(x) cell %in% x)]
+  
+  # Collect all genes to exclude from all matching parent cell types
+  genes_to_remove <- unique(unlist(genes_to_exclude[parent_cells]))
+  
+  if (length(genes_to_remove) > 0) {
+    n_before <- nrow(processed$results)
+    genes_present <- intersect(genes_to_remove, processed$results$Gene)
+    processed$results <- processed$results %>%
+      filter(!Gene %in% genes_to_remove)
+    n_after <- nrow(processed$results)
+    n_removed <- n_before - n_after
+    if (n_removed > 0) {
+      message(sprintf("%s (subtype of %s): Removed %d contaminating genes: %s", 
+                      cell, paste(parent_cells, collapse = ", "), n_removed,
+                      paste(genes_present, collapse = ", ")))
+    }
+  }
+  
   # Get gene symbols
   gene_symbols <- processed$results$Gene
+  
   # Query Ensembl
   gene_info <- getBM(
     attributes = c("hgnc_symbol", "description", "gene_biotype"),
@@ -158,21 +182,22 @@ for (cell in unlist(celltype_groups))  {
     mart = mart
   ) %>%
     dplyr::rename(Gene = hgnc_symbol)
+  
   # Join annotation
   annotated_df <- processed$results %>%
     left_join(gene_info, by = "Gene")
-  cell <- gsub("-", "_", cell)
-  cell <- gsub("\\+\\s", "_", cell)
-  lower_cell <- tolower(cell)
+  
+  cell_clean <- gsub("-", "_", cell_clean)
+  cell_clean <- gsub("\\+\\s", "_", cell_clean)
+  lower_cell <- tolower(cell_clean)
   var_name <- paste0(lower_cell, "_hvg_kpmp")
   print(var_name)
-  assign(var_name, processed$results)
+  assign(var_name, annotated_df, envir = .GlobalEnv)
   
   var_name <- paste0(lower_cell, "_hvg_kpmp_cov")
   assign(var_name, processed$overdispersion)
   
-  write.csv(annotated_df, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/", tolower(cell), "_kpmp_hvg_res.csv"), row.names = F)
-
+  write.csv(annotated_df, paste0("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/", tolower(cell_clean), "_kpmp_hvg_res.csv"), row.names = F)
 }
 
 # custom <- c("DCT", "CD", "Glom", "VSMC", "Combined_p", "Combined_u")
@@ -214,24 +239,30 @@ for (cell in unlist(celltype_groups))  {
 ```{r echo = F, eval = F}
 # save all as one excel spreadsheet with full gene names
 top50_wb <- createWorkbook()
-
+all_wb <- createWorkbook()
 # Loop through and extract top 50 genes per cell type
 for (cell in names(celltype_groups))  {
   var_name <- paste0(tolower(cell), "_hvg_kpmp")
   df <- get(var_name)
-
+  
+  all_genes <- df %>%
+    arrange(`p_treatmentDapagliflozin:visitPOST`)
+  
   # Extract top 50 by lowest p-value
-  top_genes <- df %>%
-    arrange(`p_treatmentDapagliflozin:visitPOST`) %>%
+  top_genes <- all_genes %>%
     slice_head(n = 50)
 
   # Add a worksheet and write the top genes
+  addWorksheet(all_wb, sheetName = cell)
+  writeData(all_wb, sheet = cell, x = all_genes)
+  
   addWorksheet(top50_wb, sheetName = cell)
   writeData(top50_wb, sheet = cell, x = top_genes)
 }
 
 # # Save the workbook
-saveWorkbook(top50_wb, file = "//Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/top50_hvg_nebula_results_by_kpmp_celltype.xlsx", overwrite = TRUE)
+saveWorkbook(all_wb, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/all_hvg_nebula_results_by_kpmp_celltype.xlsx", overwrite = TRUE)
+saveWorkbook(top50_wb, file = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/top50_hvg_nebula_results_by_kpmp_celltype.xlsx", overwrite = TRUE)
 ```
 
 #### IPA input save
@@ -515,6 +546,7 @@ ic_plots <- create_gene_expression_plots(
   formula = "treatment * visit",
   output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Dot Plots/"
 )
+ic_plots$volcano_plot
 ```
 
 

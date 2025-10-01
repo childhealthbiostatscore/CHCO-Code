@@ -2191,7 +2191,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
           legend.justification = c(1, 1),
           legend.background = element_rect(fill = "transparent", color = NA),
           panel.grid = element_blank()) +
-    labs(x = "Visit", 
+    labs(x = "Visit (weeks)", 
          y = y_axis_title,
          color = NULL, shape = NULL) +
     guides(color = guide_legend(override.aes = list(size = 5)))

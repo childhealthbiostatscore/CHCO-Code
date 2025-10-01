@@ -86,16 +86,7 @@ s3saveRDS(harm_dat_collapsed, bucket = "attempt",
           object = "cleaned_data/harm_dat_collapsed.rds",
           region = "")
 
-attempt_redcap <- harm_dat %>% filter(study == "ATTEMPT") %>%
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id, visit)) %>%
-  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
-                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
-                                                     race == "Black or African American" &
-                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
-                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
-                                                     T ~ "Not Hispanic or Latino Other")) %>%
+attempt_redcap <- harm_dat_collapsed %>% filter(study == "ATTEMPT")  %>%
   arrange(record_id) %>%
   dplyr::select(-hba1c)
 
@@ -129,11 +120,12 @@ attempt_redcap_denver <- attempt_redcap %>%
 # Extract screening values for MRI
 screening_values <- attempt_redcap_denver %>%
   filter(visit == 0) %>%
-  dplyr::select(subject_id, avg_m_r2_screening = avg_m_r2)
+  dplyr::select(subject_id, avg_m_r2_screening = avg_m_r2) %>%
+  mutate(visit = -4)
 
 # Join back and update
 attempt_redcap_denver <- attempt_redcap_denver %>%
-  left_join(screening_values, by = "subject_id") %>%
+  full_join(screening_values, by = c("subject_id", "visit")) %>%
   mutate(
     avg_m_r2 = case_when(
       visit == 0 ~ NA,
