@@ -6491,7 +6491,27 @@ for (cell_name in LR_celltypes) {
     total_results <- rbind(total_results,full_results)
   }
 }
+total_results2 <- data.frame()
+LR_celltypes <- unique(so_liver_sn$celltype_LR)[1]
+for (cell_name in LR_celltypes) {
+  for (var in clinical_variables) {
+    full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_",cell_name,"_",var,"_unadjusted_2000_pooled_offset.csv")))
+    full_results <- full_results %>% 
+      clean_names() %>% 
+      # dplyr::rename(logFC=log_fc_steatosis_cat_high_steatosis_2_3) %>% 
+      dplyr::rename(Gene=gene)
+    full_results <- full_results[,-1]
+    full_results$Celltype <- cell_name
+    full_results$variable <- var
+    full_results$log_fc <- full_results[,2]
+    full_results <- full_results %>% 
+      dplyr::select(log_fc, fdr, p_value10,Celltype,variable,Gene)
+    total_results2 <- rbind(total_results2,full_results)
+  }
+}
 
+total_results <- rbind(total_results,total_results2)
+rm(total_results2)
 # total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$log_fc > 0, "#990000",
 #                               ifelse(total_results$fdr < 0.05 & total_results$log_fc < 0, "#003366", "lightgray"))
 # 
@@ -6557,16 +6577,16 @@ if("pvalue" %in% names(total_results)) {
 }
 
 # Set factor levels for cell type ordering
-total_results$Celltype <- factor(total_results$Celltype, levels = LR_celltypes)
+total_results$Celltype <- factor(total_results$Celltype, levels = unique(so_liver_sn$celltype_LR))
 
-# Calculate statistics for caption (will be done per cell type)
-summary_stats <- total_results %>%
-  group_by(Celltype) %>%
-  summarise(
-    Genes = n_distinct(Gene),
-    Significant = sum(fdr < 0.05),
-    .groups = 'drop'
-  )
+# # Calculate statistics for caption (will be done per cell type)
+# summary_stats <- total_results %>%
+#   group_by(Celltype) %>%
+#   summarise(
+#     Genes = n_distinct(Gene),
+#     Significant = sum(fdr < 0.05),
+#     .groups = 'drop'
+#   )
 
 
 for (var in clinical_variables){
@@ -6595,7 +6615,7 @@ for (var in clinical_variables){
     geom_point(alpha = 0.7) +
     scale_color_identity() +
     theme_bw() +
-    facet_wrap(~ Celltype, ncol = 4, scales = "free_y") +
+    facet_wrap(~ Celltype, ncol = 5, scales = "free_y") +
     theme(
       plot.title = element_text(hjust = 0),
       axis.text.x = element_text(angle = 0, hjust = 1)
@@ -6636,7 +6656,8 @@ for (var in clinical_variables){
 ##GSEA
 LR_celltypes <- unique(so_liver_sn$celltype_LR)
 # LR_celltypes <- "Hep"
-clinical_variables <- c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage")
+# clinical_variables <- c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage")
+clinical_variables <- c("tg")
 total_results <- data.frame()
 for (cell_name in LR_celltypes) {
   for (var in clinical_variables) {
@@ -6733,13 +6754,12 @@ for (var in clinical_variables){
 ###ii. HR Nebula
 ```{r}
 #Filter to celltype 
-HR_celltypes <- unique(so_liver_sn$celltype)
+HR_celltypes <- unique(so_liver_sn$celltype)[-7]
 #  [1] Hep-2        Hep-5        Hep-4        EC-2         Stellate-2   Hep-3        Cholang     
 #  [8] Hep-1        NKC/NKT      Kup/MON      dHep         Kup/MAC      EC-1         Stellate-1  
 # [15] B/Plasma     Hep/Immune   cFIB/cImmune
 # clinical_variables <- c("alt","ast","ggt","bmi","a1c")
-clinical_variables <- c("hepatocyte_ballooning_score","lobular_inflammation_grade",
-                        "steatosis_grade","fibrosis_stage")
+clinical_variables <- c("tg")
 # cell_name <- "Hep-1"
 # unique(so_liver_sn$hepatocyte_ballooning_percent)
 # unique(so_liver_sn$lobular_inflammation_grade)
