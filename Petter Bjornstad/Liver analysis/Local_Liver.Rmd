@@ -6339,8 +6339,9 @@ dev.off()
 ###i. LR Nebula
 ```{r}
 #Filter to celltype 
-LR_celltypes <- unique(so_liver_sn$celltype_LR)
-clinical_variables <- c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage")
+LR_celltypes <- unique(so_liver_sn$celltype_LR)[-1]
+# clinical_variables <- c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage")
+clinical_variables <- c("tg")
 #Filter to celltype 
 # LR_celltypes <- unique(so_liver_sn$celltype)
 #  [1] Hep-2        Hep-5        Hep-4        EC-2         Stellate-2   Hep-3        Cholang     
@@ -6376,10 +6377,10 @@ for (cell_name in LR_celltypes) {
   counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
   
   # List of genes
-  genes_list <- rownames(counts_hvg)[1:100]
+  genes_list <- rownames(counts_hvg)
   
-  # for (var in clinical_variables) {
-  var <- clinical_variables[1]
+  for (var in clinical_variables) {
+  # var <- clinical_variables[1]
     so_celltype[[var]] <- as.numeric(unlist(so_celltype[[var]][1]))
     
     # With parallelization
@@ -6440,7 +6441,7 @@ for (cell_name in LR_celltypes) {
     )
     
     full_results <- as.data.frame(nebula_summaries)
-    total_results <- full_results
+    # total_results <- full_results
     
     nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40|hep_nebula_converged$Convergence_Code==-50|hep_nebula_converged$Convergence_Code==-60)]
     ) 
@@ -6470,11 +6471,10 @@ for (cell_name in LR_celltypes) {
     write.csv(full_results,fs::path(dir.results,paste0("NEBULA_",cell_name2,"_",var,"_unadjusted_2000_pooled_offset.csv")))
     
   }
-# }
+}
 
-#Heat Map visualization of results
 total_results <- data.frame()
-LR_celltypes <- unique(so_liver_sn$celltype_LR)
+LR_celltypes <- unique(so_liver_sn$celltype_LR)[-1]
 for (cell_name in LR_celltypes) {
   for (var in clinical_variables) {
     full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_",cell_name,"_",var,"_unadjusted_2000_pooled_offset.csv")))
@@ -6492,54 +6492,54 @@ for (cell_name in LR_celltypes) {
   }
 }
 
-total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$log_fc > 0, "#990000",
-                              ifelse(total_results$fdr < 0.05 & total_results$log_fc < 0, "#003366", "lightgray"))
-
-# Define significance stars
-total_results <- total_results %>%
-  mutate(signif = case_when(
-    fdr < 0.01 ~ "**",
-    fdr < 0.05 ~ "*",
-    TRUE ~ ""
-  ))
-
-# Select only the needed columns and rename log_fc for clarity
-heatmap_data <- total_results %>%
-  dplyr::select(Gene, Celltype, log_fc, signif)
-
-custom_order <- LR_celltypes
-heatmap_data$Celltype <- factor(heatmap_data$Celltype, levels = custom_order)
-# custom_labels <- c("Average Cortical K2","Average Medulla K2","Average Cortical F","Average Medulla F",
-#                    "Average Cortical K2/F","Average Medulla K2/F")
-
-heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = log_fc)) +
-  geom_tile(color = "grey90") +
-  geom_text(aes(label = signif), size = 3, color = "black") +
-  scale_fill_gradient2(
-    low = "#264653", mid = "white", high = "darkred",
-    midpoint = 0,
-    name = "LogFC"
-  ) +
-  theme_minimal() +
-  labs(title = "2000 HVGs by Clinical Variables",
-       x = "Exposure",
-       y = "Gene") +
-  # scale_x_discrete(labels = setNames(custom_labels, custom_order))+
-  theme(
-    text = element_text(face="bold"),
-    axis.text.y = element_text(size = 6),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.ticks.y = element_blank(),
-    axis.title.x = element_blank(),
-    panel.grid = element_blank()
-  )
-
-# custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
-
-# png(fs::path(dir.results, "Heatmap__NEBULA_Other_Celltypess_unadjusted_pooled_offset_Steatosis.png"), 
-#     width = 1500, height = 2000, res = 300)
-print(heat_map_p)
-# dev.off()
+# total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$log_fc > 0, "#990000",
+#                               ifelse(total_results$fdr < 0.05 & total_results$log_fc < 0, "#003366", "lightgray"))
+# 
+# # Define significance stars
+# total_results <- total_results %>%
+#   mutate(signif = case_when(
+#     fdr < 0.01 ~ "**",
+#     fdr < 0.05 ~ "*",
+#     TRUE ~ ""
+#   ))
+# 
+# # Select only the needed columns and rename log_fc for clarity
+# heatmap_data <- total_results %>%
+#   dplyr::select(Gene, Celltype, log_fc, signif)
+# 
+# custom_order <- LR_celltypes
+# heatmap_data$Celltype <- factor(heatmap_data$Celltype, levels = custom_order)
+# # custom_labels <- c("Average Cortical K2","Average Medulla K2","Average Cortical F","Average Medulla F",
+# #                    "Average Cortical K2/F","Average Medulla K2/F")
+# 
+# heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = log_fc)) +
+#   geom_tile(color = "grey90") +
+#   geom_text(aes(label = signif), size = 3, color = "black") +
+#   scale_fill_gradient2(
+#     low = "#264653", mid = "white", high = "darkred",
+#     midpoint = 0,
+#     name = "LogFC"
+#   ) +
+#   theme_minimal() +
+#   labs(title = "2000 HVGs by Clinical Variables",
+#        x = "Exposure",
+#        y = "Gene") +
+#   # scale_x_discrete(labels = setNames(custom_labels, custom_order))+
+#   theme(
+#     text = element_text(face="bold"),
+#     axis.text.y = element_text(size = 6),
+#     axis.text.x = element_text(angle = 45, hjust = 1),
+#     axis.ticks.y = element_blank(),
+#     axis.title.x = element_blank(),
+#     panel.grid = element_blank()
+#   )
+# 
+# # custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
+# 
+# # png(fs::path(dir.results, "Heatmap__NEBULA_Other_Celltypess_unadjusted_pooled_offset_Steatosis.png"), 
+# #     width = 1500, height = 2000, res = 300)
+# print(heat_map_p)
+# # dev.off()
 
 # Prepare data for volcano plots - keeping your exact color scheme and logic
 total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$log_fc > 0, "#990000",
@@ -6584,9 +6584,9 @@ for (var in clinical_variables){
   #     max = max(log_fc, na.rm = TRUE)
   #   )
   
-  # Join back to results
-  results <- results %>%
-    left_join(celltype_limits, by = "Celltype")
+  # # Join back to results
+  # results <- results %>%
+  #   left_join(celltype_limits, by = "Celltype")
   
   results <- results %>% 
     na.omit()
@@ -6595,7 +6595,7 @@ for (var in clinical_variables){
     geom_point(alpha = 0.7) +
     scale_color_identity() +
     theme_bw() +
-    facet_wrap(~ Celltype, ncol = 5, scales = "free_y") +
+    facet_wrap(~ Celltype, ncol = 4, scales = "free_y") +
     theme(
       plot.title = element_text(hjust = 0),
       axis.text.x = element_text(angle = 0, hjust = 1)
