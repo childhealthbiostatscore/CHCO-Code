@@ -5061,7 +5061,22 @@ for (cell_name in LR_celltypes[-1]){
 
 #Heat Map visualization of results
 total_results <- data.frame()
-LR_celltypes <- unique(so_liver_sn$celltype_LR[])
+LR_celltypes <- unique(so_liver_sn$celltype_LR)[2:5]
+for (cell_name in LR_celltypes) {
+  full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_",cell_name,"_Steatosis_unadjusted_2000_pooled_offset.csv"))) 
+  full_results <- full_results %>% 
+    clean_names() %>% 
+    dplyr::rename(logFC=log_fc_steatosis_cat_high_steatosis_2_3) %>% 
+    dplyr::rename(Gene=gene) %>% 
+    dplyr::select(-c("x","low_exp","nebula_nonconverged_percent"))
+  # full_results <- full_results[,-1]
+  full_results$Celltype <- cell_name
+  total_results <- rbind(total_results,full_results)
+}
+
+#Hep
+total_results2 <- data.frame()
+LR_celltypes <- unique(so_liver_sn$celltype_LR)[1]
 for (cell_name in LR_celltypes) {
   full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_",cell_name,"_Steatosis_unadjusted_2000_pooled_offset.csv"))) 
   full_results <- full_results %>% 
@@ -5070,8 +5085,11 @@ for (cell_name in LR_celltypes) {
     dplyr::rename(Gene=gene)
   full_results <- full_results[,-1]
   full_results$Celltype <- cell_name
-  total_results <- rbind(total_results,full_results)
+  total_results2 <- rbind(total_results2,full_results)
 }
+# total_results <- rbind(total_results,total_results2)
+# rm(total_results2)
+total_results <- total_results2
 
 # # full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_",cell_name,"_Steatosis_unadjusted_2000_pooled_offset.csv"))) 
 # full_results_hep <- full_results_hep %>% 
@@ -5083,55 +5101,55 @@ for (cell_name in LR_celltypes) {
 # total_results <- rbind(total_results,full_results_hep)
 # write.csv(total_results,fs::path(dir.results,"All_Celltypes_NEBULA_Results.csv"))
 
-total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$logFC > 0, "#990000",
-                              ifelse(total_results$fdr < 0.05 & total_results$logFC < 0, "#003366", "lightgray"))
-
-# Define significance stars
-total_results <- total_results %>%
-  mutate(signif = case_when(
-    fdr < 0.01 ~ "**",
-    fdr < 0.05 ~ "*",
-    TRUE ~ ""
-  ))
-
-# Select only the needed columns and rename LogFC for clarity
-heatmap_data <- total_results %>%
-  dplyr::select(Gene, Celltype, logFC, signif)
-LR_celltypes <- unique(so_liver_sn$celltype_LR)
-custom_order <- LR_celltypes
-heatmap_data$Celltype <- factor(heatmap_data$Celltype, levels = custom_order)
-# custom_labels <- c("Average Cortical K2","Average Medulla K2","Average Cortical F","Average Medulla F",
-#                    "Average Cortical K2/F","Average Medulla K2/F")
-
-heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = logFC)) +
-  geom_tile(color = "grey90") +
-  geom_text(aes(label = signif), size = 3, color = "black") +
-  scale_fill_gradient2(
-    low = "#264653", mid = "white", high = "darkred",
-    midpoint = 0,
-    name = "LogFC"
-  ) +
-  theme_minimal() +
-  labs(title = "2000 HVGs by Steatosis Grade",
-       x = "Exposure",
-       y = "Gene") +
-  # scale_x_discrete(labels = setNames(custom_labels, custom_order))+
-  theme(
-    text = element_text(face="bold"),
-    axis.text.y = element_text(size = 6),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.ticks.y = element_blank(),
-    axis.title.x = element_blank(),
-    panel.grid = element_blank()
-  )
-
-# custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
-
-# png(fs::path(dir.results, "Heatmap_NEBULA_All_Celltypess_unadjusted_pooled_offset_Steatosis.png"),
-#     width = 1500, height = 2000, res = 300)
-# print(heat_map_p)
-# dev.off()
-
+# total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$logFC > 0, "#990000",
+#                               ifelse(total_results$fdr < 0.05 & total_results$logFC < 0, "#003366", "lightgray"))
+# 
+# # Define significance stars
+# total_results <- total_results %>%
+#   mutate(signif = case_when(
+#     fdr < 0.01 ~ "**",
+#     fdr < 0.05 ~ "*",
+#     TRUE ~ ""
+#   ))
+# 
+# # Select only the needed columns and rename LogFC for clarity
+# heatmap_data <- total_results %>%
+#   dplyr::select(Gene, Celltype, logFC, signif)
+# LR_celltypes <- unique(so_liver_sn$celltype_LR)
+# custom_order <- LR_celltypes
+# heatmap_data$Celltype <- factor(heatmap_data$Celltype, levels = custom_order)
+# # custom_labels <- c("Average Cortical K2","Average Medulla K2","Average Cortical F","Average Medulla F",
+# #                    "Average Cortical K2/F","Average Medulla K2/F")
+# 
+# heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = logFC)) +
+#   geom_tile(color = "grey90") +
+#   geom_text(aes(label = signif), size = 3, color = "black") +
+#   scale_fill_gradient2(
+#     low = "#264653", mid = "white", high = "darkred",
+#     midpoint = 0,
+#     name = "LogFC"
+#   ) +
+#   theme_minimal() +
+#   labs(title = "2000 HVGs by Steatosis Grade",
+#        x = "Exposure",
+#        y = "Gene") +
+#   # scale_x_discrete(labels = setNames(custom_labels, custom_order))+
+#   theme(
+#     text = element_text(face="bold"),
+#     axis.text.y = element_text(size = 6),
+#     axis.text.x = element_text(angle = 45, hjust = 1),
+#     axis.ticks.y = element_blank(),
+#     axis.title.x = element_blank(),
+#     panel.grid = element_blank()
+#   )
+# 
+# # custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
+# 
+# # png(fs::path(dir.results, "Heatmap_NEBULA_All_Celltypess_unadjusted_pooled_offset_Steatosis.png"),
+# #     width = 1500, height = 2000, res = 300)
+# # print(heat_map_p)
+# # dev.off()
+# 
 # Prepare data for volcano plots - keeping your exact color scheme and logic
 total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$logFC > 0, "#990000",
                               ifelse(total_results$fdr < 0.05 & total_results$logFC < 0, "#003366", "lightgray"))
@@ -5148,23 +5166,23 @@ if("pvalue" %in% names(total_results)) {
 }
 
 # Set factor levels for cell type ordering
-total_results$Celltype <- factor(total_results$Celltype, levels = LR_celltypes)
-# total_results$Celltype <- "Hepatocytes"
-
-# Calculate statistics for caption (will be done per cell type)
-summary_stats <- total_results %>%
-  group_by(Celltype) %>%
-  summarise(
-    Genes = n_distinct(Gene),
-    Significant = sum(fdr < 0.05),
-    .groups = 'drop'
-  )
+# total_results$Celltype <- factor(total_results$Celltype, levels = unique(so_liver_sn$celltype_LR)[-1])
+total_results$Celltype <- "Hepatocytes"
+# 
+# # Calculate statistics for caption (will be done per cell type)
+# summary_stats <- total_results %>%
+#   group_by(Celltype) %>%
+#   summarise(
+#     Genes = n_distinct(Gene),
+#     Significant = sum(fdr < 0.05),
+#     .groups = 'drop'
+#   )
 
 # Create the faceted volcano plot matching your style
 volcano_plots <- ggplot(total_results, aes(x = logFC, y = PValue10, color = color)) +
   geom_point(alpha = 0.7) +  # Plot points with transparency
   scale_color_identity() +  # Use the color column directly
-  
+
   # # Add labels for significant points
   # geom_text(data = total_results[total_results$fdr < 0.05, ], 
   #           aes(label = Gene),
@@ -5182,16 +5200,16 @@ volcano_plots <- ggplot(total_results, aes(x = logFC, y = PValue10, color = colo
                   min.segment.length = 0.1) + # Minimum segment length to draw
   
   # Facet by cell type
-  # facet_wrap(~ Celltype, 
-  #            ncol = 2,  # Adjust as needed
-  #            scales = "free_y") +  # Free y-scale but fixed x-scale
+  facet_wrap(~ Celltype,
+             ncol = 2,  # Adjust as needed
+             scales = "free_y") +  # Free y-scale but fixed x-scale
   
   # Set x-axis limits matching your original
   xlim(-2, 2) +
   
   # Labels and theme matching your style
   labs(
-    title = "High Steatosis (2+3) vs. Low Steatosis (0+1) by Cell Type",
+    title = "High Steatosis (2+3) vs. Low Steatosis (0+1) in Hepatocytes",
     subtitle = "2000 HVGs",
     x = "Log Fold Change",
     y = "-log10(P-Value)"
@@ -5208,12 +5226,12 @@ volcano_plots <- ggplot(total_results, aes(x = logFC, y = PValue10, color = colo
 
 # Display the plot
 print(volcano_plots)
-png(fs::path(dir.results,"Supplemental Results", "Volcano_Plots_NEBULA_Other_Celltypess_unadjusted_pooled_offset_Steatosis.png"),
+png(fs::path(dir.results,"Supplemental Results", "Volcano_Plots_NEBULA_Other_Celltypess_unadjusted_pooled_offset_Steatosis2.png"),
     width = 2000, height = 2000, res = 300)
 print(volcano_plots)
 dev.off()
 
-png(fs::path(dir.results,"Supplemental Results", "Volcano_Plots_NEBULA_Hepatocytes_unadjusted_pooled_offset_Steatosis.png"),
+png(fs::path(dir.results,"Supplemental Results", "Volcano_Plots_NEBULA_Hepatocytes_unadjusted_pooled_offset_Steatosis2.png"),
     width = 2000, height = 2000, res = 300)
 print(volcano_plots)
 dev.off()
@@ -5511,11 +5529,11 @@ dev.off()
 ###iv. HR Nebula
 ```{r}
 #Filter to celltype 
-HR_celltypes <- unique(so_liver_sn$celltype)
+HR_celltypes <- unique(so_liver_sn$celltype)[-7]
 #  [1] Hep-2        Hep-5        Hep-4        EC-2         Stellate-2   Hep-3        Cholang     
 #  [8] Hep-1        NKC/NKT      Kup/MON      dHep         Kup/MAC      EC-1         Stellate-1  
 # [15] B/Plasma     Hep/Immune   cFIB/cImmune
-cell_name <- "Hep-2"
+# cell_name <- "Hep-2"
 # for (cell_name in HR_celltypes)
 # {
 so_celltype <- subset(so_liver_sn,celltype==cell_name)
@@ -5624,7 +5642,7 @@ write.csv(full_results,fs::path(dir.results,paste0("NEBULA_",cell_name2,"_Steato
 
 #Heat Map visualization of results
 total_results <- data.frame()
-HR_celltypes <- str_replace_all(unique(so_liver_sn$celltype),"/","_")
+HR_celltypes <- str_replace_all(unique(so_liver_sn$celltype)[-7],"/","_")
 HR_celltypes <- str_replace_all(HR_celltypes,"-","_")
 # cell_name2 <- "EC_2"
 for (cell_name2 in HR_celltypes) {
@@ -5638,57 +5656,57 @@ for (cell_name2 in HR_celltypes) {
   total_results <- rbind(total_results,full_results)
 }
 
-total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$logFC > 0, "#990000",
-                              ifelse(total_results$fdr < 0.05 & total_results$logFC < 0, "#003366", "lightgray"))
-
-# Define significance stars
-total_results <- total_results %>%
-  mutate(signif = case_when(
-    fdr < 0.01 ~ "**",
-    fdr < 0.05 ~ "*",
-    TRUE ~ ""
-  ))
-
-# Select only the needed columns and rename LogFC for clarity
-heatmap_data <- total_results %>%
-  dplyr::select(Gene, Celltype, logFC, signif)
-
-custom_order <- c("Hep_1","Hep_2","Hep_3","Hep_4","Hep_5","dHep","Hep_Immune",
-                  "cFIB_cImmune","NKC_NKT","Kup_MON","Kup_MAC","B_Plasma",
-                  "Stellate_1","Stellate_2",
-                  "Cholang","EC_1","EC_2")
-heatmap_data$Celltype <- factor(heatmap_data$Celltype, levels = custom_order)
-# custom_labels <- c("Average Cortical K2","Average Medulla K2","Average Cortical F","Average Medulla F",
-#                    "Average Cortical K2/F","Average Medulla K2/F")
-
-heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = logFC)) +
-  geom_tile(color = "grey90") +
-  geom_text(aes(label = signif), size = 3, color = "black") +
-  scale_fill_gradient2(
-    low = "#264653", mid = "white", high = "darkred",
-    midpoint = 0,
-    name = "LogFC"
-  ) +
-  theme_minimal() +
-  labs(title = "2000 HVGs by Steatosis Grade",
-       x = "Celltype",
-       y = "Gene") +
-  # scale_x_discrete(labels = setNames(custom_labels, custom_order))+
-  theme(
-    text = element_text(face="bold"),
-    axis.text.y = element_text(size = 6),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.ticks.y = element_blank(),
-    axis.title.x = element_blank(),
-    panel.grid = element_blank()
-  )
-print(heat_map_p )
-# custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
-
-png(fs::path(dir.results, "Heatmap_NEBULA_All_Celltypes_HR_unadjusted_pooled_offset_Steatosis.png"),
-    width = 4000, height = 4000, res = 300)
-print(heat_map_p)
-dev.off()
+# total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$logFC > 0, "#990000",
+#                               ifelse(total_results$fdr < 0.05 & total_results$logFC < 0, "#003366", "lightgray"))
+# 
+# # Define significance stars
+# total_results <- total_results %>%
+#   mutate(signif = case_when(
+#     fdr < 0.01 ~ "**",
+#     fdr < 0.05 ~ "*",
+#     TRUE ~ ""
+#   ))
+# 
+# # Select only the needed columns and rename LogFC for clarity
+# heatmap_data <- total_results %>%
+#   dplyr::select(Gene, Celltype, logFC, signif)
+# 
+# custom_order <- c("Hep_1","Hep_2","Hep_3","Hep_4","Hep_5","dHep","Hep_Immune",
+#                   "cFIB_cImmune","NKC_NKT","Kup_MON","Kup_MAC","B_Plasma",
+#                   "Stellate_1","Stellate_2",
+#                   "Cholang","EC_1","EC_2")
+# heatmap_data$Celltype <- factor(heatmap_data$Celltype, levels = custom_order)
+# # custom_labels <- c("Average Cortical K2","Average Medulla K2","Average Cortical F","Average Medulla F",
+# #                    "Average Cortical K2/F","Average Medulla K2/F")
+# 
+# heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = logFC)) +
+#   geom_tile(color = "grey90") +
+#   geom_text(aes(label = signif), size = 3, color = "black") +
+#   scale_fill_gradient2(
+#     low = "#264653", mid = "white", high = "darkred",
+#     midpoint = 0,
+#     name = "LogFC"
+#   ) +
+#   theme_minimal() +
+#   labs(title = "2000 HVGs by Steatosis Grade",
+#        x = "Celltype",
+#        y = "Gene") +
+#   # scale_x_discrete(labels = setNames(custom_labels, custom_order))+
+#   theme(
+#     text = element_text(face="bold"),
+#     axis.text.y = element_text(size = 6),
+#     axis.text.x = element_text(angle = 45, hjust = 1),
+#     axis.ticks.y = element_blank(),
+#     axis.title.x = element_blank(),
+#     panel.grid = element_blank()
+#   )
+# print(heat_map_p )
+# # custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
+# 
+# png(fs::path(dir.results, "Heatmap_NEBULA_All_Celltypes_HR_unadjusted_pooled_offset_Steatosis.png"),
+#     width = 4000, height = 4000, res = 300)
+# print(heat_map_p)
+# dev.off()
 
 # Prepare data for volcano plots - keeping your exact color scheme and logic
 total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$logFC > 0, "#990000",
@@ -5708,16 +5726,16 @@ total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$logFC > 0
 # Set factor levels for cell type ordering
 # total_results$Celltype <- factor(total_results$Celltype, levels = HR_celltypes)
 
-# Calculate statistics for caption (will be done per cell type)
-summary_stats <- total_results %>%
-  group_by(Celltype) %>%
-  summarise(
-    Genes = n_distinct(Gene),
-    Significant = sum(fdr < 0.05),
-    .groups = 'drop'
-  )
-summary_stats <- summary_stats %>% 
-  mutate(Significant=ifelse(Celltype=="Stellate_2",0,Significant))
+# # Calculate statistics for caption (will be done per cell type)
+# summary_stats <- total_results %>%
+#   group_by(Celltype) %>%
+#   summarise(
+#     Genes = n_distinct(Gene),
+#     Significant = sum(fdr < 0.05),
+#     .groups = 'drop'
+#   )
+# summary_stats <- summary_stats %>% 
+#   mutate(Significant=ifelse(Celltype=="Stellate_2",0,Significant))
 
 total_results <- total_results %>% 
   na.omit()
@@ -5773,8 +5791,13 @@ desired_order <- c("Hep_1", "Hep_2", "Hep_3", "Hep_4", "Hep_5",
                    "dHep", "Hep_Immune", 
                    "EC_1", "EC_2", 
                    "Stellate_1", "Stellate_2",
-                   "Cholang", 
                    "B_Plasma", "cFIB_cImmune", "Kup_MAC", "Kup_MON", "NKC_NKT")
+# desired_order <- c("Hep_1", "Hep_2", "Hep_3", "Hep_4", "Hep_5", 
+#                    "dHep", "Hep_Immune", 
+#                    "EC_1", "EC_2", 
+#                    "Stellate_1", "Stellate_2",
+#                    "Cholang", 
+#                    "B_Plasma", "cFIB_cImmune", "Kup_MAC", "Kup_MON", "NKC_NKT")
 
 # Convert Celltype to factor with custom order
 total_results$Celltype <- factor(total_results$Celltype, levels = desired_order)
@@ -5804,7 +5827,7 @@ volcano_plots <- ggplot(total_results, aes(x = logFC, y = p_value10, color = col
   xlim(-3, 3) +
   
   labs(
-    title = "High Steatosis (2+3) vs. Low Steatosis (0+1) by Cell Type",
+    title = "High Steatosis (2+3) vs. Low Steatosis (0+1) by Cell Subtype",
     subtitle = "2000 HVGs, Unadjusted",
     x = "Log Fold Change",
     y = "-log10(P-Value)"
@@ -5826,125 +5849,7 @@ png(fs::path(dir.results, "Supplemental Results","Volcano_Plots_NEBULA_All_Cellt
 print(volcano_plots)
 dev.off()
 
-# Alternative: Create individual plots with custom captions for each cell type
-library(patchwork)
 
-# Function to create individual volcano plots matching your exact style
-create_volcano_by_celltype <- function(data, celltype_name) {
-  
-  # Filter data for this cell type
-  ct_data <- filter(data, Celltype == celltype_name)
-  
-  # Identify significant points
-  significant_df <- ct_data[ct_data$fdr < 0.05, ]
-  
-  # Calculate stats for this cell type
-  Genes <- length(unique(ct_data$Gene))
-  Significant_Genes <- nrow(significant_df)
-  
-  # Create the plot
-  p <- ggplot(ct_data, aes(x = logFC, y = PValue10, color = color)) +
-    geom_point(alpha = 0.7) +
-    scale_color_identity() +
-    theme_minimal() +
-    labs(
-      title = celltype_name,
-      subtitle = "High Steatosis (2+3) vs. Low Steatosis (0+1)",
-      x = "Log Fold Change",
-      y = "-log10(P-Value)",
-      caption = paste0("FDR < 0.05, Genes = ", Genes, ", Significant = ", Significant_Genes)
-    ) +
-    theme(
-      plot.title = element_text(hjust = 0, face = "bold"),
-      plot.subtitle = element_text(hjust = 0, size = 9),
-      axis.text.x = element_text(angle = 0, hjust = 1),
-      plot.caption = element_text(size = 7, hjust = 0)
-    ) +
-    xlim(-2.5, 2.5) +
-    geom_text(data = significant_df, aes(label = Gene),
-              vjust = 1, hjust = 1, size = 2.5, check_overlap = TRUE, color = "black")
-  
-  return(p)
-}
-
-# Create individual plots for each cell type
-volcano_list <- list()
-for (ct in levels(total_results$Celltype)) {
-  volcano_list[[ct]] <- create_volcano_by_celltype(total_results, ct)
-}
-
-# Combine plots using patchwork
-combined_volcanoes <- wrap_plots(volcano_list, ncol = 3) + 
-  plot_annotation(
-    title = "Differential Gene Expression by Cell Type",
-    subtitle = "High Steatosis (2+3) vs. Low Steatosis (0+1), 2000 HVGs",
-    theme = theme(
-      plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
-      plot.subtitle = element_text(hjust = 0.5, size = 11)
-    )
-  )
-
-print(combined_volcanoes)
-
-# Version with ggrepel for better label placement (if you prefer)
-library(ggrepel)
-
-volcano_plots_repel <- ggplot(total_results, aes(x = logFC, y = PValue10, color = color)) +
-  geom_point(alpha = 0.7) +
-  scale_color_identity() +
-  
-  # Add labels for significant points with ggrepel
-  geom_text_repel(data = total_results[total_results$fdr < 0.05, ], 
-                  aes(label = Gene),
-                  size = 2.5, color = "black", 
-                  box.padding = 0.3, 
-                  point.padding = 0.2,
-                  max.overlaps = 10,
-                  segment.size = 0.3) +
-  
-  facet_wrap(~ Celltype, ncol = 3, scales = "free_y") +
-  xlim(-2.5, 2.5) +
-  
-  labs(
-    title = "High Steatosis (2+3) vs. Low Steatosis (0+1) by Cell Type",
-    subtitle = "2000 HVGs, Unadjusted",
-    x = "Log Fold Change",
-    y = "-log10(P-Value)"
-  ) +
-  
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0),
-    axis.text.x = element_text(angle = 0, hjust = 1),
-    strip.text = element_text(face = "bold", size = 10),
-    strip.background = element_rect(fill = "gray95", color = NA),
-    panel.border = element_rect(color = "gray80", fill = NA)
-  )
-
-# Create a summary plot showing number of DEGs per cell type
-deg_summary <- total_results %>%
-  group_by(Celltype) %>%
-  summarise(
-    Upregulated = sum(fdr < 0.05 & logFC > 0),
-    Downregulated = sum(fdr < 0.05 & logFC < 0),
-    .groups = 'drop'
-  ) %>%
-  pivot_longer(cols = c(Upregulated, Downregulated), 
-               names_to = "Direction", 
-               values_to = "Count")
-
-summary_barplot <- ggplot(deg_summary, aes(x = Celltype, y = Count, fill = Direction)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  scale_fill_manual(values = c("Upregulated" = "#990000", "Downregulated" = "#003366")) +
-  theme_minimal() +
-  labs(title = "Number of Differentially Expressed Genes by Cell Type",
-       x = "Cell Type",
-       y = "Number of DEGs (FDR < 0.05)") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        plot.title = element_text(hjust = 0.5, face = "bold"))
-
-print(summary_barplot)
-# }
 ```
 ### v. HR GSEA
 ```{r echo = F}
@@ -6434,8 +6339,9 @@ dev.off()
 ###i. LR Nebula
 ```{r}
 #Filter to celltype 
-LR_celltypes <- unique(so_liver_sn$celltype_LR)
-clinical_variables <- c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage")
+LR_celltypes <- unique(so_liver_sn$celltype_LR)[-1]
+# clinical_variables <- c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage")
+clinical_variables <- c("tg")
 #Filter to celltype 
 # LR_celltypes <- unique(so_liver_sn$celltype)
 #  [1] Hep-2        Hep-5        Hep-4        EC-2         Stellate-2   Hep-3        Cholang     
@@ -6471,10 +6377,10 @@ for (cell_name in LR_celltypes) {
   counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ]) # load counts and round
   
   # List of genes
-  genes_list <- rownames(counts_hvg)[1:100]
+  genes_list <- rownames(counts_hvg)
   
-  # for (var in clinical_variables) {
-  var <- clinical_variables[1]
+  for (var in clinical_variables) {
+  # var <- clinical_variables[1]
     so_celltype[[var]] <- as.numeric(unlist(so_celltype[[var]][1]))
     
     # With parallelization
@@ -6535,7 +6441,7 @@ for (cell_name in LR_celltypes) {
     )
     
     full_results <- as.data.frame(nebula_summaries)
-    total_results <- full_results
+    # total_results <- full_results
     
     nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40|hep_nebula_converged$Convergence_Code==-50|hep_nebula_converged$Convergence_Code==-60)]
     ) 
@@ -6565,11 +6471,10 @@ for (cell_name in LR_celltypes) {
     write.csv(full_results,fs::path(dir.results,paste0("NEBULA_",cell_name2,"_",var,"_unadjusted_2000_pooled_offset.csv")))
     
   }
-# }
+}
 
-#Heat Map visualization of results
 total_results <- data.frame()
-LR_celltypes <- unique(so_liver_sn$celltype_LR)
+LR_celltypes <- unique(so_liver_sn$celltype_LR)[-1]
 for (cell_name in LR_celltypes) {
   for (var in clinical_variables) {
     full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_",cell_name,"_",var,"_unadjusted_2000_pooled_offset.csv")))
@@ -6586,55 +6491,75 @@ for (cell_name in LR_celltypes) {
     total_results <- rbind(total_results,full_results)
   }
 }
+total_results2 <- data.frame()
+LR_celltypes <- unique(so_liver_sn$celltype_LR)[1]
+for (cell_name in LR_celltypes) {
+  for (var in clinical_variables) {
+    full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_",cell_name,"_",var,"_unadjusted_2000_pooled_offset.csv")))
+    full_results <- full_results %>% 
+      clean_names() %>% 
+      # dplyr::rename(logFC=log_fc_steatosis_cat_high_steatosis_2_3) %>% 
+      dplyr::rename(Gene=gene)
+    full_results <- full_results[,-1]
+    full_results$Celltype <- cell_name
+    full_results$variable <- var
+    full_results$log_fc <- full_results[,2]
+    full_results <- full_results %>% 
+      dplyr::select(log_fc, fdr, p_value10,Celltype,variable,Gene)
+    total_results2 <- rbind(total_results2,full_results)
+  }
+}
 
-total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$log_fc > 0, "#990000",
-                              ifelse(total_results$fdr < 0.05 & total_results$log_fc < 0, "#003366", "lightgray"))
-
-# Define significance stars
-total_results <- total_results %>%
-  mutate(signif = case_when(
-    fdr < 0.01 ~ "**",
-    fdr < 0.05 ~ "*",
-    TRUE ~ ""
-  ))
-
-# Select only the needed columns and rename log_fc for clarity
-heatmap_data <- total_results %>%
-  dplyr::select(Gene, Celltype, log_fc, signif)
-
-custom_order <- LR_celltypes
-heatmap_data$Celltype <- factor(heatmap_data$Celltype, levels = custom_order)
-# custom_labels <- c("Average Cortical K2","Average Medulla K2","Average Cortical F","Average Medulla F",
-#                    "Average Cortical K2/F","Average Medulla K2/F")
-
-heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = log_fc)) +
-  geom_tile(color = "grey90") +
-  geom_text(aes(label = signif), size = 3, color = "black") +
-  scale_fill_gradient2(
-    low = "#264653", mid = "white", high = "darkred",
-    midpoint = 0,
-    name = "LogFC"
-  ) +
-  theme_minimal() +
-  labs(title = "2000 HVGs by Clinical Variables",
-       x = "Exposure",
-       y = "Gene") +
-  # scale_x_discrete(labels = setNames(custom_labels, custom_order))+
-  theme(
-    text = element_text(face="bold"),
-    axis.text.y = element_text(size = 6),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.ticks.y = element_blank(),
-    axis.title.x = element_blank(),
-    panel.grid = element_blank()
-  )
-
-# custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
-
-# png(fs::path(dir.results, "Heatmap__NEBULA_Other_Celltypess_unadjusted_pooled_offset_Steatosis.png"), 
-#     width = 1500, height = 2000, res = 300)
-print(heat_map_p)
-# dev.off()
+total_results <- rbind(total_results,total_results2)
+rm(total_results2)
+# total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$log_fc > 0, "#990000",
+#                               ifelse(total_results$fdr < 0.05 & total_results$log_fc < 0, "#003366", "lightgray"))
+# 
+# # Define significance stars
+# total_results <- total_results %>%
+#   mutate(signif = case_when(
+#     fdr < 0.01 ~ "**",
+#     fdr < 0.05 ~ "*",
+#     TRUE ~ ""
+#   ))
+# 
+# # Select only the needed columns and rename log_fc for clarity
+# heatmap_data <- total_results %>%
+#   dplyr::select(Gene, Celltype, log_fc, signif)
+# 
+# custom_order <- LR_celltypes
+# heatmap_data$Celltype <- factor(heatmap_data$Celltype, levels = custom_order)
+# # custom_labels <- c("Average Cortical K2","Average Medulla K2","Average Cortical F","Average Medulla F",
+# #                    "Average Cortical K2/F","Average Medulla K2/F")
+# 
+# heat_map_p <- ggplot(heatmap_data, aes(x = Celltype, y = Gene, fill = log_fc)) +
+#   geom_tile(color = "grey90") +
+#   geom_text(aes(label = signif), size = 3, color = "black") +
+#   scale_fill_gradient2(
+#     low = "#264653", mid = "white", high = "darkred",
+#     midpoint = 0,
+#     name = "LogFC"
+#   ) +
+#   theme_minimal() +
+#   labs(title = "2000 HVGs by Clinical Variables",
+#        x = "Exposure",
+#        y = "Gene") +
+#   # scale_x_discrete(labels = setNames(custom_labels, custom_order))+
+#   theme(
+#     text = element_text(face="bold"),
+#     axis.text.y = element_text(size = 6),
+#     axis.text.x = element_text(angle = 45, hjust = 1),
+#     axis.ticks.y = element_blank(),
+#     axis.title.x = element_blank(),
+#     panel.grid = element_blank()
+#   )
+# 
+# # custom_colors <- c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51", "darkred")
+# 
+# # png(fs::path(dir.results, "Heatmap__NEBULA_Other_Celltypess_unadjusted_pooled_offset_Steatosis.png"), 
+# #     width = 1500, height = 2000, res = 300)
+# print(heat_map_p)
+# # dev.off()
 
 # Prepare data for volcano plots - keeping your exact color scheme and logic
 total_results$color <- ifelse(total_results$fdr < 0.05 & total_results$log_fc > 0, "#990000",
@@ -6652,16 +6577,16 @@ if("pvalue" %in% names(total_results)) {
 }
 
 # Set factor levels for cell type ordering
-total_results$Celltype <- factor(total_results$Celltype, levels = LR_celltypes)
+total_results$Celltype <- factor(total_results$Celltype, levels = unique(so_liver_sn$celltype_LR))
 
-# Calculate statistics for caption (will be done per cell type)
-summary_stats <- total_results %>%
-  group_by(Celltype) %>%
-  summarise(
-    Genes = n_distinct(Gene),
-    Significant = sum(fdr < 0.05),
-    .groups = 'drop'
-  )
+# # Calculate statistics for caption (will be done per cell type)
+# summary_stats <- total_results %>%
+#   group_by(Celltype) %>%
+#   summarise(
+#     Genes = n_distinct(Gene),
+#     Significant = sum(fdr < 0.05),
+#     .groups = 'drop'
+#   )
 
 
 for (var in clinical_variables){
@@ -6679,9 +6604,9 @@ for (var in clinical_variables){
   #     max = max(log_fc, na.rm = TRUE)
   #   )
   
-  # Join back to results
-  results <- results %>%
-    left_join(celltype_limits, by = "Celltype")
+  # # Join back to results
+  # results <- results %>%
+  #   left_join(celltype_limits, by = "Celltype")
   
   results <- results %>% 
     na.omit()
@@ -6731,7 +6656,8 @@ for (var in clinical_variables){
 ##GSEA
 LR_celltypes <- unique(so_liver_sn$celltype_LR)
 # LR_celltypes <- "Hep"
-clinical_variables <- c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage")
+# clinical_variables <- c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage")
+clinical_variables <- c("tg")
 total_results <- data.frame()
 for (cell_name in LR_celltypes) {
   for (var in clinical_variables) {
@@ -6828,13 +6754,12 @@ for (var in clinical_variables){
 ###ii. HR Nebula
 ```{r}
 #Filter to celltype 
-HR_celltypes <- unique(so_liver_sn$celltype)
+HR_celltypes <- unique(so_liver_sn$celltype)[-7]
 #  [1] Hep-2        Hep-5        Hep-4        EC-2         Stellate-2   Hep-3        Cholang     
 #  [8] Hep-1        NKC/NKT      Kup/MON      dHep         Kup/MAC      EC-1         Stellate-1  
 # [15] B/Plasma     Hep/Immune   cFIB/cImmune
 # clinical_variables <- c("alt","ast","ggt","bmi","a1c")
-clinical_variables <- c("hepatocyte_ballooning_score","lobular_inflammation_grade",
-                        "steatosis_grade","fibrosis_stage")
+clinical_variables <- c("tg")
 # cell_name <- "Hep-1"
 # unique(so_liver_sn$hepatocyte_ballooning_percent)
 # unique(so_liver_sn$lobular_inflammation_grade)

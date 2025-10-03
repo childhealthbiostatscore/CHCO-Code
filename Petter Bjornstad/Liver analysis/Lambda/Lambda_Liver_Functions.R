@@ -1797,265 +1797,265 @@ ideas_fxn <- function(so, exp_group, ref_group, covariates, var_type, id, method
 # }
 # 
 
-# #GSEA Functions ----
-##a. Set up functions ----
-# function for GSEA
-# Set relevant paths
-list.files()
-bg_path <- c()
-# bg_path <- c(fs::path(dir.dat,"/GSEA/"))
-list.files(bg_path)
-
-# Functions
-## Function: Adjacency matrix to list
-matrix_to_list <- function(pws){
-  pws.l <- list()
-  for (pw in colnames(pws)) {
-    pws.l[[pw]] <- rownames(pws)[as.logical(pws[, pw])]
-  }
-  return(pws.l)
-}
-
-## Function: prepare_gmt
-prepare_gmt <- function(gmt_file, genes_in_data, savefile = FALSE){
-
-  # Read in gmt file
-  gmt <- gmtPathways(gmt_file)
-  hidden <- unique(unlist(gmt))
-
-  # Convert gmt file to a matrix with the genes as rows and for each go annotation (columns) the values are 0 or 1
-  mat <- matrix(NA, dimnames = list(hidden, names(gmt)),
-                nrow = length(hidden), ncol = length(gmt))
-  for (i in 1:dim(mat)[2]){
-    mat[,i] <- as.numeric(hidden %in% gmt[[i]])
-  }
-
-  #Subset to the genes that are present in our data to avoid bias
-  hidden1 <- intersect(genes_in_data, hidden)
-  mat <- mat[hidden1, colnames(mat)[which(colSums(mat[hidden1,])>5)]] # filter for gene sets with more than 5 genes annotated
-  # And get the list again
-  final_list <- matrix_to_list(mat) # for this we use the function we previously defined
-
-  if(savefile){
-    saveRDS(final_list, file = paste0(gsub('.gmt', '', gmt_file), '_subset_', format(Sys.time(), '%d%m'), '.RData'))
-  }
-
-  print('Wohoo! .gmt conversion successfull!:)')
-  return(final_list)
-}
-
-# List of acronyms to uppercase
-acronyms <- c("rna", "dna", "mtor", "foxo", "ppar", "nmd", "fgfr", "robo",
-              "bhl", "cov", "jak", "stat", "wnt", "hiv", "bcl", "mapk",
-              "pt", "tal", "pc", "ic", "ec", "fibvsmcp")
-# unique(full_results$Gene))
-special_mixed <- c("rrna", "mrna", "trna", "gtpase", "atpase", "robos", "slits", "fibvsmcp")
-special_replacements <- c("rRNA", "mRNA", "tRNA", "GTPase", "ATPase", "ROBOs", "SLITs", "FIB/VSMC/P")
-
-replace_mixed_case <- function(text, from, to) {
-  for (i in seq_along(from)) {
-    pattern <- paste0("\\b", from[i], "\\b")
-    text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), to[i])
-  }
-  return(text)
-}
-
-capitalize_acronyms <- function(text, terms) {
-  for (term in terms) {
-    pattern <- paste0("\\b", term, "\\b")
-    replacement <- toupper(term)
-    text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), replacement)
-  }
-  return(text)
-}
-
-## b. Fgsea function ----
-plot_fgsea <- function(fgsea_res,
-                       top_n = 30,
-                       title = "Top Enriched Pathways",
-                       xlimit = 3,
-                       xnudge = xlimit/100,
-                       text1 = 6.5,
-                       text2 = 18,
-                       text3 = 20,
-                       face = "plain") {
-
-  fgsea_res <- fgsea_res %>%
-    arrange(pval) %>%
-    head(top_n) %>%
-    mutate(
-      direction = case_when(NES < 0 ~ "Negative", NES > 0 ~ "Positive"),
-      pathway_clean = str_remove(pathway, "^KEGG_"),
-      pathway_clean = str_remove(pathway_clean, "^REACTOME_"),
-      pathway_clean = str_remove(pathway_clean, "^GOBP_"),
-      pathway_clean = str_remove(pathway_clean, "^GOMF_"),
-      pathway_clean = str_replace_all(pathway_clean, "_", " "),
-      pathway_clean = str_to_sentence(pathway_clean),
-      pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
-      pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
-      pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
-      pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
-      pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
-      pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
-      pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
-      pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
-      pathway_clean = paste0(pathway_clean, " (", size, ")")
-    ) %>%
-    arrange(pval)
-
-  fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, fgsea_res$pval)
-
-  fgsea_res %>%
-    ggplot(aes(x = -log10(pval), y = fct_rev(pathway_clean), label = pathway_clean)) +
-    geom_point(aes(size = abs(NES), color = direction, alpha = 0.8)) +
-    geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
-    geom_text(aes(group = pathway_clean, color = direction, fontface = face),
-              hjust = 0, size = text1, nudge_x = xnudge) +
-    scale_size_binned() +
-    scale_color_manual(values = c("Positive" = "#c75146", "Negative" = "#2c7da0")) +
-    scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
-    scale_y_discrete(expand = expansion(add = 1)) +
-    labs(
-      x = "-log(p-value)",
-      y = "Pathways",
-      color = "Direction",
-      size = "NES",
-      title = title
-    ) +
-    guides(alpha = "none") +
-    theme_bw() +
-    theme(
-      axis.text.y = element_blank(),
-      panel.grid = element_blank(),
-      axis.text.x = element_text(size = text3),
-      axis.title = element_text(size = text3),
-      axis.ticks.y = element_blank(),
-      legend.position = c(0.9, 0.2),
-      legend.background = element_blank(),
-      legend.box.background = element_rect(color = "black"),
-      legend.title = element_text(size = text2),
-      legend.text = element_text(size = text2),
-      title = element_text(size = text3)
-    )
-}
-##c. Transposed fgsea function ----
-plot_fgsea_transpose <- function(fgsea_res,
-                                 top_n = 30,
-                                 title = "Top Enriched Pathways",
-                                 xlimit = 3,
-                                 xnudge = xlimit/100,
-                                 text1 = 6.5,
-                                 text2 = 18,
-                                 text3 = 20) {
-
-  fgsea_res <- fgsea_res %>%
-    arrange(pval) %>%
-    head(top_n) %>%
-    mutate(
-      direction = case_when((NES < 0 & pval <= 0.05 ~ "Negative"),
-                            (NES > 0 & pval <= 0.05 ~ "Positive"),
-                            (NES < 0 & pval > 0.05 ~ "Negative p > 0.05"),
-                            (NES > 0 & pval > 0.05 ~ "Positive p > 0.05")),
-      face = case_when((NES < 0 & pval <= 0.05 ~ "plain"),
-                       (NES > 0 & pval <= 0.05 ~ "plain"),
-                       (NES < 0 & pval > 0.05 ~ "plain"),
-                       (NES > 0 & pval > 0.05 ~ "plain")),
-      pathway_clean = str_remove(pathway, "^KEGG_"),
-      pathway_clean = str_remove(pathway_clean, "^REACTOME_"),
-      pathway_clean = str_remove(pathway_clean, "^GOBP_"),
-      pathway_clean = str_remove(pathway_clean, "^GOMF_"),
-      pathway_clean = str_replace_all(pathway_clean, "_", " "),
-      pathway_clean = str_to_sentence(pathway_clean),
-      pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
-      pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
-      pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
-      pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
-      pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
-      pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
-      pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
-      pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
-      pathway_clean = paste0(pathway_clean, " (", size, ")")
-    ) %>%
-    arrange(pval)
-
-  fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, -abs(fgsea_res$NES))
-
-  fgsea_res %>%
-    ggplot(aes(x = abs(NES), y = fct_rev(pathway_clean), label = pathway_clean)) +
-    geom_point(aes(size = -log10(pval), color = direction, alpha = 0.8)) +
-    # geom_vline(xintercept = 2, linetype = "dashed") +
-    geom_text(aes(group = pathway_clean, color = direction, fontface = face),
-              hjust = 0, size = text1, nudge_x = xnudge) +
-    scale_size_binned() +
-    scale_color_manual(values = c("Positive" = "#963b32", "Negative" = "#1f566f",
-                                  "Positive p > 0.05" = "#f1bcb6", "Negative p > 0.05" = "#b3d6e5")) +
-    scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
-    scale_y_discrete(expand = expansion(add = 1)) +
-    labs(
-      x = "NES",
-      y = "Pathways",
-      color = "Direction",
-      size = "-log(p-value)",
-      title = title
-    ) +
-    guides(alpha = "none") +
-    theme_bw() +
-    theme(
-      axis.text.y = element_blank(),
-      panel.grid = element_blank(),
-      axis.text.x = element_text(size = text3),
-      axis.title = element_text(size = text3),
-      axis.ticks.y = element_blank(),
-      legend.position = c(0.15, 0.5),
-      legend.background = element_blank(),
-      legend.box.background = element_rect(color = "black"),
-      legend.title = element_text(size = text2),
-      legend.text = element_text(size = text2),
-      title = element_text(size = text3)
-    )
-}
-
-# #Cell Chat Functions----
-# filter_by_celltype_size <- function(seurat_obj, celltype_col = "celltype", min_cells = 50) {
-#   # Get celltype 
-#   celltypes <- seurat_obj@meta.data[[celltype_col]]
-#   
-#   # Count
-#   cell_counts <- table(celltypes)
-#   keep_celltypes <- names(cell_counts[cell_counts >= min_cells])
-#   
-#   # Subset
-#   keep_cells <- rownames(seurat_obj@meta.data)[celltypes %in% keep_celltypes]
-#   seurat_obj_filtered <- subset(seurat_obj, cells = keep_cells)
-#   
-#   return(seurat_obj_filtered)
+# # #GSEA Functions ----
+# ##a. Set up functions ----
+# # function for GSEA
+# # Set relevant paths
+# list.files()
+# bg_path <- c()
+# # bg_path <- c(fs::path(dir.dat,"/GSEA/"))
+# list.files(bg_path)
+# 
+# # Functions
+# ## Function: Adjacency matrix to list
+# matrix_to_list <- function(pws){
+#   pws.l <- list()
+#   for (pw in colnames(pws)) {
+#     pws.l[[pw]] <- rownames(pws)[as.logical(pws[, pw])]
+#   }
+#   return(pws.l)
 # }
 # 
+# ## Function: prepare_gmt
+# prepare_gmt <- function(gmt_file, genes_in_data, savefile = FALSE){
 # 
-# run_cellchat_pipeline <- function(seurat_obj, group_name, group.by = "celltype", assay = "RNA", min_cells = 10) {
-#   # future::plan("multisession", workers = n_cores)
-#   
-#   cellchat <- createCellChat(object = seurat_obj, group.by = group.by, assay = assay)
-#   cellchat <- addMeta(cellchat, meta = seurat_obj@meta.data)
-#   cellchat <- setIdent(cellchat, ident.use = group.by)
-#   
-#   CellChatDB <- CellChatDB.human
-#   cellchat@DB <- CellChatDB
-#   
-#   cellchat <- subsetData(cellchat)
-#   cellchat <- identifyOverExpressedGenes(cellchat)
-#   cellchat <- identifyOverExpressedInteractions(cellchat)
-#   cellchat <- computeCommunProb(cellchat, type = "triMean")
-#   cellchat <- filterCommunication(cellchat, min.cells = min_cells)
-#   cellchat <- computeCommunProbPathway(cellchat)
-#   cellchat <- aggregateNet(cellchat)
-#   
-#   saveRDS(cellchat, file = paste0("cellchat_", group_name, ".rds"))
-#   return(cellchat)
+#   # Read in gmt file
+#   gmt <- gmtPathways(gmt_file)
+#   hidden <- unique(unlist(gmt))
+# 
+#   # Convert gmt file to a matrix with the genes as rows and for each go annotation (columns) the values are 0 or 1
+#   mat <- matrix(NA, dimnames = list(hidden, names(gmt)),
+#                 nrow = length(hidden), ncol = length(gmt))
+#   for (i in 1:dim(mat)[2]){
+#     mat[,i] <- as.numeric(hidden %in% gmt[[i]])
+#   }
+# 
+#   #Subset to the genes that are present in our data to avoid bias
+#   hidden1 <- intersect(genes_in_data, hidden)
+#   mat <- mat[hidden1, colnames(mat)[which(colSums(mat[hidden1,])>5)]] # filter for gene sets with more than 5 genes annotated
+#   # And get the list again
+#   final_list <- matrix_to_list(mat) # for this we use the function we previously defined
+# 
+#   if(savefile){
+#     saveRDS(final_list, file = paste0(gsub('.gmt', '', gmt_file), '_subset_', format(Sys.time(), '%d%m'), '.RData'))
+#   }
+# 
+#   print('Wohoo! .gmt conversion successfull!:)')
+#   return(final_list)
 # }
 # 
+# # List of acronyms to uppercase
+# acronyms <- c("rna", "dna", "mtor", "foxo", "ppar", "nmd", "fgfr", "robo",
+#               "bhl", "cov", "jak", "stat", "wnt", "hiv", "bcl", "mapk",
+#               "pt", "tal", "pc", "ic", "ec", "fibvsmcp")
+# # unique(full_results$Gene))
+# special_mixed <- c("rrna", "mrna", "trna", "gtpase", "atpase", "robos", "slits", "fibvsmcp")
+# special_replacements <- c("rRNA", "mRNA", "tRNA", "GTPase", "ATPase", "ROBOs", "SLITs", "FIB/VSMC/P")
 # 
-# get_group_size <- function(cellchat_obj) {
-#   return(as.numeric(table(cellchat_obj@idents)))
+# replace_mixed_case <- function(text, from, to) {
+#   for (i in seq_along(from)) {
+#     pattern <- paste0("\\b", from[i], "\\b")
+#     text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), to[i])
+#   }
+#   return(text)
 # }
 # 
+# capitalize_acronyms <- function(text, terms) {
+#   for (term in terms) {
+#     pattern <- paste0("\\b", term, "\\b")
+#     replacement <- toupper(term)
+#     text <- str_replace_all(text, regex(pattern, ignore_case = TRUE), replacement)
+#   }
+#   return(text)
+# }
+# 
+# ## b. Fgsea function ----
+# plot_fgsea <- function(fgsea_res,
+#                        top_n = 30,
+#                        title = "Top Enriched Pathways",
+#                        xlimit = 3,
+#                        xnudge = xlimit/100,
+#                        text1 = 6.5,
+#                        text2 = 18,
+#                        text3 = 20,
+#                        face = "plain") {
+# 
+#   fgsea_res <- fgsea_res %>%
+#     arrange(pval) %>%
+#     head(top_n) %>%
+#     mutate(
+#       direction = case_when(NES < 0 ~ "Negative", NES > 0 ~ "Positive"),
+#       pathway_clean = str_remove(pathway, "^KEGG_"),
+#       pathway_clean = str_remove(pathway_clean, "^REACTOME_"),
+#       pathway_clean = str_remove(pathway_clean, "^GOBP_"),
+#       pathway_clean = str_remove(pathway_clean, "^GOMF_"),
+#       pathway_clean = str_replace_all(pathway_clean, "_", " "),
+#       pathway_clean = str_to_sentence(pathway_clean),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
+#       pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
+#       pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
+#       pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
+#       pathway_clean = paste0(pathway_clean, " (", size, ")")
+#     ) %>%
+#     arrange(pval)
+# 
+#   fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, fgsea_res$pval)
+# 
+#   fgsea_res %>%
+#     ggplot(aes(x = -log10(pval), y = fct_rev(pathway_clean), label = pathway_clean)) +
+#     geom_point(aes(size = abs(NES), color = direction, alpha = 0.8)) +
+#     geom_vline(xintercept = -log10(0.05), linetype = "dashed") +
+#     geom_text(aes(group = pathway_clean, color = direction, fontface = face),
+#               hjust = 0, size = text1, nudge_x = xnudge) +
+#     scale_size_binned() +
+#     scale_color_manual(values = c("Positive" = "#c75146", "Negative" = "#2c7da0")) +
+#     scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
+#     scale_y_discrete(expand = expansion(add = 1)) +
+#     labs(
+#       x = "-log(p-value)",
+#       y = "Pathways",
+#       color = "Direction",
+#       size = "NES",
+#       title = title
+#     ) +
+#     guides(alpha = "none") +
+#     theme_bw() +
+#     theme(
+#       axis.text.y = element_blank(),
+#       panel.grid = element_blank(),
+#       axis.text.x = element_text(size = text3),
+#       axis.title = element_text(size = text3),
+#       axis.ticks.y = element_blank(),
+#       legend.position = c(0.9, 0.2),
+#       legend.background = element_blank(),
+#       legend.box.background = element_rect(color = "black"),
+#       legend.title = element_text(size = text2),
+#       legend.text = element_text(size = text2),
+#       title = element_text(size = text3)
+#     )
+# }
+# ##c. Transposed fgsea function ----
+# plot_fgsea_transpose <- function(fgsea_res,
+#                                  top_n = 30,
+#                                  title = "Top Enriched Pathways",
+#                                  xlimit = 3,
+#                                  xnudge = xlimit/100,
+#                                  text1 = 6.5,
+#                                  text2 = 18,
+#                                  text3 = 20) {
+# 
+#   fgsea_res <- fgsea_res %>%
+#     arrange(pval) %>%
+#     head(top_n) %>%
+#     mutate(
+#       direction = case_when((NES < 0 & pval <= 0.05 ~ "Negative"),
+#                             (NES > 0 & pval <= 0.05 ~ "Positive"),
+#                             (NES < 0 & pval > 0.05 ~ "Negative p > 0.05"),
+#                             (NES > 0 & pval > 0.05 ~ "Positive p > 0.05")),
+#       face = case_when((NES < 0 & pval <= 0.05 ~ "plain"),
+#                        (NES > 0 & pval <= 0.05 ~ "plain"),
+#                        (NES < 0 & pval > 0.05 ~ "plain"),
+#                        (NES > 0 & pval > 0.05 ~ "plain")),
+#       pathway_clean = str_remove(pathway, "^KEGG_"),
+#       pathway_clean = str_remove(pathway_clean, "^REACTOME_"),
+#       pathway_clean = str_remove(pathway_clean, "^GOBP_"),
+#       pathway_clean = str_remove(pathway_clean, "^GOMF_"),
+#       pathway_clean = str_replace_all(pathway_clean, "_", " "),
+#       pathway_clean = str_to_sentence(pathway_clean),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
+#       pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
+#       pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
+#       pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
+#       pathway_clean = paste0(pathway_clean, " (", size, ")")
+#     ) %>%
+#     arrange(pval)
+# 
+#   fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, -abs(fgsea_res$NES))
+# 
+#   fgsea_res %>%
+#     ggplot(aes(x = abs(NES), y = fct_rev(pathway_clean), label = pathway_clean)) +
+#     geom_point(aes(size = -log10(pval), color = direction, alpha = 0.8)) +
+#     # geom_vline(xintercept = 2, linetype = "dashed") +
+#     geom_text(aes(group = pathway_clean, color = direction, fontface = face),
+#               hjust = 0, size = text1, nudge_x = xnudge) +
+#     scale_size_binned() +
+#     scale_color_manual(values = c("Positive" = "#963b32", "Negative" = "#1f566f",
+#                                   "Positive p > 0.05" = "#f1bcb6", "Negative p > 0.05" = "#b3d6e5")) +
+#     scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
+#     scale_y_discrete(expand = expansion(add = 1)) +
+#     labs(
+#       x = "NES",
+#       y = "Pathways",
+#       color = "Direction",
+#       size = "-log(p-value)",
+#       title = title
+#     ) +
+#     guides(alpha = "none") +
+#     theme_bw() +
+#     theme(
+#       axis.text.y = element_blank(),
+#       panel.grid = element_blank(),
+#       axis.text.x = element_text(size = text3),
+#       axis.title = element_text(size = text3),
+#       axis.ticks.y = element_blank(),
+#       legend.position = c(0.15, 0.5),
+#       legend.background = element_blank(),
+#       legend.box.background = element_rect(color = "black"),
+#       legend.title = element_text(size = text2),
+#       legend.text = element_text(size = text2),
+#       title = element_text(size = text3)
+#     )
+# }
+# 
+# # #Cell Chat Functions----
+# # filter_by_celltype_size <- function(seurat_obj, celltype_col = "celltype", min_cells = 50) {
+# #   # Get celltype 
+# #   celltypes <- seurat_obj@meta.data[[celltype_col]]
+# #   
+# #   # Count
+# #   cell_counts <- table(celltypes)
+# #   keep_celltypes <- names(cell_counts[cell_counts >= min_cells])
+# #   
+# #   # Subset
+# #   keep_cells <- rownames(seurat_obj@meta.data)[celltypes %in% keep_celltypes]
+# #   seurat_obj_filtered <- subset(seurat_obj, cells = keep_cells)
+# #   
+# #   return(seurat_obj_filtered)
+# # }
+# # 
+# # 
+# # run_cellchat_pipeline <- function(seurat_obj, group_name, group.by = "celltype", assay = "RNA", min_cells = 10) {
+# #   # future::plan("multisession", workers = n_cores)
+# #   
+# #   cellchat <- createCellChat(object = seurat_obj, group.by = group.by, assay = assay)
+# #   cellchat <- addMeta(cellchat, meta = seurat_obj@meta.data)
+# #   cellchat <- setIdent(cellchat, ident.use = group.by)
+# #   
+# #   CellChatDB <- CellChatDB.human
+# #   cellchat@DB <- CellChatDB
+# #   
+# #   cellchat <- subsetData(cellchat)
+# #   cellchat <- identifyOverExpressedGenes(cellchat)
+# #   cellchat <- identifyOverExpressedInteractions(cellchat)
+# #   cellchat <- computeCommunProb(cellchat, type = "triMean")
+# #   cellchat <- filterCommunication(cellchat, min.cells = min_cells)
+# #   cellchat <- computeCommunProbPathway(cellchat)
+# #   cellchat <- aggregateNet(cellchat)
+# #   
+# #   saveRDS(cellchat, file = paste0("cellchat_", group_name, ".rds"))
+# #   return(cellchat)
+# # }
+# # 
+# # 
+# # get_group_size <- function(cellchat_obj) {
+# #   return(as.numeric(table(cellchat_obj@idents)))
+# # }
+# # 
