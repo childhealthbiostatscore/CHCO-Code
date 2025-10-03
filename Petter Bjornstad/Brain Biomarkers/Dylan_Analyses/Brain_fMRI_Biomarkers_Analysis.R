@@ -30,18 +30,20 @@ library(randomForest)
 library(igraph)
 library(brainGraph)
 library(R.matlab)
+library(tidyverse)
 
-
+ bucket <- 'brain.mri'
+ 
 
 #Identifying groups for analysis 
 
-harmonized_data <- read.csv("/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+harmonized_data <- read.csv("../OneDrive/UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 
 
 dat <- harmonized_data %>%
   arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
                    .by = c(record_id, visit))
 
 
@@ -77,6 +79,10 @@ qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
 
 
 # Now create the table with proper data types
+
+library(gt)
+library(gtsummary)
+
 desc_table1_fixed <- small_dat %>%
   select(age, sex, race_ethnicity, bmi, hba1c, study, group, ab40_avg_conc, ab42_avg_conc, 
          tau_avg_conc, nfl_avg_conc, gfap_avg_conc, ptau_181_avg_conc, ptau_217_avg_conc) %>%
@@ -142,7 +148,7 @@ desc_table1_fixed %>%
     heading.title.font.size = 14,
     column_labels.font.size = 12
   ) %>%
-  gtsave("/Users/netio/Documents/UofW/Projects/Brain_fMRI_Analysis/New_Analyses/BrainfMRI_data_proteomics_demographics.png", 
+  gtsave("Projects/Brain_Imaging/results/BrainfMRI_data_proteomics_demographics.png", 
          vwidth = 1200, vheight = 800)
 
 
@@ -154,8 +160,8 @@ small_dat <- small_dat %>%
 
 
 
-
-
+t2d_ids <- small_dat$record_id[which(small_dat$group == 'Type 2 Diabetes')]
+lc_ids <- small_dat$record_id[which(small_dat$group == 'Lean Control')]
 
 
 
@@ -169,7 +175,7 @@ qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
 
 
 # Set your base directory
-base_dir <- "/brain.mir/Brain_Functional_Connectivity_Analysis/MRI_preprocess/Analysis"
+base_dir <- 'Projects/Brain_Imaging/data/'
 
 # Function to find participant folder by ID
 find_participant_folder <- function(base_dir, participant_id) {
