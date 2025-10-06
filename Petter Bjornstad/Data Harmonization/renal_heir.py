@@ -407,6 +407,18 @@ def clean_renal_heir():
     brain.replace(rep, np.nan, inplace=True)
     brain["procedure"] = "brain_biomarkers"
     brain["visit"] = "baseline"
+
+    # --------------------------------------------------------------------------
+    # Pavel Labs
+    # --------------------------------------------------------------------------
+    var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "pavel_labs", "field_name"]]
+    var = var + ["pavel_wbc", "pavel_neutrophil", "pavel_lymphocyte", "pavel_monocyte","pavel_rbc", "pavel_hgb", "pavel_hct", "pavel_plt", "pavel_mpv"]
+    pavel = pd.DataFrame(proj.export_records(fields=var))
+    pavel.replace(rep, np.nan, inplace=True)
+    pavel["procedure"] = "labs"
+    pavel["visit"] = "baseline"
+
     
     # --------------------------------------------------------------------------
     # Missingness
@@ -437,6 +449,7 @@ def clean_renal_heir():
     df = pd.merge(df, out, how='outer')
     df = pd.concat([df, bold_mri], join='outer', ignore_index=True)
     df = pd.concat([df, brain], join='outer', ignore_index=True)
+    df = pd.concat([df, pavel], join='outer', ignore_index=True)
     df = pd.concat([df, biopsy], join='outer', ignore_index=True)
     df = pd.concat([df, az_u_metab], join='outer', ignore_index=True)
     df = pd.concat([df, plasma_metab], join='outer', ignore_index=True)

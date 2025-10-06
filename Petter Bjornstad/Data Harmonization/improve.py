@@ -457,6 +457,17 @@ def clean_improve():
     biopsy["procedure"] = "kidney_biopsy"
 
     # --------------------------------------------------------------------------
+    # Pavel Labs
+    # --------------------------------------------------------------------------
+    var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "pavel_labs", "field_name"]]
+    var = var + ["pavel_wbc", "pavel_neutrophil", "pavel_lymphocyte", "pavel_monocyte","pavel_rbc", "pavel_hgb", "pavel_hct", "pavel_plt", "pavel_mpv"]
+    pavel = pd.DataFrame(proj.export_records(fields=var))
+    pavel.replace(rep, np.nan, inplace=True)
+    pavel["procedure"] = "labs"
+    pavel["study_visit"] = "baseline"
+
+    # --------------------------------------------------------------------------
     # Astrazeneca urine metabolomics
     # --------------------------------------------------------------------------
     
@@ -516,6 +527,7 @@ def clean_improve():
     df = pd.concat([df, biopsy], join='outer', ignore_index=True)
     df = pd.concat([df, screen], join='outer', ignore_index=True)
     df = pd.concat([df, phys], join='outer', ignore_index=True)
+    df = pd.concat([df, pavel], join='outer', ignore_index=True)
     df = pd.concat([df, az_u_metab], join='outer', ignore_index=True)
     df = pd.concat([df, plasma_metab], join='outer', ignore_index=True)
     df = pd.merge(df, demo, how="outer")

@@ -46,6 +46,8 @@ def clean_crocodile():
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
+    dictionary = pd.read_csv(git_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+
 
     # --------------------------------------------------------------------------
     # Demographics
@@ -105,6 +107,8 @@ def clean_crocodile():
                 "meds_weight_type___2": "phentermine",
                 "uric_acid_med": "uric_acid_med"
                 }
+    dictionary.loc[dictionary['variable_name'] == 'ace_inhibitor', 'form_name'] = 'medical_history'
+
     og_names = list(med_list.keys())
     hx_list = [col for col in med.columns if col.startswith('hx_')]
     med = med[["record_id"] + og_names + hx_list]
@@ -448,6 +452,17 @@ def clean_crocodile():
     brain["procedure"] = "brain_biomarkers"
     brain["visit"] = "baseline"
     brain["date"] = screen["date"]
+    
+    # --------------------------------------------------------------------------
+    # Pavel Labs
+    # --------------------------------------------------------------------------
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "pavel_labs", "field_name"]]
+    var = var + ["pavel_wbc", "pavel_neutrophils", "pavel_lymphocyte", "pavel_monocyte","pavel_rbc", "pavel_hgb", "pavel_hct", "pavel_plt", "pavel_mpv"]
+    pavel = pd.DataFrame(proj.export_records(fields=var))
+    pavel.replace(rep, np.nan, inplace=True)
+    pavel["procedure"] = "labs"
+    pavel["visit"] = "baseline"
 
     # --------------------------------------------------------------------------
     # Metabolomics (Blood and Tissue)
@@ -457,7 +472,7 @@ def clean_crocodile():
     metabolomics_blood = pd.DataFrame(proj.export_records(fields=var))
     # Replace missing values
     metabolomics_blood.replace(rep, np.nan, inplace=True)
-    metabolomics_blood["procedure"] = "metabolomics_blood"
+    metabolomics_blood["procedure"] = "plasma_metab"
     metabolomics_blood["visit"] = "baseline"
     metabolomics_blood["date"] = screen["date"]
     
@@ -529,6 +544,8 @@ def clean_crocodile():
     df = pd.concat([df, pet], join='outer', ignore_index=True)
     df = pd.concat([df, liver_pet], join='outer', ignore_index=True)
     df = pd.concat([df, brain], join='outer', ignore_index=True)
+    df = pd.concat([df, pavel], join='outer', ignore_index=True)
+
     df = pd.concat([df, metabolomics_blood], join='outer', ignore_index=True)
     df = pd.concat([df, metabolomics_tissue], join='outer', ignore_index=True)
     df = pd.concat([df, az_u_metab], join='outer', ignore_index=True)
