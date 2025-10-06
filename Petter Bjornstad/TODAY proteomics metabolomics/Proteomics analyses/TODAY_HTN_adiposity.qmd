@@ -23,6 +23,26 @@ library(readxl)
 library(corrplot)
 library(gtools)
 library(here)
+
+# specify user for paths
+user <- Sys.info()[["user"]]
+if (user == "laurapyle") {
+  data_path <- "/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
+  github_path <- "/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  root_path <- "/Users/laurapyle/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+} else if (user == "lpyle") {
+  data_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
+  github_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  root_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  teen_labs_path <- '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs'
+} else if (user == "pylell") {
+  data_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
+  github_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  teen_labs_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
 ```
 
 ```{r, include=FALSE}
@@ -135,13 +155,17 @@ correlation_p_value_matrix <- function(data, relevant_vars, n_cols, cor_method =
 
 ```{r include = F}
 # read in top HTN proteins in TODAY 
-today_htn <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Results/Linear and Cox models/TODAY somalogic limma baseline unadjusted.xlsx', sheet = "htn_moderated_FDR")
+filename <- "/Results/Linear and Cox models/TODAY somalogic limma baseline unadjusted.xlsx"
+full_path <- file.path(data_path, filename)
+today_htn <- read_xlsx(full_path, sheet = "htn_moderated_FDR")
 today_htn <- today_htn %>% arrange(adj.P.Val)
 today_htn_20 <- today_htn %>% slice_head(n=20)
 
 # get DXA and BMI
 # load clinical data
-load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/clinical_data_long.Rdata")
+filename <- "Clinical data/TODAY/clinical_data_long.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
 baseline_adiposity <- long %>% filter(visit == "M00") %>% select(releaseid, bmi, WB_TOT_PFAT, WB_TOT_PFAT_P)
 colnames(baseline_adiposity) <- c("releaseid", "Baseline BMI", "Baseline DXA % fat", "Baseline DXA corrected % fat")
 calc_slope <- function(data, outcome) {
@@ -178,9 +202,13 @@ slope_WB_TOT_PFAT_P <- calc_slope(data = long, outcome = "WB_TOT_PFAT_P")
 
 # read in protein raw data
 # load somalogic data, with QC samples already excluded
-load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Somalogic data raw/soma.Rdata")
+filename <- "Somalogic data raw/soma.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
 # load analyte info
-load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward//Somalogic data raw/analytes.Rdata")
+filename <- "Somalogic data raw/analytes.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
 base <- soma %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
 # these 3 release IDs have first sample after end of recruitment, so they must be missing the baseline visit
 base <- base %>% filter(!releaseid %in% c("65-85903","65-47984","65-25901"))
@@ -196,7 +224,9 @@ soma_keep <- soma_keep %>% rename(`Slope - DXA corrected % body fat` = slopeWB_T
 soma_keep <- left_join(soma_keep, baseline_adiposity, by = "releaseid")
 
 # get data from IMPROVE and RH/RH2
-load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Proteomics HTN/copy_of_old_analysis_dataset_for_HTN_response.RData")
+filename <- "Proteomics HTN/copy_of_old_analysis_dataset_for_HTN_response.RData"
+full_path <- file.path(data_path, filename)
+load(full_path)
 df <- df[!is.na(df$htn),]
 df <- df %>% filter(visit == "baseline")
 df$htn <- droplevels(df$htn)
@@ -269,13 +299,17 @@ dev.off()
 
 ```{r include = F}
 # read in top HTN proteins in TODAY 
-today_htn <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Results/Linear and Cox models/TODAY somalogic Cox models scaled baseline adjusted new covariates.xlsx', sheet = "HTN CPH")
+filename <- "Results/Linear and Cox models/TODAY somalogic Cox models scaled baseline adjusted new covariates.xlsx"
+full_path <- file.path(data_path, filename)
+today_htn <- read_xlsx(full_path, sheet = "HTN CPH")
 today_htn <- today_htn %>% arrange(adj.p.value)
 today_htn_20 <- today_htn %>% slice_head(n=20)
 
 # get DXA and BMI
 # load clinical data
-load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/clinical_data_long.Rdata")
+filename <- "Clinical data/TODAY/clinical_data_long.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
 baseline_adiposity <- long %>% filter(visit == "M00") %>% select(releaseid, bmi, WB_TOT_PFAT, WB_TOT_PFAT_P)
 colnames(baseline_adiposity) <- c("releaseid", "Baseline BMI", "Baseline DXA % fat", "Baseline DXA corrected % fat")
 calc_slope <- function(data, outcome) {
@@ -312,9 +346,13 @@ slope_WB_TOT_PFAT_P <- calc_slope(data = long, outcome = "WB_TOT_PFAT_P")
 
 # read in protein raw data
 # load somalogic data, with QC samples already excluded
-load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Somalogic data raw/soma.Rdata")
+filename <- "Somalogic data raw/soma.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
 # load analyte info
-load("/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward//Somalogic data raw/analytes.Rdata")
+filename <- "Somalogic data raw/analytes.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
 base <- soma %>% arrange(releaseid,Date.Drawn) %>% group_by(releaseid) %>% filter(row_number()==1)
 # these 3 release IDs have first sample after end of recruitment, so they must be missing the baseline visit
 base <- base %>% filter(!releaseid %in% c("65-85903","65-47984","65-25901"))
@@ -375,11 +413,15 @@ dev.off()
 
 ```{r include = F}
 # read in TODAY results adjusted for HbA1c, sex, age, ethnicity
-today_htn_base_results <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Results/Linear and Cox models/TODAY somalogic Cox models scaled baseline adjusted HTN model selection.xlsx', sheet = "HTN CPH base")
+filename <- "Results/Linear and Cox models/TODAY somalogic Cox models scaled baseline adjusted HTN model selection.xlsx"
+full_path <- file.path(data_path, filename)
+today_htn_base_results <- read_xlsx(full_path, sheet = "HTN CPH base")
 today_htn_base_results_sig <- today_htn_base_results %>% filter(adj.p.value < 0.05)
 
 # read in TODAY results adjusted for HbA1c, sex, age, ethnicity, and BMI
-today_htn_base_BMI_results <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Results/Linear and Cox models/TODAY somalogic Cox models scaled baseline adjusted HTN model selection.xlsx', sheet = "HTN CPH base+BMI")
+filename <- "Results/Linear and Cox models/TODAY somalogic Cox models scaled baseline adjusted HTN model selection.xlsx"
+full_path <- file.path(data_path, filename)
+today_htn_base_BMI_results <- read_xlsx(full_path, sheet = "HTN CPH base+BMI")
 today_htn_base_BMI_results_sig <- today_htn_base_BMI_results %>% filter(adj.p.value < 0.05)
 
 # significant in base but not with BMI
@@ -428,22 +470,26 @@ plot(df_t2d$dbp ~ df_t2d$seq.6506.54)
 ## Change in proteins modified by BMI in Teen-LABS after MBS
 
 ```{r results='asis', dpi=1200, include=FALSE}
-teenlabs_results_m6 <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Results/Teen LABS change_from_m1.xlsx', sheet = "visitMonth 6")
+filename <- "Results/Teen LABS change_from_m1.xlsx"
+full_path <- file.path(teen_labs_path, filename)
+teenlabs_results_m6 <- read_xlsx(full_path, sheet = "visitMonth 6")
 teenlabs_results_m6$time <- "Month 6"
-teenlabs_results_y1 <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Results/Teen LABS change_from_m1.xlsx', sheet = "visitYear 1")
+teenlabs_results_y1 <- read_xlsx(full_path, sheet = "visitYear 1")
 teenlabs_results_y1$time <- "Year 1"
-teenlabs_results_y2 <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Results/Teen LABS change_from_m1.xlsx', sheet = "visitYear 2")
+teenlabs_results_y2 <- read_xlsx(full_path, sheet = "visitYear 2")
 teenlabs_results_y2$time <- "Year 2"
-teenlabs_results_y3 <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Results/Teen LABS change_from_m1.xlsx', sheet = "visitYear 3")
+teenlabs_results_y3 <- read_xlsx(full_path, sheet = "visitYear 3")
 teenlabs_results_y3$time <- "Year 3"
-teenlabs_results_y4 <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Results/Teen LABS change_from_m1.xlsx', sheet = "visitYear 4")
+teenlabs_results_y4 <- read_xlsx(full_path, sheet = "visitYear 4")
 teenlabs_results_y4$time <- "Year 4"
-teenlabs_results_y5 <- read_xlsx('/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Results/Teen LABS change_from_m1.xlsx', sheet = "visitYear 5")
+teenlabs_results_y5 <- read_xlsx(full_path, sheet = "visitYear 5")
 teenlabs_results_y5$time <- "Year 5"
 teenlabs_results <- rbind(teenlabs_results_m6, teenlabs_results_y1, teenlabs_results_y2, teenlabs_results_y3, teenlabs_results_y4, teenlabs_results_y5)
 teenlabs_results <- teenlabs_results %>% filter(AptName %in% a$AptName)
 teenlabs_results <- teenlabs_results %>% arrange(AptName, time)
-write.csv(teenlabs_results, "/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/Results/Teen LABS change_from_m1 BMI modified.csv", row.names = FALSE)
+filename <- "Results/Teen LABS change_from_m1 BMI modified.csv"
+full_path <- file.path(teen_labs_path, filename)
+write.csv(teenlabs_results, full_path, row.names = FALSE)
 ```
 
 * See separate file "Teen LABS change_from_m1 BMI modified.csv"

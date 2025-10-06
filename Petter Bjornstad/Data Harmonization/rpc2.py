@@ -67,7 +67,7 @@ def clean_rpc2_redcap():
     dem_cols = ["subject_id", "age_current", "date_of_consent", "mr_number", "dob", "gender", "race", "ethnicity", "participation_status", "diabetes_hx_type"]
     demo = pd.DataFrame(proj.export_records(fields=dem_cols))
     demo.replace(rep, np.nan, inplace=True)
-    demo.rename({"mr_number": "mrn", "gender": "sex", "age_current": "age"}, axis=1, inplace=True)
+    demo.rename({"mr_number": "mrn", "gender": "sex", "age_current": "age" , "date_of_consent":"date"}, axis=1, inplace=True)
     demo = combine_checkboxes(demo, base_name="race", levels=["American Indian or Alaskan Native", "Asian", "Hawaiian or Pacific Islander", "Black or African American", "White", "Unknown", "Other"])
     demo = combine_checkboxes(demo, base_name="ethnicity", levels=["Hispanic", "Non-Hispanic", "Unknown/Not Reported"])
     demo["sex"].replace({1: "Male", 0: "Female", 2: "Other",
@@ -84,10 +84,10 @@ def clean_rpc2_redcap():
     # --------------------------------------------------------------------------
     # Medications
     # --------------------------------------------------------------------------
-    var = ["subject_id", "vitals_date", "diabetes_med", "diabetes_med_other", "htn_med_type", "addl_hld_meds", "insulin_med", "kidneybx_1", "kidneybx_2", "study_med_date"]
+    var = ["subject_id", "vitals_date", "diabetes_med", "diabetes_med_other", "htn_med_type", "addl_hld_meds", "insulin_med", "kidneybx_1", "kidneybx_2"]
     med = pd.DataFrame(proj.export_records(fields=var))
     med.replace(rep, np.nan, inplace=True)
-    med.rename({"diabetes_med_other": "sglt2i_timepoint", "insulin_med": "insulin_med_timepoint", "study_med_date" : "date"}, axis=1, inplace=True)
+    med.rename({"diabetes_med_other": "sglt2i_timepoint", "insulin_med": "insulin_med_timepoint"}, axis=1, inplace=True)
     med.iloc[:, 1:] = med.iloc[:, 1:].replace(
         {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
     med["procedure"] = "medications"
@@ -106,6 +106,7 @@ def clean_rpc2_redcap():
         {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "baseline", "v2_gfr_mri_arm_1": "baseline", "v4_arm_1": "Post-biopsy vist", "v7_gfr_mri_arm_1": "Post-biopsy GFR MRI", "v61_med_dispense_arm_1": "Med Dispense 1",  "v62_med_dispense_arm_1": "Med Dispense 2"}, 
         inplace=True)
     phys = phys.rename(columns={"redcap_event_name": "visit"})
+    phys["visit"] = "baseline"
     print(phys)
     #phys.drop(["redcap_event_name"], axis=1, inplace=True)
 
@@ -130,6 +131,30 @@ def clean_rpc2_redcap():
         inplace=True)
     labs = labs.rename(columns={"redcap_event_name": "visit"})
     print(labs)
+
+    # Step 1: Replace empty strings with NaN in both columns
+    labs['creatinine_s'].replace("", np.nan, inplace=True)
+    labs['serum_creatinine'].replace("", np.nan, inplace=True)
+
+    # Step 2: Convert both columns to numeric (coerce errors to NaN)
+    labs['creatinine_s'] = pd.to_numeric(labs['creatinine_s'], errors='coerce')
+    labs['serum_creatinine'] = pd.to_numeric(labs['serum_creatinine'], errors='coerce')
+
+    # Step 3: Move pi_copeptin value to copeptin if copeptin is missing but pi_copeptin is present
+    mask_move = labs['creatinine_s'].isna() & labs['serum_creatinine'].notna()
+    labs.loc[mask_move, 'creatinine_s'] = labs.loc[mask_move, 'serum_creatinine']
+    labs.loc[mask_move, 'serum_creatinine'] = np.nan  # clear pi_copeptin after move
+
+    # Step 4: If both have values but differ, keep copeptin and clear pi_copeptin
+    mask_diff = labs['creatinine_s'].notna() & labs['serum_creatinine'].notna() & (labs['creatinine_s'] != labs['serum_creatinine'])
+    labs.loc[mask_diff, 'serum_creatinine'] = np.nan
+
+    # Step 5: If both have values and are equal, clear pi_copeptin (optional cleanup)
+    mask_equal = labs['creatinine_s'].notna() & labs['serum_creatinine'].notna() & (labs['creatinine_s'] == labs['serum_creatinine'])
+    labs.loc[mask_equal, 'serum_creatinine'] = np.nan
+
+    # Step 6: Drop pi_copeptin column (all handled)
+    labs.drop(columns=['serum_creatinine'], inplace=True)
     
     # --------------------------------------------------------------------------
     # Kidney Hemodynamic Outcomes
@@ -207,6 +232,13 @@ def clean_rpc2_redcap():
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
     # Return final data
+
+    datecheck = df.copy()
+    fields = ["record_id", "visit", "procedure", "date"]
+    mask_fsoc = datecheck["date"].replace("", np.nan).notna()
+    sub_fsoc = datecheck[mask_fsoc][fields]
+
+    sub_fsoc.to_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/rpc2.csv", index=False)
     return df
 
 
