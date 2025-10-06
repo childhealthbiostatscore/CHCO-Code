@@ -155,4 +155,5 @@ library(BiocParallel)
 library(speckle)
 # install.packages("doFuture")
 # library(doFuture)
-
+library(lme4)
+library(lmerTest)

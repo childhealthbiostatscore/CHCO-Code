@@ -1270,7 +1270,7 @@ label(dat$hepatocyte_ballooning_score) <- "Hepatocyte Ballooning Score"
 #Table 1. 
 table1(~ age_surgery + nih_sex + nih_race + nih_ethnicity + bmi + tg + a1c+
          diagnosis_of_diabetes + diagnosis_of_MASLD+
-         sglt2 + glp1agonist  | study, data=dat)
+         sglt2 + glp1agonist| study, data=dat)
 
 table1(~ age_surgery + nih_sex + nih_race + nih_ethnicity + bmi + tg +a1c+
          diagnosis_of_MASLD+
@@ -1305,11 +1305,275 @@ table1(~ alt+ast+ggt+bmi+a1c+hepatocyte_ballooning_score+lobular_inflammation_gr
 # which(is.na(so_celltype$carbfccp))
 meta <- so_liver_sn@meta.data
 oro_vars <- colnames(meta)[85:114]
-oro_variables <- paste0("~",paste(oro_vars,collapse="+"))
+# oro_variables <- paste0("~",paste(oro_vars,collapse="+"))
+# table1(oro_variables|steatosis_cat, data=dat)
+dat <- dat %>% 
+  filter(study!="BIOBANK")
 table1(~carbp_m+carb_adp+carb_g+carb_cytoc+carb_s+carb_omy+carbfccp+carbrcr_pm+carbrcr_pmgs+carbpe_pmgs+carb_ep+carbrcr_state2+carbrcr_state4_c1+carbrcr_state4_c12+carb_le| steatosis_cat, data=dat)
-table1(~carbp_m+carb_adp+carb_g+carb_cytoc+carb_s+carb_omy+carbfccp+carbrcr_pm+carbrcr_pmgs+carbpe_pmgs+carb_ep+carbrcr_state2+carbrcr_state4_c1+carbrcr_state4_c12+carb_le| StudyID, data=dat)    
+
+table1(~carbp_m+carb_adp+carb_g+carb_cytoc+carb_s+carb_omy+carbfccp+carbrcr_pm+carbrcr_pmgs+carbpe_pmgs+carb_ep+carbrcr_state2+carbrcr_state4_c1+carbrcr_state4_c12+carb_le| StudyID, data=dat)
+
+table1(~StudyID| steatosis_cat, data=dat)
+dat$StudyID
+
 table1(~lipidpc_m+lipid_adp+lipid_cytoc+lipid_g+lipid_s+lipid_omy+lipidfccp+lipidrcr_pcm+lipidrcr_pcmgs+lipidpe_pcmgs+lipid_ep+lipidrcr_state2+lipidrcr_state4_c1+lipidrcr_state4_c12+lipid_le| steatosis_cat, data=dat)
-table1(~lipidpc_m+lipid_adp+lipid_cytoc+lipid_g+lipid_s+lipid_omy+lipidfccp+lipidrcr_pcm+lipidrcr_pcmgs+lipidpe_pcmgs+lipid_ep+lipidrcr_state2+lipidrcr_state4_c1+lipidrcr_state4_c12+lipid_le| StudyID, data=dat)
+
+
+carb_vars <- oro_vars[1:15]
+# Run simple t-tests
+results <- data.frame()
+
+for(var in carb_vars) {
+  formula <- as.formula(paste(var, "~ steatosis_cat"))
+  test <- t.test(formula, data = dat)
+  
+  results <- rbind(results, 
+                   data.frame(variable = var,
+                              p_value = test$p.value))
+}
+
+# Reshape data to long format
+#Carb variables
+carb_vars <- oro_vars[1:6]
+dat_long_carb <- dat %>%
+  dplyr::select(steatosis_cat, all_of(carb_vars)) %>%
+  pivot_longer(cols = -steatosis_cat, 
+               names_to = "variable", 
+               values_to = "value") 
+dat_long_carb <- dat_long_carb %>% 
+  mutate(name = case_when(variable=="carbp_m" ~ "State 2 PM",
+                          variable=="carb_adp" ~ "State 3 PM",
+                          variable=="carb_g" ~ "State 3 PMG",
+                          variable=="carb_cytoc" ~ "State 3 PMG (Cyt C)",
+                          variable=="carb_s" ~ "State 3 PMGS",
+                          variable=="carb_omy" ~ "State 4 PMGS (Olyg.)")) %>% 
+  dplyr::rename(Parameter=value)
+# "carbp_m"    "carb_adp"   "carb_g"     "carb_cytoc" "carb_s"     "carb_omy" 
+# "State 2 PM","State 3 PM", "State 3 PMG", "State 3 PMG (Cyt C)","State 3 PMGS","State 4 PMGS (Olyg.)"
+
+# Create faceted boxplots
+g <- ggplot(dat_long_carb, aes(x = steatosis_cat, y = Parameter, fill = steatosis_cat)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.2, alpha = 0.5) +  # Show individual points
+  facet_wrap(~ name, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = c("#e76f51", "#264653")) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#e76f51","darkred"))+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        text = element_text(face = "bold", family = "arial"),
+        strip.text = element_text(size = 12, face = "bold"),  # Facet labels
+        plot.title = element_text(hjust = 0.5,size=14), 
+        legend.position = "none") +
+  labs(title = "Respiratory Parameters (Run 1 - Absense of Lipid) by Steatosis Category",
+       x = "Steatosis Category",
+       y = "Respiratory Parameter",
+       fill = "Steatosis Category")
+
+# # Display all plots together (adjust ncol/nrow as needed)
+# wrap_plots(plot_list, ncol = 4 )
+# # Create the combined plot object
+# combined_plot <- wrap_plots(plot_list, ncol = 4)
+
+# Save using png() device
+png(fs::path(dir.results,"Carb_Oroboros_Boxplots_Substrates.png"), 
+    width = 3000, 
+    height = 2000, 
+    res = 300)
+print(g)
+dev.off()
+
+#carb ratios
+carb_vars <- oro_vars[7:15]
+dat_long_carb <- dat %>%
+  dplyr::select(steatosis_cat, all_of(carb_vars)) %>%
+  pivot_longer(cols = -steatosis_cat, 
+               names_to = "variable", 
+               values_to = "value") %>% 
+  mutate(variable = factor(variable, levels = carb_vars))
+# dat_long_carb <- dat_long_carb %>% 
+#   mutate(name = case_when(variable=="carbp_m" ~ "State 2 PM",
+#                    variable=="carb_adp" ~ "State 3 PM",
+#                    variable=="carb_g" ~ "State 3 PMG",
+#                    variable=="carb_cytoc" ~ "State 3 PMG (Cyt C)",
+#                    variable=="carb_s" ~ "State 3 PMGS",
+#                    variable=="carb_omy" ~ "State 4 PMGS (Olyg.)")) %>% 
+#   dplyr::rename(Parameter=value)
+# "carbp_m"    "carb_adp"   "carb_g"     "carb_cytoc" "carb_s"     "carb_omy" 
+# "State 2 PM","State 3 PM", "State 3 PMG", "State 3 PMG (Cyt C)","State 3 PMGS","State 4 PMGS (Olyg.)"
+
+# Create faceted boxplots
+g <- ggplot(dat_long_carb, aes(x = steatosis_cat, y = value, fill = steatosis_cat)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.2, alpha = 0.5) +  # Show individual points
+  facet_wrap(~ variable, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = c("#e76f51", "#264653")) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#e76f51","darkred"))+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        text = element_text(face = "bold", family = "arial"),
+        strip.text = element_text(size = 12, face = "bold"),  # Facet labels
+        plot.title = element_text(hjust = 0.5,size=14), 
+        legend.position = "none") +
+  labs(title = "Respiratory Ratios (Run 1 - Absense of Lipid) by Steatosis Category",
+       x = "Steatosis Category",
+       y = "Respiratory Ratios",
+       fill = "Steatosis Category")
+
+# # Display all plots together (adjust ncol/nrow as needed)
+# wrap_plots(plot_list, ncol = 4 )
+# # Create the combined plot object
+# combined_plot <- wrap_plots(plot_list, ncol = 4)
+
+# Save using png() device
+png(fs::path(dir.results,"Carb_Oroboros_Boxplots_Ratios.png"), 
+    width = 3000, 
+    height =2500, 
+    res = 300)
+print(g)
+dev.off()
+
+
+
+# Get list of variables
+lipid_vars <- c("lipidpc_m", "lipid_adp", "lipid_cytoc", "lipid_g", 
+                "lipid_s", "lipid_omy", "lipidfccp", "lipidrcr_pcm", 
+                "lipidrcr_pcmgs", "lipidpe_pcmgs", "lipid_ep", 
+                "lipidrcr_state2", "lipidrcr_state4_c1", 
+                "lipidrcr_state4_c12", "lipid_le")
+
+# Run simple t-tests
+results <- data.frame()
+
+for(var in lipid_vars) {
+  formula <- as.formula(paste(var, "~ steatosis_cat"))
+  test <- t.test(formula, data = dat)
+  
+  results <- rbind(results, 
+                   data.frame(variable = var,
+                              p_value = test$p.value))
+}
+
+# # Reshape data to long format
+# dat_long <- dat %>%
+#   dplyr::select(steatosis_cat, all_of(lipid_vars)) %>%
+#   pivot_longer(cols = -steatosis_cat, 
+#                names_to = "variable", 
+#                values_to = "value") 
+#   # na.omit()
+# 
+# # Create faceted boxplots
+# ggplot(dat_long, aes(x = steatosis_cat, y = value, fill = steatosis_cat)) +
+#   geom_boxplot(alpha = 0.7) +
+#   geom_jitter(width = 0.2, alpha = 0.5) +  # Show individual points
+#   facet_wrap(~ variable, scales = "free_y", ncol = 3) +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1),
+#         legend.position = "top") +
+#   labs(title = "Lipid Parameters by Steatosis Category",
+#        x = "Steatosis Category",
+#        y = "Value",
+#        fill = "Steatosis Category")
+# 
+
+#Lipid variables
+lipid_vars <- oro_vars[16:21]
+dat_long_lipid <- dat %>%
+  dplyr::select(steatosis_cat, all_of(lipid_vars)) %>%
+  pivot_longer(cols = -steatosis_cat, 
+               names_to = "variable", 
+               values_to = "value") 
+dat_long_lipid <- dat_long_lipid %>% 
+  mutate(name = case_when(variable=="lipidpc_m" ~ "State 2 FAM",
+                          variable=="lipid_adp" ~ "State 3 FAM (ADP)",
+                          variable=="lipid_cytoc" ~ "State 3 FAM (Cytochrome C)",
+                          variable=="lipid_g" ~ "State 3 FAM (G)",
+                          variable=="lipid_s" ~ "State 3 FAMG (S)",
+                          variable=="lipid_omy" ~ "State 4 FAMGS (Olygomycin)")) %>% 
+  dplyr::rename(Parameter=value)
+#"lipidpc_m"   "lipid_adp"   "lipid_cytoc" "lipid_g"     "lipid_s"     "lipid_omy" 
+
+# Create faceted boxplots
+g <- ggplot(dat_long_lipid, aes(x = steatosis_cat, y = Parameter, fill = steatosis_cat)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.2, alpha = 0.5) +  # Show individual points
+  facet_wrap(~ name, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = c("#e76f51", "#264653")) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#e76f51","darkred"))+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        text = element_text(face = "bold", family = "arial"),
+        strip.text = element_text(size = 12, face = "bold"),  # Facet labels
+        plot.title = element_text(hjust = 0.5,size=14), 
+        legend.position = "none") +
+  labs(title = "Respiratory Parameters (Run 2 - Presence of Lipid) by Steatosis Category",
+       x = "Steatosis Category",
+       y = "Respiratory Parameter",
+       fill = "Steatosis Category")
+
+# # Display all plots together (adjust ncol/nrow as needed)
+# wrap_plots(plot_list, ncol = 4 )
+# # Create the combined plot object
+# combined_plot <- wrap_plots(plot_list, ncol = 4)
+
+# Save using png() device
+png(fs::path(dir.results,"Lipid_Oroboros_Boxplots_Substrates.png"), 
+    width = 3000, 
+    height = 2000, 
+    res = 300)
+print(g)
+dev.off()
+
+
+#Lipid variables
+lipid_vars <- oro_vars[22:30]
+dat_long_lipid <- dat %>%
+  dplyr::select(steatosis_cat, all_of(lipid_vars)) %>%
+  pivot_longer(cols = -steatosis_cat, 
+               names_to = "variable", 
+               values_to = "value") 
+dat_long_lipid <- dat_long_lipid %>%
+  #   mutate(name = case_when(variable=="lipidpc_m" ~ "State 2 FAM",
+  #                    variable=="lipid_adp" ~ "State 3 FAM (ADP)",
+  #                    variable=="lipid_cytoc" ~ "State 3 FAM (Cytochrome C)",
+  #                    variable=="lipid_g" ~ "State 3 FAM (G)",
+  #                    variable=="lipid_s" ~ "State 3 FAMG (S)",
+  #                    variable=="lipid_omy" ~ "State 4 FAMGS (Olygomycin)")) %>% 
+  dplyr::rename(Parameter=value)
+#"lipidpc_m"   "lipid_adp"   "lipid_cytoc" "lipid_g"     "lipid_s"     "lipid_omy" 
+
+# Create faceted boxplots
+g <- ggplot(dat_long_lipid, aes(x = steatosis_cat, y = Parameter, fill = steatosis_cat)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.2, alpha = 0.5) +  # Show individual points
+  facet_wrap(~ variable, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = c("#e76f51", "#264653")) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#e76f51","darkred"))+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        text = element_text(face = "bold", family = "arial"),
+        strip.text = element_text(size = 12, face = "bold"),  # Facet labels
+        plot.title = element_text(hjust = 0.5,size=14), 
+        legend.position = "none") +
+  labs(title = "Respiratory Ratios (Run 2 - Presence of Lipid) by Steatosis Category",
+       x = "Steatosis Category",
+       y = "Respiratory Ratios",
+       fill = "Steatosis Category")
+
+# # Display all plots together (adjust ncol/nrow as needed)
+# wrap_plots(plot_list, ncol = 4 )
+# # Create the combined plot object
+# combined_plot <- wrap_plots(plot_list, ncol = 4)
+
+# Save using png() device
+png(fs::path(dir.results,"Lipid_Oroboros_Boxplots_Ratios.png"), 
+    width = 3000, 
+    height = 2500, 
+    res = 300)
+print(g)
+dev.off()
+
+
+# table1(~lipidpc_m+lipid_adp+lipid_cytoc+lipid_g+lipid_s+lipid_omy+lipidfccp+lipidrcr_pcm+lipidrcr_pcmgs+lipidpe_pcmgs+lipid_ep+lipidrcr_state2+lipidrcr_state4_c1+lipidrcr_state4_c12+lipid_le| StudyID, data=dat)
 # Save the first table
 # Convert to data frame and save as CSV
 library(table1)
@@ -5182,7 +5446,7 @@ total_results$Celltype <- "Hepatocytes"
 volcano_plots <- ggplot(total_results, aes(x = logFC, y = PValue10, color = color)) +
   geom_point(alpha = 0.7) +  # Plot points with transparency
   scale_color_identity() +  # Use the color column directly
-
+  
   # # Add labels for significant points
   # geom_text(data = total_results[total_results$fdr < 0.05, ], 
   #           aes(label = Gene),
@@ -6380,7 +6644,7 @@ for (cell_name in LR_celltypes) {
   genes_list <- rownames(counts_hvg)
   
   for (var in clinical_variables) {
-  # var <- clinical_variables[1]
+    # var <- clinical_variables[1]
     so_celltype[[var]] <- as.numeric(unlist(so_celltype[[var]][1]))
     
     # With parallelization
@@ -13976,16 +14240,16 @@ DimPlot(so_liver_sn,
 # knitr::opts_knit$set(root.dir = "~/Volumes/Peds Endo-1/Petter Bjornstad/TODAY subaward")
 # load somalogic data, with QC samples already excluded
 # load("/Volumes/Peds Endo-1/Petter Bjornstad/TODAY subaward/Somalogic data raw/soma.Rdata")
-load("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/TODAY subaward/Somalogic data raw/soma.Rdata")
+load(fs::path(dir.dat,"/TODAY subaward/Somalogic data raw/soma.Rdata"))
 
 # load analyte info
-load("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/TODAY subaward/Somalogic data raw/analytes.Rdata")
+load(fs::path(dir.dat,"/TODAY subaward/Somalogic data raw/analytes.Rdata"))
 
 # load comorbidity data
-load("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/TODAY subaward/Clinical data/comorb.Rdata")
+load(fs::path(dir.dat,"/TODAY subaward/Clinical data/comorb.Rdata"))
 
 # load baseline risk factors
-load("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/baserisk.Rdata")
+load(fs::path(dir.dat,"/TODAY subaward/Clinical data/TODAY/baserisk.Rdata"))
 
 #Get key for peoteins and gene names 
 key <- analytes %>% 
@@ -14051,7 +14315,7 @@ today <- today %>%
 #dplyr::select(c("releaseid","ALT","AST"))
 #Load in Proteomics in Today
 # prot <- readRDS(fs::path(dir.dat,"Liver project","Data","today_subeomics.rds"))
-prot <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/today_proteomics.rds")
+prot <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/today_proteomics_log2.rds")
 # prot <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver project/Data/today_subeomics.rds")
 
 # which(colnames(prot)=="AGEBASE") #7406
@@ -14125,6 +14389,58 @@ ggplot(today_sub, aes(x = mvisit, y = ALT, group = releaseid)) +
        y = "ALT") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#AST
+today_sub$time_numeric <- as.numeric(factor(today_sub$mvisit)) - 1  # Start at 0 for baseline
+m0 <- as.formula(paste0("AST ~ time_numeric + (1|releaseid)"))
+model_simple <- lmer(m0, data = today_sub)
+summary(model_simple)
+
+# Scatter plot with individual trajectories
+p3 <- ggplot(today_sub, aes(x = time_numeric, y = AST)) +
+  geom_point(aes(color = factor(mvisit)), alpha = 0.6) +
+  geom_path(aes(group = releaseid), alpha = 0.2) +
+  geom_smooth(method = "lm", color = "red4", linewidth= 0.5,se=F) +
+  scale_color_viridis_d(name = "Time") +
+  theme_minimal() +
+  labs(title = "AST Levels over Time",
+       subtitle = "Beta = 1.319e-01, P-value = 1.55e-05***",
+       x = "Time",
+       y = "AST Level") +
+  theme(plot.title = element_text(face = "bold"))
+        # legend.position="none")
+
+print(p3)
+
+png(fs::path(dir.results,"AST_Over_Time_TODAY.png"),res=300,width=3000,height=2000)
+print(p3)
+dev.off()
+
+#ALT
+# today_sub$time_numeric <- as.numeric(factor(today_sub$mvisit)) - 1  # Start at 0 for baseline
+m0 <- as.formula(paste0("ALT ~ time_numeric + (1|releaseid)"))
+model_simple <- lmer(m0, data = today_sub)
+summary(model_simple)
+
+# Scatter plot with individual trajectories
+p3 <- ggplot(today_sub, aes(x = time_numeric, y = ALT)) +
+  geom_point(aes(color = factor(mvisit)), alpha = 0.6) +
+  geom_path(aes(group = releaseid), alpha = 0.2) +
+  geom_smooth(method = "lm", color = "red4", linewidth= 0.5,se=F) +
+  scale_color_viridis_d(name = "Time") +
+  theme_minimal() +
+  labs(title = "ALT Levels over Time",
+       subtitle = "Beta = 2.697e-01, P-value = 1.72e-08***",
+       x = "Time",
+       y = "ALT Level") +
+  theme(plot.title = element_text(face = "bold"))
+        # legend.position="none")
+
+print(p3)
+
+png(fs::path(dir.results,"ALT_Over_Time_TODAY.png"),res=300,width=3000,height=2000)
+print(p3)
+dev.off()
 
 # Calculate mean ALT for each mvisit
 mean_data <- today_sub %>%
@@ -14613,7 +14929,7 @@ results_ratio <- results_ratio %>%
   dplyr::rename(Gene=EntrezGeneSymbol)
 
 results_ratio$color <- ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR > 0, "lightcoral",
-                            ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR < 0, "lightblue", "gray"))
+                              ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR < 0, "lightblue", "gray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- results_ratio[results_ratio$fdr < 0.05, ]
@@ -14997,7 +15313,7 @@ results_ratio <- results_ratio %>%
   dplyr::rename(Gene=EntrezGeneSymbol)
 
 results_ratio$color <- ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR > 0, "lightcoral",
-                            ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR < 0, "lightblue", "gray"))
+                              ifelse(results_ratio$fdr < 0.05 & results_ratio$LogHR < 0, "lightblue", "gray"))
 
 # # Identify significant points (fdr < 0.05)
 # significant_df <- results_ratio[results_ratio$fdr < 0.05, ]
@@ -15135,23 +15451,23 @@ for (x in gene_proteins) {
 results_alt <- results_alt %>%
   # filter(Outcome=="Time to doubling of ALT") %>% 
   # mutate(fdr = p.adjust(Pvalue,method="fdr"))
-# results_alt <- results_alt %>%
+  # results_alt <- results_alt %>%
   mutate(sig=ifelse(Pvalue<0.05,"*",""))
 # write.csv(results_alt,fs::path(dir.results,"today_proteomics_ALT_results.csv"))
 
 #AST
 results_ast <- results_ast %>%
   # filter(Outcome=="Time to doubling of AST") %>% 
-#   mutate(fdr = p.adjust(Pvalue,method="fdr"))
-# results_ast <- results_ast %>%
+  #   mutate(fdr = p.adjust(Pvalue,method="fdr"))
+  # results_ast <- results_ast %>%
   mutate(sig=ifelse(Pvalue<0.05,"*",""))
 # write.csv(results_ast,fs::path(dir.results,"today_proteomics_AST_results.csv"))
 
 #Ratio
 results_ratio <- results_ratio %>%
   # filter(Outcome=="Time to AST/ALT Ratio = 1.5") %>% 
-#   mutate(fdr = p.adjust(Pvalue,method="fdr"))
-# results_ratio <- results_ratio %>%
+  #   mutate(fdr = p.adjust(Pvalue,method="fdr"))
+  # results_ratio <- results_ratio %>%
   mutate(sig=ifelse(Pvalue<0.05,"*",""))
 # write.csv(results_ratio,fs::path(dir.results,"today_proteomics_AST_ALT_ratio.csv"))
 
@@ -15380,7 +15696,7 @@ results_ratio <- results_ratio %>%
   dplyr::rename(Gene=EntrezGeneSymbol)
 
 results_ratio$color <- ifelse(results_ratio$Pvalue < 0.05 & results_ratio$LogHR > 0, "lightcoral",
-                            ifelse(results_ratio$Pvalue < 0.05 & results_ratio$LogHR < 0, "lightblue", "gray"))
+                              ifelse(results_ratio$Pvalue < 0.05 & results_ratio$LogHR < 0, "lightblue", "gray"))
 
 # Identify significant points (fdr < 0.05)
 significant_df <- results_ratio[results_ratio$Pvalue < 0.05, ]
@@ -15641,7 +15957,7 @@ volcano_plot <- ggplot(results_alt, aes(x = LogHR, y = PValue10, color = color))
   #                 # Optional: limit computation time
   #                 max.time = 1,
   #                 max.iter = 10000)+
-    geom_label_repel(
+  geom_label_repel(
     data = top_labels, 
     aes(label = Gene),
     color = "black",
@@ -15755,7 +16071,7 @@ volcano_plot <- ggplot(results_ast, aes(x = LogHR, y = PValue10, color = color))
   #                 # Optional: limit computation time
   #                 max.time = 1,
   #                 max.iter = 10000)+
-    geom_label_repel(
+  geom_label_repel(
     data = top_labels, 
     aes(label = Gene),
     color = "black",
@@ -15792,7 +16108,7 @@ results_ratio <- results_ratio %>%
   dplyr::rename(Gene=EntrezGeneSymbol)
 
 results_ratio$color <- ifelse(results_ratio$fdr<0.1 & results_ratio$LogHR > 0, "#990000",
-                            ifelse(results_ratio$fdr<0.1 & results_ratio$LogHR < 0, "#003366", "lightgray"))
+                              ifelse(results_ratio$fdr<0.1 & results_ratio$LogHR < 0, "#003366", "lightgray"))
 
 
 # # Identify significant points (fdr<0.1)
@@ -15869,7 +16185,7 @@ volcano_plot <- ggplot(results_ratio, aes(x = LogHR, y = PValue10, color = color
   #                 # Optional: limit computation time
   #                 max.time = 1,
   #                 max.iter = 10000)+
-    geom_label_repel(
+  geom_label_repel(
     data = top_labels, 
     aes(label = Gene),
     color = "black",
@@ -16229,21 +16545,6 @@ df <- df %>%
                   "NAFLD2","NAFLD3","NAFLD4","NAFLD5","NAFLD6","ALT","AST",all_of(gene_proteins)))
 
 
-# Scatter plot with individual trajectories
-p3 <- ggplot(df, aes(x = seq.10001.7, y = ALT)) +
-  geom_point(aes(color = factor(visit)), alpha = 0.6) +
-  geom_path(aes(group = ID), alpha = 0.2) +
-  geom_smooth(method = "lm", color = "black", linewidth= 0.5,se=F) +
-  scale_color_viridis_d(name = "Time") +
-  theme_minimal() +
-  labs(title = "ALT vs Protein Levels",
-       subtitle = "Lines connect same subject over time",
-       x = "Protein Level",
-       y = "ALT Level") +
-  theme(plot.title = element_text(face = "bold"))
-
-print(p3)
-
 # # Basic spaghetti plot
 ggplot(df, aes(x = visit, y = ALT, group = ID)) +
   geom_line(alpha = 0.5, aes(color=ID)) +
@@ -16254,17 +16555,67 @@ ggplot(df, aes(x = visit, y = ALT, group = ID)) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-library(lme4)
-library(lmerTest)
+
+
+#Test ALT and AST levels over time
+#AST
+df$time_numeric <- as.numeric(factor(df$visit)) - 1  # Start at 0 for baseline
+m0 <- as.formula(paste0("AST ~ time_numeric + (1|ID)"))
+model_simple <- lmer(m0, data = df)
+summary(model_simple)
+
+# Scatter plot with individual trajectories
+p3 <- ggplot(df, aes(x = time_numeric, y = AST)) +
+  geom_point(aes(color = factor(visit)), alpha = 0.6) +
+  geom_path(aes(group = ID), alpha = 0.2) +
+  geom_smooth(method = "lm", color = "black", linewidth= 0.5,se=F) +
+  scale_color_viridis_d(name = "Time") +
+  theme_minimal() +
+  labs(title = "AST Levels over Time",
+       subtitle = "Beta = -2.95, P-value = 8.52e-07***",
+       x = "Time",
+       y = "AST Level") +
+  theme(plot.title = element_text(face = "bold"))
+
+print(p3)
+
+png(fs::path(dir.results,"AST_Over_Time_TeenLABS.png"),res=300,width=3000,height=2000)
+print(p3)
+dev.off()
+
+#ALT
+# df$time_numeric <- as.numeric(factor(df$visit)) - 1  # Start at 0 for baseline
+m0 <- as.formula(paste0("ALT ~ time_numeric + (1|ID)"))
+model_simple <- lmer(m0, data = df)
+summary(model_simple)
+
+# Scatter plot with individual trajectories
+p3 <- ggplot(df, aes(x = time_numeric, y = ALT)) +
+  geom_point(aes(color = factor(visit)), alpha = 0.6) +
+  geom_path(aes(group = ID), alpha = 0.2) +
+  geom_smooth(method = "lm", color = "black", linewidth= 0.5,se=F) +
+  scale_color_viridis_d(name = "Time") +
+  theme_minimal() +
+  labs(title = "ALT Levels over Time",
+       subtitle = "Beta = -2.07, P-value = 0.00111**",
+       x = "Time",
+       y = "ALT Level") +
+  theme(plot.title = element_text(face = "bold"))
+
+print(p3)
+
+png(fs::path(dir.results,"ALT_Over_Time_TeenLABS.png"),res=300,width=3000,height=2000)
+print(p3)
+dev.off()
 
 # First, ensure time is numeric for random slopes
 # Convert visit to numeric (assuming ordered visits)
-df$time_numeric <- as.numeric(factor(df$visit)) - 1  # Start at 0 for baseline
+# df$time_numeric <- as.numeric(factor(df$visit)) - 1  # Start at 0 for baseline
 
 # Model with random intercept for time
 alt_results <- data.frame()
 for (protein in gene_proteins) {
-  m0 <- as.formula(paste0(protein,"~ ALT + time_numeric + (1|ID)"))
+  m0 <- as.formula(paste0("ALT ~",protein,"+ time_numeric + (1|ID)"))
   model_simple <- lmer(m0, data = df)
   beta <- summary(model_simple)$coef[2,1]
   pval <- summary(model_simple)$coef[2,5]
@@ -16275,12 +16626,11 @@ alt_results <- alt_results %>%
   mutate(fdr = p.adjust(Pval,method="fdr")) %>% 
   mutate(sig=ifelse(fdr<0.05,"*",""))
 
-
+#Do again but removing problematic nonconvregent protesins
 alt_results <- data.frame()
 problem_proteins <- data.frame()
-
 for (protein in gene_proteins) {
-  m0 <- as.formula(paste0(protein, "~ ALT + time_numeric + (1|ID)"))
+  m0 <- as.formula(paste0("ALT ~",protein,"+ time_numeric + (1|ID)"))
   
   # Track convergence and singularity
   converged <- TRUE
@@ -16374,7 +16724,7 @@ key <- key %>%
 alt_results <- tidylog::left_join(alt_results,key,by="Protein")
 alt_results <- alt_results %>% 
   dplyr::rename(Gene=EntrezGeneSymbol)
-# write.csv(alt_results,fs::path(dir.results,"TeenLABS_ALT_Crude_Results_Proteomics.csv"))
+# write.csv(alt_results,fs::path(dir.results,"TeenLABS_ALT_Crude_Results_Proteomics_New.csv"))
 
 alt_results$color <- ifelse(alt_results$fdr < 0.05 & alt_results$Beta > 0, "#990000",
                             ifelse(alt_results$fdr < 0.05 & alt_results$Beta < 0, "#003366", "lightgray"))
@@ -16392,7 +16742,7 @@ volcano_plot <- ggplot(alt_results, aes(x = Beta, y = -log10(fdr), color = color
   scale_color_identity() +  # Use the color column directly
   theme_bw() +  # Minimal theme
   labs(
-    title = "Mixed-Effect Model for Proteins vs. ALT (U/L)",
+    title = "Mixed-Effect Model for ALT (U/L) vs. Proteins over Time",
     x = "Beta",
     y = "-log10(FDR)",
     color = "Beta Direction",
@@ -16410,7 +16760,7 @@ volcano_plot <- ggplot(alt_results, aes(x = Beta, y = -log10(fdr), color = color
 volcano_plot
 
 # volcano_plot_alt
-png(fs::path(dir.results,"ALT_Proteins_TeenLabs.png"), width = 2200, height = 2000,res=300)
+png(fs::path(dir.results,"ALT_Proteins_TeenLabs_New.png"), width = 2200, height = 2000,res=300)
 print(volcano_plot)
 dev.off()
 # write.csv(alt_results,fs::path(dir.results,"ALT_Proteins_Teenlabs.csv"))
@@ -16446,7 +16796,7 @@ df$time_numeric <- as.numeric(factor(df$visit)) - 1  # Start at 0 for baseline
 # Model with random intercept for time
 alt_results <- data.frame()
 for (protein in gene_proteins) {
-  m0 <- as.formula(paste0(protein,"~ ALT + time_numeric + (1|ID)+age+SEX"))
+  m0 <- as.formula(paste0("ALT ~",protein, "+ time_numeric + (1|ID)+age+SEX"))
   model_simple <- lmer(m0, data = df)
   beta <- summary(model_simple)$coef[2,1]
   pval <- summary(model_simple)$coef[2,5]
@@ -16462,7 +16812,7 @@ alt_results <- data.frame()
 problem_proteins <- data.frame()
 
 for (protein in gene_proteins) {
-  m0 <- as.formula(paste0(protein, "~ ALT + time_numeric + (1|ID)+age+SEX"))
+  m0 <- as.formula(paste0("ALT ~",protein, "+ time_numeric + (1|ID)+age+SEX"))
   
   # Track convergence and singularity
   converged <- TRUE
@@ -16551,12 +16901,12 @@ alt_results <- alt_results %>%
                        fdr<0.05 & Beta<0 ~"Significant Negative",
                        fdr>0.05~"Not Significant"))
 #Convert protein names to gene names
-# key <- key %>% 
-#   dplyr::rename(Protein=AptName)
-# alt_results <- tidylog::left_join(alt_results,key,by="Protein")
-# alt_results <- alt_results %>% 
-#   dplyr::rename(Gene=EntrezGeneSymbol)
-write.csv(alt_results,fs::path(dir.results,"TeenLABS_ALT_Adj_Results_Proteomics.csv"))
+key <- key %>%
+  dplyr::rename(Protein=AptName)
+alt_results <- tidylog::left_join(alt_results,key,by="Protein")
+alt_results <- alt_results %>%
+  dplyr::rename(Gene=EntrezGeneSymbol)
+write.csv(alt_results,fs::path(dir.results,"TeenLABS_ALT_Adj_Results_Proteomics_New.csv"))
 
 alt_results$color <- ifelse(alt_results$fdr < 0.05 & alt_results$Beta > 0, "#990000",
                             ifelse(alt_results$fdr < 0.05 & alt_results$Beta < 0, "#003366", "lightgray"))
@@ -16751,7 +17101,7 @@ print(volcano_plot)
 dev.off()
 
 results_ratio$color <- ifelse(results_ratio$fdr<0.1 & results_ratio$LogHR > 0, "#990000",
-                            ifelse(results_ratio$fdr<0.1 & results_ratio$LogHR < 0, "#003366", "lightgray"))
+                              ifelse(results_ratio$fdr<0.1 & results_ratio$LogHR < 0, "#003366", "lightgray"))
 
 
 # # Identify significant points (fdr<0.1)
@@ -16860,25 +17210,25 @@ df <- df %>%
 df$time_numeric <- as.numeric(factor(df$visit)) - 1  # Start at 0 for baseline
 
 # Model with random intercept for time
-alt_results <- data.frame()
-for (protein in gene_proteins) {
-  m0 <- as.formula(paste0(protein,"~ ALT + time_numeric + (1|ID)+age+SEX"))
-  model_simple <- lmer(m0, data = df)
-  beta <- summary(model_simple)$coef[2,1]
-  pval <- summary(model_simple)$coef[2,5]
-  results <- data.frame(Protein=protein,Beta=beta,Pval=pval)
-  alt_results <- rbind(alt_results,results)
-}
-alt_results <- alt_results %>% 
-  mutate(fdr = p.adjust(Pval,method="fdr")) %>% 
-  mutate(sig=ifelse(fdr<0.1,"*",""))
+# alt_results <- data.frame()
+# for (protein in gene_proteins) {
+#   m0 <- as.formula(paste0("ALT ~",protein, "+ time_numeric + (1|ID)+age+SEX"))
+#   model_simple <- lmer(m0, data = df)
+#   beta <- summary(model_simple)$coef[2,1]
+#   pval <- summary(model_simple)$coef[2,5]
+#   results <- data.frame(Protein=protein,Beta=beta,Pval=pval)
+#   alt_results <- rbind(alt_results,results)
+# }
+# alt_results <- alt_results %>% 
+#   mutate(fdr = p.adjust(Pval,method="fdr")) %>% 
+#   mutate(sig=ifelse(fdr<0.1,"*",""))
 
 
 alt_results <- data.frame()
 problem_proteins <- data.frame()
 
 for (protein in gene_proteins) {
-  m0 <- as.formula(paste0(protein, "~ ALT + time_numeric + (1|ID)+age+SEX"))
+  m0 <- as.formula(paste0("ALT ~",protein, "+ time_numeric + (1|ID)+age+SEX"))
   
   # Track convergence and singularity
   converged <- TRUE
@@ -16972,7 +17322,7 @@ key <- key %>%
 alt_results <- tidylog::left_join(alt_results,key,by="Protein")
 alt_results <- alt_results %>%
   dplyr::rename(Gene=EntrezGeneSymbol)
-write.csv(alt_results,fs::path(dir.results,"TeenLABS_ALT_Adj_Results_Proteomics_FDR_01.csv"))
+write.csv(alt_results,fs::path(dir.results,"TeenLABS_ALT_Adj_Results_Proteomics_FDR_01_New.csv"))
 
 alt_results$color <- ifelse(alt_results$fdr<0.1 & alt_results$Beta > 0, "#990000",
                             ifelse(alt_results$fdr<0.1 & alt_results$Beta < 0, "#003366", "lightgray"))
@@ -17002,7 +17352,7 @@ volcano_plot <- ggplot(alt_results, aes(x = Beta, y = -log10(fdr), color = color
   scale_color_identity() +
   theme_bw() +
   labs(
-    title = "Mixed-Effect Model for Proteins vs. ALT (U/L)",
+    title = "Mixed-Effect Model for ALT (U/L) vs. Proteins over Time",
     x = "Beta",
     y = "-log10(FDR)",
     color = "Beta Direction",
@@ -17015,7 +17365,7 @@ volcano_plot <- ggplot(alt_results, aes(x = Beta, y = -log10(fdr), color = color
   # # Add labels for top positive and negative significant points
   # geom_text(data = top_labels, aes(label = Gene),
   #           vjust = -0.5, hjust = 0.5, size = 3, check_overlap = TRUE, color = "black") +
-    # Add labels with lines pointing to points
+  # Add labels with lines pointing to points
   geom_label_repel(
     data = top_labels, 
     aes(label = Gene),
@@ -17035,31 +17385,17 @@ volcano_plot <- ggplot(alt_results, aes(x = Beta, y = -log10(fdr), color = color
 volcano_plot
 
 # volcano_plot_alt
-png(fs::path(dir.results,"ALT_Proteins_TeenLabs_Adjusted_FDR_01.png"), width = 2200, height = 2000,res=300)
+png(fs::path(dir.results,"ALT_Proteins_TeenLabs_Adjusted_FDR_01_New.png"), width = 2200, height = 2000,res=300)
 print(volcano_plot)
 dev.off()
 # write.csv(alt_results,fs::path(dir.results,"ALT_Proteins_Teenlabs.csv"))
-
-# Model with random intercept for time
-ast_results <- data.frame()
-for (protein in gene_proteins) {
-  m0 <- as.formula(paste0(protein,"~ AST + time_numeric + (1|ID)+age+SEX"))
-  model_simple <- lmer(m0, data = df)
-  beta <- summary(model_simple)$coef[2,1]
-  pval <- summary(model_simple)$coef[2,5]
-  results <- data.frame(Protein=protein,Beta=beta,Pval=pval)
-  ast_results <- rbind(ast_results,results)
-}
-ast_results <- ast_results %>% 
-  mutate(fdr = p.adjust(Pval,method="fdr")) %>% 
-  mutate(sig=ifelse(fdr<0.1,"*",""))
 
 
 ast_results <- data.frame()
 problem_proteins <- data.frame()
 
 for (protein in gene_proteins) {
-  m0 <- as.formula(paste0(protein, "~ AST + time_numeric + (1|ID)+age+SEX"))
+  m0 <- as.formula(paste0("AST ~",protein, "+ time_numeric + (1|ID)+age+SEX"))
   
   # Track convergence and singularity
   converged <- TRUE
@@ -17148,15 +17484,13 @@ ast_results <- ast_results %>%
                        fdr<0.1 & Beta<0 ~"Significant Negative",
                        fdr>0.1~"Not Significant"))
 #Convert protein names to gene names
-# key <- key %>% 
+# key <- key %>%
 #   dplyr::rename(Protein=AptName)
 ast_results <- tidylog::left_join(ast_results,key,by="Protein")
 ast_results <- ast_results %>%
   dplyr::rename(Gene=EntrezGeneSymbol)
-write.csv(alt_results,fs::path(dir.results,"TeenLABS_AST_Adj_Results_Proteomics_FDR_01.csv"))
+write.csv(ast_results,fs::path(dir.results,"TeenLABS_AST_Adj_Results_Proteomics_FDR_01_New.csv"))
 
-# Identify significant points (fdr<0.1)
-# significant_df <- ast_results[ast_results$fdr<0.1, ]
 ast_results$color <- ifelse(ast_results$fdr<0.1 & ast_results$Beta > 0, "#990000",
                             ifelse(ast_results$fdr<0.1 & ast_results$Beta < 0, "#003366", "lightgray"))
 
@@ -17185,7 +17519,7 @@ volcano_plot <- ggplot(ast_results, aes(x = Beta, y = -log10(fdr), color = color
   scale_color_identity() +
   theme_bw() +
   labs(
-    title = "Mixed-Effect Model for Proteins vs. AST (U/L)",
+    title = "Mixed-Effect Model for AST (U/L) vs. Proteins over Time",
     x = "Beta",
     y = "-log10(FDR)",
     color = "Beta Direction",
@@ -17198,7 +17532,7 @@ volcano_plot <- ggplot(ast_results, aes(x = Beta, y = -log10(fdr), color = color
   # # Add labels for top positive and negative significant points
   # geom_text(data = top_labels, aes(label = Gene),
   #           vjust = -0.5, hjust = 0.5, size = 3, check_overlap = TRUE, color = "black") +
-    # Add labels with lines pointing to points
+  # Add labels with lines pointing to points
   geom_label_repel(
     data = top_labels, 
     aes(label = Gene),
@@ -17217,11 +17551,11 @@ volcano_plot <- ggplot(ast_results, aes(x = Beta, y = -log10(fdr), color = color
 
 volcano_plot
 
-# volcano_plot_ast
-png(fs::path(dir.results,"AST_Proteins_TeenLabs_Adjusted_FDR_01.png"), width = 2200, height = 2000,res=300)
+# volcano_plot_AST
+png(fs::path(dir.results,"AST_Proteins_TeenLabs_Adjusted_FDR_01_New.png"), width = 2200, height = 2000,res=300)
 print(volcano_plot)
 dev.off()
-# write.csv(ast_results,fs::path(dir.results,"AST_Proteins_Teenlabs.csv"))
+# write.csv(alt_results,fs::path(dir.results,"ALT_Proteins_Teenlabs.csv"))
 ```
 
 ### Other outcomes
@@ -20939,7 +21273,7 @@ perform_permutation_test <- function(cellchats, n_permutations = 1000, seed = 12
       
       # Combine data for permutation
       all_probs <- array(c(prob_high, prob_low), 
-                        dim = c(dim(prob_high)[1], dim(prob_high)[2], 2))
+                         dim = c(dim(prob_high)[1], dim(prob_high)[2], 2))
       
       # Permutation test
       perm_diffs <- numeric(n_permutations)
@@ -20959,7 +21293,7 @@ perform_permutation_test <- function(cellchats, n_permutations = 1000, seed = 12
       
       # Calculate effect size (Cohen's d equivalent)
       pooled_sd <- sqrt((var(as.vector(prob_high), na.rm = TRUE) + 
-                        var(as.vector(prob_low), na.rm = TRUE)) / 2)
+                           var(as.vector(prob_low), na.rm = TRUE)) / 2)
       effect_size <- obs_diff / (pooled_sd * sqrt(length(prob_high)))
       
       # Store results
@@ -21063,7 +21397,7 @@ plot_permutation_distribution <- function(pathway_name, perm_results) {
            y = "Count",
            title = paste(pathway_name, "Permutation Test"),
            subtitle = paste("p-value:", round(result$p_value, 4),
-                          "| Observed difference:", round(result$observed_diff, 3)))
+                            "| Observed difference:", round(result$observed_diff, 3)))
     
     return(p)
   }
@@ -21280,9 +21614,17 @@ so_subset$avg_m_k2_f_med <- relevel(so_subset$avg_m_k2_f_med,"Below Median")
 # harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv",na=""))
 harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = c("", "NA", "N/A", "n/a", " ","na"))
 
+meta_ir <- harm_meta_data %>% 
+  dplyr::select(c("record_id","mrn","study","procedure","visit","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","mm_ir","mm_si","m_i")) 
+  # filter(procedure=="ivgtt")
+
+clamp <- harm_meta_data %>% 
+  filter(procedure=="clamp") %>% 
+   dplyr::select(c("record_id","mrn","study","procedure","visit","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","mm_ir","mm_si","m_i")) 
+
 #Number of participants
-length(unique(harm_meta_data$record_id)) #651 changed to 656 on 08/25
-length(unique(harm_meta_data$mrn)) #480 unique mrns
+length(unique(harm_meta_data$record_id)) #651 changed to 656 on 08/25, 633 on 10/06
+length(unique(harm_meta_data$mrn)) #480 unique mrns, 521 on 10/05
 
 #Filter to RH2 and CRC 
 harm_meta_data <- harm_meta_data %>%
@@ -21308,7 +21650,9 @@ length(unique(pet_dat$mrn)) #200
 
 #select variables of interest
 pet_dat2 <- pet_dat %>%
-  dplyr::select(c("record_id","mrn","study","visit","screen_date","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","gir_190","gir_200","p2_gc_leanm", "p2_gc_m"))
+  dplyr::select(c("record_id","mrn","study","visit","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","mm_ir","mm_si"))
+# pet_dat2 <- pet_dat %>%
+#   dplyr::select(c("record_id","mrn","study","visit","screen_date","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","gir_190","gir_200","p2_gc_leanm", "p2_gc_m"))
 # pet_dat2 <- pet_dat %>%
 #   dplyr::select(c("record_id","mrn","study","visit","screen_date","group","liver_k1","liver_k2","liver_k3","search_eis",
 #                   "homa_ir","p1_ffa_suppression","gir_190","gir_200","p2_gc_leanm", "p2_gc_m",
