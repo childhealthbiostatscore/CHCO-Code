@@ -19,10 +19,10 @@ studies = ["CASPER", "COFFEE", "CROCODILE", "IMPROVE", "PENGUIN",
     # Connect to REDCap projects and get metadata
 casper_token = tokens.loc[tokens["Study"] == "CASPER", "Token"].iloc[0]
 casper = redcap.Project(url=uri, token=casper_token)
-#print(casper)
+print(casper)
 casper_metadata = pd.DataFrame(casper.metadata)
-# print(casper_metadata)
-# forms = casper_metadata["form_name"].unique()
+print(casper_metadata)
+forms = casper_metadata["form_name"].unique()
 
 
 coffee_token = tokens.loc[tokens["Study"] == "COFFEE", "Token"].iloc[0]
@@ -62,7 +62,7 @@ attempt = redcap.Project(url=uri, token=attempt_token)
 attempt_metadata = pd.DataFrame(attempt.metadata)
 
 
-dictionary = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv")
+dictionary = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv")
 
 
 studies = [casper_metadata, coffee_metadata, crocodile_metadata, improve_metadata, penguin_metadata,
@@ -82,12 +82,14 @@ for study in studies:
 
         
 dictionary['form_name'] = ''  # Initialize the new column
+dictionary['field_type'] = ''  # Initialize the new column
 all_metadata = pd.concat(studies, ignore_index=True)
 for index, row in dictionary.iterrows():
     matching_row = all_metadata[all_metadata['field_name'] == row['variable_name']]
     if not matching_row.empty:
         # Get the form_name for the first match and assign it
         dictionary.at[index, 'form_name'] = matching_row['form_name'].iloc[0]
+        dictionary.at[index, 'field_type'] = matching_row['field_type'].iloc[0]
 
 dictionary = dictionary.drop_duplicates(subset=['variable_name', 'label'])
 
@@ -100,7 +102,7 @@ dictionary = dictionary.dropna(subset=['label'])
 dictionary = dictionary.drop_duplicates(subset=['variable_name', 'label'])
 
 harmonized = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv")
-tocsv_path = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/data_dictionary_master.csv"
+tocsv_path = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv"
 dictionary.to_csv(tocsv_path, index=False)
 
         

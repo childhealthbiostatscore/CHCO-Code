@@ -99,19 +99,27 @@ def harmonize_data():
     dates = ["dob", "date", "diabetes_dx_date"]
     harmonized[dates] = \
         harmonized[dates].apply(pd.to_datetime, errors='coerce')
+    # ----------------------
     # Calculated variables
+    # ----------------------
+    dictionary = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv")
+
     # Age
     age = round((harmonized["date"] - harmonized["dob"]).dt.days / 365.25, 2)
     harmonized = pd.concat([harmonized, age], axis=1)
     harmonized.rename({0: "age"}, axis=1, inplace=True)
+    # set column x to 'a' where column y == 'b'
+    dictionary.loc[dictionary['variable_name'] == 'age', 'form_name'] = 'demographics'
     # BMI
     harmonized["bmi"] = pd.to_numeric(harmonized["weight"])/((pd.to_numeric(harmonized["height"])/100)**2)
+    dictionary.loc[dictionary['variable_name'] == 'bmi', 'form_name'] = 'physical_exam'
     # Diabetes duration
     disease_duration = \
         round((harmonized["date"] -
               harmonized["diabetes_dx_date"]).dt.days / 365.25, 2)
     harmonized = pd.concat([harmonized, disease_duration], axis=1)
     harmonized.rename({0: "diabetes_duration"}, axis=1, inplace=True)
+    dictionary.loc[dictionary['variable_name'] == 'diabetes_duration', 'form_name'] = 'medical_history'
     # eGFR
     if "age" in harmonized.columns:
         harmonized = harmonized.loc[:, ~harmonized.columns.duplicated()]
@@ -126,6 +134,11 @@ def harmonize_data():
     harmonized = calc_egfr(harmonized, age="age",
                            serum_creatinine="creatinine_s", cystatin_c="cystatin_c_s",
                            bun="bun", height="height", sex="sex", male="Male", female="Female", alpha=0.5)
+    egfr = ['eGFR_Schwartz', 'eGFR_bedside_Schwartz', 'eGFR_Zap', 'eGFR_fas_cr',
+         'eGFR_fas_cr_cysc', 'eGFR_CKD_epi',
+         'eGFR_CKiD_U25_Creat', 'eGFR_CKiD_U25_CystatinC', 'eGFR_CKiD_U25_avg']
+    dictionary.loc[dictionary['variable_name'].isin(egfr), 'form_name'] = 'eGFR'
+
     # Kidney volume
     harmonized["total_kidney_volume_ml"] = \
         harmonized["left_kidney_volume_ml"] + \
@@ -135,48 +148,75 @@ def harmonize_data():
         ht_adj_tkv = harmonized["total_kidney_volume_ml"] / (harmonized.groupby("record_id")["height"].transform("mean") / 100))
     harmonized = harmonized.assign(
         ht_adj_tkv_manual = harmonized["total_kidney_volume_ml_manual"] / (harmonized.groupby("record_id")["height"].transform("mean") / 100))
+    
+    kidney_vol_vars = ['total_kidney_volume_ml', 'total_kidney_volume_ml_manual', 'left_kidney_volume_ml', 'right_kidney_volume_ml']
+    
+    dictionary.loc[dictionary['variable_name'].isin(kidney_vol_vars), 'form_name'] = 'fmri'
+
     # PCASL
     harmonized["pcasl3d_left"] = pd.to_numeric(harmonized["pcasl3d_left"], errors='coerce')
     harmonized["pcasl3d_right"] = pd.to_numeric(harmonized["pcasl3d_right"], errors='coerce')
     harmonized["avg_pcascl"]= \
         harmonized[["pcasl3d_left", "pcasl3d_right"]].apply(lambda x: x.mean(), axis=1)
+    pcasl_vars = ['pcasl3d_left', 'pcasl3d_right', 'avg_pcascl']
+    dictionary.loc[dictionary['variable_name'].isin(pcasl_vars), 'form_name'] = 'study_visit_boldasl_mri'
+
     # Average R2*
     harmonized["avg_k_r2"]= \
         harmonized[["bold_l_bl_kidney", "bold_r_bl_kidney"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_c_r2"]= \
         harmonized[["bold_l_bl_cortex", "bold_r_bl_cortex"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_m_r2"]= \
-        harmonized[["bold_l_bl_medulla", "bold_r_bl_medulla"]].apply(lambda x: x.mean(), axis=1)   
+        harmonized[["bold_l_bl_medulla", "bold_r_bl_medulla"]].apply(lambda x: x.mean(), axis=1) 
+    outcomes_vars = ['avg_k_r2', 'avg_c_r2', 'avg_m_r2']
+    dictionary.loc[dictionary['variable_name'].isin(outcomes_vars), 'form_name'] = 'outcomes'
+    
     # Average T1
     harmonized["avg_k_t1"]= \
         harmonized[["bold_l_t1_kidney", "bold_r_t1_kidney"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_c_t1"]= \
         harmonized[["bold_l_t1_cortex", "bold_r_t1_cortex"]].apply(lambda x: x.mean(), axis=1)
+    boldasl_mri_vars = ['avg_k_t1', 'avg_c_t1']
+    dictionary.loc[dictionary['variable_name'].isin(boldasl_mri_vars), 'form_name'] = 'study_visit_boldasl_mri'
+    
     # Average ADC
     harmonized["avg_c_adc"] = \
         harmonized[["adc_left", "adc_right"]].apply(lambda x: x.mean(), axis=1)
+    boldasl_mri_vars = ['avg_c_adc']
+    dictionary.loc[dictionary['variable_name'].isin(boldasl_mri_vars), 'form_name'] = 'study_visit_boldasl_mri'
+    
     # # Average voxelwise
     harmonized["avg_m_k2_wo_cyst_vw"] = \
         harmonized[["lm_k2_wo_cyst_vw", "rm_k2_wo_cyst_vw"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_c_k2_wo_cyst_vw"] = \
         harmonized[["lc_k2_wo_cyst_vw", "rc_k2_wo_cyst_vw"]].apply(lambda x: x.mean(), axis=1)
-
+    voxelwise_vars = ['avg_m_k2_wo_cyst_vw', 'avg_c_k2_wo_cyst_vw']
+    dictionary.loc[dictionary['variable_name'].isin(voxelwise_vars), 'form_name'] = 'voxelwise'
+    
     # Average K1
     harmonized["avg_c_k1"]= \
         harmonized[["lc_k1", "rc_k1"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_m_k1"]= \
-        harmonized[["lm_k1", "rm_k1"]].apply(lambda x: x.mean(), axis=1)   
+        harmonized[["lm_k1", "rm_k1"]].apply(lambda x: x.mean(), axis=1)  
+    optional_pet_vars = ['avg_c_k1', 'avg_m_k1']
+    dictionary.loc[dictionary['variable_name'].isin(optional_pet_vars), 'form_name'] = 'optional_pet_scan'
+     
     # Average k2
     harmonized["avg_c_k2"]= \
         harmonized[["lc_k2", "rc_k2"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_m_k2"]= \
         harmonized[["lm_k2", "rm_k2"]].apply(lambda x: x.mean(), axis=1) 
+    optional_pet_vars = ['avg_c_k2', 'avg_m_k2']
+    dictionary.loc[dictionary['variable_name'].isin(optional_pet_vars), 'form_name'] = 'optional_pet_scan'
+    
     # Average F
     harmonized["avg_c_f"]= \
         harmonized[["lc_f", "rc_f"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_m_k2"]= \
-        harmonized[["lm_f", "rm_f"]].apply(lambda x: x.mean(), axis=1)         
-        
+        harmonized[["lm_f", "rm_f"]].apply(lambda x: x.mean(), axis=1)  
+    optional_pet_vars = ['avg_c_f', 'avg_m_f']
+    dictionary.loc[dictionary['variable_name'].isin(optional_pet_vars), 'form_name'] = 'optional_pet_scan'       
+    
         
     # Calculate FSOC = bl_bold - pf_bold
     cols = [c for c in harmonized.columns if "_bl_" in c] + \
@@ -196,17 +236,27 @@ def harmonize_data():
         harmonized["bold_l_pf_medulla"],
         fsoc_l_kidney=harmonized["bold_l_bl_kidney"] -
         harmonized["bold_l_pf_kidney"])
+    fsoc_vars = ['fsoc_r_cortex', 'fsoc_r_medulla', 'fsoc_r_kidney', 'fsoc_l_cortex', 'fsoc_l_medulla', 'fsoc_l_kidney']
+    dictionary.loc[dictionary['variable_name'].isin(fsoc_vars), 'form_name'] = 'FSOC'
+   
     # Average FSOC
     harmonized["avg_k_fsoc"]= \
         harmonized[["fsoc_l_kidney", "fsoc_r_kidney"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_c_fsoc"]= \
         harmonized[["fsoc_l_cortex", "fsoc_r_cortex"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_m_fsoc"]= \
-        harmonized[["fsoc_l_medulla", "fsoc_r_medulla"]].apply(lambda x: x.mean(), axis=1)        
+        harmonized[["fsoc_l_medulla", "fsoc_r_medulla"]].apply(lambda x: x.mean(), axis=1)
+    fsoc_vars = ['avg_k_fsoc', 'avg_c_fsoc', 'avg_m_fsoc']
+    dictionary.loc[dictionary['variable_name'].isin(fsoc_vars), 'form_name'] = 'FSOC'
+            
     # UACR
     harmonized["acr_u"] = \
         pd.to_numeric(harmonized["microalbumin_u"], errors="coerce") * 100 / \
         pd.to_numeric(harmonized["creatinine_u"], errors="coerce")
+    uacr_vars = ['acr_u']
+    dictionary.loc[dictionary['variable_name'].isin(uacr_vars), 'form_name'] = 'UACR'
+    
+    
     # Albuminuria
     alb = []
     for a in harmonized["acr_u"]:
@@ -221,6 +271,10 @@ def harmonize_data():
     harmonized["albuminuria_cat"] = alb
     harmonized["elevated_albuminuria"] = pd.cut(
         harmonized["acr_u"], [-float("inf"), 30, float("inf")], right=False, labels=["No", "Yes"])
+    albuminuria_vars = ['albuminuria_cat', 'elevated_albuminuria']
+    dictionary.loc[dictionary['variable_name'].isin(albuminuria_vars), 'form_name'] = 'Albuminuria'
+    
+
     # FFA suppression negative to be 0
     harmonized["ffa_suppression"] = np.where(
         harmonized["ffa_suppression"] < 0, 0, harmonized["ffa_suppression"])
@@ -232,6 +286,10 @@ def harmonize_data():
     harmonized = \
         harmonized.assign(ffa_suppression_combined=harmonized["ffa_suppression"].where(
             harmonized["ffa_suppression"].notnull(), harmonized["p2_ffa_suppression"]))
+    ffa_vars = ['ffa_suppression', 'p1_ffa_suppression', 'p2_ffa_suppression', 'ffa_suppression_combined']
+    dictionary.loc[dictionary['variable_name'].isin(ffa_vars), 'form_name'] = 'FFA'
+    
+
     # Fasting Insulin
     harmonized[["insulin_minus_20", "insulin_minus_10", "insulin_minus_5", "insulin_0"]] = harmonized[[
         "insulin_minus_20", "insulin_minus_10", "insulin_minus_5", "insulin_0"]].apply(pd.to_numeric)
@@ -247,6 +305,10 @@ def harmonize_data():
         harmonized[["glucose_minus_120", "glucose_minus_90","glucose_minus_20",
         "glucose_minus_10", "glucose_minus_5", "glucose_0", "fbg"]].apply(
             lambda x: x.mean(), axis=1)
+    clamp_vars = ['fasting_insulin', 'fasting_ffa', 'fbg']
+    dictionary.loc[dictionary['variable_name'].isin(clamp_vars), 'form_name'] = 'clamp'
+    
+
     # HOMA-IR (https://link.springer.com/article/10.1007/BF00280883), FBG entered as mg/dL, converting to mmol/L (18 mg/dL = 1 mmol/L)
     harmonized = harmonized.assign(
         homa_ir=(harmonized["fasting_insulin"] * (harmonized["fbg"]/18))/22.5)
@@ -258,6 +320,8 @@ def harmonize_data():
         search_eis = np.exp((4.64725 - (0.02032 * harmonized.groupby("record_id")["waistcm"].transform("mean")) - 
         (0.09779 * harmonized.groupby("record_id")["hba1c"].transform("mean")) - 
         (0.00235 * harmonized.groupby("record_id")["triglycerides"].transform("mean")))))
+    clamp_vars = ['homa_ir', 'adipose_ir', 'search_eis']
+    dictionary.loc[dictionary['variable_name'].isin(clamp_vars), 'form_name'] = 'clamp'
     
     # Merge copeptin values (CASPER, RH2, CROCODILE)
     # Step 1: Replace empty strings with NaN in both columns
@@ -283,6 +347,15 @@ def harmonize_data():
 
     # Step 6: Drop pi_copeptin column (all handled)
     harmonized.drop(columns=['pi_copeptin'], inplace=True)
+   
+    dictionary.loc[dictionary['variable_name'] == 'copeptin', 'form_name'] = 'copeptin'
+    dictionary.loc[dictionary['variable_name'] == 'ace_inhibitor', 'form_name'] = 'medical_history'
+    dictionary.loc[dictionary['variable_name'] == 'acprg', 'form_name'] = 'clamp'
+    dictionary.loc[dictionary['variable_name'] == 'acr_u_pm', 'form_name'] = 'clamp'
+
+
+    
+
 
 
     # Co-enroll IDs
@@ -335,4 +408,6 @@ def harmonize_data():
         lambda x: x.dt.strftime('%Y-%m-%d'))
     # Return
     harmonized = harmonized.astype(object)
+    tocsv_path = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv"
+    dictionary.to_csv(tocsv_path, index=False)
     return harmonized
