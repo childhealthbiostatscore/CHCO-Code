@@ -175,8 +175,6 @@ desc_table1_fixed %>%
 
 
 
-celltypes_vec <- c('All', 'PT', 'TAL', 'EC', 'DCTall', 'IC')
-
 
 
 #function
@@ -186,11 +184,6 @@ LC_NEBULA_Analysis <- function(so_subset, dir.results, celltype, genes){
   }else if(celltype %in% c('TAL', 'EC', 'POD', 'PT')){
     so_celltype <- subset(so_subset,celltype2==celltype)
     DefaultAssay(so_celltype) <- "RNA" 
-  }else if(celltype != 'DCTall'){
-    so_celltype <- subset(so_subset,KPMP_celltype==celltype)
-    DefaultAssay(so_celltype) <- "RNA" 
-  }else if(celltype == 'DCTall'){
-    so_celltype <- subset(so_subset, DCT_celltype=='DCT')
   }else if(celltype == 'IC'){
     so_celltype <- subset(so_subset, KPMP_celltype %in% c(
       "cDC",
@@ -202,75 +195,50 @@ LC_NEBULA_Analysis <- function(so_subset, dir.results, celltype, genes){
       "MON",
       "MAC",
       "MC"))
+  }else if(celltype == 'DCTall'){
+    so_celltype <- subset(so_subset, DCT_celltype=='DCT')
   }
   
   
   
   
-  
-  if(celltype %in% c('PT', 'PT-S1/S2', 'PT-S3', 'aPT')){
-    tmp_gene_list <- c(genes, PT)
-  }else if(celltype == 'POD'){
-    tmp_gene_list <- c(genes, POD)
-  }else if(celltype %in% c('EC', 'EC-AEA', 'EC-AVR', 'EC-GC', 'EC-PTC')){
-    tmp_gene_list <- c(genes, Endothelial)
-  }else if(celltype %in% c('B')){
-    tmp_gene_list <- c(genes, Immune)
-  }else if(celltype %in% c('TAL', 'C-TAL-1', 'C-TAL-2', 'dTAL')){
-    tmp_gene_list <- c(genes, TAL)
-  }else if(celltype == 'DCT'){
-    tmp_gene_list <- c(genes, DCT)
-  }else{
-    tmp_gene_list <- genes
-  }
-  
-  
-  so_celltype <- subset(so_celltype, features = tmp_gene_list)
-  
+  full_analysis <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+  hvgs <- VariableFeatures(full_analysis)
+  so_celltype <- subset(so_celltype, features = hvgs)
+
   
   celltype2 <- str_replace_all(celltype,"/","_")
   celltype2 <- str_replace_all(celltype2,"-","_")
   
-  
-  so_celltype$group <- factor(so_celltype$group)
-  so_celltype$group  <- relevel(so_celltype$group ,ref="Lean_Control")
-  
+
   
   print(paste0(celltype2, ' is running.'))
   #FOR LOOP OVER VARIABLES 
-  for(iter in c(1:length(dex_var))){
-    print(paste0('Working on ', dex_var[iter]))
-    
-    so_celltype@meta.data$Variable <- so_celltype@meta.data[,which(names(so_celltype@meta.data) == dex_var[iter])]
+ 
     counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
     count_gene <- counts_path
     meta_gene <- subset(so_celltype)@meta.data
     
     
     
-    complete_idx <- complete.cases(meta_gene$Variable)
+    complete_idx <- complete.cases(meta_gene$sex)
     cat("Cells with complete data:", sum(complete_idx), "\n")
     
     # Step 3: Filter all your data to only include cells with complete predictor data
     meta_gene <- meta_gene[complete_idx, ]
     count_gene <- count_gene[, complete_idx]  # Note: subsetting columns for cells
     
-    if(length(unique(meta_gene$group)) != 2){
-      print(paste0('Skipped ', dex_var[iter], ' in ', celltype2, ' Cells.'))
-      next
-    }
-    
     
     num_cells <- nrow(meta_gene)
     num_part <- unique(meta_gene$record_id) %>% length()
     
-    tmp_df <- meta_gene %>% dplyr::select(record_id, group, epic_sglti2_1) %>% filter(!duplicated(record_id))
+    tmp_df <- meta_gene %>% dplyr::select(record_id, group, sex) %>% filter(!duplicated(record_id))
     
-    num_t2d <- tmp_df %>% filter(group == 'Type_2_Diabetes') %>% nrow()
-    num_lc <- tmp_df %>% filter(group == 'Lean_Control') %>% nrow()
+    num_male <- tmp_df %>% filter(sex == 'Male') %>% nrow()
+    num_female <- tmp_df %>% filter(sex == 'Female') %>% nrow()
     
     # Step 4: Create prediction matrix from the complete data
-    pred_gene <- model.matrix(~Variable*group, data = meta_gene)
+    pred_gene <- model.matrix(~sex, data = meta_gene)
     
     
     # library <- meta_gene$library_size
@@ -293,15 +261,132 @@ LC_NEBULA_Analysis <- function(so_subset, dir.results, celltype, genes){
     
     
     full_results$num_cells <- num_cells
-    full_results$num_t2d <- num_t2d
-    full_results$num_lc <- num_lc
+    full_results$num_male <- num_male
+    full_results$num_female <- num_female
     
     write.table(full_results,paste0(dir.results,"NEBULA_", 
-                                    celltype2, "_cells_", dex_var[iter], "_LC_vs_T2D_pooledoffset.csv"),
+                                    celltype2, "_cells__LC_pooledoffset.csv"),
                 row.names=F, quote=F, sep=',')
+
+ 
+  print(paste0(celltype2, ' is done.'))
+  
+  
+}
+
+
+celltypes_vec <- c('All', 
+                   'PT', 
+                   'TAL', 
+                   'EC', 
+                   'DCTall', 
+                   'IC')
+
+for(i  in 1:length(celltypes_vec)){
+  LC_NEBULA_Analysis(so_subset = so_subset, dir.results = dir.results, celltype = celltypes_vec[i], genes = gene_list)
+  print(celltypes_vec[i])
+}
+
+
+
+
+
+
+
+### Full Analysis (all Genes)
+
+
+
+#function
+LC_NEBULA_Analysis_full <- function(so_subset, dir.results, celltype, genes){
+  if(celltype == 'All'){
+    so_celltype <- so_subset 
+  }else if(celltype %in% c('TAL', 'EC', 'POD', 'PT')){
+    so_celltype <- subset(so_subset,celltype2==celltype)
+    DefaultAssay(so_celltype) <- "RNA" 
+  }else if(celltype == 'IC'){
+    so_celltype <- subset(so_subset, KPMP_celltype %in% c(
+      "cDC",
+      "cycT",
+      "CD4+ T",
+      "CD8+ T",
+      "NK",
+      "B",
+      "MON",
+      "MAC",
+      "MC"))
+  }else if(celltype == 'DCTall'){
+    so_celltype <- subset(so_subset, DCT_celltype=='DCT')
   }
   
   
+  
+  
+ # full_analysis <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+#  hvgs <- VariableFeatures(full_analysis)
+#  so_celltype <- subset(so_celltype, features = hvgs)
+  
+  
+  celltype2 <- str_replace_all(celltype,"/","_")
+  celltype2 <- str_replace_all(celltype2,"-","_")
+  
+  
+  
+  print(paste0(celltype2, ' is running.'))
+  #FOR LOOP OVER VARIABLES 
+  
+  counts_path <- round(GetAssayData(so_celltype, layer = "counts")) # load counts and round
+  count_gene <- counts_path
+  meta_gene <- subset(so_celltype)@meta.data
+  
+  
+  
+  complete_idx <- complete.cases(meta_gene$sex)
+  cat("Cells with complete data:", sum(complete_idx), "\n")
+  
+  # Step 3: Filter all your data to only include cells with complete predictor data
+  meta_gene <- meta_gene[complete_idx, ]
+  count_gene <- count_gene[, complete_idx]  # Note: subsetting columns for cells
+  
+  
+  num_cells <- nrow(meta_gene)
+  num_part <- unique(meta_gene$record_id) %>% length()
+  
+  tmp_df <- meta_gene %>% dplyr::select(record_id, group, sex) %>% filter(!duplicated(record_id))
+  
+  num_male <- tmp_df %>% filter(sex == 'Male') %>% nrow()
+  num_female <- tmp_df %>% filter(sex == 'Female') %>% nrow()
+  
+  # Step 4: Create prediction matrix from the complete data
+  pred_gene <- model.matrix(~sex, data = meta_gene)
+  
+  
+  # library <- meta_gene$library_size
+  library <- meta_gene$pooled_offset
+  data_g_gene <- group_cell(count = count_gene, id = meta_gene$kit_id, pred = pred_gene,offset=library)
+  
+  if (is.null(data_g_gene)) {
+    data_g_gene <- list(count = count_gene, id = meta_gene$kit_id, pred = pred_gene, offset = library)
+  }
+  
+  #With offset
+  result <- nebula(count = data_g_gene$count, id = data_g_gene$id, 
+                   pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset=data_g_gene$library)
+  
+  
+  
+  #Make dataframe of final results
+  full_results <- as.data.frame(result)
+  #Calculate number of genes filtered out for low expression 
+  
+  
+  full_results$num_cells <- num_cells
+  full_results$num_male <- num_male
+  full_results$num_female <- num_female
+  
+  write.table(full_results,paste0(dir.results,"Full_NEBULA_", 
+                                  celltype2, "_cells__LC_pooledoffset.csv"),
+              row.names=F, quote=F, sep=',')
   
   
   print(paste0(celltype2, ' is done.'))
@@ -309,12 +394,43 @@ LC_NEBULA_Analysis <- function(so_subset, dir.results, celltype, genes){
   
 }
 
-celltypes_vec <- c('All', 'PT', 'TAL', 'EC', 'IC')
+
+celltypes_vec <- c('All', 
+                   'PT', 
+                   'TAL', 
+                   'EC', 
+                   'DCTall', 
+                   'IC')
 
 for(i  in 1:length(celltypes_vec)){
-  LC_NEBULA_Analysis(so_subset = so_subset, dir.results = dir.results, celltype = celltypes_vec[i], genes = gene_list)
+  LC_NEBULA_Analysis_full(so_subset = so_subset, dir.results = dir.results, celltype = celltypes_vec[i], genes = gene_list)
   print(celltypes_vec[i])
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -345,19 +461,168 @@ for(i  in 1:length(celltypes_vec)){
 
 
 
+# Load required libraries
+library(fgsea)
+library(msigdbr)
+library(ggplot2)
+library(dplyr)
+library(patchwork)  # Optional: for combining plots
 
+# Define cell types
+celltypes_vec <- c('All', 'PT', 'TAL', 'EC', 'DCTall', 'IC')
 
+# Get gene sets from MSigDB for human
+hallmark_sets <- msigdbr(species = "Homo sapiens", category = "H")
+hallmark_list <- split(hallmark_sets$gene_symbol, hallmark_sets$gs_name)
 
+# Get GO gene sets
+go_bp_sets <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:BP")
+go_bp_list <- split(go_bp_sets$gene_symbol, go_bp_sets$gs_name)
 
+go_cc_sets <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:CC")
+go_cc_list <- split(go_cc_sets$gene_symbol, go_cc_sets$gs_name)
 
+go_mf_sets <- msigdbr(species = "Homo sapiens", category = "C5", subcategory = "GO:MF")
+go_mf_list <- split(go_mf_sets$gene_symbol, go_mf_sets$gs_name)
 
+# Define gene set types
+geneset_types <- list(
+  Hallmark = hallmark_list,
+  GO_BP = go_bp_list,
+  GO_CC = go_cc_list,
+  GO_MF = go_mf_list
+)
 
+# Create a list to store all results
+all_gsea_results <- list()
 
+# Loop through each cell type
+for(celltype in celltypes_vec) {
+  
+  cat("\n=== Processing", celltype, "===\n")
+  
+  # Load your results file for this cell type
+  de_results <- read.csv(paste0(dir.results, 'Full_NEBULA_', 
+                                celltype, '_cells__LC_pooledoffset.csv'))
+  
+  # Create ranked gene list
+  ranked_genes <- de_results %>%
+    dplyr::select(logFC = summary.logFC_sexMale, 
+                  gene_id = summary.gene) %>% 
+    arrange(desc(logFC)) %>%
+    pull(logFC, name = gene_id)
+  
+  # Loop through each gene set type
+  for(geneset_name in names(geneset_types)) {
+    
+    cat("Running GSEA for", geneset_name, "...\n")
+    
+    # Run fGSEA
+    gsea_results <- fgsea(
+      pathways = geneset_types[[geneset_name]],
+      stats = ranked_genes,
+      minSize = 15,
+      maxSize = 500,
+      nperm = 10000
+    )
+    
+    # Add cell type and gene set type columns
+    gsea_results$celltype <- celltype
+    gsea_results$geneset_type <- geneset_name
+    
+    # Store results
+    result_name <- paste0(celltype, "_", geneset_name)
+    all_gsea_results[[result_name]] <- gsea_results
+    
+    # Select top significant pathways
+    top_pathways <- gsea_results %>%
+      filter(pval < 0.05) %>%
+      arrange(pval) %>%
+      slice_head(n = 20) %>%
+      mutate(pathway_clean = gsub("HALLMARK_", "", pathway),
+             pathway_clean = gsub("GOBP_", "", pathway_clean),
+             pathway_clean = gsub("GOCC_", "", pathway_clean),
+             pathway_clean = gsub("GOMF_", "", pathway_clean),
+             pathway_clean = gsub("_", " ", pathway_clean),
+             pathway_clean = tools::toTitleCase(tolower(pathway_clean)))
+    
+    # Only create plot if there are significant pathways
+    if(nrow(top_pathways) > 0) {
+      
+      # Create dotplot
+      p <- ggplot(top_pathways, aes(x = NES, y = reorder(pathway_clean, NES))) +
+        geom_point(aes(size = -log10(pval), color = NES)) +
+        scale_color_gradient2(
+          low = "blue", 
+          mid = "white", 
+          high = "red", 
+          midpoint = 0, 
+          name = "NES"
+        ) +
+        scale_size_continuous(
+          name = "-log10(pval)",
+          range = c(2, 10)
+        ) +
+        theme_bw() +
+        theme(
+          axis.text.y = element_text(size = 9, color = "black"),
+          axis.text.x = element_text(size = 9, color = "black"),
+          panel.grid.major.y = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          plot.title = element_text(face = "bold", hjust = 0.5, size = 12)
+        ) +
+        labs(
+          x = "Normalized Enrichment Score (NES)",
+          y = "",
+          title = paste0(celltype, " - ", geneset_name, " (Top 20)")
+        ) +
+        geom_vline(xintercept = 0, linetype = "dashed", color = "grey50", linewidth = 0.5)
+      
+      # Save individual plot
+      ggsave(paste0(dir.results, 'GSEA/', geneset_name, '_gsea_', celltype, ".pdf"), 
+             plot = p, width = 10, height = 8)
+      
+      cat("Saved plot for", celltype, "-", geneset_name, "\n")
+    } else {
+      cat("No significant pathways found for", celltype, "-", geneset_name, "\n")
+    }
+  }
+}
 
+# Combine all GSEA results into one dataframe
+# Before saving, convert list columns to character strings
+combined_gsea_save <- combined_gsea %>%
+  mutate(leadingEdge = sapply(leadingEdge, function(x) paste(x, collapse = ";")))
 
+# Now save combined results
+write.csv(combined_gsea_save, 
+          paste0(dir.results, "GSEA/all_celltypes_all_genesets_gsea_results.csv"), 
+          row.names = FALSE)
 
+# Save separate files for each gene set type
+for(geneset_name in names(geneset_types)) {
+  subset_results <- combined_gsea %>% 
+    filter(geneset_type == geneset_name) %>%
+    mutate(leadingEdge = sapply(leadingEdge, function(x) paste(x, collapse = ";")))
+  
+  write.csv(subset_results, 
+            paste0(dir.results, "GSEA/gsea_results_", geneset_name, ".csv"), 
+            row.names = FALSE)
+}
+cat("\n=== All analyses complete! ===\n")
+cat("Total number of analyses:", length(all_gsea_results), "\n")
 
+# Summary of significant pathways per cell type and gene set
+summary_table <- combined_gsea %>%
+  filter(pval < 0.05) %>%
+  group_by(celltype, geneset_type) %>%
+  summarise(n_significant = n(), .groups = 'drop') %>%
+  tidyr::pivot_wider(names_from = geneset_type, values_from = n_significant, values_fill = 0)
 
+print(summary_table)
+write.csv(summary_table, 
+          paste0(dir.results, "GSEA/summary_significant_pathways.csv"), 
+          row.names = FALSE)
 
 
 
