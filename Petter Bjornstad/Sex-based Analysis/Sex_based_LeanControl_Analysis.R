@@ -614,6 +614,7 @@ cat("Total number of analyses:", length(all_gsea_results), "\n")
 
 # Summary of significant pathways per cell type and gene set
 summary_table <- combined_gsea %>%
+  mutate(leadingEdge = sapply(leadingEdge, function(x) paste(x, collapse = ";"))) %>% 
   filter(pval < 0.05) %>%
   group_by(celltype, geneset_type) %>%
   summarise(n_significant = n(), .groups = 'drop') %>%
