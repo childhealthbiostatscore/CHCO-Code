@@ -16215,16 +16215,30 @@ print(volcano_plot)
 dev.off()
 
 ```
-### GSEA Crude
+### GSEA
 ```{r echo = F}
 # write.csv(results_ast,fs::path(dir.results,"today_proteomics_AST.csv"))
 # write.csv(results_alt,fs::path(dir.results,"today_proteomics_ALT.csv"))
 # write.csv(results_ratio,fs::path(dir.results,"today_proteomics_AST_ALT_ratio.csv"))
 
-full_results <- read.csv(fs::path(dir.results,"today_proteomics_AST.csv")) %>%
+#ALT
+full_results <- read.csv(fs::path(dir.results,"today_proteomics_ALT_adj_fdr_01.csv")) %>%
   clean_names() %>% 
   dplyr::select(-x) %>% 
   dplyr::rename(Gene=entrez_gene_symbol,LogHR=log_hr)
+
+#Keep aptamer with largest HR
+full_results_processed <- full_results %>%
+  group_by(Gene) %>%
+  filter(abs(LogHR) == max(abs(LogHR))) %>%
+  dplyr::slice(1) %>%  # In case of ties, keep first
+  ungroup()
+length(unique(full_results$Gene)) #3351 unique gene names
+length(full_results$Gene) #3770 total aptamers
+
+
+full_results <- full_results_processed
+rm(full_results_processed)
 
 # Filter out the gmt files for KEGG, Reactome and GOBP
 list.files(bg_path)
@@ -16273,21 +16287,104 @@ dHep_fgsea
 
 ##### KEGG Legacy
 plot_fgsea_transpose(kegg_legacy_res_dHep, title = "dHep Unadjusted Top 30 KEGG", xnudge = 0.03)
-
-ggsave(fs::path(dir.results,"dHep_top30_kegg_pathways_unadjusted_reml.jpeg"),
-       width = 13, height = 10, scale = 1)
+# 
+# ggsave(fs::path(dir.results,"dHep_top30_kegg_pathways_unadjusted_reml.jpeg"),
+#        width = 13, height = 10, scale = 1)
 
 ##### REACTOME
-plot_fgsea_transpose(reactome_res_dHep, title = "dHep Unadjusted Top 30 REACTOME", xlimit = 5)
+plot_fgsea_transpose(reactome_res_dHep, title = "TODAY ALT Proteomics - Top 30 REACTOME", xlimit = 5)
 
-ggsave(fs::path(dir.results,"dHep_top30_reactome_pathways_unadjusted_reml.jpeg"),
+ggsave(fs::path(dir.results,"TODAY_top30_reactome_pathways_ALT.jpeg"),
        width = 13, height = 10, scale = 1)
 
 ##### GO
 plot_fgsea_transpose(go_res_dHep, title = "dHep Unadjusted Top 30 GO", xlimit = 8)
 
-ggsave(fs::path(dir.results,"dHep_top30_go_pathways_unadjusted_reml.jpeg"),
+# ggsave(fs::path(dir.results,"dHep_top30_go_pathways_unadjusted_reml.jpeg"),
+#        width = 13, height = 10, scale = 1)
+
+
+#AST
+full_results <- read.csv(fs::path(dir.results,"today_proteomics_AST_adj_fdr_01.csv")) %>%
+  clean_names() %>% 
+  dplyr::select(-x) %>% 
+  dplyr::rename(Gene=entrez_gene_symbol,LogHR=log_hr)
+
+#Keep aptamer with largest HR
+full_results_processed <- full_results %>%
+  group_by(Gene) %>%
+  filter(abs(LogHR) == max(abs(LogHR))) %>%
+  dplyr::slice(1) %>%  # In case of ties, keep first
+  ungroup()
+length(unique(full_results$Gene)) #3351 unique gene names
+length(full_results$Gene) #3770 total aptamers
+
+
+full_results <- full_results_processed
+rm(full_results_processed)
+
+# Filter out the gmt files for KEGG, Reactome and GOBP
+list.files(bg_path)
+gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+# gmt_files
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
+
+# rank genes by t-stats in DiD
+rankings_dHep <- full_results$LogHR
+names(rankings_dHep) <- full_results$Gene
+rankings_dHep <- sort(rankings_dHep, decreasing = TRUE)
+plot(rankings_dHep)
+min(rankings_dHep)
+max(rankings_dHep)
+
+
+set.seed(1234)
+
+kegg_legacy_res_dHep <- fgsea(pathways = kegg_legacy,
+                              stats = rankings_dHep,
+                              scoreType = 'std', 
+                              minSize = 3,
+                              maxSize = 500,
+                              nproc = 1)
+
+reactome_res_dHep <- fgsea(pathways = reactome,
+                           stats = rankings_dHep,
+                           scoreType = 'std', 
+                           minSize = 3,
+                           maxSize = 500,
+                           nproc = 1)
+go_res_dHep <- fgsea(pathways = go,
+                     stats = rankings_dHep,
+                     scoreType = 'std', 
+                     minSize = 5,
+                     maxSize = 500,
+                     nproc = 1)
+
+dHep_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_dHep[, padj < 0.05]), sum(kegg_legacy_res_dHep[, pval < 0.05])),
+                         "REACTOME"=c(sum(reactome_res_dHep[, padj < 0.05]), sum(reactome_res_dHep[, pval < 0.05])),
+                         "GO"=c(sum(go_res_dHep[, padj < 0.05]), sum(go_res_dHep[, pval < 0.05])))
+rownames(dHep_fgsea) <- c("adj.pval", "p.val")
+dHep_fgsea
+
+##### KEGG Legacy
+plot_fgsea_transpose(kegg_legacy_res_dHep, title = "dHep Unadjusted Top 30 KEGG", xnudge = 0.03)
+# 
+# ggsave(fs::path(dir.results,"dHep_top30_kegg_pathways_unadjusted_reml.jpeg"),
+#        width = 13, height = 10, scale = 1)
+
+##### REACTOME
+plot_fgsea_transpose(reactome_res_dHep, title = "TODAY AST Proteomics - Top 30 REACTOME", xlimit = 5)
+
+ggsave(fs::path(dir.results,"TODAY_top30_reactome_pathways_AST.jpeg"),
        width = 13, height = 10, scale = 1)
+
+##### GO
+plot_fgsea_transpose(go_res_dHep, title = "dHep Unadjusted Top 30 GO", xlimit = 8)
+
+# ggsave(fs::path(dir.results,"dHep_top30_go_pathways_unadjusted_reml.jpeg"),
+#        width = 13, height = 10, scale = 1)
 ```
 
 ###ii. Old
@@ -17557,7 +17654,173 @@ print(volcano_plot)
 dev.off()
 # write.csv(alt_results,fs::path(dir.results,"ALT_Proteins_Teenlabs.csv"))
 ```
+### GSEA
+```{r echo = F}
+#ALT
+full_results <- read.csv(fs::path(dir.results,"TeenLABS_ALT_Adj_Results_Proteomics_FDR_01_New.csv")) %>%
+  clean_names() %>% 
+  dplyr::select(-x) %>% 
+  dplyr::rename(Gene=gene,Beta=beta)
 
+#Keep aptamer with largest HR
+full_results_processed <- full_results %>%
+  group_by(Gene) %>%
+  filter(abs(Beta) == max(abs(Beta))) %>%
+  dplyr::slice(1) %>%  # In case of ties, keep first
+  ungroup()
+length(unique(full_results$Gene)) #3351 unique gene names
+length(full_results$Gene) #3770 total aptamers
+
+
+full_results <- full_results_processed
+rm(full_results_processed)
+
+# Filter out the gmt files for KEGG, Reactome and GOBP
+list.files(bg_path)
+gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+# gmt_files
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
+
+# rank genes by t-stats in DiD
+rankings_dHep <- full_results$Beta
+names(rankings_dHep) <- full_results$Gene
+rankings_dHep <- sort(rankings_dHep, decreasing = TRUE)
+plot(rankings_dHep)
+min(rankings_dHep)
+max(rankings_dHep)
+
+
+set.seed(1234)
+
+kegg_legacy_res_dHep <- fgsea(pathways = kegg_legacy,
+                              stats = rankings_dHep,
+                              scoreType = 'std', 
+                              minSize = 3,
+                              maxSize = 500,
+                              nproc = 1)
+
+reactome_res_dHep <- fgsea(pathways = reactome,
+                           stats = rankings_dHep,
+                           scoreType = 'std', 
+                           minSize = 3,
+                           maxSize = 500,
+                           nproc = 1)
+go_res_dHep <- fgsea(pathways = go,
+                     stats = rankings_dHep,
+                     scoreType = 'std', 
+                     minSize = 5,
+                     maxSize = 500,
+                     nproc = 1)
+
+dHep_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_dHep[, padj < 0.05]), sum(kegg_legacy_res_dHep[, pval < 0.05])),
+                         "REACTOME"=c(sum(reactome_res_dHep[, padj < 0.05]), sum(reactome_res_dHep[, pval < 0.05])),
+                         "GO"=c(sum(go_res_dHep[, padj < 0.05]), sum(go_res_dHep[, pval < 0.05])))
+rownames(dHep_fgsea) <- c("adj.pval", "p.val")
+dHep_fgsea
+
+##### KEGG Legacy
+plot_fgsea_transpose(kegg_legacy_res_dHep, title = "dHep Unadjusted Top 30 KEGG", xnudge = 0.03)
+# 
+# ggsave(fs::path(dir.results,"dHep_top30_kegg_pathways_unadjusted_reml.jpeg"),
+#        width = 13, height = 10, scale = 1)
+
+##### REACTOME
+plot_fgsea_transpose(reactome_res_dHep, title = "Teen-LABS ALT Proteomics - Top 30 REACTOME", xlimit = 5)
+
+ggsave(fs::path(dir.results,"TEENLABS_top30_reactome_pathways_ALT.jpeg"),
+       width = 13, height = 10, scale = 1)
+
+##### GO
+plot_fgsea_transpose(go_res_dHep, title = "dHep Unadjusted Top 30 GO", xlimit = 8)
+
+# ggsave(fs::path(dir.results,"dHep_top30_go_pathways_unadjusted_reml.jpeg"),
+#        width = 13, height = 10, scale = 1)
+
+
+#AST
+full_results <- read.csv(fs::path(dir.results,"TeenLABS_AST_Adj_Results_Proteomics_FDR_01_New.csv")) %>%
+  clean_names() %>% 
+  dplyr::select(-x) %>% 
+  dplyr::rename(Gene=gene,Beta=beta)
+
+#Keep aptamer with largest HR
+full_results_processed <- full_results %>%
+  group_by(Gene) %>%
+  filter(abs(Beta) == max(abs(Beta))) %>%
+  dplyr::slice(1) %>%  # In case of ties, keep first
+  ungroup()
+length(unique(full_results$Gene)) #3351 unique gene names
+length(full_results$Gene) #3770 total aptamers
+
+
+full_results <- full_results_processed
+rm(full_results_processed)
+
+# Filter out the gmt files for KEGG, Reactome and GOBP
+list.files(bg_path)
+gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+# gmt_files
+kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
+reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
+go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
+
+# rank genes by t-stats in DiD
+rankings_dHep <- full_results$Beta
+names(rankings_dHep) <- full_results$Gene
+rankings_dHep <- sort(rankings_dHep, decreasing = TRUE)
+plot(rankings_dHep)
+min(rankings_dHep)
+max(rankings_dHep)
+
+
+set.seed(1234)
+
+kegg_legacy_res_dHep <- fgsea(pathways = kegg_legacy,
+                              stats = rankings_dHep,
+                              scoreType = 'std', 
+                              minSize = 3,
+                              maxSize = 500,
+                              nproc = 1)
+
+reactome_res_dHep <- fgsea(pathways = reactome,
+                           stats = rankings_dHep,
+                           scoreType = 'std', 
+                           minSize = 3,
+                           maxSize = 500,
+                           nproc = 1)
+go_res_dHep <- fgsea(pathways = go,
+                     stats = rankings_dHep,
+                     scoreType = 'std', 
+                     minSize = 5,
+                     maxSize = 500,
+                     nproc = 1)
+
+dHep_fgsea <- data.frame("KEGG Legacy"=c(sum(kegg_legacy_res_dHep[, padj < 0.05]), sum(kegg_legacy_res_dHep[, pval < 0.05])),
+                         "REACTOME"=c(sum(reactome_res_dHep[, padj < 0.05]), sum(reactome_res_dHep[, pval < 0.05])),
+                         "GO"=c(sum(go_res_dHep[, padj < 0.05]), sum(go_res_dHep[, pval < 0.05])))
+rownames(dHep_fgsea) <- c("adj.pval", "p.val")
+dHep_fgsea
+
+##### KEGG Legacy
+plot_fgsea_transpose(kegg_legacy_res_dHep, title = "dHep Unadjusted Top 30 KEGG", xnudge = 0.03)
+# 
+# ggsave(fs::path(dir.results,"dHep_top30_kegg_pathways_unadjusted_reml.jpeg"),
+#        width = 13, height = 10, scale = 1)
+
+##### REACTOME
+plot_fgsea_transpose(reactome_res_dHep, title = "Teen-LABS AST Proteomics - Top 30 REACTOME", xlimit = 5)
+
+ggsave(fs::path(dir.results,"TEENLABS_top30_reactome_pathways_AST.jpeg"),
+       width = 13, height = 10, scale = 1)
+
+##### GO
+plot_fgsea_transpose(go_res_dHep, title = "dHep Unadjusted Top 30 GO", xlimit = 8)
+
+# ggsave(fs::path(dir.results,"dHep_top30_go_pathways_unadjusted_reml.jpeg"),
+#        width = 13, height = 10, scale = 1)
+```
 ### Other outcomes
 ```{r}
 #NAFLD

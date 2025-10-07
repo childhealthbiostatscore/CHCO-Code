@@ -183,57 +183,156 @@ lc_ids <- small_dat$record_id[which(small_dat$group == 'Lean Control')]
 qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
             "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
 
+# Set your base directory
+base_dir <- 'Projects/Brain_Imaging/data/'
 
 # Set your base directory
 base_dir <- 'Projects/Brain_Imaging/data/'
 
-# Function to find participant folder by ID
-find_participant_folder <- function(base_dir, participant_id) {
-  all_folders <- list.dirs(base_dir, recursive = FALSE, full.names = TRUE)
+# Function to extract regional brain volumes from T1 structural MRI
+# This creates a "morphometric feature matrix" for each participant
+compute_structural_features_from_t1 <- function(base_dir, participant_id) {
+  # Look for .nii.gz files matching this participant ID
+  all_files <- list.files(base_dir, pattern = paste0("^", participant_id), 
+                          full.names = TRUE, ignore.case = TRUE)
   
-  # Look for folders containing the participant ID
-  matching_folders <- all_folders[grepl(participant_id, basename(all_folders), 
-                                        ignore.case = TRUE)]
+  # Filter for .nii.gz files
+  nii_files <- all_files[grepl("\\.nii\\.gz$", all_files, ignore.case = TRUE)]
   
-  if (length(matching_folders) > 0) {
-    return(matching_folders[1])
-  } else {
-    warning(paste("No folder found for participant:", participant_id))
+  if (length(nii_files) == 0) {
+    warning(paste("No .nii.gz file found for participant:", participant_id))
     return(NULL)
   }
-}
-
-# Function to load connectivity matrix from .mat file
-load_connectivity_from_mat <- function(participant_folder) {
-  if (is.null(participant_folder)) return(NULL)
   
-  # Look for .mat files in the folder
-  mat_files <- list.files(participant_folder, pattern = "\\.mat$", 
-                          full.names = TRUE, recursive = TRUE)
-  
-  if (length(mat_files) > 0) {
-    # Load the first .mat file found
-    mat_data <- readMat(mat_files[1])
-    # Extract connectivity matrix
-    # You may need to adjust this based on your .mat structure
-    if (length(mat_data) > 0) {
-      conn_matrix <- mat_data[[1]]
-      return(conn_matrix)
+  tryCatch({
+    # Load the NIfTI file
+    cat("Loading", basename(nii_files[1]), "...\n")
+    nii_data <- readNIfTI(nii_files[1], reorient = FALSE)
+    
+    # Get dimensions
+    dims <- dim(nii_data)
+    cat("  Dimensions:", paste(dims, collapse = " x "), "\n")
+    
+    # Create brain parcellation into ROIs
+    # Using intensity-based segmentation and spatial parcellation
+    
+    # Threshold to create brain mask
+    brain_data <- as.vector(nii_data)
+    threshold <- quantile(brain_data[brain_data > 0], 0.25, na.rm = TRUE)
+    brain_mask <- nii_data > threshold
+    
+    # Get brain voxel coordinates and intensities
+    brain_coords <- which(brain_mask, arr.ind = TRUE)
+    brain_intensities <- nii_data[brain_mask]
+    n_voxels <- nrow(brain_coords)
+    cat("  Brain voxels:", n_voxels, "\n")
+    
+    # Create spatial parcellation (divide brain into ROIs)
+    set.seed(123)
+    n_rois <- 100  # Standard parcellation size
+    
+    if (n_voxels < n_rois * 20) {
+      n_rois <- max(50, floor(n_voxels / 50))
+      cat("  Adjusted n_rois to:", n_rois, "\n")
     }
-  }
-  
-  warning(paste("No connectivity data found in", participant_folder))
-  return(NULL)
+    
+    # Combine spatial and intensity features for parcellation
+    # Normalize coordinates
+    coords_norm <- scale(brain_coords)
+    intensity_norm <- scale(brain_intensities)
+    
+    # Weight spatial more than intensity (4:1 ratio)
+    features_for_clustering <- cbind(coords_norm * 2, intensity_norm)
+    
+    # Perform k-means clustering
+    cat("  Creating", n_rois, "ROI parcellation...\n")
+    kmeans_result <- kmeans(features_for_clustering, 
+                            centers = n_rois, 
+                            iter.max = 100,
+                            nstart = 3)
+    parcellation <- kmeans_result$cluster
+    
+    # Extract morphometric features for each ROI
+    roi_features <- matrix(NA, nrow = n_rois, ncol = 4)
+    colnames(roi_features) <- c("volume", "mean_intensity", 
+                                "intensity_sd", "spatial_extent")
+    
+    cat("  Extracting ROI features...\n")
+    for (roi in 1:n_rois) {
+      roi_voxels <- parcellation == roi
+      roi_coords <- brain_coords[roi_voxels, , drop = FALSE]
+      roi_values <- brain_intensities[roi_voxels]
+      
+      if (length(roi_values) > 0) {
+        # Volume (number of voxels)
+        roi_features[roi, "volume"] <- length(roi_values)
+        
+        # Mean intensity
+        roi_features[roi, "mean_intensity"] <- mean(roi_values, na.rm = TRUE)
+        
+        # Intensity variability
+        roi_features[roi, "intensity_sd"] <- sd(roi_values, na.rm = TRUE)
+        
+        # Spatial extent (max distance between voxels)
+        if (nrow(roi_coords) > 1) {
+          dists <- dist(roi_coords)
+          roi_features[roi, "spatial_extent"] <- max(dists)
+        } else {
+          roi_features[roi, "spatial_extent"] <- 0
+        }
+      }
+    }
+    
+    # Remove ROIs with missing data
+    valid_rois <- complete.cases(roi_features) & 
+      roi_features[, "volume"] > 0
+    roi_features <- roi_features[valid_rois, ]
+    n_valid_rois <- sum(valid_rois)
+    cat("  Valid ROIs:", n_valid_rois, "\n")
+    
+    # Compute morphometric similarity network
+    # This creates a connectivity-like matrix based on structural similarity
+    cat("  Computing morphometric similarity matrix...\n")
+    
+    # Normalize features
+    roi_features_norm <- scale(roi_features)
+    
+    # Compute correlation between ROI feature profiles
+    # This represents how similar regions are in their morphometry
+    similarity_matrix <- cor(t(roi_features_norm), 
+                             use = "pairwise.complete.obs")
+    
+    # Set diagonal to 0
+    diag(similarity_matrix) <- 0
+    
+    # Convert to absolute values (similarity is non-directional)
+    similarity_matrix <- abs(similarity_matrix)
+    
+    cat("  Morphometric similarity matrix:", nrow(similarity_matrix), "x", 
+        ncol(similarity_matrix), "\n\n")
+    
+    return(similarity_matrix)
+    
+  }, error = function(e) {
+    warning(paste("Error processing", participant_id, ":", e$message))
+    return(NULL)
+  })
 }
 
-# Load connectivity data for all participants
-cat("\nLoading connectivity matrices...\n")
+# Load structural data for all participants
+cat("\n=== Computing Morphometric Similarity Networks ===\n")
+cat("Using T1-weighted structural MRI data\n")
+cat("This may take several minutes...\n\n")
 
-t2d_folders <- lapply(t2d_ids, find_participant_folder, base_dir = base_dir)
-lc_folders <- lapply(lc_ids, find_participant_folder, base_dir = base_dir)
+# Process T2D group
+cat("Processing T2D group...\n")
+t2d_conn <- lapply(mri_ids_df$file_id[which(mri_ids_df$ID %in% t2d_ids)], 
+                   function(id) compute_structural_features_from_t1(base_dir, id))
 
-t2d_conn <- lapply(t2d_folders, load_connectivity_from_mat)
-lc_conn <- lapply(lc_folders, load_connectivity_from_mat)
+# Process LC group
+cat("\nProcessing LC group...\n")
+lc_conn <- lapply(mri_ids_df$file_id[which(mri_ids_df$ID %in% lc_ids)], 
+                  function(id) compute_structural_features_from_t1(base_dir, id))
 
 # Remove NULL entries (participants without data)
 t2d_valid_idx <- !sapply(t2d_conn, is.null)
@@ -244,426 +343,31 @@ lc_conn <- lc_conn[lc_valid_idx]
 t2d_ids_valid <- t2d_ids[t2d_valid_idx]
 lc_ids_valid <- lc_ids[lc_valid_idx]
 
-cat("Loaded", length(t2d_conn), "connectivity matrices for T2D group\n")
-cat("Loaded", length(lc_conn), "connectivity matrices for LC group\n")
+cat("\n=== Summary ===\n")
+cat("Loaded", length(t2d_conn), "morphometric networks for T2D group\n")
+cat("Loaded", length(lc_conn), "morphometric networks for LC group\n")
 
 # Get number of ROIs
 if (length(t2d_conn) > 0) {
   n_rois <- nrow(t2d_conn[[1]])
   cat("Number of ROIs:", n_rois, "\n")
+} else if (length(lc_conn) > 0) {
+  n_rois <- nrow(lc_conn[[1]])
+  cat("Number of ROIs:", n_rois, "\n")
+} else {
+  stop("No morphometric networks computed! Check .nii.gz files.")
 }
 
-# ==============================================================================
-# 3. NETWORK ANALYSIS: FUNCTIONAL CONNECTIVITY
-# ==============================================================================
+# Save morphometric similarity networks
+cat("\nSaving morphometric similarity networks...\n")
+saveRDS(list(
+  t2d_conn = t2d_conn,
+  lc_conn = lc_conn,
+  t2d_ids = t2d_ids_valid,
+  lc_ids = lc_ids_valid,
+  note = "These are morphometric similarity networks from T1 structural MRI"
+), "morphometric_similarity_networks.rds")
 
-# Fisher Z-transformation for statistical testing
-fisher_z <- function(r) {
-  # Set diagonal to 0 to avoid Inf values
-  diag(r) <- 0
-  # Apply Fisher Z transformation
-  z <- 0.5 * log((1 + r) / (1 - r))
-  # Handle edge cases
-  z[is.infinite(z)] <- NA
-  z[is.nan(z)] <- NA
-  return(z)
-}
-
-# Apply Fisher Z-transformation
-t2d_fc_z <- lapply(t2d_conn, fisher_z)
-lc_fc_z <- lapply(lc_conn, fisher_z)
-
-# Average connectivity matrices per group
-t2d_fc_mean <- Reduce("+", t2d_fc_z) / length(t2d_fc_z)
-lc_fc_mean <- Reduce("+", lc_fc_z) / length(lc_fc_z)
-
-# Statistical comparison: T2D vs LC
-compare_networks <- function(t2d_fc_z, lc_fc_z, alpha = 0.05) {
-  n1 <- length(t2d_fc_z)
-  n2 <- length(lc_fc_z)
-  n_rois <- nrow(t2d_fc_z[[1]])
-  
-  t_matrix <- matrix(NA, n_rois, n_rois)
-  p_matrix <- matrix(NA, n_rois, n_rois)
-  
-  for (i in 1:(n_rois-1)) {
-    for (j in (i+1):n_rois) {
-      t2d_values <- sapply(t2d_fc_z, function(x) x[i, j])
-      lc_values <- sapply(lc_fc_z, function(x) x[i, j])
-      
-      # Remove NA values
-      t2d_values <- t2d_values[!is.na(t2d_values)]
-      lc_values <- lc_values[!is.na(lc_values)]
-      
-      if (length(t2d_values) > 1 && length(lc_values) > 1) {
-        test_result <- t.test(t2d_values, lc_values)
-        t_matrix[i, j] <- test_result$statistic
-        p_matrix[i, j] <- test_result$p.value
-        
-        # Make symmetric
-        t_matrix[j, i] <- t_matrix[i, j]
-        p_matrix[j, i] <- p_matrix[i, j]
-      }
-    }
-  }
-  
-  # FDR correction
-  p_vector <- p_matrix[upper.tri(p_matrix)]
-  p_vector <- p_vector[!is.na(p_vector)]
-  p_fdr <- p.adjust(p_vector, method = "fdr")
-  
-  p_matrix_fdr <- matrix(NA, n_rois, n_rois)
-  p_matrix_fdr[upper.tri(p_matrix_fdr)] <- p_fdr
-  p_matrix_fdr[lower.tri(p_matrix_fdr)] <- t(p_matrix_fdr)[lower.tri(p_matrix_fdr)]
-  
-  # Calculate difference matrix (LC - T2D)
-  diff_matrix <- lc_fc_mean - t2d_fc_mean
-  
-  return(list(
-    t_stats = t_matrix, 
-    p_values = p_matrix_fdr, 
-    diff_matrix = diff_matrix,
-    t2d_mean = t2d_fc_mean,
-    lc_mean = lc_fc_mean
-  ))
-}
-
-cat("\nPerforming network comparison...\n")
-network_comparison <- compare_networks(t2d_fc_z, lc_fc_z)
-
-# Count significant connections
-sig_connections <- sum(network_comparison$p_values < 0.05, na.rm = TRUE) / 2
-cat("Significant connections (FDR < 0.05):", sig_connections, "\n")
-
-# Visualize network differences
-pdf("network_differences_T2D_vs_LC.pdf", width = 10, height = 10)
-corrplot(network_comparison$diff_matrix, 
-         method = "color", 
-         title = "Group Differences in FC (LC - T2D)",
-         tl.cex = 0.5,
-         mar = c(0,0,2,0))
-dev.off()
-
-# Visualize significant connections only
-sig_diff <- network_comparison$diff_matrix
-sig_diff[network_comparison$p_values >= 0.05] <- 0
-
-pdf("significant_network_differences.pdf", width = 10, height = 10)
-corrplot(sig_diff, 
-         method = "color", 
-         title = "Significant FC Differences (FDR < 0.05)",
-         tl.cex = 0.5,
-         mar = c(0,0,2,0))
-dev.off()
-
-# ==============================================================================
-# 4. EXTRACT NETWORK METRICS FOR EACH PARTICIPANT
-# ==============================================================================
-
-# Function to calculate network metrics
-calculate_network_metrics <- function(conn_matrix) {
-  # Mean connectivity (excluding diagonal)
-  diag(conn_matrix) <- NA
-  mean_fc <- mean(conn_matrix, na.rm = TRUE)
-  
-  # Global efficiency (simplified)
-  # Convert correlations to distances
-  dist_matrix <- 1 - abs(conn_matrix)
-  dist_matrix[dist_matrix <= 0] <- NA
-  
-  # Mean connectivity strength
-  mean_strength <- mean(abs(conn_matrix), na.rm = TRUE)
-  
-  # Network density (proportion of strong connections)
-  threshold <- 0.3  # Adjust as needed
-  density <- sum(abs(conn_matrix) > threshold, na.rm = TRUE) / 
-    sum(!is.na(conn_matrix))
-  
-  return(data.frame(
-    mean_fc = mean_fc,
-    mean_strength = mean_strength,
-    network_density = density
-  ))
-}
-
-# Calculate metrics for all participants
-t2d_metrics <- do.call(rbind, lapply(t2d_fc_z, calculate_network_metrics))
-lc_metrics <- do.call(rbind, lapply(lc_fc_z, calculate_network_metrics))
-
-t2d_metrics$record_id <- t2d_ids_valid
-lc_metrics$record_id <- lc_ids_valid
-
-# Combine metrics
-all_metrics <- rbind(
-  t2d_metrics %>% mutate(group = "T2D"),
-  lc_metrics %>% mutate(group = "LC")
-)
-
-# ==============================================================================
-# 5. INTEGRATE WITH PROTEOMIC DATA
-# ==============================================================================
-
-# Merge fMRI metrics with proteomics
-integrated_data <- small_dat %>%
-  inner_join(all_metrics, by = c("record_id", "group"))
-
-cat("\nIntegrated data: n =", nrow(integrated_data), "\n")
-cat("T2D:", sum(integrated_data$group == "T2D"), 
-    "| LC:", sum(integrated_data$group == "LC"), "\n")
-
-# Define protein markers
-protein_markers <- c("ab40_avg_conc", "ab42_avg_conc", "tau_avg_conc", 
-                     "nfl_avg_conc", "gfap_avg_conc", "ptau_181_avg_conc", 
-                     "ptau_217_avg_conc")
-
-# Define brain features
-brain_features <- c("mean_fc", "mean_strength", "network_density")
-
-# ==============================================================================
-# 6. GROUP COMPARISONS: BRAIN METRICS
-# ==============================================================================
-
-cat("\n=== Brain Metrics Comparison ===\n")
-
-brain_comparison <- data.frame(
-  Metric = brain_features,
-  T2D_mean = NA,
-  LC_mean = NA,
-  t_stat = NA,
-  p_value = NA,
-  cohens_d = NA
-)
-
-for (i in 1:length(brain_features)) {
-  metric <- brain_features[i]
-  
-  t2d_vals <- integrated_data[[metric]][integrated_data$group == "T2D"]
-  lc_vals <- integrated_data[[metric]][integrated_data$group == "LC"]
-  
-  brain_comparison$T2D_mean[i] <- mean(t2d_vals, na.rm = TRUE)
-  brain_comparison$LC_mean[i] <- mean(lc_vals, na.rm = TRUE)
-  
-  test <- t.test(t2d_vals, lc_vals)
-  brain_comparison$t_stat[i] <- test$statistic
-  brain_comparison$p_value[i] <- test$p.value
-  
-  # Cohen's d
-  pooled_sd <- sqrt(((length(t2d_vals)-1)*var(t2d_vals, na.rm=TRUE) + 
-                       (length(lc_vals)-1)*var(lc_vals, na.rm=TRUE)) / 
-                      (length(t2d_vals) + length(lc_vals) - 2))
-  brain_comparison$cohens_d[i] <- (brain_comparison$LC_mean[i] - 
-                                     brain_comparison$T2D_mean[i]) / pooled_sd
-}
-
-print(brain_comparison)
-
-# Visualize brain metrics
-brain_data_long <- integrated_data %>%
-  pivot_longer(cols = all_of(brain_features), 
-               names_to = "Metric", 
-               values_to = "Value")
-
-ggplot(brain_data_long, aes(x = group, y = Value, fill = group)) +
-  geom_boxplot(alpha = 0.7) +
-  geom_jitter(width = 0.2, alpha = 0.5) +
-  facet_wrap(~Metric, scales = "free_y") +
-  scale_fill_manual(values = c("T2D" = "#E74C3C", "LC" = "#3498DB")) +
-  labs(title = "Brain Network Metrics: T2D vs LC",
-       x = "Group", y = "Value") +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-
-ggsave("brain_metrics_comparison.pdf", width = 12, height = 5)
-
-# ==============================================================================
-# 7. CORRELATION ANALYSIS: BRAIN FEATURES vs PROTEOMICS
-# ==============================================================================
-
-cat("\n=== Brain-Proteomics Correlation Analysis ===\n")
-
-# Create correlation matrix
-cor_data <- integrated_data %>%
-  select(all_of(c(brain_features, protein_markers))) %>%
-  na.omit()
-
-cor_matrix <- cor(cor_data, use = "pairwise.complete.obs")
-
-# Focus on brain-protein correlations
-brain_protein_cors <- cor_matrix[brain_features, protein_markers]
-
-# Visualize correlations
-pdf("brain_protein_correlations.pdf", width = 10, height = 6)
-corrplot(brain_protein_cors, method = "color", 
-         title = "Brain Metrics vs Proteomic Markers",
-         tl.col = "black", tl.srt = 45,
-         mar = c(0,0,2,0),
-         addCoef.col = "black", number.cex = 0.7)
-dev.off()
-
-# Statistical testing for each correlation
-correlation_results <- expand.grid(
-  Brain_Feature = brain_features,
-  Protein = protein_markers,
-  stringsAsFactors = FALSE
-)
-
-correlation_results$Correlation <- NA
-correlation_results$P_value <- NA
-correlation_results$N <- NA
-
-for (i in 1:nrow(correlation_results)) {
-  bf <- correlation_results$Brain_Feature[i]
-  pm <- correlation_results$Protein[i]
-  
-  complete_cases <- complete.cases(integrated_data[[bf]], integrated_data[[pm]])
-  
-  if (sum(complete_cases) > 3) {
-    cor_test <- cor.test(integrated_data[[bf]][complete_cases], 
-                         integrated_data[[pm]][complete_cases], 
-                         method = "pearson")
-    correlation_results$Correlation[i] <- cor_test$estimate
-    correlation_results$P_value[i] <- cor_test$p.value
-    correlation_results$N[i] <- sum(complete_cases)
-  }
-}
-
-# FDR correction
-correlation_results$P_fdr <- p.adjust(correlation_results$P_value, method = "fdr")
-
-# Show significant correlations
-significant_cors <- correlation_results %>%
-  filter(P_fdr < 0.05) %>%
-  arrange(P_fdr)
-
-cat("\nSignificant Brain-Protein Correlations (FDR < 0.05):\n")
-print(significant_cors)
-
-# ==============================================================================
-# 8. GROUP-SPECIFIC CORRELATIONS
-# ==============================================================================
-
-cat("\n=== Group-Specific Correlations ===\n")
-
-# Function to compute correlations within a group
-group_correlations <- function(data, group_name) {
-  group_data <- data %>% filter(group == group_name)
-  
-  results <- expand.grid(
-    Brain_Feature = brain_features,
-    Protein = protein_markers,
-    stringsAsFactors = FALSE
-  )
-  
-  results$Correlation <- NA
-  results$P_value <- NA
-  results$Group <- group_name
-  
-  for (i in 1:nrow(results)) {
-    bf <- results$Brain_Feature[i]
-    pm <- results$Protein[i]
-    
-    complete_cases <- complete.cases(group_data[[bf]], group_data[[pm]])
-    
-    if (sum(complete_cases) > 3) {
-      cor_test <- cor.test(group_data[[bf]][complete_cases], 
-                           group_data[[pm]][complete_cases], 
-                           method = "pearson")
-      results$Correlation[i] <- cor_test$estimate
-      results$P_value[i] <- cor_test$p.value
-    }
-  }
-  
-  return(results)
-}
-
-t2d_cors <- group_correlations(integrated_data, "T2D")
-lc_cors <- group_correlations(integrated_data, "LC")
-
-# Combine and compare
-all_group_cors <- rbind(t2d_cors, lc_cors)
-all_group_cors$P_fdr <- ave(all_group_cors$P_value, 
-                            all_group_cors$Group, 
-                            FUN = function(x) p.adjust(x, method = "fdr"))
-
-# ==============================================================================
-# 9. MACHINE LEARNING: GROUP CLASSIFICATION
-# ==============================================================================
-
-cat("\n=== Machine Learning Classification ===\n")
-
-# Prepare data for classification
-ml_data <- integrated_data %>%
-  select(group, all_of(brain_features), all_of(protein_markers)) %>%
-  na.omit()
-
-ml_data$group <- as.factor(ml_data$group)
-
-cat("ML dataset: n =", nrow(ml_data), "\n")
-
-if (nrow(ml_data) >= 10) {  # Need sufficient samples
-  # Split data
-  set.seed(123)
-  train_idx <- createDataPartition(ml_data$group, p = 0.7, list = FALSE)
-  train_data <- ml_data[train_idx, ]
-  test_data <- ml_data[-train_idx, ]
-  
-  # Train Random Forest
-  rf_model <- randomForest(group ~ ., data = train_data, 
-                           importance = TRUE, ntree = 500)
-  
-  # Predictions
-  predictions <- predict(rf_model, test_data)
-  conf_matrix <- confusionMatrix(predictions, test_data$group)
-  
-  cat("\nClassification Accuracy:", 
-      round(conf_matrix$overall["Accuracy"], 3), "\n")
-  print(conf_matrix$table)
-  
-  # Feature importance
-  importance_df <- data.frame(
-    Feature = rownames(importance(rf_model)),
-    Importance = importance(rf_model)[, "MeanDecreaseGini"]
-  ) %>%
-    arrange(desc(Importance))
-  
-  # Plot feature importance
-  ggplot(importance_df[1:min(10, nrow(importance_df)), ], 
-         aes(x = reorder(Feature, Importance), y = Importance)) +
-    geom_bar(stat = "identity", fill = "coral") +
-    coord_flip() +
-    labs(title = "Feature Importance for T2D vs LC Classification",
-         x = "Feature", y = "Importance (Mean Decrease Gini)") +
-    theme_minimal()
-  
-  ggsave("feature_importance.pdf", width = 8, height = 6)
-}
-
-# ==============================================================================
-# 10. SAVE RESULTS
-# ==============================================================================
-
-cat("\n=== Saving Results ===\n")
-
-# Save all results
-write.csv(integrated_data, "integrated_brain_protein_data.csv", row.names = FALSE)
-write.csv(brain_comparison, "brain_metrics_comparison.csv", row.names = FALSE)
-write.csv(correlation_results, "brain_protein_correlations.csv", row.names = FALSE)
-write.csv(all_group_cors, "group_specific_correlations.csv", row.names = FALSE)
-
-# Save network comparison matrices
-write.csv(network_comparison$diff_matrix, "fc_difference_matrix.csv")
-write.csv(network_comparison$p_values, "fc_pvalues_matrix.csv")
-
-cat("\nAnalysis complete! Results saved.\n")
-cat("\nFiles created:\n")
-cat("- integrated_brain_protein_data.csv\n")
-cat("- brain_metrics_comparison.csv\n")
-cat("- brain_protein_correlations.csv\n")
-cat("- group_specific_correlations.csv\n")
-cat("- fc_difference_matrix.csv\n")
-cat("- fc_pvalues_matrix.csv\n")
-cat("- network_differences_T2D_vs_LC.pdf\n")
-cat("- significant_network_differences.pdf\n")
-cat("- brain_metrics_comparison.pdf\n")
-cat("- brain_protein_correlations.pdf\n")
-cat("- feature_importance.pdf\n")
+cat("Networks saved to: morphometric_similarity_networks.rds\n")
+cat("\nNote: These are structural similarity networks, not functional connectivity.\n")
+cat("They represent similarity in brain morphometry between regions.\n")
