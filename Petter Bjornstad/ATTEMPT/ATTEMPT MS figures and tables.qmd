@@ -89,45 +89,63 @@ attempt_dat <- s3readRDS(object = "cleaned_data/attempt_dat.rds", bucket = "atte
 delta_df <- s3readRDS(object = "cleaned_data/attempt_delta_df.rds", bucket = "attempt", region = "")
 harm_dat_collapsed <- s3readRDS(object = "cleaned_data/harm_dat_collapsed.rds", bucket = "attempt", region = "")
 
+# Modify units for creatine and UACR
+attempt_dat$creatinine_s_mgdl <- attempt_dat$creatinine_s / 88.4
+attempt_dat$emu_urine_acr_mean_mgg <- attempt_dat$emu_urine_acr_mean * 8.84
+
 table_labs <- list(
-  age = "Age (years)",
-  sex = "Sex",
-  weight = "Weight (kg)",
-  height = "Height (cm)",
-  bmi = "BMI (kg/m²)",
-  hba1c = "HbA1c (%)",
+  age = "Age (years), mean (SD)",
+  sex = "Sex, N (%)",
+  weight = "Weight (kg), mean (SD)",
+  height = "Height (cm), mean (SD)",
+  bmi = "BMI (kg/m²), mean (SD)",
+  hba1c = "HbA1c (%), mean (SD)",
   emu_urine_acr_mean = "Urine ACR (mg/mmol)",
-  emu_urine_acr_mean_mgg = "Urine ACR (mg/g)",
-  creatinine_s = "Serum creatinine (mg/dL)",
-  cystatin_c_s = "Serum cystatin C (mg/L)",
-  albumin_serum_gl = "Serum albumin (g/L)",
-  cgm_tir = "CGM time in range (%)",
-  diabetes_dx_duration = "Diabetes duration (years)",
-  sbp = "Systolic BP (mmHg)",
-  dbp = "Diastolic BP (mmHg)",
-  cholesterol_serum_mmoll = "Total cholesterol (mmol/L)",
-  triglycerides_serum_mmoll = "Triglycerides (mmol/L)",
-  pulse = "Pulse (bpm)",
-  ldl_serum_mmoll = "LDL cholesterol (mmol/L)",
-  hdl_serum_mmoll = "HDL cholesterol (mmol/L)",
-  mgfr_jodal_bsa = "mGFR BSA-adjusted (mL/min/1.73m²)",
-  mgfr_jodal = "mGFR (mL/min)",
+  emu_urine_acr_mean_mgg = "Urine ACR (mg/g), median (IQR)",
+  creatinine_s_mgdl = "Serum creatinine (mg/dL), mean (SD)",
+  cystatin_c_s = "Serum cystatin C (mg/L), mean (SD)",
+  albumin_serum_gl = "Serum albumin (g/L), mean (SD)",
+  cgm_tir = "CGM time in range (%), mean (SD)",
+  diabetes_dx_duration = "Diabetes duration (years), mean (SD)",
+  sbp = "Systolic BP (mmHg), mean (SD)",
+  dbp = "Diastolic BP (mmHg), mean (SD)",
+  cholesterol_serum_mmoll = "Total cholesterol (mmol/L), mean (SD)",
+  triglycerides_serum_mmoll = "Triglycerides (mmol/L), mean (SD)",
+  pulse = "Pulse (bpm), mean (SD)",
+  ldl_serum_mmoll = "LDL cholesterol (mmol/L), mean (SD)",
+  hdl_serum_mmoll = "HDL cholesterol (mmol/L), mean (SD)",
+  mgfr_jodal_bsa = "mGFR BSA-adjusted (mL/min/1.73m²), mean (SD)",
+  mgfr_jodal = "mGFR (mL/min), mean (SD)",
   mri_r2_cortex_l = "MRI R2* left cortex",
   mri_r2_cortex_r = "MRI R2* right cortex",
-  avg_c_r2 = "Cortical R2*",
+  avg_c_r2 = "Cortical R2* (1/s), mean (SD)",
   mri_r2_kidney_l = "MRI R2* left kidney",
   mri_r2_kidney_r = "MRI R2* right kidney",
-  avg_k_r2 = "Kidney R2*",
+  avg_k_r2 = "Kidney R2* (1/s), mean (SD)",
   mri_r2_medulla_l = "MRI R2* left medulla",
   mri_r2_medulla_r = "MRI R2* right medulla",
-  avg_m_r2 = "Medulla R2*",
-  tkv = "Total kidney volume (mL)"
+  avg_m_r2 = "Medulla R2* (1/s), mean (SD)",
+  tkv = "Total kidney volume (mL), mean (SD)",
+  `Glomeruli number` = "Glomeruli number, N (%)",
+  `Glomeruli sclerosed` = "Glomeruli sclerosed, N (%)",
+  `GBM thickening` = "GBM thickening, N (%)",
+  `Tubular atrophy` = "Tubular atrophy, N (%)",
+  `Vessel pathology` = "Vessel pathology, N (%)"
 )
 
+
+mylabels_clean <- lapply(table_labs, function(x) {
+  str_remove(x, ",\\s*(mean \\(SD\\)|N \\(\\%\\)|median \\(IQR\\))$")
+})
+
+# Or as a named list again
+mylabels_clean <- setNames(mylabels_clean, names(table_labs))
+
+
 # Apply labels to your data
-for(var in names(table_labs)) {
+for(var in names(mylabels_clean)) {
   if(var %in% names(attempt_dat)) {
-    label(attempt_dat[[var]]) <- table_labs[[var]]
+    label(attempt_dat[[var]]) <- mylabels_clean[[var]]
   }
 }
 
@@ -265,108 +283,8 @@ for (cell in names(celltype_groups))  {
 }
 ```
 
-::: {.content-hidden when-format="docx"}
-
-# Tables
-
-## Section 2A
-
-:::
-
-```{r echo = F}
-#| label: tbl-full-baseline
-#| tbl-cap: "Participant characteristics at baseline."
-
-# kable(summary(arsenal::tableby(
-#   treatment ~ 
-#     age + 
-#     sex + 
-#     weight + 
-#     height + 
-#     bmi + 
-#     hba1c + 
-#     kwt(emu_urine_acr_mean, "medianq1q3") + 
-#     creatinine_s + 
-#     cystatin_c_s + 
-#     albumin_serum_gl + 
-#     cgm_tir + 
-#     diabetes_dx_duration + 
-#     anova(sbp, digits = 0) + 
-#     anova(dbp, digits = 0) + 
-#     cholesterol_serum_mmoll + 
-#     triglycerides_serum_mmoll + 
-#     anova(pulse, digits = 0) + 
-#     ldl_serum_mmoll + 
-#     hdl_serum_mmoll +
-#     anova(mgfr_jodal_bsa, digits = 0) + 
-#     anova(mgfr_jodal, digits = 0) + 
-#     avg_c_r2 + avg_k_r2, 
-#   data = subset(attempt_dat, visit == 0),
-#   control = table_controls, test = F
-# )), digits = 1)
-
-# Remove < signs
-attempt_dat$emu_urine_acr_mean_pooled_numeric <- gsub("<", "", attempt_dat$emu_urine_acr_mean_pooled)
-
-# Convert to numeric
-attempt_dat$emu_urine_acr_mean_pooled_numeric <- as.numeric(attempt_dat$emu_urine_acr_mean_pooled_numeric)
-
-attempt_dat$emu_urine_acr_mean_pooled_na <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, as.numeric(gsub("<", "", attempt_dat$emu_urine_acr_mean_pooled)))
-
-attempt_dat$emu_urine_acr_mean_manual <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, rowMeans(
-  attempt_dat[, c("emu_1_acr_mgmmol", "emu_2_acr_mgmmol", "emu_3_acr_mgmmol")],
-  na.rm = T))
-
-attempt_dat$emu_urine_acr_1_manual <- attempt_dat$emu_1_albumin_mgl / (attempt_dat$emu_1_creatinine_umoll/1000)
-attempt_dat$emu_urine_acr_2_manual <- attempt_dat$emu_2_albumin_mgl / (attempt_dat$emu_2_creatinine_umoll/1000)
-attempt_dat$emu_urine_acr_3_manual <- attempt_dat$emu_3_albumin_mgl / (attempt_dat$emu_3_creatinine_umoll/1000)
-attempt_dat$emu_urine_acr_mean_manual2 <- rowMeans(
-  attempt_dat[, c("emu_urine_acr_1_manual", "emu_urine_acr_2_manual", "emu_urine_acr_3_manual")],
-  na.rm = T)
-
-
-attempt_dat$emu_urine_acr_1_manual3 <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, attempt_dat$emu_1_albumin_mgl / (attempt_dat$emu_1_creatinine_umoll/1000))
-attempt_dat$emu_urine_acr_2_manual3 <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, attempt_dat$emu_2_albumin_mgl / (attempt_dat$emu_2_creatinine_umoll/1000))
-attempt_dat$emu_urine_acr_3_manual3 <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, attempt_dat$emu_3_albumin_mgl / (attempt_dat$emu_3_creatinine_umoll/1000))
-attempt_dat$emu_urine_acr_mean_manual3 <- rowMeans(
-  attempt_dat[, c("emu_urine_acr_1_manual3", "emu_urine_acr_2_manual3", "emu_urine_acr_3_manual3")],
-  na.rm = T)
-
-
-attempt_dat$emu_albumin_pooled <- rowMeans(
-  attempt_dat[, c("emu_1_albumin_mgl", "emu_2_albumin_mgl", "emu_3_albumin_mgl")],
-  na.rm = T)
-
-attempt_dat$emu_cr_pooled <- rowMeans(
-  attempt_dat[, c("emu_1_creatinine_umoll", "emu_2_creatinine_umoll", "emu_3_creatinine_umoll")],
-  na.rm = T)/1000
-
-attempt_dat$emu_urine_acr_mean_pooled_manual <- (attempt_dat$emu_albumin_pooled)/(attempt_dat$emu_cr_pooled)
-
-
-kable(summary(arsenal::tableby(
-  treatment ~
-    weight +
-    height +
-    kwt(emu_urine_acr_mean, "medianq1q3", digits = 2) +
-    creatinine_s +
-    cystatin_c_s +
-    albumin_serum_gl +
-    cgm_tir +
-    anova(sbp, digits = 0) +
-    anova(dbp, digits = 0) +
-    cholesterol_serum_mmoll +
-    triglycerides_serum_mmoll +
-    anova(pulse, digits = 0) +
-    ldl_serum_mmoll +
-    hdl_serum_mmoll +
-    avg_c_r2 + avg_k_r2,
-  data = subset(attempt_dat, visit == 0),
-  control = table_controls, test = F
-)), digits = 1)
-```
-
 \pagebreak
+
 
 ```{r echo = F}
 #| label: tbl-co-baseline
@@ -381,16 +299,16 @@ kable(summary(arsenal::tableby(
     height + 
     bmi + 
     hba1c + 
-    kwt(emu_urine_acr_mean, "medianq1q3", digits = 2) + 
-    creatinine_s + 
-    cystatin_c_s + 
+    kwt(emu_urine_acr_mean_mgg, "medianq1q3", digits = 1) +
+    anova(creatinine_s_mgdl, digits = 2) +
+    anova(cystatin_c_s, digits = 2) +
     albumin_serum_gl + 
     cgm_tir + 
     diabetes_dx_duration + 
     anova(sbp, digits = 0) + 
     anova(dbp, digits = 0) + 
     cholesterol_serum_mmoll + 
-    triglycerides_serum_mmoll + 
+    anova(triglycerides_serum_mmoll, digits = 2) + 
     anova(pulse, digits = 0) + 
     ldl_serum_mmoll + 
     hdl_serum_mmoll +
@@ -398,17 +316,14 @@ kable(summary(arsenal::tableby(
     anova(mgfr_jodal, digits = 0) +
     avg_c_r2 + avg_k_r2 + avg_m_r2 + tkv, 
   data = subset(attempt_dat, visit == 0 & site == "Denver"),
-  control = table_controls, test = F
-)), digits = 1)
+  control = table_controls, test = F), labelTranslations = table_labs), 
+  digits = 1)
 ```
+
+Abbreviations: BMI, body mass index; HbA1c, hemoglobin A1c; ACR, albumin-to-creatinine ratio; CGM, continuous glucose monitor; BP, blood pressure; LDL, low density lipoprotein cholesterol; HDL, high density lipoprotein cholesterol; mGFR, measured glomerular filtration rate; BSA, body surface adjusted.
 
 \pagebreak
 
-::: {.content-hidden when-format="docx"}
-
-## Section 2D
-
-:::
 
 ```{r}
 #| label: tbl-histology
@@ -432,37 +347,26 @@ table_controls <- tableby.control(
 kable(summary(arsenal::tableby(
   treatment ~ 
     `Glomeruli number` +
-   `Glomeruli sclerosed` +
+    `Glomeruli sclerosed` +
     `GBM thickening` + 
     `Tubular atrophy` + `Vessel pathology`, 
   data = subset(attempt_dat, visit == 0 & site == "Denver" & biopsy_yn == "Yes"),
-  control = table_controls, test = F
-)), digits = 1)
+  control = table_controls, test = F), labelTranslations = table_labs), 
+  digits = 1)
 
 ```
 
-\pagebreak
+Abbreviations: GBM, glomerular basement membrane.
 
-::: {.content-hidden when-format="docx"}
-
-# Figures
-
-## Section 2A
-
-:::
 
 ```{r}
 #| label: fig-consort
-#| fig-cap: "CONSORT flow diagram showing participant enrollment, allocation, follow-up, and analysis. The left panel (pink background) illustrates the ancillary study within the parent trial conducted in Toronto, ON; London, ON; and Aurora, CO (total n=98), with participants randomized to either placebo (n=49) or dapagliflozin 5 mg (n=49). The right panel (yellow background) highlights the kidney biopsy-eligible cohort, a subset of participants from Colorado (n=18), randomized to placebo (n=9) or dapagliflozin 5 mg (n=9). "
+#| fig-cap: "CONSORT flow diagram showing participant enrollment, allocation, follow-up, and analysis. The left panel (pink background) illustrates the ancillary study within the parent trial conducted in Toronto, ON, Cananda; London, ON, Canada; and Aurora, CO, USA (total n=98), with participants randomized to either placebo (n=49) or dapagliflozin 5 mg once daily (n=49). The right panel (yellow background) highlights the kidney biopsy-eligible cohort, a subset of participants from Colorado (n=18), randomized to placebo (n=9) or dapagliflozin 5 mg once daily (n=9)."
 
 knitr::include_graphics(file.path(base_path, "ATTEMPT_FU_Consort_diagram.png"))
 ```
 
-::: {.content-hidden when-format="docx"}
 
-## Section 2B
-
-:::
 
 ```{r, include = F}
 # create panels
@@ -587,7 +491,7 @@ delta_avg_c_r2_overtime_denver <- plot_mean_ci_stars(data = subset(delta_df,
                                                      legend_position = c(0.3,0.8)) +
   geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.1)
 
-delta_avg_k_r2_overtime_denver$p
+delta_avg_k_r2_overtime_denver
 ```
 
 
@@ -748,16 +652,12 @@ ggsave(file.path(base_path, "Panels/full_mgfr_r2.png"), width = 10, height = 5, 
 
 ```{r, out.width="100%"}
 #| label: fig-mgfr-tertiles-panel
-#| fig-cap: "Clinical endpoints of full cohort. (A) Mean change in mGFR stratified by baseline mGFR categories. Participants were categorized by baseline mGFR. Bars show mean change from baseline to week 16 with 95% CI, and individual dots represent participant-level changes. Paired t-tests assessed within-arm change. Difference-in-differences (DiD) between dapagliflozin and placebo within each category was estimated using pairwise contrasts from a linear model including treatment, baseline category, and their interaction (estimated marginal means using R package emmeans). (B) Longitudinal change in kidney R2* by treatment. Visit-specific means and 95% CIs are shown for dapagliflozin and placebo at baseline and week 16. Stars above panels indicate between-arm differences at each visit from a linear mixed-effects model with treatment × visit interaction, age, sex, diabetes duration, BMI, site, and subject-level random intercepts (emmeans pairwise contrasts; * P<0.05, ** P<0.01, *** P<0.001). (C) CROCODILE reversal analysis. Medulla R2* showed reversal post treatment towards healthy state."
+#| fig-cap: "Clinical endpoints of full cohort. (A) Mean change in mGFR stratified by baseline mGFR categories. Participants were categorized by baseline mGFR. Bars show mean change from baseline to week 16 with 95% confidence interval (CI), and individual dots represent participant-level changes. Paired t-tests assessed within-arm change. Difference-in-differences (DiD) between dapagliflozin and placebo groups within each category was estimated using pairwise contrasts from a linear model including treatment, baseline category, and their interaction (estimated marginal means using R package emmeans). (B) Longitudinal change in kidney R2* by treatment. Visit-specific means and 95% CIs are shown for dapagliflozin and placebo groups at baseline and week 16. Stars above panels indicate between-arm differences at each visit from a linear mixed-effects model with treatment × visit interaction, age, sex, diabetes duration, BMI, site, and participant-level random intercepts (emmeans pairwise contrasts; * P<0.05, ** P<0.01, *** P<0.001).  (C) CROCODILE reversal analysis. Medulla R2* showed reversal post treatment towards healthy state. Abbreviations: HC, healthy controls; mGFR, measured glomerular filtration rate; T1D, type 1 diabetes."
 
 knitr::include_graphics(file.path(base_path, "Panels/full_mgfr_r2.png")) 
 ```
 
-::: {.content-hidden when-format="docx"}
 
-## Section 2C
-
-:::
 
 ```{r, include = F}
 # create panels
@@ -770,16 +670,12 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 
 ```{r, out.width="100%"}
 #| label: fig-r2star-timeline
-#| fig-cap: "(A-F) Longitudinal change in mGFR, HbA1c, TIR, and R2* in kidney, medulla, and cortex by treatment in biopsy eligible cohort. Visit-specific means and 95% CIs are shown for dapagliflozin and placebo at baseline and week 16. Stars above panels indicate between-arm differences at each visit from a linear mixed-effects model with treatment × visit interaction, age, sex, diabetes duration, BMI, and subject-level random intercepts (emmeans pairwise contrasts; Bonferroni adjusted for models with more than 2 visits;  * P<0.05, ** P<0.01, *** P<0.001). "
+#| fig-cap: "(A-F) Longitudinal change in mGFR, HbA1c, time-in-range (TIR), and R2* in kidney, medulla, and cortex by treatment in biopsy eligible cohort. Visit-specific means and 95% CIs are shown for dapagliflozin and placebo groups at baseline and week 16. Stars above panels indicate between-arm differences at each visit from a linear mixed-effects model with treatment × visit interaction, age, sex, diabetes duration, BMI, and participant-level random intercepts (emmeans pairwise contrasts; Bonferroni adjusted for models with more than 2 visits;  * P<0.05, ** P<0.01, *** P<0.001). "
 
 knitr::include_graphics(file.path(base_path, "Panels/denver_mgfr_r2_panel.png"))
 ```
 
-::: {.content-hidden when-format="docx"}
 
-## Section 2E
-
-:::
 
 ```{r, eval = F}
 s3load(object = "cleaned_data/attempt_meta_proportions.Rdata", bucket = "attempt", region = "")
@@ -866,7 +762,8 @@ ggsave(file.path(base_path, "Panels/scrna_desc_panel.png"), final_plot, dpi = 60
 
 ```{r, out.width="100%", out.height = NULL}
 #| label: fig-umap
-#| fig-cap: '(A) UMAP dimensionality reduction of single-cell RNA sequencing data from kidney biopsies. (B) Table of cell subtype groupings into general cell types. (C) Counts of each general cell types in each treatment and visit groups. "Other" cell types not shown.'
+#| fig-cap: '(A) UMAP dimensionality reduction of single-cell RNA sequencing data from kidney biopsies. (B) Table of cell subtype groupings into general cell types. (C) Counts of each general cell type in treatment and visit groups. “Other” cell types not shown. Abbreviations: PT, proximal tubular cells (S1/S2, S3, aPT = adaptive PT); TAL, thick ascending limb (cortical TAL-1/2, aTAL = adaptive TAL, dTAL = distal TAL); EC, endothelial cells (AVR = ascending vasa recta, GC = glomerular capillary, PTC = peritubular capillary, AEA = afferent/efferent arteriole, LYM = lymphatic, EC/VSMC = endothelial with vascular smooth muscle cell); IC, intercalated cells (IC-A, IC-B, aIC = adaptive IC); POD, podocyte; PC, principal cells (CCD-PC = cortical collecting duct, CNT-PC = connecting tubule, dCCD-PC = distal cortical collecting duct, M-PC = medullary PC, tPC-IC = transitional PC/IC); VSMC/P, vascular smooth muscle cell containing pericytes; FIB, fibroblast; immune (L), lymphoid immune cells (CD4⁺ T cells, CD8⁺ T cells, B cells, NK cells); immune (M), myeloid immune cells (MAC = macrophage, MON = monocyte, cDC = conventional dendritic cell, pDC = plasmacytoid dendritic cell); aDTL, adaptive descending thin limb; DTL, descending thin limb; CNT, connecting tubule; ATL, ascending thin limb; PEC, parietal epithelial cell; DCT, distal convoluted tubule; dDCT, distal distal convoluted tubule; MC, mesangial cell; cycT, cycling T cell; Schwann cells; non-specific cell type.'
+#| 
 #| fig-dpi: 300
 
 knitr::include_graphics(file.path(base_path, "Panels/scrna_desc_panel.png"))
@@ -889,18 +786,13 @@ p <- ggarrange(p1,
 ggsave(file.path(base_path, "Panels/upset_plot_panel.png"), p, dpi = 600, height = 6)
 ```
 
-```{r, out.width="100%", out.height = NULL}
-#| label: fig-upset
-#| fig-cap: "(A) UpSet plot illustrating the overlap of differentially expressed genes across kidney cell types. The vertical bars indicate the size of each set (genes significant in a given cell type), while the connected dots and horizontal bars indicate the number of genes shared between cell types. Only intersections with size > 3 are displayed, and intersections corresponding to genes unique to a single cell type are omitted for clarity. Bars representing overlaps across ≥ 3 cell types are highlighted in teal. The overlaps reflect significant DiD results regardless of direction. (B) Bar plot showing the frequency of differentially expressed genes by cell type, separated by direction of effect (DiD > 0 in red, DiD < 0 in blue). (C) Scatter plot of DiD values for each gene, grouped by cell type. Points above zero indicate positive DiD, and points below zero indicate negative DiD."
-#| fig-dpi: 600
-knitr::include_graphics(file.path(base_path, "Panels/upset_plot_panel.png"))
-```
-
-```{r, out.width="100%"}
+```{r}
 #| label: fig-segment-phoom
-#| fig-cap: "Summary of findings in segmental distribution of kidney cell populations."
+#| fig-cap: "Summary of findings in segmental distribution of kidney cell populations. Genes displayed were selected from the top 20 most upregulated and 20 most downregulated transcripts per cell type, supported by the literature, and concordant with IPA-enriched pathways."
 #| fig-dpi: 300
+
 knitr::include_graphics(file.path(base_path, "Pathways and transcripts in ATTEMPT.png"))
+
 ```
 
 
@@ -1407,13 +1299,39 @@ print(paste0("\nTotal CSV files saved: ", total_files))
 print(paste0("Location: ", csv_output_path))
 ```
 
-::: {.content-hidden when-format="docx"}
 
-### Section 2E: PT cells
-
-:::
 
 ```{r eval = F}
+
+pt_plots <- create_gene_expression_plots(
+  main_results = pt_hvg_kpmp,
+  subtype_results_list = list(
+    "PT-S1/S2" = pt_s1_s2_hvg_kpmp,
+    "PT-S3" = pt_s3_hvg_kpmp,
+    "aPT" = apt_hvg_kpmp
+  ),
+  cell_type_prefix = "PT",
+  cell_type_labels = c("PT-S1/S2", "PT-S3", "aPT"),
+  output_prefix = "kpmp_PT_hvg",
+  full_formula = F,
+  volcano_text_size = 15,
+  volcano_caption_size = 12,
+  formula = NULL,
+  save_plots = F,
+  heatmap_caption = F,
+  arrow_padding = 0.08,
+  arrow_text_padding = 0.1,
+  caption_padding = 20,
+  x_title_padding_t = 3,
+  volcano_force = 30,
+  volcano_box_padding = 0.5
+)
+
+pt_dot_legend <- get_legend(pt_plots$dot_plot)
+pt_plots$dot_plot <- pt_plots$dot_plot + theme(legend.position = "none")
+pt_plots$heatmap_plot <- pt_plots$heatmap_plot + theme(legend.position = "top",
+                                                       legend.text = element_text(angle = 60, hjust = 1))
+
 # Convert to ggplot objects
 p1 <- pt_mgfr_volcano
 p2 <- pt_hba1c_volcano
@@ -1445,10 +1363,10 @@ p3_no_legend <- p3 + theme(legend.position = "none")
 p4_no_legend <- p4 + theme(legend.position = "none")
 
 p <-ggarrange(ggarrange(ggarrange(pt_plots$volcano_plot, pt_plots$heatmap_plot, ncol = 2, widths = c(6,1)),
-                        ggarrange(pt_dot_legend, ggarrange(pt_plots$bar_plot, pt_plots$dot_plot, 
-                                                           nrow = 2, heights = c(1,2), align = "v"),
-                                  nrow = 2, heights = c(1, 30)),
-                        nrow = 2, heights = c(3,1), labels = "A", font.label = list(size = 25)),
+                        # ggarrange(pt_dot_legend, ggarrange(pt_plots$bar_plot, pt_plots$dot_plot, 
+                        #                                    nrow = 2, heights = c(1,2), align = "v"),
+                                  # nrow = 2, heights = c(1, 30)),
+                        nrow = 1, labels = "A", font.label = list(size = 25)),
               ggarrange(p1_no_legend, p2_no_legend, ncol = 2, labels = c("B", "C"),
                         font.label = list(size = 25)),
               ggarrange(p3_no_legend, p4_no_legend, ncol = 2, labels = c("D", "E"),
@@ -1456,6 +1374,10 @@ p <-ggarrange(ggarrange(ggarrange(pt_plots$volcano_plot, pt_plots$heatmap_plot, 
               nrow = 3, ncol = 1,
               heights = c(2,1,1))
 
+p <- annotate_figure(
+  p,
+  top = text_grob("Proximal Tubulular Cells", size = 28, face = "bold")
+)
 
 ggsave(file.path(base_path, "Panels/pt_panel.png"), p, height = 20, width = 15, dpi = 600)
 ```
@@ -1678,7 +1600,7 @@ attempt_meta$KPMP_celltype <- factor(attempt_meta$KPMP_celltype,
                                                "pDC", "cDC",
                                                "aIC", "SchwannCells", "non-specific"))
 attempt_meta$visit_treatment_lab <- factor(attempt_meta$visit_treatment, labels = c("PRE Placebo" = "PRE\nPlacebo", "POST Placebo" = "POST\nPlacebo",
-"PRE Dapagliflozin" = "PRE\nDapagliflozin", "POST Dapagliflozin" = "POST\nDapagliflozin"))
+                                                                                    "PRE Dapagliflozin" = "PRE\nDapagliflozin", "POST Dapagliflozin" = "POST\nDapagliflozin"))
 p3 <- attempt_meta %>%
   filter(KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT")) %>%
   ggplot(aes(visit_treatment_lab, fill = KPMP_celltype)) +
@@ -1712,9 +1634,9 @@ p7 <- image_ggplot(img7)
 ggarrange(ggarrange(p2, labels = "A", ncol = 2, widths = c(3,2),
                     ggarrange(p1, p3, nrow = 2, heights = c(1,1), labels = c("B", "C"))),
           ggarrange(p4, p5, p6, p7, 
-            ncol = 2, nrow = 2, 
-            labels = c("D", "E", "F", "G")), ncol = 1,
-nrow = 2, heights = c(2,3))
+                    ncol = 2, nrow = 2, 
+                    labels = c("D", "E", "F", "G")), ncol = 1,
+          nrow = 2, heights = c(2,3))
 ggsave(file.path(base_path, "Panels/slingshot_panel.png"), dpi = 300, height = 12)
 
 ```
@@ -1727,11 +1649,7 @@ ggsave(file.path(base_path, "Panels/slingshot_panel.png"), dpi = 300, height = 1
 knitr::include_graphics(file.path(base_path, "Panels/slingshot_panel.png"))
 ```
 
-::: {.content-hidden when-format="docx"}
 
-### Section 2E: TAL cells
-
-:::
 
 ```{r eval = F}
 # Convert to ggplot objects
@@ -1787,11 +1705,7 @@ ggsave(file.path(base_path, "Panels/tal_panel.png"), p, height = 20, width = 15,
 knitr::include_graphics(file.path(base_path, "Panels/tal_panel.png"))
 ```
 
-::: {.content-hidden when-format="docx"}
 
-### Section 2E: EC cells
-
-:::
 
 ```{r eval = F}
 # Convert to ggplot objects
@@ -1838,11 +1752,6 @@ ggsave(file.path(base_path, "Panels/ec_panel.png"), p, height = 23, width = 15, 
 knitr::include_graphics(file.path(base_path, "Panels/ec_panel.png"))
 ```
 
-::: {.content-hidden when-format="docx"}
-
-### Section 2E: IC cells
-
-:::
 
 ```{r eval = F}
 # Convert to ggplot objects
@@ -1889,11 +1798,6 @@ ggsave(file.path(base_path, "Panels/ic_panel.png"), p, height = 22, width = 15, 
 knitr::include_graphics(file.path(base_path, "Panels/ic_panel.png"))
 ```
 
-::: {.content-hidden when-format="docx"}
-
-### Section 2E: POD cells
-
-:::
 
 ```{r eval = F}
 # Convert to ggplot objects
@@ -1940,11 +1844,7 @@ ggsave(file.path(base_path, "Panels/pod_panel.png"), p, height = 22, width = 15,
 knitr::include_graphics(file.path(base_path, "Panels/pod_panel.png"))
 ```
 
-::: {.content-hidden when-format="docx"}
 
-### Section 2E: Other cell types
-
-:::
 
 ```{r, eval = F}
 ggarrange(ggarrange(ggarrange(pc_plots$volcano_plot, pc_plots$heatmap_plot, ncol = 2, widths = c(4,1)), 
@@ -1975,11 +1875,6 @@ ggsave(file.path(base_path, "Panels/other_celltypes_panel.png"), height = 22, wi
 knitr::include_graphics(file.path(base_path, "Panels/other_celltypes_panel.png"))
 ```
 
-::: {.content-hidden when-format="docx"}
-
-## Section 2F
-
-:::
 
 ```{r, out.width="100%"}
 #| label: fig-urine-proteins
@@ -1989,11 +1884,6 @@ knitr::include_graphics(file.path(base_path, "Panels/other_celltypes_panel.png")
 knitr::include_graphics(file.path(base_path, "Panels/urine_proteomics_panel.png"))
 ```
 
-::: {.content-hidden when-format="docx"}
-
-## Section 2G
-
-:::
 
 ```{r, include = F}
 croc_overlap_list <- list()
@@ -2056,7 +1946,7 @@ for (cell in names(croc_overlap_list)) {
 
 # Save the second workbook
 output_path <- file.path(root_path, "ATTEMPT/Results/PB/MS/Supplemental Materials", 
-                          "croc_attempt_overlap_all_celltypes.xlsx")
+                         "croc_attempt_overlap_all_celltypes.xlsx")
 saveWorkbook(wb, output_path, overwrite = TRUE)
 message("Excel file saved to: ", output_path)
 
@@ -2072,6 +1962,108 @@ knitr::include_graphics(file.path(base_path, "Panels/croc_attempt_rev_heatmap_2.
 ```
 
 # Supplemental Materials
+
+
+```{r echo = F}
+#| label: tbl-full-baseline
+#| tbl-cap: "Participant characteristics at baseline."
+
+# kable(summary(arsenal::tableby(
+#   treatment ~ 
+#     age + 
+#     sex + 
+#     weight + 
+#     height + 
+#     bmi + 
+#     hba1c + 
+#     kwt(emu_urine_acr_mean, "medianq1q3") + 
+#     creatinine_s + 
+#     cystatin_c_s + 
+#     albumin_serum_gl + 
+#     cgm_tir + 
+#     diabetes_dx_duration + 
+#     anova(sbp, digits = 0) + 
+#     anova(dbp, digits = 0) + 
+#     cholesterol_serum_mmoll + 
+#     triglycerides_serum_mmoll + 
+#     anova(pulse, digits = 0) + 
+#     ldl_serum_mmoll + 
+#     hdl_serum_mmoll +
+#     anova(mgfr_jodal_bsa, digits = 0) + 
+#     anova(mgfr_jodal, digits = 0) + 
+#     avg_c_r2 + avg_k_r2, 
+#   data = subset(attempt_dat, visit == 0),
+#   control = table_controls, test = F
+# )), digits = 1)
+
+
+# Remove < signs
+attempt_dat$emu_urine_acr_mean_pooled_numeric <- gsub("<", "", attempt_dat$emu_urine_acr_mean_pooled)
+
+# Convert to numeric
+attempt_dat$emu_urine_acr_mean_pooled_numeric <- as.numeric(attempt_dat$emu_urine_acr_mean_pooled_numeric)
+
+attempt_dat$emu_urine_acr_mean_pooled_na <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, as.numeric(gsub("<", "", attempt_dat$emu_urine_acr_mean_pooled)))
+
+attempt_dat$emu_urine_acr_mean_manual <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, rowMeans(
+  attempt_dat[, c("emu_1_acr_mgmmol", "emu_2_acr_mgmmol", "emu_3_acr_mgmmol")],
+  na.rm = T))
+
+attempt_dat$emu_urine_acr_1_manual <- attempt_dat$emu_1_albumin_mgl / (attempt_dat$emu_1_creatinine_umoll/1000)
+attempt_dat$emu_urine_acr_2_manual <- attempt_dat$emu_2_albumin_mgl / (attempt_dat$emu_2_creatinine_umoll/1000)
+attempt_dat$emu_urine_acr_3_manual <- attempt_dat$emu_3_albumin_mgl / (attempt_dat$emu_3_creatinine_umoll/1000)
+attempt_dat$emu_urine_acr_mean_manual2 <- rowMeans(
+  attempt_dat[, c("emu_urine_acr_1_manual", "emu_urine_acr_2_manual", "emu_urine_acr_3_manual")],
+  na.rm = T)
+
+
+attempt_dat$emu_urine_acr_1_manual3 <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, attempt_dat$emu_1_albumin_mgl / (attempt_dat$emu_1_creatinine_umoll/1000))
+attempt_dat$emu_urine_acr_2_manual3 <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, attempt_dat$emu_2_albumin_mgl / (attempt_dat$emu_2_creatinine_umoll/1000))
+attempt_dat$emu_urine_acr_3_manual3 <- ifelse(grepl("<", attempt_dat$emu_urine_acr_mean_pooled), NA, attempt_dat$emu_3_albumin_mgl / (attempt_dat$emu_3_creatinine_umoll/1000))
+attempt_dat$emu_urine_acr_mean_manual3 <- rowMeans(
+  attempt_dat[, c("emu_urine_acr_1_manual3", "emu_urine_acr_2_manual3", "emu_urine_acr_3_manual3")],
+  na.rm = T)
+
+
+attempt_dat$emu_albumin_pooled <- rowMeans(
+  attempt_dat[, c("emu_1_albumin_mgl", "emu_2_albumin_mgl", "emu_3_albumin_mgl")],
+  na.rm = T)
+
+attempt_dat$emu_cr_pooled <- rowMeans(
+  attempt_dat[, c("emu_1_creatinine_umoll", "emu_2_creatinine_umoll", "emu_3_creatinine_umoll")],
+  na.rm = T)/1000
+
+attempt_dat$emu_urine_acr_mean_pooled_manual <- (attempt_dat$emu_albumin_pooled)/(attempt_dat$emu_cr_pooled)
+
+
+kable(summary(arsenal::tableby(
+  treatment ~
+    age + 
+    sex + 
+    weight + 
+    height + 
+    bmi + 
+    hba1c + 
+    kwt(emu_urine_acr_mean_mgg, "medianq1q3", digits = 1) +
+    anova(creatinine_s_mgdl, digits = 2) +
+    anova(cystatin_c_s, digits = 2) +
+    albumin_serum_gl + 
+    cgm_tir + 
+    diabetes_dx_duration + 
+    anova(sbp, digits = 0) + 
+    anova(dbp, digits = 0) + 
+    cholesterol_serum_mmoll + 
+    anova(triglycerides_serum_mmoll, digits = 2) + 
+    anova(pulse, digits = 0) + 
+    ldl_serum_mmoll + 
+    hdl_serum_mmoll +
+    anova(mgfr_jodal_bsa, digits = 0) + 
+    anova(mgfr_jodal, digits = 0) +
+    avg_c_r2 + avg_k_r2,
+  data = subset(attempt_dat, visit == 0),
+  control = table_controls, test = F), labelTranslations = table_labs), 
+  digits = 1)
+```
 
 ```{r include = F}
 # save materials used for volcanos in one xlsx
@@ -2151,9 +2143,14 @@ print(paste0("\n✓ Excel file saved: ", output_file))
 print(paste0("✓ Total sheets: ", length(cell_types) * length(clinical_vars)))
 ```
 
+
+![](`r file.path(base_path, "Panels/upset_plot_panel.png")`)
+Figure S1: (A) UpSet plot illustrating the overlap of differentially expressed genes across kidney cell types. The vertical bars indicate the size of each set (genes significant in a given cell type), while the connected dots and horizontal bars indicate the number of genes shared between cell types. Only intersections with size > 3 are displayed, and intersections corresponding to genes unique to a single cell type are omitted for clarity. Bars representing overlaps across ≥ 3 cell types are highlighted in teal. The overlaps reflect significant DiD results regardless of direction. (B) Bar plot showing the frequency of differentially expressed genes by cell type, separated by direction of effect (DiD > 0 in red, DiD < 0 in blue). (C) Scatter plot of DiD values for each gene, grouped by cell type. Points above zero indicate positive DiD, and points below zero indicate negative DiD. Abbreviations: PT, proximal tubular cells; TAL, thick ascending limb; EC, endothelial cells; IC, intercalated cells; POD, podocyte; PC, principal cells; VSMC/P, vascular smooth muscle cell containing pericytes; FIB, fibroblast; immune (L), lymphoid immune cells; immune (M), myeloid immune cells.
+
+
 ![](`r file.path(base_path, "Panels/supplemental_combined_ipa.png")`)
 
-Figure S1: Pathway analysis using IPA on other cell types. Pathway names have been shortened using standard abbreviations where necessary. Full names for pathways truncated are listed below each panel.
+Figure S2: Pathway analysis using IPA on other cell types. Pathway names have been shortened using standard abbreviations where necessary. Full names for pathways truncated are listed below each panel.
 
 ```{r, eval = F}
 for (cell in names(celltype_groups)) {
@@ -2203,13 +2200,13 @@ ggsave(file.path(base_path, "Panels/key_combined_go.png"), combined_go, height =
 
 ![](`r file.path(base_path, "Panels/key_combined_reactome.png")`)
 
-Figure S2: Gene set enrichment using Reactome on key cell types. Pathway names have been shortened using standard abbreviations where necessary. Full names for pathways truncated are listed below each panel.
+Figure S3: Gene set enrichment using Reactome on key cell types. Pathway names have been shortened using standard abbreviations where necessary. Full names for pathways truncated are listed below each panel.
 
 ![](`r file.path(base_path, "Panels/key_combined_hallmark.png")`)
 
-Figure S3: Gene set enrichment using Hallmark on key cell types. Pathway names have been shortened using standard abbreviations where necessary. Full names for pathways truncated are listed below each panel.
+Figure S4: Gene set enrichment using Hallmark on key cell types. Pathway names have been shortened using standard abbreviations where necessary. Full names for pathways truncated are listed below each panel.
 
 ![](`r file.path(base_path, "Panels/key_combined_reactome.png")`)
 
-Figure S4: Gene set enrichment using Gene Ontology on key cell types. Pathway names have been shortened using standard abbreviations where necessary. Full names for pathways truncated are listed below each panel.
+Figure S5: Gene set enrichment using Gene Ontology on key cell types. Pathway names have been shortened using standard abbreviations where necessary. Full names for pathways truncated are listed below each panel.
 
