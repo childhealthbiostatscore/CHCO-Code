@@ -638,7 +638,74 @@ write.csv(summary_table,
 
 
 
+# Install required package if not already installed
+if (!require("pdftools")) {
+  install.packages("pdftools")
+}
 
+library(pdftools)
+
+# Function to convert a single PDF to PNG
+convert_pdf_to_png <- function(pdf_path, output_dir = NULL, dpi = 300) {
+  # If no output directory specified, use same directory as PDF
+  if (is.null(output_dir)) {
+    output_dir <- dirname(pdf_path)
+  }
+  
+  # Create output directory if it doesn't exist
+  if (!dir.exists(output_dir)) {
+    dir.create(output_dir, recursive = TRUE)
+  }
+  
+  # Get the base filename without extension
+  base_name <- tools::file_path_sans_ext(basename(pdf_path))
+  
+  # Convert PDF to PNG
+  # This creates one PNG per page
+  png_files <- pdf_convert(
+    pdf = pdf_path,
+    format = "png",
+    dpi = dpi,
+    filenames = file.path(output_dir, paste0(base_name, "_page_%d.png"))
+  )
+  
+  return(png_files)
+}
+
+# Convert all PDFs in a folder
+convert_all_pdfs <- function(folder_path, output_dir = NULL, dpi = 300) {
+  # Get all PDF files in the folder
+  pdf_files <- list.files(folder_path, pattern = "\\.pdf$", 
+                          full.names = TRUE, ignore.case = TRUE)
+  
+  if (length(pdf_files) == 0) {
+    message("No PDF files found in the specified folder.")
+    return(NULL)
+  }
+  
+  message(paste("Found", length(pdf_files), "PDF file(s)"))
+  
+  # Convert each PDF
+  all_png_files <- list()
+  for (pdf in pdf_files) {
+    message(paste("Converting:", basename(pdf)))
+    png_files <- convert_pdf_to_png(pdf, output_dir, dpi)
+    all_png_files[[basename(pdf)]] <- png_files
+  }
+  
+  message("Conversion complete!")
+  return(all_png_files)
+}
+
+# Example usage:
+# Convert all PDFs in a folder
+folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/GSEA/"
+
+# Or convert to a specific output directory
+ converted_files <- convert_all_pdfs(folder_path, output_dir = "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/GSEA/")
+
+# Or convert with higher resolution
+# converted_files <- convert_all_pdfs(folder_path, dpi = 600)
 
 
 
