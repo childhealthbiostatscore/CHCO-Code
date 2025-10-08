@@ -1452,7 +1452,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   
   n_pos <- nrow(top_pos)
   
-  top_pos <- top_pos %>%
+  top_pos_n <- top_pos %>%
     filter(if (!is.null(genes_to_label)) Gene %in% genes_to_label else TRUE) %>%
     slice_head(n=20)
   
@@ -1462,13 +1462,13 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   
   n_neg <- nrow(top_neg)
   
-  top_neg <- top_neg %>%
+  top_neg_n <- top_neg %>%
     filter(if (!is.null(genes_to_label)) Gene %in% genes_to_label else TRUE) %>%
     slice_head(n=20)
   
   # Identify off-chart genes
   off_chart_genes <- data %>%
-    filter(Gene %in% c(top_pos$Gene, top_neg$Gene) & neg_log_p > y_cutoff) %>%
+    filter(Gene %in% c(top_pos_n$Gene, top_neg_n$Gene) & neg_log_p > y_cutoff) %>%
     mutate(
       is_positive = !!sym(fc) > 0,
       # Spread out x positions for off-chart labels
@@ -1479,7 +1479,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
     )
   
   # Separate on-chart and off-chart genes for labeling
-  on_chart_genes <- c(top_pos$Gene, top_neg$Gene)[!c(top_pos$Gene, top_neg$Gene) %in% off_chart_genes$Gene]
+  on_chart_genes <- c(top_pos_n$Gene, top_neg_n$Gene)[!c(top_pos_n$Gene, top_neg_n$Gene) %in% off_chart_genes$Gene]
   
   data <- data %>%
     dplyr::mutate(
@@ -1503,10 +1503,21 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   p <- ggplot(data, aes(x = !!sym(fc), y = display_neg_log_p)) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
     geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
+    # Background regular labels for on-chart genes
+    geom_text_repel(seed = 1, 
+      data = filter(data, top_lab != ""),
+      aes(label = top_lab),
+      color = "black",
+      fontface = "bold",
+      size = geom_text_size+0.01, max.overlaps = Inf,
+      force = volcano_force, segment.alpha = 0.3, segment.size = 0.3,
+      box.padding = volcano_box_padding
+    ) +
     # Regular labels for on-chart genes
-    geom_text_repel(
+    geom_text_repel(seed = 1, 
       data = filter(data, top_lab != ""),
       aes(label = top_lab, color = top_color),
+      fontface = "bold",
       size = geom_text_size, max.overlaps = Inf,
       force = volcano_force, segment.alpha = 0.3, segment.size = 0.3,
       box.padding = volcano_box_padding

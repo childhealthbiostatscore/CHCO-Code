@@ -1,0 +1,319 @@
+---
+title: "RH/RH2/IMPROVE"
+author: "Ye Ji Choi"
+format:
+  revealjs:
+    embed-resources: true
+    scrollable: true
+    transition: slide
+    controls-layout: bottom-right
+    menu: true
+    toc: true
+    toc-depth: 1
+    fontsize: 15
+    number-sections: true
+    filters:
+      - figure-path.lua
+---
+
+```{r include = F}
+library(jsonlite)
+library(aws.s3)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+library(lmerTest)
+library(emmeans)
+library(broom)
+library(ggbeeswarm)
+library(lemon)
+library(quantreg)
+library(readxl)
+library(growthcleanr)
+
+source("~/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
+source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
+```
+
+```{r include = F}
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r echo = F}
+harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
+
+harm_dat_collapsed <- harm_dat %>%
+  group_by(record_id, visit) %>%
+  fill(date, .direction = "updown") %>% ungroup() %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                                     race == "Black or African American" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                                     T ~ "Not Hispanic or Latino Other")) %>%
+  arrange(record_id) %>%
+  mutate(agem = age*12)
+
+# subset(harm_dat, eGFR_CKD_epi < 40)$record_id
+```
+
+```{r echo = F}
+# RH/RH2 subset
+rh_rh2_croc_panther <- harm_dat_collapsed %>% 
+  filter(study %in% c("RENAL-HEIR", "RENAL-HEIRitage", "CROCODILE", "PANTHER")) %>%
+  filter(group %in% c("Type 2 Diabetes", "Obese Control", "Lean Control")) %>%
+  filter(visit == "baseline")
+
+bmi_percentile = ext_bmiz(data = subset(rh_rh2_croc_panther, 
+                                        select = c("record_id", "sex", "agem", "weight", "height", "bmi")),
+                          wt = "weight", ht = "height") %>%
+  select(record_id, bmip)
+  
+rh_rh2_croc_panther_unique <- rh_rh2_croc_panther %>%
+  left_join(bmi_percentile) %>%
+  arrange(mrn, date) %>%
+  distinct(mrn, date, .keep_all = TRUE) %>%
+  group_by(mrn) %>%
+  mutate(
+    date = as.Date(date),
+    new_cluster = if_else(is.na(lag(date)) | difftime(date, lag(date), units = "days") > 7,
+                          1, 0),
+    cluster_id = cumsum(replace_na(new_cluster, 1))
+  ) %>%
+  group_by(mrn, cluster_id) %>%
+  slice_min(order_by = date, with_ties = FALSE) %>%
+  ungroup() %>%
+  #stratify T2D and OB in RH/RH2 by UACR >= 100 mg/g and look at the kidney MRI parameters.. I want to include some of this preliminary data in my slides for Spain
+  # eGFR <60 for eGFR_CKD_epi AND/OR UACR>= 100 mg/g
+  # in other words, to be in the high risk group EITHER eGFR <60 AND/OR UACR>= 100mg/g
+  # so if you have UACR >= 100 mg/g but eGFR >60 you qualify, or if you have UACR <100 but eGFR <60 you qualify, and if you have both, i.e., UACR >= 100 and eGFR <60 you qualify
+  mutate(uacr_100 = case_when(acr_u >= 100 ~ "UACR >=100 mg/g",
+                              acr_u < 100 ~ "UACR <100 mg/g"),
+         uacr_group = case_when(eGFR_CKD_epi < 75 | acr_u >= 100 ~ "eGFR < 75 and/or UACR >=100 mg/g",
+                                eGFR_CKD_epi >=75 | acr_u < 100 ~ "eGFR >= 75 and UACR <100 mg/g"),
+         uacr_group = factor(uacr_group, levels = c("eGFR >= 75 and UACR <100 mg/g",
+                                                    "eGFR < 75 and/or UACR >=100 mg/g")),
+         # eGFR categories
+         egfr_cat = case_when(
+           eGFR_CKD_epi < 60                      ~ "<60",
+           eGFR_CKD_epi >= 60 & eGFR_CKD_epi < 90 ~ "60–<90",
+           eGFR_CKD_epi >= 90                     ~ "≥90",
+           TRUE ~ NA_character_
+         ),
+         egfr_cat = factor(egfr_cat, levels = c("<60", "60–<90", "≥90")),
+         # ACR categories
+         acr_u_cat3 = case_when(
+           acr_u < 30                  ~ "<30",
+           acr_u >= 30 & acr_u < 300   ~ "30–<300",
+           acr_u >= 300                ~ "≥300",
+           TRUE ~ NA_character_
+         ),
+         acr_u_cat3 = factor(acr_u_cat3, levels = c("<30", "30–<300", "≥300")),
+         bmi_cat = case_when(
+           # Adults (≥18 years)
+           age >= 18 & bmi < 25                ~ "Lean",
+           age >= 18 & bmi >= 25 & bmi < 30    ~ "Overweight",
+           age >= 18 & bmi >= 30               ~ "Obese",
+           
+           # Pediatrics (<18 years)
+           age < 18 & bmip < 85      ~ "Lean",
+           age < 18 & bmip >= 85 & bmip < 95 ~ "Overweight",
+           age < 18 & bmip >= 95     ~ "Obese",
+           
+           TRUE ~ NA_character_
+         ),
+         bmi_cat = factor(
+           bmi_cat,
+           levels = c("Lean", "Overweight", "Obese")
+         )
+  )
+
+rh_rh2_unique <- rh_rh2_croc_panther_unique %>%
+  filter(group %nin% c("Lean Control"))
+```
+
+# MRI Parameters
+
+```{r echo = F}
+rh_rh2_unique %>%
+  select(avg_c_r2, avg_m_r2, avg_k_r2,
+         avg_c_adc, avg_c_fsoc, avg_m_fsoc, avg_k_fsoc, avg_pcascl) %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 100, fill = "steelblue", color = "white") +
+  facet_wrap(~ variable, scales = "free") +
+  theme_minimal()
+summary(arsenal::tableby(uacr_group ~ avg_c_r2 + avg_m_r2 + avg_k_r2 +
+                           avg_c_adc + avg_c_fsoc + avg_m_fsoc + avg_k_fsoc + avg_pcascl, data=rh_rh2_unique),
+        total = F)
+
+summary(arsenal::tableby(uacr_group ~ bmi_cat + age + sex + kwt(acr_u, "medianq1q3") + eGFR_CKD_epi + bmi + egfr_cat + acr_u_cat3, data=rh_rh2_unique),
+        total = F)
+# 
+# table(rh_rh2_unique$group,rh_rh2_unique$uacr_100)
+# table(rh_rh2_unique$group,rh_rh2_unique$uacr_group)
+
+```
+
+
+
+
+```{r}
+library(ggbreak)
+rh_rh2_unique %>%
+  ggplot(aes(x = uacr_group, y = avg_k_r2, color = uacr_group)) +
+    # geom_violin() +
+  geom_boxplot(size = 1, width = 0.5, outliers = F) +
+  geom_jitter(alpha = 0.5) +
+  theme_minimal() + 
+  theme(text = element_text(size = 15),
+        panel.grid = element_blank(),
+        legend.position = "none") +
+  labs(x = NULL, y = "Kidney R2* (1/s)") +
+   scale_y_break(c(25, 45), scales = "fixed", space = 0.5) +
+  scale_color_manual(values = c("#003049", "#e07a5f"))
+
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Renal HERITAGE/Results/Figures/uacr_boxplots.png")
+
+summary(arsenal::tableby(uacr_group ~ kwt(acr_u, "medianq1q3", digits = 2) + eGFR_fas_cr + eGFR_CKD_epi, 
+                         data = rh_rh2_unique, test = F, total = F))
+
+# ok.. can you also report proportions in the table of the following eGFR >=90, <90-60, <60, and for UACR, >= 30, UACR 30-300 mg, UACR >=300 mg/g
+
+library(dplyr)
+library(janitor)   # for tabyl/adorn helpers
+library(forcats)   # for fct_relevel (optional but nice)
+
+rh_rh2_unique <- rh_rh2_unique %>%
+  mutate(
+    # eGFR categories
+    eGFR_cat = case_when(
+      eGFR_CKD_epi < 60                      ~ "<60",
+      eGFR_CKD_epi >= 60 & eGFR_CKD_epi < 90 ~ "60–<90",
+      eGFR_CKD_epi >= 90                     ~ "≥90",
+      TRUE ~ NA_character_
+    ),
+    # ACR/UACR 3-level categories (non-overlapping)
+    acr_u_cat3 = case_when(
+      acr_u < 30                 ~ "<30",
+      acr_u >= 30 & acr_u < 300  ~ "30–<300",
+      acr_u >= 300               ~ "≥300",
+      TRUE ~ NA_character_
+    ),
+    # Binary acr_u ≥30
+    acr_u_ge30 = case_when(
+      is.na(acr_u) ~ NA_integer_,
+      acr_u >= 30  ~ 1L,
+      TRUE         ~ 0L
+    ),
+    # ---- Set the display order (critical) ----
+    eGFR_cat    = factor(eGFR_cat,    levels = c("<60", "60–<90", "≥90")),
+    acr_u_cat3  = factor(acr_u_cat3,  levels = c("<30", "30–<300", "≥300"))
+  )
+
+# ---- Proportion tables (will follow the factor order) ----
+egfr_tab <- rh_rh2_unique %>%
+  tabyl(eGFR_cat) %>%
+  adorn_totals("row") %>%
+  adorn_pct_formatting(digits = 1)
+
+uacr_tab3 <- rh_rh2_unique %>%
+  tabyl(acr_u_cat3) %>%
+  adorn_totals("row") %>%
+  adorn_pct_formatting(digits = 1)
+
+uacr_ge30_tab <- rh_rh2_unique %>%
+  mutate(acr_u_ge30_cat = factor(
+    if_else(is.na(acr_u_ge30), "Missing", if_else(acr_u_ge30 == 1L, "≥30", "<30")),
+    levels = c("<30", "≥30", "Missing")
+  )) %>%
+  tabyl(acr_u_ge30_cat) %>%
+  adorn_totals("row") %>%
+  adorn_pct_formatting(digits = 1)
+
+# Combined tidy table (keeps the chosen order)
+combined_props <- bind_rows(
+  egfr_tab %>% mutate(measure = "eGFR category") %>% dplyr::rename(level = eGFR_cat),
+  uacr_tab3 %>% mutate(measure = "acr_u category (3-level)") %>% dplyr::rename(level = acr_u_cat3),
+  uacr_ge30_tab %>% mutate(measure = "acr_u ≥30 vs <30") %>% dplyr::rename(level = acr_u_ge30_cat)
+) %>%
+  dplyr::select(measure, level, n, percent)
+
+
+# BY GROUP
+egfr_tab_by_group <- rh_rh2_unique %>%
+  tabyl(uacr_group, eGFR_cat) %>%
+  adorn_percentages("row") %>%       # proportions within each group
+  adorn_pct_formatting(digits = 1)
+
+# acr_u proportions split by uacr_group
+acr_tab3_by_group <- rh_rh2_unique %>%
+  tabyl(uacr_group, acr_u_cat3) %>%
+  adorn_percentages("row") %>%
+  adorn_pct_formatting(digits = 1)
+
+acr_ge30_by_group <- rh_rh2_unique %>%
+  mutate(acr_u_ge30_cat = factor(
+    if_else(is.na(acr_u_ge30), "Missing", if_else(acr_u_ge30 == 1L, "≥30", "<30")),
+    levels = c("<30", "≥30", "Missing")
+  )) %>%
+  tabyl(uacr_group, acr_u_ge30_cat) %>%
+  adorn_percentages("row") %>%
+  adorn_pct_formatting(digits = 1)
+
+# View tables
+egfr_tab_by_group
+acr_tab3_by_group
+acr_ge30_by_group
+
+```
+
+```{r}
+# one more request once we have this done for all of you that I think will be important... can we look at ASL, R2* and ADC in 3 groups lean, overweight and obese while controlling for diabetes status, eGFR and UACR...
+
+# rh_rh2_croc_panther_unique$avg_pcascl 
+# rh_rh2_croc_panther_unique$avg_k_r2
+# rh_rh2_croc_panther_unique$avg_c_adc
+# rh_rh2_croc_panther_unique$group
+
+table(subset(rh_rh2_croc_panther_unique, !is.na(avg_k_r2))$bmi_cat)
+table(subset(rh_rh2_croc_panther_unique, !is.na(avg_k_r2))$group)
+
+avg_pcascl_fit <- (lm(avg_pcascl ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
+summary(avg_pcascl_fit)
+drop1(avg_pcascl_fit, ~ ., test = "F")
+emm_bmi <- emmeans(avg_pcascl_fit, ~ bmi_cat)
+emm_bmi
+
+avg_k_r2_fit <- (lm(avg_k_r2 ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
+summary(avg_k_r2_fit)
+drop1(avg_k_r2_fit, ~ ., test = "F")
+emm_bmi <- emmeans(avg_k_r2_fit, ~ bmi_cat)
+emm_bmi
+pairs(emm_bmi)
+
+avg_c_r2_fit <- (lm(avg_c_r2 ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
+summary(avg_c_r2_fit)
+drop1(avg_c_r2_fit, ~ ., test = "F")
+emm_bmi <- emmeans(avg_c_r2_fit, ~ bmi_cat)
+emm_bmi
+
+avg_c_adc_fit <- (lm(avg_c_adc ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
+summary(avg_c_adc_fit)
+drop1(avg_c_adc_fit, ~ ., test = "F")
+emm_bmi <- emmeans(avg_c_adc_fit, ~ bmi_cat)
+emm_bmi
+```
