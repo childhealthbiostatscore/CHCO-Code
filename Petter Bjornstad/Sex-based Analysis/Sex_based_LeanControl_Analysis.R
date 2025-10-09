@@ -415,6 +415,73 @@ for(i  in 1:length(celltypes_vec)){
 
 
 
+########### Volcano plots 
+
+
+variable_names <- c('All', 'PT', 'TAL', 'EC', 'IC', 'DCTall')
+
+
+for(i in c(1:length(variable_names))){
+  
+  sig_markers <- data.table::fread(paste0('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/Full_NEBULA_', 
+  variable_names[i], '_cells__LC_pooledoffset.csv'))
+  
+  sig_markers <- sig_markers %>% dplyr::select(Gene = summary.gene,
+                                               LogFC = summary.logFC_sexMale, 
+                                               Pvalue = summary.p_sexMale)
+  
+  tmp_df <- sig_markers
+  tmp_df$diffexp <- 'No'
+  tmp_df$diffexp[tmp_df$Pvalue < 0.05 & tmp_df$LogFC > 0] <- 'Up'
+  tmp_df$diffexp[tmp_df$Pvalue < 0.05 & tmp_df$LogFC < 0] <- 'Down'
+  
+  tmp_df <- tmp_df %>% arrange(Pvalue)
+  tmp_df$label <- NA
+  tmp_df$label[1:20] <- tmp_df$Gene[1:20]
+  
+  tmp_df <- tmp_df %>% filter(abs(LogFC) < 10)
+  
+  
+    #Making graph
+    if(length(unique(tmp_df$diffexp)) > 1){
+      tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
+        geom_point()+
+        geom_text(size=2, vjust = 2, color='black')+
+        scale_color_manual(values = c('orange', 'grey', 'purple'),
+                           labels = c('Downregulated', 'Not significant', 'Upregulated'))+
+        geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
+        geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
+        theme_classic()+labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
+                             title = paste0('Sex Differences in ',  variable_names[i],' Cells'))
+    }else{
+      tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
+        geom_point()+
+        geom_text(size=2, vjust = 2, color='black')+
+        scale_color_manual(values = c('grey'),
+                           labels = c('Not significant'))+
+        geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
+        geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
+        theme_classic()+labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
+                             title = paste0('Sex Differences in ',  variable_names[i],' Cells'))
+      
+    }
+    pdf(paste0('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/VolcanoPlots_', variable_names[i], '_Cells_LCOnly.pdf'))
+    print(tmp_graph)
+    dev.off()
+    
+    
+    png(paste0('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/VolcanoPlots_', variable_names[i], 
+               '_Cells_LCOnly.png'))
+    print(tmp_graph)
+    dev.off()
+    
+    
+    
+    
+    print(paste0('Plot done for ', ))
+  }
+
+
 
 
 
