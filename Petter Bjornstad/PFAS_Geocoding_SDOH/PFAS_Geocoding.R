@@ -32,12 +32,36 @@ geocoded <- addresses_df %>%
 
 
 
+geocoded_zips <- zip_df %>%
+  geocode(zip, method = "osm")
+
+# Or format as full address for better results
+zip_df_formatted <- zip_df %>%
+  mutate(address = paste(zip, "USA")) %>%
+  geocode(address, method = "osm")
 
 
 
 
 
 
+### PFAS Data
+
+# Download from: https://www.epa.gov/ground-water-and-drinking-water/safe-drinking-water-information-system-sdwis-federal
+
+# Or access via API
+library(httr)
+library(jsonlite)
+
+# Example API call for a specific PWS
+pws_id <- "WA1234567"
+url <- paste0("https://data.epa.gov/efservice/GEOGRAPHIC_AREA/PWSID/", pws_id, "/JSON")
+response <- GET(url)
+data <- fromJSON(content(response, "text"))
+
+
+
+### SDOH Data
 
 
 
