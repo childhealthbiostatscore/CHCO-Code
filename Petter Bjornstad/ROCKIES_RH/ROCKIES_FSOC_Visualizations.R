@@ -481,6 +481,215 @@ dev.off()
 
 
 
+#### Split the T2D graphs 
+
+
+
+
+
+
+
+# Function for comparing Lean, Obese, and T2D Combined only
+boxplot_main_groups <- function(data, variable, label, method){
+  
+  var_index <- which(names(data) == variable)
+  data <- data %>% dplyr::select(group2, var_index)
+  names(data)[2] <- 'Variable'
+  
+  data <- data %>% 
+    mutate(position = case_when(
+      group2 == 'Lean Control' ~ 1,
+      group2 == 'Obese Control' ~ 2,
+      group2 == 'T2D Combined' ~ 3, 
+      TRUE ~ NA_real_))
+  
+  # Filter to only include main groups
+  data <- data %>% filter(group2 %in% c('Lean Control', 'Obese Control', 'T2D Combined'))
+  
+  if(method == 'ANOVA'){
+    model <- aov(Variable ~ group2, data = data)
+    model_results <- TukeyHSD(model, conf.level = 0.95)$group2 %>% 
+      as.data.frame()
+    
+    model_results <- model_results %>% 
+      mutate(pvalue = ifelse(`p adj` < 0.001, '< 0.001', 
+                             paste0('p = ', round(`p adj`, 3))))
+    
+    pval_T2D_lean <- model_results$pvalue[which(rownames(model_results) == 'T2D Combined-Lean Control')] %>% 
+      as.character()
+    pval_T2D_obese <- model_results$pvalue[which(rownames(model_results) == 'T2D Combined-Obese Control')] %>% 
+      as.character()
+    pval_lean_obese <- model_results$pvalue[which(rownames(model_results) == 'Obese Control-Lean Control')] %>% 
+      as.character()
+    
+  } else if(method == 't-test'){
+    tmp_df <- data %>% filter(group2 %in% c('T2D Combined', 'Lean Control'))
+    model1 <- t.test(Variable ~ group2, data = tmp_df)
+    pval_T2D_lean <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                            paste0('p = ', round(model1$p.value, 3)))
+    
+    tmp_df <- data %>% filter(group2 %in% c('T2D Combined', 'Obese Control'))
+    model1 <- t.test(Variable ~ group2, data = tmp_df)
+    pval_T2D_obese <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                             paste0('p = ', round(model1$p.value, 3)))
+    
+    tmp_df <- data %>% filter(group2 %in% c('Obese Control', 'Lean Control'))
+    model1 <- t.test(Variable ~ group2, data = tmp_df)
+    pval_lean_obese <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                              paste0('p = ', round(model1$p.value, 3)))
+  }
+  
+  y_max <- max(data$Variable, na.rm = TRUE)
+  y_range <- diff(range(data$Variable, na.rm = TRUE))
+  
+  plot <- ggplot(data, aes(x = position, y = Variable, fill = group2))  +
+    geom_boxplot(width = 0.6, size = 1)+
+    scale_fill_manual(values = c("#c2dfe3", "#9bc1bc", "#fff9ec")) +
+    labs(x= 'Study Group', y = label, fill = 'Study Group')+
+    scale_x_continuous(breaks = c(1, 2, 3), 
+                       labels = c('Lean Control', 'Obese Control', 'T2D Combined'),
+                       limits = c(0.5, 3.5), 
+                       expand = expansion(mult = c(0.05, 0.05)))+
+    theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+          text = element_text(size = 20))
+  
+  plot <- plot + 
+    # T2D Combined vs Lean Control (top level)
+    geom_segment(aes(x = 1, xend = 3, y = y_max + 0.20 * y_range, yend = y_max + 0.20 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 1, xend = 1, y = y_max + 0.18 * y_range, yend = y_max + 0.20 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 3, xend = 3, y = y_max + 0.18 * y_range, yend = y_max + 0.20 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    annotate("text", x = 2, y = y_max + 0.24 * y_range, label = pval_T2D_lean, size = 4.5) +
+    
+    # T2D Combined vs Obese Control (middle level)
+    geom_segment(aes(x = 2, xend = 3, y = y_max + 0.12 * y_range, yend = y_max + 0.12 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 2, xend = 2, y = y_max + 0.10 * y_range, yend = y_max + 0.12 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 3, xend = 3, y = y_max + 0.10 * y_range, yend = y_max + 0.12 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    annotate("text", x = 2.5, y = y_max + 0.16 * y_range, label = pval_T2D_obese, size = 4.5) +
+    
+    # Lean vs Obese Control (bottom level)
+    geom_segment(aes(x = 1, xend = 2, y = y_max + 0.04 * y_range, yend = y_max + 0.04 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 1, xend = 1, y = y_max + 0.02 * y_range, yend = y_max + 0.04 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 2, xend = 2, y = y_max + 0.02 * y_range, yend = y_max + 0.04 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    annotate("text", x = 1.5, y = y_max + 0.08 * y_range, label = pval_lean_obese, size = 4.5) +
+    
+    expand_limits(y = y_max + 0.30 * y_range)
+  
+  return(plot)
+}
+
+# Function for T2D subgroups only
+boxplot_t2d_subgroups <- function(data, variable, label, method){
+  
+  var_index <- which(names(data) == variable)
+  data <- data %>% dplyr::select(group2, var_index)
+  names(data)[2] <- 'Variable'
+  
+  data <- data %>% 
+    mutate(position = case_when(
+      group2 == 'T2D-No SGLTi2' ~ 1,
+      group2 == 'T2D-SGLTi2' ~ 2,
+      TRUE ~ NA_real_))
+  
+  # Filter to only T2D subgroups
+  data <- data %>% filter(group2 %in% c('T2D-No SGLTi2', 'T2D-SGLTi2'))
+  
+  if(method == 't-test'){
+    model1 <- t.test(Variable ~ group2, data = data)
+    pval_comparison <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                              paste0('p = ', round(model1$p.value, 3)))
+  } else if(method == 'ANOVA'){
+    # For just 2 groups, t-test and ANOVA give same result
+    model1 <- t.test(Variable ~ group2, data = data)
+    pval_comparison <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                              paste0('p = ', round(model1$p.value, 3)))
+  }
+  
+  y_max <- max(data$Variable, na.rm = TRUE)
+  y_range <- diff(range(data$Variable, na.rm = TRUE))
+  
+  plot <- ggplot(data, aes(x = position, y = Variable, fill = group2))  +
+    geom_boxplot(width = 0.6, size = 1)+
+    scale_fill_manual(values = c("#fcb1a6", "#fb6376")) +
+    labs(x= 'T2D Subgroups', y = label, fill = 'Study Group')+
+    scale_x_continuous(breaks = c(1, 2), 
+                       labels = c('T2D-No SGLT2i', 'T2D-SGLT2i'),
+                       limits = c(0.5, 2.5), 
+                       expand = expansion(mult = c(0.05, 0.05)))+
+    theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+          text = element_text(size = 20))
+  
+  plot <- plot + 
+    # T2D subgroup comparison
+    geom_segment(aes(x = 1, xend = 2, y = y_max + 0.08 * y_range, yend = y_max + 0.08 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 1, xend = 1, y = y_max + 0.06 * y_range, yend = y_max + 0.08 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    geom_segment(aes(x = 2, xend = 2, y = y_max + 0.06 * y_range, yend = y_max + 0.08 * y_range), 
+                 color = "black", size = 0.5, inherit.aes = FALSE) +
+    annotate("text", x = 1.5, y = y_max + 0.12 * y_range, label = pval_comparison, size = 4.5) +
+    
+    expand_limits(y = y_max + 0.20 * y_range)
+  
+  return(plot)
+}
+
+# Generate both sets of plots
+main_plots <- list()
+subgroup_plots <- list()
+
+for(i in 1:length(tests)){
+  main_plots[[i]] <- boxplot_main_groups(df_plot, tests[i], tests[i], method='ANOVA')
+  subgroup_plots[[i]] <- boxplot_t2d_subgroups(df_plot, tests[i], tests[i], method='t-test')
+}
+
+# Save as paired plots (main groups + T2D subgroups side by side)
+library(grid)
+
+pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_Paired_ANOVA.pdf', 
+    width = 24, height = 20)  
+for(i in 1:length(tests)){
+  gridExtra::grid.arrange(main_plots[[i]], subgroup_plots[[i]], ncol = 2)
+}
+dev.off()
+
+png('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_Paired_ANOVA.png', 
+    width = 1800, height = 1000)  
+gridExtra::grid.arrange(main_plots[[1]], subgroup_plots[[1]], ncol = 2)
+dev.off()
+
+# Or save all in one multi-page document
+pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_AllPaired_ANOVA.pdf', 
+    width = 24, height = 6)  
+for(i in 1:length(tests)){
+  grid.newpage()
+  gridExtra::grid.arrange(main_plots[[i]], subgroup_plots[[i]], 
+                          ncol = 2,
+                          top = textGrob(tests[i], gp = gpar(fontsize = 24, font = 2)))
+}
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
