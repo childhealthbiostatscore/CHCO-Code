@@ -483,13 +483,6 @@ dev.off()
 
 
 #### Split the graphs 
-
-
-
-
-
-
-
 # Function for comparing Lean, Obese, and T2D Combined only
 boxplot_main_groups <- function(data, variable, label, method){
   
@@ -654,24 +647,38 @@ for(i in 1:length(tests)){
   subgroup_plots[[i]] <- boxplot_t2d_subgroups(df_plot, tests[i], tests[i], method='t-test')
 }
 
-# Save as paired plots (main groups + T2D subgroups side by side)
+# Load required libraries
+library(gridExtra)
 library(grid)
 
-pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_Paired_ANOVA.pdf', 
-    width = 24, height = 20)  
+# Create a list alternating main and subgroup plots for proper grid arrangement
+plot_list <- list()
 for(i in 1:length(tests)){
-  gridExtra::grid.arrange(main_plots[[i]], subgroup_plots[[i]], ncol = 2)
+  plot_list[[2*i - 1]] <- main_plots[[i]]
+  plot_list[[2*i]] <- subgroup_plots[[i]]
 }
+
+# PDF with all plots in grid (all variables on one page)
+pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_AllVariables_ANOVA.pdf', 
+    width = 20, height = 5 * length(tests))  # Height scales with number of variables
+gridExtra::grid.arrange(grobs = plot_list, 
+                        ncol = 2,
+                        top = textGrob("FSOC Variables Comparison", 
+                                       gp = gpar(fontsize = 24, font = 2)))
 dev.off()
 
-png('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_Paired_ANOVA.png', 
-    width = 1800, height = 1000)  
-gridExtra::grid.arrange(main_plots[[1]], subgroup_plots[[1]], ncol = 2)
+# PNG with all plots in grid (all variables on one page)
+png('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_AllVariables_ANOVA.png', 
+    width = 2000, height = 500 * length(tests), res = 100)  # Height scales with number of variables
+gridExtra::grid.arrange(grobs = plot_list, 
+                        ncol = 2,
+                        top = textGrob("FSOC Variables Comparison", 
+                                       gp = gpar(fontsize = 24, font = 2)))
 dev.off()
 
-# Or save all in one multi-page document
-pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_AllPaired_ANOVA.pdf', 
-    width = 24, height = 6)  
+# Optional: Individual paired plots (one variable per page - your original approach)
+pdf('C:/Users/netio/Documents/UofW/Rockies/SGLT2ComparisonGroups_Individual_ANOVA.pdf', 
+    width = 20, height = 6)  
 for(i in 1:length(tests)){
   grid.newpage()
   gridExtra::grid.arrange(main_plots[[i]], subgroup_plots[[i]], 
@@ -679,6 +686,8 @@ for(i in 1:length(tests)){
                           top = textGrob(tests[i], gp = gpar(fontsize = 24, font = 2)))
 }
 dev.off()
+
+
 
 
 
