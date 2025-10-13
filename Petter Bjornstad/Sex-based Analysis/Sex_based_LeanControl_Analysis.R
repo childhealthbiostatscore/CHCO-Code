@@ -914,12 +914,238 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  proteo <- form_names[str_which(form_names, pattern = 'proteom')]
  metab <- form_names[str_which(form_names, pattern = 'metab')]
  
+ variables_class <- c('proteomics', 'metabolomics', 'metabolomics_blood_raw',
+                      'az_urine_metabolites', 'metabolomics_aq')
  
  data_dictionary_small <- data_dictionary %>% 
-   filter()
+   filter(form_name %in% variables_class)
  
  
-
+ 
+ # Find which columns actually exist
+ existing_cols <- intersect(data_dictionary_small$variable_name, names(dat))
+ 
+ # Select only those
+ dat_omics <- dat %>% 
+   dplyr::select(record_id, group, sex, all_of(existing_cols))
+ 
+ # Check how many were found vs missing
+ cat("Found:", length(existing_cols), "out of", length(data_dictionary_small$variable_name), "\n")
+ cat("Missing:", length(data_dictionary_small$variable_name) - length(existing_cols), "\n")
+ 
+ 
+ 
+ ##Analysis
+ 
+ library(dplyr)
+ library(ggplot2)
+ library(tidyr)
+ library(gridExtra)
+ library(readxl)
+ 
+ # Read data dictionary
+ data_dictionary <- readxl::read_xlsx('/Users/netio/Downloads/data_dictionary_master.xlsx')
+ 
+ # Set output folder
+ output_folder <- '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/'
+ 
+ # Get all numeric columns (excluding ID columns and grouping variables)
+ numeric_cols <- names(dat_omics)[!names(dat_omics) %in% c('record_id', 'group', 'sex')]
+ 
+ # Initialize results dataframe
+ results <- data.frame(
+   variable = character(),
+   variable_label = character(),
+   form_name = character(),
+   test_used = character(),
+   p_value = numeric(),
+   mean_male = numeric(),
+   mean_female = numeric(),
+   stringsAsFactors = FALSE
+ )
+ 
+ # Loop through each variable
+ for(var in numeric_cols){
+   
+   # Get label and form_name from data dictionary
+   var_label <- data_dictionary$label[data_dictionary$variable_name == var]
+   var_form <- data_dictionary$form_name[data_dictionary$variable_name == var]
+   
+   if(length(var_label) == 0) var_label <- var  # Use variable name if no label found
+   if(length(var_form) == 0) var_form <- NA  # Use NA if no form_name found
+   
+   # Create temporary dataframe
+   temp_data <- dat_omics %>%
+     filter(!is.na(sex) & sex != "") %>%
+     select(sex, all_of(var)) %>%
+     rename(value = all_of(var)) %>%
+     filter(!is.na(value))
+   
+   # Skip if not enough data
+   if(nrow(temp_data) < 6 || length(unique(temp_data$sex)) < 2) next
+   
+   # Split by sex
+   male_data <- temp_data$value[temp_data$sex == "Male"]
+   female_data <- temp_data$value[temp_data$sex == "Female"]
+   
+   # Skip if either group has less than 3 observations
+   if(length(male_data) < 3 || length(female_data) < 3) next
+   
+   # Test for normality (if sample size allows)
+   normal_male <- if(length(male_data) >= 3 & length(male_data) <= 5000) {
+     shapiro.test(male_data)$p.value > 0.05
+   } else TRUE
+   
+   normal_female <- if(length(female_data) >= 3 & length(female_data) <= 5000) {
+     shapiro.test(female_data)$p.value > 0.05
+   } else TRUE
+   
+   # Choose appropriate test
+   if(normal_male & normal_female){
+     # Use t-test
+     test_result <- t.test(value ~ sex, data = temp_data, var.equal = FALSE)
+     test_name <- "Welch's t-test"
+   } else {
+     # Use Mann-Whitney U test
+     test_result <- wilcox.test(value ~ sex, data = temp_data)
+     test_name <- "Mann-Whitney U"
+   }
+   
+   # Store results
+   results <- rbind(results, data.frame(
+     variable = var,
+     variable_label = var_label,
+     form_name = var_form,
+     test_used = test_name,
+     p_value = test_result$p.value,
+     mean_male = mean(male_data, na.rm = TRUE),
+     mean_female = mean(female_data, na.rm = TRUE)
+   ))
+ }
+ 
+ # Add corrected p-values (multiple methods)
+ results <- results %>%
+   mutate(
+     p_bonferroni = p.adjust(p_value, method = "bonferroni"),
+     p_fdr = p.adjust(p_value, method = "fdr"),  # Benjamini-Hochberg
+     difference = mean_male - mean_female,
+     abs_difference = abs(difference)
+   ) %>%
+   arrange(p_value)
+ 
+ # View top results
+ print(head(results, 20))
+ 
+ # Save full results
+ write.csv(results, paste0(output_folder, 'sex_comparison_results.csv'), row.names = FALSE)
+ 
+ # Plot top 10 most significant
+ top_results <- head(results, 10)
+ 
+ plot_list <- list()
+ 
+ for(i in 1:nrow(top_results)){
+   var <- top_results$variable[i]
+   var_label <- top_results$variable_label[i]
+   
+   plot_data <- dat_omics %>%
+     filter(!is.na(sex) & sex != "") %>%
+     select(sex, all_of(var)) %>%
+     rename(value = all_of(var)) %>%
+     filter(!is.na(value))
+   
+   # Get p-value for this variable
+   p_val <- top_results$p_value[i]
+   p_fdr <- top_results$p_fdr[i]
+   test_type <- top_results$test_used[i]
+   
+   # Format p-values
+   p_label <- ifelse(p_val < 0.001, "p < 0.001", sprintf("p = %.3f", p_val))
+   p_fdr_label <- ifelse(p_fdr < 0.001, "FDR < 0.001", sprintf("FDR = %.3f", p_fdr))
+   
+   plot_list[[i]] <- ggplot(plot_data, aes(x = sex, y = value, fill = sex)) +
+     geom_boxplot() +
+     scale_fill_manual(values = c("Male" = "#00008B", "Female" = "#8B0000")) +
+     theme_classic(base_size = 12) +
+     labs(
+       title = var_label,  # Use label instead of variable code
+       subtitle = paste0(p_label, " | ", p_fdr_label),
+       x = "Sex",
+       y = "Value",
+       fill = "Sex"
+     ) +
+     theme(
+       plot.title = element_text(size = 10, face = "bold"),
+       plot.subtitle = element_text(size = 8),
+       legend.position = "none"
+     )
+ }
+ 
+ # Save plots
+ png(paste0(output_folder, 'top10_sex_differences.png'), 
+     height = 15, width = 12, units = 'in', res = 300)
+ grid.arrange(grobs = plot_list, ncol = 2)
+ dev.off()
+ 
+ # Also create a plot for top 20
+ top_results_20 <- head(results, 20)
+ plot_list_20 <- list()
+ 
+ for(i in 1:nrow(top_results_20)){
+   var <- top_results_20$variable[i]
+   var_label <- top_results_20$variable_label[i]
+   
+   plot_data <- dat_omics %>%
+     filter(!is.na(sex) & sex != "") %>%
+     select(sex, all_of(var)) %>%
+     rename(value = all_of(var)) %>%
+     filter(!is.na(value))
+   
+   p_val <- top_results_20$p_value[i]
+   p_fdr <- top_results_20$p_fdr[i]
+   
+   p_label <- ifelse(p_val < 0.001, "p < 0.001", sprintf("p = %.3f", p_val))
+   p_fdr_label <- ifelse(p_fdr < 0.001, "FDR < 0.001", sprintf("FDR = %.3f", p_fdr))
+   
+   plot_list_20[[i]] <- ggplot(plot_data, aes(x = sex, y = value, fill = sex)) +
+     geom_boxplot() +
+     scale_fill_manual(values = c("Male" = "#00008B", "Female" = "#8B0000")) +
+     theme_classic(base_size = 10) +
+     labs(
+       title = var_label,  # Use label instead of variable code
+       subtitle = paste0(p_label, " | ", p_fdr_label),
+       x = "Sex",
+       y = "Value",
+       fill = "Sex"
+     ) +
+     theme(
+       plot.title = element_text(size = 9, face = "bold"),
+       plot.subtitle = element_text(size = 7),
+       legend.position = "none"
+     )
+ }
+ 
+ png(paste0(output_folder, 'top20_sex_differences.png'), 
+     height = 25, width = 15, units = 'in', res = 300)
+ grid.arrange(grobs = plot_list_20, ncol = 3)
+ dev.off()
+ 
+ print("Analysis complete!")
+ print(paste("Total variables tested:", nrow(results)))
+ print(paste("Significant at p < 0.05:", sum(results$p_value < 0.05)))
+ print(paste("Significant at FDR < 0.05:", sum(results$p_fdr < 0.05)))
+ 
+ # Summary by form_name
+ print("\nSummary by analysis method (form_name):")
+ form_summary <- results %>%
+   group_by(form_name) %>%
+   summarise(
+     total_variables = n(),
+     sig_p05 = sum(p_value < 0.05),
+     sig_fdr05 = sum(p_fdr < 0.05)
+   ) %>%
+   arrange(desc(sig_fdr05))
+ print(form_summary)
 
 
 
