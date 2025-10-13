@@ -1215,7 +1215,7 @@ plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axi
   
   n_pos <- nrow(top_pos)
   
-  top_pos <- top_pos %>%
+  top_pos_n <- top_pos %>%
     slice_head(n=top_n)
   
   top_neg <- data %>%
@@ -1224,7 +1224,7 @@ plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axi
   
   n_neg <- nrow(top_neg)
   
-  top_neg <- top_neg %>%
+  top_neg_n <- top_neg %>%
     slice_head(n=top_n)
   
   data <- data %>%
@@ -1233,7 +1233,7 @@ plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axi
                                         TRUE ~ "#ced4da"),
                   top_size = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), 1.3, 1),
                   EntrezGeneSymbol = if_else(data$EntrezGeneSymbol == "", data$Target, data$EntrezGeneSymbol),
-                  top_lab  = if_else(data$AptName %in% c(top_pos$AptName, top_neg$AptName), EntrezGeneSymbol, ""))
+                  top_lab  = if_else(data$AptName %in% c(top_pos_n$AptName, top_neg_n$AptName), EntrezGeneSymbol, ""))
   
   # Max and min for annotation arrows
   max_fc <- max(data[[fc]], na.rm = TRUE)
@@ -1246,13 +1246,16 @@ plot_volcano_proteomics <- function(data, fc, p_col, title = NULL, x_axis, y_axi
   p <- ggplot(data, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
     geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
-    geom_text_repel(aes(label = top_lab, color = top_color),
+    geom_label_repel(aes(label = top_lab, color = top_color),
                     size = geom_text_size, max.overlaps = Inf,
-                    force = 6, segment.alpha = 0.3, segment.size = 0.3) +
+                    force = 6, segment.alpha = 0.3, segment.size = 0.3,
+                    fontface = "bold",
+                    fill = fill_alpha("white", 0.7),
+                    label.size = 0) +
     labs(title = paste(title),
          x = paste(x_axis),
          y = paste(y_axis),
-         caption = paste0("Formula: ~ ", formula, 
+         caption = paste0("Formula: log2(protein) ~ ", formula, 
                           "\nTotal analyzed proteins n: ", nrow(data),
                           " | Positive n = ", n_pos, " | Negative n = ", n_neg)) +
     scale_size_continuous(range = c(1, 1.3)) + 
@@ -1502,25 +1505,19 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   
   p <- ggplot(data, aes(x = !!sym(fc), y = display_neg_log_p)) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
-    geom_point(alpha = 0.5, aes(color = top_color, size = top_size)) +
-    # Background regular labels for on-chart genes
-    geom_text_repel(seed = 1, 
-      data = filter(data, top_lab != ""),
-      aes(label = top_lab),
-      color = "black",
-      fontface = "bold",
-      size = geom_text_size+0.01, max.overlaps = Inf,
-      force = volcano_force, segment.alpha = 0.3, segment.size = 0.3,
-      box.padding = volcano_box_padding
-    ) +
+    geom_point(alpha = 0.5, aes(color = top_color), size = 3) +
     # Regular labels for on-chart genes
-    geom_text_repel(seed = 1, 
+    geom_label_repel(seed = 1, 
       data = filter(data, top_lab != ""),
       aes(label = top_lab, color = top_color),
       fontface = "bold",
       size = geom_text_size, max.overlaps = Inf,
       force = volcano_force, segment.alpha = 0.3, segment.size = 0.3,
-      box.padding = volcano_box_padding
+      box.padding = volcano_box_padding,
+      fill = fill_alpha("white", 0.7),     # background color of the label box
+      label.size = 0
+      # bg.color = "black",
+      # bg.r = .15
     ) +
     # Add arrows for off-chart genes
     {if(nrow(off_chart_genes) > 0) {
@@ -1934,9 +1931,8 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
   # Plot (no background shading)
   p <- ggplot(clin_results, aes(x = !!sym(fc), y = -log10(!!sym(p_col)))) +
     geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
-    geom_point(alpha = 0.2, aes(fill = color_var_plot, 
-                                color = color_var_plot,
-                                shape = shape_var_plot), size = 2) +
+    geom_point(alpha = 0.4, aes(fill = color_var_plot, 
+                                color = color_var_plot), size = 3) +
     geom_text(aes(label = arrow_symbol, color = color_var_plot,
                   vjust = ifelse(arrow_symbol == "\u2193", 1, -0.5)),
               size = arrow_symbol_size, family = "Arial", alpha = 0.3) +
@@ -1965,7 +1961,7 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
              size = text_size) +
     
     # Split geom_text_repel for positive logFC (right side)
-    geom_text_repel(data = clin_results[clin_results[[fc]] > 0 & clin_results$top_lab != "", ],
+    geom_label_repel(data = clin_results[clin_results[[fc]] > 0 & clin_results$top_lab != "", ],
                     aes(label = top_lab, color = color_var_plot),
                     nudge_x = max_fc * nudge_x,
                     nudge_y = nudge_y,
@@ -1982,10 +1978,13 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                     box.padding = box.padding,
                     point.padding = point.padding,
                     min.segment.length = 0,
-                    seed = seed) +
+                    seed = seed,
+                    fontface = "bold",
+                    fill = fill_alpha("white", 0.7),
+                    label.size = 0) +
     
     # Split geom_text_repel for negative logFC (left side)
-    geom_text_repel(data = clin_results[clin_results[[fc]] < 0 & clin_results$top_lab != "", ],
+    geom_label_repel(data = clin_results[clin_results[[fc]] < 0 & clin_results$top_lab != "", ],
                     aes(label = top_lab, color = color_var_plot),
                     nudge_x = min_fc * nudge_x,
                     nudge_y = nudge_y,
@@ -2002,7 +2001,10 @@ plot_volcano_concordance <- function(clin_results, fc, p_col,
                     box.padding = box.padding,
                     point.padding = point.padding,
                     min.segment.length = 0,
-                    seed = seed) +
+                    seed = seed,
+                    fontface = "bold",
+                    fill = fill_alpha("white", 0.7),
+                    label.size = 0) +
     
     labs(title = NULL,
          x = paste(x_axis),
@@ -3970,7 +3972,7 @@ analyze_pseudotime_by_celltype <- function(so,
 # 
 
 plot_treatment_heatmap <- function(data, 
-                                   top_n = 10,
+                                   top_n = 20,
                                    p_col = "p_treatmentDapagliflozin:visitPOST",
                                    logfc_col = "logFC_treatmentDapagliflozin:visitPOST",
                                    fdr_col = "fdr",
@@ -4058,7 +4060,7 @@ plot_treatment_heatmap <- function(data,
       legend.title.position = "top",
       legend.title = element_text(hjust = 0.5, size = 10),
       axis.text.x = element_text(angle = 60, hjust = 1), 
-      axis.text.y = element_markdown(),
+      axis.text.y = element_markdown(face = "bold"),
       plot.caption = element_text(size = 18, hjust = 0.5)
     ) +
     labs(
@@ -6368,7 +6370,8 @@ plot_gsea_results <- function(gsea_list,
     labs(y = NULL, 
          x = "-log(p-value)", 
          fill = "NES",
-         caption = full_caption)
+         caption = full_caption,
+         title = cell_name)
   
   # Apply x-axis limits
   if (!is.null(min_x_limit)) {

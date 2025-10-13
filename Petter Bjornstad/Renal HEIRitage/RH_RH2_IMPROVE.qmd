@@ -138,11 +138,174 @@ rh_rh2_croc_panther_unique <- rh_rh2_croc_panther %>%
          bmi_cat = factor(
            bmi_cat,
            levels = c("Lean", "Overweight", "Obese")
-         )
+         ),
+         tkv_combined = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual),
+         htadjtkv_combined = coalesce(ht_adj_tkv, ht_adj_tkv_manual),
   )
 
 rh_rh2_unique <- rh_rh2_croc_panther_unique %>%
-  filter(group %nin% c("Lean Control"))
+  filter(group %nin% c("Lean Control")) %>%
+  filter(study != "PANTHER")
+```
+
+# Functions
+```{r}
+fit_models_emm <- function(outcomes, 
+                          formula_rhs, 
+                          emm_var = "bmi_cat",
+                          data, 
+                          adjust = "tukey",
+                          ...) {
+  
+  # Load required packages
+  require(emmeans)
+  require(dplyr)
+  require(purrr)
+  
+  # Handle formula_rhs input - convert to character if needed
+  if (inherits(formula_rhs, "formula")) {
+    formula_rhs <- deparse(formula_rhs)
+    # Remove leading ~ if present
+    formula_rhs <- gsub("^\\s*~\\s*", "", formula_rhs)
+  } else {
+    # Remove leading ~ if present in string
+    formula_rhs <- gsub("^\\s*~\\s*", "", formula_rhs)
+  }
+  
+  # If outcomes is a named list (for custom naming), extract names and values
+  if (is.list(outcomes)) {
+    outcome_names <- names(outcomes)
+    outcome_vars <- unlist(outcomes)
+  } else {
+    # If it's a vector, use the values as both names and variables
+    outcome_vars <- outcomes
+    outcome_names <- outcomes
+  }
+  
+  # Create formulas and fit models
+  models <- setNames(
+    lapply(outcome_vars, function(y) {
+      formula_str <- paste(y, "~", formula_rhs)
+      lm(as.formula(formula_str), data = data)
+    }),
+    outcome_names
+  )
+  
+  # Compute EMMs and contrasts for each model
+  emm_results <- imap(models, function(model, model_name) {
+    # Create formula for emmeans (handles both quoted and unquoted variable names)
+    emm_formula <- as.formula(paste("~", emm_var))
+    emm <- emmeans(model, emm_formula, ...)
+    
+    list(
+      emms = as.data.frame(emm) %>% 
+        mutate(outcome = model_name),
+      contrasts = as.data.frame(pairs(emm, adjust = adjust)) %>% 
+        mutate(outcome = model_name)
+    )
+  })
+  
+  # Combine results into tidy tables
+  emm_table <- bind_rows(lapply(emm_results, `[[`, "emms")) %>%
+    relocate(outcome) %>%
+    arrange(outcome, !!sym(emm_var))
+  
+  contrast_table <- bind_rows(lapply(emm_results, `[[`, "contrasts")) %>%
+    relocate(outcome) %>%
+    arrange(outcome, contrast)
+  
+  # Return both tables
+  list(
+    emm_table = emm_table,
+    contrast_table = contrast_table,
+    models = models  # Also return models for potential further analysis
+  )
+}
+
+plot_emms_with_brackets <- function(
+    emm_table,
+    contrast_table,
+    outcome_var,
+    x_var = "bmi_cat",
+    y_label = "Estimated marginal mean",
+    x_label = NULL,
+    use_stars = TRUE,
+    y_step_multiplier = 0.08,
+    point_size = 3,
+    errorbar_width = 0.2,
+    bracket_size = 0.5,
+    label_size = 5,
+    text_size = 15
+) {
+  
+  # Load required packages
+  require(ggplot2)
+  require(tidyverse)
+  require(ggpubr)
+  require(rstatix)
+  
+  # 1) Subset EMMs and contrasts for this outcome
+  emms_sub <- emm_table %>%
+    filter(outcome == outcome_var)
+  
+  contr_sub <- contrast_table %>%
+    filter(outcome == outcome_var) %>%
+    separate(contrast, into = c("group1", "group2"), sep = " - ", remove = FALSE) %>%
+    mutate(
+      group1 = trimws(group1),
+      group2 = trimws(group2),
+      # Label: either stars or formatted p-values
+      label = if(use_stars) {
+        stars.pval(p.value)
+      } else {
+        rstatix::p_format(p.value, add.p = TRUE)
+      }
+    )
+  
+  # Check if data exists
+  if(nrow(emms_sub) == 0) {
+    stop(paste("No data found for outcome:", outcome_var))
+  }
+  
+  # 2) Y positions for brackets (stack them above the highest CI)
+  y_base <- max(emms_sub$upper.CL, na.rm = TRUE)
+  y_step <- y_step_multiplier * diff(range(c(emms_sub$lower.CL, emms_sub$upper.CL), na.rm = TRUE))
+  
+  contr_sub <- contr_sub %>%
+    arrange(p.value) %>%  # optional: nicer stacking
+    mutate(y.position = y_base + row_number() * y_step)
+  
+  # 3) Create the plot
+  p <- ggplot(emms_sub, aes_string(x = x_var, y = "emmean")) +
+    geom_point(size = point_size) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = errorbar_width) +
+    labs(
+      x = x_label,
+      y = y_label
+    ) +
+    theme_minimal() + 
+    theme(
+      text = element_text(size = text_size),
+      panel.grid = element_blank(),
+      legend.position = "none"
+    )
+  
+  # Add significance brackets if contrasts exist
+  if(nrow(contr_sub) > 0) {
+    p <- p + stat_pvalue_manual(
+      contr_sub,
+      label = "label",
+      y.position = "y.position",
+      xmin = "group1",
+      xmax = "group2",
+      tip.length = 0.01,
+      bracket.size = bracket_size,
+      size = label_size
+    )
+  }
+  
+  return(p)
+}
 ```
 
 # MRI Parameters
@@ -156,15 +319,19 @@ rh_rh2_unique %>%
   geom_histogram(bins = 100, fill = "steelblue", color = "white") +
   facet_wrap(~ variable, scales = "free") +
   theme_minimal()
+
 summary(arsenal::tableby(uacr_group ~ avg_c_r2 + avg_m_r2 + avg_k_r2 +
-                           avg_c_adc + avg_c_fsoc + avg_m_fsoc + avg_k_fsoc + avg_pcascl, data=rh_rh2_unique),
+                           avg_c_adc + avg_c_fsoc + avg_m_fsoc + avg_k_fsoc + avg_pcascl + avg_c_t1, data=rh_rh2_unique),
         total = F)
 
-summary(arsenal::tableby(uacr_group ~ bmi_cat + age + sex + kwt(acr_u, "medianq1q3") + eGFR_CKD_epi + bmi + egfr_cat + acr_u_cat3, data=rh_rh2_unique),
+summary(arsenal::tableby(uacr_group ~ tkv_combined + htadjtkv_combined + age + sex + kwt(acr_u, "medianq1q3") + eGFR_CKD_epi + bmi + egfr_cat + acr_u_cat3, data=rh_rh2_unique),
+        total = T)
+
+summary(arsenal::tableby(bmi_cat ~ avg_c_t1, data=subset(rh_rh2_croc_panther_unique, study == "PANTHER" & bmi_cat != "Overweight")),
         total = F)
-# 
-# table(rh_rh2_unique$group,rh_rh2_unique$uacr_100)
-# table(rh_rh2_unique$group,rh_rh2_unique$uacr_group)
+
+summary(arsenal::tableby(uacr_group ~ avg_c_t1, data=subset(rh_rh2_croc_panther_unique, study == "PANTHER" & bmi_cat != "Overweight")),
+        total = F)
 
 ```
 
@@ -183,7 +350,7 @@ rh_rh2_unique %>%
         panel.grid = element_blank(),
         legend.position = "none") +
   labs(x = NULL, y = "Kidney R2* (1/s)") +
-   scale_y_break(c(25, 45), scales = "fixed", space = 0.5) +
+  scale_y_break(c(25, 45), scales = "fixed", space = 0.5) +
   scale_color_manual(values = c("#003049", "#e07a5f"))
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Renal HERITAGE/Results/Figures/uacr_boxplots.png")
@@ -283,37 +450,90 @@ acr_ge30_by_group
 
 ```{r}
 # one more request once we have this done for all of you that I think will be important... can we look at ASL, R2* and ADC in 3 groups lean, overweight and obese while controlling for diabetes status, eGFR and UACR...
+fit_fas <- fit_models_emm(
+  outcomes = c("avg_pcascl", "avg_k_r2", "avg_c_r2", "avg_c_adc",
+               "avg_c_t1", "tkv_combined", "htadjtkv_combined"),
+  formula_rhs = "~ bmi_cat + group + eGFR_fas_cr + log(acr_u)",
+  emm_var = "bmi_cat",
+  data = rh_rh2_croc_panther_unique
+)
 
-# rh_rh2_croc_panther_unique$avg_pcascl 
-# rh_rh2_croc_panther_unique$avg_k_r2
-# rh_rh2_croc_panther_unique$avg_c_adc
-# rh_rh2_croc_panther_unique$group
+fit_fas$emm_table
+fit_fas$contrast_table
+```
 
-table(subset(rh_rh2_croc_panther_unique, !is.na(avg_k_r2))$bmi_cat)
-table(subset(rh_rh2_croc_panther_unique, !is.na(avg_k_r2))$group)
+```{r}
+plot_emms_with_brackets(
+  emm_table = fit_fas$emm_table,
+  contrast_table = fit_fas$contrast_table,
+  outcome_var = "avg_k_r2",
+  y_label = "Estimated marginal mean\nof kidney R2*"
+)
 
-avg_pcascl_fit <- (lm(avg_pcascl ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
-summary(avg_pcascl_fit)
-drop1(avg_pcascl_fit, ~ ., test = "F")
-emm_bmi <- emmeans(avg_pcascl_fit, ~ bmi_cat)
-emm_bmi
+```
 
-avg_k_r2_fit <- (lm(avg_k_r2 ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
-summary(avg_k_r2_fit)
-drop1(avg_k_r2_fit, ~ ., test = "F")
-emm_bmi <- emmeans(avg_k_r2_fit, ~ bmi_cat)
-emm_bmi
-pairs(emm_bmi)
+```{r}
+# one more request once we have this done for all of you that I think will be important... can we look at ASL, R2* and ADC in 3 groups lean, overweight and obese while controlling for diabetes status, eGFR and UACR...
+fit_ckd <- fit_models_emm(
+  outcomes = c("avg_pcascl", "avg_k_r2", "avg_c_r2", "avg_c_adc",
+               "avg_c_t1", "tkv_combined", "htadjtkv_combined"),
+  formula_rhs = "~ bmi_cat + group + eGFR_CKD_epi + log(acr_u)",
+  emm_var = "bmi_cat",
+  data = rh_rh2_croc_panther_unique
+)
 
-avg_c_r2_fit <- (lm(avg_c_r2 ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
-summary(avg_c_r2_fit)
-drop1(avg_c_r2_fit, ~ ., test = "F")
-emm_bmi <- emmeans(avg_c_r2_fit, ~ bmi_cat)
-emm_bmi
+fit_ckd$emm_table
+fit_ckd$contrast_table
 
-avg_c_adc_fit <- (lm(avg_c_adc ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
-summary(avg_c_adc_fit)
-drop1(avg_c_adc_fit, ~ ., test = "F")
-emm_bmi <- emmeans(avg_c_adc_fit, ~ bmi_cat)
-emm_bmi
+plot_emms_with_brackets(
+  emm_table = fit_ckd$emm_table,
+  contrast_table = fit_ckd$contrast_table,
+  outcome_var = "avg_k_r2",
+  y_label = "Estimated marginal mean\nof kidney R2*"
+)
+```
+
+
+```{r}
+# one more request once we have this done for all of you that I think will be important... can we look at ASL, R2* and ADC in 3 groups lean, overweight and obese while controlling for diabetes status, eGFR and UACR...
+fit_age <- fit_models_emm(
+  outcomes = c("avg_pcascl", "avg_k_r2", "avg_c_r2", "avg_c_adc",
+               "avg_c_t1", "tkv_combined", "htadjtkv_combined"),
+  formula_rhs = "~ bmi_cat + group + eGFR_fas_cr + log(acr_u) + age",
+  emm_var = "bmi_cat",
+  data = rh_rh2_croc_panther_unique
+)
+
+summary(rh_rh2_croc_panther_unique$age)
+summary(arsenal::tableby(bmi_cat ~ age, rh_rh2_croc_panther_unique))
+
+fit_age$emm_table
+fit_age$contrast_table
+
+plot_emms_with_brackets(
+  emm_table = fit_age$emm_table,
+  contrast_table = fit_age$contrast_table,
+  outcome_var = "avg_k_r2",
+  y_label = "Estimated marginal mean\nof kidney R2*"
+)
+```
+
+```{r}
+# one more request once we have this done for all of you that I think will be important... can we look at ASL, R2* and ADC in 3 groups lean, overweight and obese while controlling for diabetes status, eGFR and UACR...
+fit_panther <- fit_models_emm(
+  outcomes = c("avg_c_t1", "tkv_combined", "htadjtkv_combined"),
+  formula_rhs = "~ bmi_cat + group + eGFR_fas_cr + log(acr_u) + age",
+  emm_var = "bmi_cat",
+  data = subset(rh_rh2_croc_panther_unique, study == "PANTHER")
+)
+
+fit_panther$emm_table
+fit_panther$contrast_table
+
+plot_emms_with_brackets(
+  emm_table = fit_panther$emm_table,
+  contrast_table = fit_panther$contrast_table,
+  outcome_var = "avg_c_t1",
+  y_label = "Estimated marginal mean\nof kidney R2*"
+)
 ```

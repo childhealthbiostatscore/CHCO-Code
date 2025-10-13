@@ -236,7 +236,6 @@ protein_to_gene <- c(
   "pJAK2" = "JAK2",        # Phospho-JAK2
   "LTL" = "TERT",          # Likely telomerase (if this is telomere length)
   "H3" = "HIST1H3A",       # Histone H3 (using H3A as representative)
-  "u-H2B" = "HIST1H2BA",   # Ubiquitinated histone H2B (using H2BA as representative)
   "ZO-1" = "TJP1",         # Tight junction protein 1
   "IBA1" = "AIF1",         # Ionized calcium binding adaptor molecule 1
   "pERM" = "EZR",          # Phospho-ERM (using ezrin as representative)
@@ -245,7 +244,7 @@ protein_to_gene <- c(
   "CD3" = "CD3D",          # CD3 delta (using as representative of CD3 complex)
   "p-ERK1-2" = "MAPK1",    # Phospho-ERK1/2 (using ERK2/MAPK1 as representative)
   "LMP7" = "PSMB8",        # Proteasome subunit beta 8
-  "DRAQ5" = "DRAQ5"        # DNA stain, not a gene - keep as is
+  "u-H2B" = "HIST1H2BD"
 )
 spatial_proteomics_long_gene <- spatial_proteomics_long %>% 
   mutate(Gene = ifelse(spatial_proteomics_long$markers %in% names(protein_to_gene), 
@@ -344,12 +343,15 @@ for (cell in names(celltype_groups))  {
   print(var_name)
   assign(var_name, annotated_df)
 }
-
 ```
+
+# Significant clusters
+
+# ATTEMPT
 
 ```{r}
 # Define the cell type groups (assuming you have data objects for each)
-celltype_data_objects <- list(
+croc_celltype_data_objects <- list(
   "pt" = pt_kpmp,
   "tal" = tal_kpmp,
   "pc" = pc_kpmp,      # assuming these exist
@@ -363,39 +365,34 @@ celltype_data_objects <- list(
 )
 
 # Function to extract data for each cell type
-extract_celltype_data <- function(data_obj, celltype_name, markers, protein_to_gene) {
-  
-  # Create column names with celltype prefix
+extract_celltype_data <- function(data_obj, celltype_name, protein_to_gene) {
+  # desired output column names
   logfc_col <- paste0(celltype_name, "_logFC")
-  pval_col <- paste0(celltype_name, "_p.value")
-  
-  # Extract and process data
-  result <- data_obj %>%
-    dplyr::select(
-      Gene, 
-      !!logfc_col := `logFC_treatmentDapagliflozin:visitPOST`, 
-      !!pval_col := `p_treatmentDapagliflozin:visitPOST`
-    ) %>%
-    filter(Gene %in% markers) %>%
-    mutate(markers = case_when(
-      Gene %in% names(protein_to_gene) ~ protein_to_gene[Gene], 
-      TRUE ~ Gene
-    ))
-  
-  return(result)
+  pval_col  <- paste0(celltype_name, "_p.value")
+
+  # reverse map: gene -> protein (alias)
+  gene_to_protein <- setNames(names(protein_to_gene), unname(protein_to_gene))
+
+  data_obj %>%
+    filter(abs(.data$`logFC_treatmentDapagliflozin:visitPOST`) < 10) %>%
+    dplyr::transmute(
+      Gene,
+      !!logfc_col := .data$`logFC_treatmentDapagliflozin:visitPOST`,
+      !!pval_col  := .data$`p_treatmentDapagliflozin:visitPOST`,
+      markers     = dplyr::coalesce(unname(gene_to_protein[Gene]), Gene)
+    ) 
 }
 
 # Extract data for all cell types
 celltype_results <- list()
 
-for (celltype in names(celltype_data_objects)) {
+for (celltype in names(croc_celltype_data_objects)) {
   if (exists(paste0(celltype, "_kpmp"))) {  # Check if object exists
     cat("Processing", celltype, "...\n")
     
     celltype_results[[celltype]] <- extract_celltype_data(
-      data_obj = celltype_data_objects[[celltype]],
+      data_obj = croc_celltype_data_objects[[celltype]],
       celltype_name = celltype,
-      markers = markers,
       protein_to_gene = protein_to_gene
     )
   } else {
@@ -427,7 +424,334 @@ collapsed_data <- scrna_combined_data %>%
     across(all_of(pvalue_cols), ~ collapse_safe(round(.x, 3)), .names = "{.col}"),
     .groups = "drop"
   ) %>%
-  mutate(group = as.integer(group))
+  mutate(group = as.integer(group)) 
 
 write.csv(collapsed_data, file.path(root_path, "ATTEMPT/Data Clean/scRNA_SP_Combined.csv"), row.names = F, na = "")
+```
+```{r}
+# Evaluating clusters
+# Glomerular: 37 (up)
+glom_cluster <- scrna_combined_data %>%
+  filter(group == 37) 
+
+glom_cluster <- glom_cluster %>% 
+  group_by(markers) %>%
+  mutate(
+    groups_present = paste(unique(group), collapse = ", "),
+    # Create colored version
+    groups_present_colored = paste(
+      sapply(unique(group), function(g) {
+        if(g == "49") {
+          paste0("<span style='color:#2E86AB'>", g, "</span>")  # blue for 49
+        } else {
+          paste0("<span style='color:#ee7674'>", g, "</span>")  # red for others
+        }
+      }), 
+      collapse = ", "
+    )
+  ) %>%
+  ungroup()
+
+
+glom_cluster %>%
+  separate_rows(markers, intensities, log2fc, sep = ", ") %>%
+  pivot_longer(
+    cols = matches("_(logFC|p\\.value)$"),
+    names_to = c("celltype", ".value"),
+    names_pattern = "^(.*)_(logFC|p\\.value)$",
+    values_drop_na = FALSE
+  ) %>%
+  mutate(
+    marker_color = case_when(
+      log2fc < 0 ~ "#89c2d9",  
+      log2fc > 0 ~ "#ee7674",   
+      TRUE ~ "black"
+    ),
+    # Create colored labels for ggtext
+    markers_colored = paste0("<span style='color:", marker_color, "'>", markers, "</span>"),
+    markers_colored_grouped = paste0("<span style='color:", marker_color, "'>", markers, " (", groups_present_colored, ")", "</span>"),
+    # Set non-significant values to NA for plotting (they'll appear white)
+    significance_star = stars.pval(p.value)
+  ) %>% 
+  ggplot(aes(x = toupper(celltype), y = markers_colored_grouped)) +
+  geom_tile(aes(fill = logFC)) +
+  geom_text(aes(label = significance_star)) +
+  theme_transparent +
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0, na.value = "grey95") +
+  theme(axis.text.y = element_markdown(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = NULL, y = NULL, title = "Dapagliflozin effects with glomerular spatial proteomics on T1D vs. HC")
+```
+
+```{r}
+# Tubular: 49 (dn), 19, 7, 37, 56, 23, 31 (up)
+tubular_cluster <- scrna_combined_data %>%
+  filter(group %in% c(49,19,7,37,56,23,31)) 
+tubular_cluster <- tubular_cluster %>% 
+  group_by(markers) %>%
+  mutate(
+    groups_present = paste(unique(group), collapse = ", "),
+    # Create colored version
+    groups_present_colored = paste(
+      sapply(unique(group), function(g) {
+        if(g == "49") {
+          paste0("<span style='color:#2E86AB'>", g, "</span>")  # blue for 49
+        } else {
+          paste0("<span style='color:#ee7674'>", g, "</span>")  # red for others
+        }
+      }), 
+      collapse = ", "
+    )
+  ) %>%
+  ungroup()
+
+
+tubular_cluster %>%
+  separate_rows(markers, intensities, log2fc, sep = ", ") %>%
+  pivot_longer(
+    cols = matches("_(logFC|p\\.value)$"),
+    names_to = c("celltype", ".value"),
+    names_pattern = "^(.*)_(logFC|p\\.value)$",
+    values_drop_na = FALSE
+  ) %>%
+  mutate(
+    marker_color = case_when(
+      log2fc < 0 ~ "#89c2d9",  
+      log2fc > 0 ~ "#ee7674",   
+      TRUE ~ "black"
+    ),
+    # Create colored labels for ggtext
+    markers_colored = paste0("<span style='color:", marker_color, "'>", markers, "</span>"),
+    markers_colored_grouped = paste0("<span style='color:", marker_color, "'>", markers, " (", groups_present_colored, ")", "</span>"),
+    # Set non-significant values to NA for plotting (they'll appear white)
+    significance_star = stars.pval(p.value)
+  ) %>% 
+  ggplot(aes(x = toupper(celltype), y = markers_colored_grouped)) +
+  geom_tile(aes(fill = logFC)) +
+  geom_text(aes(label = significance_star)) +
+  theme_transparent +
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0, na.value = "grey95") +
+  theme(axis.text.y = element_markdown(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = NULL, y = NULL, title = "Dapagliflozin effects with glomerular spatial proteomics on T1D vs. HC")
+```
+
+
+# CROCODILE
+
+```{r}
+celltypes <- c("PT", "TAL", "PC", "Immune_Myeloid", "Immune_Lymphoid", 
+               "Immune", "IC", "EC", "VSMC_P_FIB", "POD")
+
+# Full gene set
+for (cell in celltypes)  {
+  input_path <- paste0("/CROCODILE comparison analysis/", toupper(cell), "/nebula/",tolower(cell),"_kpmp_croc_attempt_targeted.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+  head(cell_df)
+  processed <- process_nebula_results(cell_df, pval_col = "p_groupType_1_Diabetes")
+  lower_cell <- tolower(cell)
+  var_name <- paste0(lower_cell, "_croc_kpmp")
+  
+  assign(var_name, processed$results)
+}
+```
+
+
+```{r}
+# Define the cell type groups (assuming you have data objects for each)
+croc_celltype_data_objects <- list(
+  "pt" = pt_croc_targeted_res,
+  "tal" = tal_croc_targeted_res,
+  "pc" = pc_croc_targeted_res,      # assuming these exist
+  "ec" = ec_croc_targeted_res,      
+  "ic" = ic_croc_targeted_res,      
+  "pod" = pod_croc_targeted_res,    
+  "immune" = immune_croc_targeted_res,
+  "immune_myeloid" = immune_myeloid_croc_targeted_res,
+  "immune_lymphoid" = immune_lymphoid_croc_targeted_res,
+  "vsmc_p_fib" = vsmc_p_fib_croc_targeted_res
+)
+
+# Function to extract data for each cell type
+croc_extract_celltype_data <- function(data_obj, celltype_name, protein_to_gene) {
+  # desired output column names
+  logfc_col <- paste0(celltype_name, "_logFC")
+  pval_col  <- paste0(celltype_name, "_p.value")
+
+  # reverse map: gene -> protein (alias)
+  gene_to_protein <- setNames(names(protein_to_gene), unname(protein_to_gene))
+
+  data_obj %>%
+    dplyr::transmute(
+      Gene,
+      !!logfc_col := .data$`logFC_groupType_1_Diabetes`,
+      !!pval_col  := .data$`p_groupType_1_Diabetes`,
+      markers     = dplyr::coalesce(unname(gene_to_protein[Gene]), Gene)
+    )
+}
+
+# Extract data for all cell types
+celltype_results <- list()
+
+for (celltype in names(croc_celltype_data_objects)) {
+  if (exists(paste0(celltype, "_croc_targeted_res"))) {  # Check if object exists
+    cat("Processing", celltype, "...\n")
+    
+    celltype_results[[celltype]] <- croc_extract_celltype_data(
+      data_obj = croc_celltype_data_objects[[celltype]],
+      celltype_name = celltype,
+      protein_to_gene = protein_to_gene
+    )
+  } else {
+    cat("Warning:", paste0(celltype, "_croc_targeted_res"), "object not found\n")
+  }
+}
+
+if (length(celltype_results) > 0) {
+  combined_data <- celltype_results %>%
+    purrr::reduce(full_join, by = c("Gene", "markers"))
+  
+  cat("Combined data created with", nrow(combined_data), "rows and", ncol(combined_data), "columns\n")
+  print(head(combined_data))
+}
+
+croc_scrna_combined_data <- spatial_proteomics_long %>% left_join(combined_data)
+
+logFC_cols <- names(croc_scrna_combined_data)[grepl("_logFC$", names(croc_scrna_combined_data))]
+pvalue_cols <- names(croc_scrna_combined_data)[grepl("_p\\.value$", names(croc_scrna_combined_data))]
+
+croc_collapsed_data <- croc_scrna_combined_data %>%
+  group_by(group) %>%  # assuming you have a 'group' column
+  summarise(
+    markers = collapse_safe(markers),
+    Genes_identified = collapse_safe(Gene),
+    # Dynamically collapse all logFC columns
+    across(all_of(logFC_cols), ~ collapse_safe(round(.x, 3)), .names = "{.col}"),
+    # Dynamically collapse all p-value columns  
+    across(all_of(pvalue_cols), ~ collapse_safe(round(.x, 3)), .names = "{.col}"),
+    .groups = "drop"
+  ) %>%
+  mutate(group = as.integer(group))
+
+write.csv(croc_collapsed_data, file.path(root_path, "ATTEMPT/Data Clean/croc_scRNA_SP_Combined.csv"), row.names = F, na = "")
+```
+
+
+```{r}
+# Evaluating clusters
+# Glomerular: 37 (up)
+croc_glomcluster <- croc_scrna_combined_data %>%
+  filter(group == 37) 
+
+croc_glomcluster <- croc_glomcluster %>% 
+  group_by(markers) %>%
+  mutate(
+    groups_present = paste(unique(group), collapse = ", "),
+    # Create colored version
+    groups_present_colored = paste(
+      sapply(unique(group), function(g) {
+        if(g == "49") {
+          paste0("<span style='color:#2E86AB'>", g, "</span>")  # blue for 49
+        } else {
+          paste0("<span style='color:#ee7674'>", g, "</span>")  # red for others
+        }
+      }), 
+      collapse = ", "
+    )
+  ) %>%
+  ungroup()
+
+
+croc_glomcluster %>%
+  separate_rows(markers, intensities, log2fc, sep = ", ") %>%
+  pivot_longer(
+    cols = matches("_(logFC|p\\.value)$"),
+    names_to = c("celltype", ".value"),
+    names_pattern = "^(.*)_(logFC|p\\.value)$",
+    values_drop_na = FALSE
+  ) %>%
+  mutate(
+    marker_color = case_when(
+      log2fc < 0 ~ "#89c2d9",  
+      log2fc > 0 ~ "#ee7674",   
+      TRUE ~ "black"
+    ),
+    # Create colored labels for ggtext
+    markers_colored = paste0("<span style='color:", marker_color, "'>", markers, "</span>"),
+    markers_colored_grouped = paste0("<span style='color:", marker_color, "'>", markers, " (", groups_present_colored, ")", "</span>"),
+    # Set non-significant values to NA for plotting (they'll appear white)
+    significance_star = stars.pval(p.value)
+  ) %>% 
+  ggplot(aes(x = toupper(celltype), y = markers_colored_grouped)) +
+  geom_tile(aes(fill = logFC)) +
+  geom_text(aes(label = significance_star)) +
+  theme_transparent +
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0, na.value = "grey95") +
+  theme(axis.text.y = element_markdown(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = NULL, y = NULL, title = "CROC T1D vs. HC with glomerular spatial proteomics on T1D vs. HC")
+```
+
+```{r}
+# Tubular: 49 (dn), 19, 7, 37, 56, 23, 31 (up)
+croc_tubular_cluster <- croc_scrna_combined_data %>%
+  filter(group %in% c(49,19,7,37,56,23,31)) 
+croc_tubular_cluster <- croc_tubular_cluster %>% 
+  group_by(markers) %>%
+  mutate(
+    groups_present = paste(unique(group), collapse = ", "),
+    # Create colored version
+    groups_present_colored = paste(
+      sapply(unique(group), function(g) {
+        if(g == "49") {
+          paste0("<span style='color:#2E86AB'>", g, "</span>")  # blue for 49
+        } else {
+          paste0("<span style='color:#ee7674'>", g, "</span>")  # red for others
+        }
+      }), 
+      collapse = ", "
+    )
+  ) %>%
+  ungroup()
+
+
+croc_tubular_cluster %>%
+  separate_rows(markers, intensities, log2fc, sep = ", ") %>%
+  pivot_longer(
+    cols = matches("_(logFC|p\\.value)$"),
+    names_to = c("celltype", ".value"),
+    names_pattern = "^(.*)_(logFC|p\\.value)$",
+    values_drop_na = FALSE
+  ) %>%
+  mutate(
+    marker_color = case_when(
+      log2fc < 0 ~ "#89c2d9",  
+      log2fc > 0 ~ "#ee7674",   
+      TRUE ~ "black"
+    ),
+    # Create colored labels for ggtext
+    markers_colored = paste0("<span style='color:", marker_color, "'>", markers, "</span>"),
+    markers_colored_grouped = paste0("<span style='color:", marker_color, "'>", markers, " (", groups_present_colored, ")", "</span>"),
+    # Set non-significant values to NA for plotting (they'll appear white)
+    significance_star = stars.pval(p.value)
+  ) %>% 
+  ggplot(aes(x = toupper(celltype), y = markers_colored_grouped)) +
+  geom_tile(aes(fill = logFC)) +
+  geom_text(aes(label = significance_star)) +
+  theme_transparent +
+  scale_fill_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0, na.value = "grey95") +
+  theme(axis.text.y = element_markdown(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = NULL, y = NULL, title = "CROC T1D vs. HC with glomerular spatial proteomics on T1D vs. HC")
+
+```
+
+# Overlaps between CROC and ATTEMPT
+```{r}
+scrna_combined_data %>% 
+  mutate(source = "ATTEMPT") %>%
+  rbind(croc_scrna_combined_data %>% 
+  mutate(source = "CROC"))
+
+
 ```
