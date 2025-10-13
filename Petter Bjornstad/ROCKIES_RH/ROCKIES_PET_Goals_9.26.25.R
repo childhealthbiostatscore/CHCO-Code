@@ -4815,6 +4815,75 @@ dev.off()
 
 
 
+#without obese controls. No UACR.  
+
+
+library(corrplot)
+
+dat2 <- data.table::fread("/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")
+
+dat2 <- dat2[-str_which(dat2$record_id, pattern = '-O'),]
+
+combined_df <- dat2 %>% #filter(group %in% c('Type 2 Diabetes', 'Obese Control')) %>% 
+  dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f,
+                arteriosclerosis, arteriolohyalinosis, `GBM thickness`, `GBM thickness arith`, `GBM thickness harm`,
+                acr_u) %>% 
+  mutate(arteriolohyalinosis_severity = ifelse(arteriolohyalinosis == 'no', 0, 
+                                               ifelse(arteriolohyalinosis == 'mild', 1, 
+                                                      ifelse(arteriolohyalinosis == 'severe', 2, NA))), 
+         GBM_thickness = ifelse(`GBM thickness` %in% c('normal', 'normal/thickened?'), 1, 0), 
+         arteriosclerosis = ifelse(arteriosclerosis == 'yes', 1,
+                                   ifelse(arteriosclerosis == 'no', 0, NA))) %>%
+  select(-arteriolohyalinosis, -`GBM thickness`, -record_id)
+
+
+
+combined_df_corr <- cor(combined_df, use = 'pairwise.complete.obs', 
+                        method = 'spearman')
+
+# Calculate p-values using cor.mtest
+p_values <- cor.mtest(combined_df, method = 'spearman')
+
+# Create subset for plotting
+corr_subset <- as.matrix(combined_df_corr[c(4,8, 9), c(1:3), drop = F])
+p_subset <- as.matrix(p_values$p[c(4,8, 9), c(1:3), drop = F])
+
+
+rownames(corr_subset) <- c('Arteriosclerosis (Y/N)',  'Arteriolohyalinosis Severity', 
+#                           'GBM Thickness (arith)', 'GBM Thickness (Harm)',
+                           'GBM Thickening (Y/N)')
+colnames(corr_subset) <- c('Cortical K2', 'Cortical F', 'Cortical K2/F')
+
+# Apply same names to p-value matrix
+rownames(p_subset) <- rownames(corr_subset)
+colnames(p_subset) <- colnames(corr_subset)
+
+pdf('C:/Users/netio/Downloads/UACR_GBM_correlations_noOC.pdf', width = 20, height = 20)
+corrplot(corr_subset, 
+         method = "color",
+         p.mat = p_subset,           # Add p-values
+         sig.level = 0.05,           # Significance level
+         insig = "label_sig",        # Show significance markers (* for p<0.05, ** for p<0.01, etc.)
+         number.cex = 1.2,           # size of correlation numbers
+         tl.cex = 1.5,
+         tl.col = 'black',
+         cl.cex = 1.2)              # size of color legend
+dev.off()
+
+
+png('C:/Users/netio/Downloads/UACR_GBM_correlations_noOC.png', width = 25, height = 20, units = 'in', res = 300)
+corrplot(corr_subset, 
+         method = "color",
+         p.mat = p_subset,           # Add p-values
+         sig.level = 0.05,           # Significance level
+         insig = "label_sig",        # Show significance markers (* for p<0.05, ** for p<0.01, etc.)
+         number.cex = 2,           # size of correlation numbers
+         tl.cex = 3,
+         tl.col = 'black',
+         cl.cex = 3)              # size of color legend
+dev.off()
+
+
 
 
 
