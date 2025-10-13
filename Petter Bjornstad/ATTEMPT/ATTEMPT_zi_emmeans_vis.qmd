@@ -127,8 +127,7 @@ for (cell in celltypes)  {
   assign(var_name, annotated_df, envir = .GlobalEnv)
 }
 ```
-
-```{r echo = F}
+```{r echo = F, eval = F}
 top20_wb <- createWorkbook()
 
 # Loop through and extract top 20 genes per cell type
@@ -149,6 +148,42 @@ for (cell in celltypes) {
 # Save the workbook
 saveWorkbook(top20_wb, file = "//Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT//Results/top20_hvg_nebula_results_by_celltype.xlsx", overwrite = TRUE)
 
+```
+
+
+```{r}
+celltypes <- c("frPT", "dPOD")
+
+# Full gene set
+for (cell in celltypes)  {
+  input_path <- paste0(cell,"/nebula/",tolower(cell),"_attempt_nebula.rds")
+  cell_df <- s3readRDS(input_path, bucket = "attempt", region = "")
+
+  processed <- process_nebula_results(cell_df)
+  # Get gene symbols
+  gene_symbols <- processed$results$Gene
+  
+  # Query Ensembl
+  gene_info <- getBM(
+    attributes = c("hgnc_symbol", "description", "gene_biotype"),
+    filters = "hgnc_symbol",
+    values = gene_symbols,
+    mart = mart
+  ) %>%
+    dplyr::rename(Gene = hgnc_symbol)
+  
+  # Join annotation
+  annotated_df <- processed$results %>%
+    left_join(gene_info, by = "Gene")
+  
+  # Assign to variable dynamically
+  var_name <- paste0(tolower(cell), "_nebula_res_combined_reml_pooled")
+  assign(var_name, annotated_df, envir = .GlobalEnv)
+  write.csv(annotated_df, file.path(root_path, "ATTEMPT/Results/nebula", paste0(tolower(cell), "_kpmp_res.csv")))
+}
+
+frpt_nebula_res_combined_reml_pooled
+dpod_nebula_res_combined_reml_pooled
 ```
 
 ### PT
