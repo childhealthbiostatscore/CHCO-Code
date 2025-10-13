@@ -4347,7 +4347,11 @@ ggsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/module_sco
 
 
 
-##############All participants (same as Ye Ji)
+
+
+
+
+##############All participants (same as Ye Ji; UACR)
 
 
 
@@ -4753,6 +4757,60 @@ dev.off()
 
 
 
+
+
+
+############ Correlate with GBM and arteriosclerosis
+
+library(corrplot)
+
+dat2 <- data.table::fread("/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")
+
+combined_df <- dat2 %>% #filter(group %in% c('Type 2 Diabetes', 'Obese Control')) %>% 
+  dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f,
+                arteriosclerosis, arteriolohyalinosis, `GBM thickness`, `GBM thickness arith`, `GBM thickness harm`,
+                acr_u) %>% 
+  mutate(arteriolohyalinosis_severity = ifelse(arteriolohyalinosis == 'no', 0, 
+                                               ifelse(arteriolohyalinosis == 'mild', 1, 
+                                                      ifelse(arteriolohyalinosis == 'severe', 2, NA))), 
+         GBM_thickness = ifelse(`GBM thickness` %in% c('normal', 'normal/thickened?'), 1, 0), 
+         arteriosclerosis = ifelse(arteriosclerosis == 'yes', 1,
+                                   ifelse(arteriosclerosis == 'no', 0, NA))) %>%
+  select(-arteriolohyalinosis, -`GBM thickness`, -record_id)
+
+
+
+combined_df_corr <- cor(combined_df, use = 'pairwise.complete.obs', 
+                        method = 'spearman')
+
+# Calculate p-values using cor.mtest
+p_values <- cor.mtest(combined_df, method = 'spearman')
+
+# Create subset for plotting
+corr_subset <- as.matrix(combined_df_corr[c(7, 4,8, 5, 6, 9), c(1:3), drop = F])
+p_subset <- as.matrix(p_values$p[c(7, 4,8, 5, 6, 9), c(1:3), drop = F])
+
+
+rownames(corr_subset) <- c('Urine Albumin-Creatinine Ratio', 'Arteriosclerosis (Y/N)',  'Arteriolohyalinosis Severity', 
+                           'GBM Thickness (arith)', 'GBM Thickness (Harm)',
+                          'GBM Thickening (Y/N)')
+colnames(corr_subset) <- c('Cortical K2', 'Cortical F', 'Cortical K2/F')
+
+# Apply same names to p-value matrix
+rownames(p_subset) <- rownames(corr_subset)
+colnames(p_subset) <- colnames(corr_subset)
+
+pdf('C:/Users/netio/Downloads/UACR_GBM_correlations.pdf', width = 20, height = 20)
+corrplot(corr_subset, 
+         method = "color",
+         p.mat = p_subset,           # Add p-values
+         sig.level = 0.05,           # Significance level
+         insig = "label_sig",        # Show significance markers (* for p<0.05, ** for p<0.01, etc.)
+         number.cex = 1.2,           # size of correlation numbers
+         tl.cex = 1.5,
+         tl.col = 'black',
+         cl.cex = 1.2)              # size of color legend
+dev.off()
 
 
 
