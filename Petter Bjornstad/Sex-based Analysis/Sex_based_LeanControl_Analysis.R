@@ -910,6 +910,11 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  data_dictionary <- readxl::read_xlsx('/Users/netio/Downloads/data_dictionary_master.xlsx')
  
+ form_names <- unique(data_dictionary$form_name)
+ proteo <- form_names[str_which(form_names, pattern = 'proteom')]
+ metab <- form_names[str_which(form_names, pattern = 'metab')]
+ 
+ 
  data_dictionary_small <- data_dictionary %>% 
    filter()
  
