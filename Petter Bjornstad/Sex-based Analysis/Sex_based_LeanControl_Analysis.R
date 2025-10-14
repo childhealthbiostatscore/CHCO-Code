@@ -931,7 +931,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  library(dplyr)
  
  # Convert variables to proper data types
- combined_df <- dat %>%
+ combined_df <- dat %>% 
+   filter(!is.na(citrate)) %>% 
    mutate(
      # Ensure continuous variables are numeric
      age = as.numeric(age),
