@@ -36,6 +36,8 @@ def harmonize_data():
     from panda import clean_panda
     from attempt import clean_attempt
     from rpc2 import clean_rpc2_redcap
+    from ultra import clean_ultra
+    from sweetheart import clean_sweetheart
     from harmonization_functions import calc_egfr, create_study_id_columns
     # Use individual data functions to import cleaned DFs
     casper = clean_casper()
@@ -49,6 +51,8 @@ def harmonize_data():
     panda = clean_panda()
     attempt = clean_attempt()
     rpc2 = clean_rpc2_redcap()
+    ultra = clean_ultra()
+    sweetheart = clean_sweetheart()
     # Merge
     harmonized = pd.concat([casper, coffee], join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, crocodile],
@@ -69,6 +73,12 @@ def harmonize_data():
                            join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, rpc2],
                            join='outer', ignore_index=True)
+    harmonized = pd.concat([harmonized, ultra],
+                           join='outer', ignore_index=True)
+    harmonized = pd.concat([harmonized, sweetheart],
+                           join='outer', ignore_index=True)
+    
+  
                            
     # Fix levels of categorical variables
     harmonized["visit"] = \
@@ -90,33 +100,121 @@ def harmonize_data():
         ", " + harmonized["ethnicity"]
     harmonized = pd.concat([harmonized, race_ethnicity], axis=1)
     harmonized.rename({0: "race_ethnicity"}, axis=1, inplace=True)
+
     # Replace blanks with missing
     harmonized.replace("", np.nan, inplace=True)
-    # Convert to numeric
-    harmonized = harmonized.apply(
-        pd.to_numeric, errors='ignore')    
+   
+
+
+   
     # Date variables
+
+
     dates = ["dob", "date", "diabetes_dx_date"]
-    harmonized[dates] = \
-        harmonized[dates].apply(pd.to_datetime, errors='coerce')
+    for col in harmonized.columns:
+        try:
+            harmonized[col] = pd.to_numeric(harmonized[col], errors="ignore")
+        except Exception as e:
+            print(f"Skipping numeric conversion for {col}: {e}")
+
+    def normalize_date(date_str):
+        """
+        Normalize date strings into YYYY-MM-DD.
+        Handles dash or slash separators, missing day/month, and 2-digit years.
+        """
+        if not isinstance(date_str, str) or not date_str.strip():
+            return None
+
+        s = date_str.strip()
+
+        # Handle common placeholders
+        if s.lower() in {"na", "none", "null", "missing", "nan"}:
+            return None
+
+        # Replace slashes with dashes
+        s = s.replace("/", "-")
+
+        parts = s.split("-")
+        nums = []
+        for p in parts:
+            try:
+                nums.append(int(p))
+            except ValueError:
+                return None
+
+        year = month = day = None
+
+        # If only 1 number: assume year
+        if len(nums) == 1:
+            year = nums[0]
+            month = 1
+            day = 1
+        else:
+            for n in nums:
+                if n > 31 and year is None:
+                    year = n
+                elif 1 <= n <= 12 and month is None:
+                    month = n
+                elif 1 <= n <= 31 and day is None:
+                    day = n
+
+            # Fill missing month/day
+            if year is None:
+                # fallback: pick largest number as year
+                year = max(nums)
+            if month is None:
+                month = 1
+            if day is None:
+                day = 1
+
+        # Handle 2-digit years (assume 1900s if > current year?)
+        if year < 100:
+            year += 2000 if year <= 25 else 1900  # adjust based on your data
+
+        return f"{year:04d}-{month:02d}-{day:02d}"
+
+    
+    for col in dates:
+        if col in harmonized.columns:
+            harmonized[col] = harmonized[col].apply(normalize_date)
+
+    for col in dates:
+        if col in harmonized.columns:
+            harmonized[col] = pd.to_datetime(harmonized[col], errors="coerce")
+            print(f"{col}: {harmonized[col].notna().sum()} non-null datetime values")
+    
+    # harmonized[dates] = \
+    #     harmonized[dates].apply(pd.to_datetime, errors='coerce')
+
     # ----------------------
     # Calculated variables
     # ----------------------
     dictionary = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv")
 
     # Age
+    print("\nStudies with dob:")
+    print(harmonized.groupby('study')['dob'].apply(lambda x: x.notna().sum()))
+
+    print("\nStudies with date:")
+    print(harmonized.groupby('study')['date'].apply(lambda x: x.notna().sum())) 
+    harmonized = harmonized.drop(columns=['age'], errors='ignore')
     age = round((harmonized["date"] - harmonized["dob"]).dt.days / 365.25, 2)
     harmonized = pd.concat([harmonized, age], axis=1)
     harmonized.rename({0: "age"}, axis=1, inplace=True)
+
+    print("\nStudies with age:")
+    print(harmonized.groupby('study')['age'].apply(lambda x: x.notna().sum()))
     # set column x to 'a' where column y == 'b'
     dictionary.loc[dictionary['variable_name'] == 'age', 'form_name'] = 'demographics'
     # BMI
     harmonized["bmi"] = pd.to_numeric(harmonized["weight"])/((pd.to_numeric(harmonized["height"])/100)**2)
     dictionary.loc[dictionary['variable_name'] == 'bmi', 'form_name'] = 'physical_exam'
+
     # Diabetes duration
     disease_duration = \
         round((harmonized["date"] -
               harmonized["diabetes_dx_date"]).dt.days / 365.25, 2)
+
     harmonized = pd.concat([harmonized, disease_duration], axis=1)
     harmonized.rename({0: "diabetes_duration"}, axis=1, inplace=True)
     dictionary.loc[dictionary['variable_name'] == 'diabetes_duration', 'form_name'] = 'medical_history'
@@ -173,10 +271,11 @@ def harmonize_data():
     
     # Average T1
     harmonized["avg_k_t1"]= \
-        harmonized[["bold_l_t1_kidney", "bold_r_t1_kidney"]].apply(lambda x: x.mean(), axis=1)
+        harmonized[["bold_r_t1_kidney", "bold_l_t1_kidney"]].apply(lambda x: x.mean(), axis=1)
     harmonized["avg_c_t1"]= \
         harmonized[["bold_l_t1_cortex", "bold_r_t1_cortex"]].apply(lambda x: x.mean(), axis=1)
-    boldasl_mri_vars = ['avg_k_t1', 'avg_c_t1']
+    
+    boldasl_mri_vars = ['avg_k_t1', 'avg_c_t1', 'bold_l_t1_kidney', 'bold_r_t1_kidney', 'bold_r_t1_cortex', 'bold_l_t1_cortex']
     dictionary.loc[dictionary['variable_name'].isin(boldasl_mri_vars), 'form_name'] = 'study_visit_boldasl_mri'
     
     # Average ADC
@@ -307,6 +406,8 @@ def harmonize_data():
             lambda x: x.mean(), axis=1)
     clamp_vars = ['fasting_insulin', 'fasting_ffa', 'fbg']
     dictionary.loc[dictionary['variable_name'].isin(clamp_vars), 'form_name'] = 'clamp'
+    dictionary.loc[dictionary['variable_name'] == 'mm_si', 'units'] = '(mu/I)^-1.min^-1'
+
     
 
     # HOMA-IR (https://link.springer.com/article/10.1007/BF00280883), FBG entered as mg/dL, converting to mmol/L (18 mg/dL = 1 mmol/L)
@@ -354,7 +455,7 @@ def harmonize_data():
     dictionary.loc[dictionary['variable_name'] == 'acr_u_pm', 'form_name'] = 'clamp'
 
 
-    
+
 
 
 
@@ -394,12 +495,13 @@ def harmonize_data():
 
     # Sort columns
     id_cols = ["record_id", "casper_id", "coffee_id", "croc_id", "improve_id", 
-                "penguin_id", "rh_id", "rh2_id", "panther_id", "panda_id", "attempt_id", "rpc2_id",
+                "penguin_id", "rh_id", "rh2_id", "panther_id", "panda_id", "attempt_id", "rpc2_id", "swth_id",
                 "mrn", "co_enroll_id", "study", "dob", "diabetes_dx_date",
                "sex", "race", "ethnicity", "visit", "procedure", "date", "group"]
     other_cols = harmonized.columns.difference(id_cols, sort=False).tolist()
     other_cols = natsorted(other_cols, alg=ns.IGNORECASE)
     harmonized = harmonized[id_cols + other_cols]
+
     # Sort rows
     harmonized.sort_values(
         ["study", "record_id", "visit", "procedure", "date"], inplace=True)
