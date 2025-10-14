@@ -1558,3 +1558,215 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
              round(100 * sum(proteo_results$gene_name != "") / nrow(proteo_results), 1), "%"))
  
  cat("\nAnalysis complete!\n")
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ### Labeling the proteins properly
+ 
+ results <- data.table::fread(paste0(output_folder, 'proteomics_sex_comparison_results.csv'))
+
+ 
+ 
+ library(dplyr)
+ library(readxl)
+ library(stringr)
+ library(httr)
+ 
+ # Function to get protein names from UniProt IDs
+ get_protein_names <- function(uniprot_ids) {
+   
+   # Remove NAs and duplicates
+   unique_ids <- unique(uniprot_ids[!is.na(uniprot_ids)])
+   
+   if(length(unique_ids) == 0) {
+     return(data.frame(Entry = character(), 
+                       Gene.Names = character(), 
+                       Protein.names = character()))
+   }
+   
+   # Split into batches of 100 (API limit)
+   batch_size <- 100
+   batches <- split(unique_ids, ceiling(seq_along(unique_ids) / batch_size))
+   
+   all_results <- data.frame()
+   
+   cat("Retrieving protein names from UniProt...\n")
+   
+   for (i in seq_along(batches)) {
+     cat(paste0("Processing batch ", i, " of ", length(batches), "...\n"))
+     
+     batch <- batches[[i]]
+     
+     # Query UniProt API
+     url <- "https://rest.uniprot.org/uniprotkb/search"
+     query <- paste0("accession:(", paste(batch, collapse = " OR "), ")")
+     
+     response <- GET(
+       url,
+       query = list(
+         query = query,
+         format = "tsv",
+         fields = "accession,gene_names,protein_name"
+       )
+     )
+     
+     if (status_code(response) == 200) {
+       # Parse response
+       content <- content(response, "text", encoding = "UTF-8")
+       if(nchar(content) > 0) {
+         batch_results <- read.delim(text = content, sep = "\t", stringsAsFactors = FALSE)
+         all_results <- rbind(all_results, batch_results)
+       }
+     } else {
+       warning(paste("Failed to retrieve batch", i, ". Status code:", status_code(response)))
+     }
+     
+     # Be nice to the API
+     Sys.sleep(0.5)
+   }
+   
+   cat(paste0("Retrieved information for ", nrow(all_results), " proteins\n"))
+   
+   return(all_results)
+ }
+ 
+ # Read your existing results
+ results <- read.csv('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/proteomics_sex_comparison_results.csv')
+ 
+ cat("Original results dimensions:", nrow(results), "rows\n\n")
+ 
+ # Read data dictionary
+ data_dictionary <- readxl::read_xlsx('/Users/netio/Downloads/data_dictionary_master.xlsx')
+ 
+ # Filter to proteomics only
+ proteomics_dict <- data_dictionary %>%
+   filter(form_name == 'proteomics')
+ 
+ cat("Proteomics variables in dictionary:", nrow(proteomics_dict), "\n")
+ cat("\nFirst few labels from dictionary:\n")
+ print(head(proteomics_dict$label, 10))
+ 
+ # Extract UniProt IDs from the label column
+ # Pattern matches: P12345, Q9Y123, O95238, etc.
+ proteomics_dict <- proteomics_dict %>%
+   mutate(
+     uniprot_id = str_extract(label, "([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})")
+   )
+ 
+ # Check how many UniProt IDs we found
+ cat("\nUniProt IDs found:", sum(!is.na(proteomics_dict$uniprot_id)), "\n")
+ cat("Sample UniProt IDs:\n")
+ print(head(proteomics_dict$uniprot_id[!is.na(proteomics_dict$uniprot_id)], 10))
+ 
+ # Get unique UniProt IDs
+ uniprot_ids <- unique(proteomics_dict$uniprot_id)
+ uniprot_ids <- uniprot_ids[!is.na(uniprot_ids)]
+ 
+ cat("\nUnique UniProt IDs to query:", length(uniprot_ids), "\n\n")
+ 
+ # Get protein names from UniProt
+ protein_mapping <- get_protein_names(uniprot_ids)
+ 
+ # Clean up the protein mapping
+ protein_mapping <- protein_mapping %>%
+   mutate(
+     gene_name_clean = str_trim(str_split(Gene.Names, " ", simplify = TRUE)[,1])
+   ) %>%
+   rename(
+     uniprot_id = Entry,
+     gene_name_full = Gene.Names,
+     protein_name = Protein.names
+   )
+ 
+ cat("\nProtein mapping results:\n")
+ print(head(protein_mapping))
+ 
+ # Create enhanced dictionary with protein info
+ proteomics_dict_enhanced <- proteomics_dict %>%
+   left_join(protein_mapping, by = "uniprot_id") %>%
+   mutate(
+     # Create display label: Gene Name - Protein Description
+     label_enhanced = case_when(
+       !is.na(gene_name_clean) & !is.na(protein_name) ~ paste0(gene_name_clean, " - ", protein_name),
+       !is.na(gene_name_clean) ~ gene_name_clean,
+       TRUE ~ label
+     )
+   )
+ 
+ # Now merge with results
+ # First, need to match variable names (results has dots, dictionary might have underscores)
+ results_enhanced <- results %>%
+   mutate(variable_underscore = str_replace_all(variable, "\\.", "_")) %>%
+   left_join(
+     proteomics_dict_enhanced %>% 
+       select(variable_name, uniprot_id, gene_name_clean, gene_name_full, protein_name, label_enhanced),
+     by = c("variable_underscore" = "variable_name")
+   ) %>%
+   mutate(
+     # Update columns with new information
+     uniprot_id = coalesce(uniprot_id.y, uniprot_id.x),
+     gene_name = coalesce(gene_name_clean, as.character(gene_name)),
+     protein_name = coalesce(protein_name.y, as.character(protein_name.x)),
+     variable_label_enhanced = coalesce(label_enhanced, variable_label)
+   ) %>%
+   select(
+     variable, 
+     variable_label,
+     variable_label_enhanced,
+     uniprot_id,
+     gene_name,
+     gene_name_full,
+     protein_name,
+     form_name,
+     test_used,
+     p_value,
+     mean_male,
+     mean_female,
+     p_bonferroni,
+     p_fdr,
+     difference,
+     abs_difference
+   )
+ 
+ # Check mapping success
+ cat("\n=== Mapping Summary ===\n")
+ cat("Total results:", nrow(results_enhanced), "\n")
+ cat("Results with gene names:", sum(!is.na(results_enhanced$gene_name) & results_enhanced$gene_name != ""), "\n")
+ cat("Results with protein names:", sum(!is.na(results_enhanced$protein_name) & results_enhanced$protein_name != ""), "\n")
+ 
+ # View top results
+ cat("\n=== Top 10 Results with Protein Names ===\n")
+ print(results_enhanced %>% 
+         filter(!is.na(gene_name)) %>%
+         select(gene_name, protein_name, p_value, p_fdr, mean_male, mean_female) %>%
+         head(10))
+ 
+ # Save enhanced results
+ output_file <- '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/proteomics_sex_comparison_results_ENHANCED.csv'
+ write.csv(results_enhanced, output_file, row.names = FALSE)
+ 
+ cat("\n=== Saved enhanced results to: ===\n")
+ cat(output_file, "\n")
+ 
+ cat("\n=== Complete! ===\n")
+ cat("New columns added:\n")
+ cat("  - variable_label_enhanced: Gene name and protein description\n")
+ cat("  - uniprot_id: UniProt accession number\n")
+ cat("  - gene_name: Primary gene name\n")
+ cat("  - gene_name_full: All gene names/aliases\n")
+ cat("  - protein_name: Full protein description\n") 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
