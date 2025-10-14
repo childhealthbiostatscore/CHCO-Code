@@ -73,13 +73,14 @@ def calc_egfr(df, age="age", serum_creatinine="creatinine_s",
     eGFR_fas_cr_cysc = 107.3 / ((0.5 * f1) + (f2 * f3))
     eGFR_Zap = (507.76 * np.exp((0.003 * height)) /
                 ((cystatin_c ** 0.635) * ((serum_creatinine * 88.4) ** 0.547)))
-    m = sex_data.replace({"M": 1, "F": 0})
+    m = pd.to_numeric(sex_data.replace({"M": 1, "F": 0}))
+    
     eGFR_Schwartz = 39.1 * ((height / serum_creatinine) ** 0.516) * ((1.8 / cystatin_c) ** 0.294) * ((30 / bun) ** 0.169) * \
         (1.099 ** m) * ((height / 1.4) ** 0.188)
     eGFR_bedside_Schwartz = (41.3 * (height / 100)) / serum_creatinine
-    f = sex_data.replace({"M": 0, "F": 1})
-    a = sex_data.replace({"M": -0.302, "F": -0.241})
-    k = sex_data.replace({"M": 0.9, "F": 0.7})
+    f = pd.to_numeric(sex_data.replace({"M": 0, "F": 1}))
+    a = pd.to_numeric(sex_data.replace({"M": -0.302, "F": -0.241}))
+    k = pd.to_numeric(sex_data.replace({"M": 0.9, "F": 0.7}))
     eGFR_CKD_epi = 142 * (np.minimum(serum_creatinine / k, 1)**a) * \
         (np.maximum(serum_creatinine / k, 1)**-1.200) * \
         (0.9938**age_data) * (1.012 * f + (1 - f))
@@ -148,7 +149,7 @@ def add_id_column(df, study_name):
 
 def create_study_id_columns(harmonized):
     import os
-    study_list = [('CASPER', 'casper_id'), ('COFFEE', 'coffee_id'), ('CROCODILE','croc_id'), ('IMPROVE','improve_id'), ('PENGUIN','penguin_id'), ('RENAL-HEIR','rh_id'), ('RENAL-HEIRitage','rh2_id'), ('PANTHER','panther_id'), ('PANDA','panda_id'), ('ATTEMPT','attempt_id'), ('RPC2','rpc2_id')]
+    study_list = [('CASPER', 'casper_id'), ('COFFEE', 'coffee_id'), ('CROCODILE','croc_id'), ('IMPROVE','improve_id'), ('PENGUIN','penguin_id'), ('RENAL-HEIR','rh_id'), ('RENAL-HEIRitage','rh2_id'), ('PANTHER','panther_id'), ('PANDA','panda_id'), ('ATTEMPT','attempt_id'), ('RPC2','rpc2_id'), ('SWEETHEART', 'swth_id')]
 
     for study, id in study_list: 
         study_mrns = harmonized.loc[harmonized['study'] == study, ['mrn', 'record_id']]

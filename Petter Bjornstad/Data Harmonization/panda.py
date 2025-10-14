@@ -149,7 +149,7 @@ def clean_panda():
     phys["visit"] = phys["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
     phys["visit"] = phys["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
     phys.drop(["redcap_event_name"], axis=1, inplace=True)
-    
+
     # --------------------------------------------------------------------------
     # Screening labs
     # --------------------------------------------------------------------------
@@ -277,6 +277,7 @@ def clean_panda():
     biopsy["visit"] = biopsy["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
     biopsy["visit"] = biopsy["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
     biopsy.drop(["redcap_event_name"], axis=1, inplace=True)
+
     
     # --------------------------------------------------------------------------
     # Clamp

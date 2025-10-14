@@ -63,7 +63,14 @@ Next steps:
 - plot showing the relationship between the top gene and change in clinical variable
 
 ![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura%20Pyle%20-%20Bjornstad/Biostatistics%20Core%20Shared%20Drive/ATTEMPT/Results/Figures/ATTEMPT_FU_Consort_diagram.png){width="100%"}
+```{r echo = F}
+attempt_list <- attempt_clean_so_metadata %>%
+  distinct(subject_id, visit, .keep_all = T) %>%
+  dplyr::select(subject_id, visit, Cryostor_ID)
 
+write.csv(attempt_list, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Data Clean/list_of_attempt_bxIDs.csv", row.names = F)
+
+```
 
 # Baseline descriptive tables
 
@@ -514,6 +521,8 @@ ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Py
 ![](/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Figures/Plot over time/mgfr_overtime.png){width=70%}
 
 ```{r echo = T, include = T, eval = T}
+summary(arsenal::tableby(visit ~ mgfr_jodal_bsa, data = attempt_dat, strata = treatment))
+
 model_mgfr_jodal_bsa <- lmer(
   mgfr_jodal_bsa ~ treatment * factor(visit) +
     age + sex + diabetes_dx_duration + 
@@ -2345,6 +2354,216 @@ for (cells in celltype_list) {
 
 ## GSEA
 
+### HALLMARK
+
+```{r}
+library(tidyverse)
+
+# Define file names and cell types
+files <- list(
+  EC = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/GSEA/hallmark_ec_gsea.csv",
+  IC = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/GSEA/hallmark_ic_gsea.csv",
+  PC = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/GSEA/hallmark_pc_gsea.csv",
+  PT = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/GSEA/hallmark_pt_gsea.csv",
+  TAL = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/GSEA/hallmark_tal_gsea.csv",
+  POD = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/GSEA/hallmark_pod_gsea.csv",
+  Immune = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/GSEA/hallmark_immune_gsea.csv",
+  Immune_Lymphoid = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/GSEA/hallmark_immune_lymphoid_gsea.csv",
+  Immune_Myeloid = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/GSEA/hallmark_immune_myeloid_gsea.csv",
+  VSMC_P_Fib = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/GSEA/hallmark_vsmc_p_fib_gsea.csv"
+)
+
+# Read all files and combine
+all_data <- map2_dfr(files, names(files), function(file, cell_type) {
+  read_csv(file, show_col_types = FALSE) %>%
+    filter(pval < 0.05) %>%  # Only keep significant pathways
+    mutate(cell_type = cell_type) %>%
+    dplyr::select(cell_type, pathway, NES, pval, padj)
+})
+
+# Define categories
+categories <- list(
+  "METABOLISM & ENERGY" = c(
+    "HALLMARK_OXIDATIVE_PHOSPHORYLATION",
+    "HALLMARK_FATTY_ACID_METABOLISM",
+    "HALLMARK_GLYCOLYSIS",
+    "HALLMARK_MTORC1_SIGNALING",
+    "HALLMARK_ADIPOGENESIS",
+    "HALLMARK_CHOLESTEROL_HOMEOSTASIS",
+    "HALLMARK_BILE_ACID_METABOLISM",
+    "HALLMARK_XENOBIOTIC_METABOLISM"
+  ),
+  
+  "IMMUNE & INFLAMMATORY RESPONSE" = c(
+    "HALLMARK_INFLAMMATORY_RESPONSE",
+    "HALLMARK_INTERFERON_GAMMA_RESPONSE",
+    "HALLMARK_INTERFERON_ALPHA_RESPONSE",
+    "HALLMARK_TNFA_SIGNALING_VIA_NFKB",
+    "HALLMARK_IL6_JAK_STAT3_SIGNALING",
+    "HALLMARK_IL2_STAT5_SIGNALING",
+    "HALLMARK_COMPLEMENT",
+    "HALLMARK_ALLOGRAFT_REJECTION",
+    "HALLMARK_COAGULATION"
+  ),
+  
+  "CELLULAR STRESS & HYPOXIA" = c(
+    "HALLMARK_HYPOXIA",
+    "HALLMARK_REACTIVE_OXYGEN_SPECIES_PATHWAY",
+    "HALLMARK_UNFOLDED_PROTEIN_RESPONSE",
+    "HALLMARK_UV_RESPONSE_UP",
+    "HALLMARK_UV_RESPONSE_DN",
+    "HALLMARK_APOPTOSIS",
+    "HALLMARK_P53_PATHWAY",
+    "HALLMARK_DNA_REPAIR"
+  ),
+  
+  "EXTRACELLULAR MATRIX & FIBROSIS" = c(
+    "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION",
+    "HALLMARK_TGF_BETA_SIGNALING",
+    "HALLMARK_MYOGENESIS",
+    "HALLMARK_ANGIOGENESIS",
+    "HALLMARK_APICAL_JUNCTION",
+    "HALLMARK_APICAL_SURFACE"
+  ),
+  
+  "CELL CYCLE & PROLIFERATION" = c(
+    "HALLMARK_E2F_TARGETS",
+    "HALLMARK_G2M_CHECKPOINT",
+    "HALLMARK_MYC_TARGETS_V1",
+    "HALLMARK_MYC_TARGETS_V2",
+    "HALLMARK_MITOTIC_SPINDLE"
+  )
+)
+
+# Add category information to the data
+all_data_with_category <- all_data %>%
+  mutate(category = case_when(
+    pathway %in% categories[["METABOLISM & ENERGY"]] ~ "METABOLISM & ENERGY",
+    pathway %in% categories[["IMMUNE & INFLAMMATORY RESPONSE"]] ~ "IMMUNE & INFLAMMATORY RESPONSE",
+    pathway %in% categories[["CELLULAR STRESS & HYPOXIA"]] ~ "CELLULAR STRESS & HYPOXIA",
+    pathway %in% categories[["EXTRACELLULAR MATRIX & FIBROSIS"]] ~ "EXTRACELLULAR MATRIX & FIBROSIS",
+    pathway %in% categories[["CELL CYCLE & PROLIFERATION"]] ~ "CELL CYCLE & PROLIFERATION",
+    TRUE ~ "OTHER"
+  ))
+
+# Print summary statistics
+cat("Summary of significant pathways by cell type:\n")
+cat("=============================================\n")
+all_data %>%
+  dplyr::count(cell_type) %>%
+  print()
+
+cat("\n\nNES VALUES BY CATEGORY (only p<0.05 shown):\n")
+cat("=============================================\n\n")
+
+# Display results by category
+for(cat_name in names(categories)) {
+  cat("\n", cat_name, "\n", sep="")
+  cat(strrep("=", 60), "\n")
+  
+  pathways_in_cat <- categories[[cat_name]]
+  
+  for(pathway_name in pathways_in_cat) {
+    # Get all significant results for this pathway
+    pathway_results <- all_data %>%
+      filter(pathway == pathway_name) %>%
+      arrange(cell_type)
+    
+    if(nrow(pathway_results) > 0) {
+      cat("\n", pathway_name, ":\n", sep="")
+      
+      # Format results as "CellType: NES" 
+      results_str <- pathway_results %>%
+        mutate(formatted = paste0(cell_type, ": ", round(NES, 3))) %>%
+        pull(formatted) %>%
+        paste(collapse = ", ")
+      
+      cat("  ", results_str, "\n", sep="")
+    }
+  }
+}
+
+# Create a wide-format table for better visualization
+cat("\n\nWIDE FORMAT TABLE (NES values, NA = not significant):\n")
+cat("======================================================\n\n")
+
+# Create wide format table
+wide_table <- all_data_with_category %>%
+  filter(category != "OTHER") %>%
+  dplyr::select(pathway, cell_type, NES, category) %>%
+  pivot_wider(names_from = cell_type, 
+              values_from = NES,
+              values_fill = NA) %>%
+  arrange(category, pathway)
+
+# Print by category
+for(cat_name in names(categories)) {
+  cat("\n", cat_name, ":\n", sep="")
+  cat(strrep("-", 40), "\n")
+  
+  wide_table %>%
+    filter(category == cat_name) %>%
+    dplyr::select(-category) %>%
+    print(n = Inf)
+}
+
+# Create summary table of pathway counts by category and cell type
+cat("\n\nSUMMARY: Number of significant pathways by category and cell type:\n")
+cat("===================================================================\n")
+
+summary_table <- all_data_with_category %>%
+  filter(category != "OTHER") %>%
+  dplyr::count(category, cell_type) %>%
+  pivot_wider(names_from = cell_type, 
+              values_from = n,
+              values_fill = 0) %>%
+  arrange(category)
+
+print(summary_table, n = Inf)
+
+# Optional: Create a heatmap visualization
+library(ggplot2)
+library(viridis)
+
+# Prepare data for heatmap
+heatmap_data <- all_data_with_category %>%
+  filter(category != "OTHER")
+
+# Create heatmap
+ggplot(heatmap_data, aes(x = cell_type, y = pathway, fill = NES)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", 
+                       midpoint = 0, na.value = "grey90") +
+  facet_wrap(~ category, scales = "free_y", ncol = 1) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 8)) +
+  labs(title = "GSEA NES Values by Cell Type and Pathway Category",
+       subtitle = "Only significant pathways (p < 0.05) shown",
+       x = "Cell Type",
+       y = "Pathway")
+
+# Export results to Excel
+library(writexl)
+
+# Prepare sheets for Excel
+excel_sheets <- list(
+  "Summary" = summary_table,
+  "All_Significant" = all_data_with_category %>% arrange(category, pathway, cell_type),
+  "Wide_Format" = wide_table
+)
+
+# Add individual category sheets
+for(cat_name in names(categories)) {
+  sheet_name <- str_replace_all(cat_name, " & ", "_")
+  excel_sheets[[sheet_name]] <- wide_table %>%
+    filter(category == cat_name) %>%
+    dplyr::select(-category)
+}
+
+write_xlsx(excel_sheets, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/GSEA/hallmark_gsea_results_by_category.xlsx")
+cat("Results exported to 'gsea_results_by_category.xlsx'\n")
+```
 
 ### Positive PT KEGG
 

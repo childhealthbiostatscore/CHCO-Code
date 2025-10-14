@@ -31,6 +31,10 @@ library(lemon)
 library(quantreg)
 library(readxl)
 library(growthcleanr)
+library(ggbreak)
+library(janitor)   # for tabyl/adorn helpers
+library(forcats)   # for fct_relevel (optional but nice)
+
 
 source("~/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
@@ -80,7 +84,7 @@ rh_rh2_croc_panther <- harm_dat_collapsed %>%
 bmi_percentile = ext_bmiz(data = subset(rh_rh2_croc_panther, 
                                         select = c("record_id", "sex", "agem", "weight", "height", "bmi")),
                           wt = "weight", ht = "height") %>%
-  select(record_id, bmip)
+  dplyr::select(record_id, bmip)
   
 rh_rh2_croc_panther_unique <- rh_rh2_croc_panther %>%
   left_join(bmi_percentile) %>%
@@ -138,41 +142,47 @@ rh_rh2_croc_panther_unique <- rh_rh2_croc_panther %>%
          bmi_cat = factor(
            bmi_cat,
            levels = c("Lean", "Overweight", "Obese")
-         )
+         ),
+         group_risk = case_when(bmip >= 95 | hba1c >=6 | group == "Type 2 Diabetes" ~ "High",
+                                bmip < 85 & hba1c <=5.6 ~ "Low"),
+         tkv_combined = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual),
+         htadjtkv_combined = coalesce(ht_adj_tkv, ht_adj_tkv_manual),
   )
 
 rh_rh2_unique <- rh_rh2_croc_panther_unique %>%
-  filter(group %nin% c("Lean Control"))
+  filter(group %nin% c("Lean Control")) %>%
+  filter(study != "PANTHER")
 ```
 
 # MRI Parameters
 
 ```{r echo = F}
 rh_rh2_unique %>%
-  select(avg_c_r2, avg_m_r2, avg_k_r2,
+  dplyr::select(avg_c_r2, avg_m_r2, avg_k_r2,
          avg_c_adc, avg_c_fsoc, avg_m_fsoc, avg_k_fsoc, avg_pcascl) %>%
   pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
   ggplot(aes(x = value)) +
   geom_histogram(bins = 100, fill = "steelblue", color = "white") +
   facet_wrap(~ variable, scales = "free") +
   theme_minimal()
+
 summary(arsenal::tableby(uacr_group ~ avg_c_r2 + avg_m_r2 + avg_k_r2 +
-                           avg_c_adc + avg_c_fsoc + avg_m_fsoc + avg_k_fsoc + avg_pcascl, data=rh_rh2_unique),
+                           avg_c_adc + avg_c_fsoc + avg_m_fsoc + avg_k_fsoc + avg_pcascl + avg_c_t1, data=rh_rh2_unique),
         total = F)
 
-summary(arsenal::tableby(uacr_group ~ bmi_cat + age + sex + kwt(acr_u, "medianq1q3") + eGFR_CKD_epi + bmi + egfr_cat + acr_u_cat3, data=rh_rh2_unique),
+summary(arsenal::tableby(uacr_group ~ tkv_combined + htadjtkv_combined + age + sex + kwt(acr_u, "medianq1q3") + eGFR_CKD_epi + bmi + egfr_cat + acr_u_cat3, data=rh_rh2_unique),
+        total = T)
+
+summary(arsenal::tableby(bmi_cat ~ avg_c_t1, data=subset(rh_rh2_croc_panther_unique, study == "PANTHER" & bmi_cat != "Overweight")),
         total = F)
-# 
-# table(rh_rh2_unique$group,rh_rh2_unique$uacr_100)
-# table(rh_rh2_unique$group,rh_rh2_unique$uacr_group)
+
+summary(arsenal::tableby(group_risk ~ avg_c_t1, data=subset(rh_rh2_croc_panther_unique, study == "PANTHER")),
+        total = F)
 
 ```
 
 
-
-
 ```{r}
-library(ggbreak)
 rh_rh2_unique %>%
   ggplot(aes(x = uacr_group, y = avg_k_r2, color = uacr_group)) +
     # geom_violin() +
@@ -183,7 +193,7 @@ rh_rh2_unique %>%
         panel.grid = element_blank(),
         legend.position = "none") +
   labs(x = NULL, y = "Kidney R2* (1/s)") +
-   scale_y_break(c(25, 45), scales = "fixed", space = 0.5) +
+  scale_y_break(c(25, 45), scales = "fixed", space = 0.5) +
   scale_color_manual(values = c("#003049", "#e07a5f"))
 
 ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Renal HERITAGE/Results/Figures/uacr_boxplots.png")
@@ -192,10 +202,6 @@ summary(arsenal::tableby(uacr_group ~ kwt(acr_u, "medianq1q3", digits = 2) + eGF
                          data = rh_rh2_unique, test = F, total = F))
 
 # ok.. can you also report proportions in the table of the following eGFR >=90, <90-60, <60, and for UACR, >= 30, UACR 30-300 mg, UACR >=300 mg/g
-
-library(dplyr)
-library(janitor)   # for tabyl/adorn helpers
-library(forcats)   # for fct_relevel (optional but nice)
 
 rh_rh2_unique <- rh_rh2_unique %>%
   mutate(
@@ -283,37 +289,90 @@ acr_ge30_by_group
 
 ```{r}
 # one more request once we have this done for all of you that I think will be important... can we look at ASL, R2* and ADC in 3 groups lean, overweight and obese while controlling for diabetes status, eGFR and UACR...
+fit_fas <- fit_models_emm(
+  outcomes = c("avg_pcascl", "avg_k_r2", "avg_c_r2", "avg_c_adc",
+               "avg_c_t1", "tkv_combined", "htadjtkv_combined"),
+  formula_rhs = "~ bmi_cat + group + eGFR_fas_cr + log(acr_u)",
+  emm_var = "bmi_cat",
+  data = rh_rh2_croc_panther_unique
+)
 
-# rh_rh2_croc_panther_unique$avg_pcascl 
-# rh_rh2_croc_panther_unique$avg_k_r2
-# rh_rh2_croc_panther_unique$avg_c_adc
-# rh_rh2_croc_panther_unique$group
+fit_fas$emm_table
+fit_fas$contrast_table
+```
 
-table(subset(rh_rh2_croc_panther_unique, !is.na(avg_k_r2))$bmi_cat)
-table(subset(rh_rh2_croc_panther_unique, !is.na(avg_k_r2))$group)
+```{r}
+plot_emms_with_brackets(
+  emm_table = fit_fas$emm_table,
+  contrast_table = fit_fas$contrast_table,
+  outcome_var = "avg_k_r2",
+  y_label = "Estimated marginal mean\nof kidney R2*"
+)
 
-avg_pcascl_fit <- (lm(avg_pcascl ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
-summary(avg_pcascl_fit)
-drop1(avg_pcascl_fit, ~ ., test = "F")
-emm_bmi <- emmeans(avg_pcascl_fit, ~ bmi_cat)
-emm_bmi
+```
 
-avg_k_r2_fit <- (lm(avg_k_r2 ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
-summary(avg_k_r2_fit)
-drop1(avg_k_r2_fit, ~ ., test = "F")
-emm_bmi <- emmeans(avg_k_r2_fit, ~ bmi_cat)
-emm_bmi
-pairs(emm_bmi)
+```{r}
+# one more request once we have this done for all of you that I think will be important... can we look at ASL, R2* and ADC in 3 groups lean, overweight and obese while controlling for diabetes status, eGFR and UACR...
+fit_ckd <- fit_models_emm(
+  outcomes = c("avg_pcascl", "avg_k_r2", "avg_c_r2", "avg_c_adc",
+               "avg_c_t1", "tkv_combined", "htadjtkv_combined"),
+  formula_rhs = "~ bmi_cat + group + eGFR_CKD_epi + log(acr_u)",
+  emm_var = "bmi_cat",
+  data = rh_rh2_croc_panther_unique
+)
 
-avg_c_r2_fit <- (lm(avg_c_r2 ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
-summary(avg_c_r2_fit)
-drop1(avg_c_r2_fit, ~ ., test = "F")
-emm_bmi <- emmeans(avg_c_r2_fit, ~ bmi_cat)
-emm_bmi
+fit_ckd$emm_table
+fit_ckd$contrast_table
 
-avg_c_adc_fit <- (lm(avg_c_adc ~ bmi_cat + group + eGFR_fas_cr + log(acr_u), data = rh_rh2_croc_panther_unique))
-summary(avg_c_adc_fit)
-drop1(avg_c_adc_fit, ~ ., test = "F")
-emm_bmi <- emmeans(avg_c_adc_fit, ~ bmi_cat)
-emm_bmi
+plot_emms_with_brackets(
+  emm_table = fit_ckd$emm_table,
+  contrast_table = fit_ckd$contrast_table,
+  outcome_var = "avg_k_r2",
+  y_label = "Estimated marginal mean\nof kidney R2*"
+)
+```
+
+
+```{r}
+# one more request once we have this done for all of you that I think will be important... can we look at ASL, R2* and ADC in 3 groups lean, overweight and obese while controlling for diabetes status, eGFR and UACR...
+fit_age <- fit_models_emm(
+  outcomes = c("avg_pcascl", "avg_k_r2", "avg_c_r2", "avg_c_adc",
+               "avg_c_t1", "tkv_combined", "htadjtkv_combined"),
+  formula_rhs = "~ bmi_cat + group + eGFR_fas_cr + log(acr_u) + age",
+  emm_var = "bmi_cat",
+  data = rh_rh2_croc_panther_unique
+)
+
+summary(rh_rh2_croc_panther_unique$age)
+summary(arsenal::tableby(bmi_cat ~ age, rh_rh2_croc_panther_unique))
+
+fit_age$emm_table
+fit_age$contrast_table
+
+plot_emms_with_brackets(
+  emm_table = fit_age$emm_table,
+  contrast_table = fit_age$contrast_table,
+  outcome_var = "avg_k_r2",
+  y_label = "Estimated marginal mean\nof kidney R2*"
+)
+```
+
+```{r}
+# one more request once we have this done for all of you that I think will be important... can we look at ASL, R2* and ADC in 3 groups lean, overweight and obese while controlling for diabetes status, eGFR and UACR...
+fit_panther <- fit_models_emm(
+  outcomes = c("avg_c_t1", "tkv_combined", "htadjtkv_combined"),
+  formula_rhs = "~ bmi_cat + group + eGFR_fas_cr + log(acr_u) + age",
+  emm_var = "bmi_cat",
+  data = subset(rh_rh2_croc_panther_unique, study == "PANTHER")
+)
+
+fit_panther$emm_table
+fit_panther$contrast_table
+
+plot_emms_with_brackets(
+  emm_table = fit_panther$emm_table,
+  contrast_table = fit_panther$contrast_table,
+  outcome_var = "avg_c_t1",
+  y_label = "Estimated marginal mean\nof kidney R2*"
+)
 ```

@@ -415,6 +415,125 @@ for(i  in 1:length(celltypes_vec)){
 
 
 
+########### Volcano plots 
+
+library(ggplot2)
+library(ggbreak)
+library(dplyr)
+
+variable_names <- c('All', 'PT', 'TAL', 'EC', 'IC', 'DCTall')
+
+for(i in c(1:length(variable_names))){
+  
+  sig_markers <- data.table::fread(paste0('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/Full_NEBULA_', 
+                                          variable_names[i], '_cells__LC_pooledoffset.csv'))
+  
+  sig_markers <- sig_markers %>% dplyr::select(Gene = summary.gene,
+                                               LogFC = summary.logFC_sexMale, 
+                                               Pvalue = summary.p_sexMale)
+  
+  tmp_df <- sig_markers
+  tmp_df$diffexp <- 'No'
+  tmp_df$diffexp[tmp_df$Pvalue < 0.05 & tmp_df$LogFC > 0] <- 'Up'
+  tmp_df$diffexp[tmp_df$Pvalue < 0.05 & tmp_df$LogFC < 0] <- 'Down'
+  
+  tmp_df <- tmp_df %>% arrange(Pvalue)
+  tmp_df$label <- NA
+  tmp_df$label[1:10] <- tmp_df$Gene[1:10]
+  
+  tmp_df <- tmp_df %>% filter(abs(LogFC) < 10)
+  
+  # Automatically detect if axis break is needed
+  logfc_range <- range(tmp_df$LogFC, na.rm = TRUE)
+  logfc_q95 <- quantile(abs(tmp_df$LogFC), 0.95, na.rm = TRUE)
+  logfc_max <- max(abs(tmp_df$LogFC), na.rm = TRUE)
+  
+  # Determine if we need a break (outliers beyond 95th percentile create large gaps)
+  needs_break <- logfc_max > (logfc_q95 * 2)
+  
+  # Calculate break points if needed
+  if(needs_break){
+    # Find gaps in the data
+    sorted_logfc <- sort(abs(tmp_df$LogFC))
+    # Calculate gaps between consecutive values
+    gaps <- diff(sorted_logfc)
+    # Find the largest gap in the outer 10% of data
+    gap_threshold <- quantile(abs(tmp_df$LogFC), 0.90, na.rm = TRUE)
+    outer_data_idx <- which(sorted_logfc > gap_threshold)
+    
+    if(length(outer_data_idx) > 1){
+      outer_gaps <- gaps[outer_data_idx[-length(outer_data_idx)]]
+      max_gap_idx <- which.max(outer_gaps)
+      
+      # Set break points around the largest gap
+      break_start <- sorted_logfc[outer_data_idx[max_gap_idx]] + 0.1
+      break_end <- sorted_logfc[outer_data_idx[max_gap_idx + 1]] - 0.1
+      
+      # Ensure breaks are reasonable
+      if(break_end - break_start > 0.5){
+        use_break <- TRUE
+      } else {
+        use_break <- FALSE
+      }
+    } else {
+      use_break <- FALSE
+    }
+  } else {
+    use_break <- FALSE
+  }
+  
+  # Making graph
+  if(length(unique(tmp_df$diffexp)) > 1){
+    tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
+      geom_point()+
+      geom_text(size=2, vjust = 2, color='black')+
+      scale_color_manual(values = c('orange', 'grey', 'purple'),
+                         labels = c('Downregulated', 'Not significant', 'Upregulated'))+
+      geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
+      geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
+      theme_classic()+
+      labs(x='LogFC', y='-log10 pvalue', col ='Differential Expression', 
+           title = paste0('Sex Differences in ',  variable_names[i],' Cells'))
+    
+    # Add break if needed
+    if(use_break){
+      tmp_graph <- tmp_graph + scale_x_break(breaks = c(break_start, break_end), scales = 0.3)
+    }
+    
+  } else {
+    tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
+      geom_point()+
+      geom_text(size=2, vjust = 2, color='black')+
+      scale_color_manual(values = c('grey'),
+                         labels = c('Not significant'))+
+      geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed')+
+      geom_vline(xintercept = c(0), col='black', linetype ='dashed')+
+      theme_classic()+
+      labs(x='LogFC', y='-log10 P-value', col ='Differential Expression', 
+           title = paste0('Sex Differences in ',  variable_names[i],' Cells'))
+    
+    # Add break if needed
+    if(use_break){
+      tmp_graph <- tmp_graph + scale_x_break(breaks = c(break_start, break_end), scales = 0.3)
+    }
+  }
+  
+  pdf(paste0('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/VolcanoPlots_', 
+             variable_names[i], '_Cells_LCOnly.pdf'))
+  print(tmp_graph)
+  dev.off()
+  
+  png(paste0('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/VolcanoPlots_', 
+             variable_names[i], '_Cells_LCOnly.png'), width = 3000, height = 3000, res = 300)
+  print(tmp_graph)
+  dev.off()
+  
+  print(paste0('Plot done for ', variable_names[i], 
+               if(use_break) ' (with axis break)' else ''))
+}
+
+
+
 
 
 
@@ -715,11 +834,727 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
 
 
 
+ 
+ #### Proteomics and Metabolomics 
+ 
+ 
+ 
+ 
+ library(scran)
+ library(future)
+ library(future.apply)
+ library(tidyverse)
+ library(colorspace)
+ library(patchwork)
+ library(ggdendro)
+ library(cowplot)
+ library(ggpubr)
+ library(rstatix)
+ library(arsenal)
+ library(Biobase)
+ library(msigdbr)
+ library(kableExtra)
+ library(knitr)
+ library(REDCapR)
+ library(data.table)
+ library(emmeans)
+ library(NMF)
+ library(pheatmap)
+ library(UpSetR)
+ library(enrichR)
+ library(WriteXLS)
+ library(SAVER)
+ library(readxl)
+ library(limma)
+ library(edgeR)
+ library(BiocGenerics)
+ library(GSEABase)
+ library(slingshot)
+ library(SingleCellExperiment)
+ library(MAST)
+ library(muscat)
+ library(scater)
+ library(Seurat)
+ library(jsonlite)
+ library(dplyr)
+ library(glmmTMB)
+ library(reshape2)
+ library(broom.mixed)
+ library(nebula)
+ #library(table1)
+ library(clusterProfiler)
+ library('org.Hs.eg.db')
+ 
+ 
+ 
+ 
 
 
 
+ 
+ 
+ 
+ harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+ 
+ dat <- harmonized_data %>% 
+   dplyr::select(-dob) %>% 
+   arrange(date_of_screen) %>% 
+   dplyr::summarise(
+     across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+     across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+     .by = c(record_id, visit)
+   )
+ 
+ dat <- dat %>% filter(group == 'Lean Control')
+ 
+ 
+ data_dictionary <- readxl::read_xlsx('/Users/netio/Downloads/data_dictionary_master.xlsx')
+ 
+ form_names <- unique(data_dictionary$form_name)
+ proteo <- form_names[str_which(form_names, pattern = 'proteom')]
+ metab <- form_names[str_which(form_names, pattern = 'metab')]
+ 
+ variables_class <- c('proteomics', 'metabolomics', 'metabolomics_blood_raw',
+                      'az_urine_metabolites', 'metabolomics_aq')
+ 
+ data_dictionary_small <- data_dictionary %>% 
+   filter(form_name %in% variables_class)
+ 
+ 
+ 
+ # Find which columns actually exist
+ existing_cols <- intersect(data_dictionary_small$variable_name, names(dat))
+ 
+ # Select only those
+ dat_omics <- dat %>% 
+   dplyr::select(record_id, group, sex, all_of(existing_cols))
+ 
+ # Check how many were found vs missing
+ cat("Found:", length(existing_cols), "out of", length(data_dictionary_small$variable_name), "\n")
+ cat("Missing:", length(data_dictionary_small$variable_name) - length(existing_cols), "\n")
+ 
+ 
+ 
+ ##Analysis
+ 
+ library(dplyr)
+ library(ggplot2)
+ library(tidyr)
+ library(gridExtra)
+ library(readxl)
+ 
+ # Read data dictionary
+ data_dictionary <- readxl::read_xlsx('/Users/netio/Downloads/data_dictionary_master.xlsx')
+ 
+ # Set output folder
+ output_folder <- '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/'
+ 
+ # Get all numeric columns (excluding ID columns and grouping variables)
+ numeric_cols <- names(dat_omics)[!names(dat_omics) %in% c('record_id', 'group', 'sex')]
+ 
+ # Initialize results dataframe
+ results <- data.frame(
+   variable = character(),
+   variable_label = character(),
+   form_name = character(),
+   test_used = character(),
+   p_value = numeric(),
+   mean_male = numeric(),
+   mean_female = numeric(),
+   stringsAsFactors = FALSE
+ )
+ 
+ # Loop through each variable
+ for(var in numeric_cols){
+   
+   # Get label and form_name from data dictionary
+   var_label <- data_dictionary$label[data_dictionary$variable_name == var]
+   var_form <- data_dictionary$form_name[data_dictionary$variable_name == var]
+   
+   if(length(var_label) == 0) var_label <- var  # Use variable name if no label found
+   if(length(var_form) == 0) var_form <- NA  # Use NA if no form_name found
+   
+   # Create temporary dataframe
+   temp_data <- dat_omics %>%
+     filter(!is.na(sex) & sex != "") %>%
+     select(sex, all_of(var)) %>%
+     rename(value = all_of(var)) %>%
+     filter(!is.na(value))
+   
+   # Skip if not enough data
+   if(nrow(temp_data) < 6 || length(unique(temp_data$sex)) < 2) next
+   
+   # Split by sex
+   male_data <- temp_data$value[temp_data$sex == "Male"]
+   female_data <- temp_data$value[temp_data$sex == "Female"]
+   
+   # Skip if either group has less than 3 observations
+   if(length(male_data) < 3 || length(female_data) < 3) next
+   
+   # Test for normality (if sample size allows)
+   normal_male <- if(length(male_data) >= 3 & length(male_data) <= 5000) {
+     shapiro.test(male_data)$p.value > 0.05
+   } else TRUE
+   
+   normal_female <- if(length(female_data) >= 3 & length(female_data) <= 5000) {
+     shapiro.test(female_data)$p.value > 0.05
+   } else TRUE
+   
+   # Choose appropriate test
+   if(normal_male & normal_female){
+     # Use t-test
+     test_result <- t.test(value ~ sex, data = temp_data, var.equal = FALSE)
+     test_name <- "Welch's t-test"
+   } else {
+     # Use Mann-Whitney U test
+     test_result <- wilcox.test(value ~ sex, data = temp_data)
+     test_name <- "Mann-Whitney U"
+   }
+   
+   # Store results
+   results <- rbind(results, data.frame(
+     variable = var,
+     variable_label = var_label,
+     form_name = var_form,
+     test_used = test_name,
+     p_value = test_result$p.value,
+     mean_male = mean(male_data, na.rm = TRUE),
+     mean_female = mean(female_data, na.rm = TRUE)
+   ))
+ }
+ 
+ # Add corrected p-values (multiple methods)
+ results <- results %>%
+   mutate(
+     p_bonferroni = p.adjust(p_value, method = "bonferroni"),
+     p_fdr = p.adjust(p_value, method = "fdr"),  # Benjamini-Hochberg
+     difference = mean_male - mean_female,
+     abs_difference = abs(difference)
+   ) %>%
+   arrange(p_value)
+ 
+ # View top results
+ print(head(results, 20))
+ 
+ # Save full results
+ write.csv(results, paste0(output_folder, 'sex_comparison_results.csv'), row.names = FALSE)
+ 
+ # Plot top 10 most significant
+ top_results <- head(results, 10)
+ 
+ plot_list <- list()
+ 
+ for(i in 1:nrow(top_results)){
+   var <- top_results$variable[i]
+   var_label <- top_results$variable_label[i]
+   
+   plot_data <- dat_omics %>%
+     filter(!is.na(sex) & sex != "") %>%
+     select(sex, all_of(var)) %>%
+     rename(value = all_of(var)) %>%
+     filter(!is.na(value))
+   
+   # Get p-value for this variable
+   p_val <- top_results$p_value[i]
+   p_fdr <- top_results$p_fdr[i]
+   test_type <- top_results$test_used[i]
+   
+   # Format p-values
+   p_label <- ifelse(p_val < 0.001, "p < 0.001", sprintf("p = %.3f", p_val))
+   p_fdr_label <- ifelse(p_fdr < 0.001, "FDR < 0.001", sprintf("FDR = %.3f", p_fdr))
+   
+   plot_list[[i]] <- ggplot(plot_data, aes(x = sex, y = value, fill = sex)) +
+     geom_boxplot() +
+     scale_fill_manual(values = c("Male" = "#00008B", "Female" = "#8B0000")) +
+     theme_classic(base_size = 12) +
+     labs(
+       title = var_label,  # Use label instead of variable code
+       subtitle = paste0(p_label, " | ", p_fdr_label),
+       x = "Sex",
+       y = "Value",
+       fill = "Sex"
+     ) +
+     theme(
+       plot.title = element_text(size = 10, face = "bold"),
+       plot.subtitle = element_text(size = 8),
+       legend.position = "none"
+     )
+ }
+ 
+ # Save plots
+ png(paste0(output_folder, 'top10_sex_differences.png'), 
+     height = 15, width = 12, units = 'in', res = 300)
+ grid.arrange(grobs = plot_list, ncol = 2)
+ dev.off()
+ 
+ # Also create a plot for top 20
+ top_results_20 <- head(results, 20)
+ plot_list_20 <- list()
+ 
+ for(i in 1:nrow(top_results_20)){
+   var <- top_results_20$variable[i]
+   var_label <- top_results_20$variable_label[i]
+   
+   plot_data <- dat_omics %>%
+     filter(!is.na(sex) & sex != "") %>%
+     select(sex, all_of(var)) %>%
+     rename(value = all_of(var)) %>%
+     filter(!is.na(value))
+   
+   p_val <- top_results_20$p_value[i]
+   p_fdr <- top_results_20$p_fdr[i]
+   
+   p_label <- ifelse(p_val < 0.001, "p < 0.001", sprintf("p = %.3f", p_val))
+   p_fdr_label <- ifelse(p_fdr < 0.001, "FDR < 0.001", sprintf("FDR = %.3f", p_fdr))
+   
+   plot_list_20[[i]] <- ggplot(plot_data, aes(x = sex, y = value, fill = sex)) +
+     geom_boxplot() +
+     scale_fill_manual(values = c("Male" = "#00008B", "Female" = "#8B0000")) +
+     theme_classic(base_size = 10) +
+     labs(
+       title = var_label,  # Use label instead of variable code
+       subtitle = paste0(p_label, " | ", p_fdr_label),
+       x = "Sex",
+       y = "Value",
+       fill = "Sex"
+     ) +
+     theme(
+       plot.title = element_text(size = 9, face = "bold"),
+       plot.subtitle = element_text(size = 7),
+       legend.position = "none"
+     )
+ }
+ 
+ png(paste0(output_folder, 'top20_sex_differences.png'), 
+     height = 25, width = 15, units = 'in', res = 300)
+ grid.arrange(grobs = plot_list_20, ncol = 3)
+ dev.off()
+ 
+ print("Analysis complete!")
+ print(paste("Total variables tested:", nrow(results)))
+ print(paste("Significant at p < 0.05:", sum(results$p_value < 0.05)))
+ print(paste("Significant at FDR < 0.05:", sum(results$p_fdr < 0.05)))
+ 
+ # Summary by form_name
+ print("\nSummary by analysis method (form_name):")
+ form_summary <- results %>%
+   group_by(form_name) %>%
+   summarise(
+     total_variables = n(),
+     sig_p05 = sum(p_value < 0.05),
+     sig_fdr05 = sum(p_fdr < 0.05)
+   ) %>%
+   arrange(desc(sig_fdr05))
+ print(form_summary)
 
 
 
-
-
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ #### Proteomics Analyses 
+ 
+ 
+ library(dplyr)
+ library(ggplot2)
+ library(tidyr)
+ library(gridExtra)
+ library(readxl)
+ library(stringr)
+ library(httr)
+ 
+ # Function to get protein names from UniProt IDs
+ get_protein_names <- function(uniprot_ids) {
+   
+   # Remove NAs and duplicates
+   unique_ids <- unique(uniprot_ids[!is.na(uniprot_ids)])
+   
+   if(length(unique_ids) == 0) {
+     return(data.frame(Entry = character(), 
+                       Gene.Names = character(), 
+                       Protein.names = character()))
+   }
+   
+   # Split into batches of 100 (API limit)
+   batch_size <- 100
+   batches <- split(unique_ids, ceiling(seq_along(unique_ids) / batch_size))
+   
+   all_results <- data.frame()
+   
+   cat("Retrieving protein names from UniProt...\n")
+   
+   for (i in seq_along(batches)) {
+     cat(paste0("Processing batch ", i, " of ", length(batches), "...\n"))
+     
+     batch <- batches[[i]]
+     
+     # Query UniProt API
+     url <- "https://rest.uniprot.org/uniprotkb/search"
+     query <- paste0("accession:(", paste(batch, collapse = " OR "), ")")
+     
+     response <- GET(
+       url,
+       query = list(
+         query = query,
+         format = "tsv",
+         fields = "accession,gene_names,protein_name"
+       )
+     )
+     
+     if (status_code(response) == 200) {
+       # Parse response
+       content <- content(response, "text", encoding = "UTF-8")
+       if(nchar(content) > 0) {
+         batch_results <- read.delim(text = content, sep = "\t", stringsAsFactors = FALSE)
+         all_results <- rbind(all_results, batch_results)
+       }
+     } else {
+       warning(paste("Failed to retrieve batch", i, ". Status code:", status_code(response)))
+     }
+     
+     # Be nice to the API
+     Sys.sleep(0.5)
+   }
+   
+   cat(paste0("Retrieved information for ", nrow(all_results), " proteins\n"))
+   
+   return(all_results)
+ }
+ 
+ # Read harmonized data
+ harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na = '')
+ 
+ dat <- harmonized_data %>% 
+   dplyr::select(-dob) %>% 
+   arrange(date_of_screen) %>% 
+   dplyr::summarise(
+     across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+     across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+     .by = c(record_id, visit)
+   )
+ 
+ dat <- dat %>% filter(group == 'Lean Control')
+ 
+ # Read data dictionary
+ data_dictionary <- readxl::read_xlsx('/Users/netio/Downloads/data_dictionary_master.xlsx')
+ 
+ form_names <- unique(data_dictionary$form_name)
+ proteo <- form_names[str_which(form_names, pattern = 'proteom')]
+ metab <- form_names[str_which(form_names, pattern = 'metab')]
+ 
+ variables_class <- c('proteomics', 'az_urine_metabolites', 'metabolomics_aq')
+ 
+ data_dictionary_small <- data_dictionary %>% 
+   filter(form_name %in% variables_class)
+ 
+ # Extract UniProt IDs from proteomics variable labels
+ cat("\n=== Extracting UniProt IDs from proteomics data ===\n")
+ proteomics_vars <- data_dictionary %>%
+   filter(form_name == 'proteomics')
+ 
+ # Extract UniProt IDs (pattern matches standard UniProt accession format)
+ # This regex matches patterns like P12345, Q9Y123, O95238, etc.
+ uniprot_ids <- proteomics_vars$label %>%
+   str_extract("([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})")
+ 
+ # Get protein names from UniProt
+ protein_mapping <- get_protein_names(uniprot_ids)
+ 
+ # Create enhanced data dictionary with protein information
+ data_dictionary_enhanced <- data_dictionary %>%
+   mutate(uniprot_id = str_extract(label, "([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})")) %>%
+   left_join(
+     protein_mapping %>% 
+       rename(uniprot_id = Entry,
+              gene_name = Gene.Names,
+              protein_name = Protein.names),
+     by = "uniprot_id"
+   ) %>%
+   mutate(
+     # Create clean gene name (take first gene if multiple)
+     gene_name_clean = ifelse(!is.na(gene_name), 
+                              str_trim(str_split(gene_name, " ", simplify = TRUE)[,1]),
+                              NA),
+     # Create enhanced label with protein info
+     label_enhanced = case_when(
+       !is.na(gene_name_clean) & !is.na(protein_name) ~ paste0(gene_name_clean, " - ", protein_name),
+       !is.na(gene_name_clean) ~ gene_name_clean,
+       TRUE ~ label
+     )
+   )
+ 
+ cat(paste0("\nSuccessfully mapped ", sum(!is.na(data_dictionary_enhanced$gene_name)), 
+            " proteins out of ", nrow(proteomics_vars), " proteomics variables\n\n"))
+ 
+ # Replace original data dictionary with enhanced version
+ data_dictionary <- data_dictionary_enhanced
+ 
+ data_dictionary_small <- data_dictionary %>% 
+   filter(form_name %in% variables_class)
+ 
+ data_dictionary_small$variable_name <- str_replace_all(data_dictionary_small$variable_name, pattern = '_', replacement = '.')
+ 
+ # Find which columns actually exist
+ existing_cols <- intersect(data_dictionary_small$variable_name, names(dat))
+ 
+ # Select only those
+ dat_omics <- dat %>% 
+   dplyr::select(record_id, group, sex, all_of(existing_cols))
+ 
+ # Check how many were found vs missing
+ cat("Found:", length(existing_cols), "out of", length(data_dictionary_small$variable_name), "\n")
+ cat("Missing:", length(data_dictionary_small$variable_name) - length(existing_cols), "\n")
+ 
+ ##Analysis
+ 
+ # Set output folder
+ output_folder <- '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/'
+ 
+ # Get all numeric columns (excluding ID columns and grouping variables)
+ numeric_cols <- names(dat_omics)[!names(dat_omics) %in% c('record_id', 'group', 'sex')]
+ 
+ # Initialize results dataframe
+ results <- data.frame(
+   variable = character(),
+   variable_label = character(),
+   uniprot_id = character(),
+   gene_name = character(),
+   protein_name = character(),
+   form_name = character(),
+   test_used = character(),
+   p_value = numeric(),
+   mean_male = numeric(),
+   mean_female = numeric(),
+   stringsAsFactors = FALSE
+ )
+ 
+ cat("\n=== Running statistical tests ===\n")
+ 
+ # Loop through each variable
+ for(var in numeric_cols){
+   
+   # Get all information from enhanced data dictionary
+   var_info <- data_dictionary %>% 
+     filter(variable_name == var)
+   
+   if(nrow(var_info) > 0) {
+     var_label <- var_info$label_enhanced[1]
+     var_form <- var_info$form_name[1]
+     var_uniprot <- var_info$uniprot_id[1]
+     var_gene <- var_info$gene_name_clean[1]
+     var_protein <- var_info$protein_name[1]
+   } else {
+     var_label <- var
+     var_form <- NA
+     var_uniprot <- NA
+     var_gene <- NA
+     var_protein <- NA
+   }
+   
+   # Create temporary dataframe
+   temp_data <- dat_omics %>%
+     filter(!is.na(sex) & sex != "") %>%
+     select(sex, all_of(var)) %>%
+     rename(value = all_of(var)) %>%
+     filter(!is.na(value))
+   
+   # Skip if not enough data
+   if(nrow(temp_data) < 6 || length(unique(temp_data$sex)) < 2) next
+   
+   # Split by sex
+   male_data <- temp_data$value[temp_data$sex == "Male"]
+   female_data <- temp_data$value[temp_data$sex == "Female"]
+   
+   # Skip if either group has less than 3 observations
+   if(length(male_data) < 3 || length(female_data) < 3) next
+   
+   # Test for normality (if sample size allows)
+   normal_male <- if(length(male_data) >= 3 & length(male_data) <= 5000) {
+     shapiro.test(male_data)$p.value > 0.05
+   } else TRUE
+   
+   normal_female <- if(length(female_data) >= 3 & length(female_data) <= 5000) {
+     shapiro.test(female_data)$p.value > 0.05
+   } else TRUE
+   
+   # Choose appropriate test
+   if(normal_male & normal_female){
+     # Use t-test
+     test_result <- t.test(value ~ sex, data = temp_data, var.equal = FALSE)
+     test_name <- "Welch's t-test"
+   } else {
+     # Use Mann-Whitney U test
+     test_result <- wilcox.test(value ~ sex, data = temp_data)
+     test_name <- "Mann-Whitney U"
+   }
+   
+   # Store results
+   results <- rbind(results, data.frame(
+     variable = var,
+     variable_label = var_label,
+     uniprot_id = ifelse(is.na(var_uniprot), "", var_uniprot),
+     gene_name = ifelse(is.na(var_gene), "", var_gene),
+     protein_name = ifelse(is.na(var_protein), "", var_protein),
+     form_name = var_form,
+     test_used = test_name,
+     p_value = test_result$p.value,
+     mean_male = mean(male_data, na.rm = TRUE),
+     mean_female = mean(female_data, na.rm = TRUE)
+   ))
+ }
+ 
+ # Add corrected p-values (multiple methods)
+ results <- results %>%
+   mutate(
+     p_bonferroni = p.adjust(p_value, method = "bonferroni"),
+     p_fdr = p.adjust(p_value, method = "fdr"),  # Benjamini-Hochberg
+     difference = mean_male - mean_female,
+     abs_difference = abs(difference)
+   ) %>%
+   arrange(p_value)
+ 
+ # View top results
+ cat("\n=== Top 20 Results ===\n")
+ print(head(results %>% select(gene_name, protein_name, p_value, p_fdr, mean_male, mean_female), 20))
+ 
+ # Save full results
+ write.csv(results, paste0(output_folder, 'proteomics_sex_comparison_results.csv'), row.names = FALSE)
+ 
+ cat("\n=== Creating plots ===\n")
+ 
+ # Plot top 10 most significant
+ top_results <- head(results, 10)
+ 
+ plot_list <- list()
+ 
+ for(i in 1:nrow(top_results)){
+   var <- top_results$variable[i]
+   var_label <- top_results$variable_label[i]
+   
+   plot_data <- dat_omics %>%
+     filter(!is.na(sex) & sex != "") %>%
+     select(sex, all_of(var)) %>%
+     rename(value = all_of(var)) %>%
+     filter(!is.na(value))
+   
+   # Get p-value for this variable
+   p_val <- top_results$p_value[i]
+   p_fdr <- top_results$p_fdr[i]
+   test_type <- top_results$test_used[i]
+   
+   # Format p-values
+   p_label <- ifelse(p_val < 0.001, "p < 0.001", sprintf("p = %.3f", p_val))
+   p_fdr_label <- ifelse(p_fdr < 0.001, "FDR < 0.001", sprintf("FDR = %.3f", p_fdr))
+   
+   plot_list[[i]] <- ggplot(plot_data, aes(x = sex, y = value, fill = sex)) +
+     geom_boxplot() +
+     scale_fill_manual(values = c("Male" = "#00008B", "Female" = "#8B0000")) +
+     theme_classic(base_size = 12) +
+     labs(
+       title = var_label,  # Now uses gene name and protein name
+       subtitle = paste0(p_label, " | ", p_fdr_label),
+       x = "Sex",
+       y = "Value",
+       fill = "Sex"
+     ) +
+     theme(
+       plot.title = element_text(size = 10, face = "bold"),
+       plot.subtitle = element_text(size = 8),
+       legend.position = "none"
+     )
+ }
+ 
+ # Save plots
+ png(paste0(output_folder, 'proteomics_top10_sex_differences.png'), 
+     height = 15, width = 12, units = 'in', res = 300)
+ grid.arrange(grobs = plot_list, ncol = 2)
+ dev.off()
+ 
+ # Also create a plot for top 20
+ top_results_20 <- head(results, 20)
+ plot_list_20 <- list()
+ 
+ for(i in 1:nrow(top_results_20)){
+   var <- top_results_20$variable[i]
+   var_label <- top_results_20$variable_label[i]
+   
+   plot_data <- dat_omics %>%
+     filter(!is.na(sex) & sex != "") %>%
+     select(sex, all_of(var)) %>%
+     rename(value = all_of(var)) %>%
+     filter(!is.na(value))
+   
+   p_val <- top_results_20$p_value[i]
+   p_fdr <- top_results_20$p_fdr[i]
+   
+   p_label <- ifelse(p_val < 0.001, "p < 0.001", sprintf("p = %.3f", p_val))
+   p_fdr_label <- ifelse(p_fdr < 0.001, "FDR < 0.001", sprintf("FDR = %.3f", p_fdr))
+   
+   plot_list_20[[i]] <- ggplot(plot_data, aes(x = sex, y = value, fill = sex)) +
+     geom_boxplot() +
+     scale_fill_manual(values = c("Male" = "#00008B", "Female" = "#8B0000")) +
+     theme_classic(base_size = 10) +
+     labs(
+       title = var_label,  # Now uses gene name and protein name
+       subtitle = paste0(p_label, " | ", p_fdr_label),
+       x = "Sex",
+       y = "Value",
+       fill = "Sex"
+     ) +
+     theme(
+       plot.title = element_text(size = 9, face = "bold"),
+       plot.subtitle = element_text(size = 7),
+       legend.position = "none"
+     )
+ }
+ 
+ png(paste0(output_folder, 'proteomics_top20_sex_differences.png'), 
+     height = 25, width = 15, units = 'in', res = 300)
+ grid.arrange(grobs = plot_list_20, ncol = 3)
+ dev.off()
+ 
+ cat("\n=== Analysis Summary ===\n")
+ print(paste("Total variables tested:", nrow(results)))
+ print(paste("Significant at p < 0.05:", sum(results$p_value < 0.05)))
+ print(paste("Significant at FDR < 0.05:", sum(results$p_fdr < 0.05)))
+ 
+ # Summary by form_name
+ cat("\nSummary by analysis method (form_name):\n")
+ form_summary <- results %>%
+   group_by(form_name) %>%
+   summarise(
+     total_variables = n(),
+     sig_p05 = sum(p_value < 0.05),
+     sig_fdr05 = sum(p_fdr < 0.05)
+   ) %>%
+   arrange(desc(sig_fdr05))
+ print(form_summary)
+ 
+ # Summary of proteins with gene names mapped
+ cat("\nProteomics mapping summary:\n")
+ proteo_results <- results %>% filter(form_name == 'proteomics')
+ print(paste("Total proteomics variables tested:", nrow(proteo_results)))
+ print(paste("Variables with gene names mapped:", sum(proteo_results$gene_name != "")))
+ print(paste("Mapping success rate:", 
+             round(100 * sum(proteo_results$gene_name != "") / nrow(proteo_results), 1), "%"))
+ 
+ cat("\nAnalysis complete!\n")
