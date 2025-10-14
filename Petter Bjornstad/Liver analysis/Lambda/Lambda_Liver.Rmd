@@ -708,6 +708,106 @@ dev.off()
 
 ```
 
+###iii. Hepatocyte Zone Types
+```{r}
+# Define zonation markers
+zone1_markers <- c("ARG1", "CPS1", "MFSD2A", "ACSS2", "SLBP")
+zone3_markers <- c("CYP2E1", "BCHE", "GHR", "RCAN1","CYP1A","CYP3A","CYP2C","GS","AXIN2","TXB3")
+
+# Subset to hepatocyte subtypes only
+hep_subtypes <- c("Hep_1", "Hep_2", "Hep_3", "Hep_4", "Hep_5", "dHep", "Hep_Immune")
+so_hep <- subset(so_liver_sn, subset = celltype_LR=="Hep")
+DefaultAssay(so_hep) <- "RNA"
+
+# 1. Calculate average expression per subtype
+avg_exp <- AverageExpression(so_hep, 
+                             features = c(zone1_markers, zone3_markers),
+                             group.by = "celltype",
+                             assays = "RNA")$RNA
+
+
+# Scale the average expression for better comparison
+avg_exp_scaled <- t(scale(t(avg_exp)))
+
+# 2. Calculate zonation scores for each subtype
+zone1_score <- colMeans(avg_exp_scaled[zone1_markers[zone1_markers %in% rownames(avg_exp_scaled)], , drop = FALSE])
+zone3_score <- colMeans(avg_exp_scaled[zone3_markers[zone3_markers %in% rownames(avg_exp_scaled)], , drop = FALSE])
+
+zonation_scores <- data.frame(
+  cell_type = names(zone1_score),
+  Zone1_score = zone1_score,
+  Zone3_score = zone3_score,
+  Zonation_ratio = zone1_score - zone3_score  # Positive = Zone1, Negative = Zone3
+)
+
+print("Zonation Scores (ratio > 0 suggests Zone 1, < 0 suggests Zone 3):")
+print(zonation_scores[order(zonation_scores$Zonation_ratio, decreasing = TRUE), ])
+
+# 3. Create dot plot showing marker expression
+p1 <- DotPlot(so_hep, 
+              features = c(zone1_markers, zone3_markers),
+              group.by = "celltype",
+              cols = c("gray", "#990000")) +
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Zonation Marker Expression Across Hepatocyte Subtypes") +
+  geom_hline(yintercept = length(zone1_markers) + 0.5, linetype = "dashed", color = "#003366", linewidth = 1)
+
+# 4. Create heatmap of scaled average expression
+library(pheatmap)
+pheatmap(avg_exp_scaled,
+         cluster_rows = FALSE,
+         cluster_cols = TRUE,
+         annotation_row = data.frame(
+           Zone = c(rep("Zone 1", length(zone1_markers)), 
+                   rep("Zone 3", length(zone3_markers))),
+           row.names = c(zone1_markers, zone3_markers)
+         ),
+         main = "Scaled Average Expression of Zonation Markers",
+         color = colorRampPalette(c("#003366", "white", "#990000"))(100))
+
+png("/home/hhampson/Results/Zonation_Heatmap2.png",res=300,height=2000,width=3000)
+pheatmap(avg_exp_scaled,
+         cluster_rows = FALSE,
+         cluster_cols = TRUE,
+         annotation_row = data.frame(
+           Zone = c(rep("Zone 1", length(zone1_markers)), 
+                   rep("Zone 3", length(zone3_markers))),
+           row.names = c(zone1_markers, zone3_markers)
+         ),
+         main = "Scaled Average Expression of Zonation Markers",
+         color = colorRampPalette(c("#003366", "white", "#990000"))(100))
+dev.off()
+
+# 5. Visualize zonation scores
+zonation_plot <- ggplot(zonation_scores, 
+                        aes(x = reorder(cell_type, Zonation_ratio), 
+                            y = Zonation_ratio)) +
+  geom_bar(stat = "identity", 
+           aes(fill = Zonation_ratio > 0)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("TRUE" = "#990000", "FALSE" = "#003366"),
+                    labels = c("TRUE" = "Zone 1-like", "FALSE" = "Zone 3-like"),
+                    name = "Zonation") +
+  coord_flip() +
+  labs(x = "Hepatocyte Subtype", 
+       y = "Zonation Score (Zone 1 - Zone 3)",
+       title = "Hepatocyte Subtype Zonation Classification") +
+  theme_classic() +
+  theme(legend.position = "bottom")
+
+print(p1)
+print(zonation_plot)
+
+png("/home/hhampson/Results/Zonation_Bubbleplot2.png",res=300,height=2000,width=3000)
+print(p1)
+dev.off()
+
+png("/home/hhampson/Results/Zonation_Barchart2.png",res=300,height=2000,width=3000)
+print(zonation_plot)
+dev.off()
+```
+
 
 ## e. Explore Distribution & Zero-Inflation
 ###i. All Celltypes
@@ -1808,7 +1908,7 @@ volcano_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis 
   # scale_color_identity(guide = "legend", 
   #                    name = "LogFC Direction", 
   #                    labels = c("Downregulated", "N.S.", "Upregulated"), 
-  #                    breaks = c("#003366", "lightgrey", "#990000"))+
+                     # breaks = c("#003366", "lightgrey", "#990000"))+
   theme_minimal() +  # Minimal theme
   labs(
     title = "Differentially Expressed Genes in High Steatosis vs. Low Steatosis",
