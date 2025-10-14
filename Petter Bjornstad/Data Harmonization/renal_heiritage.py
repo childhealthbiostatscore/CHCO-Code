@@ -53,7 +53,7 @@ def clean_renal_heiritage():
     # --------------------------------------------------------------------------
 
     dem_cols = ["record_id", "dob", "group_rh2", "sex", "race", "ethnicity", "sglt2i", 
-                "participation_status", "rh_id", "diabetes_dx_date", "mrn"]
+                "participation_status", "rh_id", "mrn", "diabetes_dx_date"]
     # Export
     demo = pd.DataFrame(proj.export_records(fields=dem_cols))
     demo = demo.loc[demo["redcap_event_name"].str.startswith('screen', na=False)].copy()
@@ -85,13 +85,14 @@ def clean_renal_heiritage():
                        inplace=True)
     demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
 
+
     # --------------------------------------------------------------------------
     # Medical History
     # --------------------------------------------------------------------------
 
     var = ["record_id"] + ["mra_med"] + ["screen_a1c"] + ["insulin_inj"] + ["htn_med_type"] +  \
     ["sglt2i_med"] + ["diabetes_med_other"] + ["addl_hld_meds"] + ["meds_weight_type"] + \
-    ["uric_acid_med"] + ["diabetes_med"]
+    ["uric_acid_med"] + ["diabetes_med"] #+ ["diabetes_dx_date"]
     med = pd.DataFrame(proj.export_records(fields=var)) 
     med = med.loc[med["redcap_event_name"].str.startswith('screen', na=False)]
     med.drop(["redcap_event_name"], inplace=True, axis=1)
@@ -267,7 +268,7 @@ def clean_renal_heiritage():
     out = out[list(set(out.columns).difference(bold_mri_cols))]
     rename = {"volume_left": "left_kidney_volume_ml",
               "volume_right": "right_kidney_volume_ml",
-              "mri_lab_date": "date"}
+              "mri_lab_date": "date", "t1_r_cortex": "bold_r_t1_cortex", "t1_r_kidney":"bold_r_t1_kidney" , "t1_l_cortex":"bold_l_t1_cortex", "t1_l_kidney": "bold_l_t1_kidney"}
     out.rename(rename, axis=1, inplace=True)
     out["procedure"] = "clamp"
     out["visit"] = "baseline"

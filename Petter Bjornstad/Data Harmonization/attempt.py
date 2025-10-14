@@ -94,7 +94,7 @@ def clean_attempt():
     # --------------------------------------------------------------------------
     # Clamp
     # --------------------------------------------------------------------------
-    var = ["subject_id", "date_clamp", "sbp_clamp", "dbp_clamp", "clamp_height", "weight_clamp"]
+    var = ["subject_id", "date_clamp", "sbp_clamp", "dbp_clamp", "clamp_height", "weight_clamp", "date_of_screen"]
     clamp = pd.DataFrame(proj.export_records(fields=var))
     clamp.replace(rep, np.nan, inplace=True)
     clamp.rename({"sbp_clamp": "sbp", "dbp_clamp": "dbp", "clamp_height": "height", "weight_clamp": "weight", "date_clamp": "date", "redcap_event_name": "visit"}, axis=1, inplace=True)
