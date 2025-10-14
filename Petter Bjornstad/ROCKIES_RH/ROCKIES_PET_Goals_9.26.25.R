@@ -4986,7 +4986,7 @@ combined_df <- dat2 %>%
   mutate(arteriolohyalinosis_severity = ifelse(arteriolohyalinosis == 'no', 0, 
                                                ifelse(arteriolohyalinosis == 'mild', 1, 
                                                       ifelse(arteriolohyalinosis == 'severe', 2, NA))), 
-         GBM_thickness = ifelse(`GBM thickness` %in% c('normal', 'normal/thickened?'), 1, 0)) %>%
+         GBM_thickness = `GBM thickness`) %>%
   select(-arteriolohyalinosis, -`GBM thickness`, -record_id)
 
 PET_traits <- c('Cortical K2', 'Cortical F', 'Cortical K2/F')
@@ -5034,5 +5034,193 @@ png('/Users/netio/Downloads/Arteriosclerosis_Boxplots.png',
     height = 25, width = 20, units = 'in', res = 300)
 grid.arrange(grobs = graph_list, ncol = 2)
 dev.off()
+
+
+
+
+### GBM Thickness Y/N 
+
+PET_traits <- c('Cortical K2', 'Cortical F', 'Cortical K2/F')
+PET_traits_small <- c('avg_c_k2', 'avg_c_f', 'avg_c_k2_f')
+
+# Define colors: dark blue for 'no', dark red for 'yes'
+colors <- c("no" = "#00008B", "yes" = "#8B0000")
+
+graph_list <- list()
+
+for(i in 1:length(PET_traits)){
+  tmp_df <- combined_df 
+  iter <- which(names(tmp_df) == PET_traits_small[i])
+  names(tmp_df)[iter] <- 'Variable'
+  
+  # Filter data
+  plot_data <- tmp_df %>% filter(GBM_thickness != '')
+  
+  graph_list[[i]] <- ggplot(plot_data, 
+                            aes(x = as.character(GBM_thickness), 
+                                y = Variable, 
+                                fill = as.character(GBM_thickness))) +
+    geom_boxplot() +
+    scale_fill_manual(values = colors) +
+    stat_compare_means(method = "t.test",
+                       label = "p.format",
+                       size = 8,  # Increased p-value text size
+                       p.adjust.method = "none") +
+    theme_classic(base_size = 24) +  # Increased base size
+    theme(
+      axis.title = element_text(size = 28, face = "bold"),  # Larger axis titles
+      axis.text = element_text(size = 24),  # Larger axis text
+      legend.title = element_text(size = 26, face = "bold"),  # Larger legend title
+      legend.text = element_text(size = 24),  # Larger legend text
+      plot.title = element_text(size = 30, face = "bold")  # If you add titles
+    ) +
+    labs(x = 'GBM Thickening', 
+         y = PET_traits[i], 
+         fill = 'GBM Thickening')
+  
+}
+
+# Save plots
+png('/Users/netio/Downloads/GBM_thickness_Boxplots.png', 
+    height = 25, width = 20, units = 'in', res = 300)
+grid.arrange(grobs = graph_list, ncol = 2)
+dev.off()
+
+
+
+
+
+
+
+### Without Obese
+
+
+
+
+
+
+
+
+library(corrplot)
+library(ggplot2)
+library(dplyr)
+library(ggpubr)
+library(gridExtra)
+
+dat2 <- data.table::fread("/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")
+
+dat2 <- dat2[-str_which(dat2$record_id, '-O')]
+
+combined_df <- dat2 %>% 
+  dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f,
+                arteriosclerosis, arteriolohyalinosis, `GBM thickness`, 
+                `GBM thickness arith`, `GBM thickness harm`,
+                acr_u) %>% 
+  mutate(arteriolohyalinosis_severity = ifelse(arteriolohyalinosis == 'no', 0, 
+                                               ifelse(arteriolohyalinosis == 'mild', 1, 
+                                                      ifelse(arteriolohyalinosis == 'severe', 2, NA))), 
+         GBM_thickness = `GBM thickness`) %>%
+  select(-arteriolohyalinosis, -`GBM thickness`, -record_id)
+
+PET_traits <- c('Cortical K2', 'Cortical F', 'Cortical K2/F')
+PET_traits_small <- c('avg_c_k2', 'avg_c_f', 'avg_c_k2_f')
+
+# Define colors: dark blue for 'no', dark red for 'yes'
+colors <- c("no" = "#00008B", "yes" = "#8B0000")
+
+graph_list <- list()
+
+for(i in 1:length(PET_traits)){
+  tmp_df <- combined_df 
+  iter <- which(names(tmp_df) == PET_traits_small[i])
+  names(tmp_df)[iter] <- 'Variable'
+  
+  # Filter data
+  plot_data <- tmp_df %>% filter(arteriosclerosis != '')
+  
+  graph_list[[i]] <- ggplot(plot_data, 
+                            aes(x = as.character(arteriosclerosis), 
+                                y = Variable, 
+                                fill = as.character(arteriosclerosis))) +
+    geom_boxplot() +
+    scale_fill_manual(values = colors) +
+    stat_compare_means(method = "wilcox.test",
+                       label = "p.format",
+                       size = 8,  # Increased p-value text size
+                       p.adjust.method = "none") +
+    theme_classic(base_size = 24) +  # Increased base size
+    theme(
+      axis.title = element_text(size = 28, face = "bold"),  # Larger axis titles
+      axis.text = element_text(size = 24),  # Larger axis text
+      legend.title = element_text(size = 26, face = "bold"),  # Larger legend title
+      legend.text = element_text(size = 24),  # Larger legend text
+      plot.title = element_text(size = 30, face = "bold")  # If you add titles
+    ) +
+    labs(x = 'Arteriosclerosis', 
+         y = PET_traits[i], 
+         fill = 'Arteriosclerosis')
+  
+}
+
+# Save plots
+png('/Users/netio/Downloads/Arteriosclerosis_NoOC_Boxplots.png', 
+    height = 25, width = 20, units = 'in', res = 300)
+grid.arrange(grobs = graph_list, ncol = 2)
+dev.off()
+
+
+
+
+### GBM Thickness Y/N 
+
+PET_traits <- c('Cortical K2', 'Cortical F', 'Cortical K2/F')
+PET_traits_small <- c('avg_c_k2', 'avg_c_f', 'avg_c_k2_f')
+
+# Define colors: dark blue for 'no', dark red for 'yes'
+colors <- c("no" = "#00008B", "yes" = "#8B0000")
+
+graph_list <- list()
+
+for(i in 1:length(PET_traits)){
+  tmp_df <- combined_df 
+  iter <- which(names(tmp_df) == PET_traits_small[i])
+  names(tmp_df)[iter] <- 'Variable'
+  
+  # Filter data
+  plot_data <- tmp_df %>% filter(GBM_thickness != '')
+  
+  graph_list[[i]] <- ggplot(plot_data, 
+                            aes(x = as.character(GBM_thickness), 
+                                y = Variable, 
+                                fill = as.character(GBM_thickness))) +
+    geom_boxplot() +
+    scale_fill_manual(values = colors) +
+    stat_compare_means(method = "wilcox.test",
+                       label = "p.format",
+                       size = 8,  # Increased p-value text size
+                       p.adjust.method = "none") +
+    theme_classic(base_size = 24) +  # Increased base size
+    theme(
+      axis.title = element_text(size = 28, face = "bold"),  # Larger axis titles
+      axis.text = element_text(size = 24),  # Larger axis text
+      legend.title = element_text(size = 26, face = "bold"),  # Larger legend title
+      legend.text = element_text(size = 24),  # Larger legend text
+      plot.title = element_text(size = 30, face = "bold")  # If you add titles
+    ) +
+    labs(x = 'GBM Thickening', 
+         y = PET_traits[i], 
+         fill = 'GBM Thickening')
+  
+}
+
+# Save plots
+png('/Users/netio/Downloads/GBM_thickness_NoOC_Boxplots.png', 
+    height = 25, width = 20, units = 'in', res = 300)
+grid.arrange(grobs = graph_list, ncol = 2)
+dev.off()
+
+
+
+
 
 
