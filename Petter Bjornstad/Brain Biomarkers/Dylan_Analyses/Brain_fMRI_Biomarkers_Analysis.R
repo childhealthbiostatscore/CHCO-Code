@@ -1067,3 +1067,21 @@ regions_of_interest <- c(
   "lh_precuneus_thickness", "rh_precuneus_thickness",
   "TotalGrayVol", "TotalCorticalVol"
 )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
