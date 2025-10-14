@@ -905,7 +905,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
      .by = c(record_id, visit)
    )
  
- dat <- dat %>% filter(group == 'Lean Control')
+ dat <- dat %>% filter(group == 'Lean Control') %>% 
+   filter(visit == 'baseline')
  
  
  data_dictionary <- readxl::read_xlsx('/Users/netio/Downloads/data_dictionary_master.xlsx')
@@ -919,6 +920,95 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  data_dictionary_small <- data_dictionary %>% 
    filter(form_name %in% variables_class)
+ 
+ 
+ 
+ 
+ 
+ # Fix data types before creating the table
+ library(gtsummary)
+ library(gt)
+ library(dplyr)
+ 
+ # Convert variables to proper data types
+ combined_df <- dat %>%
+   mutate(
+     # Ensure continuous variables are numeric
+     age = as.numeric(age),
+     bmi = as.numeric(bmi),
+     hba1c = as.numeric(hba1c),
+     
+     # Ensure categorical variables are factors or characters
+     sex = as.factor(sex),
+     race_ethnicity = as.factor(race_ethnicity),
+     study = as.factor(study),
+     group = as.factor(group)
+   )
+ 
+ 
+ 
+ # Now create the table with proper data types
+ desc_table1_fixed <- combined_df %>%
+   select(age, sex, race_ethnicity, bmi, hba1c, study, group) %>%
+   tbl_summary(
+     by = sex,
+     type = list(
+       age ~ "continuous",
+       bmi ~ "continuous", 
+       hba1c ~ "continuous",
+       group ~ "categorical",
+       race_ethnicity ~ "categorical",
+       study ~ "categorical"
+     ),
+     statistic = list(
+       all_continuous() ~ "{mean} ({sd})",
+       all_categorical() ~ "{n} ({p}%)"
+     ),
+     digits = list(
+       age ~ 1,
+       bmi ~ 1,
+       hba1c ~ 2,
+       all_categorical() ~ c(0, 1)
+     ),
+     label = list(
+       age ~ "Age, years",
+       group ~ "Group", 
+       race_ethnicity ~ "Race/Ethnicity",
+       bmi ~ "BMI, kg/m²",
+       hba1c ~ "HbA1c, %",
+       study ~ "Study"
+     ),
+     missing_text = "Missing"
+   ) %>%
+   add_p(test = list(
+     all_continuous() ~ "t.test"
+     # Skip categorical p-values if they cause issues
+   )) %>%
+   add_overall(col_label = "**Overall**\nN = {N}") %>%
+   modify_header(label ~ "**Characteristic**") %>%
+   modify_spanning_header(all_stat_cols() ~ "**Sex**") %>%
+   modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+ 
+ # Save version with epic
+ desc_table1_fixed %>%
+   as_gt() %>%
+   tab_options(
+     table.font.size = 11,
+     heading.title.font.size = 14,
+     column_labels.font.size = 12
+   ) %>%
+   gtsave("C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/LeanControl_Omics_Demographics.png", 
+          vwidth = 1200, vheight = 800)
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
  
  
  
@@ -1566,11 +1656,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  
  ### Labeling the proteins properly
- 
- results <- data.table::fread(paste0(output_folder, 'proteomics_sex_comparison_results.csv'))
 
- 
- 
  library(dplyr)
  library(readxl)
  library(stringr)
