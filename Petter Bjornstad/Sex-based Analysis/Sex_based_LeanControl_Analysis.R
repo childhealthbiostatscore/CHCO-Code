@@ -531,14 +531,72 @@ names(aPT_data) <- c('record_id', 'group_labels', 'PT_totalcells', 'aPT_count', 
 names(TAL_data) <- c('record_id', 'group_labels', 'TAL_totalcells', 'dTAL_count', 'dTAL_percentage')
 
 strange_cells <- aPT_data %>% left_join(TAL_data)
+sex_df <- meta.data %>% dplyr::select(record_id, sex)
+
+strange_cells <- strange_cells %>% left_join(sex_df, by='record_id')
+
+
+ggplot(strange_cells, aes(x=aPT_percentage, y=dTAL_percentage, color = sex))+geom_point()+
+  geom_smooth(method = 'lm')+theme_classic()+theme(x = 'aPT Percentage of PT Cells', 
+                                                   y = 'dTAL Percentage of TAL Cells')
+
+  
+lm(dTAL_percentage ~ aPT_percentage*sex, data = strange_cells) %>% summary()
 
 
 
 
+library(ggplot2)
+library(broom)
 
+# Model
+model <- lm(dTAL_percentage ~ aPT_percentage * sex, data = strange_cells)
+model_summary <- tidy(model)
 
+# Extract key statistics
+interaction_p <- model_summary$p.value[model_summary$term == "aPT_percentage:sexMale"]
+# Adjust sex level name as needed
 
+# Significance star
+sig_star <- case_when(
+  interaction_p < 0.001 ~ "***",
+  interaction_p < 0.01 ~ "**",
+  interaction_p < 0.05 ~ "*",
+  TRUE ~ "ns"
+)
 
+# Plot
+p <- ggplot(strange_cells, aes(x = aPT_percentage, y = dTAL_percentage, 
+                               color = sex, fill = sex)) +
+  geom_point(size = 2.5, alpha = 0.7) +
+  geom_smooth(method = 'lm', se = TRUE, alpha = 0.15, linewidth = 1.3) +
+  scale_color_manual(values = c("Male" = "#0073C2FF", "Female" = "#EFC000FF")) +
+  scale_fill_manual(values = c("Male" = "#0073C2FF", "Female" = "#EFC000FF")) +
+  labs(
+    x = 'aPT Percentage of PT Cells (%)', 
+    y = 'dTAL Percentage of TAL Cells (%)',
+    color = 'Sex',
+    fill = 'Sex',
+    title = "Sex-specific relationship between aPT and dTAL cell populations"
+  ) +
+  annotate("text", x = Inf, y = Inf, 
+           label = sprintf("Interaction: p = %.4f %s", interaction_p, sig_star),
+           hjust = 1.1, vjust = 2, size = 4, fontface = "bold") +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 13),
+    legend.position = c(0.85, 0.15),
+    legend.background = element_rect(fill = "white", color = "black")
+  )
+
+print(p)
+
+# Print model summary
+print(summary(model))
+
+# Save
+ggsave(paste0(dir.results, "aPT_dTAL_interaction_plot.png"), plot = p, 
+       width = 8, height = 6, dpi = 300)
 
 
 
