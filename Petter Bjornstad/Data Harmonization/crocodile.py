@@ -76,6 +76,9 @@ def clean_crocodile():
         demo.group.str.contains("lean", case=False), "Low", "High")
     demo["participation_status"].replace(
         {"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    
+    dictionary.loc[dictionary['variable_name'].isin(demo.columns), 'form_name'] = 'demographics'
+
 
     # --------------------------------------------------------------------------
     # Medications
@@ -127,6 +130,8 @@ def clean_crocodile():
         {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
     med["procedure"] = "medications"
     med["visit"] = "baseline"
+    dictionary.loc[dictionary['variable_name'].isin(med.columns), 'form_name'] = 'medical_history'
+
 
     # --------------------------------------------------------------------------
     # EPIC Medications
@@ -159,6 +164,9 @@ def clean_crocodile():
     phys.rename({"sysbp": "sbp", "diasbp": "dbp"}, inplace=True, axis=1)
     phys["visit"] = "baseline"
 
+    dictionary.loc[dictionary['variable_name'].isin(phys.columns), 'form_name'] = 'physical_exam'
+
+
     # --------------------------------------------------------------------------
     # Screening labs
     # --------------------------------------------------------------------------
@@ -178,6 +186,9 @@ def clean_crocodile():
     screen["visit"] = "baseline"
     # Assume medication review done at screening
     med["date"] = screen["date"]
+
+    dictionary.loc[dictionary['variable_name'].isin(screen.columns), 'form_name'] = 'labs'
+
 
     # --------------------------------------------------------------------------
     # Labs
@@ -203,6 +214,9 @@ def clean_crocodile():
     labs["procedure"] = "clamp"
     labs["visit"] = "baseline"
 
+    dictionary.loc[dictionary['variable_name'].isin(labs.columns), 'form_name'] = 'labs'
+
+
     # --------------------------------------------------------------------------
     # BOLD/ASL MRI
     # --------------------------------------------------------------------------
@@ -220,6 +234,9 @@ def clean_crocodile():
     mri["date"] = labs["date"]
     mri["procedure"] = "bold_mri"
     mri["visit"] = "baseline"
+
+    dictionary.loc[dictionary['variable_name'].isin(mri.columns), 'form_name'] = 'bold_mri'
+
 
     # --------------------------------------------------------------------------
     # DXA Scan
@@ -241,6 +258,9 @@ def clean_crocodile():
                axis=1, inplace=True)
     dxa["procedure"] = "dxa"
     dxa["visit"] = "baseline"
+
+    dictionary.loc[dictionary['variable_name'].isin(dxa.columns), 'form_name'] = 'dxa'
+
 
     # --------------------------------------------------------------------------
     # Clamp
@@ -307,6 +327,9 @@ def clean_crocodile():
     clamp["p2_steady_state_insulin"] = \
         clamp[['insulin_250', 'insulin_260', 'insulin_270']].mean(axis=1)
     clamp["ffa_method"] = "hyperinsulinemic_euglycemic_clamp"
+
+    dictionary.loc[dictionary['variable_name'].isin(clamp.columns), 'form_name'] = 'clamp'
+
     
     # --------------------------------------------------------------------------
     # Renal Clearance Testing
@@ -366,6 +389,9 @@ def clean_crocodile():
     rct["procedure"] = "clamp"
     rct["visit"] = "baseline"
 
+    dictionary.loc[dictionary['variable_name'].isin(rct.columns), 'form_name'] = 'renal_clearance'
+
+
     # --------------------------------------------------------------------------
     # Kidney Biopsy
     # --------------------------------------------------------------------------
@@ -402,6 +428,9 @@ def clean_crocodile():
     biopsy["visit"] = "baseline"
     epic_med["date"] = biopsy["date"]
 
+    dictionary.loc[dictionary['variable_name'].isin(biopsy.columns), 'form_name'] = 'kidney_biopsy'
+
+
     # --------------------------------------------------------------------------
     # PET scan
     # --------------------------------------------------------------------------
@@ -415,6 +444,10 @@ def clean_crocodile():
     pet.columns = pet.columns.str.replace(r"pet_", "", regex=True)
     pet["procedure"] = "pet_scan"
     pet["visit"] = "baseline"
+
+    dictionary.loc[dictionary['variable_name'].isin(pet.columns), 'form_name'] = 'pet_scan'
+
+
     
     # --------------------------------------------------------------------------
     # Liver PET scan
@@ -427,6 +460,9 @@ def clean_crocodile():
     liver_pet.replace(rep, np.nan, inplace=True)
     liver_pet["procedure"] = "liver_pet_scan"
     liver_pet["visit"] = "baseline"
+
+    dictionary.loc[dictionary['variable_name'].isin(liver_pet.columns), 'form_name'] = 'liver_pet_scan'
+
     
     # --------------------------------------------------------------------------
     # Voxelwise
@@ -440,6 +476,8 @@ def clean_crocodile():
     voxelwise["procedure"] = "pet_scan"
     voxelwise["visit"] = "baseline"
     
+    dictionary.loc[dictionary['variable_name'].isin(voxelwise.columns), 'form_name'] = 'voxelwise'
+
     # --------------------------------------------------------------------------
     # Brain biomarkers
     # --------------------------------------------------------------------------
@@ -489,6 +527,7 @@ def clean_crocodile():
     metabolomics_tissue["procedure"] = "metabolomics_tissue"
     metabolomics_tissue["visit"] = "baseline"
     metabolomics_tissue["date"] = screen["date"]
+
     
     # --------------------------------------------------------------------------
     # Astrazeneca urine metabolomics
@@ -570,4 +609,6 @@ def clean_crocodile():
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
     # Print final data
+    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+    dictionary.to_csv(tocsv_path, index=False)
     return df
