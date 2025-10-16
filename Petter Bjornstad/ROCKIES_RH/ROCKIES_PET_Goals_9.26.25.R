@@ -4637,7 +4637,7 @@ desc_table1_fixed %>%
 combined_df <- dat2 %>% #filter(group %in% c('Type 2 Diabetes', 'Obese Control')) %>% 
   dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f, 
                 avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
-                acr_u)
+                acr_u, fia, glom_tuft_area, glom_nuc_count, mes_matrix_area, mes_index, mes_volume_con)
 
 
 colSums(is.na(combined_df))
@@ -4645,7 +4645,7 @@ colSums(is.na(combined_df))
 combined_df <- combined_df %>% 
   dplyr::select(avg_c_k2, avg_c_f, avg_c_k2_f, 
                 avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
-                acr_u)
+                acr_u, fia, glom_tuft_area, glom_nuc_count, mes_matrix_area, mes_index, mes_volume_con)
 
 library(corrplot)
 
