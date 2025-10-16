@@ -90,10 +90,26 @@ small_dat <- small_dat %>% left_join(mri_ids_df, by = c('record_id'='ID'))
 
 #Data 
 subcortical <- data.table::fread("/Users/netio/Documents/UofW/Projects/Brain_fMRI_Analysis/t1_MRI/subcortical_volumes.txt")
+names(subcortical)[1] <- 'file_id'
+subcortical$file_id <- str_remove(subcortical$file_id, "_t1\\.?/$")
 
 l_thick <- data.table::fread("/Users/netio/Documents/UofW/Projects/Brain_fMRI_Analysis/t1_MRI/lh_thickness.txt") 
-r_thick <- data.table::fread("/Users/netio/Documents/UofW/Projects/Brain_fMRI_Analysis/t1_MRI/rh_thickness.txt")
+names(l_thick)[1] <- 'file_id'
+l_thick$file_id <- str_remove(l_thick$file_id, "_t1\\.?/$")
 
+r_thick <- data.table::fread("/Users/netio/Documents/UofW/Projects/Brain_fMRI_Analysis/t1_MRI/rh_thickness.txt")
+names(r_thick)[1] <- 'file_id'
+r_thick$file_id <- str_remove(r_thick$file_id, "_t1\\.?/$")
+
+
+
+t1_analysis <- small_dat %>% left_join(subcortical) %>% 
+  left_join(l_thick, by = 'file_id') %>% 
+  left_join(r_thick, by = 'file_id') %>% 
+  mutate(group2 = ifelse(group == 'Type 2 Diabates', 'Type 2 Diabetes', 'Control'))
+
+
+ggplot(t1_analysis, aes(x= group, y = `Left-Putamen`))+geom_boxplot()
 
 
 
