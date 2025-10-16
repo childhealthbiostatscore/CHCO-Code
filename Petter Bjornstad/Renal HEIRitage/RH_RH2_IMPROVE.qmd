@@ -82,7 +82,8 @@ rh_rh2_croc_panther <- harm_dat_collapsed %>%
   filter(visit == "baseline")
 
 bmi_percentile = ext_bmiz(data = subset(rh_rh2_croc_panther, 
-                                        select = c("record_id", "sex", "agem", "weight", "height", "bmi")),
+                                        select = c("record_id", "sex", "agem", 
+                                                   "weight", "height", "bmi")),
                           wt = "weight", ht = "height") %>%
   dplyr::select(record_id, bmip)
   
@@ -178,6 +179,19 @@ summary(arsenal::tableby(bmi_cat ~ avg_c_t1, data=subset(rh_rh2_croc_panther_uni
 
 summary(arsenal::tableby(group_risk ~ avg_c_t1, data=subset(rh_rh2_croc_panther_unique, study == "PANTHER")),
         total = F)
+
+summary(arsenal::tableby(group ~ record_id + age + sex+ hba1c + bmi + bmip + eGFR_CKD_epi + eGFR_fas_cr + kwt(acr_u, "medianq1q3"), data = subset(rh_rh2_croc_panther_unique, study == "PANTHER" & is.na(group_risk) & !is.na(avg_c_t1))))
+
+summary(arsenal::tableby(group_risk ~ avg_c_r2 + avg_k_r2 +
+                           avg_c_adc  + avg_pcascl + avg_c_t1, data=subset(rh_rh2_croc_panther_unique, study == "PANTHER")),
+        total = F)
+subset(rh_rh2_croc_panther_unique, study == "PANTHER")$avg_c_t1
+
+summary(arsenal::tableby(group ~ dexa_body_fat + dexa_fat_kg + dexa_lean_mass + dexa_lean_kg + dexa_trunk_mass + dexa_trunk_kg + dexa_bone_mineral_density, data = subset(rh_rh2_croc_panther_unique, study == "PANTHER" & is.na(group_risk) & !is.na(avg_c_t1))))
+
+summary(arsenal::tableby(group_risk ~ dexa_body_fat + dexa_fat_kg + dexa_lean_mass + dexa_lean_kg + dexa_trunk_mass + dexa_trunk_kg + dexa_bone_mineral_density, data=subset(rh_rh2_croc_panther_unique, study == "PANTHER")),
+        total = F)
+subset(rh_rh2_croc_panther_unique, study == "PANTHER" & group_risk == "High" & dexa_body_fat == 18.9)$hba1c
 
 ```
 
@@ -375,4 +389,24 @@ plot_emms_with_brackets(
   outcome_var = "avg_c_t1",
   y_label = "Estimated marginal mean\nof kidney R2*"
 )
+```
+
+```{r}
+subset(rh_rh2_croc_panther_unique, study == "PANTHER") %>% 
+  filter(!is.na(group_risk)) %>%
+  ggplot(aes(x = factor(group_risk, levels = c("Low", "High")), y = avg_c_t1, fill = group_risk)) +
+  geom_boxplot(size = 1.5, width = 0.8, outlier.shape = NA) +
+  labs(x = NULL, y = "Avg cortical T1") +
+  scale_fill_manual(values = c("#e29578", "#babd8d")) +
+  theme(legend.position = "none",
+        text = element_text(size = 30),
+        axis.text.x = element_text(size = 30),
+        axis.text.y = element_text(size = 28)) +
+  theme_transparent + 
+  stat_compare_means(
+    comparisons = list(c("Low", "High")),
+    method = "t.test",
+    size = 15,
+    label = "p.signif") +
+   scale_y_continuous(limits = c(NA, 1550))
 ```

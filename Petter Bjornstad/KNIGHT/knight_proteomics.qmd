@@ -46,6 +46,21 @@ library(SomaPlotr)
 library(openxlsx)
 ```
 
+```{r}
+# specify user for paths
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
 ```{r functions}
 volcano <- function(data, lab = "Target", xcol = "logFC", ycol = "P.Value",
                     top = 6,
@@ -134,13 +149,13 @@ plotVolcano_mod <- function (data, FC, p.value, labels, identify = FALSE, fc.cut
 # Load correlation function
 source("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 
-load("/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Somalogic data/knight_soma.Rdata")
-load("/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Somalogic data/analytes.Rdata")
+load(file.path(root_path, "KNIGHT/Somalogic data/knight_soma.Rdata"))
+load(file.path(root_path, "KNIGHT/Somalogic data/analytes.Rdata"))
 
 # read in linkage file for Natalie's studies
-link <- read.csv("/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Somalogic data/BCF-23-091 Linker File 10.05.2023.csv")
+link <- read.csv(file.path(root_path, "KNIGHT/Somalogic data/BCF-23-091 Linker File 10.05.2023.csv"))
 link$Study.ID <- link$Sequence.Number
-redcap <- read.csv("/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Somalogic data/200572DataKNIGHT_DATA_LABELS_2023-12-10_1551.csv")
+redcap <- read.csv(file.path(root_path, "KNIGHT/Somalogic data/200572DataKNIGHT_DATA_LABELS_2023-12-10_1551.csv"))
 redcap <- redcap %>% filter(Event.Name == "Screening")
 redcap <- redcap %>% select(Study.ID, Sex.assigned.at.birth)
 link <- merge(link, redcap, by="Study.ID", all.x = T, all.y = F)
@@ -150,7 +165,7 @@ knight_soma <- full_join(knight_soma, link, by="SampleDescription")
 
 # read in linkage file for Netherlands samples
 # actually, not sure I need these...there is a field called TimePoint
-#nethlink <- read.csv("/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Somalogic data/sample ID and visit labels SOMAscan WUS-23-004.csv")
+#nethlink <- read.csv(file.path(root_path, "KNIGHT/Somalogic data/sample ID and visit labels SOMAscan WUS-23-004.csv")
 #nethlink <- nethlink %>% filter(str_detect(SampleId, "KGHT"))
 #nethlink <- nethlink %>% select(GTAC_ID, TimePoint)
 #knight_soma$GTAC_ID <- str_sub(knight_soma$SampleId, 1, 10)
@@ -186,11 +201,11 @@ seq <- is_seq(names(knight_soma))
 knight_soma <- knight_soma %>% modify_if(is_seq(names(.)), log)
 
 # read in extra variables from AMC
-sexhormones <- read.csv("/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Data_raw/Excel KNIGHT - sex hormones.csv")
+sexhormones <- read.csv(file.path(root_path, "KNIGHT/Data_raw/Excel KNIGHT - sex hormones.csv"))
 sexhormones <- sexhormones %>% select(study_nr, Visit, estradiol_CU, testosteron_CU)
-extravars <- read.csv("/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Data_raw/Excel KNIGHT extra data + variables.csv")
+extravars <- read.csv(file.path(root_path, "KNIGHT/Data_raw/Excel KNIGHT extra data + variables.csv"))
 neth <- full_join(sexhormones, extravars, by=c("study_nr","Visit"))
-gfr <-  read.csv("/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Data_raw/Excel KNIGHT -GFR ERPF.csv")
+gfr <-  read.csv(file.path(root_path, "KNIGHT/Data_raw/Excel KNIGHT -GFR ERPF.csv"))
 gfr <- gfr %>% select(study_nr, Visit, GFR..mL.min., ERPF..mL.min.)
 neth <- full_join(neth, gfr, by = c("study_nr", "Visit"))
 neth$time <- ifelse(neth$Visit == 0, 1, 2)
@@ -210,6 +225,9 @@ knight_soma$Visit <- NULL
 
 # remove 3 participants with missing proteomics
 knight_soma <- knight_soma %>% filter(!is.na(seq.10000.28))
+
+# save KNIGHT SOMA to send to Daniel vR
+write.csv(knight_soma, file.path(root_path, "KNIGHT/Data_clean/knight_soma_clean.csv"), row.names = F, na = "")
 
 # calculate change in sex hormones, uric acid, M-value, GFR/EFPF
 delta_temp <- knight_soma %>% select(Study.ID, time, testosteron_CU, estradiol_CU, M_value_corrected,
@@ -276,7 +294,7 @@ res <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
 res$Target <- analytes$Target[match(rownames(res), analytes$AptName)]
 res$TargetFullName <- analytes$TargetFullName[match(rownames(res), analytes$AptName)]
 res$UniProt <- analytes$UniProt[match(rownames(res), analytes$AptName)]
-write.csv(res, file = "/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Results/limma_MTF_results.csv", row.names = F)
+write.csv(res, file = file.path(root_path, "KNIGHT/Results/limma_MTF_results.csv", row.names = F))
 # Write results for online enrichment
 res_for_enrichment <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
 res_for_enrichment <- res_for_enrichment[order(res_for_enrichment$logFC, decreasing = T), ]
@@ -368,7 +386,7 @@ res <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
 res$Target <- analytes$Target[match(rownames(res), analytes$AptName)]
 res$TargetFullName <- analytes$TargetFullName[match(rownames(res), analytes$AptName)]
 res$UniProt <- analytes$UniProt[match(rownames(res), analytes$AptName)]
-write.csv(res, file = "/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Results/limma_FTM_results.csv", row.names = F)
+write.csv(res, file = file.path(root_path, "KNIGHT/Results/limma_FTM_results.csv", row.names = F))
 # Write results for online enrichment
 res_for_enrichment <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
 res_for_enrichment <- res_for_enrichment[order(res_for_enrichment$logFC, decreasing = T), ]
@@ -507,7 +525,7 @@ plotVolcano_mod(corr_testosterone_CU_mat,
 wb <- createWorkbook()
 addWorksheet(wb,"Change in testosterone")
 writeData(wb,"Change in testosterone",corr_testosterone_CU_mat_save,rowNames = F)
-saveWorkbook(wb,"/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Results/KNIGHT_correlations.xlsx",overwrite = TRUE)
+saveWorkbook(wb,file.path(root_path, "KNIGHT/Results/KNIGHT_correlations.xlsx",overwrite = TRUE))
 saveWorkbook(wb,"/Users/pylell/Dropbox/KNIGHT/KNIGHT_correlations.xlsx",overwrite = TRUE)
 ```
 
@@ -516,5 +534,5 @@ saveWorkbook(wb,"/Users/pylell/Dropbox/KNIGHT/KNIGHT_correlations.xlsx",overwrit
 ipa <- createWorkbook()
 addWorksheet(ipa,"Change in testosterone")
 writeData(ipa,"Change in testosterone",corr_testosterone_CU_mat_save,rowNames = F)
-saveWorkbook(ipa,"/Volumes/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/KNIGHT/Results/IPA/KNIGHT_correlations_testosterone.xlsx",overwrite = TRUE)
+saveWorkbook(ipa,file.path(root_path, "KNIGHT/Results/IPA/KNIGHT_correlations_testosterone.xlsx",overwrite = TRUE))
 ```
