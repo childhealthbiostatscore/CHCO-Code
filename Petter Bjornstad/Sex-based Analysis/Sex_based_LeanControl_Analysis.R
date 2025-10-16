@@ -316,6 +316,137 @@ print(stat_results)
 
 for(celltype in c('TAL', 'PT', 'EC')){
   
+  cell_data <- data.frame(
+    overall_cell = so_subset$celltype2,
+    cell_type = so_subset$KPMP_celltype,
+    group = so_subset$sex
+  )
+  cell_data <- cell_data %>% filter(overall_cell == celltype) %>%
+    dplyr::select(-overall_cell)
+  
+  # Calculate proportions
+  prop_data <- cell_data %>%
+    group_by(group, cell_type) %>%
+    summarise(count = n(), .groups = 'drop') %>%
+    group_by(group) %>%
+    mutate(
+      total = sum(count),
+      proportion = count / total * 100
+    )
+  
+  # Statistical testing
+  stat_results <- data.frame()
+  
+  for(ct in unique(cell_data$cell_type)) {
+    contingency <- table(
+      cell_data$group,
+      cell_data$cell_type == ct
+    )
+    
+    test <- chisq.test(contingency)
+    
+    stat_results <- rbind(stat_results, data.frame(
+      cell_type = ct,
+      p_value = test$p.value
+    ))
+  }
+  
+  stat_results$p_adj <- p.adjust(stat_results$p_value, method = "BH")
+  stat_results$sig_label <- case_when(
+    stat_results$p_adj < 0.001 ~ "***",
+    stat_results$p_adj < 0.01 ~ "**",
+    stat_results$p_adj < 0.05 ~ "*",
+    TRUE ~ ""
+  )
+  
+  # Calculate cumulative proportions for positioning asterisks
+  prop_data_cumsum <- prop_data %>%
+    arrange(group, desc(cell_type)) %>%
+    group_by(group) %>%
+    mutate(
+      pos = cumsum(proportion) - proportion/2
+    )
+  
+  # Add significance labels to proportion data
+  prop_data_cumsum <- prop_data_cumsum %>%
+    left_join(stat_results %>% select(cell_type, sig_label), by = "cell_type")
+  
+  # Create plot with asterisks on each bar segment
+  p <- ggplot(prop_data, aes(x = group, y = proportion, fill = cell_type)) +
+    geom_bar(stat = "identity", position = "stack", color = "black", size = 0.3) +
+    geom_text(data = prop_data_cumsum %>% filter(sig_label != ""),
+              aes(x = group, y = pos, label = sig_label),
+              size = 8, color = "white", fontface = "bold") +
+    labs(
+      x = "Sex in Lean Controls",
+      y = "Proportion (%)",
+      fill = "Cell Type",
+      title = paste0("Significant cell types (p<0.05): ", 
+                     paste(stat_results$cell_type[stat_results$p_adj < 0.05], 
+                           collapse = ", "))
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 14),
+      legend.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      plot.title = element_text(size = 11)
+    )
+  
+  ggsave(paste0(dir.results, celltype, '_proportions_with_asterisks.png'), 
+         plot = p, width = 8, height = 6, dpi = 300)
+  
+  # Alternative: Add asterisks above the bars
+  # Calculate position above each bar for each cell type
+  prop_data_top <- prop_data %>%
+    arrange(group, desc(cell_type)) %>%
+    group_by(group) %>%
+    mutate(y_top = cumsum(proportion)) %>%
+    ungroup() %>%
+    left_join(stat_results %>% select(cell_type, sig_label), by = "cell_type") %>%
+    filter(sig_label != "")
+  
+  p2 <- ggplot(prop_data, aes(x = group, y = proportion, fill = cell_type)) +
+    geom_bar(stat = "identity", position = "stack", color = "black", size = 0.3) +
+    geom_text(data = prop_data_top,
+              aes(x = group, y = y_top + 2, label = sig_label),
+              size = 6, color = "black", fontface = "bold") +
+    labs(
+      x = "Sex in Lean Controls",
+      y = "Proportion (%)",
+      fill = "Cell Type"
+    ) +
+    ylim(0, 105) +  # Extend y-axis to fit asterisks
+    theme_minimal() +
+    theme(
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 14),
+      legend.text = element_text(size = 10),
+      legend.title = element_text(size = 12)
+    )
+  
+  ggsave(paste0(dir.results, celltype, '_proportions_asterisks_above.png'), 
+         plot = p2, width = 8, height = 6, dpi = 300)
+  
+  # Print the statistical results
+  print(stat_results)
+  
+  
+  print(celltype)
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
 }
 
 
