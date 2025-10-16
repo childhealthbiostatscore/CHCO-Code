@@ -1018,7 +1018,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  # Select only those
  dat_omics <- dat %>% 
-   dplyr::select(record_id, group, sex, all_of(existing_cols))
+   dplyr::select(record_id, group, sex, study, all_of(existing_cols))
  
  # Check how many were found vs missing
  cat("Found:", length(existing_cols), "out of", length(data_dictionary_small$variable_name), "\n")
@@ -1409,7 +1409,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  # Select only those
  dat_omics <- dat %>% 
-   dplyr::select(record_id, group, sex, all_of(existing_cols))
+   dplyr::select(record_id, group, sex, age, all_of(existing_cols))
  
  # Check how many were found vs missing
  cat("Found:", length(existing_cols), "out of", length(data_dictionary_small$variable_name), "\n")
