@@ -174,6 +174,39 @@ desc_table1_fixed %>%
 
 
 
+## Barplots and UMAPs 
+
+dir.results <- '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/'
+png(paste0(dir.results, 'LC_UMAP.png'), width = 1200, height = 1200)
+DimPlot(so_subset) + 
+  xlab("UMAP 1") + 
+  ylab("UMAP 2") +
+  theme(
+    axis.title = element_text(size = 18),  # Increase axis label size
+    axis.text = element_text(size = 16),   # Increase axis tick label size
+    legend.text = element_text(size = 13), # Increase legend text size
+    legend.title = element_text(size = 15) # Increase legend title size
+  )
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
