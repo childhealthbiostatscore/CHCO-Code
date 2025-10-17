@@ -12,8 +12,6 @@ format:
     toc-depth: 1
     fontsize: 15
     number-sections: true
-    filters:
-      - figure-path.lua
 ---
 
 
@@ -39,6 +37,7 @@ library(forcats)   # for fct_relevel (optional but nice)
 
 source("~/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
+source("~/GitHub/CHCO-Code/Petter Bjornstad/Renal HEIRitage/RH_RH2_IMPROVE_functions.R")
 ```
 
 ```{r include = F}
@@ -160,15 +159,257 @@ rh_rh2_unique <- rh_rh2_croc_panther_unique %>%
 rh_rh2_unique_follow_up <- rh_rh2_unique %>%
   group_by(mrn) %>%
   filter(n() > 1) %>%
-  ungroup()
+  ungroup() %>%
+  mutate(study_visit = case_when(study == "RENAL-HEIR" ~ "Baseline",
+                                 T ~ "Follow up"))
+rh_rh2_unique_follow_up$log_uacr <- log(rh_rh2_unique_follow_up$acr_u)
+
+# delta dataframe
+clinical_vars <- c("eGFR_CKD_epi", "eGFR_fas_cr", "gfr_bsa_plasma", "erpf_bsa_plasma", 
+                   "htadjtkv_combined", "log_uacr")
+rh_rh2_delta <- rh_rh2_unique_follow_up %>%
+  # Pivot wider to get baseline and follow-up in separate columns
+  pivot_wider(
+    id_cols = mrn,
+    names_from = study_visit,
+    values_from = all_of(clinical_vars),
+    names_sep = "_"
+  ) %>%
+  
+  # Calculate deltas (follow-up - baseline)
+  mutate(
+    delta_gfr_bsa_plasma = `gfr_bsa_plasma_Follow up` - gfr_bsa_plasma_Baseline,
+    delta_eGFR_CKD_epi = `eGFR_CKD_epi_Follow up` - eGFR_CKD_epi_Baseline,
+    delta_eGFR_fas_cr = `eGFR_fas_cr_Follow up` - eGFR_fas_cr_Baseline,
+    delta_erpf_bsa_plasma = `erpf_bsa_plasma_Follow up` - erpf_bsa_plasma_Baseline,
+    delta_htadjtkv_combined = `htadjtkv_combined_Follow up` - htadjtkv_combined_Baseline,
+    delta_log_uacr = `log_uacr_Follow up` - log_uacr_Baseline
+  ) %>%
+  dplyr::select(mrn, starts_with("delta_"), ends_with("Baseline")) 
+ 
+rh_rh2_unique_follow_up <- rh_rh2_unique_follow_up %>%
+  left_join(rh_rh2_delta) %>%
+  mutate(
+    across(
+      starts_with("delta_"),
+      ~ ifelse(study == "RENAL-HEIR", 0, .x)
+    )
+  )
 ```
 
 # Descriptive tables
-```{r echo = F}
-# everyone
-summary(arsenal::tableby(study ~ age + sex + bmi + group + diabetes_duration + sbp + dbp + hba1c, data = rh_rh2_unique))
 
+## RH & RH2 combined
+
+```{r echo = F, results = 'asis'}
+# everyone
+summary(arsenal::tableby(study ~ age + sex + bmi + group + uacr_group + diabetes_duration + sbp + dbp + hba1c + gfr_bsa_plasma + erpf_bsa_plasma + htadjtkv_combined + avg_c_r2 + avg_m_r2  + avg_k_r2 + avg_c_fsoc + avg_m_fsoc + avg_c_r2 + avg_c_adc + avg_pcascl, data = rh_rh2_unique, digits = 1))
+```
+
+## Limited to those with paired data
+
+```{r echo = F, results = 'asis'}
 # RH follow up
 # determine follow up by screen date and MRN
-summary(arsenal::tableby(study ~ age + sex + bmi + group + diabetes_duration + sbp + dbp + hba1c + date_diff_years, data = rh_rh2_unique_follow_up))
+summary(arsenal::tableby(study_visit ~ age + sex + bmi + group + uacr_group + diabetes_duration + sbp + dbp + hba1c + gfr_bsa_plasma + erpf_bsa_plasma + date_diff_years + htadjtkv_combined + avg_c_r2 + avg_k_r2 + avg_c_adc + avg_pcascl, data = rh_rh2_unique_follow_up, digits = 1))
+```
+
+## RH2 only
+```{r echo = F, results = 'asis'}
+summary(arsenal::tableby(uacr_group ~ age + sex + bmi + group + diabetes_duration + sbp + dbp + hba1c+ gfr_bsa_plasma + erpf_bsa_plasma  + htadjtkv_combined + avg_c_r2 + avg_k_r2 + avg_c_adc + avg_pcascl, data = subset(rh_rh2_unique, study == "RENAL-HEIRitage"), digits = 1))
+```
+
+# Plots
+
+## Paired RH vs. RH2
+
+```{r warning = F, results = 'asis'}
+# Paired RH vs. RH2 follow up
+# mGFR
+create_comparison_boxplot(
+  data = rh_rh2_unique_follow_up,
+  x_var = "study_visit",
+  y_var = "gfr_bsa_plasma",
+  y_label = "mGFR",
+  y_buffer = 10,
+  paired = TRUE,
+  show_lines = TRUE,
+  comparisons = list(c("Baseline", "Follow up"))
+)
+
+# 3) ERPF
+create_comparison_boxplot(
+  data = rh_rh2_unique_follow_up,
+  x_var = "study_visit",
+  y_var = "erpf_bsa_plasma",
+  y_label = "ERPF",
+  y_buffer = 50,
+  paired = TRUE,
+  show_lines = TRUE,
+  comparisons = list(c("Baseline", "Follow up"))
+)
+
+# 4) Height-adjusted TKV
+create_comparison_boxplot(
+  data = rh_rh2_unique_follow_up,
+  x_var = "study_visit",
+  y_var = "htadjtkv_combined",
+  y_label = "Height adjusted TKV",
+  y_buffer = 20,
+  paired = TRUE,
+  show_lines = TRUE,
+  comparisons = list(c("Baseline", "Follow up"))
+)
+
+# 5) UACR
+create_comparison_boxplot(
+  data = rh_rh2_unique_follow_up,
+  x_var = "study_visit",
+  y_var = "log_uacr",
+  y_label = "log(UACR)",
+  y_buffer = 1.5,
+  paired = TRUE,
+  show_lines = TRUE,
+  comparisons = list(c("Baseline", "Follow up"))
+)
+```
+## Deltas
+
+```{r}
+# deltas
+plot_mean_ci_stars_renal(
+  data = rh_rh2_unique_follow_up,
+  y_var = "delta_gfr_bsa_plasma",
+  y_axis_title = "\u0394mGFR",
+  x_var = "study_visit",
+  studys_to_plot = c("Baseline", "Follow up"),
+  group_var = "uacr_group",
+  test_method = "t.test",
+  paired = FALSE,  # Set to FALSE if data isn't truly paired
+  show_individual_points = TRUE,
+  colors = c("#f7b538", "#f28482")
+)
+plot_mean_ci_continuous_time(
+  data = rh_rh2_unique_follow_up,
+  y_var = "delta_gfr_bsa_plasma",
+  time_var = "date_diff_years",  
+  y_axis_title = "\u0394mGFR",
+  group_var = "uacr_group",
+  show_individual_lines = T
+)
+
+plot_mean_ci_stars_renal(
+  data = rh_rh2_unique_follow_up,
+  y_var = "delta_erpf_bsa_plasma",
+  y_axis_title = "\u0394ERPF",
+  x_var = "study_visit",
+  studys_to_plot = c("Baseline", "Follow up"),
+  group_var = "uacr_group",
+  test_method = "t.test",
+  paired = FALSE,  # Set to FALSE if data isn't truly paired
+  show_individual_points = TRUE,
+  colors = c("#f7b538", "#f28482")
+)
+plot_mean_ci_continuous_time(
+  data = rh_rh2_unique_follow_up,
+  y_var = "delta_erpf_bsa_plasma",
+  time_var = "date_diff_years",  
+  y_axis_title = "\u0394ERPF",
+  group_var = "uacr_group",
+  show_individual_lines = T
+)
+
+plot_mean_ci_stars_renal(
+  data = rh_rh2_unique_follow_up,
+  y_var = "delta_htadjtkv_combined",
+  y_axis_title = "\u0394Height adjusted TKV",
+  x_var = "study_visit",
+  studys_to_plot = c("Baseline", "Follow up"),
+  group_var = "uacr_group",
+  test_method = "t.test",
+  paired = FALSE,  # Set to FALSE if data isn't truly paired
+  show_individual_points = TRUE,
+  colors = c("#f7b538", "#f28482")
+)
+plot_mean_ci_continuous_time(
+  data = rh_rh2_unique_follow_up,
+  y_var = "delta_htadjtkv_combined",
+  time_var = "date_diff_years",  
+  y_axis_title = "\u0394Height adjusted TKV",
+  group_var = "uacr_group",
+  show_individual_lines = T
+)
+
+plot_mean_ci_stars_renal(
+  data = rh_rh2_unique_follow_up,
+  y_var = "delta_log_uacr",
+  y_axis_title = "\u0394log(UACR)",
+  x_var = "study_visit",
+  studys_to_plot = c("Baseline", "Follow up"),
+  group_var = "uacr_group",
+  test_method = "t.test",
+  paired = FALSE,  # Set to FALSE if data isn't truly paired
+  show_individual_points = TRUE,
+  colors = c("#f7b538", "#f28482")
+)
+plot_mean_ci_continuous_time(
+  data = rh_rh2_unique_follow_up,
+  y_var = "delta_log_uacr",
+  time_var = "date_diff_years",  
+  y_axis_title = "\u0394log(UACR)",
+  group_var = "uacr_group",
+  show_individual_lines = T
+)
+```
+
+## RH2 only (further along in disease)
+
+```{r warning = F}
+rh2_unique <- rh_rh2_unique %>%
+  filter(study == "RENAL-HEIRitage")
+# Unpaired in RH2 (CKD)
+# 2) mGFR
+create_comparison_boxplot(
+  data = rh2_unique,
+  x_var = "uacr_group",
+  y_var = "gfr_bsa_plasma",
+  y_label = "mGFR",
+  y_buffer = 10,
+  paired = F,
+  show_lines = F,
+  comparisons = list(c("eGFR >= 75 and UACR <100 mg/g", 
+                       "eGFR < 75 and/or UACR >=100 mg/g")),
+  colors = c("#598392", "#d9ae94"),
+  box_color = "black")
+
+
+# 3) ERPF
+create_comparison_boxplot(
+  data = rh2_unique,
+  x_var = "uacr_group",
+  y_var = "erpf_bsa_plasma",
+  y_label = "ERPF",
+  y_buffer = 50,
+  paired = F,
+  show_lines = F,
+  comparisons = list(c("eGFR >= 75 and UACR <100 mg/g", 
+                       "eGFR < 75 and/or UACR >=100 mg/g")),
+  colors = c("#598392", "#d9ae94"),
+  box_color = "black")
+
+# 4) Height-adjusted TKV
+create_comparison_boxplot(
+  data = rh2_unique,
+  x_var = "uacr_group",
+  y_var = "htadjtkv_combined",
+  y_label = "Height adjusted TKV",
+  y_buffer = 20,
+  paired = F,
+  show_lines = F,
+  comparisons = list(c("eGFR >= 75 and UACR <100 mg/g", 
+                       "eGFR < 75 and/or UACR >=100 mg/g")),
+  colors = c("#598392", "#d9ae94"),
+  box_color = "black")
+
+
 ```

@@ -51,6 +51,9 @@ def clean_improve():
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
+    dictionary = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv")
+
+
     # --------------------------------------------------------------------------
     # Demographics
     # --------------------------------------------------------------------------
@@ -201,6 +204,9 @@ def clean_improve():
                   axis=1, inplace=True)
     screen["procedure"] = "screening"
 
+    dictionary.loc[dictionary['variable_name'].isin(screen.columns), 'form_name'] = 'labs'
+
+
     # --------------------------------------------------------------------------
     # Accelerometry
     # --------------------------------------------------------------------------
@@ -214,6 +220,9 @@ def clean_improve():
     accel.columns = accel.columns.str.replace(
         r"acc_|accel_", "", regex=True)
     accel["procedure"] = "accelerometry"
+
+    dictionary.loc[dictionary['variable_name'].isin(accel.columns), 'form_name'] = 'accelerometry'
+
 
     # --------------------------------------------------------------------------
     # Cardio/Abdominal MRI
@@ -229,6 +238,9 @@ def clean_improve():
     mri.columns = mri.columns.str.replace(
         r"mri_|visit_", "", regex=True)
     mri["procedure"] = "cardio_abdominal_mri"
+
+    dictionary.loc[dictionary['variable_name'].isin(mri.columns), 'form_name'] = 'cardioabdominal_mri'
+
 
     # --------------------------------------------------------------------------
     # MMTT + Metabolic Cart
@@ -269,6 +281,9 @@ def clean_improve():
         (mmtt["baseline_ffa"] - mmtt["steady_state_ffa"]) / mmtt["baseline_ffa"]) * 100
     mmtt["ffa_method"] = "mmtt"
 
+    dictionary.loc[dictionary['variable_name'].isin(mmtt.columns), 'form_name'] = 'mmtt_metabolic_cart'
+
+
     # --------------------------------------------------------------------------
     # DXA
     # --------------------------------------------------------------------------
@@ -289,6 +304,9 @@ def clean_improve():
                 "bod_pod_fat_mass": "bod_pod_fat_kg",
                 "bodcomp_date": "date"}, axis=1, inplace=True)
     dxa["procedure"] = "dxa"
+
+    dictionary.loc[dictionary['variable_name'].isin(dxa.columns), 'form_name'] = 'body_composition_dxa_bod_pod'
+
 
     # --------------------------------------------------------------------------
     # Clamp
@@ -370,6 +388,9 @@ def clean_improve():
     clamp[hematocrit_vars] = clamp[hematocrit_vars].apply(
         pd.to_numeric, errors='coerce')
     clamp["hct"] = clamp[["hematocrit_90", "hematocrit_120"]].mean(axis=1)
+
+    dictionary.loc[dictionary['variable_name'].isin(clamp.columns), 'form_name'] = 'clamp'
+
 
     # --------------------------------------------------------------------------
     # Outcomes
@@ -561,4 +582,6 @@ def clean_improve():
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
     # Return final data
+    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+    dictionary.to_csv(tocsv_path, index=False) 
     return df

@@ -77,6 +77,8 @@ def harmonize_data():
                            join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, sweetheart],
                            join='outer', ignore_index=True)
+    dictionary = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv")
+
     
   
                            
@@ -103,10 +105,13 @@ def harmonize_data():
 
     # Replace blanks with missing
     harmonized.replace("", np.nan, inplace=True)
-   
+
+    operational = ['study', 'visit', 'record_id', 'procedure', 'date']
+    dictionary.loc[dictionary['variable_name'].isin(operational), 'form_name'] = 'operational'
+    dictionary.loc[dictionary['variable_name']== "race_ethnicity", 'form_name'] = 'demographics'
 
 
-   
+
     # Date variables
 
 
@@ -172,6 +177,10 @@ def harmonize_data():
             year += 2000 if year <= 25 else 1900  # adjust based on your data
 
         return f"{year:04d}-{month:02d}-{day:02d}"
+    harmonized.loc[harmonized['record_id'] == 'RH2-22-T', 'diabetes_dx_date'] = '2013-06-26'
+    harmonized.loc[harmonized['record_id'] == 'RH2-42-T', 'diabetes_dx_date'] = '2004-10-06'
+    harmonized.loc[harmonized['record_id'] == 'RH2-13-O', 'diabetes_dx_date'] = '2017-03-24'
+
 
     
     for col in dates:
@@ -189,7 +198,6 @@ def harmonize_data():
     # ----------------------
     # Calculated variables
     # ----------------------
-    dictionary = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv")
 
     # Age
     print("\nStudies with dob:")
@@ -408,6 +416,12 @@ def harmonize_data():
     dictionary.loc[dictionary['variable_name'].isin(clamp_vars), 'form_name'] = 'clamp'
     dictionary.loc[dictionary['variable_name'] == 'mm_si', 'units'] = '(mu/I)^-1.min^-1'
 
+    harmonized["m_i_p2_raw_lean"] = pd.to_numeric(harmonized["p2_raw_leanm"])/pd.to_numeric(harmonized["p2_steady_state_insulin"]) #CROC, PENGUIN
+    harmonized["m_i_gir_190"] = pd.to_numeric(harmonized["gir_190"])/pd.to_numeric(harmonized["steady_state_insulin"]) #CROC?, IMPR, RH
+    mi_vars = ['m_i_p2_raw_lean', 'm_i_gir_190', "m_i"]
+
+    dictionary.loc[dictionary['variable_name'].isin(mi_vars), 'form_name'] = 'clamp'
+    dictionary.loc[dictionary['variable_name'] == 'm_value', 'units'] = 'mg/kg lean/min'
     
 
     # HOMA-IR (https://link.springer.com/article/10.1007/BF00280883), FBG entered as mg/dL, converting to mmol/L (18 mg/dL = 1 mmol/L)

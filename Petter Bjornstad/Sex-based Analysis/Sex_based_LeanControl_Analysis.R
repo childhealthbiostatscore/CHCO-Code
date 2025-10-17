@@ -174,6 +174,452 @@ desc_table1_fixed %>%
 
 
 
+## Barplots and UMAPs 
+
+dir.results <- '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/'
+
+
+
+png(paste0(dir.results, 'LC_UMAP.png'), width = 1200, height = 1200)
+DimPlot(so_subset) + 
+  xlab("UMAP 1") + 
+  ylab("UMAP 2") +
+  theme(
+    axis.title = element_text(size = 18),  # Increase axis label size
+    axis.text = element_text(size = 16),   # Increase axis tick label size
+    legend.text = element_text(size = 13), # Increase legend text size
+    legend.title = element_text(size = 15) # Increase legend title size
+  )
+dev.off()
+
+
+
+
+
+
+# Extract cell type and group information
+cell_data <- data.frame(
+  cell_type = so_subset$celltype2,
+  group = so_subset$sex  # or whatever your grouping variable is
+)
+cell_data <- cell_data %>% filter(cell_type %in% c('EC', 'PT', 'TAL'))
+
+# Calculate proportions
+prop_data <- cell_data %>%
+  group_by(group, cell_type) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(group) %>%
+  mutate(
+    total = sum(count),
+    proportion = count / total * 100
+  )
+
+# Statistical testing
+stat_results <- data.frame()
+
+for(ct in unique(cell_data$cell_type)) {
+  contingency <- table(
+    cell_data$group,
+    cell_data$cell_type == ct
+  )
+  
+  test <- chisq.test(contingency)
+  
+  stat_results <- rbind(stat_results, data.frame(
+    cell_type = ct,
+    p_value = test$p.value
+  ))
+}
+
+stat_results$p_adj <- p.adjust(stat_results$p_value, method = "BH")
+stat_results$sig_label <- case_when(
+  stat_results$p_adj < 0.001 ~ "***",
+  stat_results$p_adj < 0.01 ~ "**",
+  stat_results$p_adj < 0.05 ~ "*",
+  TRUE ~ ""
+)
+
+# Calculate cumulative proportions for positioning asterisks
+prop_data_cumsum <- prop_data %>%
+  arrange(group, desc(cell_type)) %>%
+  group_by(group) %>%
+  mutate(
+    pos = cumsum(proportion) - proportion/2
+  )
+
+# Add significance labels to proportion data
+prop_data_cumsum <- prop_data_cumsum %>%
+  left_join(stat_results %>% select(cell_type, sig_label), by = "cell_type")
+
+# Create plot with asterisks on each bar segment
+p <- ggplot(prop_data, aes(x = group, y = proportion, fill = cell_type)) +
+  geom_bar(stat = "identity", position = "stack", color = "black", size = 0.3) +
+  geom_text(data = prop_data_cumsum %>% filter(sig_label != ""),
+            aes(x = group, y = pos, label = sig_label),
+            size = 8, color = "white", fontface = "bold") +
+  labs(
+    x = "Sex in Lean Controls",
+    y = "Proportion (%)",
+    fill = "Cell Type",
+    title = paste0("Significant cell types (p<0.05): ", 
+                   paste(stat_results$cell_type[stat_results$p_adj < 0.05], 
+                         collapse = ", "))
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.text = element_text(size = 10),
+    legend.title = element_text(size = 12),
+    plot.title = element_text(size = 11)
+  )
+
+ggsave(paste0(dir.results, 'cell_type_proportions_with_asterisks.png'), 
+       plot = p, width = 8, height = 6, dpi = 300)
+
+# Alternative: Add asterisks above the bars
+# Calculate position above each bar for each cell type
+prop_data_top <- prop_data %>%
+  arrange(group, desc(cell_type)) %>%
+  group_by(group) %>%
+  mutate(y_top = cumsum(proportion)) %>%
+  ungroup() %>%
+  left_join(stat_results %>% select(cell_type, sig_label), by = "cell_type") %>%
+  filter(sig_label != "")
+
+p2 <- ggplot(prop_data, aes(x = group, y = proportion, fill = cell_type)) +
+  geom_bar(stat = "identity", position = "stack", color = "black", size = 0.3) +
+  geom_text(data = prop_data_top,
+            aes(x = group, y = y_top + 2, label = sig_label),
+            size = 6, color = "black", fontface = "bold") +
+  labs(
+    x = "Sex in Lean Controls",
+    y = "Proportion (%)",
+    fill = "Cell Type"
+  ) +
+  ylim(0, 105) +  # Extend y-axis to fit asterisks
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    legend.text = element_text(size = 10),
+    legend.title = element_text(size = 12)
+  )
+
+ggsave(paste0(dir.results, 'cell_type_proportions_asterisks_above.png'), 
+       plot = p2, width = 8, height = 6, dpi = 300)
+
+# Print the statistical results
+print(stat_results)
+
+
+
+for(celltype in c('TAL', 'PT', 'EC')){
+  
+  cell_data <- data.frame(
+    overall_cell = so_subset$celltype2,
+    cell_type = so_subset$KPMP_celltype,
+    group = so_subset$sex
+  )
+  cell_data <- cell_data %>% filter(overall_cell == celltype) %>%
+    dplyr::select(-overall_cell)
+  
+  # Calculate proportions
+  prop_data <- cell_data %>%
+    group_by(group, cell_type) %>%
+    summarise(count = n(), .groups = 'drop') %>%
+    group_by(group) %>%
+    mutate(
+      total = sum(count),
+      proportion = count / total * 100
+    )
+  
+  # Statistical testing
+  stat_results <- data.frame()
+  
+  for(ct in unique(cell_data$cell_type)) {
+    contingency <- table(
+      cell_data$group,
+      cell_data$cell_type == ct
+    )
+    
+    test <- chisq.test(contingency)
+    
+    stat_results <- rbind(stat_results, data.frame(
+      cell_type = ct,
+      p_value = test$p.value
+    ))
+  }
+  
+  stat_results$p_adj <- p.adjust(stat_results$p_value, method = "BH")
+  stat_results$sig_label <- case_when(
+    stat_results$p_adj < 0.001 ~ "***",
+    stat_results$p_adj < 0.01 ~ "**",
+    stat_results$p_adj < 0.05 ~ "*",
+    TRUE ~ ""
+  )
+  
+  # Calculate cumulative proportions for positioning asterisks
+  prop_data_cumsum <- prop_data %>%
+    arrange(group, desc(cell_type)) %>%
+    group_by(group) %>%
+    mutate(
+      pos = cumsum(proportion) - proportion/2
+    )
+  
+  # Add significance labels to proportion data
+  prop_data_cumsum <- prop_data_cumsum %>%
+    left_join(stat_results %>% select(cell_type, sig_label), by = "cell_type")
+  
+  # Create plot with asterisks on each bar segment
+  p <- ggplot(prop_data, aes(x = group, y = proportion, fill = cell_type)) +
+    geom_bar(stat = "identity", position = "stack", color = "black", size = 0.3) +
+    geom_text(data = prop_data_cumsum %>% filter(sig_label != ""),
+              aes(x = group, y = pos, label = sig_label),
+              size = 8, color = "white", fontface = "bold") +
+    labs(
+      x = "Sex in Lean Controls",
+      y = "Proportion (%)",
+      fill = "Cell Type",
+      title = paste0("Significant cell types (p<0.05): ", 
+                     paste(stat_results$cell_type[stat_results$p_adj < 0.05], 
+                           collapse = ", "))
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 14),
+      legend.text = element_text(size = 10),
+      legend.title = element_text(size = 12),
+      plot.title = element_text(size = 11)
+    )
+  
+  ggsave(paste0(dir.results, celltype, '_proportions_with_asterisks.png'), 
+         plot = p, width = 8, height = 6, dpi = 300)
+  
+  # Alternative: Add asterisks above the bars
+  # Calculate position above each bar for each cell type
+  prop_data_top <- prop_data %>%
+    arrange(group, desc(cell_type)) %>%
+    group_by(group) %>%
+    mutate(y_top = cumsum(proportion)) %>%
+    ungroup() %>%
+    left_join(stat_results %>% select(cell_type, sig_label), by = "cell_type") %>%
+    filter(sig_label != "")
+  
+  p2 <- ggplot(prop_data, aes(x = group, y = proportion, fill = cell_type)) +
+    geom_bar(stat = "identity", position = "stack", color = "black", size = 0.3) +
+    geom_text(data = prop_data_top,
+              aes(x = group, y = y_top + 2, label = sig_label),
+              size = 6, color = "black", fontface = "bold") +
+    labs(
+      x = "Sex in Lean Controls",
+      y = "Proportion (%)",
+      fill = "Cell Type"
+    ) +
+    ylim(0, 105) +  # Extend y-axis to fit asterisks
+    theme_minimal() +
+    theme(
+      axis.text = element_text(size = 12),
+      axis.title = element_text(size = 14),
+      legend.text = element_text(size = 10),
+      legend.title = element_text(size = 12)
+    )
+  
+  ggsave(paste0(dir.results, celltype, '_proportions_asterisks_above.png'), 
+         plot = p2, width = 8, height = 6, dpi = 300)
+  
+  # Print the statistical results
+  print(stat_results)
+  
+  
+  print(celltype)
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+}
+
+
+
+
+
+
+
+
+
+
+##################aPT analysis
+
+
+meta.data <- so_subset@meta.data
+
+cell_distribution <- meta.data %>% 
+  mutate(group_labels = paste0(group, '_', sex)) %>%
+  filter(KPMP_celltype %in% c('aPT', 'PT-S1/S2', 'PT-S3')) %>% 
+  group_by(record_id, group_labels) %>%
+  summarize(
+    total_cells = n(), 
+    aPT_count = sum(KPMP_celltype == 'aPT'),
+    aPT_percentage = (sum(KPMP_celltype == 'aPT') / n()) * 100,
+    .groups = 'drop'
+  )
+
+
+png(paste0(dir.results, "aPT_Percentage_byParticipant.pdf"))
+
+ggplot(cell_distribution, aes(x=group_labels, color=group_labels, y= aPT_percentage))+
+  geom_point(position=position_jitter(width = 0.1, height = 0))+geom_boxplot()+theme_classic()+labs(x='Condition Group', y='Percent aPT of PT Cells', title = 'aPT Percentage in Each Participant by Group')
+dev.off()
+
+
+png(paste0(dir.results, "aPT_CountbyParticipant.png"))
+
+ggplot(cell_distribution, aes(x=group_labels, color=group_labels, y= aPT_count))+
+  geom_point(position=position_jitter(width = 0.1, height = 0))+geom_boxplot()+theme_classic()+labs(x='Condition Group', y='Number of aPT Cells', title = 'aPT Cells in Each Participant by Group')
+dev.off()
+
+
+aPT_data <- cell_distribution
+
+
+
+#TAL analysis
+
+cell_distribution <- meta.data %>% 
+  mutate(group_labels = paste0(group, '_', sex)) %>%
+  filter(KPMP_celltype %in% c('dTAL', 'aTAL', 'C-TAL-1', 'C-TAL-2')) %>% 
+  group_by(record_id, group_labels) %>%
+  summarize(
+    total_cells = n(), 
+    dTAL_count = sum(KPMP_celltype == 'dTAL'),
+    dTAL_percentage = (sum(KPMP_celltype == 'dTAL') / n()) * 100,
+    .groups = 'drop'
+  )
+
+
+png(paste0(dir.results, "dTAL_Percentage_byParticipant.png"))
+
+ggplot(cell_distribution, aes(x=group_labels, color=group_labels, y= dTAL_percentage))+
+  geom_point(position=position_jitter(width = 0.1, height = 0))+geom_boxplot()+theme_classic()+labs(x='Condition Group', y='Percent dTAL in TAL Cells', title = 'dTAL Percentage in Each Participant by Group')
+dev.off()
+
+
+png(paste0(dir.results, "dTAL_CountbyParticipant.png"))
+
+ggplot(cell_distribution, aes(x=group_labels, color=group_labels, y= dTAL_count))+
+  geom_point(position=position_jitter(width = 0.1, height = 0))+geom_boxplot()+theme_classic()+labs(x='Condition Group', y='Number of dTAL Cells', title = 'dTAL Cells in Each Participant by Group')
+dev.off()
+
+
+TAL_data <- cell_distribution
+
+
+
+#Combined for analyses
+
+names(aPT_data) <- c('record_id', 'group_labels', 'PT_totalcells', 'aPT_count', 'aPT_percentage')
+names(TAL_data) <- c('record_id', 'group_labels', 'TAL_totalcells', 'dTAL_count', 'dTAL_percentage')
+
+strange_cells <- aPT_data %>% left_join(TAL_data)
+sex_df <- meta.data %>% dplyr::select(record_id, sex)
+
+strange_cells <- strange_cells %>% left_join(sex_df, by='record_id')
+
+
+ggplot(strange_cells, aes(x=aPT_percentage, y=dTAL_percentage, color = sex))+geom_point()+
+  geom_smooth(method = 'lm')+theme_classic()+theme(x = 'aPT Percentage of PT Cells', 
+                                                   y = 'dTAL Percentage of TAL Cells')
+
+  
+lm(dTAL_percentage ~ aPT_percentage*sex, data = strange_cells) %>% summary()
+
+
+
+
+library(ggplot2)
+library(broom)
+
+# Model
+model <- lm(dTAL_percentage ~ aPT_percentage * sex, data = strange_cells)
+model_summary <- tidy(model)
+
+# Extract key statistics
+interaction_p <- model_summary$p.value[model_summary$term == "aPT_percentage:sexMale"]
+# Adjust sex level name as needed
+
+# Significance star
+sig_star <- case_when(
+  interaction_p < 0.001 ~ "***",
+  interaction_p < 0.01 ~ "**",
+  interaction_p < 0.05 ~ "*",
+  TRUE ~ "ns"
+)
+
+# Plot
+p <- ggplot(strange_cells, aes(x = aPT_percentage, y = dTAL_percentage, 
+                               color = sex, fill = sex)) +
+  geom_point(size = 2.5, alpha = 0.7) +
+  geom_smooth(method = 'lm', se = TRUE, alpha = 0.15, linewidth = 1.3) +
+  scale_color_manual(values = c("Male" = "#0073C2FF", "Female" = "#EFC000FF")) +
+  scale_fill_manual(values = c("Male" = "#0073C2FF", "Female" = "#EFC000FF")) +
+  labs(
+    x = 'aPT Percentage of PT Cells (%)', 
+    y = 'dTAL Percentage of TAL Cells (%)',
+    color = 'Sex',
+    fill = 'Sex',
+    title = "Sex-specific relationship between aPT and dTAL cell populations"
+  ) +
+  annotate("text", x = Inf, y = Inf, 
+           label = sprintf("Interaction: p = %.4f %s", interaction_p, sig_star),
+           hjust = 1.1, vjust = 2, size = 4, fontface = "bold") +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 13),
+    legend.position = c(0.85, 0.15),
+    legend.background = element_rect(fill = "white", color = "black")
+  )
+
+print(p)
+
+# Print model summary
+print(summary(model))
+
+# Save
+ggsave(paste0(dir.results, "aPT_dTAL_interaction_plot.png"), plot = p, 
+       width = 8, height = 6, dpi = 300)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1018,7 +1464,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  # Select only those
  dat_omics <- dat %>% 
-   dplyr::select(record_id, group, sex, all_of(existing_cols))
+   dplyr::select(record_id, group, sex, study, all_of(existing_cols))
  
  # Check how many were found vs missing
  cat("Found:", length(existing_cols), "out of", length(data_dictionary_small$variable_name), "\n")
@@ -1241,6 +1687,235 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
 
 
  
+ ##################################### Metabolomics pathways analysis 
+ 
+ 
+ 
+ 
+ 
+ 
+ # Install required packages (if not already installed)
+ if (!require("BiocManager", quietly = TRUE))
+   install.packages("BiocManager")
+ 
+ BiocManager::install(c("MetaboAnalystR", "fgsea", "clusterProfiler"))
+ install.packages(c("FELLA", "pathview", "ggplot2", "dplyr"))
+ 
+ # Load libraries
+ library(MetaboAnalystR)
+ library(dplyr)
+ library(ggplot2)
+ 
+ # ===== METHOD 1: Using MetaboAnalystR (Recommended) =====
+ 
+ # Prepare your data
+ # Assume you have a dataframe with metabolite names and statistics
+ # metabolites_data should have columns: metabolite_name, fold_change, p_value
+ 
+ # Option A: Over-representation analysis (ORA)
+ # Use if you have a list of significantly changed metabolites
+ 
+ # Create a vector of significant metabolites
+ 
+ metabolites_data <- data.table::fread('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/sex_comparison_results.csv')
+   
+   
+ significant_metabolites <- metabolites_data %>%
+   filter(p_value < 0.05) %>%
+   pull(metabolite_name)
+ 
+ # Initialize MetaboAnalyst
+ mSet <- InitDataObjects("conc", "msetora", FALSE)
+ 
+ # Set up metabolite list
+ mSet <- Setup.MapData(mSet, significant_metabolites)
+ 
+ # Perform compound name mapping (KEGG IDs)
+ mSet <- CrossReferencing(mSet, "name")
+ mSet <- CreateMappingResultTable(mSet)
+ 
+ # Perform pathway enrichment
+ mSet <- SetMetabolomeFilter(mSet, F)
+ mSet <- SetCurrentMsetLib(mSet, "smpdb_pathway", 2) # or "kegg_pathway"
+ mSet <- CalculateHyperScore(mSet)
+ 
+ # Get results
+ pathway_results <- mSet$analSet$ora.mat
+ pathway_results <- as.data.frame(pathway_results)
+ pathway_results$pathway <- rownames(pathway_results)
+ 
+ # View top pathways
+ head(pathway_results[order(pathway_results$Raw.p),], 20)
+ 
+ # Visualize
+ ggplot(head(pathway_results[order(pathway_results$Raw.p),], 15), 
+        aes(x = reorder(pathway, -log10(Raw.p)), y = -log10(Raw.p))) +
+   geom_bar(stat = "identity", fill = "steelblue") +
+   coord_flip() +
+   labs(x = "Pathway", y = "-log10(p-value)", 
+        title = "Top Enriched Metabolic Pathways") +
+   theme_minimal() +
+   theme(axis.text.y = element_text(size = 10))
+ 
+ ggsave(paste0(dir.results, "pathway_enrichment_ORA.png"), 
+        width = 10, height = 8, dpi = 300)
+ 
+ 
+ # ===== METHOD 2: Quantitative Enrichment Analysis (MSEA) =====
+ # Use if you have quantitative data (fold changes, concentrations)
+ 
+ # Prepare data with fold changes
+ metabolite_scores <- metabolites_data %>%
+   select(metabolite_name, fold_change) %>%
+   na.omit()
+ 
+ # Write to file (MetaboAnalyst format)
+ write.table(metabolite_scores, 
+             file = paste0(dir.results, "metabolite_scores.txt"),
+             sep = "\t", row.names = FALSE, quote = FALSE)
+ 
+ # Initialize for MSEA
+ mSet <- InitDataObjects("conc", "msetqea", FALSE)
+ mSet <- Read.TextData(mSet, paste0(dir.results, "metabolite_scores.txt"), 
+                       "rowu", "disc")
+ mSet <- SanityCheckData(mSet)
+ mSet <- CrossReferencing(mSet, "name")
+ mSet <- CreateMappingResultTable(mSet)
+ 
+ # Perform MSEA
+ mSet <- SetMetabolomeFilter(mSet, F)
+ mSet <- SetCurrentMsetLib(mSet, "smpdb_pathway", 2)
+ mSet <- CalculateGlobalTestScore(mSet)
+ 
+ # Get results
+ msea_results <- mSet$analSet$qea.mat
+ msea_results <- as.data.frame(msea_results)
+ msea_results$pathway <- rownames(msea_results)
+ 
+ 
+ # ===== METHOD 3: Using FGSEA (Gene Set Enrichment Analysis adapted for metabolomics) =====
+ library(fgsea)
+ 
+ # You'll need pathway databases
+ # Example: Load KEGG pathways (you need to create/download this)
+ # Format: list where each element is a pathway with metabolite IDs
+ 
+ # Load or create pathway database
+ # kegg_pathways <- list(
+ #   "Glycolysis" = c("HMDB0000122", "HMDB0000094", ...),
+ #   "TCA Cycle" = c("HMDB0000094", "HMDB0000156", ...),
+ #   ...
+ # )
+ 
+ # Prepare ranked list of metabolites
+ metabolite_ranks <- metabolites_data %>%
+   arrange(desc(fold_change)) %>%
+   select(metabolite_id, fold_change) %>%
+   deframe()
+ 
+ # Run FGSEA
+ fgsea_results <- fgsea(
+   pathways = kegg_pathways,
+   stats = metabolite_ranks,
+   minSize = 5,
+   maxSize = 500,
+   nperm = 10000
+ )
+ 
+ # View results
+ fgsea_results <- fgsea_results %>%
+   arrange(padj)
+ 
+ print(head(fgsea_results, 20))
+ 
+ # Plot enrichment
+ plotEnrichment(kegg_pathways[["Glycolysis"]], metabolite_ranks) +
+   labs(title = "Glycolysis Pathway Enrichment")
+ 
+ 
+ # ===== METHOD 4: Manual pathway enrichment using hypergeometric test =====
+ 
+ # Load pathway database (example structure)
+ pathway_db <- list(
+   "Glycolysis / Gluconeogenesis" = c("Glucose", "Pyruvate", "Lactate", "Glucose-6-phosphate"),
+   "TCA Cycle" = c("Citrate", "Succinate", "Fumarate", "Malate"),
+   "Fatty Acid Metabolism" = c("Palmitate", "Stearate", "Oleate", "Acetyl-CoA")
+   # ... add more pathways
+ )
+ 
+ # Your significant metabolites
+ sig_metabolites <- metabolites_data %>%
+   filter(p_value < 0.05) %>%
+   pull(metabolite_name)
+ 
+ # Total metabolites tested
+ total_metabolites <- nrow(metabolites_data)
+ 
+ # Perform enrichment for each pathway
+ enrichment_results <- data.frame()
+ 
+ for(pathway_name in names(pathway_db)) {
+   pathway_metabolites <- pathway_db[[pathway_name]]
+   
+   # Overlap between significant and pathway
+   overlap <- length(intersect(sig_metabolites, pathway_metabolites))
+   
+   # Hypergeometric test
+   p_val <- phyper(
+     q = overlap - 1,
+     m = length(pathway_metabolites),  # metabolites in pathway
+     n = total_metabolites - length(pathway_metabolites),  # metabolites not in pathway
+     k = length(sig_metabolites),  # significant metabolites
+     lower.tail = FALSE
+   )
+   
+   enrichment_results <- rbind(enrichment_results, data.frame(
+     pathway = pathway_name,
+     overlap = overlap,
+     pathway_size = length(pathway_metabolites),
+     p_value = p_val
+   ))
+ }
+ 
+ # Adjust for multiple testing
+ enrichment_results$p_adj <- p.adjust(enrichment_results$p_value, method = "BH")
+ enrichment_results <- enrichment_results %>% arrange(p_adj)
+ 
+ print(enrichment_results)
+ 
+ # Visualize
+ ggplot(enrichment_results %>% filter(p_adj < 0.05), 
+        aes(x = reorder(pathway, -log10(p_adj)), y = -log10(p_adj), 
+            size = overlap, fill = -log10(p_adj))) +
+   geom_point(shape = 21, color = "black") +
+   coord_flip() +
+   scale_fill_gradient(low = "lightblue", high = "darkred") +
+   labs(x = "Pathway", y = "-log10(adjusted p-value)", 
+        title = "Enriched Metabolic Pathways",
+        size = "Number of\nMetabolites") +
+   theme_minimal() +
+   theme(axis.text.y = element_text(size = 11))
+ 
+ ggsave(paste0(dir.results, "pathway_enrichment_manual.png"), 
+        width = 10, height = 8, dpi = 300)
+ 
+ 
+ # ===== METHOD 5: Using online MetaboAnalyst (recommended for beginners) =====
+ # Prepare data for upload to https://www.metaboanalyst.ca/
+ 
+ # Format 1: For ORA (just list of metabolites)
+ write.table(significant_metabolites,
+             file = paste0(dir.results, "significant_metabolites_for_metaboanalyst.txt"),
+             row.names = FALSE, col.names = FALSE, quote = FALSE)
+ 
+ # Format 2: For MSEA (metabolites with scores)
+ msea_input <- metabolites_data %>%
+   select(metabolite_name, fold_change) %>%
+   na.omit()
+ 
+ write.table(msea_input,
+             file = paste0(dir.results, "metabolites_with_scores.txt"),
+             sep = "\t", row.names = FALSE, quote = FALSE)
  
  
  
@@ -1262,7 +1937,16 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  
  
- #### Proteomics Analyses 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ############## Proteomics Analyses 
  
  
  library(dplyr)
@@ -1409,7 +2093,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  # Select only those
  dat_omics <- dat %>% 
-   dplyr::select(record_id, group, sex, all_of(existing_cols))
+   dplyr::select(record_id, group, sex, age, all_of(existing_cols))
  
  # Check how many were found vs missing
  cat("Found:", length(existing_cols), "out of", length(data_dictionary_small$variable_name), "\n")
