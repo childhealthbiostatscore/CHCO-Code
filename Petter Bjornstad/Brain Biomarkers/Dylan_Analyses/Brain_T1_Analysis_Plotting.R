@@ -917,7 +917,750 @@ if (nrow(interaction_results) > 0) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#######################Plot raw p-values 
+
 biomarker_imaging_interactions <- data.table::fread("biomarker_imaging_interactions_all.csv")
+
+sig_interactions <- biomarker_imaging_interactions %>% filter(interaction_p < 0.05)
+
+
+if (nrow(sig_interactions) > 0) {
+  write.csv(sig_interactions, "biomarker_imaging_interactions_significant.csv", 
+            row.names = FALSE)
+}
+
+# ===== PART 3: Visualize Top Interactions =====
+
+if (nrow(sig_interactions) > 0) {
+  
+  # Plot top 6 interactions
+  n_plot <- min(6, nrow(sig_interactions))
+  
+  plot_list <- list()
+  
+  for (i in 1:n_plot) {
+    biomarker <- sig_interactions$biomarker[i]
+    imaging_trait <- sig_interactions$imaging_trait[i]
+    
+    # Clean names for display
+    biomarker_clean <- biomarker_labels[biomarker]
+    imaging_clean <- gsub("_", " ", imaging_trait)
+    
+    p <- ggplot(brain_data, 
+                aes(x = .data[[biomarker]], 
+                    y = .data[[imaging_trait]], 
+                    color = group2)) +
+      geom_point(alpha = 0.6, size = 2.5) +
+      geom_smooth(method = "lm", se = TRUE, linewidth = 1.2) +
+      scale_color_manual(values = c("Control" = "#00BFC4", 
+                                    "Type 2 Diabetes" = "#F8766D")) +
+      labs(
+        title = paste(biomarker_clean, "×", imaging_clean),
+        subtitle = sprintf("Interaction pval = %.4f, R² = %.3f", 
+                           sig_interactions$interaction_p[i],
+                           sig_interactions$r_squared[i]),
+        x = paste(biomarker_clean, "(pg/mL)"),
+        y = imaging_clean,
+        color = "Group"
+      ) +
+      theme_classic(base_size = 11) +
+      theme(
+        plot.title = element_text(face = "bold", hjust = 0.5, size = 12),
+        plot.subtitle = element_text(hjust = 0.5, size = 9),
+        legend.position = "bottom"
+      )
+    
+    plot_list[[i]] <- p
+    
+    # Save individual plot
+    ggsave(paste0("brain_plots/interaction_", i, "_", 
+                  gsub("[^A-Za-z0-9]", "_", biomarker), "_", 
+                  gsub("[^A-Za-z0-9]", "_", imaging_trait), ".png"),
+           plot = p, width = 6, height = 5, dpi = 300)
+  }
+  
+  # Combined plot
+  combined_interactions <- wrap_plots(plot_list, ncol = 2)
+  
+  ggsave("brain_plots/top_biomarker_imaging_interactions.png",
+         plot = combined_interactions, width = 12, height = 9, dpi = 300)
+}
+
+# ===== PART 4: Heatmap of Interaction P-values =====
+
+interaction_p_long <- interaction_results %>%
+  select(biomarker, imaging_trait, interaction_p) %>%
+  filter(!is.na(interaction_p)) %>%
+  mutate(neg_log_p = -log10(interaction_p + 1e-10))
+
+interaction_p_matrix <- interaction_p_long %>%
+  select(biomarker, imaging_trait, neg_log_p) %>%
+  pivot_wider(names_from = imaging_trait, values_from = neg_log_p) %>%
+  column_to_rownames("biomarker") %>%
+  as.matrix()
+
+# Replace NAs with 0
+interaction_p_matrix[is.na(interaction_p_matrix)] <- 0
+
+# Clean row names
+biomarker_names_present <- rownames(interaction_p_matrix)
+rownames(interaction_p_matrix) <- biomarker_labels[biomarker_names_present]
+
+png("brain_plots/interaction_rawpvalues_heatmap.png", 
+    width = 2400, height = 1000, res = 150)
+
+pheatmap(interaction_p_matrix,
+         cluster_rows = nrow(interaction_p_matrix) > 2,
+         cluster_cols = ncol(interaction_p_matrix) > 2,
+         color = colorRampPalette(c("white", "yellow", "orange", "red", "darkred"))(100),
+         main = "Biomarker × Group Interactions (-log10 p-value)",
+         fontsize = 8,
+         fontsize_row = 9,
+         fontsize_col = 6,
+         angle_col = 45,
+         breaks = seq(0, max(interaction_p_matrix, na.rm = TRUE), 
+                      length.out = 101))
+
+dev.off()
+
+
+
+##################### Brain mapping (Cortical)
+
+library(ggseg)
+library(ggsegExtra)  # For additional atlases
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+
+# ===== Step 1: Separate cortical and subcortical regions =====
+
+# Identify which traits are cortical (thickness) vs subcortical (volumes)
+cortical_traits <- interaction_results %>%
+  filter(grepl("_thickness$|^lh_|^rh_|^bilateral_.*thickness", imaging_trait)) %>%
+  pull(imaging_trait) %>%
+  unique()
+
+subcortical_traits <- interaction_results %>%
+  filter(grepl("^Left-|^Right-|Ventricle|Hippocampus|Amygdala|Thalamus|Caudate|Putamen|Pallidum", 
+               imaging_trait)) %>%
+  pull(imaging_trait) %>%
+  unique()
+
+cat("Cortical traits:", length(cortical_traits), "\n")
+cat("Subcortical traits:", length(subcortical_traits), "\n")
+
+# ===== Step 2: Create region mapping for CORTICAL regions only =====
+
+region_mapping_cortical <- c(
+  "bankssts_thickness" = "bankssts",
+  "caudalanteriorcingulate_thickness" = "caudal anterior cingulate",
+  "caudalmiddlefrontal_thickness" = "caudal middle frontal",
+  "cuneus_thickness" = "cuneus",
+  "entorhinal_thickness" = "entorhinal",
+  "fusiform_thickness" = "fusiform",
+  "inferiorparietal_thickness" = "inferior parietal",
+  "inferiortemporal_thickness" = "inferior temporal",
+  "isthmuscingulate_thickness" = "isthmus cingulate",
+  "lateraloccipital_thickness" = "lateral occipital",
+  "lateralorbitofrontal_thickness" = "lateral orbitofrontal",
+  "lingual_thickness" = "lingual",
+  "medialorbitofrontal_thickness" = "medial orbitofrontal",
+  "middletemporal_thickness" = "middle temporal",
+  "parahippocampal_thickness" = "parahippocampal",
+  "paracentral_thickness" = "paracentral",
+  "parsopercularis_thickness" = "pars opercularis",
+  "parsorbitalis_thickness" = "pars orbitalis",
+  "parstriangularis_thickness" = "pars triangularis",
+  "pericalcarine_thickness" = "pericalcarine",
+  "postcentral_thickness" = "postcentral",
+  "posteriorcingulate_thickness" = "posterior cingulate",
+  "precentral_thickness" = "precentral",
+  "precuneus_thickness" = "precuneus",
+  "rostralanteriorcingulate_thickness" = "rostral anterior cingulate",
+  "rostralmiddlefrontal_thickness" = "rostral middle frontal",
+  "superiorfrontal_thickness" = "superior frontal",
+  "superiorparietal_thickness" = "superior parietal",
+  "superiortemporal_thickness" = "superior temporal",
+  "supramarginal_thickness" = "supramarginal",
+  "frontalpole_thickness" = "frontal pole",
+  "temporalpole_thickness" = "temporal pole",
+  "transversetemporal_thickness" = "transverse temporal",
+  "insula_thickness" = "insula",
+  "meanthickness_thickness" = "mean thickness"
+)
+
+# ===== Step 3: Prepare brain data ONLY for cortical regions =====
+
+prepare_cortical_brain_data <- function(biomarker_name, interaction_results, region_mapping) {
+  
+  # Filter to ONLY cortical thickness measures
+  brain_data <- interaction_results %>%
+    filter(biomarker == biomarker_name) %>%
+    filter(grepl("_thickness$", imaging_trait)) %>%
+    mutate(
+      # Extract base region name
+      base_region = imaging_trait,
+      base_region = gsub("^lh_|^rh_|^bilateral_", "", base_region),
+      base_region = tolower(base_region)
+    )
+  
+  # Map to ggseg names
+  brain_data$label <- region_mapping[brain_data$base_region]
+  
+  # Debug info
+  n_mapped <- sum(!is.na(brain_data$label))
+  n_total <- nrow(brain_data)
+  cat(sprintf("  Cortical: Mapped %d/%d regions (%.1f%%)\n", 
+              n_mapped, n_total, 100*n_mapped/n_total))
+  
+  brain_data <- brain_data %>%
+    mutate(
+      significance = -log10(interaction_p + 1e-10),
+      hemi = case_when(
+        grepl("^lh_", imaging_trait) ~ "left",
+        grepl("^rh_", imaging_trait) ~ "right",
+        grepl("^bilateral_", imaging_trait) ~ "left",
+        TRUE ~ NA_character_
+      )
+    ) %>%
+    filter(!is.na(label) & !is.na(hemi)) %>%
+    select(hemi, label, significance, interaction_p, interaction_coef, imaging_trait)
+  
+  # Duplicate bilateral to both hemispheres
+  bilateral_rows <- brain_data %>%
+    filter(grepl("^bilateral_", imaging_trait)) %>%
+    mutate(hemi = "right")
+  
+  brain_data <- bind_rows(brain_data, bilateral_rows) %>%
+    distinct(hemi, label, .keep_all = TRUE)
+  
+  return(brain_data)
+}
+
+# ===== Step 4: Plotting function for cortical data =====
+
+plot_cortical_biomarker <- function(biomarker_name, interaction_results, 
+                                    region_mapping, biomarker_labels) {
+  
+  brain_data <- prepare_cortical_brain_data(biomarker_name, interaction_results, region_mapping)
+  
+  if (nrow(brain_data) == 0) {
+    cat("No cortical regions found for", biomarker_name, "\n")
+    return(NULL)
+  }
+  
+  max_sig <- max(brain_data$significance, na.rm = TRUE)
+  
+  # Left hemisphere
+  p_left <- ggplot(brain_data %>% filter(hemi == "left")) +
+    geom_brain(atlas = dk,
+               aes(fill = significance),
+               position = position_brain(side ~ hemi),
+               colour = "black",
+               size = 0.3) +
+    scale_fill_gradient2(
+      low = "white", 
+      mid = "yellow", 
+      high = "red",
+      midpoint = 1.3, 
+      name = "-log10(p-value)",
+      limits = c(0, max(3, max_sig)),
+      na.value = "grey90"
+    ) +
+    theme_void() +
+    labs(title = "Left") +
+    theme(
+      plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+      legend.position = "none"
+    )
+  
+  # Right hemisphere
+  p_right <- ggplot(brain_data %>% filter(hemi == "right")) +
+    geom_brain(atlas = dk,
+               aes(fill = significance),
+               position = position_brain(side ~ hemi),
+               colour = "black",
+               size = 0.3) +
+    scale_fill_gradient2(
+      low = "white", 
+      mid = "yellow", 
+      high = "red",
+      midpoint = 1.3, 
+      name = "-log10(p-value)",
+      limits = c(0, max(3, max_sig)),
+      na.value = "grey90"
+    ) +
+    theme_void() +
+    labs(title = "Right") +
+    theme(
+      plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+      legend.position = "right"
+    )
+  
+  # Combine
+  p_combined <- (p_left | p_right) +
+    plot_annotation(
+      title = paste(biomarker_labels[biomarker_name], "× Group Interactions"),
+      subtitle = sprintf("Cortical Thickness - Sig regions: L: %d, R: %d (p < 0.05)",
+                         sum(brain_data$interaction_p[brain_data$hemi == "left"] < 0.05, na.rm = TRUE),
+                         sum(brain_data$interaction_p[brain_data$hemi == "right"] < 0.05, na.rm = TRUE)),
+      theme = theme(
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 11, hjust = 0.5)
+      )
+    )
+  
+  return(p_combined)
+}
+
+# ===== Step 5: Create plots for all biomarkers =====
+
+biomarker_labels <- c("ab40_avg_conc" = "Aβ40", 
+                      "ab42_avg_conc" = "Aβ42", 
+                      "tau_avg_conc" = "Tau", 
+                      "nfl_avg_conc" = "NfL",
+                      "gfap_avg_conc" = "GFAP", 
+                      "ptau_181_avg_conc" = "pTau-181", 
+                      "ptau_217_avg_conc" = "pTau-217")
+
+brain_plots <- list()
+
+for (biomarker in biomarkers) {
+  
+  cat("\n=== Processing", biomarker, "===\n")
+  
+  p <- plot_cortical_biomarker(biomarker, interaction_results, 
+                               region_mapping_cortical, biomarker_labels)
+  
+  if (!is.null(p)) {
+    brain_plots[[biomarker]] <- p
+    
+    biomarker_clean <- gsub("[^A-Za-z0-9]", "_", biomarker)
+    ggsave(
+      paste0("brain_plots/cortical_", biomarker_clean, ".png"),
+      plot = p, 
+      width = 14, 
+      height = 6, 
+      dpi = 300
+    )
+    
+    cat("✓ Saved cortical map for", biomarker_labels[biomarker], "\n")
+  }
+}
+
+# ===== Step 6: Combined plot =====
+
+if (length(brain_plots) > 0) {
+  combined <- wrap_plots(brain_plots, ncol = 2)
+  
+  ggsave(
+    "brain_plots/all_cortical_biomarkers.png",
+    plot = combined,
+    width = 20,
+    height = 18,
+    dpi = 300
+  )
+  
+  cat("\n✓ Saved combined cortical brain maps\n")
+}
+
+# ===== Step 7: Summary table =====
+
+mapping_summary <- data.frame()
+
+for (biomarker in biomarkers) {
+  brain_data <- prepare_cortical_brain_data(biomarker, interaction_results, 
+                                            region_mapping_cortical)
+  
+  mapping_summary <- rbind(mapping_summary, data.frame(
+    biomarker = biomarker_labels[biomarker],
+    n_cortical_regions = nrow(brain_data) / 2,  # Divide by 2 because duplicated for L/R
+    n_significant = sum(brain_data$interaction_p < 0.05, na.rm = TRUE) / 2,
+    stringsAsFactors = FALSE
+  ))
+}
+
+print("\n=== Cortical Mapping Summary ===")
+print(mapping_summary)
+
+write.csv(mapping_summary, "cortical_brain_mapping_summary.csv", row.names = FALSE)
+
+
+
+
+
+
+
+
+
+
+
+###################### Subcortical 
+
+
+library(ggseg)
+library(ggsegExtra)
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+
+# ===== Subcortical Atlas and Mapping =====
+
+# Install ggsegExtra if you haven't already
+# remotes::install_github("ggseg/ggsegExtra")
+
+# Load the aseg atlas for subcortical structures
+library(ggsegExtra)
+
+# Create mapping for subcortical structures
+region_mapping_subcortical <- c(
+  "Lateral-Ventricle" = "lateral ventricle",
+  "Inf-Lat-Vent" = "inferior lateral ventricle",
+  "Cerebellum-White-Matter" = "cerebellum white matter",
+  "Cerebellum-Cortex" = "cerebellum cortex",
+  "Thalamus" = "thalamus",
+  "Caudate" = "caudate",
+  "Putamen" = "putamen",
+  "Pallidum" = "pallidum",
+  "Hippocampus" = "hippocampus",
+  "Amygdala" = "amygdala",
+  "Accumbens-area" = "accumbens area",
+  "VentralDC" = "ventraldc",
+  # Add lowercase versions
+  "lateral-ventricle" = "lateral ventricle",
+  "inf-lat-vent" = "inferior lateral ventricle",
+  "cerebellum-white-matter" = "cerebellum white matter",
+  "cerebellum-cortex" = "cerebellum cortex",
+  "thalamus" = "thalamus",
+  "caudate" = "caudate",
+  "putamen" = "putamen",
+  "pallidum" = "pallidum",
+  "hippocampus" = "hippocampus",
+  "amygdala" = "amygdala",
+  "accumbens-area" = "accumbens area",
+  "ventraldc" = "ventraldc"
+)
+
+# ===== Prepare subcortical brain data =====
+
+prepare_subcortical_brain_data <- function(biomarker_name, interaction_results, region_mapping) {
+  
+  # Filter to ONLY subcortical structures
+  brain_data <- interaction_results %>%
+    filter(biomarker == biomarker_name) %>%
+    filter(grepl("^Left-|^Right-", imaging_trait)) %>%
+    filter(grepl("Ventricle|Cerebellum|Thalamus|Caudate|Putamen|Pallidum|Hippocampus|Amygdala|Accumbens|VentralDC", 
+                 imaging_trait)) %>%
+    mutate(
+      # Extract base region name
+      base_region = imaging_trait,
+      base_region = gsub("^Left-|^Right-", "", base_region),
+      base_region = tolower(base_region)
+    )
+  
+  # Map to ggseg names
+  brain_data$label <- region_mapping[brain_data$base_region]
+  
+  # Debug info
+  n_mapped <- sum(!is.na(brain_data$label))
+  n_total <- nrow(brain_data)
+  cat(sprintf("  Subcortical: Mapped %d/%d regions (%.1f%%)\n", 
+              n_mapped, n_total, 100*n_mapped/n_total))
+  
+  # Show unmapped
+  unmapped <- unique(brain_data$base_region[is.na(brain_data$label)])
+  if (length(unmapped) > 0) {
+    cat("  Unmapped subcortical regions:\n")
+    print(unmapped)
+  }
+  
+  brain_data <- brain_data %>%
+    mutate(
+      significance = -log10(interaction_p + 1e-10),
+      hemi = case_when(
+        grepl("^Left-", imaging_trait) ~ "left",
+        grepl("^Right-", imaging_trait) ~ "right",
+        TRUE ~ NA_character_
+      )
+    ) %>%
+    filter(!is.na(label) & !is.na(hemi)) %>%
+    select(hemi, label, significance, interaction_p, interaction_coef, imaging_trait)
+  
+  return(brain_data)
+}
+
+# ===== Plot subcortical structures =====
+
+plot_subcortical_biomarker <- function(biomarker_name, interaction_results, 
+                                       region_mapping, biomarker_labels) {
+  
+  brain_data <- prepare_subcortical_brain_data(biomarker_name, interaction_results, region_mapping)
+  
+  if (nrow(brain_data) == 0) {
+    cat("No subcortical regions found for", biomarker_name, "\n")
+    return(NULL)
+  }
+  
+  max_sig <- max(brain_data$significance, na.rm = TRUE)
+  
+  # Try using aseg atlas
+  p <- tryCatch({
+    ggplot(brain_data) +
+      geom_brain(atlas = aseg,
+                 aes(fill = significance),
+                 position = position_brain(hemi ~ side),
+                 colour = "black",
+                 size = 0.3) +
+      scale_fill_gradient2(
+        low = "white", 
+        mid = "yellow", 
+        high = "red",
+        midpoint = 1.3, 
+        name = "-log10(p-value)",
+        limits = c(0, max(3, max_sig)),
+        na.value = "grey90"
+      ) +
+      theme_void() +
+      labs(
+        title = paste(biomarker_labels[biomarker_name], "× Group Interactions"),
+        subtitle = sprintf("Subcortical Volumes - Significant: %d (p < 0.05)",
+                           sum(brain_data$interaction_p < 0.05, na.rm = TRUE))
+      ) +
+      theme(
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 11, hjust = 0.5),
+        legend.position = "right"
+      )
+  }, error = function(e) {
+    cat("  Error with aseg atlas, creating bar plot instead\n")
+    NULL
+  })
+  
+  # If aseg doesn't work, create a bar plot instead
+  if (is.null(p)) {
+    p <- brain_data %>%
+      mutate(region_name = paste(hemi, label)) %>%
+      arrange(desc(significance)) %>%
+      head(20) %>%
+      ggplot(aes(x = reorder(region_name, significance), 
+                 y = significance,
+                 fill = interaction_p < 0.05)) +
+      geom_bar(stat = "identity") +
+      geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
+      coord_flip() +
+      scale_fill_manual(values = c("FALSE" = "grey70", "TRUE" = "red"),
+                        name = "Significant") +
+      labs(
+        title = paste(biomarker_labels[biomarker_name], "× Group Interactions"),
+        subtitle = "Subcortical Volumes (Top 20)",
+        x = "Brain Region",
+        y = "-log10(p-value)"
+      ) +
+      theme_classic() +
+      theme(
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 11, hjust = 0.5)
+      )
+  }
+  
+  return(p)
+}
+
+# ===== Create subcortical plots for all biomarkers =====
+
+subcortical_plots <- list()
+
+for (biomarker in biomarkers) {
+  
+  cat("\n=== Processing subcortical for", biomarker, "===\n")
+  
+  p <- plot_subcortical_biomarker(biomarker, interaction_results, 
+                                  region_mapping_subcortical, biomarker_labels)
+  
+  if (!is.null(p)) {
+    subcortical_plots[[biomarker]] <- p
+    
+    biomarker_clean <- gsub("[^A-Za-z0-9]", "_", biomarker)
+    ggsave(
+      paste0("brain_plots/subcortical_", biomarker_clean, ".png"),
+      plot = p, 
+      width = 10, 
+      height = 7, 
+      dpi = 300
+    )
+    
+    cat("✓ Saved subcortical map for", biomarker_labels[biomarker], "\n")
+  }
+}
+
+# ===== Combined subcortical plot =====
+
+if (length(subcortical_plots) > 0) {
+  combined_subcortical <- wrap_plots(subcortical_plots, ncol = 2)
+  
+  ggsave(
+    "brain_plots/all_subcortical_biomarkers.png",
+    plot = combined_subcortical,
+    width = 16,
+    height = 20,
+    dpi = 300
+  )
+  
+  cat("\n✓ Saved combined subcortical plots\n")
+}
+
+# ===== Alternative: Create a comprehensive table plot for subcortical =====
+
+# Since subcortical visualization can be tricky, let's also make a nice table
+for (biomarker in biomarkers) {
+  
+  subco_data <- prepare_subcortical_brain_data(biomarker, interaction_results, 
+                                               region_mapping_subcortical)
+  
+  if (nrow(subco_data) > 0) {
+    
+    # Create summary table
+    summary_table <- subco_data %>%
+      filter(interaction_p < 0.1) %>%  # Show marginal significance
+      arrange(interaction_p) %>%
+      mutate(
+        Region = paste(toupper(substr(hemi, 1, 1)), label),
+        `P-value` = sprintf("%.4f", interaction_p),
+        Effect = sprintf("%.2e", interaction_coef),
+        Significance = case_when(
+          interaction_p < 0.001 ~ "***",
+          interaction_p < 0.01 ~ "**",
+          interaction_p < 0.05 ~ "*",
+          interaction_p < 0.1 ~ ".",
+          TRUE ~ ""
+        )
+      ) %>%
+      select(Region, `P-value`, Effect, Significance)
+    
+    if (nrow(summary_table) > 0) {
+      # Create table plot
+      library(gridExtra)
+      library(grid)
+      
+      table_grob <- tableGrob(summary_table, rows = NULL,
+                              theme = ttheme_default(base_size = 10))
+      
+      # Add title
+      title <- textGrob(
+        paste(biomarker_labels[biomarker], "- Subcortical Interactions"),
+        gp = gpar(fontsize = 14, font = 2)
+      )
+      
+      padding <- unit(5, "mm")
+      table_plot <- gtable_add_rows(
+        table_grob, 
+        heights = grobHeight(title) + padding,
+        pos = 0
+      )
+      table_plot <- gtable_add_grob(
+        table_plot,
+        title,
+        t = 1, l = 1, r = ncol(table_plot)
+      )
+      
+      png(paste0("brain_plots/subcortical_table_", 
+                 gsub("[^A-Za-z0-9]", "_", biomarker), ".png"),
+          width = 800, height = 600)
+      grid.draw(table_plot)
+      dev.off()
+      
+      cat("✓ Saved subcortical table for", biomarker_labels[biomarker], "\n")
+    }
+  }
+}
+
+# ===== Create a heatmap of subcortical interactions =====
+
+# Prepare data for heatmap
+subcortical_heatmap_data <- data.frame()
+
+for (biomarker in biomarkers) {
+  subco_data <- prepare_subcortical_brain_data(biomarker, interaction_results, 
+                                               region_mapping_subcortical)
+  
+  if (nrow(subco_data) > 0) {
+    subco_data$biomarker <- biomarker_labels[biomarker]
+    subcortical_heatmap_data <- rbind(subcortical_heatmap_data, subco_data)
+  }
+}
+
+if (nrow(subcortical_heatmap_data) > 0) {
+  
+  # Create heatmap
+  p_heatmap <- subcortical_heatmap_data %>%
+    mutate(region_full = paste(toupper(substr(hemi, 1, 1)), label)) %>%
+    ggplot(aes(x = biomarker, y = region_full, fill = significance)) +
+    geom_tile(color = "white", size = 0.5) +
+    geom_text(aes(label = ifelse(interaction_p < 0.05, "*", "")), 
+              size = 5, color = "black") +
+    scale_fill_gradient2(
+      low = "white",
+      mid = "yellow",
+      high = "red",
+      midpoint = 1.3,
+      name = "-log10(p-value)",
+      limits = c(0, max(subcortical_heatmap_data$significance, na.rm = TRUE))
+    ) +
+    labs(
+      title = "Subcortical Structure Interactions Across All Biomarkers",
+      subtitle = "* indicates p < 0.05",
+      x = "Biomarker",
+      y = "Brain Region"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.text.y = element_text(size = 10),
+      panel.grid = element_blank()
+    )
+  
+  ggsave("brain_plots/subcortical_heatmap_all_biomarkers.png",
+         plot = p_heatmap,
+         width = 10,
+         height = 8,
+         dpi = 300)
+  
+  cat("\n✓ Saved subcortical heatmap\n")
+}
+
+
+
+
+
+
+
+
+
+
+
+
+############### fMRI data 
 
 
 
