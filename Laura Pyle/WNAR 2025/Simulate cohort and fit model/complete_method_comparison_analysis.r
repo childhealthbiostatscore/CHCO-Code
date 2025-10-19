@@ -2,6 +2,14 @@
 # Complete script for running simulation-based method comparison
 # All functions included and properly organized
 
+# NOTES on most recent run
+# added variability in cell numbers per individual
+# added chunk to report to show effect of that parameter
+# changed parallel to TRUE
+
+# What's still needed: nebula, other methods?
+
+
 #############################################
 # SECTION 1: LOAD LIBRARIES
 #############################################
@@ -469,7 +477,7 @@ analyze_results <- function(results_df) {
   library(tidyr)
   library(patchwork)
   
-  results_df <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Pyle/scRNAseq simulations/results/method_comparison"
+  results_df <- '/Users/pylell/Library/CloudStorage/OneDrive-UW/Pyle/scRNAseq simulations/results/method_comparison/results/method_comparison_final'
   
   # Load if file path
   if(is.character(results_df)) {
@@ -600,12 +608,18 @@ analyze_results <- function(results_df) {
 #############################################
 
 # Set parameters
+# disease effect size is fold change
+# individual_variation is variability between individuals - see separate script effect of individual variation for example
+# disease_gene_fraction is percent of genes controlled by disease
 param_grid <- expand.grid(
   n_controls = 10,
   n_patients = 10,
-  cells_per_ind = 150,
-  disease_effect_size = c(1, 2, 5, 10),
-  individual_variation = c(0.1, 0.2, 0.3),
+  cells_per_ind = c(100, 200),        # Test different average cell counts
+  cells_sd = c(0, 30, 60),             # Test different levels of variation
+  cells_min = 30,                      # Minimum 30 cells per person
+  cells_max = c(300, NA),              # Test with/without maximum cap
+  disease_effect_size = c(2, 5, 10),
+  individual_variation = c(0.1, 0.3),
   disease_gene_fraction = 0.2,
   stringsAsFactors = FALSE
 )
@@ -619,7 +633,7 @@ results <- run_method_comparison_pipeline(
   experiment_name = "method_comparison_final",
   output_dir = "results/method_comparison_final",
   batch_size = 50,
-  parallel = FALSE,  # Set to TRUE if you have multiple cores
+  parallel = TRUE,  # Set to TRUE if you have multiple cores
   n_cores = 4,       # Adjust based on your system
   verbose = TRUE
 )
@@ -641,3 +655,359 @@ ggsave("/Users/pylell/Library/CloudStorage/OneDrive-UW/Pyle/scRNAseq simulations
 
 cat("\n=== Analysis Complete ===\n")
 cat("Results saved to: /Users/pylell/Library/CloudStorage/OneDrive-UW/Pyle/scRNAseq simulations/results/method_comparison/\n")
+
+
+
+#############################################
+# SECTION 5B: REPORT GENERATION FUNCTIONS
+#############################################
+
+# Function to create HTML report
+create_html_report <- function(analysis, results_df, output_dir, 
+                               report_title = "Method Comparison Report") {
+  
+  library(rmarkdown)
+  library(knitr)
+  library(DT)
+  
+  # Create report content
+  report_content <- '---
+title: "`r report_title`"
+author: "Method Comparison Analysis"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: united
+    highlight: tango
+    code_folding: hide
+    df_print: paged
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.width = 10, fig.height = 6)
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(DT)
+library(patchwork)
+```
+
+# Executive Summary
+
+This report compares **Standard Differential Expression** and **Pseudobulk** methods across different simulation parameters.
+```{r summary_stats}
+# Overall performance summary
+overall_summary <- results_df %>%
+  filter(!is.na(power_005)) %>%
+  summarise(
+    `Total Simulations` = n(),
+    `Parameter Combinations` = n_distinct(param_set_id),
+    `Mean DE Power` = round(mean(power_005, na.rm = TRUE), 3),
+    `Mean PB Power` = round(mean(power_pb_005, na.rm = TRUE), 3),
+    `Mean DE Discoveries` = round(mean(n_sig_005, na.rm = TRUE), 0),
+    `Mean PB Discoveries` = round(mean(n_sig_pb_005, na.rm = TRUE), 0)
+  )
+
+kable(t(overall_summary), col.names = "Value", caption = "Overall Summary Statistics")
+```
+
+## Key Findings
+```{r key_findings}
+# Which method performs better?
+power_comparison <- results_df %>%
+  group_by(disease_effect_size, individual_variation) %>%
+  summarise(
+    de_wins = sum(power_005 > power_pb_005, na.rm = TRUE),
+    pb_wins = sum(power_pb_005 > power_005, na.rm = TRUE),
+    ties = sum(power_005 == power_pb_005, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Best performing conditions
+best_conditions <- analysis$summary %>%
+  mutate(
+    best_de = paste0(round(mean_power_de * 100, 1), "%"),
+    best_pb = paste0(round(mean_power_pb * 100, 1), "%"),
+    winner = ifelse(mean_power_de > mean_power_pb, "Standard DE", "Pseudobulk")
+  )
+
+kable(best_conditions %>% 
+      select(disease_effect_size, individual_variation, best_de, best_pb, winner),
+      col.names = c("Effect Size", "Individual Variation", "DE Power", "PB Power", "Better Method"),
+      caption = "Power Comparison Across Conditions")
+```
+
+# Detailed Results
+
+## Power Analysis
+
+### Detection Power by Effect Size
+```{r power_plot, fig.width=12, fig.height=7}
+print(analysis$plots$power + 
+      theme(legend.position = "bottom") +
+      labs(subtitle = "Higher values indicate better detection of true disease genes"))
+```
+
+### Statistical Comparison
+```{r statistical_tests}
+# Paired t-tests for each condition
+stat_tests <- results_df %>%
+  group_by(disease_effect_size, individual_variation) %>%
+  summarise(
+    n = n(),
+    mean_diff = mean(power_005 - power_pb_005, na.rm = TRUE),
+    t_test_p = ifelse(n() > 1, 
+                      t.test(power_005, power_pb_005, paired = TRUE)$p.value, 
+                      NA),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    p_adjusted = p.adjust(t_test_p, method = "fdr"),
+    significance = case_when(
+      p_adjusted < 0.001 ~ "***",
+      p_adjusted < 0.01 ~ "**",
+      p_adjusted < 0.05 ~ "*",
+      TRUE ~ "ns"
+    )
+  )
+
+kable(stat_tests,
+      col.names = c("Effect Size", "Ind. Variation", "N", "Mean Difference", "P-value", "Adj. P-value", "Significance"),
+      digits = 4,
+      caption = "Paired t-tests comparing methods (positive difference favors Standard DE)")
+```
+
+## Discovery Analysis
+
+### Number of Significant Genes
+```{r discoveries_plot, fig.width=12, fig.height=6}
+print(analysis$plots$discoveries +
+      theme(legend.position = "bottom") +
+      labs(subtitle = "Average number of genes detected as significant (FDR < 0.05)"))
+```
+
+## Method Agreement
+
+### Correlation Between Methods
+```{r correlation_plot, fig.width=12, fig.height=8}
+print(analysis$plots$correlation +
+      labs(subtitle = "Each point represents one simulation"))
+```
+
+### Agreement Statistics
+```{r agreement_stats}
+agreement <- results_df %>%
+  mutate(
+    both_detect = (n_sig_005 > 0) & (n_sig_pb_005 > 0),
+    only_de = (n_sig_005 > 0) & (n_sig_pb_005 == 0),
+    only_pb = (n_sig_pb_005 > 0) & (n_sig_005 == 0),
+    neither = (n_sig_005 == 0) & (n_sig_pb_005 == 0)
+  ) %>%
+  group_by(disease_effect_size, individual_variation) %>%
+  summarise(
+    `Both Detect` = paste0(round(mean(both_detect) * 100, 1), "%"),
+    `Only DE` = paste0(round(mean(only_de) * 100, 1), "%"),
+    `Only PB` = paste0(round(mean(only_pb) * 100, 1), "%"),
+    `Neither` = paste0(round(mean(neither) * 100, 1), "%"),
+    Correlation = round(cor(n_sig_005, n_sig_pb_005), 3),
+    .groups = "drop"
+  )
+
+kable(agreement,
+      caption = "Method Agreement Across Conditions")
+```
+
+# Parameter Effects
+
+## Effect of Disease Strength
+```{r effect_size_impact, fig.width=10, fig.height=6}
+effect_impact <- results_df %>%
+  pivot_longer(cols = c(power_005, power_pb_005),
+               names_to = "method",
+               values_to = "power") %>%
+  mutate(method = ifelse(method == "power_005", "Standard DE", "Pseudobulk"))
+
+p_effect <- ggplot(effect_impact, 
+                   aes(x = factor(disease_effect_size), y = power, fill = method)) +
+  geom_boxplot(alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Impact of Disease Effect Size",
+       x = "Disease Effect Size (Fold Change)",
+       y = "Detection Power",
+       fill = "Method") +
+  scale_fill_brewer(palette = "Set1") +
+  theme(legend.position = "bottom")
+
+print(p_effect)
+```
+
+## Effect of Individual Variation
+```{r individual_variation_impact, fig.width=10, fig.height=6}
+p_var <- ggplot(effect_impact, 
+                aes(x = factor(individual_variation), y = power, fill = method)) +
+  geom_boxplot(alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Impact of Individual Variation",
+       x = "Individual Variation (SD)",
+       y = "Detection Power",
+       fill = "Method") +
+  scale_fill_brewer(palette = "Set1") +
+  theme(legend.position = "bottom")
+
+print(p_var)
+```
+
+## Cell variation analysis
+```{r cell_table}
+# Analyze impact of cell counts
+cell_impact <- results %>%
+  group_by(cells_per_ind, cells_sd, disease_effect_size) %>%
+  summarise(
+    de_power = mean(power_005, na.rm = TRUE),
+    pb_power = mean(power_pb_005, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(cols = c(de_power, pb_power),
+               names_to = "method",
+               values_to = "power")
+
+p_cell <- ggplot(cell_impact, 
+            aes(x = factor(cells_per_ind), y = power, 
+                fill = method, alpha = factor(cells_sd))) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  facet_wrap(~disease_effect_size) +
+  scale_alpha_manual(values = c("0" = 1, "45" = 0.6),
+                     labels = c("0" = "No variation", "45" = "With variation")) +
+  labs(title = "Impact of Cell Count on Method Performance",
+       x = "Average cells per individual",
+       y = "Detection power",
+       fill = "Method",
+       alpha = "Cell count variation") +
+  theme_minimal()
+
+print(p_cell)
+````
+
+# Detailed Data Tables
+
+## Summary Statistics by Condition
+```{r summary_table}
+datatable(analysis$summary %>%
+            select(-starts_with("se_")) %>%
+            mutate(across(where(is.numeric), ~round(., 3))),
+          options = list(pageLength = 15),
+          caption = "Complete summary statistics for all parameter combinations")
+```
+
+## Simulation Parameters
+```{r param_summary}
+param_summary <- results_df %>%
+  group_by(param_set_id) %>%
+  slice(1) %>%
+  select(param_set_id, n_controls, n_patients, cells_per_ind, 
+         disease_effect_size, individual_variation, disease_gene_fraction) %>%
+  ungroup()
+
+datatable(param_summary,
+          options = list(pageLength = 10),
+          caption = "Parameter values for each parameter set")
+```
+
+# Recommendations
+```{r recommendations}
+# Find best conditions for each method
+best_de <- analysis$summary %>%
+  filter(mean_power_de == max(mean_power_de)) %>%
+  slice(1)
+
+best_pb <- analysis$summary %>%
+  filter(mean_power_pb == max(mean_power_pb)) %>%
+  slice(1)
+
+best_overall <- analysis$summary %>%
+  mutate(avg_power = (mean_power_de + mean_power_pb) / 2) %>%
+  filter(avg_power == max(avg_power)) %>%
+  slice(1)
+```
+
+Based on the analysis:
+
+1. **Best conditions for Standard DE**: Effect size = `r best_de$disease_effect_size`, Individual variation = `r best_de$individual_variation` (Power: `r round(best_de$mean_power_de * 100, 1)`%)
+
+2. **Best conditions for Pseudobulk**: Effect size = `r best_pb$disease_effect_size`, Individual variation = `r best_pb$individual_variation` (Power: `r round(best_pb$mean_power_pb * 100, 1)`%)
+
+3. **Overall recommendation**: `r ifelse(mean(results_df$power_005, na.rm=TRUE) > mean(results_df$power_pb_005, na.rm=TRUE), "Standard DE performs better on average", "Pseudobulk performs better on average")` across the tested conditions.
+
+4. **Method agreement**: The methods show `r ifelse(cor(results_df$n_sig_005, results_df$n_sig_pb_005, use="complete.obs") > 0.7, "high", ifelse(cor(results_df$n_sig_005, results_df$n_sig_pb_005, use="complete.obs") > 0.4, "moderate", "low"))` correlation (r = `r round(cor(results_df$n_sig_005, results_df$n_sig_pb_005, use="complete.obs"), 3)`).
+
+# Session Information
+```{r session_info}
+sessionInfo()
+```
+'
+  
+  # Write the Rmd file
+  rmd_file <- file.path(output_dir, "method_comparison_report.Rmd")
+  writeLines(report_content, rmd_file)
+  
+  # Render the report
+  output_file <- file.path(output_dir, paste0(report_title, "_", Sys.Date(), ".html"))
+  
+  render(rmd_file, 
+         output_file = basename(output_file),
+         output_dir = output_dir,
+         params = list(
+           analysis = analysis,
+           results_df = results_df,
+           report_title = report_title
+         ),
+         envir = new.env())
+  
+  cat("HTML report saved to:", output_file, "\n")
+  
+  # Clean up Rmd file
+  file.remove(rmd_file)
+  
+  return(output_file)
+}
+
+#############################################
+# SECTION 6: RUN ANALYSIS (UPDATED)
+#############################################
+
+# ... [previous code remains the same until after analysis] ...
+
+# Analyze results
+cat("\nAnalyzing results...\n")
+analysis <- analyze_results(results)
+
+# Display summary
+print(analysis$summary)
+
+# Show plots
+print(analysis$plots$combined)
+
+# Save plots
+ggsave("results/method_comparison_final/combined_plot.png", 
+       analysis$plots$combined, 
+       width = 14, height = 10, dpi = 300)
+
+# CREATE HTML REPORT
+cat("\nGenerating HTML report...\n")
+report_file <- create_html_report(
+  analysis = analysis,
+  results_df = results,
+  output_dir = "results/method_comparison_final",
+  report_title = "Method Comparison Analysis Report"
+)
+
+cat("\n=== Analysis Complete ===\n")
+cat("Results saved to: results/method_comparison_final/\n")
+cat("HTML report: ", report_file, "\n")
+
+# Optionally open the report
+if(interactive()) {
+  browseURL(report_file)
+}
