@@ -601,9 +601,46 @@ ggsave(paste0(dir.results, "aPT_dTAL_interaction_plot.png"), plot = p,
 
 
 
+pathway_data <- data.table::fread("/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/metabolomics_pathways/pathway_results.csv")
 
 
+# Filter for significant pathways
+significant_pathways <- pathway_data[pathway_data$`Raw p` < 0.05, ]
 
+# Create shortened labels
+shorten_label <- function(label, max_length = 30) {
+  ifelse(nchar(label) > max_length, 
+         paste0(substr(label, 1, max_length), "..."), 
+         label)
+}
+
+significant_pathways$label_short <- shorten_label(significant_pathways$V1)
+
+png('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/metabolomics_pathways/metabolomics_pathways.png', 
+    width = 1200, height = 1200)
+
+ggplot(pathway_data, aes(x = Impact, y = `-log10(p)`)) +
+  geom_point(aes(size = Impact, fill = `-log10(p)`), 
+             shape = 21, 
+             color = "black", 
+             stroke = 0.5) +
+  geom_text_repel(data = significant_pathways,
+                  aes(label = label_short),
+                  size = 6,
+                  box.padding = 0.5,
+                  point.padding = 0.3,
+                  max.overlaps = Inf,
+                  segment.color = "grey50") +
+  scale_size_continuous(range = c(2, 15)) +
+  scale_fill_gradient(low = "yellow", high = "red") +
+  labs(x = "Pathway Impact", 
+       y = "-log10(p)") +
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14))
+
+dev.off()
 
 
 
