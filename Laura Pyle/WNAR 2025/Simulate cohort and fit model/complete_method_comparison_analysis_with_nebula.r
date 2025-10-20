@@ -1,14 +1,6 @@
 # complete_method_comparison_analysis.R
 # Complete script for running simulation-based method comparison
-# All functions included and properly organized
-
-# NOTES on most recent run
-# added variability in cell numbers per individual
-# added chunk to report to show effect of that parameter
-# changed parallel to TRUE
-
-# What's still needed: nebula, other methods?
-
+# INCLUDING NEBULA, PSEUDOBULK, AND STANDARD DE
 
 #############################################
 # SECTION 1: LOAD LIBRARIES
@@ -18,6 +10,7 @@ library(splatter)
 library(SingleCellExperiment)
 library(limma)
 library(edgeR)
+library(nebula)  # Add nebula
 library(ggplot2)
 library(dplyr)
 library(tidyr)
@@ -69,7 +62,7 @@ add_cell_state_correlation <- function(sim,
   return(sim)
 }
 
-# Main simulation function
+# Main simulation function with cell count variation
 simulate_patient_control_study <- function(
     n_controls = 4,
     n_patients = 4,
@@ -101,12 +94,32 @@ simulate_patient_control_study <- function(
     
     cell_counts[cell_counts < cells_min] <- cells_min
     if(!is.null(cells_max)) cell_counts[cell_counts > cells_max] <- cells_max
+    
+  } else if(length(cells_per_ind) == 2) {
+    # Different means for controls and patients
+    control_cells <- round(rnorm(n_controls, 
+                                 mean = cells_per_ind[1], 
+                                 sd = ifelse(is.null(cells_sd), cells_per_ind[1] * 0.3, cells_sd)))
+    patient_cells <- round(rnorm(n_patients, 
+                                 mean = cells_per_ind[2], 
+                                 sd = ifelse(is.null(cells_sd), cells_per_ind[2] * 0.3, cells_sd)))
+    
+    cell_counts <- c(control_cells, patient_cells)
+    cell_counts[cell_counts < cells_min] <- cells_min
+    if(!is.null(cells_max)) cell_counts[cell_counts > cells_max] <- cells_max
+    
   } else {
     cell_counts <- cells_per_ind
   }
   
   # Individual-specific expression variation
   ind_effects <- rnorm(n_individuals, 0, individual_variation)
+  
+  if(verbose) {
+    cat("Simulating", n_controls, "controls and", n_patients, "patients\n")
+    cat("Cell counts per individual:", cell_counts, "\n")
+    cat("Mean cells:", mean(cell_counts), "SD:", sd(cell_counts), "\n")
+  }
   
   # Create simulation
   sim <- splatSimulate(
@@ -136,6 +149,9 @@ simulate_patient_control_study <- function(
   individual_groups <- c(rep("Control", n_controls), rep("Patient", n_patients))
   colData(sim)$Group <- factor(individual_groups[cell_individual_num])
   
+  # Store actual cell counts
+  colData(sim)$CellsPerIndividual <- cell_counts[cell_individual_num]
+  
   # Add disease effect
   if(disease_effect_size > 0 && disease_gene_fraction > 0) {
     counts_mat <- counts(sim)
@@ -162,6 +178,20 @@ simulate_patient_control_study <- function(
       rowData(sim)$is_disease_gene[disease_genes] <- TRUE
     }
   }
+  
+  # Store simulation parameters in metadata
+  metadata(sim) <- list(
+    n_controls = n_controls,
+    n_patients = n_patients,
+    cells_per_ind = cells_per_ind,
+    cells_sd = cells_sd,
+    cells_min = cells_min,
+    cells_max = cells_max,
+    actual_cell_counts = cell_counts,
+    disease_effect_size = disease_effect_size,
+    disease_gene_fraction = disease_gene_fraction,
+    individual_variation = individual_variation
+  )
   
   return(sim)
 }
@@ -215,13 +245,20 @@ fit_default_de_model <- function(sim, params = NULL) {
     }
   }
   
+  # Calculate cell count statistics
+  cell_stats <- table(colData(sim)$Individual)
+  
   return(data.frame(
     n_genes_tested = nrow(results),
     n_sig_005 = n_sig_005,
     n_sig_001 = n_sig_001,
     mean_abs_logfc = mean_logfc,
     power_005 = power_005,
-    power_001 = power_001
+    power_001 = power_001,
+    mean_cells_per_ind = mean(cell_stats),
+    sd_cells_per_ind = sd(cell_stats),
+    min_cells = min(cell_stats),
+    max_cells = max(cell_stats)
   ))
 }
 
@@ -244,6 +281,9 @@ fit_pseudobulk_model <- function(sim, params = NULL) {
   ))
   
   ind_groups <- ind_groups[match(colnames(pb_counts), ind_groups$Individual), ]
+  
+  # Get actual cell counts per individual for weighting (optional)
+  cell_counts <- table(colData(sim)$Individual)
   
   # DE analysis
   y <- DGEList(counts = pb_counts)
@@ -278,15 +318,323 @@ fit_pseudobulk_model <- function(sim, params = NULL) {
     n_sig_pb_001 = sum(results$FDR < 0.01),
     mean_logfc_pb = mean(abs(results$logFC)),
     power_pb_005 = power_pb_005,
-    power_pb_001 = power_pb_001
+    power_pb_001 = power_pb_001,
+    n_individuals = ncol(pb_counts)
   ))
 }
 
-# Combined fitting function
-fit_multiple_methods <- function(sim, params = NULL) {
+# UPDATED NEBULA FUNCTION - More robust version
+fit_nebula_model <- function(sim, params = NULL) {
+  
+  tryCatch({
+    # Prepare data for nebula
+    counts_mat <- as.matrix(counts(sim))
+    
+    # Filter low-expressed genes (same as other methods)
+    keep <- rowSums(counts_mat > 1) >= 10
+    counts_mat <- counts_mat[keep, ]
+    
+    # Need at least some genes
+    if(nrow(counts_mat) < 10) {
+      warning("Too few genes pass filtering")
+      return(data.frame(
+        n_genes_nebula = NA,
+        n_sig_nebula_005 = NA,
+        n_sig_nebula_001 = NA,
+        n_sig_nebula_raw_005 = NA,
+        mean_logfc_nebula = NA,
+        power_nebula_005 = NA,
+        power_nebula_001 = NA,
+        nebula_convergence = NA,
+        nebula_method = "TOO_FEW_GENES"
+      ))
+    }
+    
+    # Create data frame with cell metadata
+    cell_metadata <- data.frame(
+      individual = as.character(colData(sim)$Individual),
+      group = as.character(colData(sim)$Group),
+      row.names = colnames(counts_mat),
+      stringsAsFactors = FALSE
+    )
+    
+    # Check we have both groups
+    if(length(unique(cell_metadata$group)) < 2) {
+      warning("Need at least 2 groups")
+      return(data.frame(
+        n_genes_nebula = NA,
+        n_sig_nebula_005 = NA,
+        n_sig_nebula_001 = NA,
+        n_sig_nebula_raw_005 = NA,
+        mean_logfc_nebula = NA,
+        power_nebula_005 = NA,
+        power_nebula_001 = NA,
+        nebula_convergence = NA,
+        nebula_method = "SINGLE_GROUP"
+      ))
+    }
+    
+    # Create design matrix - simpler approach
+    # Use group directly as a factor
+    pred_matrix <- model.matrix(~ group, data = cell_metadata)
+    
+    # Alternative 1: Try the simpler nebula function
+    nebula_res <- nebula(
+      count = counts_mat,
+      id = cell_metadata$individual,
+      pred = pred_matrix,
+      method = "LN",  # Log-normal is more stable
+      cpc = 0.05,     # Lower value can help with convergence
+      mincp = 0.01,   # Minimum cell proportion
+      ncore = 1       # Single core for stability
+    )
+    
+    # Check if results are valid
+    if(is.null(nebula_res) || is.null(nebula_res$summary)) {
+      warning("NEBULA returned NULL results")
+      return(data.frame(
+        n_genes_nebula = NA,
+        n_sig_nebula_005 = NA,
+        n_sig_nebula_001 = NA,
+        n_sig_nebula_raw_005 = NA,
+        mean_logfc_nebula = NA,
+        power_nebula_005 = NA,
+        power_nebula_001 = NA,
+        nebula_convergence = NA,
+        nebula_method = "NULL_RESULTS"
+      ))
+    }
+    
+    # Extract results
+    results <- nebula_res$summary
+    
+    # Get the coefficient name (might be groupPatient or similar)
+    coef_names <- colnames(results)
+    logfc_col <- grep("logFC_group", coef_names, value = TRUE)[1]
+    p_col <- grep("p_group", coef_names, value = TRUE)[1]
+    
+    if(is.na(logfc_col) || is.na(p_col)) {
+      # Try alternative column names
+      logfc_col <- grep("logFC", coef_names, value = TRUE)[1]
+      p_col <- grep("^p_", coef_names, value = TRUE)[1]
+    }
+    
+    # Calculate summary statistics
+    if(!is.na(p_col)) {
+      p_values <- results[[p_col]]
+      n_sig_005 <- sum(p_values < 0.05, na.rm = TRUE)
+      n_sig_001 <- sum(p_values < 0.01, na.rm = TRUE)
+      
+      # Adjust p-values using BH method
+      padj <- p.adjust(p_values, method = "BH")
+      n_sig_adj_005 <- sum(padj < 0.05, na.rm = TRUE)
+      n_sig_adj_001 <- sum(padj < 0.01, na.rm = TRUE)
+    } else {
+      n_sig_005 <- n_sig_001 <- n_sig_adj_005 <- n_sig_adj_001 <- NA
+      padj <- rep(NA, nrow(results))
+    }
+    
+    if(!is.na(logfc_col)) {
+      mean_logfc <- mean(abs(results[[logfc_col]]), na.rm = TRUE)
+    } else {
+      mean_logfc <- NA
+    }
+    
+    # Calculate power if we know disease genes
+    power_nebula_005 <- NA
+    power_nebula_001 <- NA
+    
+    if("is_disease_gene" %in% colnames(rowData(sim))) {
+      tested_genes <- rownames(counts_mat)
+      disease_genes <- rownames(sim)[rowData(sim)$is_disease_gene]
+      disease_genes_tested <- intersect(disease_genes, tested_genes)
+      
+      if(length(disease_genes_tested) > 0) {
+        disease_indices <- which(rownames(results) %in% disease_genes_tested)
+        if(length(disease_indices) > 0) {
+          disease_padj <- padj[disease_indices]
+          power_nebula_005 <- mean(disease_padj < 0.05, na.rm = TRUE)
+          power_nebula_001 <- mean(disease_padj < 0.01, na.rm = TRUE)
+        }
+      }
+    }
+    
+    # Get convergence info
+    if(!is.null(nebula_res$convergence)) {
+      convergence_rate <- mean(nebula_res$convergence == 0, na.rm = TRUE)
+    } else {
+      convergence_rate <- NA
+    }
+    
+    return(data.frame(
+      n_genes_nebula = nrow(results),
+      n_sig_nebula_005 = n_sig_adj_005,
+      n_sig_nebula_001 = n_sig_adj_001,
+      n_sig_nebula_raw_005 = n_sig_005,
+      mean_logfc_nebula = mean_logfc,
+      power_nebula_005 = power_nebula_005,
+      power_nebula_001 = power_nebula_001,
+      nebula_convergence = convergence_rate,
+      nebula_method = "LN"
+    ))
+    
+  }, error = function(e) {
+    # If NEBULA fails, try a simpler mixed model approach
+    warning("NEBULA failed, trying fallback: ", e$message)
+    
+    # FALLBACK: Simple mixed model using lme4
+    tryCatch({
+      library(lme4)
+      library(lmerTest)
+      
+      # Get data
+      counts_mat <- as.matrix(counts(sim))
+      keep <- rowSums(counts_mat > 1) >= 10
+      counts_mat <- counts_mat[keep, ]
+      
+      # Run on subset of genes for speed
+      n_test_genes <- min(100, nrow(counts_mat))
+      test_genes <- sample(1:nrow(counts_mat), n_test_genes)
+      
+      p_values <- numeric(n_test_genes)
+      log_fcs <- numeric(n_test_genes)
+      
+      for(i in 1:n_test_genes) {
+        gene_expr <- log1p(counts_mat[test_genes[i], ])
+        
+        df <- data.frame(
+          expr = gene_expr,
+          group = colData(sim)$Group,
+          individual = colData(sim)$Individual
+        )
+        
+        # Simple mixed model
+        m <- lmer(expr ~ group + (1|individual), data = df, REML = FALSE)
+        m_null <- lmer(expr ~ (1|individual), data = df, REML = FALSE)
+        
+        # Likelihood ratio test
+        lrt <- anova(m_null, m)
+        p_values[i] <- lrt$`Pr(>Chisq)`[2]
+        
+        # Get effect size
+        coefs <- fixef(m)
+        log_fcs[i] <- coefs[2]
+      }
+      
+      # Extrapolate to full gene set
+      n_sig_005 <- sum(p_values < 0.05, na.rm = TRUE) * (nrow(counts_mat) / n_test_genes)
+      n_sig_001 <- sum(p_values < 0.01, na.rm = TRUE) * (nrow(counts_mat) / n_test_genes)
+      
+      return(data.frame(
+        n_genes_nebula = nrow(counts_mat),
+        n_sig_nebula_005 = round(n_sig_005),
+        n_sig_nebula_001 = round(n_sig_001),
+        n_sig_nebula_raw_005 = round(n_sig_005),
+        mean_logfc_nebula = mean(abs(log_fcs), na.rm = TRUE),
+        power_nebula_005 = NA,  # Can't calculate without full results
+        power_nebula_001 = NA,
+        nebula_convergence = NA,
+        nebula_method = "LME4_FALLBACK"
+      ))
+      
+    }, error = function(e2) {
+      warning("Fallback also failed: ", e2$message)
+      return(data.frame(
+        n_genes_nebula = NA,
+        n_sig_nebula_005 = NA,
+        n_sig_nebula_001 = NA,
+        n_sig_nebula_raw_005 = NA,
+        mean_logfc_nebula = NA,
+        power_nebula_005 = NA,
+        power_nebula_001 = NA,
+        nebula_convergence = NA,
+        nebula_method = "ALL_FAILED"
+      ))
+    })
+  })
+}
+
+# Alternative: SIMPLER VERSION using MAST (another mixed model package)
+fit_mast_model <- function(sim, params = NULL) {
+  tryCatch({
+    library(MAST)
+    
+    # Prepare data
+    counts_mat <- as.matrix(counts(sim))
+    
+    # Filter
+    keep <- rowSums(counts_mat > 1) >= 10
+    counts_mat <- counts_mat[keep, ]
+    
+    # Log transform
+    log_counts <- log1p(counts_mat)
+    
+    # Create MAST object
+    cData <- data.frame(
+      wellKey = colnames(counts_mat),
+      group = colData(sim)$Group,
+      individual = colData(sim)$Individual,
+      row.names = colnames(counts_mat)
+    )
+    
+    fData <- data.frame(
+      primerid = rownames(counts_mat),
+      row.names = rownames(counts_mat)
+    )
+    
+    sca <- FromMatrix(log_counts, cData, fData)
+    
+    # Fit model
+    zlm_output <- zlm(~ group + (1|individual), sca, method = "glmer")
+    
+    # Get results
+    summary_zlm <- summary(zlm_output, doLRT = "groupPatient")
+    
+    # Extract p-values
+    p_values <- summary_zlm$datatable[summary_zlm$datatable$component == "H",]$`Pr(>Chisq)`
+    
+    # Calculate statistics
+    n_sig_005 <- sum(p_values < 0.05, na.rm = TRUE)
+    n_sig_001 <- sum(p_values < 0.01, na.rm = TRUE)
+    
+    padj <- p.adjust(p_values, method = "BH")
+    n_sig_adj_005 <- sum(padj < 0.05, na.rm = TRUE)
+    n_sig_adj_001 <- sum(padj < 0.01, na.rm = TRUE)
+    
+    return(data.frame(
+      n_genes_nebula = length(p_values),
+      n_sig_nebula_005 = n_sig_adj_005,
+      n_sig_nebula_001 = n_sig_adj_001,
+      n_sig_nebula_raw_005 = n_sig_005,
+      mean_logfc_nebula = NA,
+      power_nebula_005 = NA,
+      power_nebula_001 = NA,
+      nebula_convergence = NA,
+      nebula_method = "MAST"
+    ))
+    
+  }, error = function(e) {
+    warning("MAST failed: ", e$message)
+    return(data.frame(
+      n_genes_nebula = NA,
+      n_sig_nebula_005 = NA,
+      n_sig_nebula_001 = NA,
+      n_sig_nebula_raw_005 = NA,
+      mean_logfc_nebula = NA,
+      power_nebula_005 = NA,
+      power_nebula_001 = NA,
+      nebula_convergence = NA,
+      nebula_method = "MAST_FAILED"
+    ))
+  })
+}
+
+# Combined fitting function - all three methods
+fit_all_methods <- function(sim, params = NULL) {
   de_results <- fit_default_de_model(sim, params)
   pb_results <- fit_pseudobulk_model(sim, params)
-  cbind(de_results, pb_results)
+  nebula_results <- fit_nebula_model(sim, params)
+  cbind(de_results, pb_results, nebula_results)
 }
 
 #############################################
@@ -297,10 +645,10 @@ run_method_comparison_pipeline <- function(
     param_grid = NULL,
     n_simulations = 10,
     experiment_name = NULL,
-    output_dir = "/Users/pylell/Library/CloudStorage/OneDrive-UW/Pyle/scRNAseq simulations/results/method_comparison",
+    output_dir = "results/method_comparison",
     batch_size = 50,
-    parallel = FALSE,
-    n_cores = NULL,
+    parallel = TRUE,
+    n_cores = 12,
     verbose = TRUE,
     seed_start = 123) {
   
@@ -319,13 +667,21 @@ run_method_comparison_pipeline <- function(
     param_grid <- expand.grid(
       n_controls = 10,
       n_patients = 10,
-      cells_per_ind = 150,
+      cells_per_ind = c(50, 150, 300),
+      cells_sd = c(0, 45),
+      cells_min = 30,
+      cells_max = NA,
       disease_effect_size = c(2, 5, 10),
       individual_variation = c(0.1, 0.3),
       disease_gene_fraction = 0.2,
       stringsAsFactors = FALSE
     )
   }
+  
+  # Ensure all required columns exist
+  if(!"cells_sd" %in% names(param_grid)) param_grid$cells_sd <- 0
+  if(!"cells_min" %in% names(param_grid)) param_grid$cells_min <- 30
+  if(!"cells_max" %in% names(param_grid)) param_grid$cells_max <- NA
   
   # Add simulation replicates
   param_grid <- param_grid[rep(seq_len(nrow(param_grid)), each = n_simulations), ]
@@ -342,13 +698,21 @@ run_method_comparison_pipeline <- function(
   n_batches <- ceiling(total_sims / batch_size)
   
   if(verbose) {
-    cat("=== Method Comparison Pipeline ===\n")
+    cat("=== Method Comparison Pipeline (3 Methods) ===\n")
+    cat("Methods: Standard DE, Pseudobulk, NEBULA\n")
     cat("Experiment:", experiment_name, "\n")
     cat("Total simulations:", total_sims, "\n")
     cat("Parameter combinations:", max(param_grid$param_set_id), "\n")
     cat("Replications per combination:", n_simulations, "\n")
     cat("Output directory:", output_dir, "\n")
     cat("Parallel processing:", parallel, "\n\n")
+    
+    # Show parameter ranges
+    cat("Parameter ranges:\n")
+    cat("  Cell counts:", paste(unique(param_grid$cells_per_ind), collapse=", "), "\n")
+    cat("  Cell SD:", paste(unique(param_grid$cells_sd), collapse=", "), "\n")
+    cat("  Disease effect sizes:", paste(unique(param_grid$disease_effect_size), collapse=", "), "\n")
+    cat("  Individual variation:", paste(unique(param_grid$individual_variation), collapse=", "), "\n\n")
   }
   
   # Function to process single simulation
@@ -361,6 +725,9 @@ run_method_comparison_pipeline <- function(
         n_controls = params$n_controls,
         n_patients = params$n_patients,
         cells_per_ind = params$cells_per_ind,
+        cells_sd = params$cells_sd,
+        cells_min = params$cells_min,
+        cells_max = if(is.na(params$cells_max)) NULL else params$cells_max,
         disease_effect_size = params$disease_effect_size,
         individual_variation = params$individual_variation,
         disease_gene_fraction = params$disease_gene_fraction,
@@ -368,8 +735,8 @@ run_method_comparison_pipeline <- function(
         seed = params$seed
       )
       
-      # Fit both models
-      model_results <- fit_multiple_methods(sim, params)
+      # Fit all three models
+      model_results <- fit_all_methods(sim, params)
       
       # Combine parameters and results
       results <- cbind(params, model_results)
@@ -411,7 +778,8 @@ run_method_comparison_pipeline <- function(
                                 "add_cell_state_correlation",
                                 "fit_default_de_model",
                                 "fit_pseudobulk_model",
-                                "fit_multiple_methods",
+                                "fit_nebula_model",
+                                "fit_all_methods",
                                 "param_grid"), 
                               envir = environment())
       
@@ -420,6 +788,7 @@ run_method_comparison_pipeline <- function(
         library(SingleCellExperiment)
         library(limma)
         library(edgeR)
+        library(nebula)
         library(dplyr)
       })
       
@@ -428,7 +797,7 @@ run_method_comparison_pipeline <- function(
       parallel::stopCluster(cl)
       
     } else {
-      # Sequential processing (more reliable)
+      # Sequential processing
       batch_results <- lapply(batch_indices, process_single_simulation)
     }
     
@@ -462,13 +831,19 @@ run_method_comparison_pipeline <- function(
         cat("WARNING:", n_errors, "simulations had errors\n")
       }
     }
+    
+    # Check NEBULA convergence
+    if("nebula_convergence" %in% colnames(final_results)) {
+      mean_conv <- mean(final_results$nebula_convergence, na.rm = TRUE)
+      cat("NEBULA mean convergence rate:", round(mean_conv, 3), "\n")
+    }
   }
   
   return(final_results)
 }
 
 #############################################
-# SECTION 5: ANALYSIS FUNCTIONS
+# SECTION 5: ANALYSIS FUNCTIONS (UPDATED)
 #############################################
 
 analyze_results <- function(results_df) {
@@ -476,8 +851,6 @@ analyze_results <- function(results_df) {
   library(dplyr)
   library(tidyr)
   library(patchwork)
-  
-  results_df <- '/Users/pylell/Library/CloudStorage/OneDrive-UW/Pyle/scRNAseq simulations/results/method_comparison/results/method_comparison_final'
   
   # Load if file path
   if(is.character(results_df)) {
@@ -493,9 +866,9 @@ analyze_results <- function(results_df) {
     results_df <- results_df[is.na(results_df$error), ]
   }
   
-  # Summarize across replicates
+  # Summarize across replicates - now for 3 methods
   summary_stats <- results_df %>%
-    group_by(disease_effect_size, individual_variation) %>%
+    group_by(disease_effect_size, individual_variation, cells_per_ind, cells_sd) %>%
     summarise(
       # Standard DE
       mean_power_de = mean(power_005, na.rm = TRUE),
@@ -507,24 +880,42 @@ analyze_results <- function(results_df) {
       se_power_pb = sd(power_pb_005, na.rm = TRUE) / sqrt(n()),
       mean_n_sig_pb = mean(n_sig_pb_005, na.rm = TRUE),
       
+      # NEBULA
+      mean_power_nebula = mean(power_nebula_005, na.rm = TRUE),
+      se_power_nebula = sd(power_nebula_005, na.rm = TRUE) / sqrt(n()),
+      mean_n_sig_nebula = mean(n_sig_nebula_005, na.rm = TRUE),
+      mean_convergence = mean(nebula_convergence, na.rm = TRUE),
+      
+      # Cell count info
+      actual_mean_cells = mean(mean_cells_per_ind, na.rm = TRUE),
+      actual_sd_cells = mean(sd_cells_per_ind, na.rm = TRUE),
+      
       n_reps = n(),
       .groups = "drop"
     )
   
-  # Reshape for plotting
+  # Plot 1: Three-way power comparison
   power_long <- summary_stats %>%
     pivot_longer(
-      cols = c(mean_power_de, mean_power_pb),
+      cols = c(mean_power_de, mean_power_pb, mean_power_nebula),
       names_to = "method",
       values_to = "power",
       names_prefix = "mean_power_"
     ) %>%
     mutate(
-      se = ifelse(method == "de", se_power_de, se_power_pb),
-      method = ifelse(method == "de", "Standard DE", "Pseudobulk")
+      se = case_when(
+        method == "de" ~ se_power_de,
+        method == "pb" ~ se_power_pb,
+        method == "nebula" ~ se_power_nebula
+      ),
+      method = case_when(
+        method == "de" ~ "Standard DE",
+        method == "pb" ~ "Pseudobulk",
+        method == "nebula" ~ "NEBULA"
+      ),
+      cell_variation = ifelse(cells_sd == 0, "No variation", "With variation")
     )
   
-  # Plot 1: Power comparison
   p1 <- ggplot(power_long, 
                aes(x = disease_effect_size, y = power, 
                    color = method, linetype = factor(individual_variation))) +
@@ -532,64 +923,102 @@ analyze_results <- function(results_df) {
     geom_point(size = 2) +
     geom_errorbar(aes(ymin = power - se, ymax = power + se), 
                   width = 0.2, alpha = 0.5) +
+    facet_grid(cell_variation ~ cells_per_ind,
+               labeller = labeller(cells_per_ind = function(x) paste(x, "cells/person"))) +
     theme_minimal() +
     labs(
-      title = "Detection Power Comparison",
+      title = "Detection Power: Three-Method Comparison",
       x = "Disease Effect Size",
       y = "Power (FDR < 0.05)",
       color = "Method",
       linetype = "Individual\nVariation"
     ) +
-    scale_color_brewer(palette = "Set1") +
+    scale_color_manual(values = c("Standard DE" = "#E41A1C", 
+                                  "Pseudobulk" = "#377EB8",
+                                  "NEBULA" = "#4DAF4A")) +
     scale_y_continuous(limits = c(0, 1))
   
-  # Plot 2: Number of discoveries
+  # Plot 2: Number of discoveries - all three methods
   discoveries_long <- summary_stats %>%
     pivot_longer(
-      cols = c(mean_n_sig_de, mean_n_sig_pb),
+      cols = c(mean_n_sig_de, mean_n_sig_pb, mean_n_sig_nebula),
       names_to = "method",
       values_to = "n_discoveries",
       names_prefix = "mean_n_sig_"
     ) %>%
     mutate(
-      method = ifelse(method == "de", "Standard DE", "Pseudobulk")
+      method = case_when(
+        method == "de" ~ "Standard DE",
+        method == "pb" ~ "Pseudobulk",
+        method == "nebula" ~ "NEBULA"
+      )
     )
   
   p2 <- ggplot(discoveries_long,
-               aes(x = factor(disease_effect_size), y = n_discoveries,
-                   fill = method)) +
-    geom_bar(stat = "identity", position = position_dodge()) +
-    facet_wrap(~individual_variation, 
-               labeller = labeller(individual_variation = function(x) paste("Ind. Var. =", x))) +
+               aes(x = factor(cells_per_ind), y = n_discoveries, 
+                   fill = method, alpha = factor(cells_sd))) +
+    geom_boxplot(position = position_dodge(width = 0.9)) +
+    facet_wrap(~disease_effect_size,
+               labeller = labeller(disease_effect_size = function(x) paste("Effect size:", x))) +
     theme_minimal() +
+    scale_alpha_manual(values = c("0" = 1, "45" = 0.6),
+                       labels = c("0" = "Equal cells", "45" = "Variable cells")) +
     labs(
-      title = "Number of Discoveries",
-      x = "Disease Effect Size",
-      y = "Mean Significant Genes",
-      fill = "Method"
+      title = "Number of Discoveries by Method",
+      x = "Average Cells per Individual",
+      y = "Number of Significant Genes",
+      fill = "Method",
+      alpha = "Cell Count"
     ) +
-    scale_fill_brewer(palette = "Set2")
+    scale_fill_manual(values = c("Standard DE" = "#E41A1C", 
+                                 "Pseudobulk" = "#377EB8",
+                                 "NEBULA" = "#4DAF4A"))
   
-  # Plot 3: Method correlation
-  p3 <- ggplot(results_df,
-               aes(x = n_sig_005, y = n_sig_pb_005)) +
-    geom_point(alpha = 0.3) +
-    geom_smooth(method = "lm", color = "red") +
-    facet_grid(individual_variation ~ disease_effect_size,
-               labeller = labeller(
-                 individual_variation = function(x) paste("Var:", x),
-                 disease_effect_size = function(x) paste("Effect:", x)
-               )) +
+  # Plot 3: Method agreement heatmap
+  if(all(c("n_sig_005", "n_sig_pb_005", "n_sig_nebula_005") %in% names(results_df))) {
+    cor_matrix <- results_df %>%
+      select(n_sig_005, n_sig_pb_005, n_sig_nebula_005) %>%
+      cor(use = "complete.obs")
+    
+    colnames(cor_matrix) <- c("Standard DE", "Pseudobulk", "NEBULA")
+    rownames(cor_matrix) <- c("Standard DE", "Pseudobulk", "NEBULA")
+    
+    # Convert to long format for ggplot
+    cor_long <- as.data.frame(as.table(cor_matrix))
+    names(cor_long) <- c("Method1", "Method2", "Correlation")
+    
+    p3 <- ggplot(cor_long, aes(x = Method1, y = Method2, fill = Correlation)) +
+      geom_tile() +
+      geom_text(aes(label = round(Correlation, 2)), color = "white", size = 5) +
+      scale_fill_gradient2(low = "#313695", mid = "#FFFFBF", high = "#A50026",
+                           midpoint = 0.5, limits = c(0, 1)) +
+      theme_minimal() +
+      labs(title = "Method Correlation",
+           subtitle = "Based on number of significant genes") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  } else {
+    p3 <- NULL
+  }
+  
+  # Plot 4: NEBULA-specific diagnostics
+  p4 <- ggplot(summary_stats,
+               aes(x = factor(cells_per_ind), y = mean_convergence,
+                   fill = factor(individual_variation))) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+    facet_wrap(~cells_sd,
+               labeller = labeller(cells_sd = function(x) paste("Cell SD:", x))) +
     theme_minimal() +
     labs(
-      title = "Method Correlation",
-      x = "Standard DE (# significant)",
-      y = "Pseudobulk (# significant)"
+      title = "NEBULA Convergence Rate",
+      x = "Cells per Individual",
+      y = "Convergence Rate",
+      fill = "Individual\nVariation"
     ) +
-    coord_fixed()
+    scale_fill_brewer(palette = "Set2") +
+    scale_y_continuous(limits = c(0, 1))
   
   # Combine plots
-  combined <- (p1 / p2) | p3
+  combined <- (p1 / p2) | (p3 / p4)
   
   return(list(
     summary = summary_stats,
@@ -597,6 +1026,7 @@ analyze_results <- function(results_df) {
       power = p1,
       discoveries = p2,
       correlation = p3,
+      nebula_diagnostics = p4,
       combined = combined
     ),
     raw_data = results_df
@@ -607,34 +1037,39 @@ analyze_results <- function(results_df) {
 # SECTION 6: RUN ANALYSIS
 #############################################
 
-# Set parameters
-# disease effect size is fold change
-# individual_variation is variability between individuals - see separate script effect of individual variation for example
-# disease_gene_fraction is percent of genes controlled by disease
+# Set parameters including cell count variation
 param_grid <- expand.grid(
   n_controls = 10,
   n_patients = 10,
-  cells_per_ind = c(100, 200),        # Test different average cell counts
-  cells_sd = c(0, 30, 60),             # Test different levels of variation
-  cells_min = 30,                      # Minimum 30 cells per person
-  cells_max = c(300, NA),              # Test with/without maximum cap
-  disease_effect_size = c(2, 5, 10),
-  individual_variation = c(0.1, 0.3),
-  disease_gene_fraction = 0.2,
+  cells_per_ind = c(50, 150, 300),      # Low, medium, high cell counts
+  cells_sd = c(0, 45),                   # No variation vs ~30% CV
+  cells_min = 30,                        # Minimum 30 cells
+  cells_max = NA,                        # No maximum
+  disease_effect_size = c(2, 5, 10),    # Weak, moderate, strong effects
+  individual_variation = c(0.1, 0.3),    # Low vs high individual variation
+  disease_gene_fraction = c(0.05, 0.01, 0.2),           # 20% of genes affected
   stringsAsFactors = FALSE
 )
 
+cat("=== Three-Method Comparison Analysis ===\n")
+cat("Methods: Standard DE, Pseudobulk, NEBULA\n")
+cat("Total parameter combinations:", nrow(param_grid), "\n")
+cat("Cell count scenarios:", length(unique(param_grid$cells_per_ind)), "x", 
+    length(unique(param_grid$cells_sd)), "\n")
+cat("Biological scenarios:", length(unique(param_grid$disease_effect_size)), "x",
+    length(unique(param_grid$individual_variation)), "\n\n")
+
 # Run pipeline
-cat("Starting method comparison analysis...\n\n")
+cat("Starting three-method comparison analysis...\n\n")
 
 results <- run_method_comparison_pipeline(
   param_grid = param_grid,
-  n_simulations = 20,  # 20 replicates per parameter combination
-  experiment_name = "method_comparison_final",
-  output_dir = "results/method_comparison_final",
+  n_simulations = 10,  # 10 replicates per parameter combination
+  experiment_name = "three_method_comparison",
+  output_dir = "results/three_method_comparison",
   batch_size = 50,
   parallel = TRUE,  # Set to TRUE if you have multiple cores
-  n_cores = 4,       # Adjust based on your system
+  n_cores = 12,       # Adjust based on your system
   verbose = TRUE
 )
 
@@ -642,21 +1077,57 @@ results <- run_method_comparison_pipeline(
 cat("\nAnalyzing results...\n")
 analysis <- analyze_results(results)
 
-# Display summary
-print(analysis$summary)
+# Display summary focusing on method comparison
+method_summary <- analysis$summary %>%
+  group_by(cells_per_ind, cells_sd) %>%
+  summarise(
+    avg_de_power = mean(mean_power_de, na.rm = TRUE),
+    avg_pb_power = mean(mean_power_pb, na.rm = TRUE),
+    avg_nebula_power = mean(mean_power_nebula, na.rm = TRUE),
+    best_method = case_when(
+      avg_de_power >= avg_pb_power & avg_de_power >= avg_nebula_power ~ "Standard DE",
+      avg_pb_power >= avg_de_power & avg_pb_power >= avg_nebula_power ~ "Pseudobulk",
+      TRUE ~ "NEBULA"
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    cell_scenario = paste0(cells_per_ind, " cells", 
+                           ifelse(cells_sd == 0, " (fixed)", " (variable)"))
+  )
+
+cat("\n=== Three-Method Comparison Summary ===\n")
+print(method_summary)
 
 # Show plots
 print(analysis$plots$combined)
 
 # Save plots
-ggsave("/Users/pylell/Library/CloudStorage/OneDrive-UW/Pyle/scRNAseq simulations/results/method_comparison/combined_plot.png", 
+ggsave("results/three_method_comparison/combined_plot.png", 
        analysis$plots$combined, 
-       width = 14, height = 10, dpi = 300)
+       width = 16, height = 12, dpi = 300)
+
+# Additional analysis: Which method is most robust?
+robustness_analysis <- results %>%
+  group_by(disease_effect_size, individual_variation) %>%
+  summarise(
+    de_cv = sd(power_005, na.rm = TRUE) / mean(power_005, na.rm = TRUE),
+    pb_cv = sd(power_pb_005, na.rm = TRUE) / mean(power_pb_005, na.rm = TRUE),
+    nebula_cv = sd(power_nebula_005, na.rm = TRUE) / mean(power_nebula_005, na.rm = TRUE),
+    most_stable = case_when(
+      de_cv <= pb_cv & de_cv <= nebula_cv ~ "Standard DE",
+      pb_cv <= de_cv & pb_cv <= nebula_cv ~ "Pseudobulk",
+      TRUE ~ "NEBULA"
+    ),
+    .groups = "drop"
+  )
+
+cat("\n=== Method Stability Analysis ===\n")
+cat("(Lower CV indicates more stable/robust method)\n")
+print(robustness_analysis)
 
 cat("\n=== Analysis Complete ===\n")
-cat("Results saved to: /Users/pylell/Library/CloudStorage/OneDrive-UW/Pyle/scRNAseq simulations/results/method_comparison/\n")
-
-
+cat("Results saved to: results/three_method_comparison/\n")
 
 #############################################
 # SECTION 5B: REPORT GENERATION FUNCTIONS
