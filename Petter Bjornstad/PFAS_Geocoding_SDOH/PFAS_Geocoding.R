@@ -90,6 +90,33 @@ PFAS_all <- c(PFCA_full, PFSA_full, FTS, PFAS_deriv, chlorinated)
 zip_codes <- data.table::fread("ucmr5-occurrence-data/UCMR5_ZIPCodes.txt")
 
 
+all_data <- all_data %>% left_join(zip_codes)
+
+
+# 1. Create wide format table with zip codes and contaminant values
+contaminant_wide <- all_data %>%
+  select(ZIPCODE, Contaminant, AnalyticalResultValue) %>%
+  # Handle non-detects (NA values) - you can replace with 0 or keep as NA
+  pivot_wider(
+    names_from = Contaminant,
+    values_from = AnalyticalResultValue,
+    values_fn = mean  # If multiple samples per zip/contaminant, take mean
+  ) %>%
+  arrange(ZIPCODE)
+
+# View the result
+head(contaminant_wide)
+
+# 2. Create MRL reference table (one row per contaminant)
+mrl_table <- all_data %>%
+  select(Contaminant, MRL, Units) %>%
+  distinct() %>%
+  arrange(Contaminant)
+
+# View the MRL table
+print(mrl_table)
+
+remove(all_data)
 
 #participant data
 
@@ -107,6 +134,16 @@ PANTHER <- data.table::fread('Participant_Zips/PANTHER-ZipCodes_DATA_2025-10-20_
 
 full_zip <- bind_rows(IMPROVE, RH, PANTHER)
 full_zip$zip_code <- as.character(full_zip$zip_code)
+
+
+
+contaminant_wide_small <- contaminant_wide %>% filter(ZIPCODE %in% full_zip$zip_code)
+
+
+
+
+
+
 
 
 ## Zip Code Plotting 
@@ -136,7 +173,7 @@ map_data_with_participants <- map_data %>%
 
 # Get state boundaries
 states_sf <- states(year = 2020, cb = TRUE) %>%
-  filter(STUSPS %in% c("CO", "NM", 'WY', 'NE'))  # Filter after downloading
+  filter(STUSPS %in% c("CO", "NM", 'WY', 'NE', 'WA'))  # Filter after downloading
 
 # Map with state outlines
 ggplot() +
