@@ -1663,6 +1663,6 @@ if (nrow(subcortical_heatmap_data) > 0) {
 ############### fMRI data 
 
 
-
+load('functional_connectivity_matrices.rds')
 
 
