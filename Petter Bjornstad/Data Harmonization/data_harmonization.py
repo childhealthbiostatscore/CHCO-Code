@@ -39,6 +39,8 @@ def harmonize_data():
     from ultra import clean_ultra
     from sweetheart import clean_sweetheart
     from harmonization_functions import calc_egfr, create_study_id_columns
+    import getpass
+    user = getpass.getuser() 
     # Use individual data functions to import cleaned DFs
     casper = clean_casper()
     coffee = clean_coffee()
@@ -77,7 +79,20 @@ def harmonize_data():
                            join='outer', ignore_index=True)
     harmonized = pd.concat([harmonized, sweetheart],
                            join='outer', ignore_index=True)
-    dictionary = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv")
+    
+
+    if user == "choiyej":
+        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "pylell":
+        base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "shivaniramesh":
+        base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    else:
+        sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
+    dictionary = pd.read_csv(base_data_path + "Data Clean/data_dictionary_master.csv")
 
     
   
@@ -524,6 +539,6 @@ def harmonize_data():
         lambda x: x.dt.strftime('%Y-%m-%d'))
     # Return
     harmonized = harmonized.astype(object)
-    tocsv_path = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv"
+    tocsv_path = base_data_path + "Data Clean/data_dictionary_master.csv"
     dictionary.to_csv(tocsv_path, index=False)
     return harmonized
