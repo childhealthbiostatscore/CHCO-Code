@@ -101,7 +101,11 @@ RH <- data.table::fread('Participant_Zips/RENALHEIR-ZipCodes_DATA_2025-10-20_105
   filter(!is.na(mr_number)) %>% 
   dplyr::select(record_id = subject_id, mrn = mr_number, zip_code)
 
-full_zip <- bind_rows(IMPROVE, RH)
+PANTHER <- data.table::fread('Participant_Zips/PANTHER-ZipCodes_DATA_2025-10-20_1232.csv') %>%
+  filter(!is.na(mrn)) %>% 
+  dplyr::select(record_id, mrn, zip_code)
+
+full_zip <- bind_rows(IMPROVE, RH, PANTHER)
 full_zip$zip_code <- as.character(full_zip$zip_code)
 
 
