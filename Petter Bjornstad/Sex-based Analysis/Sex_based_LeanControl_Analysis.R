@@ -2974,97 +2974,138 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
    theme(plot.title = element_text(hjust = 0.5, face = "bold"),
          legend.position = "right")
  
- # Calculate overall density (not split by sex) to find peaks
- overall_density <- density(plot_df_clean$pseudotime, na.rm = TRUE)
+ # Split pseudotime evenly into 3 regions
+ min_pseudotime <- min(plot_df_clean$pseudotime, na.rm = TRUE)
+ max_pseudotime <- max(plot_df_clean$pseudotime, na.rm = TRUE)
+ pseudotime_range <- max_pseudotime - min_pseudotime
  
- # Find all local maxima in the density
- find_peaks <- function(x, y, min_distance = 3) {
-   peaks <- c()
-   for(i in 2:(length(y)-1)) {
-     if(y[i] > y[i-1] && y[i] > y[i+1]) {
-       # Check if this peak is far enough from previously found peaks
-       if(length(peaks) == 0 || min(abs(x[i] - x[peaks])) > min_distance) {
-         peaks <- c(peaks, i)
-       }
-     }
+ # Define the three regions
+ region_breaks <- seq(min_pseudotime, max_pseudotime, length.out = 4)
+ region1_start <- region_breaks[1]
+ region1_end <- region_breaks[2]
+ region2_start <- region_breaks[2]
+ region2_end <- region_breaks[3]
+ region3_start <- region_breaks[3]
+ region3_end <- region_breaks[4]
+ 
+ cat("\n=== Pseudotime Regions ===\n")
+ cat("Region 1 (Early):", round(region1_start, 2), "to", round(region1_end, 2), "\n")
+ cat("Region 2 (Middle):", round(region2_start, 2), "to", round(region2_end, 2), "\n")
+ cat("Region 3 (Late):", round(region3_start, 2), "to", round(region3_end, 2), "\n")
+ 
+ # Calculate total cell counts per cell type AND SEX
+ total_counts_per_celltype_sex <- plot_df_clean %>%
+   count(celltype, sex, name = "total_cells")
+ 
+ # Create data for all regions and calculate percentages BY SEX
+ all_region_data <- data.frame()
+ 
+ regions <- list(
+   list(name = "Early", start = region1_start, end = region1_end, number = 1),
+   list(name = "Middle", start = region2_start, end = region2_end, number = 2),
+   list(name = "Late", start = region3_start, end = region3_end, number = 3)
+ )
+ 
+ for(region in regions) {
+   # Extract cells in this region
+   region_cells <- plot_df_clean %>%
+     filter(pseudotime >= region$start & pseudotime <= region$end)
+   
+   # Calculate counts in this region BY SEX
+   region_counts <- region_cells %>%
+     count(celltype, sex, name = "cells_in_region") %>%
+     left_join(total_counts_per_celltype_sex, by = c("celltype", "sex")) %>%
+     mutate(
+       percent_of_celltype = (cells_in_region / total_cells) * 100,
+       region_number = region$number,
+       region_name = region$name,
+       region_start = region$start,
+       region_end = region$end
+     )
+   
+   # Add any missing cell type/sex combinations with 0%
+   all_combinations <- expand.grid(
+     celltype = unique(plot_df_clean$celltype),
+     sex = unique(plot_df_clean$sex),
+     stringsAsFactors = FALSE
+   )
+   
+   existing_combinations <- region_counts %>% 
+     select(celltype, sex) %>%
+     distinct()
+   
+   missing_combinations <- all_combinations %>%
+     anti_join(existing_combinations, by = c("celltype", "sex"))
+   
+   if(nrow(missing_combinations) > 0) {
+     missing_data <- missing_combinations %>%
+       left_join(total_counts_per_celltype_sex, by = c("celltype", "sex")) %>%
+       mutate(
+         cells_in_region = 0,
+         percent_of_celltype = 0,
+         region_number = region$number,
+         region_name = region$name,
+         region_start = region$start,
+         region_end = region$end
+       )
+     region_counts <- bind_rows(region_counts, missing_data)
    }
-   # Sort by height and return top 3
-   peaks <- peaks[order(y[peaks], decreasing = TRUE)]
-   return(head(peaks, 3))
+   
+   all_region_data <- bind_rows(all_region_data, region_counts)
  }
  
- peak_indices <- find_peaks(overall_density$x, overall_density$y, min_distance = 5)
- peak_pseudotimes <- overall_density$x[peak_indices]
- peak_pseudotimes <- sort(peak_pseudotimes)  # Sort chronologically
+ # Print detailed summary
+ cat("\n=== Percentage of Each Cell Type (by Sex) in Each Region ===\n")
+ for(i in 1:3) {
+   region_data <- all_region_data %>% filter(region_number == i)
+   cat("\n", unique(region_data$region_name), "Region (Pseudotime", 
+       round(unique(region_data$region_start), 2), "to", 
+       round(unique(region_data$region_end), 2), "):\n")
+   print(region_data %>% 
+           select(celltype, sex, cells_in_region, total_cells, percent_of_celltype) %>%
+           arrange(celltype, sex))
+ }
  
- cat("Peak pseudotimes found at:", round(peak_pseudotimes, 2), "\n")
+ # Save the detailed composition data
+ write.csv(all_region_data, 
+           paste0(dir.results, "Pseudotime_Regions_Celltype_Sex_Percentage.csv"), 
+           row.names = FALSE)
  
- # Define window size
- window_size <- 2
- 
- # Create pie charts for each peak - using your exact cell type labels
+ # Create bar plots showing percentage of each cell type in each region, SPLIT BY SEX
  celltype_colors <- c("PT-S1/S2" = "#4DAF4A",  # Green
                       "PT-S3" = "#377EB8",      # Blue
                       "aPT" = "#E41A1C")        # Red
  
- pie_charts <- list()
+ sex_colors <- c("Female" = "#FF6B9D", "Male" = "#4ECDC4")
  
- for(i in 1:length(peak_pseudotimes)) {
-   peak_time <- peak_pseudotimes[i]
+ bar_charts <- list()
+ 
+ for(i in 1:3) {
+   region_data <- all_region_data %>% filter(region_number == i)
+   region_name <- unique(region_data$region_name)
+   region_start <- unique(region_data$region_start)
+   region_end <- unique(region_data$region_end)
    
-   # Extract cells near this peak
-   peak_cells <- plot_df_clean %>%
-     filter(pseudotime >= (peak_time - window_size) & 
-              pseudotime <= (peak_time + window_size))
-   
-   # Calculate proportions using original celltype
-   peak_props <- peak_cells %>%
-     count(celltype) %>%
-     mutate(percentage = n / sum(n) * 100,
-            peak_time = peak_time)
-   
-   cat("\nPeak", i, "region (pseudotime", 
-       round(peak_time - window_size, 2), "to", 
-       round(peak_time + window_size, 2), "):\n")
-   print(peak_props)
-   
-   # Create pie chart
-   pie_charts[[i]] <- ggplot(peak_props, aes(x = "", y = percentage, fill = celltype)) +
-     geom_bar(stat = "identity", width = 1, color = "white", size = 1) +
-     coord_polar("y", start = 0) +
-     scale_fill_manual(values = celltype_colors) +
-     theme_void() +
-     labs(title = paste0("Peak ", i, "\n(Pseudotime ~", round(peak_time, 1), ")"),
-          fill = "Cell Type") +
-     geom_text(aes(label = ifelse(percentage > 5, paste0(round(percentage, 1), "%"), "")),
-               position = position_stack(vjust = 0.5),
-               size = 3.5, fontface = "bold") +
+   bar_charts[[i]] <- ggplot(region_data, aes(x = celltype, y = percent_of_celltype, fill = sex)) +
+     geom_bar(stat = "identity", position = "dodge", color = "black", size = 0.3) +
+     scale_fill_manual(values = sex_colors) +
+     geom_text(aes(label = paste0(round(percent_of_celltype, 1), "%")),
+               position = position_dodge(width = 0.9),
+               vjust = -0.5, size = 3, fontface = "bold") +
+     theme_classic() +
+     labs(title = paste0(region_name, " Region\n(", round(region_start, 1), " - ", round(region_end, 1), ")"),
+          x = "Cell Type",
+          y = "% of Cell Type in Region",
+          fill = "Sex") +
      theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+           axis.text.x = element_text(angle = 45, hjust = 1, size = 9, face = "bold"),
+           axis.title = element_text(size = 9),
            legend.position = "right",
-           legend.text = element_text(size = 8),
-           legend.title = element_text(size = 9))
-   
-   # Save composition data
-   if(i == 1) {
-     all_peak_props <- peak_props %>% mutate(peak_number = i)
-   } else {
-     all_peak_props <- bind_rows(all_peak_props, peak_props %>% mutate(peak_number = i))
-   }
+           legend.text = element_text(size = 8)) +
+     ylim(0, max(all_region_data$percent_of_celltype) * 1.15)  # Add space for labels
  }
  
- # Save the composition data
- write.csv(all_peak_props, 
-           paste0(dir.results, "Peak_Regions_Celltype_Composition.csv"), 
-           row.names = FALSE)
- 
- # Print summary table
- cat("\n=== Summary of Cell Type Composition at Each Peak ===\n")
- summary_table <- all_peak_props %>%
-   select(peak_number, celltype, n, percentage, peak_time) %>%
-   arrange(peak_number, desc(percentage))
- print(summary_table)
- 
- # NEW: Plot G - Ridge plot showing pseudotime distribution by cell type
+ # Plot G - Ridge plot showing pseudotime distribution by cell type
  # Order cell types by median pseudotime
  celltype_order <- plot_df_clean %>%
    group_by(celltype) %>%
@@ -3078,6 +3119,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  p4 <- ggplot(plot_df_clean, aes(x = pseudotime, y = celltype_ordered, fill = celltype_ordered)) +
    geom_density_ridges(alpha = 0.7, scale = 2, rel_min_height = 0.01) +
    scale_fill_manual(values = celltype_colors) +
+   # Add vertical lines for region boundaries
+   geom_vline(xintercept = c(region1_end, region2_end), linetype = "dashed", color = "black", size = 0.5) +
    theme_classic() +
    labs(title = "Pseudotime Distribution by Cell Type",
         x = "Pseudotime",
@@ -3086,7 +3129,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
          plot.title = element_text(hjust = 0.5, face = "bold"),
          axis.text.y = element_text(size = 10, face = "bold"))
  
- # Add panel labels using plot_annotation from patchwork
+ # Add panel labels
  p1_labeled <- p1 + 
    labs(tag = "A") +
    theme(plot.tag = element_text(size = 16, face = "bold"))
@@ -3099,9 +3142,9 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
    labs(tag = "C") +
    theme(plot.tag = element_text(size = 16, face = "bold"))
  
- # Label pie charts
- for(i in 1:length(pie_charts)) {
-   pie_charts[[i]] <- pie_charts[[i]] + 
+ # Label bar charts
+ for(i in 1:length(bar_charts)) {
+   bar_charts[[i]] <- bar_charts[[i]] + 
      labs(tag = LETTERS[3 + i]) +
      theme(plot.tag = element_text(size = 16, face = "bold"))
  }
@@ -3112,27 +3155,10 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
    theme(plot.tag = element_text(size = 16, face = "bold"))
  
  # Combine all plots
- # Top row: UMAP and Violin
- # Second row: Density plot
- # Third row: Three pie charts
- # Bottom row: Ridge plot
- 
- if(length(pie_charts) == 3) {
-   combined_plot <- (p1_labeled | p2_labeled) / 
-     (p3_labeled) / 
-     (pie_charts[[1]] | pie_charts[[2]] | pie_charts[[3]]) /
-     (p4_labeled)
- } else if(length(pie_charts) == 2) {
-   combined_plot <- (p1_labeled | p2_labeled) / 
-     (p3_labeled) / 
-     (pie_charts[[1]] | pie_charts[[2]] | plot_spacer()) /
-     (p4_labeled)
- } else {
-   combined_plot <- (p1_labeled | p2_labeled) / 
-     (p3_labeled) / 
-     (pie_charts[[1]] | plot_spacer() | plot_spacer()) /
-     (p4_labeled)
- }
+ combined_plot <- (p1_labeled | p2_labeled) / 
+   (p3_labeled) / 
+   (bar_charts[[1]] | bar_charts[[2]] | bar_charts[[3]]) /
+   (p4_labeled)
  
  combined_plot <- combined_plot + 
    plot_layout(heights = c(1, 0.8, 0.8, 0.6))
@@ -3140,11 +3166,22 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  print(combined_plot)
  ggsave(paste0(dir.results, "Complete_Pseudotime_Analysis_with_Ridge.pdf"), 
         plot = combined_plot, width = 16, height = 16)
-
  ggsave(paste0(dir.results, "Complete_Pseudotime_Analysis_with_Ridge.png"), 
         plot = combined_plot, width = 16, height = 16, dpi = 300)
  
  
+ # Create a summary table showing key differences
+ summary_table <- all_region_data %>%
+   select(region_name, celltype, sex, percent_of_celltype) %>%
+   pivot_wider(names_from = sex, values_from = percent_of_celltype, values_fill = 0) %>%
+   mutate(Difference = Female - Male) %>%
+   arrange(region_name, celltype)
  
+ cat("\n=== Summary: Female vs Male Differences by Region ===\n")
+ print(summary_table)
+ 
+ write.csv(summary_table, 
+           paste0(dir.results, "Sex_Differences_Summary.csv"), 
+           row.names = FALSE)
  
  
