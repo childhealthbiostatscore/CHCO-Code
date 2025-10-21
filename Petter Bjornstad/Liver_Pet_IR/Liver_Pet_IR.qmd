@@ -6,36 +6,62 @@ editor: visual
 
 
 #1. Set Up - RH2 & CRC
+##a. Load Libraries & Directores
+```{r}
+#Libraries
+source("Libraries.R")
+
+#Directories
+dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver Pet IR/Data")
+
+```
+
+
+##b. Load Data & Format
 ```{r}
 #Load PET data & alt, ast, ggt and potentially masld 
-# harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv",na=""))
-harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = c("", "NA", "N/A", "n/a", " ","na"))
+# harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = c("", "NA", "N/A", "n/a", " ","na"))
+#Load data
+dat <- read.csv(fs::path(dir.dat,"raw-data-2025-10-21.csv"))
 
-meta_ir <- harm_meta_data %>% 
-  dplyr::select(c("record_id","mrn","study","procedure","visit","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","mm_ir","mm_si","m_i")) 
+dat_ir <- dat %>% 
+  dplyr::select(c("record_id","study","procedure","visit","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","m_i_gir_190","m_i_p2_raw_lean")) 
 # filter(procedure=="ivgtt")
 
-clamp <- harm_meta_data %>% 
-  filter(procedure=="clamp") %>% 
-  dplyr::select(c("record_id","mrn","study","procedure","visit","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","mm_ir","mm_si","m_i")) 
+CROC <- dat_ir %>% 
+  filter(study=="CROCODILE") %>% 
+  dplyr::select(-c("m_i_gir_190"))
+RH <- dat_ir %>% 
+  filter(study == "RENAL-HEIR" | study=="RENAL-HEIRitage") %>% 
+    dplyr::select(-c("m_i_p2_raw_lean"))
+rm(dat,dat_ir)
 
-#Number of participants
-length(unique(harm_meta_data$record_id)) #651 changed to 656 on 08/25, 633 on 10/06
-length(unique(harm_meta_data$mrn)) #480 unique mrns, 521 on 10/05
+#Number of participants in each study
+length(unique(CROC$record_id)) #60
+length(unique(RH$record_id)) #147
 
-#Filter to RH2 and CRC 
-harm_meta_data <- harm_meta_data %>%
-  filter(grepl("RH",record_id)|grepl("RH2",record_id)|grepl("CRC",record_id)|grepl("PEN",record_id))
-# harm_meta_data <- harm_meta_data %>% 
-#   filter(grepl("CRC",record_id))
 
-#Number of participants
-length(unique(harm_meta_data$record_id)) #60 CRC people, 233 including RH and RH2 and PEN
-
-#Number of participants with Pet data
-length(which(!is.na(harm_meta_data$liver_k1))) #57 
-length(which(!is.na(harm_meta_data$liver_k2))) #57
-length(which(!is.na(harm_meta_data$liver_k3))) #57
+# clamp <- harm_meta_data %>% 
+#   filter(procedure=="clamp") %>% 
+#   dplyr::select(c("record_id","mrn","study","procedure","visit","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","mm_ir","mm_si","m_i")) 
+# 
+# #Number of participants
+# length(unique(harm_meta_data$record_id)) #651 changed to 656 on 08/25, 633 on 10/06
+# length(unique(harm_meta_data$mrn)) #480 unique mrns, 521 on 10/05
+# 
+# #Filter to RH2 and CRC 
+# harm_meta_data <- harm_meta_data %>%
+#   filter(grepl("RH",record_id)|grepl("RH2",record_id)|grepl("CRC",record_id)|grepl("PEN",record_id))
+# # harm_meta_data <- harm_meta_data %>% 
+# #   filter(grepl("CRC",record_id))
+# 
+# #Number of participants
+# length(unique(harm_meta_data$record_id)) #60 CRC people, 233 including RH and RH2 and PEN
+# 
+# #Number of participants with Pet data
+# length(which(!is.na(harm_meta_data$liver_k1))) #57 
+# length(which(!is.na(harm_meta_data$liver_k2))) #57
+# length(which(!is.na(harm_meta_data$liver_k3))) #57
 
 pet_dat <- harm_meta_data %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
