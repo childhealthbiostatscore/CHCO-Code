@@ -10,36 +10,72 @@ editor: visual
 ## Title: "Multi-tissue Adipose Transcriptomics and Lipidomics Analysis" author: "Hailey E. Hampson" date: "`r Sys.Date()`" format: revealjs: theme: default slide-number: true chalkboard: true preview-links: auto execute: echo: true warning: false message: false
 
 ## Setup and Data Loading
-
+### a. Libraries & Directories
 ```{r}
 # Load required libraries
 library(DESeq2)
 library(tidyverse)
 library(ggplot2)
 library(pheatmap)
-library(clusterProfiler)
-library(org.Hs.eg.db)
-library(enrichplot)
-library(mixOmics)
-library(reshape2)
-library(viridis)
-library(ggrepel)
-
-# Set theme for plots
-theme_set(theme_minimal())
-
+# library(clusterProfiler)
+# library(org.Hs.eg.db)
+# library(enrichplot)
+# library(mixOmics)
+# library(reshape2)
+# library(viridis)
+# library(ggrepel)
 library(readxl)
 library(tidyverse)
+library(reshape2)
+library(ggplot2)
 
-# 1. COUNTS MATRIX - assuming you have RNA-seq counts
-# If you have a counts file, load it:
-counts_matrix <- read.csv("full melted kallisto counts and tpm.csv")
+```
 
-# OR if you already have it loaded with a different name:
-# counts_matrix <- your_existing_counts_data
+###b. Load Data
+```{r, Cyberduck setup}
+Sys.setenv(RETICULATE_PYTHON = "/home/hhampson/miniconda3/bin/python")
+# install.packages("reticulate")
+# library(reticulate)
+# reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
 
-# 2. SAMPLE METADATA - you already have this as coldata
-coldata = read.csv('sample_table.csv')
+## Create an S3 client
+# install.packages("jsonlite")  # Install if not already installed
+library(jsonlite)  # Load the package
+
+keys <- fromJSON("/home/hhampson/keys.json") # replace with your Lambda username
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+
+# read file
+bucket <- "adipose.tissue" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket,"full melted kallisto counts and tpm.csv", temp_file)
+counts_matrix <- read.csv(temp_file)
+
+# # 1. COUNTS MATRIX - assuming you have RNA-seq counts
+# counts_matrix <- read.csv("full melted kallisto counts and tpm.csv")
+
+#Load metadata
+gc()
+bucket <- "adipose.tissue" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "sample_table.csv", temp_file)
+coldata <- read.csv(temp_file)
+gc()
+# # 2. SAMPLE METADATA - you already have this as coldata
+# coldata = read.csv('sample_table.csv')
+```
+
+###c. Format Data
+```{r}
 sample_metadata <- coldata
 # Make sure it has the required columns
 # Check what columns you have:
@@ -138,6 +174,278 @@ sample_metadata <- sample_metadata[sample_metadata$SampleID %in% common_samples,
 # Ensure order matches
 sample_metadata <- sample_metadata[match(common_samples, sample_metadata$SampleID), ]
 ```
+###b. Load Data & Format DESeq2 Object
+```{r}
+sample_metadata <- coldata
+names(sample_metadata)
+
+# Prepare the data
+counts_matrix$est_counts <- as.integer(counts_matrix$est_counts)
+counts_matrix <- counts_matrix[!is.na(counts_matrix$gene_symbol), ]
+counts_matrix <- counts_matrix[!counts_matrix$gene_symbol == '', ]
+
+# Create counts matrix
+cnts_mat <- dcast(counts_matrix, gene_symbol ~ sample, 
+                  value.var = 'est_counts', 
+                  fun.aggregate = mean, 
+                  na.rm = TRUE)
+row.names(cnts_mat) <- cnts_mat$gene_symbol
+cnts_mat$gene_symbol <- NULL
+
+# # Filter low-count genes
+# # Keep genes with at least 10 counts in at least 5 samples
+# cnts_mat1 <- cnts_mat[rowMeans(cnts_mat) > 10, ]
+# 
+# cat("Genes before filtering:", nrow(cnts_mat), "\n") #Genes before filtering: 28118 
+# cat("Genes after filtering:", nrow(cnts_mat1), "\n") #Genes after filtering: 13231
+# 
+# # Convert to integers (truncate, don't round)
+# cnts_mat1 <- dplyr::mutate_all(cnts_mat1, function(x) as.integer(as.character(x)))
+# 
+# 
+# # Prepare metadata
+# coldata$group <- paste0(coldata$Tissue, '_', coldata$Sample)
+# row.names(coldata) <- coldata$SampleID
+# 
+# # Make sure sample order matches between counts and metadata
+# coldata <- coldata[colnames(cnts_mat1), ]
+# 
+# # Convert to factors for DESeq2
+# coldata$Tissue <- as.factor(coldata$Tissue)
+# coldata$Sample <- as.factor(coldata$Sample)
+# coldata$group <- as.factor(coldata$group)
+# 
+# # Create DESeq2 object
+# # You can design by Tissue, Sample (healthy vs T2D), or both
+# dds <- DESeqDataSetFromMatrix(
+#   countData = cnts_mat1,
+#   colData = coldata,
+#   design = ~ Tissue + Sample + Tissue:Sample
+#   # design = ~ Tissue + Sample  # This tests for tissue effects while controlling for disease status
+# )
+# 
+# # Run DESeq2
+# dds <- DESeq(dds)
+# 
+# # Check the results names to see what comparisons are available
+# resultsNames(dds)
+# 
+# # Save the DESeq object
+# saveRDS(dds, file = "adipose_deseq2_object.rds")
+# 
+# print(dds)
+
+# Subset metadata for VAT tissue only
+coldata_VAT <- coldata[coldata$Tissue == "VAT", ]
+
+# Subset count matrix to only VAT samples
+cnts_mat_VAT <- cnts_mat[, colnames(cnts_mat) %in% coldata_VAT$SampleID]
+
+# Filter: keep genes with mean count > 10 in VAT
+cnts_mat_VAT <- cnts_mat_VAT[rowMeans(cnts_mat_VAT) > 10, ]
+
+# Convert to integers (truncate)
+cnts_mat_VAT <- dplyr::mutate_all(cnts_mat_VAT, function(x) as.integer(as.character(x)))
+
+# Make sure metadata matches the filtered count matrix columns
+coldata_VAT <- coldata_VAT[colnames(cnts_mat_VAT), ]
+
+# Set factor levels (healthy as reference)
+coldata_VAT$Sample <- factor(coldata_VAT$Sample, levels = c("healthy", "T2D"))
+
+# Check what we have
+cat("Number of VAT samples:", ncol(cnts_mat_VAT), "\n") #Number of VAT samples: 14 
+cat("Number of genes after filtering:", nrow(cnts_mat_VAT), "\n") #umber of genes after filtering: 13309 
+print(table(coldata_VAT$Sample))
+# healthy     T2D 
+#       7       7 
+
+# Create DESeq2 object
+dds_VAT <- DESeqDataSetFromMatrix(
+  countData = cnts_mat_VAT,
+  colData = coldata_VAT,
+  design = ~ Sample
+)
+
+# Run DESeq2
+dds_VAT <- DESeq(dds_VAT)
+
+# Get results (T2D vs healthy)
+res_VAT <- results(dds_VAT, contrast = c("Sample", "T2D", "healthy"))
+
+# Convert to data frame and sort by p-value
+results_VAT <- as.data.frame(res_VAT)
+results_VAT <- results_VAT[order(results_VAT$pvalue, decreasing = FALSE), ]
+results_VAT$gene_symbol <- rownames(results_VAT)
+
+# Save results
+# write.csv(results_VAT, file = "DESeq2_results_VAT_T2D_vs_healthy.csv", row.names = FALSE)
+cat("Genes with NA padj:", sum(is.na(results_VAT$padj)), "\n")
+cat("Total genes:", nrow(results_VAT), "\n")
+
+# Print summary
+summary(res_VAT)
+
+# View top 20 genes
+head(results_VAT, 20)
+
+# Prepare data for volcano plot
+# results_VAT <- na.omit(results_VAT)  # Remove NAs for plotting
+# Remove NAs - this is the standard approach
+results_VAT_plot <- results_VAT[!is.na(results_VAT$padj), ]
+
+cat("Genes for analysis after independent filtering:", nrow(results_VAT_plot), "\n")
+
+results_VAT_plot$label <- ""  # Initialize empty labels
+
+# Label ALL significant genes (padj < 0.05)
+results_VAT_plot$label <- ifelse(results_VAT_plot$padj < 0.05, 
+                                 results_VAT_plot$gene_symbol, 
+                                 "")
+
+# Color ALL significant genes (padj < 0.05)
+results_VAT_plot$color <- ifelse(results_VAT_plot$padj < 0.05 & results_VAT_plot$log2FoldChange > 0, 
+                                 "darkred",      # Upregulated in T2D
+                          ifelse(results_VAT_plot$padj < 0.05 & results_VAT_plot$log2FoldChange < 0,
+                                 "darkblue",     # Downregulated in T2D
+                                 "gray74"))      # Not significant
+
+# Count significant genes
+cat("Significant upregulated genes:", sum(results_VAT_plot$padj < 0.05 & results_VAT_plot$log2FoldChange > 0, na.rm = TRUE), "\n")
+cat("Significant downregulated genes:", sum(results_VAT_plot$padj < 0.05 & results_VAT_plot$log2FoldChange < 0, na.rm = TRUE), "\n")
+cat("Total genes to label:", sum(results_VAT_plot$label != ""), "\n")
+
+# Create volcano plot
+library(ggrepel)
+
+volcano_VAT <- ggplot(results_VAT_plot, aes(x = log2FoldChange, y = -log10(padj))) + 
+  theme_bw() +
+  geom_point(aes(color = color), alpha = 0.6, size = 1.5) +
+  scale_color_identity() +
+  geom_label_repel(aes(label = label, color = color), 
+                   size = 2.5,
+                   label.size = NA,
+                   box.padding = 0.5,
+                   max.overlaps = Inf,  # Show all labels
+                   min.segment.length = 0,
+                   segment.color = 'grey50') +
+  # geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", linewidth = 0.5) +
+  # geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "grey50", linewidth = 0.5) +
+  ggtitle("VAT: T2D vs Healthy") +
+  xlab("log2 Fold Change (T2D / Healthy)") +
+  ylab("-log10(adjusted p-value)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+
+print(volcano_VAT)
+
+# # Save to PDF
+# pdf(file = "Volcano_plot_VAT_T2D_vs_healthy.pdf", width = 12, height = 10)
+# print(volcano_VAT)
+# dev.off()
+
+# Subset metadata for SAT tissue only
+coldata_SAT <- coldata[coldata$Tissue == "SAT", ]
+
+# Subset count matrix to only SAT samples
+cnts_mat_SAT <- cnts_mat[, colnames(cnts_mat) %in% coldata_SAT$SampleID]
+
+# Filter: keep genes with mean count > 10 in SAT
+cnts_mat_SAT <- cnts_mat_SAT[rowMeans(cnts_mat_SAT) > 10, ]
+
+# Convert to integers (truncate)
+cnts_mat_SAT <- dplyr::mutate_all(cnts_mat_SAT, function(x) as.integer(as.character(x)))
+
+# Make sure metadata matches the filtered count matrix columns
+coldata_SAT <- coldata_SAT[colnames(cnts_mat_SAT), ]
+
+# Set factor levels (healthy as reference)
+coldata_SAT$Sample <- factor(coldata_SAT$Sample, levels = c("healthy", "T2D"))
+
+# Check what we have
+cat("Number of SAT samples:", ncol(cnts_mat_SAT), "\n") #Number of SAT samples: 14 
+cat("Number of genes after filtering:", nrow(cnts_mat_SAT), "\n") #umber of genes after filtering: 12848 
+print(table(coldata_SAT$Sample))
+# healthy     T2D 
+#       7       7 
+
+# Create DESeq2 object
+dds_SAT <- DESeqDataSetFromMatrix(
+  countData = cnts_mat_SAT,
+  colData = coldata_SAT,
+  design = ~ Sample
+)
+
+# Run DESeq2
+dds_SAT <- DESeq(dds_SAT)
+
+# Get results (T2D vs healthy)
+res_SAT <- results(dds_SAT, contrast = c("Sample", "T2D", "healthy"))
+
+# Convert to data frame and sort by p-value
+results_SAT <- as.data.frame(res_SAT)
+results_SAT <- results_SAT[order(results_SAT$pvalue, decreasing = FALSE), ]
+results_SAT$gene_symbol <- rownames(results_SAT)
+
+# Save results
+# write.csv(results_SAT, file = "DESeq2_results_SAT_T2D_vs_healthy.csv", row.names = FALSE)
+cat("Genes with NA padj:", sum(is.na(results_SAT$padj)), "\n")
+cat("Total genes:", nrow(results_SAT), "\n")
+
+# Print summary
+summary(res_SAT)
+
+# View top 20 genes
+head(results_SAT, 20)
+
+# Prepare data for volcano plot
+# results_SAT <- na.omit(results_SAT)  # Remove NAs for plotting
+# Remove NAs - this is the standard approach
+results_SAT_plot <- results_SAT[!is.na(results_SAT$padj), ]
+
+cat("Genes for analysis after independent filtering:", nrow(results_SAT_plot), "\n")
+
+results_SAT_plot$label <- ""  # Initialize empty labels
+
+# Label ALL significant genes (padj < 0.05)
+results_SAT_plot$label <- ifelse(results_SAT_plot$padj < 0.05, 
+                                 results_SAT_plot$gene_symbol, 
+                                 "")
+
+# Color ALL significant genes (padj < 0.05)
+results_SAT_plot$color <- ifelse(results_SAT_plot$padj < 0.05 & results_SAT_plot$log2FoldChange > 0, 
+                                 "darkred",      # Upregulated in T2D
+                          ifelse(results_SAT_plot$padj < 0.05 & results_SAT_plot$log2FoldChange < 0,
+                                 "darkblue",     # Downregulated in T2D
+                                 "gray74"))      # Not significant
+
+# Count significant genes
+cat("Significant upregulated genes:", sum(results_SAT_plot$padj < 0.05 & results_SAT_plot$log2FoldChange > 0, na.rm = TRUE), "\n")
+cat("Significant downregulated genes:", sum(results_SAT_plot$padj < 0.05 & results_SAT_plot$log2FoldChange < 0, na.rm = TRUE), "\n")
+cat("Total genes to label:", sum(results_SAT_plot$label != ""), "\n")
+
+# Create volcano plot
+library(ggrepel)
+
+volcano_SAT <- ggplot(results_SAT_plot, aes(x = log2FoldChange, y = -log10(padj))) + 
+  theme_bw() +
+  geom_point(aes(color = color), alpha = 0.6, size = 1.5) +
+  scale_color_identity() +
+  geom_label_repel(aes(label = label, color = color), 
+                   size = 2.5,
+                   label.size = NA,
+                   box.padding = 0.5,
+                   max.overlaps = Inf,  # Show all labels
+                   min.segment.length = 0,
+                   segment.color = 'grey50') +
+  # geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", linewidth = 0.5) +
+  # geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "grey50", linewidth = 0.5) +
+  ggtitle("SAT: T2D vs Healthy") +
+  xlab("log2 Fold Change (T2D / Healthy)") +
+  ylab("-log10(adjusted p-value)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+
+print(volcano_SAT)
+```
 
 ## 1. Transcriptomics Analysis
 
@@ -161,7 +469,7 @@ sample_metadata <- sample_metadata[match(common_samples, sample_metadata$SampleI
 
 ### 1.1 Differential Expression: Disease Status
 
-```         
+```{r}         
 # Function to perform DE analysis by disease status within each tissue
 perform_DE_by_disease <- function(dds, tissue) {
   # Subset to specific tissue
