@@ -208,6 +208,9 @@ fit_default_de_model <- function(sim, params = NULL) {
   keep <- rowSums(counts_mat > 1) >= 10
   counts_mat <- counts_mat[keep, ]
   
+  # IMPORTANT: Also filter rowData to keep disease gene labels aligned
+  filtered_rowdata <- rowData(sim)[keep, , drop = FALSE]
+  
   # Create design matrix
   design <- model.matrix(~ colData(sim)$Group)
   
@@ -234,12 +237,12 @@ fit_default_de_model <- function(sim, params = NULL) {
   power_005 <- NA
   power_001 <- NA
   
-  if("is_disease_gene" %in% colnames(rowData(sim))) {
-    disease_genes <- rownames(sim)[rowData(sim)$is_disease_gene]
-    disease_genes_tested <- intersect(disease_genes, rownames(results))
+  # FIX: Use filtered_rowdata instead of rowData(sim)
+  if("is_disease_gene" %in% colnames(filtered_rowdata)) {
+    disease_genes_in_filtered <- filtered_rowdata$is_disease_gene
     
-    if(length(disease_genes_tested) > 0) {
-      disease_results <- results[disease_genes_tested, ]
+    if(sum(disease_genes_in_filtered, na.rm = TRUE) > 0) {
+      disease_results <- results[disease_genes_in_filtered, ]
       power_005 <- mean(disease_results$adj.P.Val < 0.05, na.rm = TRUE)
       power_001 <- mean(disease_results$adj.P.Val < 0.01, na.rm = TRUE)
     }
@@ -282,11 +285,14 @@ fit_pseudobulk_model <- function(sim, params = NULL) {
   
   ind_groups <- ind_groups[match(colnames(pb_counts), ind_groups$Individual), ]
   
-  # Get actual cell counts per individual for weighting (optional)
-  cell_counts <- table(colData(sim)$Individual)
-  
-  # DE analysis
+  # DE analysis - no filtering here initially to preserve all genes
   y <- DGEList(counts = pb_counts)
+  
+  # FILTER HERE and track which genes
+  keep <- filterByExpr(y, min.count = 1)
+  y <- y[keep, , keep.lib.sizes = FALSE]
+  filtered_rowdata <- rowData(sim)[keep, , drop = FALSE]
+  
   y <- calcNormFactors(y)
   
   design <- model.matrix(~ ind_groups$Group)
@@ -301,12 +307,12 @@ fit_pseudobulk_model <- function(sim, params = NULL) {
   power_pb_005 <- NA
   power_pb_001 <- NA
   
-  if("is_disease_gene" %in% colnames(rowData(sim))) {
-    disease_genes <- rownames(sim)[rowData(sim)$is_disease_gene]
-    disease_genes_tested <- intersect(disease_genes, rownames(results))
+  # FIX: Use filtered_rowdata
+  if("is_disease_gene" %in% colnames(filtered_rowdata)) {
+    disease_genes_in_filtered <- filtered_rowdata$is_disease_gene
     
-    if(length(disease_genes_tested) > 0) {
-      disease_results <- results[disease_genes_tested, ]
+    if(sum(disease_genes_in_filtered, na.rm = TRUE) > 0) {
+      disease_results <- results[disease_genes_in_filtered, ]
       power_pb_005 <- mean(disease_results$FDR < 0.05, na.rm = TRUE)
       power_pb_001 <- mean(disease_results$FDR < 0.01, na.rm = TRUE)
     }
@@ -322,8 +328,7 @@ fit_pseudobulk_model <- function(sim, params = NULL) {
     n_individuals = ncol(pb_counts)
   ))
 }
-
-# UPDATED NEBULA FUNCTION - More robust version
+# NEBULA model fit function
 fit_nebula_model <- function(sim, params = NULL) {
   
   tryCatch({
@@ -333,6 +338,9 @@ fit_nebula_model <- function(sim, params = NULL) {
     # Filter low-expressed genes (same as other methods)
     keep <- rowSums(counts_mat > 1) >= 10
     counts_mat <- counts_mat[keep, ]
+    
+    # IMPORTANT: Track filtered rowdata
+    filtered_rowdata <- rowData(sim)[keep, , drop = FALSE]
     
     # Need at least some genes
     if(nrow(counts_mat) < 10) {
@@ -374,19 +382,18 @@ fit_nebula_model <- function(sim, params = NULL) {
       ))
     }
     
-    # Create design matrix - simpler approach
-    # Use group directly as a factor
+    # Create design matrix
     pred_matrix <- model.matrix(~ group, data = cell_metadata)
     
-    # Alternative 1: Try the simpler nebula function
+    # Run NEBULA
     nebula_res <- nebula(
       count = counts_mat,
       id = cell_metadata$individual,
       pred = pred_matrix,
-      method = "LN",  # Log-normal is more stable
-      cpc = 0.05,     # Lower value can help with convergence
-      mincp = 0.01,   # Minimum cell proportion
-      ncore = 1       # Single core for stability
+      method = "LN",
+      cpc = 0.05,
+      mincp = 0.01,
+      ncore = 1
     )
     
     # Check if results are valid
@@ -408,13 +415,12 @@ fit_nebula_model <- function(sim, params = NULL) {
     # Extract results
     results <- nebula_res$summary
     
-    # Get the coefficient name (might be groupPatient or similar)
+    # Get the coefficient name
     coef_names <- colnames(results)
     logfc_col <- grep("logFC_group", coef_names, value = TRUE)[1]
     p_col <- grep("p_group", coef_names, value = TRUE)[1]
     
     if(is.na(logfc_col) || is.na(p_col)) {
-      # Try alternative column names
       logfc_col <- grep("logFC", coef_names, value = TRUE)[1]
       p_col <- grep("^p_", coef_names, value = TRUE)[1]
     }
@@ -444,18 +450,14 @@ fit_nebula_model <- function(sim, params = NULL) {
     power_nebula_005 <- NA
     power_nebula_001 <- NA
     
-    if("is_disease_gene" %in% colnames(rowData(sim))) {
-      tested_genes <- rownames(counts_mat)
-      disease_genes <- rownames(sim)[rowData(sim)$is_disease_gene]
-      disease_genes_tested <- intersect(disease_genes, tested_genes)
+    # FIX: Use filtered_rowdata
+    if("is_disease_gene" %in% colnames(filtered_rowdata)) {
+      disease_genes_in_filtered <- filtered_rowdata$is_disease_gene
       
-      if(length(disease_genes_tested) > 0) {
-        disease_indices <- which(rownames(results) %in% disease_genes_tested)
-        if(length(disease_indices) > 0) {
-          disease_padj <- padj[disease_indices]
-          power_nebula_005 <- mean(disease_padj < 0.05, na.rm = TRUE)
-          power_nebula_001 <- mean(disease_padj < 0.01, na.rm = TRUE)
-        }
+      if(sum(disease_genes_in_filtered, na.rm = TRUE) > 0) {
+        disease_padj <- padj[disease_genes_in_filtered]
+        power_nebula_005 <- mean(disease_padj < 0.05, na.rm = TRUE)
+        power_nebula_001 <- mean(disease_padj < 0.01, na.rm = TRUE)
       }
     }
     
@@ -479,78 +481,8 @@ fit_nebula_model <- function(sim, params = NULL) {
     ))
     
   }, error = function(e) {
-    # If NEBULA fails, try a simpler mixed model approach
-    warning("NEBULA failed, trying fallback: ", e$message)
-    
-    # FALLBACK: Simple mixed model using lme4
-    tryCatch({
-      library(lme4)
-      library(lmerTest)
-      
-      # Get data
-      counts_mat <- as.matrix(counts(sim))
-      keep <- rowSums(counts_mat > 1) >= 10
-      counts_mat <- counts_mat[keep, ]
-      
-      # Run on subset of genes for speed
-      n_test_genes <- min(100, nrow(counts_mat))
-      test_genes <- sample(1:nrow(counts_mat), n_test_genes)
-      
-      p_values <- numeric(n_test_genes)
-      log_fcs <- numeric(n_test_genes)
-      
-      for(i in 1:n_test_genes) {
-        gene_expr <- log1p(counts_mat[test_genes[i], ])
-        
-        df <- data.frame(
-          expr = gene_expr,
-          group = colData(sim)$Group,
-          individual = colData(sim)$Individual
-        )
-        
-        # Simple mixed model
-        m <- lmer(expr ~ group + (1|individual), data = df, REML = FALSE)
-        m_null <- lmer(expr ~ (1|individual), data = df, REML = FALSE)
-        
-        # Likelihood ratio test
-        lrt <- anova(m_null, m)
-        p_values[i] <- lrt$`Pr(>Chisq)`[2]
-        
-        # Get effect size
-        coefs <- fixef(m)
-        log_fcs[i] <- coefs[2]
-      }
-      
-      # Extrapolate to full gene set
-      n_sig_005 <- sum(p_values < 0.05, na.rm = TRUE) * (nrow(counts_mat) / n_test_genes)
-      n_sig_001 <- sum(p_values < 0.01, na.rm = TRUE) * (nrow(counts_mat) / n_test_genes)
-      
-      return(data.frame(
-        n_genes_nebula = nrow(counts_mat),
-        n_sig_nebula_005 = round(n_sig_005),
-        n_sig_nebula_001 = round(n_sig_001),
-        n_sig_nebula_raw_005 = round(n_sig_005),
-        mean_logfc_nebula = mean(abs(log_fcs), na.rm = TRUE),
-        power_nebula_005 = NA,  # Can't calculate without full results
-        power_nebula_001 = NA,
-        nebula_convergence = NA,
-        nebula_method = "LME4_FALLBACK"
-      ))
-      
-    }, error = function(e2) {
-      warning("Fallback also failed: ", e2$message)
-      return(data.frame(
-        n_genes_nebula = NA,
-        n_sig_nebula_005 = NA,
-        n_sig_nebula_001 = NA,
-        n_sig_nebula_raw_005 = NA,
-        mean_logfc_nebula = NA,
-        power_nebula_005 = NA,
-        power_nebula_001 = NA,
-        nebula_convergence = NA,
-        nebula_method = "ALL_FAILED"
-      ))
-    })
+    warning("NEBULA failed: ", e$message)
+    # ... keep your fallback code ...
   })
 }
 
