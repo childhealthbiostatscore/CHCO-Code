@@ -31,9 +31,10 @@ if(Sys.info()["sysname"] == "Windows"){
 } else if (Sys.info()["sysname"] == "Linux"){
   home_dir = "~/UCD/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward/"
 } else if (Sys.info()["sysname"] == "Darwin"){
-  home_dir = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
+  home_dir = "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
 }
 knitr::opts_knit$set(root.dir = home_dir)
+
 ```
 
 ```{r, include=FALSE}
@@ -70,6 +71,8 @@ base_clinical$trig0 <- base_clinical$trig
 base_clinical$trig <- NULL
 base_clinical$hba1c0 <- base_clinical$hba1c
 base_clinical$hba1c <- NULL
+base_clinical$bmipct0 <- base_clinical$bmipct
+base_clinical$bmipct <- NULL
 base_clinical <- left_join(base_clinical, sex, by="releaseid")
 base_clinical_proteins <- merge(base_clinical,base,by="releaseid",all.x=F,all.y=T)
 
@@ -107,12 +110,15 @@ calc_slope <- function(data, outcome) {
 slope_bmi <- calc_slope(data = long, outcome = "bmi")
 slope_odi <- calc_slope(data = long, outcome = "codi")
 slope_eis <- calc_slope(data = long, outcome = "si_1_ins0")
+slope_bmipct <- calc_slope(data = long, outcome = "bmipct")
 base_clinical_proteins <- merge(base_clinical_proteins,slope_bmi,by="releaseid",all.x=F,all.y = F)
 base_clinical_proteins <- merge(base_clinical_proteins,slope_odi,by="releaseid",all.x=F,all.y = F)
 base_clinical_proteins <- merge(base_clinical_proteins,slope_eis,by="releaseid",all.x=F,all.y = F)
+base_clinical_proteins <- merge(base_clinical_proteins,slope_bmipct,by="releaseid",all.x=F,all.y = F)
 base_clinical_proteins$slopebmi <- as.numeric(base_clinical_proteins$slopebmi)
 base_clinical_proteins$slopesi_1_ins0 <- as.numeric(base_clinical_proteins$slopesi_1_ins0)
 base_clinical_proteins$slopecodi <- as.numeric(base_clinical_proteins$slopecodi)
+base_clinical_proteins$slopebmipct <- as.numeric(base_clinical_proteins$slopebmipct)
 
 # identify columns corresponding to proteins
 #is_seq <- function(.x) grepl("^seq\\.[0-9]{4}", .x) # regex for analytes
@@ -140,6 +146,20 @@ results_bmi0 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
 results_bmi0$AptName <- row.names(results_bmi0)
 results_bmi0 <- merge(results_bmi0,analytes,by="AptName",all.x = T, all.y = F)
 results_bmi0 <- results_bmi0[order(results_bmi0$P.Value),]
+ymat <- NULL
+fit <- NULL
+
+# BMIPCT0
+df_bmipct0 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$bmipct0),]
+bmipct0_contrast <- model.matrix(~bmipct0,df_bmipct0)
+df_bmipct0 <- df_bmipct0 %>% filter(!is.na(df_bmipct0$bmipct0))
+ymat <- t(df_bmipct0[,seq])
+fit <- lmFit(ymat,bmipct0_contrast)
+fit <- eBayes(fit)
+results_bmipct0 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
+results_bmipct0$AptName <- row.names(results_bmipct0)
+results_bmipct0 <- merge(results_bmipct0,analytes,by="AptName",all.x = T, all.y = F)
+results_bmipct0 <- results_bmipct0[order(results_bmipct0$P.Value),]
 ymat <- NULL
 fit <- NULL
 
@@ -185,6 +205,20 @@ results_slopebmi <- results_slopebmi[order(results_slopebmi$P.Value),]
 ymat <- NULL
 fit <- NULL
 
+# change in BMIPCT
+df_slopebmipct = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$slopebmipct),]
+slopebmipct_contrast <- model.matrix(~slopebmipct,df_slopebmipct)
+df_slopebmipct <- df_slopebmipct %>% filter(!is.na(df_slopebmipct$slopebmipct))
+ymat <- t(df_slopebmipct[,seq])
+fit <- lmFit(ymat,slopebmipct_contrast)
+fit <- eBayes(fit)
+results_slopebmipct <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
+results_slopebmipct$AptName <- row.names(results_slopebmipct)
+results_slopebmipct <- merge(results_slopebmipct,analytes,by="AptName",all.x = T, all.y = F)
+results_slopebmipct <- results_slopebmipct[order(results_slopebmipct$P.Value),]
+ymat <- NULL
+fit <- NULL
+
 # change in eIS
 df_slopesi_1_ins0 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$slopesi_1_ins0),]
 slopesi_1_ins0_contrast <- model.matrix(~slopesi_1_ins0,df_slopesi_1_ins0)
@@ -219,6 +253,9 @@ wb <- createWorkbook()
 addWorksheet(wb,"BMI0_moderated_FDR")
 writeData(wb,"BMI0_moderated_FDR",results_bmi0,rowNames = F)
 
+addWorksheet(wb,"BMIPCT0_moderated_FDR")
+writeData(wb,"BMIPCT0_moderated_FDR",results_bmipct0,rowNames = F)
+
 addWorksheet(wb,"si_1_ins00_moderated_FDR")
 writeData(wb,"si_1_ins00_moderated_FDR",results_si_1_ins00,rowNames = F)
 
@@ -228,6 +265,9 @@ writeData(wb,"codi0_moderated_FDR",results_codi0,rowNames = F)
 addWorksheet(wb,"slopebmi_moderated_FDR")
 writeData(wb,"slopebmi_moderated_FDR",results_slopebmi,rowNames = F)
 
+addWorksheet(wb,"slopebmipct_moderated_FDR")
+writeData(wb,"slopebmipct_moderated_FDR",results_slopebmipct,rowNames = F)
+
 addWorksheet(wb,"slopesi_1_ins0_moderated_FDR")
 writeData(wb,"slopesi_1_ins0_moderated_FDR",results_slopesi_1_ins0,rowNames = F)
 
@@ -235,7 +275,7 @@ addWorksheet(wb,"slopecodi_moderated_FDR")
 writeData(wb,"slopecodi_moderated_FDR",results_slopecodi,rowNames = F)
 
 saveWorkbook(wb,"./Results/Linear and Cox models/TODAY somalogic limma baseline unadjusted insulin sensitivity.xlsx",overwrite = TRUE)
-saveWorkbook(wb,"/Users/pylell/Dropbox/TODAY glycemic manuscript [shared]/Analysis output/TODAY somalogic limma baseline unadjusted insulin sensitivity.xlsx",overwrite = TRUE)
+#saveWorkbook(wb,"/Users/pylell/Dropbox/TODAY glycemic manuscript [shared]/Analysis output/TODAY somalogic limma baseline unadjusted insulin sensitivity.xlsx",overwrite = TRUE)
 ```
 
 # ADJUSTED association between baseline proteins and baseline insulin sensitivity parameters, baseline proteins and change in insulin sensitivity parameters
@@ -253,6 +293,21 @@ results_bmi0 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
 results_bmi0$AptName <- row.names(results_bmi0)
 results_bmi0 <- merge(results_bmi0,analytes,by="AptName",all.x = T, all.y = F)
 results_bmi0 <- results_bmi0[order(results_bmi0$P.Value),]
+ymat <- NULL
+fit <- NULL
+
+# BMIPCT0
+df_bmipct0 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$bmipct0) & !is.na(base_clinical_proteins_log$trig0) &
+                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char),]
+bmipct0_contrast <- model.matrix(~bmipct0+trig0+hba1c0+sex_char,df_bmipct0)
+df_bmipct0 <- df_bmipct0 %>% filter(!is.na(df_bmipct0$bmipct0))
+ymat <- t(df_bmipct0[,seq])
+fit <- lmFit(ymat,bmipct0_contrast)
+fit <- eBayes(fit)
+results_bmipct0 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
+results_bmipct0$AptName <- row.names(results_bmipct0)
+results_bmipct0 <- merge(results_bmipct0,analytes,by="AptName",all.x = T, all.y = F)
+results_bmipct0 <- results_bmipct0[order(results_bmipct0$P.Value),]
 ymat <- NULL
 fit <- NULL
 
@@ -298,6 +353,21 @@ results_slopebmi <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
 results_slopebmi$AptName <- row.names(results_slopebmi)
 results_slopebmi <- merge(results_slopebmi,analytes,by="AptName",all.x = T, all.y = F)
 results_slopebmi <- results_slopebmi[order(results_slopebmi$P.Value),]
+ymat <- NULL
+fit <- NULL
+
+# change in BMIPCT
+df_slopebmipct = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$slopebmipct) & !is.na(base_clinical_proteins_log$trig0) &
+                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char),]
+slopebmipct_contrast <- model.matrix(~slopebmipct+trig0+hba1c0+sex_char,df_slopebmipct)
+df_slopebmipct <- df_slopebmipct %>% filter(!is.na(df_slopebmipct$slopebmipct))
+ymat <- t(df_slopebmipct[,seq])
+fit <- lmFit(ymat,slopebmipct_contrast)
+fit <- eBayes(fit)
+results_slopebmipct <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
+results_slopebmipct$AptName <- row.names(results_slopebmipct)
+results_slopebmipct <- merge(results_slopebmipct,analytes,by="AptName",all.x = T, all.y = F)
+results_slopebmipct <- results_slopebmipct[order(results_slopebmipct$P.Value),]
 ymat <- NULL
 fit <- NULL
 
@@ -348,6 +418,22 @@ results_slopebmi0 <- results_slopebmi0[order(results_slopebmi0$P.Value),]
 ymat <- NULL
 fit <- NULL
 
+# change in BMIPCT
+df_slopebmipct0 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$slopebmipct) & !is.na(base_clinical_proteins_log$trig0) &
+                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char) &
+                                            !is.na(base_clinical_proteins_log$bmipct0),]
+slopebmipct0_contrast <- model.matrix(~slopebmipct+trig0+hba1c0+sex_char+bmi0,df_slopebmipct0)
+df_slopebmipct0 <- df_slopebmipct0 %>% filter(!is.na(df_slopebmipct0$slopebmipct))
+ymat <- t(df_slopebmipct0[,seq])
+fit <- lmFit(ymat,slopebmipct0_contrast)
+fit <- eBayes(fit)
+results_slopebmipct0 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
+results_slopebmipct0$AptName <- row.names(results_slopebmipct0)
+results_slopebmipct0 <- merge(results_slopebmipct0,analytes,by="AptName",all.x = T, all.y = F)
+results_slopebmipct0 <- results_slopebmipct0[order(results_slopebmipct0$P.Value),]
+ymat <- NULL
+fit <- NULL
+
 # change in eIS
 df_slopesi_1_ins00 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$slopesi_1_ins0) & !is.na(base_clinical_proteins_log$trig0) &
                                               !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char) &
@@ -386,6 +472,9 @@ wb <- createWorkbook()
 addWorksheet(wb,"BMI0_FDR_adj")
 writeData(wb,"BMI0_FDR_adj",results_bmi0,rowNames = F)
 
+addWorksheet(wb,"BMIPCT0_FDR_adj")
+writeData(wb,"BMIPCT0_FDR_adj",results_bmipct0,rowNames = F)
+
 addWorksheet(wb,"si_1_ins00_FDR_adj")
 writeData(wb,"si_1_ins00_FDR_adj",results_si_1_ins00,rowNames = F)
 
@@ -395,6 +484,9 @@ writeData(wb,"codi0_FDR_adj",results_codi0,rowNames = F)
 addWorksheet(wb,"slopebmi_FDR_adj_v1")
 writeData(wb,"slopebmi_FDR_adj_v1",results_slopebmi,rowNames = F)
 
+addWorksheet(wb,"slopebmipct_FDR_adj_v1")
+writeData(wb,"slopebmipct_FDR_adj_v1",results_slopebmipct,rowNames = F)
+
 addWorksheet(wb,"slopesi_1_ins0_FDR_adj_v1")
 writeData(wb,"slopesi_1_ins0_FDR_adj_v1",results_slopesi_1_ins0,rowNames = F)
 
@@ -403,6 +495,9 @@ writeData(wb,"slopecodi_FDR_adj_v1",results_slopecodi,rowNames = F)
 
 addWorksheet(wb,"slopebmi_FDR_adj_v2")
 writeData(wb,"slopebmi_FDR_adj_v2",results_slopebmi0,rowNames = F)
+
+addWorksheet(wb,"slopebmipct_FDR_adj_v2")
+writeData(wb,"slopebmipct_FDR_adj_v2",results_slopebmipct0,rowNames = F)
 
 addWorksheet(wb,"slopesi_1_ins0_FDR_adj_v2")
 writeData(wb,"slopesi_1_ins0_FDR_adj_v2",results_slopesi_1_ins00,rowNames = F)
@@ -411,199 +506,7 @@ addWorksheet(wb,"slopecodi_FDR_adj_v2")
 writeData(wb,"slopecodi_FDR_adj_v2",results_slopecodi0,rowNames = F)
 
 saveWorkbook(wb,"./Results/Linear and Cox models/TODAY somalogic limma baseline adjusted insulin sensitivity.xlsx",overwrite = TRUE)
-saveWorkbook(wb,"/Users/pylell/Dropbox/TODAY glycemic manuscript [shared]/Analysis output/TODAY somalogic limma baseline adjusted insulin sensitivity.xlsx",overwrite = TRUE)
+#saveWorkbook(wb,"/Users/pylell/Dropbox/TODAY glycemic manuscript [shared]/Analysis output/TODAY somalogic limma baseline adjusted insulin sensitivity.xlsx",overwrite = TRUE)
 ```
 
-# ADJUSTED (no TG) association between baseline proteins and baseline insulin sensitivity parameters, baseline proteins and change in insulin sensitivity parameters
-
-```{r, include=FALSE}
-# BMI0
-df_bmi0 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$bmi0) &
-                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char),]
-bmi0_contrast <- model.matrix(~bmi0+hba1c0+sex_char,df_bmi0)
-df_bmi0 <- df_bmi0 %>% filter(!is.na(df_bmi0$bmi0))
-ymat <- t(df_bmi0[,seq])
-fit <- lmFit(ymat,bmi0_contrast)
-fit <- eBayes(fit)
-results_bmi0 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
-results_bmi0$AptName <- row.names(results_bmi0)
-results_bmi0 <- merge(results_bmi0,analytes,by="AptName",all.x = T, all.y = F)
-results_bmi0 <- results_bmi0[order(results_bmi0$P.Value),]
-ymat <- NULL
-fit <- NULL
-
-# eIS
-df_si_1_ins00 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$si_1_ins00) & 
-                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char),]
-si_1_ins00_contrast <- model.matrix(~si_1_ins00+hba1c0+sex_char,df_si_1_ins00)
-df_si_1_ins00 <- df_si_1_ins00 %>% filter(!is.na(df_si_1_ins00$si_1_ins00))
-ymat <- t(df_si_1_ins00[,seq])
-fit <- lmFit(ymat,si_1_ins00_contrast)
-fit <- eBayes(fit)
-results_si_1_ins00 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
-results_si_1_ins00$AptName <- row.names(results_si_1_ins00)
-results_si_1_ins00 <- merge(results_si_1_ins00,analytes,by="AptName",all.x = T, all.y = F)
-results_si_1_ins00 <- results_si_1_ins00[order(results_si_1_ins00$P.Value),]
-ymat <- NULL
-fit <- NULL
-
-# coDI
-df_codi0 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$codi0) & 
-                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char),]
-codi0_contrast <- model.matrix(~codi0+hba1c0+sex_char,df_codi0)
-df_codi0 <- df_codi0 %>% filter(!is.na(df_codi0$codi0))
-ymat <- t(df_codi0[,seq])
-fit <- lmFit(ymat,codi0_contrast)
-fit <- eBayes(fit)
-results_codi0 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
-results_codi0$AptName <- row.names(results_codi0)
-results_codi0 <- merge(results_codi0,analytes,by="AptName",all.x = T, all.y = F)
-results_codi0 <- results_codi0[order(results_codi0$P.Value),]
-ymat <- NULL
-fit <- NULL
-
-# change in BMI
-df_slopebmi = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$slopebmi) & 
-                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char),]
-slopebmi_contrast <- model.matrix(~slopebmi+hba1c0+sex_char,df_slopebmi)
-df_slopebmi <- df_slopebmi %>% filter(!is.na(df_slopebmi$slopebmi))
-ymat <- t(df_slopebmi[,seq])
-fit <- lmFit(ymat,slopebmi_contrast)
-fit <- eBayes(fit)
-results_slopebmi <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
-results_slopebmi$AptName <- row.names(results_slopebmi)
-results_slopebmi <- merge(results_slopebmi,analytes,by="AptName",all.x = T, all.y = F)
-results_slopebmi <- results_slopebmi[order(results_slopebmi$P.Value),]
-ymat <- NULL
-fit <- NULL
-
-# change in eIS
-df_slopesi_1_ins0 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$slopesi_1_ins0) & 
-                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char),]
-slopesi_1_ins0_contrast <- model.matrix(~slopesi_1_ins0+hba1c0+sex_char,df_slopesi_1_ins0)
-df_slopesi_1_ins0 <- df_slopesi_1_ins0 %>% filter(!is.na(df_slopesi_1_ins0$slopesi_1_ins0))
-ymat <- t(df_slopesi_1_ins0[,seq])
-fit <- lmFit(ymat,slopesi_1_ins0_contrast)
-fit <- eBayes(fit)
-results_slopesi_1_ins0 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
-results_slopesi_1_ins0$AptName <- row.names(results_slopesi_1_ins0)
-results_slopesi_1_ins0 <- merge(results_slopesi_1_ins0,analytes,by="AptName",all.x = T, all.y = F)
-results_slopesi_1_ins0 <- results_slopesi_1_ins0[order(results_slopesi_1_ins0$P.Value),]
-ymat <- NULL
-fit <- NULL
-
-# change in coDI
-df_slopecodi = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$slopecodi) & 
-                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char),]
-slopecodi_contrast <- model.matrix(~slopecodi+hba1c0+sex_char,df_slopecodi)
-df_slopecodi <- df_slopecodi %>% filter(!is.na(df_slopecodi$slopecodi))
-ymat <- t(df_slopecodi[,seq])
-fit <- lmFit(ymat,slopecodi_contrast)
-fit <- eBayes(fit)
-results_slopecodi <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
-results_slopecodi$AptName <- row.names(results_slopecodi)
-results_slopecodi <- merge(results_slopecodi,analytes,by="AptName",all.x = T, all.y = F)
-results_slopecodi <- results_slopecodi[order(results_slopecodi$P.Value),]
-ymat <- NULL
-fit <- NULL
-
-# NOW ADJUST MODELS FOR SLOPE FOR BASELINE VALUE TOO
-# change in BMI
-df_slopebmi0 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$slopebmi) & 
-                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char) &
-                                            !is.na(base_clinical_proteins_log$bmi0),]
-slopebmi0_contrast <- model.matrix(~slopebmi+hba1c0+sex_char+bmi0,df_slopebmi0)
-df_slopebmi0 <- df_slopebmi0 %>% filter(!is.na(df_slopebmi0$slopebmi))
-ymat <- t(df_slopebmi0[,seq])
-fit <- lmFit(ymat,slopebmi0_contrast)
-fit <- eBayes(fit)
-results_slopebmi0 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
-results_slopebmi0$AptName <- row.names(results_slopebmi0)
-results_slopebmi0 <- merge(results_slopebmi0,analytes,by="AptName",all.x = T, all.y = F)
-results_slopebmi0 <- results_slopebmi0[order(results_slopebmi0$P.Value),]
-ymat <- NULL
-fit <- NULL
-
-# change in eIS
-df_slopesi_1_ins00 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$slopesi_1_ins0) & 
-                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char) &
-                                            !is.na(base_clinical_proteins_log$si_1_ins00),]
-slopesi_1_ins00_contrast <- model.matrix(~slopesi_1_ins0+hba1c0+sex_char+si_1_ins00,df_slopesi_1_ins00)
-df_slopesi_1_ins00 <- df_slopesi_1_ins00 %>% filter(!is.na(df_slopesi_1_ins00$slopesi_1_ins0))
-ymat <- t(df_slopesi_1_ins00[,seq])
-fit <- lmFit(ymat,slopesi_1_ins00_contrast)
-fit <- eBayes(fit)
-results_slopesi_1_ins00 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
-results_slopesi_1_ins00$AptName <- row.names(results_slopesi_1_ins00)
-results_slopesi_1_ins00 <- merge(results_slopesi_1_ins00,analytes,by="AptName",all.x = T, all.y = F)
-results_slopesi_1_ins00 <- results_slopesi_1_ins00[order(results_slopesi_1_ins00$P.Value),]
-ymat <- NULL
-fit <- NULL
-
-# change in coDI
-df_slopecodi0 = base_clinical_proteins_log[!is.na(base_clinical_proteins_log$slopecodi) & 
-                                              !is.na(base_clinical_proteins_log$hba1c0) & !is.na(base_clinical_proteins_log$sex_char) &
-                                            !is.na(base_clinical_proteins_log$codi0),]
-slopecodi0_contrast <- model.matrix(~slopecodi+hba1c0+sex_char+codi0,df_slopecodi0)
-df_slopecodi0 <- df_slopecodi0 %>% filter(!is.na(df_slopecodi0$slopecodi))
-ymat <- t(df_slopecodi0[,seq])
-fit <- lmFit(ymat,slopecodi0_contrast)
-fit <- eBayes(fit)
-results_slopecodi0 <- topTable(fit,coef = 2,number = nrow(ymat), confint = TRUE)
-results_slopecodi0$AptName <- row.names(results_slopecodi0)
-results_slopecodi0 <- merge(results_slopecodi0,analytes,by="AptName",all.x = T, all.y = F)
-results_slopecodi0 <- results_slopecodi0[order(results_slopecodi0$P.Value),]
-ymat <- NULL
-fit <- NULL
-
-# write all results to file
-wb <- createWorkbook()
-
-addWorksheet(wb,"BMI0_FDR_adj")
-writeData(wb,"BMI0_FDR_adj",results_bmi0,rowNames = F)
-
-addWorksheet(wb,"si_1_ins00_FDR_adj")
-writeData(wb,"si_1_ins00_FDR_adj",results_si_1_ins00,rowNames = F)
-
-addWorksheet(wb,"codi0_FDR_adj")
-writeData(wb,"codi0_FDR_adj",results_codi0,rowNames = F)
-
-addWorksheet(wb,"slopebmi_FDR_adj_v1")
-writeData(wb,"slopebmi_FDR_adj_v1",results_slopebmi,rowNames = F)
-
-addWorksheet(wb,"slopesi_1_ins0_FDR_adj_v1")
-writeData(wb,"slopesi_1_ins0_FDR_adj_v1",results_slopesi_1_ins0,rowNames = F)
-
-addWorksheet(wb,"slopecodi_FDR_adj_v1")
-writeData(wb,"slopecodi_FDR_adj_v1",results_slopecodi,rowNames = F)
-
-addWorksheet(wb,"slopebmi_FDR_adj_v2")
-writeData(wb,"slopebmi_FDR_adj_v2",results_slopebmi0,rowNames = F)
-
-addWorksheet(wb,"slopesi_1_ins0_FDR_adj_v2")
-writeData(wb,"slopesi_1_ins0_FDR_adj_v2",results_slopesi_1_ins00,rowNames = F)
-
-addWorksheet(wb,"slopecodi_FDR_adj_v2")
-writeData(wb,"slopecodi_FDR_adj_v2",results_slopecodi0,rowNames = F)
-
-saveWorkbook(wb,"./Results/Linear and Cox models/TODAY somalogic limma baseline adjusted insulin sensitivity no TG.xlsx",overwrite = TRUE)
-```
-
-```{r}
-# calculate effect size for change in insulin sensitivity
-mod <- lm(seq.6461.54 ~ slopesi_1_ins0+hba1c0+sex_char+si_1_ins00, base_clinical_proteins_log)
-
-f2 <- 0.01863 / (1 - 0.01863)
-
-mod1 <- lm(seq.6461.54 ~ hba1c0+sex_char+si_1_ins00, base_clinical_proteins_log)
-```
-
-```{r}
-# calculate effect size for baseline insulin sensitivity
-moda <- lm(seq.6461.54 ~ si_1_ins00+hba1c0+sex_char, base_clinical_proteins_log)
-
-f2a <- 0.003851 / (1 - 0.003851)
-
-moda1 <- lm(seq.6461.54 ~ hba1c0+sex_char, base_clinical_proteins_log)
-```
 
