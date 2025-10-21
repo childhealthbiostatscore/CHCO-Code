@@ -2588,7 +2588,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  ########## Lineage Tracing (Slingshot) Analysis in Lean Controls (PT Cells)
  
  library(slingshot)
- library(condiments)
+ #library(condiments)
  
  
  library(scran)
@@ -2660,7 +2660,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  
  
- dir.results <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/'
+ dir.results <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/pseudotime/'
  
  
  so_subset <- subset(so_subset, subset = record_id != 'CRC-55')
@@ -2683,11 +2683,466 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  
  
+ library(ggplot2)
+ library(viridis)
+ 
+ # 1. Plot slingshot lineage tracing on UMAP
+ # Extract UMAP coordinates
+ umap_coords <- Embeddings(so_subset, reduction = "umap")
+ 
+ # Extract slingshot curves
+ sling_curves <- slingCurves(sling_res)
+ 
+ # Create data frame for plotting
+ plot_df <- data.frame(
+   UMAP_1 = umap_coords[, 1],
+   UMAP_2 = umap_coords[, 2],
+   pseudotime = so_subset$pseudotime,
+   celltype = so_subset$KPMP_celltype,
+   sex = so_subset$sex  # Assuming you have a 'sex' column in metadata
+ )
+ 
+ # Plot 1: UMAP with pseudotime
+ p1 <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = pseudotime)) +
+   geom_point(size = 0.5, alpha = 0.6) +
+   scale_color_viridis(option = "plasma", na.value = "grey80") +
+   theme_classic() +
+   labs(title = "Slingshot Pseudotime on UMAP",
+        color = "Pseudotime") +
+   theme(legend.position = "right")
+ 
+ # Add slingshot curves
+ for(i in seq_along(sling_curves)) {
+   curve_coords <- sling_curves[[i]]$s[sling_curves[[i]]$ord, ]
+   p1 <- p1 + geom_path(data = data.frame(UMAP_1 = curve_coords[, 1], 
+                                          UMAP_2 = curve_coords[, 2]),
+                        aes(x = UMAP_1, y = UMAP_2),
+                        color = "black", size = 2, inherit.aes = FALSE)
+ }
+ 
+ print(p1)
+ ggsave(paste0(dir.results, "Slingshot_UMAP_Pseudotime.pdf"), 
+        plot = p1, width = 8, height = 6)
+ 
+ # Plot 2: UMAP with cell types
+ p2 <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = celltype)) +
+   geom_point(size = 0.5, alpha = 0.6) +
+   theme_classic() +
+   labs(title = "Cell Types with Slingshot Trajectory",
+        color = "Cell Type") +
+   theme(legend.position = "right")
+ 
+ # Add slingshot curves
+ for(i in seq_along(sling_curves)) {
+   curve_coords <- sling_curves[[i]]$s[sling_curves[[i]]$ord, ]
+   p2 <- p2 + geom_path(data = data.frame(UMAP_1 = curve_coords[, 1], 
+                                          UMAP_2 = curve_coords[, 2]),
+                        aes(x = UMAP_1, y = UMAP_2),
+                        color = "black", size = 2, inherit.aes = FALSE)
+ }
+ 
+ print(p2)
+ ggsave(paste0(dir.results, "Slingshot_UMAP_Celltypes.pdf"), 
+        plot = p2, width = 8, height = 6)
+ 
+ # 2. Compare pseudotime between males and females
+ # Remove cells with NA pseudotime
+ plot_df_clean <- plot_df %>% filter(!is.na(pseudotime))
+ 
+ # Summary statistics
+ pseudotime_summary <- plot_df_clean %>%
+   group_by(sex) %>%
+   summarise(
+     n = n(),
+     mean_pseudotime = mean(pseudotime),
+     median_pseudotime = median(pseudotime),
+     sd_pseudotime = sd(pseudotime),
+     se_pseudotime = sd(pseudotime) / sqrt(n())
+   )
+ 
+ print(pseudotime_summary)
+ write.csv(pseudotime_summary, paste0(dir.results, "Pseudotime_Summary_by_Sex.csv"), 
+           row.names = FALSE)
+ 
+ # Statistical test - Wilcoxon test
+ stat_test <- plot_df_clean %>%
+   wilcox_test(pseudotime ~ sex) %>%
+   add_significance()
+ 
+ print(stat_test)
+ 
+ # Plot 3: Violin plot comparing pseudotime by sex
+ p3 <- ggplot(plot_df_clean, aes(x = sex, y = pseudotime, fill = sex)) +
+   geom_violin(alpha = 0.6, trim = FALSE) +
+   geom_boxplot(width = 0.2, alpha = 0.8, outlier.shape = NA) +
+   geom_jitter(width = 0.1, alpha = 0.1, size = 0.5) +
+   stat_compare_means(method = "wilcox.test", label = "p.format") +
+   theme_classic() +
+   labs(title = "Pseudotime Comparison Between Sexes",
+        x = "Sex",
+        y = "Pseudotime") +
+   theme(legend.position = "none")
+ 
+ print(p3)
+ ggsave(paste0(dir.results, "Pseudotime_by_Sex_Violin.pdf"), 
+        plot = p3, width = 6, height = 6)
+ 
+ # Plot 4: Density plot of pseudotime distribution by sex
+ p4 <- ggplot(plot_df_clean, aes(x = pseudotime, fill = sex)) +
+   geom_density(alpha = 0.5) +
+   theme_classic() +
+   labs(title = "Pseudotime Distribution by Sex",
+        x = "Pseudotime",
+        y = "Density",
+        fill = "Sex")
+ 
+ print(p4)
+ ggsave(paste0(dir.results, "Pseudotime_by_Sex_Density.pdf"), 
+        plot = p4, width = 8, height = 6)
+ 
+ # NEW: Plot 4b: Density plot over pseudotime trajectory (all cells)
+ p4b <- ggplot(plot_df_clean, aes(x = pseudotime)) +
+   geom_density(fill = "steelblue", alpha = 0.6, color = "black") +
+   theme_classic() +
+   labs(title = "Cell Density Along Pseudotime Trajectory",
+        x = "Pseudotime",
+        y = "Density") +
+   theme(plot.title = element_text(hjust = 0.5))
+ 
+ print(p4b)
+ ggsave(paste0(dir.results, "Pseudotime_Density_Overall.pdf"), 
+        plot = p4b, width = 8, height = 5)
+ 
+ # NEW: Plot 4c: Stacked density plot showing progression by sex
+ p4c <- ggplot(plot_df_clean, aes(x = pseudotime, fill = sex, color = sex)) +
+   geom_density(alpha = 0.3, size = 1) +
+   theme_classic() +
+   labs(title = "Cell Density Along Pseudotime Trajectory by Sex",
+        x = "Pseudotime",
+        y = "Density",
+        fill = "Sex",
+        color = "Sex") +
+   theme(plot.title = element_text(hjust = 0.5))
+ 
+ print(p4c)
+ ggsave(paste0(dir.results, "Pseudotime_Density_by_Sex.pdf"), 
+        plot = p4c, width = 8, height = 5)
+ 
+ # NEW: Plot 4d: Ridgeline-style density plot by cell type along pseudotime
+ library(ggridges)
+ 
+ p4d <- ggplot(plot_df_clean, aes(x = pseudotime, y = celltype, fill = celltype)) +
+   geom_density_ridges(alpha = 0.6, scale = 2) +
+   theme_classic() +
+   labs(title = "Cell Type Distribution Along Pseudotime",
+        x = "Pseudotime",
+        y = "Cell Type") +
+   theme(legend.position = "none",
+         plot.title = element_text(hjust = 0.5))
+ 
+ print(p4d)
+ ggsave(paste0(dir.results, "Pseudotime_Density_by_Celltype_Ridge.pdf"), 
+        plot = p4d, width = 8, height = 6)
+ 
+ # Plot 5: UMAP split by sex
+ p5 <- ggplot(plot_df_clean, aes(x = UMAP_1, y = UMAP_2, color = pseudotime)) +
+   geom_point(size = 0.5, alpha = 0.6) +
+   scale_color_viridis(option = "plasma") +
+   facet_wrap(~sex) +
+   theme_classic() +
+   labs(title = "Slingshot Pseudotime by Sex",
+        color = "Pseudotime")
+ 
+ # Add curves to each facet
+ for(i in seq_along(sling_curves)) {
+   curve_coords <- sling_curves[[i]]$s[sling_curves[[i]]$ord, ]
+   p5 <- p5 + geom_path(data = data.frame(UMAP_1 = curve_coords[, 1], 
+                                          UMAP_2 = curve_coords[, 2]),
+                        aes(x = UMAP_1, y = UMAP_2),
+                        color = "black", size = 1.5, inherit.aes = FALSE)
+ }
+ 
+ print(p5)
+ ggsave(paste0(dir.results, "Slingshot_UMAP_by_Sex.pdf"), 
+        plot = p5, width = 12, height = 5)
+ 
+ # Combined panel plot - updated to include density over pseudotime
+ combined_plot <- (p1 | p2) / (p4c | p3)
+ print(combined_plot)
+ ggsave(paste0(dir.results, "Slingshot_Analysis_Combined.pdf"), 
+        plot = combined_plot, width = 14, height = 10)
+ 
+ # Alternative combined plot with ridgeline
+ combined_plot2 <- (p1 | p2) / (p4c | p4d)
+ print(combined_plot2)
+ ggsave(paste0(dir.results, "Slingshot_Analysis_Combined_with_Ridge.pdf"), 
+        plot = combined_plot2, width = 14, height = 10)
  
  
  
  
  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ library(ggplot2)
+ library(viridis)
+ library(patchwork)
+ library(scales)
+ library(ggridges)
+ 
+ # Extract UMAP coordinates
+ umap_coords <- Embeddings(so_subset, reduction = "umap")
+ 
+ # Extract slingshot curves
+ sling_curves <- slingCurves(sling_res)
+ 
+ # Create data frame for plotting
+ plot_df <- data.frame(
+   UMAP_1 = umap_coords[, 1],
+   UMAP_2 = umap_coords[, 2],
+   pseudotime = so_subset$pseudotime,
+   celltype = so_subset$KPMP_celltype,  # Using original cell type labels
+   sex = so_subset$sex
+ )
+ 
+ # Remove cells with NA pseudotime
+ plot_df_clean <- plot_df %>% filter(!is.na(pseudotime))
+ 
+ # Plot A: UMAP with pseudotime and cell type labels
+ p1 <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = pseudotime)) +
+   geom_point(size = 0.5, alpha = 0.6) +
+   scale_color_viridis(option = "plasma", na.value = "grey80") +
+   theme_classic() +
+   labs(title = "Slingshot Pseudotime on UMAP",
+        color = "Pseudotime") +
+   theme(legend.position = "right",
+         plot.title = element_text(hjust = 0.5, face = "bold"))
+ 
+ # Add slingshot curves
+ for(i in seq_along(sling_curves)) {
+   curve_coords <- sling_curves[[i]]$s[sling_curves[[i]]$ord, ]
+   p1 <- p1 + geom_path(data = data.frame(UMAP_1 = curve_coords[, 1], 
+                                          UMAP_2 = curve_coords[, 2]),
+                        aes(x = UMAP_1, y = UMAP_2),
+                        color = "black", size = 2, inherit.aes = FALSE)
+ }
+ 
+ # Add cell type labels at centroids
+ celltype_centroids <- plot_df %>%
+   group_by(celltype) %>%
+   summarise(
+     UMAP_1 = median(UMAP_1, na.rm = TRUE),
+     UMAP_2 = median(UMAP_2, na.rm = TRUE)
+   )
+ 
+ p1 <- p1 + 
+   geom_label(data = celltype_centroids, 
+              aes(x = UMAP_1, y = UMAP_2, label = celltype),
+              color = "black", fill = "white", alpha = 0.8,
+              size = 4, fontface = "bold", inherit.aes = FALSE)
+ 
+ # Plot B: Violin plot comparing pseudotime by sex
+ p2 <- ggplot(plot_df_clean, aes(x = sex, y = pseudotime, fill = sex)) +
+   geom_violin(alpha = 0.6, trim = FALSE) +
+   geom_boxplot(width = 0.2, alpha = 0.8, outlier.shape = NA) +
+   geom_jitter(width = 0.1, alpha = 0.1, size = 0.5) +
+   stat_compare_means(method = "wilcox.test", label = "p.format") +
+   theme_classic() +
+   labs(title = "Pseudotime Comparison Between Sexes",
+        x = "Sex",
+        y = "Pseudotime") +
+   theme(legend.position = "none",
+         plot.title = element_text(hjust = 0.5, face = "bold"))
+ 
+ # Plot C: Density plot by sex
+ p3 <- ggplot(plot_df_clean, aes(x = pseudotime, fill = sex, color = sex)) +
+   geom_density(alpha = 0.3, size = 1) +
+   theme_classic() +
+   labs(title = "Cell Density Along Pseudotime Trajectory by Sex",
+        x = "Pseudotime",
+        y = "Density",
+        fill = "Sex",
+        color = "Sex") +
+   theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+         legend.position = "right")
+ 
+ # Calculate overall density (not split by sex) to find peaks
+ overall_density <- density(plot_df_clean$pseudotime, na.rm = TRUE)
+ 
+ # Find all local maxima in the density
+ find_peaks <- function(x, y, min_distance = 3) {
+   peaks <- c()
+   for(i in 2:(length(y)-1)) {
+     if(y[i] > y[i-1] && y[i] > y[i+1]) {
+       # Check if this peak is far enough from previously found peaks
+       if(length(peaks) == 0 || min(abs(x[i] - x[peaks])) > min_distance) {
+         peaks <- c(peaks, i)
+       }
+     }
+   }
+   # Sort by height and return top 3
+   peaks <- peaks[order(y[peaks], decreasing = TRUE)]
+   return(head(peaks, 3))
+ }
+ 
+ peak_indices <- find_peaks(overall_density$x, overall_density$y, min_distance = 5)
+ peak_pseudotimes <- overall_density$x[peak_indices]
+ peak_pseudotimes <- sort(peak_pseudotimes)  # Sort chronologically
+ 
+ cat("Peak pseudotimes found at:", round(peak_pseudotimes, 2), "\n")
+ 
+ # Define window size
+ window_size <- 2
+ 
+ # Create pie charts for each peak - using your exact cell type labels
+ celltype_colors <- c("PT-S1/S2" = "#4DAF4A",  # Green
+                      "PT-S3" = "#377EB8",      # Blue
+                      "aPT" = "#E41A1C")        # Red
+ 
+ pie_charts <- list()
+ 
+ for(i in 1:length(peak_pseudotimes)) {
+   peak_time <- peak_pseudotimes[i]
+   
+   # Extract cells near this peak
+   peak_cells <- plot_df_clean %>%
+     filter(pseudotime >= (peak_time - window_size) & 
+              pseudotime <= (peak_time + window_size))
+   
+   # Calculate proportions using original celltype
+   peak_props <- peak_cells %>%
+     count(celltype) %>%
+     mutate(percentage = n / sum(n) * 100,
+            peak_time = peak_time)
+   
+   cat("\nPeak", i, "region (pseudotime", 
+       round(peak_time - window_size, 2), "to", 
+       round(peak_time + window_size, 2), "):\n")
+   print(peak_props)
+   
+   # Create pie chart
+   pie_charts[[i]] <- ggplot(peak_props, aes(x = "", y = percentage, fill = celltype)) +
+     geom_bar(stat = "identity", width = 1, color = "white", size = 1) +
+     coord_polar("y", start = 0) +
+     scale_fill_manual(values = celltype_colors) +
+     theme_void() +
+     labs(title = paste0("Peak ", i, "\n(Pseudotime ~", round(peak_time, 1), ")"),
+          fill = "Cell Type") +
+     geom_text(aes(label = ifelse(percentage > 5, paste0(round(percentage, 1), "%"), "")),
+               position = position_stack(vjust = 0.5),
+               size = 3.5, fontface = "bold") +
+     theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+           legend.position = "right",
+           legend.text = element_text(size = 8),
+           legend.title = element_text(size = 9))
+   
+   # Save composition data
+   if(i == 1) {
+     all_peak_props <- peak_props %>% mutate(peak_number = i)
+   } else {
+     all_peak_props <- bind_rows(all_peak_props, peak_props %>% mutate(peak_number = i))
+   }
+ }
+ 
+ # Save the composition data
+ write.csv(all_peak_props, 
+           paste0(dir.results, "Peak_Regions_Celltype_Composition.csv"), 
+           row.names = FALSE)
+ 
+ # Print summary table
+ cat("\n=== Summary of Cell Type Composition at Each Peak ===\n")
+ summary_table <- all_peak_props %>%
+   select(peak_number, celltype, n, percentage, peak_time) %>%
+   arrange(peak_number, desc(percentage))
+ print(summary_table)
+ 
+ # NEW: Plot G - Ridge plot showing pseudotime distribution by cell type
+ # Order cell types by median pseudotime
+ celltype_order <- plot_df_clean %>%
+   group_by(celltype) %>%
+   summarise(median_pseudotime = median(pseudotime, na.rm = TRUE)) %>%
+   arrange(median_pseudotime) %>%
+   pull(celltype)
+ 
+ plot_df_clean$celltype_ordered <- factor(plot_df_clean$celltype, 
+                                          levels = celltype_order)
+ 
+ p4 <- ggplot(plot_df_clean, aes(x = pseudotime, y = celltype_ordered, fill = celltype_ordered)) +
+   geom_density_ridges(alpha = 0.7, scale = 2, rel_min_height = 0.01) +
+   scale_fill_manual(values = celltype_colors) +
+   theme_classic() +
+   labs(title = "Pseudotime Distribution by Cell Type",
+        x = "Pseudotime",
+        y = "Cell Type") +
+   theme(legend.position = "none",
+         plot.title = element_text(hjust = 0.5, face = "bold"),
+         axis.text.y = element_text(size = 10, face = "bold"))
+ 
+ # Add panel labels using plot_annotation from patchwork
+ p1_labeled <- p1 + 
+   labs(tag = "A") +
+   theme(plot.tag = element_text(size = 16, face = "bold"))
+ 
+ p2_labeled <- p2 + 
+   labs(tag = "B") +
+   theme(plot.tag = element_text(size = 16, face = "bold"))
+ 
+ p3_labeled <- p3 + 
+   labs(tag = "C") +
+   theme(plot.tag = element_text(size = 16, face = "bold"))
+ 
+ # Label pie charts
+ for(i in 1:length(pie_charts)) {
+   pie_charts[[i]] <- pie_charts[[i]] + 
+     labs(tag = LETTERS[3 + i]) +
+     theme(plot.tag = element_text(size = 16, face = "bold"))
+ }
+ 
+ # Label ridge plot as G
+ p4_labeled <- p4 + 
+   labs(tag = "G") +
+   theme(plot.tag = element_text(size = 16, face = "bold"))
+ 
+ # Combine all plots
+ # Top row: UMAP and Violin
+ # Second row: Density plot
+ # Third row: Three pie charts
+ # Bottom row: Ridge plot
+ 
+ if(length(pie_charts) == 3) {
+   combined_plot <- (p1_labeled | p2_labeled) / 
+     (p3_labeled) / 
+     (pie_charts[[1]] | pie_charts[[2]] | pie_charts[[3]]) /
+     (p4_labeled)
+ } else if(length(pie_charts) == 2) {
+   combined_plot <- (p1_labeled | p2_labeled) / 
+     (p3_labeled) / 
+     (pie_charts[[1]] | pie_charts[[2]] | plot_spacer()) /
+     (p4_labeled)
+ } else {
+   combined_plot <- (p1_labeled | p2_labeled) / 
+     (p3_labeled) / 
+     (pie_charts[[1]] | plot_spacer() | plot_spacer()) /
+     (p4_labeled)
+ }
+ 
+ combined_plot <- combined_plot + 
+   plot_layout(heights = c(1, 0.8, 0.8, 0.6))
+ 
+ print(combined_plot)
+ ggsave(paste0(dir.results, "Complete_Pseudotime_Analysis_with_Ridge.pdf"), 
+        plot = combined_plot, width = 16, height = 16)
+
+ ggsave(paste0(dir.results, "Complete_Pseudotime_Analysis_with_Ridge.png"), 
+        plot = combined_plot, width = 16, height = 16, dpi = 300)
  
  
  
