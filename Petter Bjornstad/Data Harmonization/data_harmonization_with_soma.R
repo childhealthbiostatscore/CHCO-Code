@@ -1,4 +1,8 @@
 library(reticulate)
+use_python("/usr/bin/python3", required = TRUE)
+py_config()
+
+library(reticulate)
 library(dplyr)
 library(tidyr)
 library(purrr)
@@ -12,6 +16,10 @@ if (user == "choiyej") {
 } else if (user == "pylell") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "shivaniramesh") {
+  root_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  git_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/"
+  use_python("/usr/bin/python3", required = TRUE)
 } else {
   stop("Unknown user: please specify root path for this user.")
 }

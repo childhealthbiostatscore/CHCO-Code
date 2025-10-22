@@ -55,28 +55,34 @@ def clean_ultra():
     # Demographics
     # --------------------------------------------------------------------------
 
-    dem_cols = ["record_id", "dob", "race", "ethnicity", "participation_status", "mrn"]
-    # Export
+    dem_cols = ["record_id", "dob", "participation_status", "mrn", "race", "ethnicity"]
+    # # Export
     demo = pd.DataFrame(proj.export_records(fields=dem_cols))
+    print(type(demo))       # Should be <class 'list'> or <class 'pandas.DataFrame'> depending on your wrapper
+    print(len(demo))        # Number of records exported
+    print(demo[:3]) 
     # Replace missing values
-    demo.replace(rep, np.nan, inplace=True)
-    demo["group"] = "Type 2 Diabetes"
-    demo.drop(redcap_cols, axis=1, inplace=True)
-    demo.rename({"gender": "sex", "mr_number": "mrn"},
-                inplace=True, axis=1)
-    # Race columns combined into one
-    demo = combine_checkboxes(demo, base_name="race", levels=[
-        "American Indian or Alaskan Native", "Asian",
-        "Hawaiian or Pacific Islander", "Black or African American",
-        "White", "Unknown", "Other"])
-    # Same for ethnicity
-    demo = combine_checkboxes(demo,
-                              base_name="ethnicity",
-                              levels=["Hispanic or Latino",
-                                      "Not Hispanic or Latino",
-                                      "Unknown/Not Reported"])
-
-    demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
+    if demo is None:
+        print("Warning: No records returned. Skipping demo processing.")
+    else:
+        demo.replace(rep, np.nan, inplace=True)    
+        demo["group"] = "Type 2 Diabetes"
+        demo.drop(redcap_cols, axis=1, inplace=True)
+        demo = demo.rename({"gender": "sex", "mr_number": "mrn"}, axis=1)#, inplace=True)
+        #Race columns combined into one
+        combine_checkboxes(demo, base_name="race", levels=[
+            "American Indian or Alaskan Native", "Asian",
+            "Hawaiian or Pacific Islander", "Black or African American",
+            "White", "Unknown", "Other"])
+        print(type(demo))
+        # Same for ethnicity
+        combine_checkboxes(demo,
+                                base_name="ethnicity",
+                                levels=["Hispanic or Latino",
+                                        "Not Hispanic or Latino",
+                                        "Unknown/Not Reported"])
+        print(type(demo))
+        demo["participation_status"] = demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"})#, inplace=True)
 
     # --------------------------------------------------------------------------
     # Medical History
@@ -85,26 +91,29 @@ def clean_ultra():
     var = ["record_id", "diabetes_diag", "med_hx_hypertension"] #"insulin_type",met_hx
            #"cvd_type", "met_hx", "med_hx_hypertension"] #"diabetes_meds"]
     med = pd.DataFrame(proj.export_records(fields=var))
+    print(type(med))       # Should be <class 'list'> or <class 'pandas.DataFrame'> depending on your wrapper
+    print(len(med))        # Number of records exported
+    print(med[:3]) 
     med.drop(redcap_cols, axis=1, inplace=True)
     # Replace missing values
-    med.replace(rep, np.nan, inplace=True)
+    med.replace(rep, np.nan)#, inplace=True)
 
     # med["diabetes_meds"].replace(
     #      {"diabetes_meds___1": "Metformin", "diabetes_meds___2": "Insulin", "diabetes_meds___3": "Thiazolinediones (TZDs)", "diabetes_meds___4": "GLP-1 agonists", "diabetes_meds___5": "SGLT-1/2 inhibitors", "diabetes_meds___6": "Other", "diabetes_meds___7":"None"}, inplace=True)
-    # Metformin
+    #Metformin
     # med["insuline_type"].replace(
     #     {1: "Long acting", 2: "Short acting", 3: "Other"}, inplace=True)
     # med.rename({"diabetes_med___1": "metformin_timepoint"},
     #            axis=1, inplace=True)
-    # Insulin
+    #Insulin
     # med["cvd_type"].replace(
     #     {1: "Congestive Heart Failure", 2: "Myocardial Infarction", 3: "Coronary Artery Disease", 4: "Peripheral Vascular Disease", 5: "Other"}, inplace=True)
-    # # Hypertension Y/N
+    # Hypertension Y/N
     # med["met_hx"].replace(
     #     {1: "Hyperlipidemia", 3: "Obesity", 4: "Sleep Apnea", 5: "Other"}, inplace=True)
-    med["med_hx_hypertension"].replace(
-        {0: "No", "0": "No", 1: "Yes", "1": "Yes"}, inplace=True)
-    med.rename({"med_hx_hypertension": "hypertension", "diabetes_diag":"diabetes_dx_date"})
+    med["med_hx_hypertension"] = med["med_hx_hypertension"].replace(
+        {0: "No", "0": "No", 1: "Yes", "1": "Yes"})#, inplace=True)
+    med = med.rename({"med_hx_hypertension": "hypertension", "diabetes_diag":"diabetes_dx_date"})
 
 
     med["procedure"] = "screening"
@@ -131,7 +140,8 @@ def clean_ultra():
     var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
                                                                == "screening_labs", "field_name"]]
     screen = pd.DataFrame(proj.export_records(fields=var))
-    screen.replace(rep, np.nan, inplace=True)  # Replace missing values
+    
+    screen = screen.replace(rep, np.nan)#, inplace=True)  # Replace missing values
     screen.drop(redcap_cols + ['prescreen_a1c', 'prescreen_a1c_date'],#, "screening_labs_complete"],
                 axis=1, inplace=True)
     screen.columns = screen.columns.str.replace(
@@ -147,7 +157,8 @@ def clean_ultra():
     var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
                                                                == "study_visit_vitalslabs", "field_name"]]
     vital = pd.DataFrame(proj.export_records(fields=var))
-    vital.replace(rep, np.nan, inplace=True)  # Replace missing values
+    if not vital.empty and "visit" in vital.columns:
+        vital = vital.replace(rep, np.nan)#, inplace=True)  # Replace missing values
     vital.drop(redcap_cols + ["sv_vitals_yn", "pilabs_yn"],
                 axis=1, inplace=True)
     vital.rename({"studyvisit_type":"visit", "sv_date":"date", "labs_s_creatinine": "creatinine_s", "labs_u_creatinine":"creatinine_u", "labs_u_microalbumin":"microalbumin_u", "labs_cystatinc":"cystatin_c_s"},
@@ -165,16 +176,16 @@ def clean_ultra():
     # Imaging
     # --------------------------------------------------------------------------
 
-    # var = ["record_id", "study_visit"] + [v for v in meta.loc[meta["form_name"]
-    #                                                            == "imaging", "field_name"]]
-    # mri = pd.DataFrame(proj.export_records(fields=var))
-    # mri.replace(rep, np.nan, inplace=True)  # Replace missing values
-    # mri.drop(redcap_cols + ["mri_cardio", "mri_abdo",
-    #                         "mri_aortic", "study_visit_mri"],
-    #          axis=1, inplace=True)
-    # mri.columns = mri.columns.str.replace(
-    #     r"mri_|visit_", "", regex=True)
-    # mri["procedure"] = "cardio_abdominal_mri"
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                               == "imaging", "field_name"]]
+    mri = pd.DataFrame(proj.export_records(fields=var))
+    mri.replace(rep, np.nan, inplace=True)  # Replace missing values
+    mri.drop(redcap_cols, axis=1, inplace=True)#+ ["mri_cardio", "mri_abdo",
+                            #"mri_aortic", "study_visit_mri"],
+             
+    mri.columns = mri.columns.str.replace(
+        r"mri_|visit_", "", regex=True)
+    mri["procedure"] = "cardio_abdominal_mri"
 
     
     # --------------------------------------------------------------------------
@@ -197,23 +208,30 @@ def clean_ultra():
     df = pd.concat([df, phys], join='outer', ignore_index=True)
     df = pd.concat([df, screen], join='outer', ignore_index=True)
     df = pd.merge(df, demo, how="outer")
-    df = df.loc[:, ~df.columns.str.startswith('redcap_')]
-    df = df.copy()
+#     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
+#     df = df.copy()
 
-    # --------------------------------------------------------------------------
-    # Reorganize
-    # --------------------------------------------------------------------------
+#     # --------------------------------------------------------------------------
+#     # Reorganize
+#     # --------------------------------------------------------------------------
 
     #df.rename({"study_visit": "visit"}, axis=1, inplace=True)
     df["study"] = "ULTRA"
     id_cols = ["record_id", "study"] + \
-        dem_cols[1:] + ["visit", "procedure", "date"]
+        [ "dob", "participation_status", "mrn"] + ["visit", "procedure", "date"]
     other_cols = df.columns.difference(id_cols, sort=False).tolist()
     other_cols = natsorted(other_cols, alg=ns.IGNORECASE)
     df = df[id_cols + other_cols]
     # Change study visit names
-    df["visit"].replace({np.nan: "baseline", '1': "baseline",
-                         '2': "3_months_post_surgery", '3': "12_months_post_surgery"}, inplace=True)
+    # df["visit"].replace({np.nan: "baseline", '1': "baseline",
+    #                      '2': "3_months_post_surgery", '3': "12_months_post_surgery"}, inplace=True)
+    df["visit"] = df["visit"].replace({
+    np.nan: "baseline",
+    '1': "baseline",
+    '2': "month_3",
+    '3': "month_6",
+    '4': "month_12"
+})
     df["visit"] = pd.Categorical(df["visit"],
                                  categories=["baseline", "3_months_post_surgery",
                                  "12_months_post_surgery"],
