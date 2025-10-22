@@ -219,10 +219,58 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
 
 
 
+### Check UCMR-3
 
 
 
 
+
+
+### SDOH Data
+setwd('/Users/netio/Documents/UofW/Projects/PFAS_Water/')
+
+all_data <- data.table::fread("ucmr3-occurrence-data/UCMR3_All.txt") %>%
+  filter(Contaminant != 'lithium')
+
+zip_codes <- data.table::fread("ucmr3-occurrence-data/UCMR3_ZIPCodes.txt")
+
+
+all_data <- all_data %>% left_join(zip_codes)
+
+
+# 1. Create wide format table with zip codes and contaminant values
+contaminant_wide <- all_data %>%
+  select(ZIPCODE, Contaminant, AnalyticalResultValue) %>%
+  # Handle non-detects (NA values) - you can replace with 0 or keep as NA
+  pivot_wider(
+    names_from = Contaminant,
+    values_from = AnalyticalResultValue,
+    values_fn = mean  # If multiple samples per zip/contaminant, take mean
+  ) %>%
+  arrange(ZIPCODE)
+
+# View the result
+head(contaminant_wide)
+
+
+IMPROVE <- data.table::fread("Participant_Zips/IMPROVET2D-ZipCodes_DATA_2025-10-20_1056.csv") %>%
+  filter(!is.na(mr_number)) %>% 
+  dplyr::select(record_id = subject_id, mrn = mr_number, zip_code)
+
+RH <- data.table::fread('Participant_Zips/RENALHEIR-ZipCodes_DATA_2025-10-20_1055.csv') %>% 
+  filter(!is.na(mr_number)) %>% 
+  dplyr::select(record_id = subject_id, mrn = mr_number, zip_code)
+
+PANTHER <- data.table::fread('Participant_Zips/PANTHER-ZipCodes_DATA_2025-10-20_1232.csv') %>%
+  filter(!is.na(mrn)) %>% 
+  dplyr::select(record_id, mrn, zip_code)
+
+full_zip <- bind_rows(IMPROVE, RH, PANTHER)
+full_zip$zip_code <- as.character(full_zip$zip_code)
+
+
+
+contaminant_wide_small <- contaminant_wide %>% filter(ZIPCODE %in% full_zip$zip_code)
 
 
 
