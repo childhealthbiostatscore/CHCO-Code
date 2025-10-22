@@ -5223,5 +5223,34 @@ dev.off()
 
 
 
+########## Make demographics for GBM/Arteriosclerosis
+
+
+
+
+
+library(corrplot)
+library(ggplot2)
+library(dplyr)
+library(ggpubr)
+library(gridExtra)
+library(stringr)
+
+dat2 <- data.table::fread("/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")
+
+dat2 <- dat2[-str_which(dat2$record_id, '-O')]
+
+
+
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+                   .by = c(record_id, visit))
+
 
 
