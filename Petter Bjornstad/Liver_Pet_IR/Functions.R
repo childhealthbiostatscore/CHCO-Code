@@ -22,3 +22,8 @@ collapse_by_id_visit <- function(df) {
   
   return(df_collapsed)
 }
+# Define a custom rendering function without median
+my.render.cont <- function(x) {
+  with(stats.apply.rounding(stats.default(x), digits=2), c("",
+                                                           "Mean (SD)" = sprintf("%s (%s)", MEAN, SD)))
+}

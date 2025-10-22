@@ -14,7 +14,7 @@ if (user == "choiyej") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
 } else if (user == "hhampson") {
-  root_path <- "/Volumes/Peds Endo/"
+  root_path <- "/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/"
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -26,7 +26,7 @@ harm_dat <- read.csv(file.path(root_path, "/Data Harmonization/Data Clean/harmon
 
 harm_dat_collapsed <- harm_dat %>%
   group_by(record_id, visit) %>%
-  fill(date, .direction = "updown") %>% ungroup() %>%
+  tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) %>%
@@ -45,8 +45,10 @@ rh_rh2_df <- harm_dat_collapsed %>%
     age_ins   = if_else(!is.na(m_i) | !is.na(gir_190), age, NA_real_)
   ) %>%
   group_by(mrn) %>%
-  fill(starts_with("liver"), m_i, gir_190, m_i_gir_190, age_liver, age_ins, .direction = "updown") %>%
+  tidyr::fill(starts_with("liver"), m_i, gir_190, m_i_gir_190, age_liver, age_ins, .direction = "updown") %>%
   arrange(mrn) %>%
   filter(!is.na(age_liver) | !is.na(age_ins)) %>%
   distinct(mrn, age_liver, age_ins, .keep_all = T) %>%
   mutate(age_diff = age_liver - age_ins)
+
+rm(harm_dat,harm_dat_collapsed)
