@@ -5228,7 +5228,7 @@ dev.off()
 
 
 
-
+library(purrr)
 library(corrplot)
 library(ggplot2)
 library(dplyr)
@@ -5251,6 +5251,98 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
                    .by = c(record_id, visit))
+
+dat_small <- dat %>% 
+  filter(record_id %in% dat2$record_id) %>% 
+  dplyr::select(record_id, age, bmi, hba1c, sex, race_ethnicity, study, group)
+
+
+
+dat2 <- dat2 %>% left_join(dat_small, by='record_id')
+
+dat2[dat2 == ""] <- NA
+
+dat2 <- dat2 %>% filter(!is.na(arteriosclerosis))
+
+
+# Convert variables to proper data types
+combined_df <- dat2 %>%
+  mutate(
+    # Ensure continuous variables are numeric
+    age = as.numeric(age),
+    bmi = as.numeric(bmi),
+    hba1c = as.numeric(hba1c),
+    
+    # Ensure categorical variables are factors or characters
+    sex = as.factor(sex),
+    race_ethnicity = as.factor(race_ethnicity),
+    study = as.factor(study),
+    group = as.factor(group),
+    arteriosclerosis = as.factor(arteriosclerosis),
+    arteriolohyalinosis = as.factor(arteriolohyalinosis),
+    `GBM thickness` = as.factor(`GBM thickness`)
+  )
+
+
+
+# Now create the table with proper data types
+desc_table1_fixed <- combined_df %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, group, arteriosclerosis, arteriolohyalinosis, `GBM thickness`) %>%
+  tbl_summary(
+    by = group,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      hba1c ~ "continuous",
+      sex ~ "categorical",
+      race_ethnicity ~ "categorical",
+      study ~ "categorical",
+      arteriosclerosis ~ 'categorical', 
+      arteriolohyalinosis ~ 'categorical', 
+      `GBM thickness` ~ 'categorical'
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex", 
+      race_ethnicity ~ "Race/Ethnicity",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      study ~ "Study",
+      arteriosclerosis ~ 'Arteriosclerosis (Y/N)',
+      arteriolohyalinosis ~ 'Ateriolohyalinosis Severity',
+      `GBM thickness` ~ 'GBM Thickening (Y/N)'
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test"
+    # Skip categorical p-values if they cause issues
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Group**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save version with epic
+desc_table1_fixed %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/demographics_GBMtraits.png", 
+         vwidth = 1200, vheight = 800)
 
 
 
