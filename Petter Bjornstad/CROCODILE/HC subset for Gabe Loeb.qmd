@@ -148,7 +148,7 @@ print(lookup_table)
   #dplyr::select(record_id, age, sex, eGFR_CKD_epi, hba1c)
 
 # Define the columns we want to keep in the final Seurat object
-columns_to_keep <- c("orig.ident", "nCount_RNA", "nFeature_RNA", "record_id", "age", "sex", "eGFR_CKD_epi", "hba1c", "kit_id")
+columns_to_keep <- c( "nCount_RNA", "nFeature_RNA", "record_id", "age", "sex", "eGFR_CKD_epi", "hba1c", "kit_id")
 
 # First, subset the metadata to only keep the desired columns
 croc_so_hc@meta.data <- croc_so_hc@meta.data[, columns_to_keep, drop = FALSE]
@@ -172,19 +172,34 @@ cat("Metadata after merge - dimensions:", dim(metadata_merged), "\n")
 cat("Columns after merge:", colnames(metadata_merged), "\n")
 cat("BMI values after merge:", sum(!is.na(metadata_merged$bmi)), "non-NA out of", nrow(metadata_merged), "\n")
 
+cat("eGFR_CKD_epi class:", class(metadata_merged$eGFR_CKD_epi), "\n")
+cat("bmi class:", class(metadata_merged$bmi), "\n")
+cat("acr_u class:", class(metadata_merged$acr_u), "\n")
+cat("Sample eGFR values:", head(metadata_merged$eGFR_CKD_epi, 10), "\n")
+cat("Sample bmi values:", head(metadata_merged$bmi, 10), "\n")
+cat("Sample acr_u values:", head(metadata_merged$acr_u, 10), "\n")
 
+# Convert all numeric columns to proper numeric format
+metadata_merged$eGFR_CKD_epi <- as.numeric(as.character(metadata_merged$eGFR_CKD_epi))
+metadata_merged$bmi <- as.numeric(as.character(metadata_merged$bmi))
+metadata_merged$acr_u <- as.numeric(as.character(metadata_merged$acr_u))
+metadata_merged$age <- as.numeric(as.character(metadata_merged$age))
+
+# Check for conversion issues
+cat("NAs in eGFR after conversion:", sum(is.na(metadata_merged$eGFR_CKD_epi)), "\n")
+cat("NAs in bmi after conversion:", sum(is.na(metadata_merged$bmi)), "\n")
+cat("NAs in acr_u after conversion:", sum(is.na(metadata_merged$acr_u)), "\n")
 # Create age binning
 metadata_final <- metadata_merged %>%
   mutate(
     age_binned = case_when(
       age >= 0 & age <= 2 ~ "0-2 years",
-      age >= 3 & age <= 5 ~ "3-59 years",
+      age >= 3 & age <= 5 ~ "3-5 years",
       age >= 6 & age <= 8 ~ "6-8 years",
       age >= 9 & age <= 11 ~ "9-11 years",
       age >= 12 & age <= 14 ~ "12-14 years",
       age >= 15 & age <= 17 ~ "15-17 years",
-      age >= 18 & age <= 20 ~ "18-20 years",
-      age >= 21 & age <= 23 ~ "21-23 years",
+      age >= 18 & age <= 23 ~ "18-23 years",
       age >= 24 & age <= 26 ~ "24-26 years",
       age >= 27 & age <= 29 ~ "27-29 years",
       age >= 30 & age <= 32 ~ "30-32 years",
@@ -202,9 +217,13 @@ metadata_final <- metadata_merged %>%
       age >= 66 & age <= 68 ~ "66-68 years",
       age >= 69 & age <= 71 ~ "69-71 years"
       #TRUE ~ paste0(floor(age/10)*10, "-", floor(age/10)*10+9, " years")
-    )
+    ), 
+    record_id = gsub("^CRC-", "", record_id),
+    # Round decimal places
+    eGFR_CKD_epi = suppressWarnings(ifelse(is.na(eGFR_CKD_epi), NA, round(eGFR_CKD_epi, 3))),     bmi = ifelse(is.na(bmi), NA, round(bmi, 3)),
+    acr_u = ifelse(is.na(acr_u), NA, round(acr_u, 3)) 
   ) %>%
-  select(-age) %>%  # Remove original age column
+  select(-age, -kit_id) %>%  # Remove original age column
   rename(age = age_binned)  # Rename age_binned to age
 
 # Debug: Check after age binning

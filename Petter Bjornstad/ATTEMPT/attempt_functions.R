@@ -14,6 +14,12 @@ if (user == "choiyej") { # local version
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
 } else if (user == "yejichoi") { # hyak version
   root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
   git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
 } else if (user == "pylell") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
@@ -2077,6 +2083,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
                                baseline_visit = 0, 
                                visits_to_plot = c(-4, 0, 4, 16, 18),
                                covariates = NULL,
+                               star_size = 6,
                                test_method = "lmer_covars") { # test method can be "lmer", "ancova", "lmer_covars"
   
   dodge_val <- 0.08
@@ -2193,7 +2200,7 @@ plot_mean_ci_stars <- function(data, y_var, y_axis_title,
     geom_text(data = ttest_results, 
               aes(x = factor(visit, levels = visits_to_plot), y = y_position, label = stars), 
               inherit.aes = FALSE,
-              size = 6, vjust = 0) +
+              size = star_size, vjust = 0) +
     scale_shape_manual(values = c("Placebo" = 15, "Dapagliflozin 5mg" = 18)) +
     scale_color_manual(values = c("Placebo" = "#f8ae9d", "Dapagliflozin 5mg" = "#a7b298")) +
     scale_x_discrete(expand = expansion(mult = c(0.3, 0.3))) +
@@ -6363,6 +6370,7 @@ plot_gsea_results <- function(gsea_list,
                          guide = guide_colorbar(barheight = 0.4, barwidth = 8)) +
     theme_minimal() +
     theme(panel.grid = element_blank(), 
+          plot.title = element_text(hjust = 0.5, face = "bold"),
           legend.position = "top",
           axis.text.y = element_blank(),
           legend.title = element_text(vjust = 0.8),
