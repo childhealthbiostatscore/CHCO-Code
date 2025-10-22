@@ -1,0 +1,221 @@
+---
+title: "WCN abstract 2025"
+author: "Ye Ji Choi"
+author: "Ye Ji Choi"
+date: "r lubridate::today()"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r echo = F, include = F}
+library(jsonlite)
+library(aws.s3)
+library(dplyr)
+library(kableExtra)
+library(knitr)
+library(ggplot2)
+library(purrr)
+library(tidyr)
+library(stats)
+library(patchwork)
+library(UpSetR)
+library(readxl)
+library(fgsea)
+library(ReactomeGSA)
+library(GSEABase)
+library(enrichplot)
+library(enrichR)
+library(ggrepel)
+library(forcats)
+library(stringr)
+library(ComplexUpset)
+library(ggupset)
+library(Hmisc)
+library(ggrounded)
+library(circlize)
+library(tidyverse)
+library(openxlsx)
+library(biomaRt)
+library(ggbreak)
+library(ggpubr)
+library(ggtext)
+library(rstatix)
+```
+
+```{r}
+# specify user for paths
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r}
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
+```
+
+```{r}
+yt2dobese <- read.csv(file.path(root_path, "Y-T2D/Data Clean/y_t2d_obese_dataset.csv"))
+# CKD Definition:
+# eGFR_fas_cr < 75 | acr_u >= 100 ~ "eGFR < 75 and/or UACR >=100 mg/g",
+#                                 eGFR_fas_cr >= 75 | acr_u < 100 ~ "eGFR >= 75 and UACR <100 mg/g"
+```
+
+# Table
+```{r}
+summary(arsenal::tableby(study ~ age + sex + bmi + group, data = subset(yt2dobese, group != "Lean Control")), digits = 0)
+summary(arsenal::tableby(study ~ age + sex + bmi + group + date_diff_years + study_pairs + visit_followup, data = yt2dobese), digits = 0)
+summary(arsenal::tableby(group ~ age + sex + bmi + study + date_diff_years + study_pairs + visit_followup, data = yt2dobese), digits = 0)
+
+summary(arsenal::tableby(study_pairs ~ age + sex + bmi + group + date_diff_years, data = subset(yt2dobese, visit_followup == "follow_up")), digits = 0)
+summary(arsenal::tableby(study_pairs ~ age + sex + bmi + group + date_diff_years, data = subset(yt2dobese, visit_followup == "follow_up"), strata = group), digits = 0)
+
+# View(subset(yt2dobese, study_pairs == "IMPROVE/RH -> RH2"))
+# subset(yt2dobese, rh_id == "RH-16-T")$date_diff_years
+
+summary()
+```
+
+```{r}
+fit_ckd <- fit_models_emm(
+  outcomes = c("avg_k_r2", "avg_c_r2", "avg_c_adc",
+               "avg_c_t1", "tkv_combined", "htadjtkv_combined"),
+  formula_rhs = "~ ckd_group + bmi_cat + group + age" ,
+  emm_var = "ckd_group",
+  data = subset(yt2dobese, group != "Lean Control")
+)
+
+fit_ckd$emm_table
+fit_ckd$contrast_table
+p_val <- round(fit_ckd$contrast_table[fit_ckd$contrast_table$outcome == "avg_k_r2",]$p.value, 3)
+p_y = 45
+
+yt2dobese_ckd <- yt2dobese %>%
+  filter(group != "Lean Control", !is.na(ckd_group)) %>%
+  mutate(ckd_group = factor(ckd_group, levels = c("Non-CKD", "CKD")))
+
+yt2dobese_ckd %>%
+  ggplot(aes(x = ckd_group, y = avg_k_r2, color = ckd_group)) +
+  geom_boxplot(size = 1.5, width = 0.5, outlier.shape = NA) +
+  geom_jitter(alpha = 0.5, width = 0.15, size = 2) +
+  theme_minimal() +
+  theme(
+    text = element_text(size = 20),
+    panel.grid = element_blank(),
+    legend.position = "none",
+    axis.text.x = element_blank(),
+    axis.text.y.right = element_blank(),
+    axis.ticks.y.right = element_blank(),
+    axis.title.y.right = element_blank()
+  ) +
+  labs(x = NULL, y = expression("Kidney R2*" ~ (s^-1))) +
+  scale_y_continuous(limits =  c(min(yt2dobese$avg_k_r2, na.rm = TRUE) - 3,
+                                 max(yt2dobese$avg_k_r2, na.rm = TRUE) + 1), 
+                     expand = expansion(mult = c(0.01, 0.00))) +
+  scale_y_break(c(25, 45), scales = "fixed", space = 0.5) +  
+  scale_color_manual(values = c("Non-CKD" = "#003049", "CKD" = "#e07a5f")) +
+  # ---- boxed x axis labels ----
+  geom_label(
+  data = data.frame(
+    ckd_group = c("Non-CKD", "CKD"),
+    avg_k_r2 = min(yt2dobese$avg_k_r2, na.rm = TRUE) - 1.5
+  ),
+  aes(x = ckd_group, y = avg_k_r2, label = ckd_group, fill = ckd_group),
+  inherit.aes = FALSE, color = "white", fontface = "bold", size = 12
+  ) +
+  scale_fill_manual(values = c("Non-CKD" = "#003049", "CKD" = "#e07a5f")) +
+  # ---- manual bracket ----
+  annotate("segment", x = 1, xend = 2, y = p_y, yend = p_y, size = 0.8) +     # horizontal line
+  annotate("segment", x = 1, xend = 1, y = p_y, yend = p_y - 0.5, size = 0.8) + # left vertical
+  annotate("segment", x = 2, xend = 2, y = p_y, yend = p_y - 0.5, size = 0.8) + # right vertical
+  annotate("text", x = 1.5, y = p_y + 0.5, label = paste0("p = ", p_val), size = 8, fontface = "bold.italic")       # p-value text
+
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Y-T2D/Results/Figures/2025 WCN Abstract/avg_k_r2_ckd_boxplot.png", width = 7, height = 7)
+
+table(yt2dobese_ckd$ckd_group)
+```
+
+```{r}
+# medullary FSOC comparison among LC, OC, T2D
+comparisons_list <- list(
+  c("Lean Control",  "Obese Control"),
+  c("Lean Control",  "Type 2 Diabetes"),
+  c("Obese Control", "Type 2 Diabetes")
+)
+
+yt2dobese_avg_m_fsoc <- yt2dobese %>%
+  filter(!is.na(avg_m_fsoc))
+
+stat_tbl <- data.frame(yt2dobese_avg_m_fsoc) %>%
+  pairwise_t_test(avg_m_fsoc ~ group, detailed = T,
+                  comparisons = comparisons_list,
+                  pool.sd = F) %>%
+  add_xy_position(x = "group", step.increase = 0.15) %>%
+  mutate(label = ifelse(p < 0.001, "p < 0.001",
+                        paste0("p = ", signif(p, 3))))
+
+yt2dobese_avg_m_fsoc %>%
+  ggplot(aes(x = group, y = avg_m_fsoc, color = group)) +
+  geom_boxplot(size = 1.5, width = 0.5, outlier.shape = NA) +
+  geom_jitter(alpha = 0.5, width = 0.15, size = 2) +
+  theme_minimal(base_size = 20) +
+  theme(panel.grid = element_blank(), legend.position = "none",
+        axis.text.x = element_text(face = "bold", color = "black")) +
+  labs(x = NULL, y = "Medulla FSOC") +
+  scale_color_manual(values = c("#598392", "#f9a620", "#f26419")) +
+  scale_x_discrete(labels = c("Lean Control"="Lean","Obese Control"="Obese","Type 2 Diabetes"="T2D")) +
+  stat_pvalue_manual(stat_tbl, label = "label", size = 5, fontface = "bold.italic")
+
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Y-T2D/Results/Figures/2025 WCN Abstract/avg_m_fsoc_boxplot.png", width = 7, height = 7)
+
+table(yt2dobese_avg_m_fsoc$group)
+```
+
+```{r}
+# medullary FSOC comparison among LC, OC, T2D
+comparisons_list <- list(
+  c("Lean Control",  "Obese Control"),
+  c("Lean Control",  "Type 2 Diabetes"),
+  c("Obese Control", "Type 2 Diabetes")
+)
+
+yt2d_avg_m_fsoc <- yt2dobese %>%
+  filter(!is.na(avg_m_fsoc)) %>%
+  filter(group %in% c("Type 2 Diabetes"))
+
+stat_tbl <- data.frame(yt2d_avg_m_fsoc) %>%
+  pairwise_t_test(avg_m_fsoc ~ sglt2i_ever, detailed = T,
+                  pool.sd = F) %>%
+  add_xy_position(x = "sglt2i_ever", step.increase = 0.4) %>%
+  mutate(label = ifelse(p < 0.001, "p < 0.001",
+                        paste0("p = ", signif(p, 3))))
+
+yt2d_avg_m_fsoc %>%
+  ggplot(aes(x = sglt2i_ever, y = avg_m_fsoc, color = sglt2i_ever)) +
+  geom_boxplot(size = 1.5, width = 0.5, outlier.shape = NA) +
+  geom_jitter(alpha = 0.5, width = 0.15, size = 2) +
+  theme_minimal(base_size = 20) +
+  theme(panel.grid = element_blank(), legend.position = "none",
+        axis.text.x = element_text(face = "bold", color = "black")) +
+  labs(x = NULL, y = "Medulla FSOC") +
+  scale_color_manual(values = c("#f7a399", "#ef6351")) +
+  scale_x_discrete(labels = c("Yes"="T2D (SGLT2i+)","No"="T2D (SGLT2i-)")) +
+  stat_pvalue_manual(stat_tbl, label = "label", size = 5, fontface = "bold.italic")
+
+ggsave("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Y-T2D/Results/Figures/2025 WCN Abstract/avg_m_fsoc_t2d_boxplot.png", width = 7, height = 7)
+
+table(yt2d_avg_m_fsoc$sglt2i_ever)
+```
+

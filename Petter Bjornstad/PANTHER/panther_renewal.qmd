@@ -10,6 +10,7 @@ format:
     code-fold: true
     embed-resources: true
 ---
+
 ```{r libraries, echo=F, include = F}
 library(SomaDataIO)
 library(tidyverse)
@@ -42,14 +43,16 @@ source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Function
 
 ```{r prep-data, echo = F, include = F}
 # Load clinical data
-harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
-# exclude <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv")$record_id
+harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
+exclude <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/panther_withdrew_ltfu_list.csv") %>%
+  filter(category == "SF") %>%
+  pull(record_id) # Remove screen fails only (not lost to follow up)
 
 dat <- harm_dat %>% filter((study == "PANTHER" & visit %in% c("baseline", "screening"))|study == "RENAL-HEIR"|
                              study == "RENAL-HEIRitage" | (study == "IMPROVE" & visit == "baseline")) %>%
   mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
          mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
-  # filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
+  filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(mrn, visit)) %>%
@@ -100,7 +103,7 @@ dat <- harm_dat %>% filter((study == "PANTHER" & visit %in% c("baseline", "scree
                               acr_u <= 30 ~ "UACR (20, 30]",
                               acr_u > 30 ~ "UACR > 30")) %>%
   arrange(record_id) %>%
-  filter(!is.na(male_ind)) 
+  filter(!is.na(male_ind))
 
 dat$tanner_stage_comp <- as.factor(dat$tanner_stage_comp)
 
@@ -226,7 +229,7 @@ sens_dat <- label_harmonized(sens_dat, dict)
 
 # Table
 ```{r results = 'asis'}
-summary(arsenal::tableby(tanner_stage_comp ~ age + bmiz + sex + group_risk + 
+summary(arsenal::tableby(tanner_stage_comp_panther_cat ~ age + bmiz + sex + group_risk + albuminuria_cat + 
                            kwt(acr_u, "medianq1q3") + total_kidney_volume_ml + mm_si + mm_bcell + 
                            gfr_bsa_plasma + glomerular_pressure, data = panther),
         digits = 1)
@@ -249,7 +252,7 @@ xvars <- c("tanner_stage_comp_panther", "mm_si", "mm_bcell", "dexa_fat_kg")
 heat_dict <- data.frame(
   tanner_stage_comp_panther = "TS",
   mm_si = "Si",
-  mm_bcell = "I-Sec",
+  mm_bcell = "β-cell",
   dexa_fat_kg = "Fat mass",
   gfr_raw_plasma = "mGFR",
   glomerular_pressure = "PGLO",
@@ -270,4 +273,161 @@ corr_plot_modified(panther,
                    dict = heat_dict, tl.cex = 1.5,
                    coef_text_cex=2,
                    star_text_cex = 2)
+```
+```{r}
+full_dat <- harm_dat %>% 
+  mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit)) %>%
+  filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit))
+
+# Pull in biopsies
+biopsy_master <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/Biopsy master tracker.xlsx", skip = 2) 
+colnames(biopsy_master) <- gsub(" ", "_", colnames(biopsy_master))  # Replace spaces with underscores
+colnames(biopsy_master) <- gsub("/", "_", colnames(biopsy_master))  # Replace slashes with underscores
+colnames(biopsy_master) <- gsub("\\(", "_", colnames(biopsy_master))  # Replace opening parentheses with underscores
+colnames(biopsy_master) <- gsub("\\)", "", colnames(biopsy_master))  # Remove closing parentheses
+
+biopsy_master <- biopsy_master %>%
+  dplyr::rename(record_id=Study_ID,
+         visit=Visit_ID) %>%
+  mutate(visit = case_when(Study == "ATTEMPT" & visit == "4M" ~ "4_months_post",
+                           Study == "ATTEMPT" & visit == "BL" ~ "baseline",
+                           Study == "REMODEL" ~ visit, 
+                           Study == "IMPROVE" & visit == "4M" ~ "3_months_post_surgery",
+                           visit == "12M" ~ "12_months_post_surgery",
+                           visit == "Follow-up" ~ "follow-up",
+                           T ~ "baseline"),
+         record_id = case_when(startsWith(record_id, "RPC") & !is.na(Coenroll_ID__Same_visit_only) ~ Coenroll_ID__Same_visit_only,
+                               T ~ record_id)) # RH2-60-T and RH2-48-T coenrolled into RPC2 as of 02/03/25 data pull
+
+bx_sub <- biopsy_master %>%
+  dplyr::select(record_id, visit, Kit_ID) %>%
+  data.frame()
+
+# RH, RH2, IMPROVE with biopsies
+rh_rh2_improve <- full_dat %>%
+  filter(study %in% c("RENAL-HEIR", "RENAL-HEIRitage", "IMPROVE")) %>%
+  filter(group == "Type 2 Diabetes") %>%
+  dplyr::select(record_id, visit, age)
+
+rh_rh2_improve_bx <- left_join(rh_rh2_improve, bx_sub) %>%
+  filter(!is.na(Kit_ID)) %>%
+  distinct(Kit_ID, .keep_all = T)
+
+mean(rh_rh2_improve_bx$age, na.rm = TRUE)
+sd(rh_rh2_improve_bx$age, na.rm = TRUE)
+summary(rh_rh2_improve_bx$age)
+
+table(rh_rh2_improve_bx$age < 18)
+table(subset(rh_rh2_improve_bx, visit == "baseline")$age < 18)
+
+# ATTEMPT with biopsies
+attempt <- full_dat %>%
+  filter(study %in% c("ATTEMPT")) %>%
+  dplyr::select(record_id, visit, age) 
+
+attempt_bx <- left_join(attempt, bx_sub) %>%
+  filter(!is.na(Kit_ID)) %>%
+  distinct(Kit_ID, .keep_all = T)
+
+mean(attempt_bx$age, na.rm = TRUE)
+sd(attempt_bx$age, na.rm = TRUE)
+summary(attempt_bx$age)
+
+# CROCODILE & PANDA with biopsies
+croc_pnda <- full_dat %>%
+  filter(study %in% c("CROCODILE", "PANDA")) %>%
+  filter(group == "Type 1 Diabetes") %>%
+  dplyr::select(record_id, visit, age) 
+
+croc_pnda_bx <- left_join(croc_pnda, bx_sub) %>%
+  filter(!is.na(Kit_ID)) %>%
+  distinct(Kit_ID, .keep_all = T)
+
+mean(croc_pnda_bx$age, na.rm = TRUE)
+sd(croc_pnda_bx$age, na.rm = TRUE)
+summary(croc_pnda_bx$age)
+
+# CROC by itself
+croc <- full_dat %>%
+  filter(study %in% c("CROCODILE")) %>%
+  filter(group == "Type 1 Diabetes") %>%
+  dplyr::select(record_id, visit, age) 
+
+croc_bx <- left_join(croc, bx_sub) %>%
+  filter(!is.na(Kit_ID)) %>%
+  distinct(Kit_ID, .keep_all = T)
+
+mean(croc_bx$age, na.rm = TRUE)
+sd(croc_bx$age, na.rm = TRUE)
+summary(croc_bx$age)
+
+# PNDA by itself
+pnda <- full_dat %>%
+  filter(study %in% c("PANDA")) %>%
+  
+  filter(group == "Type 1 Diabetes") %>%
+  dplyr::select(record_id, visit, age) 
+
+pnda_bx <- left_join(pnda, bx_sub) %>%
+  filter(!is.na(Kit_ID)) %>%
+  distinct(Kit_ID, .keep_all = T)
+
+mean(pnda_bx$age, na.rm = TRUE)
+sd(pnda_bx$age, na.rm = TRUE)
+summary(pnda_bx$age)
+```
+
+```{r}
+# Count of proteomics
+## Pull in proteomics
+harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
+
+proteomics <- harm_dat %>% 
+  dplyr::select(record_id, mrn, visit, group, study, age, bmi, seq.10000.28) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  filter(!is.na(seq.10000.28))
+
+# RH/RH2
+rh_rh2_proteomics <- proteomics %>%
+  filter(study %in% c("RENAL-HEIR", "RENAL-HEIRitage")) %>%
+  filter(group == "Type 2 Diabetes") %>%
+  distinct(mrn, seq.10000.28, .keep_all = T)
+nrow(rh_rh2_proteomics)
+# N = 61
+
+# TODAY
+load(file.path(root_path, "/TODAY subaward/Somalogic data raw/soma.Rdata"))
+nrow(soma)
+# N = 644
+## Unique
+today_unique <- soma %>% distinct(releaseid, .keep_all = T)
+nrow(today_unique)
+# N = 379
+
+# TEEN-LABS
+load(file.path(root_path, "Teen Labs/Data_Cleaned/analysis_dataset.RData"))
+tl_proteomics <- df %>%
+  filter(!is.na(seq.10000.28))
+nrow(tl_proteomics)
+# N = 324
+## Unique
+tl_unique <- tl_proteomics %>% distinct(ID, .keep_all = T)
+nrow(tl_unique)
+# N = 64
+
+# RH/RH2/TODAY/TEEN-LABS: N = 644+61+324 = 1029
+
+# CASPER, CROCODILE, ATTEMPT
+t1d_proteomics <- proteomics %>%
+  filter(study %in% c("CASPER", "CROCODILE", "ATTEMPT")) %>%
+  filter(group == "Type 1 Diabetes" | is.na(group)) %>%
+  distinct(mrn, seq.10000.28, .keep_all = T)
+nrow(t1d_proteomics)
+# N = 217  # CASPER proteomics not included here
+
 ```

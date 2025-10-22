@@ -1,3 +1,9 @@
+library(ggplot2)
+theme_transparent <- theme(
+  plot.background   = element_rect(fill = "transparent", color = NA),
+  panel.background  = element_rect(fill = "transparent", color = NA),
+  legend.background = element_rect(fill = "transparent", color = NA)
+)
 fit_models_emm <- function(outcomes, 
                            formula_rhs, 
                            emm_var = "bmi_cat",
@@ -608,6 +614,7 @@ plot_mean_ci_continuous_time <- function(data,
   return(p)
 }
 
+library(ggbreak)
 create_comparison_boxplot <- function(data, 
                                       y_var, 
                                       x_var = "study",
@@ -620,81 +627,240 @@ create_comparison_boxplot <- function(data,
                                       paired = FALSE,
                                       pairing_var = "mrn",
                                       show_lines = TRUE,
-                                      comparison_method = "t.test",
-                                      p_format = "p.signif",
+                                      comparison_method = "t.test",  # "t.test" or "wilcox.test"
+                                      p_format = "p.signif",  # Changed from "p.format" to "p.signif"
                                       text_size = 15,
                                       jitter_width = 0,
                                       jitter_size = 2.5,
                                       jitter_alpha = 0.5,
                                       line_color = "gray60",
                                       line_size = 0.25,
-                                      line_alpha = 0.7) {
-  
-  # If no y_label provided, use the variable name
-  if (is.null(y_label)) {
-    y_label <- y_var
+                                      line_alpha = 0.7,
+                                      show_pair_stats_on_plot = F,
+                                      digits = 3,
+                                      scale_cut = NULL) {
+  # --- checks & labels ---
+  if (is.null(y_label)) y_label <- y_var
+  stopifnot(comparison_method %in% c("t.test", "wilcox.test"))
+  if (!x_var %in% names(data) || !y_var %in% names(data)) {
+    stop("x_var or y_var not found in data.")
+  }
+  if (paired && !pairing_var %in% names(data)) {
+    stop("pairing_var not found in data but paired=TRUE.")
   }
   
-  # Set default comparisons if none provided
+  # lock order of x
+  data[[x_var]] <- factor(data[[x_var]])
+  x_levels_all <- levels(data[[x_var]])
+  
+  # default comparisons
   if (is.null(comparisons)) {
-    # Get unique levels of x_var for automatic comparison
-    x_levels <- unique(data[[x_var]])
-    if (length(x_levels) == 2) {
-      comparisons <- list(x_levels)
+    x_levels_present <- levels(factor(data[[x_var]]))
+    if (length(x_levels_present) == 2) {
+      comparisons <- list(as.character(x_levels_present))
     } else {
-      warning("More than 2 groups detected. Please specify comparisons manually.")
+      warning("More than 2 groups detected. Please specify `comparisons` manually.")
       comparisons <- list()
     }
   }
   
-  # Calculate y_max for scaling
+  # y-range
   y_max <- max(data[[y_var]], na.rm = TRUE)
+  y_max <- ifelse(is.finite(y_max), y_max, NA_real_)
   
-  # Create the base plot
+  # base plot
   p <- data %>%
-    ggplot(aes(x = .data[[x_var]], y = .data[[y_var]], fill = .data[[x_var]])) +
-    geom_boxplot(size = 1, width = 0.8, color = box_color, outlier.shape = NA) + 
-    geom_jitter(size = jitter_size, alpha = jitter_alpha, width = jitter_width) +
-    labs(x = NULL, y = y_label) +
-    theme(panel.grid = element_blank(),
-          panel.background = element_blank(),
-          legend.position = "none",
-          text = element_text(size = text_size)) +
-    scale_y_continuous(limits = c(NA, y_max + y_buffer))
+    ggplot2::ggplot(ggplot2::aes(x = .data[[x_var]], y = .data[[y_var]], fill = .data[[x_var]])) +
+    ggplot2::geom_boxplot(size = 1, width = 0.8, color = box_color, outlier.shape = NA) +
+    ggplot2::geom_jitter(size = jitter_size, alpha = jitter_alpha, width = jitter_width) +
+    ggplot2::labs(x = NULL, y = y_label) +
+    ggplot2::theme(panel.grid = ggplot2::element_blank(),
+                   panel.background = ggplot2::element_blank(),
+                   legend.position = "none",
+                   text = ggplot2::element_text(size = text_size))
   
-  # Add connecting lines if paired and show_lines is TRUE
-  if (paired && show_lines && !is.null(pairing_var)) {
-    p <- p + 
-      geom_line(aes(group = .data[[pairing_var]]), 
-                color = line_color, 
-                size = line_size, 
-                alpha = line_alpha)
+  if (!is.na(y_max) & is.null(scale_cut)) {
+    p <- p + ggplot2::scale_y_continuous(limits = c(NA, y_max + y_buffer))
   }
   
-  # Add statistical comparisons if specified
+  # paired lines
+  if (paired && show_lines) {
+    p <- p + ggplot2::geom_line(
+      ggplot2::aes(group = .data[[pairing_var]]),
+      color = line_color, size = line_size, alpha = line_alpha
+    )
+  }
+  
+  # stat labels (ggpubr) - Now using p.signif format with custom digits
   if (length(comparisons) > 0) {
-    
-    p <- p + 
-      stat_compare_means(
+    if (p_format == "p.format") {
+      p <- p + ggpubr::stat_compare_means(
         comparisons = comparisons,
-        paired = paired, 
+        paired = paired,
         method = comparison_method,
         size = p_label_size,
         vjust = 0,
         label = p_format
       )
-  }
-  
-  # Apply colors if provided
-  if (!is.null(colors)) {
-    if (length(colors) == 1) {
-      # Single color for all groups
-      p <- p + scale_fill_manual(values = rep(colors, length(unique(data[[x_var]]))))
-    } else {
-      # Multiple colors
-      p <- p + scale_fill_manual(values = colors)
+    }
+    if (p_format == "p.signif") {
+      p <- p + ggpubr::stat_compare_means(
+        comparisons = comparisons,
+        paired = paired,
+        method = comparison_method,
+        size = p_label_size,
+        vjust = 0,
+        label = p_format,
+        symnum.args = list(cutpoints = c(0, 0.0001, 0.001, 0.01, 0.05, 0.1, 1),
+                           symbols = c("p<0.0001", "p<0.001", "p<0.01", "p<0.05", "p<0.1", "ns"))
+      )
     }
   }
   
-  return(p)
+  # colors
+  if (!is.null(colors)) {
+    if (length(colors) == 1) {
+      p <- p + ggplot2::scale_fill_manual(values = rep(colors, length(x_levels_all)))
+    } else {
+      p <- p + ggplot2::scale_fill_manual(values = colors)
+    }
+  }
+  
+  if (!is.null(scale_cut)) {
+    p <- p + scale_y_cut(breaks = scale_cut, scales = 2)
+  }
+  
+  # -------- compute test p + complete-pair stats --------
+  primary_p <- NA_real_
+  complete_pair_n <- NA_integer_
+  complete_pair_means <- NULL
+  groups_present <- levels(factor(data[[x_var]]))
+  
+  # helper: get test function
+  test_fun <- get(comparison_method, mode = "function")
+  
+  if (length(groups_present) == 2) {
+    g1 <- groups_present[1]
+    g2 <- groups_present[2]
+    
+    if (paired) {
+      # build complete pairs wide
+      wide <- data |>
+        dplyr::select(dplyr::all_of(c(pairing_var, x_var, y_var))) |>
+        dplyr::filter(.data[[x_var]] %in% c(g1, g2)) |>
+        tidyr::pivot_wider(names_from = dplyr::all_of(x_var),
+                           values_from = dplyr::all_of(y_var)) |>
+        tidyr::drop_na()
+      
+      complete_pair_n <- nrow(wide)
+      
+      if (complete_pair_n >= 2) {
+        # primary p-value (paired)
+        primary_p <- test_fun(wide[[g1]], wide[[g2]], paired = TRUE)$p.value
+        
+        # Calculate pooled statistics for complete pairs
+        pooled_values <- c(wide[[g1]], wide[[g2]])
+        total_mean <- mean(pooled_values, na.rm = TRUE)
+        total_sd <- sd(pooled_values, na.rm = TRUE)
+        
+        # means AND SDs for each group using only complete pairs
+        complete_pair_means <- tibble::tibble(
+          group = c(g1, g2, "Total"),
+          mean = c(mean(wide[[g1]], na.rm = TRUE),
+                   mean(wide[[g2]], na.rm = TRUE),
+                   total_mean),
+          sd = c(sd(wide[[g1]], na.rm = TRUE),
+                 sd(wide[[g2]], na.rm = TRUE),
+                 total_sd),
+          n = c(complete_pair_n, complete_pair_n, complete_pair_n * 2)
+        )
+      } else {
+        warning("Not enough complete pairs to compute paired test and pair means (need >= 2).")
+        complete_pair_means <- tibble::tibble(group = c(g1, g2, "Total"), mean = NA_real_, sd = NA_real_, n = 0)
+      }
+      
+      # annotate on plot if requested
+      if (show_pair_stats_on_plot && complete_pair_n > 0) {
+        total_stats <- complete_pair_means[complete_pair_means$group == "Total",]
+        txt <- sprintf("Complete pairs: n = %d | %s: mean=%.3f (SD=%.3f), %s: mean=%.3f (SD=%.3f) | Total: mean=%.3f (SD=%.3f)",
+                       complete_pair_n, 
+                       g1,
+                       ifelse(is.null(complete_pair_means$mean[1]) || is.na(complete_pair_means$mean[1]), NA, complete_pair_means$mean[1]),
+                       ifelse(is.null(complete_pair_means$sd[1]) || is.na(complete_pair_means$sd[1]), NA, complete_pair_means$sd[1]),
+                       g2,
+                       ifelse(is.null(complete_pair_means$mean[2]) || is.na(complete_pair_means$mean[2]), NA, complete_pair_means$mean[2]),
+                       ifelse(is.null(complete_pair_means$sd[2]) || is.na(complete_pair_means$sd[2]), NA, complete_pair_means$sd[2]),
+                       ifelse(is.null(total_stats$mean) || is.na(total_stats$mean), NA, total_stats$mean),
+                       ifelse(is.null(total_stats$sd) || is.na(total_stats$sd), NA, total_stats$sd))
+        p <- p + ggplot2::labs(subtitle = txt)
+      }
+      
+    } else {
+      # unpaired: compute overall p with all available obs
+      sub <- data |>
+        dplyr::filter(.data[[x_var]] %in% c(g1, g2)) |>
+        dplyr::select(dplyr::all_of(c(x_var, y_var))) |>
+        stats::na.omit()
+      
+      if (nrow(sub) >= 3) {
+        primary_p <- test_fun(as.formula(paste(y_var, "~", x_var)), data = sub)$p.value
+      } else {
+        warning("Not enough observations to compute unpaired test p-value.")
+      }
+      
+      # for unpaired, "complete pairs" don't apply; we report per-group means, SDs & ns
+      complete_pair_n <- NA_integer_
+      
+      # Calculate group statistics
+      group_stats <- sub |>
+        dplyr::group_by(.data[[x_var]]) |>
+        dplyr::summarise(mean = mean(.data[[y_var]], na.rm = TRUE),
+                         sd = sd(.data[[y_var]], na.rm = TRUE),
+                         n = dplyr::n(), .groups = "drop") |>
+        dplyr::rename(group = !!x_var)
+      
+      # Calculate total statistics across all data
+      total_stats <- sub |>
+        dplyr::summarise(group = "Total",
+                         mean = mean(.data[[y_var]], na.rm = TRUE),
+                         sd = sd(.data[[y_var]], na.rm = TRUE),
+                         n = dplyr::n())
+      
+      # Combine group and total statistics
+      complete_pair_means <- dplyr::bind_rows(group_stats, total_stats)
+      
+      if (show_pair_stats_on_plot) {
+        txt <- paste0(
+          "Group statistics (unpaired): ",
+          paste0(group_stats$group, 
+                 " (n=", group_stats$n,
+                 ", mean=", sprintf("%.3f", group_stats$mean), 
+                 ", SD=", sprintf("%.3f", group_stats$sd), ")", 
+                 collapse = " | "),
+          " | Total (n=", total_stats$n,
+          ", mean=", sprintf("%.3f", total_stats$mean),
+          ", SD=", sprintf("%.3f", total_stats$sd), ")"
+        )
+        p <- p + ggplot2::labs(subtitle = txt)
+      }
+    }
+  } else {
+    # >2 groups → don't compute single primary p; return NA and no pair means
+    complete_pair_means <- tibble::tibble()
+  }
+  
+  # clean comparisons for return
+  comps_out <- lapply(comparisons, as.character)
+  
+  # -------- return --------
+  list(
+    plot = p,
+    p_value = primary_p,
+    method = comparison_method,
+    paired = paired,
+    x_levels = groups_present,
+    comparisons = comps_out,
+    complete_pair_n = complete_pair_n,
+    complete_pair_means = complete_pair_means
+  )
 }
