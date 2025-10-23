@@ -63,6 +63,8 @@ library(BiocParallel)
 library(DoubletFinder)
 library(scCustomize)
 library(msigdbr)
+library(lme4)
+library(lmerTest)
 source("/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
 ```
 
@@ -669,8 +671,238 @@ s3$upload_file(temp_file, "attempt", "Figures/attempt_umap_kpmpcelltype.png")
 
 ```
 
+# Cell type annotations using KPMP Atlas 2
+
 ```{r echo = F}
-# umap formatting
+# read in markers
+temp_file <- tempfile(fileext = ".csv")
+s3$download_file("attempt", "cleaned_data/atlas_v2_markers.csv", temp_file)
+atlas2 <- read.csv(temp_file)
+
+markers_df <- atlas2 %>%
+  mutate(marker_list = strsplit(Distinct.markers, "[,\\s]+"))
+
+# For each cell type, create a module score
+for(i in 1:nrow(markers_df)) {
+  cell_type <- markers_df$v2.subclass.l2[i]
+  markers <- unlist(markers_df$marker_list[i])
+  markers <- markers[markers != ""]  # Remove empty strings
+  
+  message(paste("Processing", cell_type, "with", length(markers), "markers..."))
+  
+  tryCatch({
+    attempt_so <- AddModuleScore(
+      attempt_so,
+      features = list(markers),
+      name = paste0(cell_type, "_score"),
+      search = TRUE
+    )
+    message(paste("Successfully added score for", cell_type))
+  }, error = function(e) {
+    message(paste("Skipping", cell_type, "- not enough features present"))
+  })
+}
+
+# Get all the module score column names
+score_cols <- grep("_score1", colnames(attempt_so@meta.data), value = TRUE)
+
+# For each cell, find which score is highest
+attempt_so$predicted_celltype <- apply(attempt_so@meta.data[, score_cols], 1, function(x) {
+  max_score_idx <- which.max(x)
+  # Extract cell type name from column name (remove "_score1" suffix)
+  cell_type <- gsub("_score\\d+$", "", score_cols[max_score_idx])
+  return(cell_type)
+})
+
+# Save the max score as confidence
+attempt_so$prediction_confidence <- apply(attempt_so@meta.data[, score_cols], 1, max)
+
+# Also save the margin (difference between top and second-best score)
+attempt_so$prediction_margin <- apply(attempt_so@meta.data[, score_cols], 1, function(x) {
+  sorted <- sort(x, decreasing = TRUE)
+  return(sorted[1] - sorted[2])
+})
+
+# Visualize confidence distribution
+library(ggplot2)
+
+ggplot(attempt_so@meta.data, aes(x = prediction_confidence)) +
+  geom_histogram(bins = 50) +
+  geom_vline(xintercept = 0, color = "red", linetype = "dashed") +
+  theme_classic() +
+  labs(title = "Distribution of prediction confidence scores")
+
+# Look at margin between top and second-best
+ggplot(attempt_so@meta.data, aes(x = prediction_margin)) +
+  geom_histogram(bins = 50) +
+  theme_classic() +
+  labs(title = "Margin between 1st and 2nd best cell type")
+
+# Cells with low confidence or low margin might be ambiguous
+summary(attempt_so$prediction_confidence)
+summary(attempt_so$prediction_margin)
+
+# Define thresholds based on your distributions
+confidence_threshold <- 0.05  # Adjust based on your data
+margin_threshold <- 0.02      # Adjust based on your data
+
+attempt_so$prediction_quality <- ifelse(
+  attempt_so$prediction_confidence > confidence_threshold & 
+  attempt_so$prediction_margin > margin_threshold,
+  "High_confidence",
+  "Low_confidence"
+)
+
+# Check how many cells fall into each category
+table(attempt_so$prediction_quality)
+
+# You might want to mark very low confidence as "Unassigned"
+attempt_so$predicted_celltype_filtered <- ifelse(
+  attempt_so$prediction_quality == "Low_confidence",
+  "Unassigned",
+  attempt_so$predicted_celltype
+)
+
+# UMAP with predicted cell types
+DimPlot(attempt_so, group.by = "predicted_celltype", label = TRUE, repel = TRUE, 
+        reduction = "umap.harmony", raster = F) +
+  ggtitle("Predicted Cell Types") + 
+  theme(legend.position = "none")
+
+# UMAP colored by confidence
+FeaturePlot(attempt_so, features = "prediction_confidence", 
+            reduction = "umap.harmony", raster = F) +
+  scale_color_viridis_c() +
+  ggtitle("Prediction Confidence")
+
+# UMAP colored by margin
+FeaturePlot(attempt_so, features = "prediction_margin", 
+            reduction = "umap.harmony", raster = F) +
+  scale_color_viridis_c() +
+  ggtitle("Prediction Margin")
+
+# See distribution of cell types
+table(attempt_so$predicted_celltype) %>% sort(decreasing = TRUE)
+
+predicted_pt <- atlas2[atlas2$v2.subclass.l1 == "PT",]$v2.subclass.l2
+predicted_tal <- atlas2[atlas2$v2.subclass.l1 == "TAL",]$v2.subclass.l2
+predicted_pod <- atlas2[atlas2$v2.subclass.l1 == "POD",]$v2.subclass.l2
+attempt_so_meta <- attempt_so@meta.data %>%
+  mutate(visit_treatment = paste0(visit, " ", treatment))
+
+attempt_so_meta$visit_treatment <- factor(attempt_so_meta$visit_treatment,
+                                          levels = c("PRE Placebo", "POST Placebo",
+                                                     "PRE Dapagliflozin", "POST Dapagliflozin"))
+
+attempt_so_meta %>%
+  filter(predicted_celltype %in% predicted_pt) %>%
+  ggplot(aes(visit_treatment, fill = predicted_celltype)) +
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  scale_fill_manual(values = c("frPT" = "#ef767a")) +
+  theme_transparent
+
+
+attempt_so_meta %>%
+  filter(predicted_celltype %in% predicted_tal) %>%
+  ggplot(aes(visit_treatment, fill = predicted_celltype)) +
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  scale_fill_manual(values = c("frTAL" = "#ef767a")) +
+  theme_transparent
+
+attempt_so_meta %>%
+  filter(predicted_celltype %in% predicted_pod) %>%
+  ggplot(aes(visit_treatment, fill = predicted_celltype)) +
+  geom_bar(stat = "count", position = "fill") +
+  theme_classic() +
+  labs(x = NULL,
+       y = "Proportion",
+       fill = "Cell type") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold"),
+        text = element_text(size = 20)) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#f4a261", "#e76f51")) +
+  theme_transparent
+
+attempt_so_meta %>%
+  filter(predicted_celltype %in% "frTAL") %>%
+  ggplot(aes(x = visit_treatment, y = predicted_celltype)) +
+  geom_point()
+
+```
+
+```{r}
+attempt_so$visit_treatment <- paste0(attempt_so$visit, " ", attempt_so$treatment)
+attempt_so$visit_treatment <- factor(attempt_so$visit_treatment, 
+                                     levels = c("PRE Placebo", "POST Placebo",
+                                                "PRE Dapagliflozin", "POST Dapagliflozin"))
+# frPT and frPOD genes only
+frPT_n <- rownames(markers_df[markers_df$v2.subclass.l2=="frPT",])
+frPT_markers <- unlist(markers_df$marker_list[as.numeric(frPT_n)])
+frPT_markers <- frPT_markers[frPT_markers != ""]
+
+# PT subset
+attempt_so$kpmp_celltype_pt <- ifelse(attempt_so$KPMP_celltype %in% c("PT-S1/S2", "PT-S3", "aPT"),
+                                 "PT", as.character(attempt_so$KPMP_celltype))
+attempt_so_pt_kpmp <- subset(attempt_so, kpmp_celltype_pt == "PT" & KPMP_celltype != "PT_lowQuality")
+attempt_so_pt_kpmp_frpt <- subset(attempt_so, features = frPT_markers)
+
+Seurat::DotPlot(attempt_so_pt_kpmp, features = frPT_markers, 
+                group.by = "visit_treatment", scale = F)
+
+# nebula_frPT <- run_nebula_parallel(
+#   seurat_obj = attempt_so_pt_kpmp_frpt,
+#   n_cores = 10,
+#   s3_bucket = "attempt",
+#   s3_key = "frPT/nebula/frpt_attempt_nebula.rds"
+# )
+
+FindMarkers(attempt_so_pt_kpmp_frpt, ident.1 = "POST Placebo", ident.2 = "PRE Placebo",
+            group.by = "visit_treatment", min.pct = 0, logfc.threshold = 0)
+
+FindMarkers(attempt_so_pt_kpmp_frpt, ident.1 = "POST Dapagliflozin", ident.2 = "PRE Dapagliflozin",
+            group.by = "visit_treatment", min.pct = 0, logfc.threshold = 0)
+```
+
+```{r}
+dPOD_n <- rownames(markers_df[markers_df$v2.subclass.l2=="dPOD",])
+dPOD_markers <- unlist(markers_df$marker_list[as.numeric(dPOD_n)])
+dPOD_markers <- dPOD_markers[dPOD_markers != ""]
+
+# POD subset
+attempt_so$kpmp_celltype_pod <- ifelse(attempt_so$KPMP_celltype %in% c("POD"),
+                                 "POD", as.character(attempt_so$KPMP_celltype))
+attempt_so_pod_kpmp <- subset(attempt_so, kpmp_celltype_pod == "POD")
+attempt_so_pod_kpmp_dpod <- subset(attempt_so, features = dPOD_markers)
+
+Seurat::DotPlot(attempt_so_pod_kpmp, features = dPOD_markers,
+                group.by = "visit_treatment", scale = F)
+
+# nebula_dPOD <- run_nebula_parallel(
+#   seurat_obj = attempt_so_pod_kpmp_dpod,
+#   n_cores = 10,
+#   s3_bucket = "attempt",
+#   s3_key = "dPOD/nebula/dpod_attempt_nebula.rds"
+# )
+
+FindMarkers(attempt_so_pod_kpmp_dpod, ident.1 = "POST Placebo", ident.2 = "PRE Placebo",
+            group.by = "visit_treatment", min.pct = 0, logfc.threshold = 0)
+
+FindMarkers(attempt_so_pod_kpmp_dpod, ident.1 = "POST Dapagliflozin", ident.2 = "PRE Dapagliflozin",
+            group.by = "visit_treatment", min.pct = 0, logfc.threshold = 0)
 ```
 
 #### Proportions (Non weighted)
@@ -1731,6 +1963,284 @@ data_all = dat.from_pandas(count_df_placebo, covariate_columns=["sample_id"])
 data_all.obs["visit"] = data_all.obs["subject_id"].str.replace(r"_[0-9]", "", regex=True)
 print(data_all)
 ```
+
+
+```{r}
+# logistic mixed effects with time*visit
+fit_model <- function(df, subtype_name) {
+  df_sub <- df %>% filter(KPMP_celltype == subtype_name)
+
+  # Logistic mixed model with time x treatment interaction
+  # Note: you might need to convert proportions to counts if available
+  # or use a beta regression if proportions
+  
+  model <- lmer(
+    proportion ~ visit * treatment + (1 | subject_id),
+    data = df_sub
+  )
+  
+  # Extract the treatment x time interaction effect
+  # This is the difference-in-differences estimate
+  emm <- emmeans(model, ~ treatment | visit)
+  contrast_result <- contrast(emm, "pairwise", by = "visit")
+  
+  # Get the difference in changes (interaction)
+  emm_interaction <- emmeans(model, ~ treatment * visit)
+  did_contrast <- contrast(
+    emm_interaction, 
+    interaction = c("pairwise", "pairwise"),
+    by = NULL
+  )
+  
+ # Convert to dataframe and extract relevant comparison
+  did_df <- as.data.frame(did_contrast)
+
+  tibble(
+    subtype = subtype_name,
+    estimate = did_df$estimate[1],
+    se = did_df$SE[1],
+    ci_lower = did_df$estimate[1] - 1.96 * did_df$SE[1],  # 95% CI
+    ci_upper = did_df$estimate[1] + 1.96 * did_df$SE[1],
+    p_value = did_df$p.value[1]
+  )
+}
+
+# Say outcome is PT-S1/2 proportion. You can treat it as
+# (successes / total cells) ~ predictors with a binomial GLMM.
+
+pt_subtypes <- c("PT-S1/S2", "PT-S3", "aPT")
+attempt_so_meta <- attempt_so@meta.data
+pt_prop_df <- attempt_so_meta %>%
+  filter(KPMP_celltype %in% pt_subtypes) %>%
+  group_by(subject_id, visit, sample_id = paste0(subject_id, "_", visit), treatment) %>%
+  dplyr::count(KPMP_celltype) %>%
+  group_by(subject_id, visit, sample_id, treatment) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ungroup()  %>%
+  mutate(
+    # Relevel so Dapagliflozin and POST are reference levels
+    treatment = fct_relevel(treatment, "Dapagliflozin", "Placebo"),
+    visit = fct_relevel(visit, "POST", "PRE")
+    )
+pt_results <- map_df(pt_subtypes, ~fit_model(pt_prop_df, .x))
+
+ggplot(pt_results, aes(x = subtype, y = estimate)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+  geom_point(size = 3) +
+  geom_errorbar(
+    aes(ymin = ci_lower, ymax = ci_upper),
+    width = 0.2,
+    linewidth = 0.8
+  ) +
+  coord_flip() +
+  labs(
+    x = NULL,
+    y = "Change in DiD Proportion",
+    caption = paste("P-values:", 
+                   paste(pt_results$subtype, 
+                         format.pval(pt_results$p_value, digits = 3), 
+                         sep = " = ", collapse = "; "))
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold"),
+    panel.grid.major.y = element_blank()
+  )
+
+
+# Step 1: Extract metadata and filter to PT cells
+pt_cells <- attempt_so@meta.data %>%
+  rownames_to_column("cell_id") %>%
+  filter(KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"))
+
+# Step 2: Count cells per subject/timepoint/treatment/subtype
+cell_counts <- pt_cells %>%
+  group_by(subject_id, treatment, visit, KPMP_celltype) %>%
+  summarise(n_subtype = n(), .groups = "drop")
+
+# Step 3: Get total PT cells per subject/timepoint/treatment
+total_pt <- pt_cells %>%
+  group_by(subject_id, treatment, visit) %>%
+  summarise(n_total_pt = n(), .groups = "drop")
+
+# Step 4: Join and create full dataset
+df_counts <- cell_counts %>%
+  left_join(total_pt, by = c("subject_id", "treatment", "visit")) %>%
+  mutate(
+    # Create the complement (cells that are NOT this subtype)
+    n_other = n_total_pt - n_subtype,
+    # Rename for clarity
+    PT_subtype = KPMP_celltype
+  )
+
+# Step 5: Fit logistic mixed model for each PT subtype
+fit_logistic_model <- function(df, subtype_name) {
+  df_sub <- df %>% 
+    filter(PT_subtype == subtype_name) %>%
+    mutate(
+      treatment = factor(treatment),
+      visit = factor(visit)
+    )
+  
+  # Logistic regression with cell counts
+  model <- glmer(
+    cbind(n_subtype, n_other) ~ visit * treatment + (1 | subject_id),
+    family = binomial,
+    data = df_sub,
+    control = glmerControl(optimizer = "bobyqa")
+  )
+  
+  # Extract the interaction coefficient directly
+  # This is the log-odds ratio for the difference-in-differences
+  coef_summary <- summary(model)$coefficients
+  
+  # Find the interaction term row
+  interaction_row <- grep("visit.*:.*treatment|treatment.*:.*visit", 
+                          rownames(coef_summary))
+  
+  interaction_coef <- coef_summary[interaction_row, ]
+  
+  tibble(
+    subtype = subtype_name,
+    log_odds_ratio = interaction_coef["Estimate"],
+    se = interaction_coef["Std. Error"],
+    ci_lower = interaction_coef["Estimate"] - 1.96 * interaction_coef["Std. Error"],
+    ci_upper = interaction_coef["Estimate"] + 1.96 * interaction_coef["Std. Error"],
+    p_value = interaction_coef["Pr(>|z|)"],
+    # Also provide odds ratio (exponentiated)
+    odds_ratio = exp(interaction_coef["Estimate"]),
+    or_ci_lower = exp(interaction_coef["Estimate"] - 1.96 * interaction_coef["Std. Error"]),
+    or_ci_upper = exp(interaction_coef["Estimate"] + 1.96 * interaction_coef["Std. Error"])
+  )
+}
+
+# Step 6: Run for each PT subtype
+pt_subtypes <- c("PT-S1/S2", "PT-S3", "aPT")
+results_logistic <- map_df(pt_subtypes, ~fit_logistic_model(df_counts, .x))
+
+print(results_logistic)
+```
+
+```{r}
+# McNemar's test
+# Step 1: Extract metadata and filter to PT cells
+pt_cells <- attempt_so@meta.data %>%
+  rownames_to_column("cell_id") %>%
+  filter(KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3"))
+
+# Step 2: Calculate proportions for each subject/timepoint/treatment/subtype
+proportions <- pt_cells %>%
+  # Get total PT cells per subject/timepoint
+  group_by(subject_id, treatment, visit) %>%
+  mutate(n_total_pt = n()) %>%
+  ungroup() %>%
+  # Get counts per subtype
+  group_by(subject_id, treatment, visit, KPMP_celltype, n_total_pt) %>%
+  summarise(n_subtype = n(), .groups = "drop") %>%
+  mutate(proportion = n_subtype / n_total_pt) %>%
+  rename(PT_subtype = KPMP_celltype)
+
+# Step 3: Reshape to wide format for paired analysis
+df_wide <- proportions %>%
+  select(subject_id, treatment, visit, PT_subtype, proportion) %>%
+  pivot_wider(
+    names_from = visit,
+    values_from = proportion,
+    values_fill = 0
+  ) %>%
+  mutate(
+    # Calculate change in proportions
+    delta = POST - PRE  # Adjust based on your actual visit values
+  )
+
+# Step 4: Function to compare deltas between treatments
+compare_deltas_mcnemar <- function(df, subtype_name) {
+  df_sub <- df %>% filter(PT_subtype == subtype_name)
+  
+  # Separate by treatment
+  placebo_delta <- df_sub %>% 
+    filter(treatment == "Placebo") %>% 
+    pull(delta)
+  
+  dapa_delta <- df_sub %>% 
+    filter(treatment == "Dapagliflozin") %>% 
+    pull(delta)
+  
+  # Mean difference-in-differences
+  mean_placebo <- mean(placebo_delta, na.rm = TRUE)
+  mean_dapa <- mean(dapa_delta, na.rm = TRUE)
+  diff_in_diff <- mean_dapa - mean_placebo
+  
+  # Wilcoxon rank-sum test (comparing deltas between groups)
+  wilcox_result <- wilcox.test(dapa_delta, placebo_delta)
+  
+  # Bootstrap 95% CI for the difference-in-differences
+  set.seed(123)
+  n_boot <- 10000
+  boot_diffs <- replicate(n_boot, {
+    placebo_boot <- sample(placebo_delta, replace = TRUE)
+    dapa_boot <- sample(dapa_delta, replace = TRUE)
+    mean(dapa_boot) - mean(placebo_boot)
+  })
+  
+  ci_lower <- quantile(boot_diffs, 0.025)
+  ci_upper <- quantile(boot_diffs, 0.975)
+  
+  tibble(
+    subtype = subtype_name,
+    mean_delta_placebo = mean_placebo,
+    mean_delta_dapa = mean_dapa,
+    diff_in_diff = diff_in_diff,
+    ci_lower = ci_lower,
+    ci_upper = ci_upper,
+    p_value = wilcox_result$p.value,
+    method = "Wilcoxon"
+  )
+}
+
+# Step 5: Run for each PT subtype
+pt_subtypes <- c("PT-S1/S2", "PT-S3", "aPT")
+results_mcnemar <- map_df(pt_subtypes, ~compare_deltas_mcnemar(df_wide, .x))
+
+print(results_mcnemar)
+
+
+compare_deltas_ttest <- function(df, subtype_name) {
+  df_sub <- df %>% filter(PT_subtype == subtype_name)
+  
+  # Separate by treatment
+  placebo_delta <- df_sub %>% 
+    filter(treatment == "Placebo") %>% 
+    pull(delta)
+  
+  dapa_delta <- df_sub %>% 
+    filter(treatment == "Dapagliflozin") %>% 
+    pull(delta)
+  
+  # Mean difference-in-differences
+  mean_placebo <- mean(placebo_delta, na.rm = TRUE)
+  mean_dapa <- mean(dapa_delta, na.rm = TRUE)
+  diff_in_diff <- mean_dapa - mean_placebo
+  
+  # Two-sample t-test comparing deltas
+  ttest_result <- t.test(dapa_delta, placebo_delta)
+  
+  tibble(
+    subtype = subtype_name,
+    mean_delta_placebo = mean_placebo,
+    mean_delta_dapa = mean_dapa,
+    diff_in_diff = diff_in_diff,
+    ci_lower = ttest_result$conf.int[1],
+    ci_upper = ttest_result$conf.int[2],
+    p_value = ttest_result$p.value,
+    method = "t-test"
+  )
+}
+
+results_ttest <- map_df(pt_subtypes, ~compare_deltas_ttest(df_wide, .x))
+results_ttest
+```
+
 
 #### Mixed model (hurdle, no nested random effect)
 

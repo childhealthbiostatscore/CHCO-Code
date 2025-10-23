@@ -4,14 +4,15 @@ format: revealjs
 editor: visual
 ---
 
-#1. Set Up - RH2 & CRC ##a. Load Libraries & Directores
-## a. Libraries & Directories
+#1. Set Up - RH2 & CRC ##a. Load Libraries & Directores \## a. Libraries & Directories
+
 ```{r}
 #Libraries
 if (!require("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
 source("Libraries.R")
 source("Functions.R")
+source("01_clean_dataset.R")
 
 
 #Directories
@@ -19,77 +20,515 @@ user <- Sys.info()[["user"]]
 
 if (user == "shivaniramesh") {
   dir.dat <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Liver Pet IR/Data"
-  dat.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/Liver Pet IR/Results"
+  dir.results <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/Liver Pet IR/Results"
   #use_python("/usr/bin/python3", required = TRUE)
 } else {
   #Directories
-  dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver Pet IR/Data")
-  dat.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver Pet IR/Results")
+  # dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver Pet IR/Data")
+  # dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Liver Pet IR/Results")
+  dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+  dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results")
 }
 
 
 ```
 
 ##b. Load Data & Format
+
 ```{r}
 #Load PET data & alt, ast, ggt and potentially masld 
-harm_meta_data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",na.strings = c("", "NA", "N/A", "n/a", " ","na")) %>% 
+harm_meta_data <- read.csv(fs::path(dir.dat,"/Data Harmonization/Data Clean/harmonized_dataset.csv"),na.strings = c("", "NA", "N/A", "n/a", " ","na")) %>% 
   filter(study=="RENAL-HEIR" | study=="RENAL-HEIRitage") %>% 
   dplyr::select(c("record_id","rh_id","rh2_id")) %>% 
   filter(!is.na(rh_id) & !is.na(rh2_id)) %>% 
   distinct()
 
 #Load data
-dat <- read.csv(fs::path(dir.dat,"raw-data-2025-10-22.csv"))
+# dat <- read.csv(fs::path(dir.dat,"raw-data-2025-10-22.csv"))
+CROC <- read.csv(fs::path(dir.dat,"/Data Harmonization/Data Clean/harmonized_dataset.csv"),na.strings = c("", "NA", "N/A", "n/a", " ","na")) %>% 
+  filter(study=="CROCODILE")
 
-dat_ir <- dat %>% 
-  dplyr::select(c("record_id","coenroll","study","procedure","visit","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","m_i_gir_190","m_i_p2_raw_lean")) 
+CROC <- CROC %>% 
+  dplyr::select(c("record_id","study","procedure","visit","group","age","sex","bmi","hba1c","liver_k1","liver_k2","liver_k3","p1_gc_leanm","p1_steady_state_insulin","p1_gc_m","p1_ffa_suppression","m_i_p2_raw_lean","p2_gc_leanm","p2_steady_state_insulin","p2_gc_m","p2_ffa_suppression")) 
 # filter(procedure=="ivgtt")
 
-CROC <- dat_ir %>% 
-  filter(study=="CROCODILE") %>% 
-  dplyr::select(-c("m_i_gir_190"))
-RH <- dat_ir %>% 
-  filter(study == "RENAL-HEIR" | study=="RENAL-HEIRitage") %>% 
-  dplyr::select(-c("m_i_p2_raw_lean"))
-rm(dat,dat_ir)
+#For Phase 1 M/I normalized to lean mass:
+CROC$m_i_p1_lean = CROC$p1_gc_leanm / CROC$p1_steady_state_insulin
+
+#For Phase 1 M/I using total body weight:
+CROC$m_i_p1 = CROC$p1_gc_m / CROC$p1_steady_state_insulin
+
+# Where:
+# `p1_gc_leanm` = Phase 1 glucose clamp rate normalized to lean mass (mg/kg lean/min)
+#  `p1_gc_m` = Phase 1 glucose clamp rate normalized to total mass (mg/kg/min)
+# `p1_steady_state_insulin` = Steady-state insulin concentration during Phase 1 (μU/mL or pmol/L)
+
+# Hepatic insulin sensitivity index 
+CROC$hepatic_is_ffa = CROC$p1_ffa_suppression / CROC$p1_steady_state_insulin
+
+#Phase 2 M/I normalized to lean mass:
+CROC$m_i_p2_lean = CROC$p2_gc_leanm / CROC$p2_steady_state_insulin
+
+#For Phase 1 M/I using total body weight:
+CROC$m_i_p2 = CROC$p2_gc_m / CROC$p2_steady_state_insulin
+
+#Phase 2 FFA-based insulin sensitivity:**
+CROC$peripheral_is_ffa = CROC$p2_ffa_suppression / CROC$p2_steady_state_insulin
+
+#Measures adipose tissue insulin sensitivity at higher insulin levels
+#Reflects how well peripheral insulin action suppresses lipolysis
+insulin <- c("m_i_p1_lean","m_i_p1","hepatic_is_ffa","m_i_p2_lean","m_i_p2","peripheral_is_ffa")
+
+# CROC <- CROC %>% 
+#   filter(study=="CROCODILE") %>% 
+#   dplyr::select(-c("m_i_gir_190"))
+# RH <- dat_ir %>% 
+#   filter(study == "RENAL-HEIR" | study=="RENAL-HEIRitage") %>% 
+#   dplyr::select(-c("m_i_p2_raw_lean"))
+# rm(dat,dat_ir)
 
 #Number of participants in each study
 length(unique(CROC$record_id)) #60
-length(unique(RH$record_id)) #151
+# length(unique(RH$record_id)) #151
 
 #Collapse CROC
 CROC_collapsed <- collapse_by_id_visit(CROC)
-CROC_collapsed <- CROC_collapsed %>% 
-  filter(!is.na(liver_k1)) %>% 
-  filter(!is.na(m_i_p2_raw_lean)) #24 participants have complete pet and ir data
-
-#Collapse RH
-RH_collapsed <- collapse_by_id_visit(RH)
-RH_collapsed <- RH_collapsed %>% 
-  filter(!is.na(liver_k1)) 
-RH_collapsed <- tidylog::left_join(RH_collapsed,harm_meta_data,by="record_id")
-  # filter(!is.na(m_i_gir_190))
-unique(RH_collapsed$record_id)
+CROC_collapsed2 <- CROC_collapsed %>% 
+  filter(!is.na(liver_k1)) %>%  #27 participants have complete pet data
+  # filter(!is.na(m_i_p2_raw_lean)) #24 participants have complete pet and ir data
+  filter(if_any(c(m_i_p1_lean, m_i_p1, hepatic_is_ffa, 
+                  m_i_p2_lean, m_i_p2, peripheral_is_ffa), ~ !is.na(.))) #27 have at least 1 mi variable or is variable 
+rm(CROC,CROC_collapsed,harm_dat,harm_dat_collapsed,harm_meta_data)
+CROC <- CROC_collapsed2
+rm(CROC_collapsed2)
+#Save formatted data 
+# saveRDS(CROC,"/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Data/Formatted_CROCODILE_data.RDS")
+# 
+# #Collapse RH
+# # RH_collapsed <- collapse_by_id_visit(RH)
+# # RH_collapsed <- RH_collapsed %>% 
+# #   filter(!is.na(liver_k1)) 
+# # RH_collapsed <- tidylog::left_join(RH_collapsed,harm_meta_data,by="record_id")
+# #   # filter(!is.na(m_i_gir_190))
+# # unique(RH_collapsed$record_id)
+# RH_collapsed <- rh_rh2_df %>% 
+#   filter(!is.na(liver_k1)) %>% 
+#   filter(!is.na(m_i_gir_190)) #27 participants have complete pet and ir data
+# rm(harm_meta_data,CROC,rh_rh2_df)
 ```
 
-#2. Analysis
+#2. Analysis 
+##a. Descriptive Statistics
 
 ```{r}
-# Define a custom rendering function without median
-my.render.cont <- function(x) {
-  with(stats.apply.rounding(stats.default(x), digits=2), c("",
-                                                           "Mean (SD)" = sprintf("%s (%s)", MEAN, SD)))
-}
-table1(~age+sex+bmi+hba1c+liver_k1+liver_k2+liver_k3+m_i_p2_raw_lean| group, data=CROC_collapsed,
+#CROCODILE
+table1(~age+sex+bmi+hba1c+liver_k1+liver_k2+liver_k3+m_i_p1_lean+m_i_p1+hepatic_is_ffa+
+                  m_i_p2_lean+m_i_p2+peripheral_is_ffa| group, data=CROC,
        render.continuous = my.render.cont)
-
-
-table1(~age+sex+bmi+hba1c+liver_k1+liver_k2+liver_k3+gir_190+gir_200+p2_gc_leanm+p2_gc_m| study, data=pet_dat3,
+#Renal-HEIR/HEIRITAGE
+table1(~age+sex+bmi+hba1c+liver_k1+liver_k2+liver_k3+m_i_gir_190| group, data=RH_collapsed,
        render.continuous = my.render.cont)
 
 ```
 
+##b. Associations Between Pet Vars & IRs
+###i. CROCODILE
+```{r}
+pet_variables <- c("liver_k1","liver_k2","liver_k3")
+insulin_vars <- c("m_i_p1_lean", "m_i_p1", "hepatic_is_ffa", 
+                  "m_i_p2_lean", "m_i_p2", "peripheral_is_ffa")
+#Correlation/association between each pet var and each insulin var
+total_results <- data.frame()
+for(pet in pet_variables) {
+  for (insulin in insulin_vars){
+    # Pearson correlation test
+    pearson_test <- cor.test(CROC[[pet]], CROC[[insulin]], 
+                             method = "pearson",
+                             conf.level = 0.95)
+    corr.p <- pearson_test$estimate
+    p.p <- pearson_test$p.value
+    
+    # Spearman correlation test
+    spearman_test <- cor.test(CROC[[pet]], CROC[[insulin]], 
+                              method = "spearman",
+                              conf.level = 0.95)
+    corr.s <- spearman_test$estimate
+    p.s <- spearman_test$p.value
+    
+    #Linear regression of x = insulin on y = pet variable
+    m0 <- as.formula(paste0(pet,"~",insulin))
+    m1 <- lm(m0,data=CROC)
+    beta <- summary(m1)$coef[2,1]
+    pval <- summary(m1)$coef[2,4] 
+    
+    results <- data.frame(Pet=pet,IR=insulin,Corr_p=corr.p,Pval_p=p.p,Corr_s=corr.s,Pval_s=p.s,Beta=beta,Pval=pval)
+    total_results <- rbind(total_results,results)
+  }
+}
+
+#Visualize results
+get_sig_stars <- function(p) {
+  case_when(
+    p < 0.001 ~ "***",
+    p < 0.01 ~ "**",
+    p < 0.05 ~ "*",
+    TRUE ~ ""
+  )
+}
+
+# Function to create a heatmap with significance stars
+create_heatmap <- function(data, value_col, pval_col, title, 
+                           color_low = "blue", color_high = "red", 
+                           color_mid = "white", limits = NULL) {
+  
+  # Reshape data to wide format for values
+  values_wide <- data %>%
+    dplyr::select(Pet, IR, all_of(value_col)) %>%
+    pivot_wider(names_from = IR, values_from = all_of(value_col))
+  
+  # Reshape data to wide format for p-values
+  pvals_wide <- data %>%
+    dplyr::select(Pet, IR, all_of(pval_col)) %>%
+    pivot_wider(names_from = IR, values_from = all_of(pval_col))
+  
+  # Convert to matrix for melting
+  values_matrix <- as.matrix(values_wide[,-1])
+  rownames(values_matrix) <- values_wide$Pet
+  
+  pvals_matrix <- as.matrix(pvals_wide[,-1])
+  rownames(pvals_matrix) <- pvals_wide$Pet
+  
+  # Melt for ggplot
+  values_melt <- melt(values_matrix, varnames = c("Pet", "IR"), value.name = "value")
+  pvals_melt <- melt(pvals_matrix, varnames = c("Pet", "IR"), value.name = "pval")
+  
+  # Combine and add stars
+  plot_data <- values_melt %>%
+    left_join(pvals_melt, by = c("Pet", "IR")) %>%
+    mutate(stars = get_sig_stars(pval),
+           label = paste0(round(value, 2), stars))
+  
+  # Set limits if not provided
+  if (is.null(limits)) {
+    limits <- c(min(plot_data$value, na.rm = TRUE), 
+                max(plot_data$value, na.rm = TRUE))
+  }
+  
+  # Create heatmap
+  p <- ggplot(plot_data, aes(x = IR, y = Pet, fill = value)) +
+    geom_tile(color = "white", size = 0.5) +
+    geom_text(aes(label = label), size = 3.5) +
+    scale_fill_gradient2(low = color_low, mid = color_mid, high = color_high,
+                         midpoint = 0, limits = limits,
+                         name = "Value") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1,face="bold"),
+          axis.title = element_blank(),
+          plot.title = element_text(hjust = 0.5, face = "bold")) +
+    labs(title = title)
+  
+  return(p)
+}
+
+heatmap_spearman <- create_heatmap(total_results, 
+                                   value_col = "Corr_s", 
+                                   pval_col = "Pval_s",
+                                   title = "Spearman Correlation Coefficients",
+                                   limits = c(-1, 1))
+
+# 2. Pearson Correlation Heatmap
+heatmap_pearson <- create_heatmap(total_results, 
+                                  value_col = "Corr_p", 
+                                  pval_col = "Pval_p",
+                                  title = "Pearson Correlation Coefficients",
+                                  limits = c(-1, 1))
+print(heatmap_pearson) 
+heatmap_spearman
+
+# Function to create a single box plot
+create_boxplot <- function(data, pet_var, group_var = "group") {
+  p <- ggplot(data, aes_string(x = group_var, y = pet_var, fill = group_var)) +
+    geom_boxplot(alpha = 0.7) +
+    geom_point(position = position_jitter(width = 0.2), alpha = 0.5) +
+    theme_minimal() +
+    theme(legend.position = "none",
+          axis.text.x = element_text(face = "bold"),
+          plot.title = element_text(hjust = 0.5, face = "bold")) +
+    labs(title = paste("Distribution of", pet_var, "by Group"),
+         x = "Group",
+         y = pet_var) +
+    stat_compare_means(method = "t.test", label.y.npc = 0.95) # Add p-value
+  return(p)
+}
+
+# Create box plots for all PET variables
+boxplot_list <- lapply(pet_variables, function(pet) {
+  create_boxplot(CROC, pet)
+})
+
+# Save combined box plots
+png(fs::path(dir.results, "Boxplots_Liver_Pet_by_Group_CROCODILE.png"), 
+    width = 6000, height = 2500, res = 300)
+do.call(grid.arrange, c(boxplot_list, ncol = 3))
+dev.off()
+
+#Linear regression & scatterplots
+pet_variables <- c("liver_k1","liver_k2","liver_k3")
+insulin_vars <- c("m_i_p1_lean", "m_i_p1", "hepatic_is_ffa", 
+                  "m_i_p2_lean", "m_i_p2", "peripheral_is_ffa")
+#Correlation/association between each pet var and each insulin var
+total_results <- data.frame()
+for(pet in pet_variables) {
+  for (insulin in insulin_vars){
+    m0 <- as.formula(paste0(pet,"~",insulin))
+    m1 <- lm(m0,data=CROC)
+    m0_adj <- as.formula(paste0(pet,"~",insulin,"+age+sex"))
+    m1_adj <- lm(m0_adj,data=CROC)
+    beta <- summary(m1)$coef[2,1]
+    pval <- summary(m1)$coef[2,4]
+    beta_adj <- summary(m1_adj)$coef[2,1]
+    pval_adj <- summary(m1_adj)$coef[2,4]
+    full_results <- data.frame(Insulin=insulin,Pet=pet,Beta=beta,Pval=pval,Beta_Adj=beta_adj,Pval_adj=pval_adj)
+    total_results <- rbind(total_results,full_results)
+  }
+}
+
+pet_variables <- c("liver_k1","liver_k2","liver_k3")
+insulin_vars <- c("m_i_p1_lean", "m_i_p1", "hepatic_is_ffa", 
+                  "m_i_p2_lean", "m_i_p2", "peripheral_is_ffa")
+for(pet in pet_variables) {
+  for (insulin in insulin_vars){
+    tot_sub <- total_results %>% 
+      filter(Insulin==insulin & Pet==pet)
+plot <- ggplot(CROC, aes_string(x=insulin, y=pet)) +
+      geom_point(size=3, alpha=0.6) +
+      geom_smooth(method="lm", se=F, color="blue") +
+      labs(x = gsub("_", " ", insulin),
+           y = gsub("_", " ", pet),
+           title = paste(pet, "vs", insulin),
+           subtitle = paste0("β = ", round(tot_sub$Beta_Adj, 3), ", p = ", round(tot_sub$Pval_adj, 3))) +
+      theme_minimal() +
+      theme(plot.title = element_text(hjust = 0.5),
+            plot.subtitle = element_text(hjust = 0.5))
+png(fs::path(dir.results,paste0("Linear_Reg_",insulin,"_vs_",pet,"_adj_age_sex.png")),res=300,height=1000,width=1000)
+print(plot)
+dev.off()
+  }
+}
+
+#Interaction for Diabetes status
+#Linear regression & scatterplots
+pet_variables <- c("liver_k1","liver_k2","liver_k3")
+insulin_vars <- c("m_i_p1_lean", "m_i_p1", "hepatic_is_ffa", 
+                  "m_i_p2_lean", "m_i_p2", "peripheral_is_ffa")
+#Correlation/association between each pet var and each insulin var
+total_results <- data.frame()
+for(pet in pet_variables) {
+  for (insulin in insulin_vars){
+    m0 <- as.formula(paste0(pet,"~",insulin,"*group"))
+    m1 <- lm(m0,data=CROC)
+    m0_adj <- as.formula(paste0(pet,"~",insulin,"*group+age+sex"))
+    m1_adj <- lm(m0_adj,data=CROC)
+    beta <- summary(m1)$coef[2,1]
+    pval <- summary(m1)$coef[2,4]
+    beta_adj <- summary(m1_adj)$coef[2,1]
+    pval_adj <- summary(m1_adj)$coef[2,4]
+    beta_int <- summary(m1)$coef[4,1]
+    beta_int_adj <- summary(m1_adj)$coef[6,1]
+    pval_int <- summary(m1)$coef[4,4]
+    pval_int_adj <- summary(m1_adj)$coef[6,4]
+    full_results <- data.frame(Insulin=insulin,Pet=pet,Beta=beta,Pval=pval,Beta_Adj=beta_adj,Pval_adj=pval_adj,Beta_Int=beta_int,PVal_Int=pval_int,Beta_Int_Adj=beta_int_adj,Pval_Int_Adj=pval_int_adj)
+    total_results <- rbind(total_results,full_results)
+  }
+}
+
+pet_variables <- c("liver_k1","liver_k2","liver_k3")
+insulin_vars <- c("m_i_p1_lean", "m_i_p1", "hepatic_is_ffa", 
+                  "m_i_p2_lean", "m_i_p2", "peripheral_is_ffa")
+for(pet in pet_variables) {
+  for (insulin in insulin_vars){
+    tot_sub <- total_results %>% 
+      filter(Insulin==insulin & Pet==pet)
+plot <- ggplot(CROC, aes_string(x=insulin, y=pet,color="group")) +
+      geom_point(size=3, alpha=0.6) +
+      geom_smooth(method="lm", se=F,aes(color=group)) +
+      labs(x = gsub("_", " ", insulin),
+           y = gsub("_", " ", pet),
+           title = paste(pet, "vs", insulin),
+           subtitle = paste0("β = ", round(tot_sub$Beta_Adj, 3), ", p = ", round(tot_sub$Pval_adj, 3),", Int = ", round(tot_sub$Beta_Int_Adj,3),", p-int = ",round(tot_sub$Pval_Int_Adj,3))) +
+      theme_minimal() +
+      theme(plot.title = element_text(hjust = 0.5),
+            plot.subtitle = element_text(hjust = 0.5))
+# png(fs::path(dir.results,paste0("Linear_Reg_",insulin,"_vs_",pet,"_adj_age_sex.png")),res=300,height=1000,width=1000)
+print(plot)
+# dev.off()
+  }
+}
+```
+
+###ii. RH/RH2
+
+```{r}
+pet_variables <- c("liver_k1","liver_k2","liver_k3")
+insulin_vars <- c("m_i_gir_190")
+#Correlation/association between each pet var and each insulin var
+total_results <- data.frame()
+for(pet in pet_variables) {
+  for (insulin in insulin_vars){
+    # Pearson correlation test
+    pearson_test <- cor.test(RH_collapsed[[pet]], RH_collapsed[[insulin]], 
+                             method = "pearson",
+                             conf.level = 0.95)
+    corr.p <- pearson_test$estimate
+    p.p <- pearson_test$p.value
+    
+    # Spearman correlation test
+    spearman_test <- cor.test(RH_collapsed[[pet]], RH_collapsed[[insulin]], 
+                              method = "spearman",
+                              conf.level = 0.95)
+    corr.s <- spearman_test$estimate
+    p.s <- spearman_test$p.value
+    
+    #Linear regression of x = insulin on y = pet variable
+    m0 <- as.formula(paste0(pet,"~",insulin))
+    m1 <- lm(m0,data=RH_collapsed)
+    beta <- summary(m1)$coef[2,1]
+    pval <- summary(m1)$coef[2,4] 
+    
+    results <- data.frame(Pet=pet,IR=insulin,Corr_p=corr.p,Pval_p=p.p,Corr_s=corr.s,Pval_s=p.s,Beta=beta,Pval=pval)
+    total_results <- rbind(total_results,results)
+  }
+}
+
+#Visualize results
+get_sig_stars <- function(p) {
+  case_when(
+    p < 0.001 ~ "***",
+    p < 0.01 ~ "**",
+    p < 0.05 ~ "*",
+    TRUE ~ ""
+  )
+}
+
+# Function to create a heatmap with significance stars
+create_heatmap <- function(data, value_col, pval_col, title, 
+                           color_low = "blue", color_high = "red", 
+                           color_mid = "white", limits = NULL) {
+  
+  # Reshape data to wide format for values
+  values_wide <- data %>%
+    dplyr::select(Pet, IR, all_of(value_col)) %>%
+    pivot_wider(names_from = IR, values_from = all_of(value_col))
+  
+  # Reshape data to wide format for p-values
+  pvals_wide <- data %>%
+    dplyr::select(Pet, IR, all_of(pval_col)) %>%
+    pivot_wider(names_from = IR, values_from = all_of(pval_col))
+  
+  # Convert to matrix for melting
+  values_matrix <- as.matrix(values_wide[,-1])
+  rownames(values_matrix) <- values_wide$Pet
+  
+  pvals_matrix <- as.matrix(pvals_wide[,-1])
+  rownames(pvals_matrix) <- pvals_wide$Pet
+  
+  # Melt for ggplot
+  values_melt <- melt(values_matrix, varnames = c("Pet", "IR"), value.name = "value")
+  pvals_melt <- melt(pvals_matrix, varnames = c("Pet", "IR"), value.name = "pval")
+  
+  # Combine and add stars
+  plot_data <- values_melt %>%
+    left_join(pvals_melt, by = c("Pet", "IR")) %>%
+    mutate(stars = get_sig_stars(pval),
+           label = paste0(round(value, 2), stars))
+  
+  # Set limits if not provided
+  if (is.null(limits)) {
+    limits <- c(min(plot_data$value, na.rm = TRUE), 
+                max(plot_data$value, na.rm = TRUE))
+  }
+  
+  # Create heatmap
+  p <- ggplot(plot_data, aes(x = IR, y = Pet, fill = value)) +
+    geom_tile(color = "white", size = 0.5) +
+    geom_text(aes(label = label), size = 3.5) +
+    scale_fill_gradient2(low = color_low, mid = color_mid, high = color_high,
+                         midpoint = 0, limits = limits,
+                         name = "Value") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1,face="bold"),
+          axis.title = element_blank(),
+          plot.title = element_text(hjust = 0.5, face = "bold")) +
+    labs(title = title)
+  
+  return(p)
+}
+
+heatmap_spearman <- create_heatmap(total_results, 
+                                   value_col = "Corr_s", 
+                                   pval_col = "Pval_s",
+                                   title = "Spearman Correlation Coefficients",
+                                   limits = c(-1, 1))
+
+# 2. Pearson Correlation Heatmap
+heatmap_pearson <- create_heatmap(total_results, 
+                                  value_col = "Corr_p", 
+                                  pval_col = "Pval_p",
+                                  title = "Pearson Correlation Coefficients",
+                                  limits = c(-1, 1))
+heatmap_pearson 
+heatmap_spearman
+
+# Function to create a single box plot
+create_boxplot <- function(data, pet_var, group_var = "group") {
+  p <- ggplot(data, aes_string(x = group_var, y = pet_var, fill = group_var)) +
+    geom_boxplot(alpha = 0.7) +
+    geom_point(position = position_jitter(width = 0.2), alpha = 0.5) +
+    theme_minimal() +
+    theme(legend.position = "none",
+          axis.text.x = element_text(face = "bold"),
+          plot.title = element_text(hjust = 0.5, face = "bold")) +
+    labs(title = paste("Distribution of", pet_var, "by Group"),
+         x = "Group",
+         y = pet_var) +
+    stat_compare_means(method = "t.test", label.y.npc = 0.95) # Add p-value
+  return(p)
+}
+
+# Create box plots for all PET variables
+boxplot_list <- lapply(pet_variables, function(pet) {
+  create_boxplot(RH_collapsed, pet)
+})
+
+# Save combined box plots
+png(fs::path(dir.results, "Boxplots_Liver_Pet_by_Group_RH.png"), 
+    width = 6000, height = 2500, res = 300)
+do.call(grid.arrange, c(boxplot_list, ncol = 3))
+dev.off()
+
+
+pet_variables <- c("liver_k1","liver_k2","liver_k3")
+insulin_vars <- c("m_i_p2_raw_lean")
+#Correlation/association between each pet var and each insulin var
+total_results <- data.frame()
+for(pet in pet_variables) {
+  for (insulin in insulin_vars){
+    m0 <- as.formula(paste0(pet,"~",insulin))
+    m1 <- lm(m0,data=CROC_collapsed)
+    m0_adj <- as.formula(paste0(pet,"~",insulin,"+age+sex"))
+    m1_adj <- lm(m0_adj,data=CROC_collapsed)
+    beta <- summary(m1)$coef[2,1]
+    pval <- summary(m1)$coef[2,4]
+    beta_adj <- summary(m1_adj)$coef[2,1]
+    pval_adj <- summary(m1_adj)$coef[2,4]
+    full_results <- c(Insulin=insulin,Pet=pet,Beta=beta,Pval=pval,Beta_Adj=beta_adj,Pval_adj=pval_adj)
+    total_results <- rbind(total_results,full_results)
+  }
+}
+
+
+
+```
 
 ```{r}
 # clamp <- harm_meta_data %>% 
@@ -793,5 +1232,3 @@ for(pet in pet_variables) {
   dev.off()
 }
 ```
-
-\`\`\`
