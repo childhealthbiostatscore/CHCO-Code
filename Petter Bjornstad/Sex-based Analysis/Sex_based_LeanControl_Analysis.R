@@ -3185,3 +3185,1276 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
            row.names = FALSE)
  
  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ######################## Pseudotime Comparisons
+ 
+ if (!require("BiocManager", quietly = TRUE))
+   install.packages("BiocManager")
+ 
+ BiocManager::install("phenopath")
+ 
+ 
+ library(slingshot)
+ #library(condiments)
+ 
+ 
+ library(scran)
+ library(future)
+ library(future.apply)
+ library(tidyverse)
+ library(colorspace)
+ library(patchwork)
+ library(ggdendro)
+ library(cowplot)
+ library(ggpubr)
+ library(rstatix)
+ library(arsenal)
+ library(Biobase)
+ library(msigdbr)
+ library(kableExtra)
+ library(knitr)
+ library(REDCapR)
+ library(data.table)
+ library(emmeans)
+ library(NMF)
+ library(pheatmap)
+ library(UpSetR)
+ library(enrichR)
+ library(WriteXLS)
+ library(SAVER)
+ library(readxl)
+ library(limma)
+ library(edgeR)
+ library(BiocGenerics)
+ library(GSEABase)
+ library(slingshot)
+ library(SingleCellExperiment)
+ library(MAST)
+ library(muscat)
+ library(scater)
+ library(Seurat)
+ library(jsonlite)
+ library(dplyr)
+ library(glmmTMB)
+ library(reshape2)
+ library(broom.mixed)
+ library(nebula)
+ #library(table1)
+ library(clusterProfiler)
+ library('org.Hs.eg.db')
+ 
+ 
+ 
+ 
+ 
+ load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
+ 
+ so_subset <- so_kpmp_sc
+ remove(so_kpmp_sc)
+ 
+ #dat_groups <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_GroupAssignments.txt')
+ #dat_groups <- dat_groups %>% filter(group2 %in% c('Lean Control', 'T2D-No SGLTi2'))
+ 
+ #so_subset <- subset(so_subset, record_id == dat_groups$record_id)
+ test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ dir.results <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/pseudotime/'
+ 
+ 
+ so_subset <- subset(so_subset, subset = record_id != 'CRC-55')
+ so_subset <- subset(so_subset, subset = group == 'Lean_Control')
+ test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
+ 
+ 
+ 
+ #PT Cells
+ so_subset <- subset(so_subset, subset = celltype2 == 'PT')
+ so_subset <- RunUMAP(so_subset, dims = 1:30)
+ 
+ sling_res <- slingshot(as.SingleCellExperiment(so_subset), clusterLabels = 'KPMP_celltype', 
+                        start.clus = 'PT-S1', end.clus = 'aPT', reducedDim = 'UMAP')
+ 
+ so_subset$pseudotime <- slingPseudotime(sling_res)[,1]
+ 
+ 
+ 
+ 
+ 
+ 
+ library(ggplot2)
+ library(viridis)
+ 
+ # 1. Plot slingshot lineage tracing on UMAP
+ # Extract UMAP coordinates
+ umap_coords <- Embeddings(so_subset, reduction = "umap")
+ 
+ # Extract slingshot curves
+ sling_curves <- slingCurves(sling_res)
+ 
+ # Create data frame for plotting
+ plot_df <- data.frame(
+   UMAP_1 = umap_coords[, 1],
+   UMAP_2 = umap_coords[, 2],
+   pseudotime = so_subset$pseudotime,
+   celltype = so_subset$KPMP_celltype,
+   sex = so_subset$sex  # Assuming you have a 'sex' column in metadata
+ )
+ 
+ 
+ 
+ setwd('C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/pseudotime/further_exploration/')
+ 
+ 
+ library(tradeSeq)
+ library(phenopath)
+ library(dplyr)
+ library(ggplot2)
+ library(viridis)
+ library(Seurat)
+ library(patchwork)
+ library(ggridges)
+ library(effsize)
+ library(emmeans)
+ library(clusterProfiler)
+ library(org.Hs.eg.db)
+ library(VennDiagram)
+ library(grid)
+ 
+ # ============================================
+ # DATA VALIDATION AND CLEANING
+ # ============================================
+ 
+ print("Starting comprehensive sex-based trajectory analysis...")
+ print("========================================")
+ 
+ # Check for missing values in key variables
+ print("Checking for missing values:")
+ print(paste("Missing pseudotime:", sum(is.na(plot_df$pseudotime))))
+ print(paste("Missing sex:", sum(is.na(plot_df$sex))))
+ print(paste("Missing UMAP_1:", sum(is.na(plot_df$UMAP_1))))
+ print(paste("Missing UMAP_2:", sum(is.na(plot_df$UMAP_2))))
+ 
+ # Remove rows with missing pseudotime or sex
+ plot_df_clean <- plot_df %>%
+   filter(!is.na(pseudotime) & !is.na(sex) & !is.na(UMAP_1) & !is.na(UMAP_2))
+ 
+ print(paste("Original rows:", nrow(plot_df)))
+ print(paste("Clean rows:", nrow(plot_df_clean)))
+ print(paste("Removed rows:", nrow(plot_df) - nrow(plot_df_clean)))
+ 
+ # Check sex distribution
+ print("Sex distribution:")
+ print(table(plot_df_clean$sex))
+ 
+ # Make sure sex is a factor with exactly 2 levels
+ plot_df_clean$sex <- factor(plot_df_clean$sex)
+ if(length(levels(plot_df_clean$sex)) != 2) {
+   stop("Sex variable must have exactly 2 levels")
+ }
+ 
+ # ============================================
+ # PART 1: Test for Overall Trajectory Differences
+ # ============================================
+ 
+ print("\n========================================")
+ print("PART 1: OVERALL TRAJECTORY ANALYSIS")
+ print("========================================\n")
+ 
+ # 1. Compare pseudotime distributions between sexes
+ trajectory_stats <- plot_df_clean %>%
+   group_by(sex) %>%
+   summarise(
+     n_cells = n(),
+     mean_pt = mean(pseudotime, na.rm = TRUE),
+     median_pt = median(pseudotime, na.rm = TRUE),
+     sd_pt = sd(pseudotime, na.rm = TRUE),
+     min_pt = min(pseudotime, na.rm = TRUE),
+     max_pt = max(pseudotime, na.rm = TRUE),
+     q25_pt = quantile(pseudotime, 0.25, na.rm = TRUE),
+     q75_pt = quantile(pseudotime, 0.75, na.rm = TRUE)
+   )
+ 
+ print("Trajectory Statistics by Sex:")
+ print(trajectory_stats)
+ 
+ # 2. Statistical tests for pseudotime differences
+ # Wilcoxon rank-sum test
+ wilcox_result <- wilcox.test(pseudotime ~ sex, data = plot_df_clean)
+ print(paste("\nWilcoxon test p-value:", wilcox_result$p.value))
+ 
+ # T-test (if distributions are relatively normal)
+ t_result <- t.test(pseudotime ~ sex, data = plot_df_clean)
+ print(paste("T-test p-value:", t_result$p.value))
+ 
+ # Effect size (Cohen's d)
+ cohens_d <- cohen.d(plot_df_clean$pseudotime, plot_df_clean$sex)
+ print(paste("Cohen's d effect size:", cohens_d$estimate))
+ 
+ # 3. Visualize trajectory differences
+ p1 <- ggplot(plot_df_clean, aes(x = pseudotime, y = sex, fill = sex)) +
+   geom_density_ridges(alpha = 0.7, scale = 0.9) +
+   labs(title = "Pseudotime Distribution by Sex",
+        x = "Pseudotime",
+        y = "Sex") +
+   theme_ridges() +
+   theme(legend.position = "none")
+ 
+ p2 <- ggplot(plot_df_clean, aes(x = sex, y = pseudotime, fill = sex)) +
+   geom_violin(alpha = 0.7) +
+   geom_boxplot(width = 0.2, alpha = 0.5) +
+   labs(title = "Pseudotime by Sex",
+        x = "Sex",
+        y = "Pseudotime") +
+   theme_classic() +
+   theme(legend.position = "none")
+ 
+ p3 <- ggplot(plot_df_clean, aes(x = UMAP_1, y = UMAP_2, color = pseudotime)) +
+   geom_point(size = 0.5, alpha = 0.6) +
+   facet_wrap(~sex) +
+   scale_color_viridis(option = "magma") +
+   labs(title = "Trajectory by Sex on UMAP") +
+   theme_classic()
+ 
+ # Combine plots
+ print((p1 / p2) | p3)
+ 
+ # 4. Test for differences in trajectory shape/progression
+ # Kolmogorov-Smirnov test (tests if distributions are different)
+ sex_levels <- levels(plot_df_clean$sex)
+ ks_result <- ks.test(
+   plot_df_clean$pseudotime[plot_df_clean$sex == sex_levels[1]],
+   plot_df_clean$pseudotime[plot_df_clean$sex == sex_levels[2]]
+ )
+ print(paste("\nKS test p-value:", ks_result$p.value))
+ 
+ # 5. Cell type composition along trajectory
+ celltype_analysis <- plot_df_clean %>%
+   mutate(pt_quartile = cut(pseudotime, 
+                            breaks = quantile(pseudotime, probs = seq(0, 1, 0.25), na.rm = TRUE),
+                            labels = c("Early", "Early-Mid", "Mid-Late", "Late"),
+                            include.lowest = TRUE)) %>%
+   filter(!is.na(pt_quartile)) %>%
+   group_by(sex, pt_quartile, celltype) %>%
+   summarise(n = n(), .groups = 'drop') %>%
+   group_by(sex, pt_quartile) %>%
+   mutate(prop = n / sum(n))
+ 
+ p4 <- ggplot(celltype_analysis, aes(x = pt_quartile, y = prop, fill = celltype)) +
+   geom_bar(stat = "identity", position = "stack") +
+   facet_wrap(~sex) +
+   labs(title = "Cell Type Composition Along Trajectory",
+        x = "Trajectory Stage",
+        y = "Proportion") +
+   theme_classic() +
+   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ 
+ print(p4)
+ 
+ # ============================================
+ # PART 2: PhenoPath Analysis (with enhanced debugging)
+ # ============================================
+ 
+ print("\n========================================")
+ print("PART 2: PHENOPATH ANALYSIS")
+ print("========================================\n")
+ 
+ print("Running PhenoPath analysis...")
+ 
+ # Get matching cells (handle potential mismatches)
+ cells_to_keep <- intersect(rownames(plot_df_clean), colnames(so_subset))
+ print(paste("Cells in both plot_df_clean and so_subset:", length(cells_to_keep)))
+ 
+ # Subset Seurat object to matching cells
+ so_subset_clean <- subset(so_subset, cells = cells_to_keep)
+ 
+ # Prepare data for PhenoPath
+ expr_matrix <- GetAssayData(so_subset_clean, slot = "data", assay = "RNA")
+ 
+ # ENHANCED VALIDATION
+ print("\n=== PhenoPath Input Validation ===")
+ print(paste("Expression matrix dimensions:", nrow(expr_matrix), "genes x", ncol(expr_matrix), "cells"))
+ print(paste("Number of cells in so_subset_clean:", ncol(so_subset_clean)))
+ 
+ # Check for NAs in expression matrix
+ na_count <- sum(is.na(expr_matrix))
+ print(paste("NAs in expression matrix:", na_count))
+ 
+ # Convert sex to numeric (0/1)
+ sex_numeric <- as.numeric(factor(so_subset_clean$sex)) - 1
+ sex_levels_pheno <- levels(factor(so_subset_clean$sex))
+ print(paste("\nSex encoding:", sex_levels_pheno[1], "= 0,", sex_levels_pheno[2], "= 1"))
+ print(paste("Sex distribution:", sum(sex_numeric == 0), "vs", sum(sex_numeric == 1)))
+ 
+ # Check for NAs in sex
+ print(paste("NAs in sex_numeric:", sum(is.na(sex_numeric))))
+ 
+ # Get pseudotime
+ pseudotime_init <- so_subset_clean$pseudotime
+ 
+ # CRITICAL: Check pseudotime
+ print("\n=== Pseudotime Validation ===")
+ print(paste("Length of pseudotime:", length(pseudotime_init)))
+ print(paste("NAs in pseudotime:", sum(is.na(pseudotime_init))))
+ print(paste("Range of pseudotime:", min(pseudotime_init, na.rm = TRUE), "to", max(pseudotime_init, na.rm = TRUE)))
+ 
+ # If there are NAs in pseudotime, handle them
+ if(any(is.na(pseudotime_init))) {
+   print("WARNING: NAs found in pseudotime, filtering out these cells")
+   
+   valid_cells <- !is.na(pseudotime_init)
+   
+   so_subset_clean <- subset(so_subset_clean, cells = colnames(so_subset_clean)[valid_cells])
+   expr_matrix <- GetAssayData(so_subset_clean, slot = "data", assay = "RNA")
+   sex_numeric <- sex_numeric[valid_cells]
+   pseudotime_init <- pseudotime_init[valid_cells]
+   
+   print(paste("After filtering: ", ncol(so_subset_clean), "cells remain"))
+ }
+ 
+ # Verify all vectors have same length
+ print("\n=== Dimension Check ===")
+ print(paste("Expression matrix cells:", ncol(expr_matrix)))
+ print(paste("Sex vector length:", length(sex_numeric)))
+ print(paste("Pseudotime vector length:", length(pseudotime_init)))
+ 
+ if(!(ncol(expr_matrix) == length(sex_numeric) && length(sex_numeric) == length(pseudotime_init))) {
+   stop("Dimension mismatch! All vectors must have the same length")
+ }
+ 
+ # Select genes for PhenoPath
+ hvgs <- VariableFeatures(so_subset_clean)
+ if(length(hvgs) > 2000) {
+   genes_for_phenopath <- hvgs[1:2000]
+ } else {
+   genes_for_phenopath <- hvgs
+ }
+ 
+ print(paste("\nRunning PhenoPath on", length(genes_for_phenopath), "genes..."))
+ 
+ # Filter genes with zero variance
+ gene_vars <- apply(expr_matrix[genes_for_phenopath, ], 1, var)
+ genes_with_var <- genes_for_phenopath[gene_vars > 0]
+ print(paste("Genes with variance > 0:", length(genes_with_var)))
+ 
+ if(length(genes_with_var) < 100) {
+   stop("Too few genes with variance. Check your expression data.")
+ }
+ 
+ genes_for_phenopath <- genes_with_var
+ 
+ # Prepare expression matrix for PhenoPath (cells x genes)
+ expr_for_phenopath <- t(as.matrix(expr_matrix[genes_for_phenopath, ]))
+ 
+ print("\n=== Final PhenoPath Input ===")
+ print(paste("Expression matrix for PhenoPath:", nrow(expr_for_phenopath), "cells x", ncol(expr_for_phenopath), "genes"))
+ print(paste("Sex covariate length:", length(sex_numeric)))
+ print(paste("Pseudotime init length:", length(pseudotime_init)))
+ 
+ # Check for any remaining NAs
+ if(any(is.na(expr_for_phenopath))) {
+   print("WARNING: NAs in expression matrix, replacing with 0")
+   expr_for_phenopath[is.na(expr_for_phenopath)] <- 0
+ }
+ 
+ # Standardize pseudotime to [0, 1]
+ pseudotime_scaled <- (pseudotime_init - min(pseudotime_init)) / (max(pseudotime_init) - min(pseudotime_init))
+ print(paste("Scaled pseudotime range:", min(pseudotime_scaled), "to", max(pseudotime_scaled)))
+ 
+ # Initialize flag
+ phenopath_success <- FALSE
+ 
+ # Try running PhenoPath with error handling
+ tryCatch({
+   print("\nAttempting to run PhenoPath...")
+   
+   phenopath_fit <- phenopath(
+     exprs_obj = expr_for_phenopath,
+     x = sex_numeric,
+     elbo_tol = 1e-2,
+     z_init = pseudotime_scaled,  # Use scaled pseudotime
+     thin = 40,
+     verbose = TRUE
+   )
+   
+   print("PhenoPath completed successfully!")
+   
+   # Extract PhenoPath results
+   phenopath_pseudotime <- phenopath_fit$z
+   phenopath_beta <- phenopath_fit$beta
+   phenopath_alpha <- phenopath_fit$alpha
+   
+   # Add to Seurat object
+   so_subset_clean$phenopath_pseudotime <- phenopath_pseudotime
+   
+   # Create results data frame
+   phenopath_results <- data.frame(
+     gene = genes_for_phenopath,
+     beta = phenopath_beta,
+     alpha = phenopath_alpha,
+     abs_beta = abs(phenopath_beta),
+     abs_alpha = abs(phenopath_alpha)
+   ) %>%
+     arrange(desc(abs_beta))
+   
+   # Identify significant sex-interaction genes
+   beta_threshold <- quantile(abs(phenopath_beta), 0.95)
+   phenopath_results$sig_sex_effect <- abs(phenopath_results$beta) > beta_threshold
+   
+   print(paste("\nPhenoPath identified", sum(phenopath_results$sig_sex_effect), 
+               "genes with strong sex-specific effects (top 5%)"))
+   
+   # Save PhenoPath results
+   write.csv(phenopath_results, 
+             "phenopath_sex_interaction_genes.csv", 
+             row.names = FALSE)
+   
+   # Top sex-interaction genes from PhenoPath
+   top_phenopath_genes <- head(phenopath_results, 20)
+   print("\nTop 20 genes with sex-interaction effects (PhenoPath):")
+   print(top_phenopath_genes[, c("gene", "beta", "alpha")])
+   
+   # Set flag that PhenoPath succeeded
+   phenopath_success <- TRUE
+   
+ }, error = function(e) {
+   print("ERROR in PhenoPath:")
+   print(e)
+   print("\nSkipping PhenoPath analysis and continuing with tradeSeq only...")
+   
+   # Create empty results so the rest of the script can continue
+   phenopath_results <<- data.frame(
+     gene = character(0),
+     beta = numeric(0),
+     alpha = numeric(0),
+     abs_beta = numeric(0),
+     abs_alpha = numeric(0),
+     sig_sex_effect = logical(0)
+   )
+   
+   phenopath_success <<- FALSE
+ })
+ 
+ # ============================================
+ # PART 2B: Compare PhenoPath vs Slingshot (only if PhenoPath succeeded)
+ # ============================================
+ 
+ if(phenopath_success) {
+   print("\n=== Comparing PhenoPath vs Slingshot ===")
+   
+   comparison_df <- data.frame(
+     slingshot_pt = so_subset_clean$pseudotime,
+     phenopath_pt = phenopath_pseudotime,
+     sex = so_subset_clean$sex,
+     celltype = so_subset_clean$KPMP_celltype,
+     UMAP_1 = Embeddings(so_subset_clean, reduction = "umap")[, 1],
+     UMAP_2 = Embeddings(so_subset_clean, reduction = "umap")[, 2]
+   ) %>%
+     filter(!is.na(slingshot_pt) & !is.na(phenopath_pt))
+   
+   # Correlation between methods
+   cor_overall <- cor(comparison_df$slingshot_pt, comparison_df$phenopath_pt, 
+                      use = "complete.obs")
+   print(paste("Overall correlation between Slingshot and PhenoPath:", 
+               round(cor_overall, 3)))
+   
+   # Correlation by sex
+   cor_by_sex <- comparison_df %>%
+     group_by(sex) %>%
+     summarise(correlation = cor(slingshot_pt, phenopath_pt, use = "complete.obs"))
+   print("Correlation by sex:")
+   print(cor_by_sex)
+   
+   # Visualize comparison
+   p5 <- ggplot(comparison_df, aes(x = slingshot_pt, y = phenopath_pt, color = sex)) +
+     geom_point(alpha = 0.5, size = 0.8) +
+     geom_smooth(method = "lm", se = TRUE, formula = y ~ x) +
+     geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50") +
+     labs(title = "Slingshot vs PhenoPath Pseudotime",
+          subtitle = paste("Overall r =", round(cor_overall, 3)),
+          x = "Slingshot Pseudotime",
+          y = "PhenoPath Pseudotime") +
+     theme_classic() +
+     facet_wrap(~sex)
+   
+   print(p5)
+   
+   # Visualize PhenoPath pseudotime on UMAP
+   p6 <- ggplot(comparison_df, aes(x = UMAP_1, y = UMAP_2, color = phenopath_pt)) +
+     geom_point(size = 0.5, alpha = 0.6) +
+     facet_wrap(~sex) +
+     scale_color_viridis(option = "magma") +
+     labs(title = "PhenoPath Pseudotime by Sex",
+          color = "PhenoPath\nPseudotime") +
+     theme_classic()
+   
+   p7 <- ggplot(comparison_df, aes(x = UMAP_1, y = UMAP_2, color = slingshot_pt)) +
+     geom_point(size = 0.5, alpha = 0.6) +
+     facet_wrap(~sex) +
+     scale_color_viridis(option = "magma") +
+     labs(title = "Slingshot Pseudotime by Sex",
+          color = "Slingshot\nPseudotime") +
+     theme_classic()
+   
+   print(p6 / p7)
+   
+   # Test if PhenoPath pseudotime differs by sex more than Slingshot
+   sling_sex_diff <- comparison_df %>%
+     group_by(sex) %>%
+     summarise(mean_pt = mean(slingshot_pt, na.rm = TRUE)) %>%
+     pull(mean_pt) %>%
+     diff() %>%
+     abs()
+   
+   pheno_sex_diff <- comparison_df %>%
+     group_by(sex) %>%
+     summarise(mean_pt = mean(phenopath_pt, na.rm = TRUE)) %>%
+     pull(mean_pt) %>%
+     diff() %>%
+     abs()
+   
+   print(paste("\nAbsolute difference in mean pseudotime between sexes:"))
+   print(paste("  Slingshot:", round(sling_sex_diff, 4)))
+   print(paste("  PhenoPath:", round(pheno_sex_diff, 4)))
+   
+   # Visualize top genes
+   if(nrow(phenopath_results) > 0) {
+     top_genes_phenopath <- head(phenopath_results$gene, 12)
+     
+     plots_phenopath <- lapply(top_genes_phenopath, function(gene) {
+       gene_expr <- expr_matrix[gene, ]
+       
+       plot_data <- data.frame(
+         expression = gene_expr,
+         pseudotime = phenopath_pseudotime,
+         sex = so_subset_clean$sex
+       )
+       
+       ggplot(plot_data, aes(x = pseudotime, y = expression, color = sex)) +
+         geom_point(alpha = 0.3, size = 0.5) +
+         geom_smooth(method = "loess", se = TRUE) +
+         labs(title = gene,
+              subtitle = paste("β =", round(phenopath_results$beta[phenopath_results$gene == gene], 3)),
+              x = "PhenoPath Pseudotime",
+              y = "Expression") +
+         theme_classic() +
+         theme(legend.position = "bottom")
+     })
+     
+     print(wrap_plots(plots_phenopath, ncol = 3))
+   }
+ } else {
+   print("\nPhenoPath analysis was skipped due to errors. Continuing with tradeSeq only...")
+ }
+ 
+ # ============================================
+ # PART 3: TradeSeq Analysis
+ # ============================================
+ 
+ print("\n========================================")
+ print("PART 3: TRADESEQ ANALYSIS")
+ print("========================================\n")
+ 
+ # Prepare data for tradeSeq
+ counts_matrix <- GetAssayData(so_subset_clean, slot = "counts", assay = "RNA")
+ pseudotime_mat <- slingPseudotime(sling_res)
+ cellweights_mat <- slingCurveWeights(sling_res)
+ 
+ # Match cells
+ cells_match <- intersect(colnames(counts_matrix), rownames(pseudotime_mat))
+ counts_matrix <- counts_matrix[, cells_match]
+ pseudotime_mat <- pseudotime_mat[cells_match, , drop = FALSE]
+ cellweights_mat <- cellweights_mat[cells_match, , drop = FALSE]
+ 
+ # Subset to genes tested
+ genes_to_test <- genes_for_phenopath
+ counts_matrix_subset <- counts_matrix[genes_to_test, ]
+ 
+ print("Fitting GAM models with sex as covariate...")
+ print("This may take several minutes...")
+ 
+ # Fit GAM models with sex interaction
+ set.seed(123)
+ sce <- fitGAM(
+   counts = counts_matrix_subset,
+   pseudotime = pseudotime_mat,
+   cellWeights = cellweights_mat,
+   conditions = factor(so_subset_clean$sex[match(cells_match, colnames(so_subset_clean))]),
+   nknots = 6,
+   verbose = TRUE
+ )
+ 
+ print("Testing for sex-specific trajectory patterns...")
+ 
+ # Test for condition (sex) effects
+ sex_trajectory_test <- conditionTest(sce, global = TRUE, pairwise = TRUE)
+ 
+ # Add gene names and sort by significance
+ sex_trajectory_results <- sex_trajectory_test %>%
+   as.data.frame() %>%
+   mutate(gene = rownames(sex_trajectory_test),
+          padj = p.adjust(pvalue, method = "BH"),
+          significant = padj < 0.05) %>%
+   arrange(pvalue)
+ 
+ # Summary
+ print(paste("\nTotal genes tested (tradeSeq):", nrow(sex_trajectory_results)))
+ print(paste("Genes with sex-specific trajectory patterns (padj < 0.05):", 
+             sum(sex_trajectory_results$significant)))
+ print(paste("Genes with sex-specific trajectory patterns (padj < 0.01):", 
+             sum(sex_trajectory_results$padj < 0.01)))
+ 
+ # Top sex-differential genes
+ top_sex_genes_tradeseq <- head(sex_trajectory_results, 20)
+ print("\nTop 20 genes with sex-specific trajectory patterns (tradeSeq):")
+ print(top_sex_genes_tradeseq[, c("gene", "pvalue", "padj")])
+ 
+ # Save results
+ write.csv(sex_trajectory_results, 
+           "tradeseq_sex_specific_trajectory_genes.csv", 
+           row.names = FALSE)
+ 
+ # ============================================
+ # PART 4: Compare PhenoPath and TradeSeq Results
+ # ============================================
+ 
+ if(phenopath_success && nrow(phenopath_results) > 0) {
+   print("\n========================================")
+   print("PART 4: METHOD COMPARISON")
+   print("========================================\n")
+   
+   # Merge results from both methods
+   combined_results <- phenopath_results %>%
+     left_join(sex_trajectory_results, by = "gene", suffix = c("_phenopath", "_tradeseq"))
+   
+   # Compare rankings
+   combined_results <- combined_results %>%
+     mutate(
+       phenopath_rank = rank(-abs_beta),
+       tradeseq_rank = rank(pvalue)
+     )
+   
+   # Correlation between methods
+   rank_cor <- cor(combined_results$phenopath_rank, 
+                   combined_results$tradeseq_rank, 
+                   use = "complete.obs")
+   print(paste("Rank correlation between PhenoPath and tradeSeq:", 
+               round(rank_cor, 3)))
+   
+   # Scatter plot comparing methods
+   p8 <- ggplot(combined_results, aes(x = abs_beta, y = -log10(pvalue))) +
+     geom_point(alpha = 0.5, size = 1) +
+     geom_vline(xintercept = beta_threshold, linetype = "dashed", color = "red") +
+     geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "blue") +
+     labs(title = "Comparison: PhenoPath vs TradeSeq",
+          subtitle = paste("Rank correlation =", round(rank_cor, 3)),
+          x = "PhenoPath |β| (sex interaction)",
+          y = "TradeSeq -log10(p-value)") +
+     theme_classic()
+   
+   print(p8)
+   
+   # Identify genes significant in both methods
+   sig_both <- combined_results %>%
+     filter(sig_sex_effect == TRUE & significant == TRUE) %>%
+     arrange(desc(abs_beta))
+   
+   print(paste("\nGenes identified by BOTH methods:", nrow(sig_both)))
+   if(nrow(sig_both) > 0) {
+     print("Top genes identified by both methods:")
+     print(head(sig_both[, c("gene", "beta", "pvalue", "padj")], 10))
+   }
+   
+   # Venn diagram of overlap
+   venn.plot <- venn.diagram(
+     x = list(
+       PhenoPath = phenopath_results$gene[phenopath_results$sig_sex_effect],
+       TradeSeq = sex_trajectory_results$gene[sex_trajectory_results$significant]
+     ),
+     category.names = c("PhenoPath", "TradeSeq"),
+     filename = NULL,
+     fill = c("#3498db", "#e74c3c"),
+     alpha = 0.5
+   )
+   grid.draw(venn.plot)
+   
+   # Save combined results
+   write.csv(combined_results, 
+             "combined_phenopath_tradeseq_results.csv", 
+             row.names = FALSE)
+   
+   # ============================================
+   # PART 5: Visualize Top Genes from Both Methods
+   # ============================================
+   
+   # Get top genes from each method
+   top_phenopath_only <- head(phenopath_results$gene[phenopath_results$sig_sex_effect], 6)
+   top_tradeseq_only <- head(sex_trajectory_results$gene[sex_trajectory_results$significant], 6)
+   top_both_methods <- head(sig_both$gene, 6)
+   
+   # Combine for visualization
+   genes_to_visualize <- unique(c(top_both_methods, top_phenopath_only[1:3], top_tradeseq_only[1:3]))
+   
+   # Plot with tradeSeq smoothers
+   plots_comparison <- lapply(genes_to_visualize[1:min(9, length(genes_to_visualize))], function(gene) {
+     plotSmoothers(sce, counts_matrix_subset, gene = gene, 
+                   alpha = 1, border = TRUE) +
+       ggtitle(paste(gene, 
+                     "\nPhenoPath β:", round(combined_results$beta[combined_results$gene == gene], 3),
+                     "| tradeSeq p:", signif(combined_results$pvalue[combined_results$gene == gene], 3)))
+   })
+   
+   print(wrap_plots(plots_comparison, ncol = 3))
+   
+ } else {
+   print("\n========================================")
+   print("PART 4: Skipping method comparison (PhenoPath unavailable)")
+   print("========================================\n")
+ }
+ # ============================================
+ # PART 6: FOCUSED ANALYSIS - PT-S1/S2 SEX DIFFERENCES
+ # ============================================
+ 
+ print("\n========================================")
+ print("PART 6: PT-S1/S2 SPECIFIC ANALYSIS")
+ print("========================================\n")
+ 
+ # Filter for PT-S1/S2 cells only
+ pt_s1s2_df <- plot_df_clean %>%
+   filter(celltype == "PT-S1/S2")
+ 
+ print(paste("Total PT-S1/S2 cells:", nrow(pt_s1s2_df)))
+ print("Distribution by sex:")
+ print(table(pt_s1s2_df$sex))
+ 
+ # 1. Statistical comparison of pseudotime in PT-S1/S2
+ pt_s1s2_stats <- pt_s1s2_df %>%
+   group_by(sex) %>%
+   summarise(
+     n_cells = n(),
+     mean_pt = mean(pseudotime, na.rm = TRUE),
+     median_pt = median(pseudotime, na.rm = TRUE),
+     sd_pt = sd(pseudotime, na.rm = TRUE),
+     se_pt = sd_pt / sqrt(n_cells),
+     .groups = 'drop'
+   )
+ 
+ print("\nPT-S1/S2 Pseudotime Statistics by Sex:")
+ print(pt_s1s2_stats)
+ 
+ # Test pseudotime differences between sexes
+ pt_s1s2_sex_counts <- table(pt_s1s2_df$sex)
+ 
+ if(length(pt_s1s2_sex_counts) == 2 && all(pt_s1s2_sex_counts > 0)) {
+   pt_s1s2_test <- wilcox.test(pseudotime ~ sex, data = pt_s1s2_df)
+   print(paste("\nPT-S1/S2: Wilcoxon p-value =", signif(pt_s1s2_test$p.value, 3)))
+   
+   # T-test
+   pt_s1s2_ttest <- t.test(pseudotime ~ sex, data = pt_s1s2_df)
+   print(paste("PT-S1/S2: T-test p-value =", signif(pt_s1s2_ttest$p.value, 3)))
+   
+   # Effect size
+   pt_s1s2_cohens <- cohen.d(pt_s1s2_df$pseudotime, pt_s1s2_df$sex)
+   print(paste("PT-S1/S2: Cohen's d =", round(pt_s1s2_cohens$estimate, 3)))
+ } else {
+   print("\nPT-S1/S2: Cannot perform test - need both sexes represented")
+   print(paste("Sex distribution:", paste(names(pt_s1s2_sex_counts), pt_s1s2_sex_counts, collapse = ", ")))
+   pt_s1s2_test <- list(p.value = NA)
+   pt_s1s2_ttest <- list(p.value = NA)
+   pt_s1s2_cohens <- list(estimate = NA)
+ }
+ 
+ # 2. Visualizations for PT-S1/S2
+ 
+ # Density plots by sex
+ p_pt_density <- ggplot(pt_s1s2_df, aes(x = pseudotime, fill = sex)) +
+   geom_density(alpha = 0.6) +
+   labs(title = "Pseudotime Distribution in PT-S1/S2",
+        subtitle = "Comparing Males vs Females",
+        x = "Pseudotime",
+        y = "Density") +
+   theme_classic() +
+   theme(legend.position = "bottom")
+ 
+ print(p_pt_density)
+ 
+ # Box plots with statistics
+ p_pt_box <- ggplot(pt_s1s2_df, aes(x = sex, y = pseudotime, fill = sex)) +
+   geom_violin(alpha = 0.5) +
+   geom_boxplot(width = 0.3, alpha = 0.7, outlier.alpha = 0.3) +
+   geom_jitter(width = 0.1, alpha = 0.1, size = 0.5) +
+   stat_summary(fun = mean, geom = "point", shape = 23, size = 3, fill = "white") +
+   labs(title = "Pseudotime in PT-S1/S2 by Sex",
+        subtitle = "Diamond = mean, Box = median ± IQR",
+        x = "Sex",
+        y = "Pseudotime") +
+   theme_classic() +
+   theme(legend.position = "none")
+ 
+ print(p_pt_box)
+ 
+ # UMAP visualization for PT-S1/S2
+ p_pt_umap <- ggplot(pt_s1s2_df, aes(x = UMAP_1, y = UMAP_2, color = pseudotime)) +
+   geom_point(size = 1, alpha = 0.7) +
+   facet_wrap(~sex) +
+   scale_color_viridis(option = "magma") +
+   labs(title = "PT-S1/S2 Pseudotime on UMAP",
+        color = "Pseudotime") +
+   theme_classic()
+ 
+ print(p_pt_umap)
+ 
+ # Ridge plot showing shift
+ p_pt_ridge <- ggplot(pt_s1s2_df, aes(x = pseudotime, y = sex, fill = sex)) +
+   geom_density_ridges(alpha = 0.7, scale = 1.5) +
+   labs(title = "Pseudotime Distribution: PT-S1/S2 by Sex",
+        x = "Pseudotime",
+        y = "Sex") +
+   theme_ridges() +
+   theme(legend.position = "bottom")
+ 
+ print(p_pt_ridge)
+ 
+ # 3. Identify PT-S1/S2 specific sex-differential genes
+ 
+ # Subset Seurat object to PT-S1/S2 cells
+ pt_cells <- rownames(pt_s1s2_df)
+ pt_cells_in_seurat <- intersect(pt_cells, colnames(so_subset_clean))
+ so_pt <- subset(so_subset_clean, cells = pt_cells_in_seurat)
+ 
+ print(paste("\nPT-S1/S2 subset contains", ncol(so_pt), "cells"))
+ 
+ # Check if we have enough cells from both sexes for tradeSeq
+ pt_sex_table <- table(so_pt$sex)
+ print("Sex distribution in PT-S1/S2 subset:")
+ print(pt_sex_table)
+ 
+ if(length(pt_sex_table) == 2 && all(pt_sex_table >= 10)) {
+   # Run tradeSeq specifically on PT-S1/S2 cells
+   counts_pt <- GetAssayData(so_pt, slot = "counts", assay = "RNA")
+   pseudotime_pt <- slingPseudotime(sling_res)[pt_cells_in_seurat, , drop = FALSE]
+   cellweights_pt <- slingCurveWeights(sling_res)[pt_cells_in_seurat, , drop = FALSE]
+   
+   # Use HVGs or subset
+   hvgs_pt <- VariableFeatures(so_pt)
+   if(length(hvgs_pt) > 1500) {
+     genes_pt <- hvgs_pt[1:1500]
+   } else {
+     genes_pt <- hvgs_pt
+   }
+   
+   counts_pt_subset <- counts_pt[genes_pt, ]
+   
+   print("Fitting GAM models for PT-S1/S2 cells...")
+   
+   set.seed(456)
+   sce_pt <- fitGAM(
+     counts = counts_pt_subset,
+     pseudotime = pseudotime_pt,
+     cellWeights = cellweights_pt,
+     conditions = factor(so_pt$sex),
+     nknots = 6,
+     verbose = TRUE
+   )
+   
+   print("Testing for sex-specific patterns in PT-S1/S2...")
+   sex_test_pt <- conditionTest(sce_pt, global = TRUE, pairwise = TRUE)
+   
+   sex_results_pt <- sex_test_pt %>%
+     as.data.frame() %>%
+     mutate(
+       gene = rownames(sex_test_pt),
+       padj = p.adjust(pvalue, method = "BH"),
+       significant = padj < 0.05
+     ) %>%
+     arrange(pvalue)
+   
+   print(paste("\nPT-S1/S2: Genes with sex-specific patterns (padj < 0.05):", 
+               sum(sex_results_pt$significant)))
+   print(paste("PT-S1/S2: Genes with sex-specific patterns (padj < 0.01):", 
+               sum(sex_results_pt$padj < 0.01)))
+   
+   # Save results
+   write.csv(sex_results_pt, 
+             "pt_s1s2_sex_specific_genes.csv", 
+             row.names = FALSE)
+   
+   print("\nTop 20 PT-S1/S2 sex-differential genes:")
+   print(head(sex_results_pt[, c("gene", "pvalue", "padj")], 20))
+   
+   # 4. Visualize top PT-S1/S2 sex-differential genes
+   top_pt_genes <- head(sex_results_pt$gene, 12)
+   
+   plots_pt_genes <- lapply(top_pt_genes, function(gene) {
+     plotSmoothers(sce_pt, counts_pt_subset, gene = gene, 
+                   alpha = 1, border = TRUE) +
+       ggtitle(paste(gene, "\nPT-S1/S2",
+                     "(padj =", signif(sex_results_pt$padj[sex_results_pt$gene == gene], 3), ")"))
+   })
+   
+   print(wrap_plots(plots_pt_genes, ncol = 3))
+   
+   # 5. Compare expression patterns between sexes
+   expr_data <- GetAssayData(so_pt, slot = "data", assay = "RNA")
+   
+   pt_expr_summary <- expand.grid(
+     gene = top_pt_genes[1:6],
+     sex = levels(so_pt$sex),
+     stringsAsFactors = FALSE
+   )
+   
+   pt_expr_summary$mean_expr <- sapply(1:nrow(pt_expr_summary), function(i) {
+     gene <- pt_expr_summary$gene[i]
+     sx <- pt_expr_summary$sex[i]
+     
+     cells_subset <- colnames(so_pt)[so_pt$sex == sx]
+     
+     if(length(cells_subset) > 0) {
+       mean(expr_data[gene, cells_subset])
+     } else {
+       NA
+     }
+   })
+   
+   # Plot expression patterns
+   p_expr_pattern <- ggplot(pt_expr_summary, 
+                            aes(x = sex, y = mean_expr, fill = sex)) +
+     geom_bar(stat = "identity") +
+     facet_wrap(~gene, scales = "free_y", ncol = 3) +
+     labs(title = "Mean Expression in PT-S1/S2 by Sex",
+          x = "Sex",
+          y = "Mean Expression") +
+     theme_bw() +
+     theme(axis.text.x = element_text(angle = 45, hjust = 1),
+           legend.position = "none")
+   
+   print(p_expr_pattern)
+   
+   tradeseq_pt_success <- TRUE
+   
+ } else {
+   print("\nSkipping tradeSeq for PT-S1/S2: insufficient cells in one or both sexes (need at least 10 per sex)")
+   sex_results_pt <- data.frame(
+     gene = character(0),
+     pvalue = numeric(0),
+     padj = numeric(0),
+     significant = logical(0)
+   )
+   tradeseq_pt_success <- FALSE
+ }
+ 
+ # 6. Test if sex difference in pseudotime is specific to PT-S1/S2
+ other_celltypes_df <- plot_df_clean %>%
+   filter(celltype != "PT-S1/S2")
+ 
+ if(nrow(other_celltypes_df) > 0 && nrow(pt_s1s2_df) > 0) {
+   # Check if both have both sexes
+   other_sex_counts <- table(other_celltypes_df$sex)
+   
+   if(length(other_sex_counts) == 2 && all(other_sex_counts > 0) && 
+      length(pt_s1s2_sex_counts) == 2 && all(pt_s1s2_sex_counts > 0)) {
+     
+     other_test <- wilcox.test(pseudotime ~ sex, data = other_celltypes_df)
+     
+     print("\n\nComparison with other cell types:")
+     print(paste("PT-S1/S2 p-value:", signif(pt_s1s2_test$p.value, 3)))
+     print(paste("Other cell types p-value:", signif(other_test$p.value, 3)))
+     
+     # Visualization
+     comparison_data <- bind_rows(
+       pt_s1s2_df %>% mutate(group = "PT-S1/S2"),
+       other_celltypes_df %>% mutate(group = "Other")
+     )
+     
+     p_comparison <- ggplot(comparison_data, aes(x = sex, y = pseudotime, fill = sex)) +
+       geom_violin(alpha = 0.5) +
+       geom_boxplot(width = 0.3, alpha = 0.7) +
+       facet_wrap(~group) +
+       labs(title = "Sex Difference in Pseudotime: PT-S1/S2 vs Other Cells",
+            x = "Sex",
+            y = "Pseudotime") +
+       theme_classic() +
+       theme(legend.position = "none")
+     
+     print(p_comparison)
+   }
+ }
+ 
+ # 7. Functional enrichment of PT-S1/S2 sex-differential genes
+ if(tradeseq_pt_success && exists("sex_results_pt")) {
+   sig_pt_genes <- sex_results_pt %>%
+     filter(significant) %>%
+     pull(gene)
+   
+   if(length(sig_pt_genes) > 10) {
+     print("\nRunning GO enrichment for PT-S1/S2 genes...")
+     
+     tryCatch({
+       gene_entrez_pt <- bitr(sig_pt_genes, 
+                              fromType = "SYMBOL",
+                              toType = "ENTREZID",
+                              OrgDb = org.Hs.eg.db)
+       
+       go_results_pt <- enrichGO(
+         gene = gene_entrez_pt$ENTREZID,
+         OrgDb = org.Hs.eg.db,
+         ont = "BP",
+         pAdjustMethod = "BH",
+         pvalueCutoff = 0.05,
+         readable = TRUE
+       )
+       
+       if(nrow(go_results_pt) > 0) {
+         print("GO Enrichment for PT-S1/S2 sex-differential genes:")
+         print(dotplot(go_results_pt, showCategory = 20) +
+                 ggtitle("GO Enrichment: PT-S1/S2 Sex-Differential Genes"))
+       }
+       
+       # KEGG pathway enrichment
+       kegg_results_pt <- enrichKEGG(
+         gene = gene_entrez_pt$ENTREZID,
+         organism = "hsa",
+         pAdjustMethod = "BH",
+         pvalueCutoff = 0.05
+       )
+       
+       if(nrow(kegg_results_pt) > 0) {
+         print("KEGG Pathway Enrichment for PT-S1/S2 sex-differential genes:")
+         print(dotplot(kegg_results_pt, showCategory = 15) +
+                 ggtitle("KEGG Pathways: PT-S1/S2 Sex-Differential Genes"))
+       }
+     }, error = function(e) {
+       print("Error in enrichment for PT-S1/S2 genes:")
+       print(e)
+     })
+   }
+ }
+ 
+ # ============================================
+ # PART 7: Functional Enrichment Analysis
+ # ============================================
+ 
+ print("\n========================================")
+ print("PART 7: FUNCTIONAL ENRICHMENT")
+ print("========================================\n")
+ 
+ # Get significant genes from different analyses
+ if(phenopath_success && nrow(phenopath_results) > 0) {
+   sig_phenopath_genes <- phenopath_results %>%
+     filter(sig_sex_effect) %>%
+     pull(gene)
+ } else {
+   sig_phenopath_genes <- character(0)
+ }
+ 
+ sig_tradeseq_genes <- sex_trajectory_results %>%
+   filter(significant) %>%
+   pull(gene)
+ 
+ sig_pt_genes <- sex_results_pt %>%
+   filter(significant) %>%
+   pull(gene)
+ 
+ # Enrichment for PhenoPath genes
+ if(length(sig_phenopath_genes) > 10) {
+   print("Running GO enrichment for PhenoPath genes...")
+   
+   tryCatch({
+     gene_entrez_pheno <- bitr(sig_phenopath_genes, 
+                               fromType = "SYMBOL",
+                               toType = "ENTREZID",
+                               OrgDb = org.Hs.eg.db)
+     
+     go_results_pheno <- enrichGO(
+       gene = gene_entrez_pheno$ENTREZID,
+       OrgDb = org.Hs.eg.db,
+       ont = "BP",
+       pAdjustMethod = "BH",
+       pvalueCutoff = 0.05,
+       readable = TRUE
+     )
+     
+     if(nrow(go_results_pheno) > 0) {
+       print("GO Enrichment for PhenoPath genes:")
+       print(dotplot(go_results_pheno, showCategory = 15) +
+               ggtitle("GO Enrichment: PhenoPath Sex-Interaction Genes"))
+     }
+   }, error = function(e) {
+     print("Error in GO enrichment for PhenoPath genes:")
+     print(e)
+   })
+ }
+ 
+ # Enrichment for tradeSeq genes
+ if(length(sig_tradeseq_genes) > 10) {
+   print("Running GO enrichment for tradeSeq genes...")
+   
+   tryCatch({
+     gene_entrez_trade <- bitr(sig_tradeseq_genes, 
+                               fromType = "SYMBOL",
+                               toType = "ENTREZID",
+                               OrgDb = org.Hs.eg.db)
+     
+     go_results_trade <- enrichGO(
+       gene = gene_entrez_trade$ENTREZID,
+       OrgDb = org.Hs.eg.db,
+       ont = "BP",
+       pAdjustMethod = "BH",
+       pvalueCutoff = 0.05,
+       readable = TRUE
+     )
+     
+     if(nrow(go_results_trade) > 0) {
+       print("GO Enrichment for tradeSeq genes:")
+       print(dotplot(go_results_trade, showCategory = 15) +
+               ggtitle("GO Enrichment: TradeSeq Sex-Differential Genes"))
+     }
+   }, error = function(e) {
+     print("Error in GO enrichment for tradeSeq genes:")
+     print(e)
+   })
+ }
+ 
+ # Enrichment for PT-S1/S2 genes
+ if(length(sig_pt_genes) > 10) {
+   print("Running GO enrichment for PT-S1/S2 genes...")
+   
+   tryCatch({
+     gene_entrez_pt <- bitr(sig_pt_genes, 
+                            fromType = "SYMBOL",
+                            toType = "ENTREZID",
+                            OrgDb = org.Hs.eg.db)
+     
+     go_results_pt <- enrichGO(
+       gene = gene_entrez_pt$ENTREZID,
+       OrgDb = org.Hs.eg.db,
+       ont = "BP",
+       pAdjustMethod = "BH",
+       pvalueCutoff = 0.05,
+       readable = TRUE
+     )
+     
+     if(nrow(go_results_pt) > 0) {
+       print("GO Enrichment for PT-S1/S2 sex-differential genes:")
+       print(dotplot(go_results_pt, showCategory = 20) +
+               ggtitle("GO Enrichment: PT-S1/S2 Sex-Differential Genes"))
+     }
+     
+     # KEGG pathway enrichment
+     kegg_results_pt <- enrichKEGG(
+       gene = gene_entrez_pt$ENTREZID,
+       organism = "hsa",
+       pAdjustMethod = "BH",
+       pvalueCutoff = 0.05
+     )
+     
+     if(nrow(kegg_results_pt) > 0) {
+       print("KEGG Pathway Enrichment for PT-S1/S2 sex-differential genes:")
+       print(dotplot(kegg_results_pt, showCategory = 15) +
+               ggtitle("KEGG Pathways: PT-S1/S2 Sex-Differential Genes"))
+     }
+   }, error = function(e) {
+     print("Error in enrichment for PT-S1/S2 genes:")
+     print(e)
+   })
+ }
+ 
+ # ============================================
+ # FINAL SUMMARY REPORT
+ # ============================================
+ 
+ cat("\n========================================\n")
+ cat("COMPREHENSIVE ANALYSIS SUMMARY\n")
+ cat("========================================\n\n")
+ 
+ cat("1. OVERALL TRAJECTORY COMPARISON:\n")
+ cat(paste("   - Wilcoxon p-value:", signif(wilcox_result$p.value, 3), "\n"))
+ cat(paste("   - Cohen's d:", round(cohens_d$estimate, 3), "\n"))
+ cat(paste("   - KS test p-value:", signif(ks_result$p.value, 3), "\n\n"))
+ 
+ if(phenopath_success) {
+   cat("2. PHENOPATH RESULTS:\n")
+   cat(paste("   - Genes with strong sex effects:", sum(phenopath_results$sig_sex_effect), "\n"))
+   if(exists("cor_overall")) {
+     cat(paste("   - Correlation with Slingshot:", round(cor_overall, 3), "\n\n"))
+   }
+ } else {
+   cat("2. PHENOPATH RESULTS:\n")
+   cat("   - PhenoPath analysis failed or was skipped\n\n")
+ }
+ 
+ cat("3. TRADESEQ RESULTS (ALL CELLS):\n")
+ cat(paste("   - Significant genes (padj < 0.05):", sum(sex_trajectory_results$significant), "\n"))
+ cat(paste("   - Significant genes (padj < 0.01):", sum(sex_trajectory_results$padj < 0.01), "\n\n"))
+ 
+ if(phenopath_success && exists("combined_results")) {
+   cat("4. METHOD COMPARISON:\n")
+   cat(paste("   - Genes identified by PhenoPath:", sum(phenopath_results$sig_sex_effect), "\n"))
+   cat(paste("   - Genes identified by tradeSeq:", sum(sex_trajectory_results$significant), "\n"))
+   if(exists("sig_both")) {
+     cat(paste("   - Genes identified by BOTH:", nrow(sig_both), "\n"))
+   }
+   if(exists("rank_cor")) {
+     cat(paste("   - Rank correlation:", round(rank_cor, 3), "\n\n"))
+   }
+ } else {
+   cat("4. METHOD COMPARISON:\n")
+   cat("   - Skipped (PhenoPath unavailable)\n\n")
+ }
+ 
+ cat("5. PT-S1/S2 SPECIFIC ANALYSIS:\n")
+ cat(paste("   - PT-S1 Wilcoxon p-value:", signif(pt_s1_test$p.value, 3), "\n"))
+ cat(paste("   - PT-S1 Cohen's d:", round(pt_s1_cohens$estimate, 3), "\n"))
+ cat(paste("   - PT-S2 Wilcoxon p-value:", signif(pt_s2_test$p.value, 3), "\n"))
+ cat(paste("   - PT-S2 Cohen's d:", round(pt_s2_cohens$estimate, 3), "\n"))
+ cat(paste("   - PT-S1/S2 sex-differential genes:", sum(sex_results_pt$significant), "\n\n"))
+ 
+ cat("OUTPUT FILES CREATED:\n")
+ if(phenopath_success) {
+   cat("   - phenopath_sex_interaction_genes.csv\n")
+ }
+ cat("   - tradeseq_sex_specific_trajectory_genes.csv\n")
+ if(phenopath_success && exists("combined_results")) {
+   cat("   - combined_phenopath_tradeseq_results.csv\n")
+ }
+ cat("   - pt_s1s2_sex_specific_genes.csv\n")
+ cat("   - Multiple visualization plots\n")
+ 
+ cat("\n========================================\n")
+ cat("Analysis complete!\n")
+ cat("========================================\n\n")
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
