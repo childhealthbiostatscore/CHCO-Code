@@ -17,6 +17,8 @@ library(tidyr)
 library(patchwork)
 library(parallel)
 
+setwd("/Users/pylell/Library/CloudStorage/OneDrive-UW/Pyle/scRNAseq simulations")
+
 #############################################
 # SECTION 2: CORE SIMULATION FUNCTIONS
 #############################################
@@ -1244,6 +1246,7 @@ ggsave("results/three_method_comparison/cell_count_impact.png",
        width = 12, height = 8, dpi = 300)
 
 cat("\n=== All plots saved ===\n")
+
 #############################################
 # SECTION 5B: REPORT GENERATION FUNCTIONS
 #############################################
@@ -1595,3 +1598,784 @@ cat("HTML report: ", report_file, "\n")
 if(interactive()) {
   browseURL(report_file)
 }
+
+#############################################
+# SECTION 6B: NEBULA vs PSEUDOBULK COMPARISON
+#############################################
+
+analyze_nebula_advantage <- function(results_df, analysis) {
+  library(ggplot2)
+  library(dplyr)
+  library(tidyr)
+  library(patchwork)
+  
+  # Calculate power differences
+  power_comparison <- results_df %>%
+    mutate(
+      # Power advantage for NEBULA over pseudobulk
+      nebula_advantage = power_nebula_005 - power_pb_005,
+      nebula_better = power_nebula_005 > power_pb_005,
+      
+      # Categorize advantage
+      advantage_category = case_when(
+        nebula_advantage > 0.1 ~ "Strong NEBULA advantage (>10%)",
+        nebula_advantage > 0.05 ~ "Moderate NEBULA advantage (5-10%)",
+        nebula_advantage > 0 ~ "Slight NEBULA advantage (0-5%)",
+        nebula_advantage > -0.05 ~ "Slight Pseudobulk advantage (0-5%)",
+        nebula_advantage > -0.1 ~ "Moderate Pseudobulk advantage (5-10%)",
+        TRUE ~ "Strong Pseudobulk advantage (>10%)"
+      )
+    )
+  
+  # Summary statistics by condition
+  advantage_summary <- power_comparison %>%
+    group_by(disease_effect_size, individual_variation, cells_per_ind, cells_sd) %>%
+    summarise(
+      mean_nebula_power = mean(power_nebula_005, na.rm = TRUE),
+      mean_pb_power = mean(power_pb_005, na.rm = TRUE),
+      mean_advantage = mean(nebula_advantage, na.rm = TRUE),
+      prop_nebula_better = mean(nebula_better, na.rm = TRUE),
+      median_advantage = median(nebula_advantage, na.rm = TRUE),
+      sd_advantage = sd(nebula_advantage, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(mean_advantage))
+  
+  # Overall summary
+  overall_comparison <- power_comparison %>%
+    summarise(
+      total_sims = n(),
+      nebula_wins = sum(nebula_better, na.rm = TRUE),
+      pb_wins = sum(!nebula_better, na.rm = TRUE),
+      prop_nebula_wins = mean(nebula_better, na.rm = TRUE),
+      mean_advantage = mean(nebula_advantage, na.rm = TRUE),
+      median_advantage = median(nebula_advantage, na.rm = TRUE)
+    )
+  
+  cat("\n=== NEBULA vs Pseudobulk Overall Comparison ===\n")
+  cat("Total simulations:", overall_comparison$total_sims, "\n")
+  cat("NEBULA wins:", overall_comparison$nebula_wins, 
+      sprintf("(%.1f%%)", overall_comparison$prop_nebula_wins * 100), "\n")
+  cat("Pseudobulk wins:", overall_comparison$pb_wins, 
+      sprintf("(%.1f%%)", (1 - overall_comparison$prop_nebula_wins) * 100), "\n")
+  cat("Mean power advantage:", sprintf("%.3f", overall_comparison$mean_advantage), 
+      "(positive = NEBULA better)\n\n")
+  
+  # Best conditions for NEBULA
+  cat("=== Top 10 Conditions Where NEBULA Outperforms Pseudobulk ===\n")
+  print(head(advantage_summary %>%
+               select(disease_effect_size, individual_variation, cells_per_ind, 
+                      cells_sd, mean_advantage, prop_nebula_better), 10))
+  
+  # Statistical test
+  if(nrow(power_comparison) > 1) {
+    t_test <- t.test(power_comparison$power_nebula_005, 
+                     power_comparison$power_pb_005, 
+                     paired = TRUE)
+    
+    cat("\n=== Paired t-test: NEBULA vs Pseudobulk ===\n")
+    cat("Mean difference:", sprintf("%.4f", t_test$estimate), "\n")
+    cat("95% CI: [", sprintf("%.4f", t_test$conf.int[1]), ",", 
+        sprintf("%.4f", t_test$conf.int[2]), "]\n")
+    cat("p-value:", sprintf("%.4e", t_test$p.value), "\n")
+    cat("Interpretation:", 
+        ifelse(t_test$p.value < 0.05, 
+               ifelse(t_test$estimate > 0, 
+                      "NEBULA significantly better", 
+                      "Pseudobulk significantly better"),
+               "No significant difference"), "\n")
+  }
+  
+  # PLOT 1: Power advantage heatmap by conditions
+  p1 <- ggplot(advantage_summary, 
+               aes(x = factor(cells_per_ind), 
+                   y = factor(disease_effect_size),
+                   fill = mean_advantage)) +
+    geom_tile(color = "white", size = 1) +
+    geom_text(aes(label = sprintf("%.2f", mean_advantage)), 
+              color = "white", fontface = "bold", size = 3.5) +
+    facet_grid(individual_variation ~ cells_sd,
+               labeller = labeller(
+                 individual_variation = function(x) paste("Ind. Var:", x),
+                 cells_sd = function(x) paste("Cell SD:", x)
+               )) +
+    scale_fill_gradient2(
+      low = "#D73027",      # Red for pseudobulk better
+      mid = "white",
+      high = "#1A9850",     # Green for NEBULA better
+      midpoint = 0,
+      limits = c(-0.2, 0.2),
+      oob = scales::squish,
+      name = "Power\nAdvantage"
+    ) +
+    theme_minimal() +
+    labs(
+      title = "NEBULA Power Advantage Over Pseudobulk",
+      subtitle = "Positive values (green) indicate NEBULA performs better",
+      x = "Cells per Individual",
+      y = "Disease Effect Size"
+    ) +
+    theme(
+      axis.text.x = element_text(angle = 0),
+      panel.grid = element_blank(),
+      strip.background = element_rect(fill = "grey90", color = "grey50"),
+      strip.text = element_text(face = "bold")
+    )
+  
+  # PLOT 2: Distribution of power advantage
+  p2 <- ggplot(power_comparison, 
+               aes(x = nebula_advantage, fill = nebula_better)) +
+    geom_histogram(bins = 50, alpha = 0.7, color = "white") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black", size = 1) +
+    geom_vline(xintercept = median(power_comparison$nebula_advantage, na.rm = TRUE),
+               linetype = "solid", color = "blue", size = 1) +
+    annotate("text", x = 0.15, y = Inf, vjust = 2,
+             label = sprintf("Median: %.3f", 
+                             median(power_comparison$nebula_advantage, na.rm = TRUE)),
+             color = "blue", fontface = "bold") +
+    scale_fill_manual(
+      values = c("TRUE" = "#1A9850", "FALSE" = "#D73027"),
+      labels = c("TRUE" = "NEBULA Better", "FALSE" = "Pseudobulk Better"),
+      name = ""
+    ) +
+    theme_minimal() +
+    labs(
+      title = "Distribution of NEBULA Power Advantage",
+      x = "Power Difference (NEBULA - Pseudobulk)",
+      y = "Count"
+    ) +
+    theme(legend.position = "bottom")
+  
+  # PLOT 3: Power advantage by effect size
+  p3 <- ggplot(power_comparison, 
+               aes(x = factor(disease_effect_size), 
+                   y = nebula_advantage,
+                   fill = factor(disease_effect_size))) +
+    geom_boxplot(alpha = 0.7, outlier.alpha = 0.3) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+    facet_wrap(~individual_variation,
+               labeller = labeller(individual_variation = 
+                                     function(x) paste("Individual Variation:", x))) +
+    scale_fill_brewer(palette = "Set2", guide = "none") +
+    theme_minimal() +
+    labs(
+      title = "NEBULA Advantage by Disease Effect Size",
+      x = "Disease Effect Size",
+      y = "Power Advantage (NEBULA - Pseudobulk)"
+    )
+  
+  # PLOT 4: Power advantage by cell count
+  p4 <- ggplot(power_comparison, 
+               aes(x = factor(cells_per_ind), 
+                   y = nebula_advantage,
+                   fill = factor(cells_sd))) +
+    geom_boxplot(alpha = 0.7, outlier.alpha = 0.3, 
+                 position = position_dodge(width = 0.9)) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+    scale_fill_manual(
+      values = c("0" = "#377EB8", "45" = "#E41A1C"),
+      labels = c("0" = "Fixed cell counts", "45" = "Variable cell counts"),
+      name = ""
+    ) +
+    theme_minimal() +
+    labs(
+      title = "NEBULA Advantage by Cell Count",
+      x = "Cells per Individual",
+      y = "Power Advantage (NEBULA - Pseudobulk)"
+    ) +
+    theme(legend.position = "bottom")
+  
+  # PLOT 5: Scatterplot of actual power values
+  p5 <- ggplot(power_comparison, 
+               aes(x = power_pb_005, y = power_nebula_005,
+                   color = nebula_advantage)) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", 
+                color = "black", size = 1) +
+    geom_point(alpha = 0.5, size = 2) +
+    scale_color_gradient2(
+      low = "#D73027",
+      mid = "white",
+      high = "#1A9850",
+      midpoint = 0,
+      name = "Advantage"
+    ) +
+    theme_minimal() +
+    labs(
+      title = "NEBULA vs Pseudobulk Power",
+      subtitle = "Points above diagonal show NEBULA outperforming",
+      x = "Pseudobulk Power",
+      y = "NEBULA Power"
+    ) +
+    coord_fixed() +
+    theme(legend.position = "right")
+  
+  # PLOT 6: Win rate by conditions
+  win_rate_data <- power_comparison %>%
+    group_by(disease_effect_size, cells_per_ind, cells_sd) %>%
+    summarise(
+      nebula_win_rate = mean(nebula_better, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    )
+  
+  p6 <- ggplot(win_rate_data, 
+               aes(x = factor(cells_per_ind), 
+                   y = nebula_win_rate,
+                   fill = factor(disease_effect_size))) +
+    geom_bar(stat = "identity", position = position_dodge(), alpha = 0.8) +
+    geom_hline(yintercept = 0.5, linetype = "dashed", color = "red", size = 1) +
+    facet_wrap(~cells_sd,
+               labeller = labeller(cells_sd = function(x) 
+                 paste("Cell SD:", x))) +
+    scale_fill_brewer(palette = "Set2", name = "Effect Size") +
+    scale_y_continuous(labels = scales::percent, limits = c(0, 1)) +
+    theme_minimal() +
+    labs(
+      title = "NEBULA Win Rate by Condition",
+      subtitle = "Proportion of simulations where NEBULA has higher power",
+      x = "Cells per Individual",
+      y = "NEBULA Win Rate"
+    ) +
+    theme(legend.position = "bottom")
+  
+  # PLOT 7: When does NEBULA have >10% advantage?
+  strong_advantage <- power_comparison %>%
+    filter(nebula_advantage > 0.1) %>%
+    group_by(disease_effect_size, individual_variation, cells_per_ind, cells_sd) %>%
+    summarise(count = n(), .groups = "drop")
+  
+  if(nrow(strong_advantage) > 0) {
+    p7 <- ggplot(strong_advantage, 
+                 aes(x = factor(cells_per_ind), 
+                     y = count,
+                     fill = factor(disease_effect_size))) +
+      geom_bar(stat = "identity", position = position_dodge()) +
+      facet_grid(individual_variation ~ cells_sd,
+                 labeller = labeller(
+                   individual_variation = function(x) paste("Ind. Var:", x),
+                   cells_sd = function(x) paste("Cell SD:", x)
+                 )) +
+      scale_fill_brewer(palette = "Set2", name = "Effect Size") +
+      theme_minimal() +
+      labs(
+        title = "Conditions with Strong NEBULA Advantage",
+        subtitle = "Count of simulations where NEBULA has >10% power advantage",
+        x = "Cells per Individual",
+        y = "Number of Simulations"
+      ) +
+      theme(legend.position = "bottom")
+  } else {
+    p7 <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+               label = "No conditions with >10% NEBULA advantage",
+               size = 6) +
+      theme_void()
+  }
+  
+  # Combine plots
+  combined_advantage <- (p1 | p2) / (p3 | p4) / (p5 | p6)
+  
+  # Detailed condition analysis
+  condition_details <- power_comparison %>%
+    group_by(disease_effect_size, individual_variation, 
+             cells_per_ind, cells_sd) %>%
+    summarise(
+      n_sims = n(),
+      nebula_mean = mean(power_nebula_005, na.rm = TRUE),
+      pb_mean = mean(power_pb_005, na.rm = TRUE),
+      advantage = mean(nebula_advantage, na.rm = TRUE),
+      nebula_wins = sum(nebula_better, na.rm = TRUE),
+      win_rate = mean(nebula_better, na.rm = TRUE),
+      
+      # Additional diagnostics
+      nebula_convergence = mean(nebula_convergence, na.rm = TRUE),
+      mean_cells = mean(mean_cells_per_ind, na.rm = TRUE),
+      
+      .groups = "drop"
+    ) %>%
+    arrange(desc(advantage))
+  
+  return(list(
+    summary = advantage_summary,
+    overall = overall_comparison,
+    condition_details = condition_details,
+    power_comparison = power_comparison,
+    plots = list(
+      heatmap = p1,
+      distribution = p2,
+      by_effect_size = p3,
+      by_cell_count = p4,
+      scatterplot = p5,
+      win_rate = p6,
+      strong_advantage = p7,
+      combined = combined_advantage
+    )
+  ))
+}
+
+# Run the comparison analysis
+cat("\n=== Analyzing NEBULA vs Pseudobulk Performance ===\n")
+nebula_comparison <- analyze_nebula_advantage(results, analysis)
+
+# Display key findings
+cat("\n=== Top 5 Conditions Favoring NEBULA ===\n")
+print(head(nebula_comparison$condition_details, 5))
+
+cat("\n=== Top 5 Conditions Favoring Pseudobulk ===\n")
+print(tail(nebula_comparison$condition_details, 5))
+
+# Show plots
+print(nebula_comparison$plots$combined)
+print(nebula_comparison$plots$strong_advantage)
+
+# Save NEBULA comparison plots
+ggsave("results/three_method_comparison/nebula_vs_pseudobulk_combined.png", 
+       nebula_comparison$plots$combined, 
+       width = 18, height = 16, dpi = 300)
+
+ggsave("results/three_method_comparison/nebula_advantage_heatmap.png", 
+       nebula_comparison$plots$heatmap, 
+       width = 12, height = 8, dpi = 300)
+
+ggsave("results/three_method_comparison/nebula_advantage_distribution.png", 
+       nebula_comparison$plots$distribution, 
+       width = 10, height = 6, dpi = 300)
+
+ggsave("results/three_method_comparison/nebula_strong_advantage.png", 
+       nebula_comparison$plots$strong_advantage, 
+       width = 12, height = 8, dpi = 300)
+
+# Save detailed comparison table
+write.csv(nebula_comparison$condition_details,
+          "results/three_method_comparison/nebula_vs_pseudobulk_details.csv",
+          row.names = FALSE)
+
+cat("\n=== NEBULA comparison analysis complete ===\n")
+
+#############################################
+# SECTION 6C: CELL COUNT IMBALANCE ANALYSIS
+#############################################
+
+# FOCUSED imbalance parameter grid
+param_grid <- expand.grid(
+  n_controls = 10,
+  n_patients = 10,
+  cells_per_ind = c(50,150),                   # Single realistic value
+  cells_sd = c(0, 15, 30, 45, 60, 75),  # 0%, ~10%, ~20%, ~30%, ~40%, ~50% CV
+  cells_min = 10,
+  cells_max = NA,
+  disease_effect_size = c(3, 7),        # Moderate and strong (reduced from 3)
+  individual_variation = 0.2,            # Single middle value
+  disease_gene_fraction = 0.2,
+  stringsAsFactors = FALSE
+)
+
+cat("=== Focused Imbalance Test ===\n")
+cat("Total parameter combinations:", nrow(param_grid), "\n")
+cat("Primary variable: Cell count CV (6 levels)\n")
+cat("Fixed: cells_per_ind=150, individual_variation=0.2\n")
+cat("This design isolates the effect of imbalance\n\n")
+
+# Run pipeline
+cat("Starting cell count imbalance analysis...\n\n")
+
+results <- run_method_comparison_pipeline(
+  param_grid = param_grid,
+  n_simulations = 10,  # 10 replicates per parameter combination
+  experiment_name = "cell_count_imbalance",
+  output_dir = "results/three_method_comparison",
+  batch_size = 50,
+  parallel = TRUE,  # Set to TRUE if you have multiple cores
+  n_cores = 12,       # Adjust based on your system
+  verbose = TRUE
+)
+
+#############################################
+# SECTION 6C: CELL COUNT IMBALANCE ANALYSIS
+# Updated for your specific parameter grid
+#############################################
+
+analyze_cell_count_imbalance <- function(results_df) {
+  library(ggplot2)
+  library(dplyr)
+  library(tidyr)
+  library(patchwork)
+  
+  # Calculate actual CV from your results
+  imbalance_data <- results_df %>%
+    mutate(
+      # Coefficient of variation in cell counts
+      cv_cells = sd_cells_per_ind / mean_cells_per_ind,
+      
+      # Power differences
+      nebula_advantage = power_nebula_005 - power_pb_005,
+      nebula_better = power_nebula_005 > power_pb_005,
+      
+      # Label for cells_per_ind
+      cell_count_label = paste0(cells_per_ind, " cells/ind")
+    )
+  
+  # Check what CV values you actually have
+  cv_distribution <- imbalance_data %>%
+    group_by(cells_sd, cells_per_ind) %>%
+    summarise(
+      n = n(),
+      mean_cv = mean(cv_cells, na.rm = TRUE),
+      sd_cv = sd(cv_cells, na.rm = TRUE),
+      min_cv = min(cv_cells, na.rm = TRUE),
+      max_cv = max(cv_cells, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  cat("\n=== Actual CV Distribution in Your Data ===\n")
+  print(cv_distribution)
+  cat("\n")
+  
+  # Summary by cells_sd (your actual experimental variable)
+  imbalance_summary <- imbalance_data %>%
+    group_by(cells_sd, cells_per_ind) %>%
+    summarise(
+      n = n(),
+      mean_cv = mean(cv_cells, na.rm = TRUE),
+      
+      # NEBULA performance
+      nebula_mean_power = mean(power_nebula_005, na.rm = TRUE),
+      nebula_se = sd(power_nebula_005, na.rm = TRUE) / sqrt(n()),
+      
+      # Pseudobulk performance
+      pb_mean_power = mean(power_pb_005, na.rm = TRUE),
+      pb_se = sd(power_pb_005, na.rm = TRUE) / sqrt(n()),
+      
+      # Standard DE performance
+      de_mean_power = mean(power_005, na.rm = TRUE),
+      de_se = sd(power_005, na.rm = TRUE) / sqrt(n()),
+      
+      # Advantage
+      mean_advantage = mean(nebula_advantage, na.rm = TRUE),
+      se_advantage = sd(nebula_advantage, na.rm = TRUE) / sqrt(n()),
+      prop_nebula_wins = mean(nebula_better, na.rm = TRUE),
+      
+      # Convergence
+      mean_convergence = mean(nebula_convergence, na.rm = TRUE),
+      
+      .groups = "drop"
+    ) %>%
+    arrange(cells_per_ind, cells_sd)
+  
+  cat("=== Summary by Cell SD and Cells per Individual ===\n")
+  print(imbalance_summary)
+  cat("\n")
+  
+  # Correlation analysis
+  cor_test <- cor.test(imbalance_data$cv_cells, 
+                       imbalance_data$nebula_advantage,
+                       method = "spearman")
+  
+  cat("=== Correlation: CV vs NEBULA Advantage ===\n")
+  cat("Spearman's rho:", sprintf("%.3f", cor_test$estimate), "\n")
+  cat("p-value:", sprintf("%.2e", cor_test$p.value), "\n\n")
+  
+  # Linear model controlling for other factors
+  lm_model <- lm(nebula_advantage ~ cv_cells + disease_effect_size + 
+                   factor(cells_per_ind), 
+                 data = imbalance_data)
+  
+  cat("=== Linear Model: Predictors of NEBULA Advantage ===\n")
+  print(summary(lm_model)$coefficients)
+  cat("\nR-squared:", sprintf("%.3f", summary(lm_model)$r.squared), "\n")
+  
+  # Quantify the effect
+  cv_coef <- coef(lm_model)["cv_cells"]
+  cat("\nEffect size interpretation:\n")
+  cat(sprintf("For every 10%% increase in CV, NEBULA gains %.4f power points\n", 
+              cv_coef * 0.1))
+  cat(sprintf("Going from 0%% CV to 50%% CV: expected NEBULA advantage = %.4f\n\n",
+              cv_coef * 0.5))
+  
+  # Test for interaction between CV and cells_per_ind
+  lm_interaction <- lm(nebula_advantage ~ cv_cells * factor(cells_per_ind) + 
+                         disease_effect_size, 
+                       data = imbalance_data)
+  
+  cat("=== Test for Interaction: CV × Cells per Individual ===\n")
+  anova_result <- anova(lm_model, lm_interaction)
+  cat("Does the effect of CV depend on cell count?\n")
+  cat("p-value:", sprintf("%.4f", anova_result$`Pr(>F)`[2]), "\n")
+  if(anova_result$`Pr(>F)`[2] < 0.05) {
+    cat("YES - Significant interaction detected\n\n")
+  } else {
+    cat("NO - Effect of CV is consistent across cell counts\n\n")
+  }
+  
+  # PLOT 1: Power advantage across CV gradient (main result)
+  p1 <- ggplot(imbalance_summary, 
+               aes(x = mean_cv, y = mean_advantage, 
+                   color = cell_count_label, group = cell_count_label)) +
+    geom_line(size = 1.5) +
+    geom_point(size = 4) +
+    geom_errorbar(aes(ymin = mean_advantage - se_advantage,
+                      ymax = mean_advantage + se_advantage),
+                  width = 0.02) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "black", size = 1) +
+    scale_color_brewer(palette = "Set1", name = "") +
+    theme_minimal(base_size = 12) +
+    labs(
+      title = "NEBULA Power Advantage Increases with Cell Count Imbalance",
+      subtitle = sprintf("Spearman's ρ = %.3f, p < %.2e", 
+                         cor_test$estimate, cor_test$p.value),
+      x = "Coefficient of Variation (Actual Cell Counts)",
+      y = "Power Advantage (NEBULA - Pseudobulk)"
+    ) +
+    theme(legend.position = "bottom",
+          panel.grid.minor = element_blank()) +
+    scale_x_continuous(labels = scales::percent)
+  
+  # PLOT 2: Individual scatter with trend line
+  p2 <- ggplot(imbalance_data, 
+               aes(x = cv_cells, y = nebula_advantage)) +
+    geom_point(aes(color = factor(disease_effect_size)), 
+               alpha = 0.4, size = 2) +
+    geom_smooth(method = "lm", se = TRUE, color = "black", size = 1.5) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+    facet_wrap(~cell_count_label) +
+    scale_color_brewer(palette = "Set2", name = "Effect Size") +
+    theme_minimal(base_size = 11) +
+    labs(
+      title = "NEBULA Advantage vs Cell Count CV (All Simulations)",
+      x = "Coefficient of Variation",
+      y = "Power Advantage (NEBULA - Pseudobulk)"
+    ) +
+    theme(legend.position = "bottom") +
+    scale_x_continuous(labels = scales::percent)
+  
+  # PLOT 3: Comparison of all three methods
+  power_comparison <- imbalance_summary %>%
+    pivot_longer(cols = c(de_mean_power, pb_mean_power, nebula_mean_power),
+                 names_to = "method",
+                 values_to = "power",
+                 names_pattern = "(.*)_mean_power") %>%
+    mutate(
+      se = case_when(
+        method == "de" ~ de_se,
+        method == "pb" ~ pb_se,
+        method == "nebula" ~ nebula_se
+      ),
+      method = case_when(
+        method == "de" ~ "Standard DE",
+        method == "pb" ~ "Pseudobulk",
+        method == "nebula" ~ "NEBULA"
+      )
+    )
+  
+  p3 <- ggplot(power_comparison, 
+               aes(x = mean_cv, y = power, 
+                   color = method, linetype = method, group = method)) +
+    geom_line(size = 1.2) +
+    geom_point(size = 3) +
+    geom_errorbar(aes(ymin = power - se, ymax = power + se),
+                  width = 0.02, alpha = 0.5) +
+    facet_wrap(~cell_count_label) +
+    scale_color_manual(values = c("Standard DE" = "#E41A1C", 
+                                  "Pseudobulk" = "#377EB8",
+                                  "NEBULA" = "#4DAF4A")) +
+    scale_linetype_manual(values = c("Standard DE" = "dotted",
+                                     "Pseudobulk" = "dashed",
+                                     "NEBULA" = "solid")) +
+    theme_minimal(base_size = 11) +
+    labs(
+      title = "Power Across CV Gradient: All Three Methods",
+      x = "Coefficient of Variation",
+      y = "Mean Power (FDR < 0.05)",
+      color = "Method",
+      linetype = "Method"
+    ) +
+    theme(legend.position = "bottom") +
+    scale_x_continuous(labels = scales::percent) +
+    scale_y_continuous(limits = c(0, 1))
+  
+  # PLOT 4: Win rate heatmap
+  win_rate_data <- imbalance_data %>%
+    group_by(cells_sd, cells_per_ind, disease_effect_size) %>%
+    summarise(
+      mean_cv = mean(cv_cells, na.rm = TRUE),
+      nebula_win_rate = mean(nebula_better, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    )
+  
+  p4 <- ggplot(win_rate_data, 
+               aes(x = factor(cells_sd), 
+                   y = factor(disease_effect_size),
+                   fill = nebula_win_rate)) +
+    geom_tile(color = "white", size = 1) +
+    geom_text(aes(label = sprintf("%.0f%%", nebula_win_rate * 100)), 
+              color = "white", fontface = "bold", size = 4) +
+    facet_wrap(~cells_per_ind, 
+               labeller = labeller(cells_per_ind = 
+                                     function(x) paste(x, "cells/ind"))) +
+    scale_fill_gradient2(
+      low = "#D73027",      # Red for pseudobulk better
+      mid = "white",
+      high = "#1A9850",     # Green for NEBULA better
+      midpoint = 0.5,
+      limits = c(0, 1),
+      labels = scales::percent,
+      name = "NEBULA\nWin Rate"
+    ) +
+    theme_minimal(base_size = 11) +
+    labs(
+      title = "NEBULA Win Rate by Condition",
+      subtitle = "Percentage of simulations where NEBULA has higher power",
+      x = "Cell Count Standard Deviation",
+      y = "Disease Effect Size"
+    ) +
+    theme(panel.grid = element_blank(),
+          axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # PLOT 5: Boxplots showing distributions
+  p5 <- imbalance_data %>%
+    mutate(cv_category = case_when(
+      cv_cells < 0.1 ~ "Low (0-10%)",
+      cv_cells < 0.25 ~ "Low-Mod (10-25%)",
+      cv_cells < 0.4 ~ "Moderate (25-40%)",
+      TRUE ~ "High (>40%)"
+    ),
+    cv_category = factor(cv_category, 
+                         levels = c("Low (0-10%)", "Low-Mod (10-25%)", 
+                                    "Moderate (25-40%)", "High (>40%)"))) %>%
+    ggplot(aes(x = cv_category, y = nebula_advantage, 
+               fill = cell_count_label)) +
+    geom_boxplot(alpha = 0.7, outlier.alpha = 0.3) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+    scale_fill_brewer(palette = "Set2", name = "") +
+    theme_minimal(base_size = 11) +
+    labs(
+      title = "Distribution of NEBULA Advantage by CV Level",
+      x = "CV Category",
+      y = "Power Advantage (NEBULA - Pseudobulk)"
+    ) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.position = "bottom")
+  
+  # PLOT 6: Convergence check
+  p6 <- ggplot(imbalance_summary, 
+               aes(x = mean_cv, y = mean_convergence, 
+                   color = cell_count_label, group = cell_count_label)) +
+    geom_line(size = 1.2) +
+    geom_point(size = 3) +
+    geom_hline(yintercept = 0.95, linetype = "dashed", color = "red") +
+    scale_color_brewer(palette = "Set1", name = "") +
+    theme_minimal(base_size = 11) +
+    labs(
+      title = "NEBULA Convergence Rate Across CV Levels",
+      subtitle = "Ensure convergence is adequate (>95%) for valid comparisons",
+      x = "Coefficient of Variation",
+      y = "Convergence Rate"
+    ) +
+    theme(legend.position = "bottom") +
+    scale_x_continuous(labels = scales::percent) +
+    scale_y_continuous(limits = c(0, 1), labels = scales::percent)
+  
+  # PLOT 7: Practical significance
+  practical_data <- imbalance_data %>%
+    mutate(
+      cv_bin = cut(cv_cells, 
+                   breaks = c(0, 0.1, 0.2, 0.3, 0.4, 0.5, 1),
+                   labels = c("0-10%", "10-20%", "20-30%", 
+                              "30-40%", "40-50%", ">50%")),
+      advantage_category = case_when(
+        nebula_advantage > 0.1 ~ "Strong NEBULA (>10%)",
+        nebula_advantage > 0.05 ~ "Moderate NEBULA (5-10%)",
+        nebula_advantage > -0.05 ~ "Negligible (±5%)",
+        nebula_advantage > -0.1 ~ "Moderate PB (5-10%)",
+        TRUE ~ "Strong PB (>10%)"
+      ),
+      advantage_category = factor(advantage_category,
+                                  levels = c("Strong PB (>10%)",
+                                             "Moderate PB (5-10%)",
+                                             "Negligible (±5%)",
+                                             "Moderate NEBULA (5-10%)",
+                                             "Strong NEBULA (>10%)"))
+    ) %>%
+    filter(!is.na(cv_bin)) %>%
+    group_by(cv_bin, cell_count_label, advantage_category) %>%
+    summarise(count = n(), .groups = "drop")
+  
+  p7 <- ggplot(practical_data, 
+               aes(x = cv_bin, y = count, fill = advantage_category)) +
+    geom_bar(stat = "identity", position = "fill") +
+    facet_wrap(~cell_count_label) +
+    scale_fill_manual(
+      values = c("Strong PB (>10%)" = "#D73027",
+                 "Moderate PB (5-10%)" = "#FC8D59",
+                 "Negligible (±5%)" = "#FFFFBF",
+                 "Moderate NEBULA (5-10%)" = "#91CF60",
+                 "Strong NEBULA (>10%)" = "#1A9850"),
+      name = "Advantage\nCategory"
+    ) +
+    scale_y_continuous(labels = scales::percent) +
+    theme_minimal(base_size = 11) +
+    labs(
+      title = "Practical Significance Across CV Levels",
+      subtitle = "Proportion in each advantage category",
+      x = "CV Range",
+      y = "Proportion"
+    ) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.position = "right")
+  
+  # Combine key plots
+  combined_main <- (p1 | p3) / (p4 | p5)
+  combined_supp <- (p2 | p6) / p7
+  
+  return(list(
+    imbalance_data = imbalance_data,
+    cv_distribution = cv_distribution,
+    summary = imbalance_summary,
+    correlation = cor_test,
+    linear_model = lm_model,
+    interaction_model = lm_interaction,
+    plots = list(
+      advantage_gradient = p1,
+      scatter = p2,
+      three_method_comparison = p3,
+      win_rate_heatmap = p4,
+      advantage_boxplots = p5,
+      convergence = p6,
+      practical_significance = p7,
+      combined_main = combined_main,
+      combined_supp = combined_supp
+    )
+  ))
+}
+
+# Run the analysis
+cat("\n=== Analyzing Impact of Cell Count Imbalance ===\n")
+imbalance_analysis <- analyze_cell_count_imbalance(results)
+
+# Show key results
+print(imbalance_analysis$plots$combined_main)
+print(imbalance_analysis$plots$combined_supp)
+
+# Save plots
+ggsave("results/three_method_comparison/imbalance_main_results.png", 
+       imbalance_analysis$plots$combined_main, 
+       width = 16, height = 12, dpi = 300)
+
+ggsave("results/three_method_comparison/imbalance_supplementary.png", 
+       imbalance_analysis$plots$combined_supp, 
+       width = 16, height = 12, dpi = 300)
+
+ggsave("results/three_method_comparison/imbalance_gradient.png", 
+       imbalance_analysis$plots$advantage_gradient, 
+       width = 10, height = 7, dpi = 300)
+
+# Save detailed results
+write.csv(imbalance_analysis$summary,
+          "results/three_method_comparison/imbalance_summary.csv",
+          row.names = FALSE)
+
+cat("\n=== Key Findings ===\n")
+cat("Check the linear model output above to see if CV significantly predicts NEBULA advantage\n")
+cat("Check the interaction test to see if the effect differs between 50 and 150 cells/ind\n")
