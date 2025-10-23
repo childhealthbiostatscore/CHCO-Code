@@ -937,22 +937,32 @@ if (nrow(interaction_results) > 0) {
 
 #######################Plot raw p-values 
 
+biomarker_labels <- c(
+  "ab40_avg_conc" = "Aβ40",
+  "ab42_avg_conc" = "Aβ42",
+  "tau_avg_conc" = "Tau",
+  "nfl_avg_conc" = "NfL",
+  "gfap_avg_conc" = "GFAP",
+  "ptau_181_avg_conc" = "pTau-181",
+  "ptau_217_avg_conc" = "pTau-217"
+)
+
 biomarker_imaging_interactions <- data.table::fread("biomarker_imaging_interactions_all.csv")
-
 sig_interactions <- biomarker_imaging_interactions %>% filter(interaction_p < 0.05)
-
 
 if (nrow(sig_interactions) > 0) {
   write.csv(sig_interactions, "biomarker_imaging_interactions_significant.csv", 
             row.names = FALSE)
 }
 
-# ===== PART 3: Visualize Top Interactions =====
-
+# ===== PART 3: Visualize ALL Significant Interactions =====
 if (nrow(sig_interactions) > 0) {
   
-  # Plot top 6 interactions
-  n_plot <- min(6, nrow(sig_interactions))
+  # Create brain_plots/All_Correlations folder if it doesn't exist
+  dir.create("brain_plots/All_Correlations", showWarnings = FALSE, recursive = TRUE)
+  
+  # Plot ALL significant interactions
+  n_plot <- nrow(sig_interactions)
   
   plot_list <- list()
   
@@ -990,18 +1000,29 @@ if (nrow(sig_interactions) > 0) {
     
     plot_list[[i]] <- p
     
-    # Save individual plot
-    ggsave(paste0("brain_plots/interaction_", i, "_", 
+    # Save individual plot to brain_plots/All_Correlations folder
+    ggsave(paste0("brain_plots/All_Correlations/interaction_", 
+                  sprintf("%03d", i), "_",  # Zero-padded numbering for better sorting
                   gsub("[^A-Za-z0-9]", "_", biomarker), "_", 
                   gsub("[^A-Za-z0-9]", "_", imaging_trait), ".png"),
            plot = p, width = 6, height = 5, dpi = 300)
   }
   
-  # Combined plot
-  combined_interactions <- wrap_plots(plot_list, ncol = 2)
+  # Create combined plots in grids (e.g., 6 per page)
+  plots_per_page <- 6
+  n_pages <- ceiling(n_plot / plots_per_page)
   
-  ggsave("brain_plots/top_biomarker_imaging_interactions.png",
-         plot = combined_interactions, width = 12, height = 9, dpi = 300)
+  for (page in 1:n_pages) {
+    start_idx <- (page - 1) * plots_per_page + 1
+    end_idx <- min(page * plots_per_page, n_plot)
+    
+    combined_interactions <- wrap_plots(plot_list[start_idx:end_idx], ncol = 2)
+    
+    ggsave(paste0("brain_plots/All_Correlations/combined_interactions_page_", page, ".png"),
+           plot = combined_interactions, width = 12, height = 9, dpi = 300)
+  }
+  
+  cat(sprintf("\nSaved %d significant interaction plots to brain_plots/All_Correlations/\n", n_plot))
 }
 
 # ===== PART 4: Heatmap of Interaction P-values =====
