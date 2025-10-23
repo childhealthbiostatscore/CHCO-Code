@@ -14,7 +14,8 @@ if (user == "choiyej") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
 } else if (user == "hhampson") {
-  root_path <- "/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/"
+  # root_path <- "/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  root_path <- "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -22,7 +23,7 @@ if (user == "choiyej") {
 library(dplyr)
 library(purrr)
 
-harm_dat <- read.csv(file.path(root_path, "/Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
 
 harm_dat_collapsed <- harm_dat %>%
   group_by(record_id, visit) %>%
