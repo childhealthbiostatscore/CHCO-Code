@@ -6508,16 +6508,33 @@ create_pie_chart <- function(data,
     bin_data[[group_by]] <- factor(bin_data[[group_by]], levels = caption_groups)
   }
   
-  # Caption HTML
+  # # Caption HTML
+  # caption_text <- paste(
+  #   vapply(seq_len(nrow(cap_df)), function(i) {
+  #     g   <- as.character(cap_df[[group_by]][i])
+  #     pct <- round(cap_df$proportion[i], digits)
+  #     col <- if (!is.null(color_palette[[g]])) color_palette[[g]] else "#000000"
+  #     sprintf(
+  #       "<span style='color:%s;'>%s: %s%%</span>",
+  #       col, g, pct
+  #     )
+  #   }, character(1)),
+  #   collapse = "<br>"
+  # )
+  
   caption_text <- paste(
     vapply(seq_len(nrow(cap_df)), function(i) {
       g   <- as.character(cap_df[[group_by]][i])
       pct <- round(cap_df$proportion[i], digits)
-      col <- if (!is.null(color_palette[[g]])) color_palette[[g]] else "#000000"
-      sprintf("<span style='color:%s'>%s: %s%%</span>", col, g, pct)
+      col <- "#000000"
+      sprintf(
+        "<span style='color:%s;'>%s: %s%%</span>",
+        col, g, pct
+      )
     }, character(1)),
     collapse = "<br>"
   )
+  
   
   # Limit palette to groups present
   present_groups <- unique(as.character(bin_data[[group_by]]))
@@ -6528,6 +6545,7 @@ create_pie_chart <- function(data,
     coord_polar("y") +
     theme_void() +
     labs(fill = NULL, caption = caption_text) +
-    theme(plot.caption = ggtext::element_markdown(hjust = 0.5, face = "bold")) +
+    theme(plot.caption = ggtext::element_markdown(hjust = 0.5, size = 12),
+          legend.position = "none") +
     scale_fill_manual(values = pal_used)
 }
