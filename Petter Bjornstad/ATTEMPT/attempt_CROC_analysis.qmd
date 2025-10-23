@@ -441,6 +441,88 @@ s3$upload_file(temp_file, "attempt", "Figures/Proportions/croc_pt_group_proporti
 
 ```
 
+## CROCODILE Slingshot using KPMP annotated PT
+
+```{r echo = F}
+croc_pt_kpmp_results <- analyze_pseudotime_by_celltype(
+  so = croc_so,
+  celltype_col = "KPMP_celltype",
+  celltype_groups = c("aPT", "PT-S1/S2", "PT-S3"),
+  start_cluster = "PT-S1/S2",
+  custom_colors = color_5,
+  suffix = "croc_pt_kpmp",
+  aws_s3 = s3,
+  study = "croc"
+)
+
+pseudotime_df <- data.frame(
+  pseudotime = slingPseudotime(croc_pt_kpmp_results$sce)[, 1],
+  group = croc_pt_kpmp_results$sce$group,
+  celltype = croc_pt_kpmp_results$sce$KPMP_celltype)
+
+# Reorder factor levels
+pseudotime_df$group <- factor(pseudotime_df$group, labels = c("Lean_Control" = "HC", "Type_1_Diabetes" = "T1D"))
+group_colors <- c("HC" = "#f4978e",
+                  "T1D" = "#828e82")
+  
+croc_pt_kpmp_results$p_pseudotime$plot <- pseudotime_df %>%
+  ggplot(aes(x = pseudotime,
+             fill = group,
+             color = group)) +
+  geom_density(alpha = 0.3) + 
+  theme_minimal() +
+  labs(x = "Pseudotime", y = "Density", fill = NULL, color = NULL) +
+  theme(
+    legend.position = c(0.5, 0.85),
+    legend.direction = "horizontal",
+    legend.text = element_text(size = 10),
+    panel.grid = element_blank(),
+    text = element_text(size = 15)
+  ) +
+  scale_fill_manual(values = group_colors) +
+  scale_color_manual(values = group_colors)
+
+# Save and upload
+temp_file <- tempfile(fileext = ".png")
+ggsave(filename = temp_file, croc_pt_kpmp_results$p_pseudotime$plot, width = 7, height = 5)
+s3$upload_file(temp_file, "attempt", file.path("slingshot", paste0("croc_pt_kpmp", "_slingshot_density_group.png")))
+```
+
+
+```{r echo = F}
+# compositional pie charts of cell groups
+bins <- c(0, 10, 20, 30, 40)
+color_palette <- c(
+  "aPT" = "#264653",
+  "PT-S1/S2" = "#2a9d8f",
+  "PT-S3" = "#e9c46a"
+)
+
+visit_treatment_color_palette <- c("HC" = "#f4978e",
+                                   "T1D" = "#828e82")
+
+# pseudotime 0 - 50 (every 10)
+proportions_df <- calculate_celltype_proportions(croc_pt_kpmp_results$sce_df, bin_width = 10) %>%
+  group_by(bin_start) %>%
+  mutate(ypos = cumsum(proportion)- 0.5*proportion) %>%
+  ungroup()
+
+slingshot_main_pies <- lapply(bins, function(bin) {
+  create_pie_chart(proportions_df, bin, color_palette,
+                   caption_groups = c("aPT", "PT-S1/S2", "PT-S3"))
+})
+names(slingshot_main_pies) <- paste0("p", 1:5)
+
+ggarrange(croc_pt_kpmp_results$p_pseudotime$plot, 
+          ggarrange(slingshot_main_pies$p1, slingshot_main_pies$p2, slingshot_main_pies$p3, slingshot_main_pies$p4, slingshot_main_pies$p5, nrow = 1),
+          nrow = 2, align = "v", heights = c(4,1))
+
+temp_file <- tempfile(fileext = ".png")
+ggsave(filename = temp_file, width = 12, height = 10)
+s3$upload_file(temp_file, "attempt", file.path("slingshot", paste0("croc_pt_slingshot_density_celltype_pie.png")))
+
+```
+
 ## Targeted (CROC T1D vs. CROC HC)
 
 ### PT

@@ -3197,19 +3197,21 @@ run_slingshot <- function(sce, pca_obj, n_pcs = 6, start_cluster = NULL, end_clu
 # ===========================================================================
 
 plot_slingshot_trajectory <- function(sce_sl, 
+                                      var_explained,
                                       celltype_levels, 
                                       custom_colors = color_5, 
                                       cluster_label = "celltype",
                                       bucket = "attempt",
                                       celltype_suffix = NULL,
-                                      title = "Slingshot trajectory",
+                                      title = NULL,
                                       lineage = 1) {
   library(ggplot2)
   library(RColorBrewer)
   library(slingshot)
   
   # Extract PCA and pseudotime
-  pca_df <- as.data.frame(reducedDims(sce_sl)$PCA)
+  pca_obj <- reducedDims(sce_sl)$PCA
+  pca_df <- as.data.frame(pca_obj)
   
   # Dynamically extract cluster labels
   pca_df$cluster_label <- factor(colData(sce_sl)[[cluster_label]], levels = celltype_levels)
@@ -3229,8 +3231,12 @@ plot_slingshot_trajectory <- function(sce_sl,
     theme(panel.grid = element_blank(),
           panel.background = element_blank(),
           legend.background = element_blank(),
-          plot.background = element_blank()) + 
-    labs(color = NULL, title = title) +
+          plot.background = element_blank(),
+          panel.border = element_blank()) + 
+    labs(color = NULL, title = title,
+         x = paste0("PC1 (", round(var_explained$PC1, 1), "%)"),
+         y = paste0("PC2 (", round(var_explained$PC2, 1), "%)")
+    ) +
     scale_color_manual(values = custom_colors)
   
   # Save if bucket is provided
@@ -3363,7 +3369,8 @@ plot_and_test_pseudotime_distribution <- function(df,
                                                   pseudotime_var = "pseudotime",
                                                   visit_treatment_var = "visit_treatment",
                                                   s3_folder = "slingshot",
-                                                  filename_suffix = "celltype") {
+                                                  filename_suffix = "celltype",
+                                                  facet = "treatment") {
   library(condiments)
   BiocParallel::register(BiocParallel::SerialParam())
   # Set colors
@@ -3376,7 +3383,7 @@ plot_and_test_pseudotime_distribution <- function(df,
   p <- ggplot(df, aes(x = .data[[pseudotime_var]],
                       fill = .data[[visit_treatment_var]],
                       color = .data[[visit_treatment_var]])) +
-    geom_density(aes(weight = weight_per_cell), alpha = 0.3) + 
+    geom_density(alpha = 0.3) + 
     theme_minimal() +
     labs(x = "Pseudotime", y = "Density", fill = NULL, color = NULL) +
     theme(
@@ -3388,7 +3395,7 @@ plot_and_test_pseudotime_distribution <- function(df,
     ) +
     scale_fill_manual(values = group_colors) +
     scale_color_manual(values = group_colors) +
-    facet_wrap(~treatment, nrow = 2, ncol = 1)
+    facet_wrap(~ifelse(!is.null(facet), facet, NULL), nrow = 2, ncol = 1)
   
   # Save and upload
   temp_file <- tempfile(fileext = ".png")
@@ -3591,7 +3598,7 @@ analyze_pseudotime_by_clinvar <- function(df,
   p_original <- df_binned %>%
     filter(!is.na(clinical_bin)) %>%
     ggplot(aes(x = !!pseudotime_var, fill = clinical_bin)) +
-    geom_density(aes(weight = weight_per_cell), alpha = 0.5) +
+    geom_density(alpha = 0.5) +
     theme_minimal() +
     labs(
       y = "Density", x = "Pseudotime", fill = NULL, color = NULL,
@@ -3632,7 +3639,7 @@ analyze_pseudotime_by_clinvar <- function(df,
     
     p_visit_direction <- df_visit_dir %>%
       ggplot(aes(x = !!pseudotime_var, fill = visit_direction)) +
-      geom_density(aes(weight = weight_per_cell), alpha = 0.5) +
+      geom_density(alpha = 0.5) +
       theme_minimal() +
       labs(
         y = "Density", 
@@ -3652,7 +3659,7 @@ analyze_pseudotime_by_clinvar <- function(df,
     # Optionally add faceting for clearer visualization
     p_visit_direction_faceted <- df_visit_dir %>%
       ggplot(aes(x = !!pseudotime_var, fill = visit)) +
-      geom_density(aes(weight = weight_per_cell), alpha = 0.6) + 
+      geom_density(alpha = 0.6) + 
       facet_wrap(~ direction, ncol = 1) +
       theme_minimal() +
       labs(
@@ -3724,61 +3731,61 @@ analyze_pseudotime_by_clinvar <- function(df,
   }
   
   # Step 9: Additional KS tests for visit/direction comparisons
-  ks_visit_direction <- NULL
-  if (plot_by_visit_direction) {
-    # Compare PRE/+ vs PRE/-
-    df_pre_pos <- df_binned %>% 
-      filter(.data[[visit_col]] == pre_label, direction == "+")
-    df_pre_neg <- df_binned %>% 
-      filter(.data[[visit_col]] == pre_label, direction == "-")
-    
-    if (nrow(df_pre_pos) > 0 && nrow(df_pre_neg) > 0) {
-      ks_pre <- ks.test(
-        df_pre_pos %>% pull(!!pseudotime_var),
-        df_pre_neg %>% pull(!!pseudotime_var)
-      )
-      cat("\nKS test PRE/+ vs PRE/-:\n")
-      print(ks_pre)
-    }
-    
-    # Compare POST/+ vs POST/-
-    df_post_pos <- df_binned %>% 
-      filter(.data[[visit_col]] == post_label, direction == "+")
-    df_post_neg <- df_binned %>% 
-      filter(.data[[visit_col]] == post_label, direction == "-")
-    
-    if (nrow(df_post_pos) > 0 && nrow(df_post_neg) > 0) {
-      ks_post <- ks.test(
-        df_post_pos %>% pull(!!pseudotime_var),
-        df_post_neg %>% pull(!!pseudotime_var)
-      )
-      cat("\nKS test POST/+ vs POST/-:\n")
-      print(ks_post)
-    }
-    
-    # Compare across visits for same direction
-    if (nrow(df_pre_pos) > 0 && nrow(df_post_pos) > 0) {
-      ks_pos_visits <- ks.test(
-        df_pre_pos %>% pull(!!pseudotime_var),
-        df_post_pos %>% pull(!!pseudotime_var)
-      )
-      cat("\nKS test PRE/+ vs POST/+:\n")
-      print(ks_pos_visits)
-    }
-    
-    ks_visit_direction <- list(
-      pre_comparison = if(exists("ks_pre")) ks_pre else NULL,
-      post_comparison = if(exists("ks_post")) ks_post else NULL,
-      positive_visits = if(exists("ks_pos_visits")) ks_pos_visits else NULL
-    )
-  }
+  # ks_visit_direction <- NULL
+  # if (plot_by_visit_direction) {
+  #   # Compare PRE/+ vs PRE/-
+  #   df_pre_pos <- df_binned %>% 
+  #     filter(.data[[visit_col]] == pre_label, direction == "+")
+  #   df_pre_neg <- df_binned %>% 
+  #     filter(.data[[visit_col]] == pre_label, direction == "-")
+  #   
+  #   if (nrow(df_pre_pos) > 0 && nrow(df_pre_neg) > 0) {
+  #     ks_pre <- ks.test(
+  #       df_pre_pos %>% pull(!!pseudotime_var),
+  #       df_pre_neg %>% pull(!!pseudotime_var)
+  #     )
+  #     cat("\nKS test PRE/+ vs PRE/-:\n")
+  #     print(ks_pre)
+  #   }
+  
+  # Compare POST/+ vs POST/-
+  # df_post_pos <- df_binned %>% 
+  #   filter(.data[[visit_col]] == post_label, direction == "+")
+  # df_post_neg <- df_binned %>% 
+  #   filter(.data[[visit_col]] == post_label, direction == "-")
+  # 
+  # if (nrow(df_post_pos) > 0 && nrow(df_post_neg) > 0) {
+  #   ks_post <- ks.test(
+  #     df_post_pos %>% pull(!!pseudotime_var),
+  #     df_post_neg %>% pull(!!pseudotime_var)
+  #   )
+  #   cat("\nKS test POST/+ vs POST/-:\n")
+  #   print(ks_post)
+  # }
+  
+  #   # Compare across visits for same direction
+  #   if (nrow(df_pre_pos) > 0 && nrow(df_post_pos) > 0) {
+  #     ks_pos_visits <- ks.test(
+  #       df_pre_pos %>% pull(!!pseudotime_var),
+  #       df_post_pos %>% pull(!!pseudotime_var)
+  #     )
+  #     cat("\nKS test PRE/+ vs POST/+:\n")
+  #     print(ks_pos_visits)
+  #   }
+  #   
+  #   ks_visit_direction <- list(
+  #     pre_comparison = if(exists("ks_pre")) ks_pre else NULL,
+  #     post_comparison = if(exists("ks_post")) ks_post else NULL,
+  #     positive_visits = if(exists("ks_pos_visits")) ks_pos_visits else NULL
+  #   )
+  # }
   
   return(list(
     plot_original = p_original, 
     plot_visit_direction = p_visit_direction,
     plot_visit_direction_faceted = if(exists("p_visit_direction_faceted")) p_visit_direction_faceted else NULL,
-    ks_test = ks,
-    ks_visit_direction = ks_visit_direction,
+    # ks_test = ks,
+    # ks_visit_direction = ks_visit_direction,
     delta_df = delta_df, 
     df_binned = df_binned
   ))
@@ -3800,7 +3807,8 @@ analyze_pseudotime_by_celltype <- function(so,
                                            n_pcs = 10, 
                                            tau = c(0.25, 0.5, 0.75),
                                            aws_s3,
-                                           s3_key) {
+                                           s3_key,
+                                           study = "attempt") {
   
   start_time <- Sys.time()
   step_time <- start_time
@@ -3830,8 +3838,21 @@ analyze_pseudotime_by_celltype <- function(so,
                           n_pcs = n_pcs,
                           start_cluster = start_cluster)
   
+  ve <- (attempt_so@reductions$pca@stdev^2)
+  var_expl <- ve / sum(ve) * 100
+  
+  var_explained <- list(
+    PC1 = var_expl[1],
+    PC2 = var_expl[2],
+    PC1_PC2_combined = sum(var_expl[1:2])
+  )
+  
+  message(sprintf("Variance explained - PC1: %.2f%%, PC2: %.2f%%, Combined: %.2f%%", 
+                  var_explained$PC1, var_explained$PC2, var_explained$PC1_PC2_combined))
+  
   log_step("Step 5: Plotting trajectory...")
   res <- plot_slingshot_trajectory(sce_sl = sce_sl,
+                                   var_explained = var_explained,
                                    cluster_label = celltype_col,
                                    celltype_levels = celltype_levels,
                                    custom_colors = custom_colors,
@@ -3839,138 +3860,146 @@ analyze_pseudotime_by_celltype <- function(so,
   print(res$pca_plot)
   print(res$lineage)
   
-  log_step("Step 6: Creating pseudotime dataframe...")
-  pseudotime_df <- create_pseudotime_df(sce_sl)
-  
-  log_step("Step 7: Plotting pseudotime violin...")
-  plot_pseudotime_violin(df = pseudotime_df, celltype_suffix = suffix)
-  
-  log_step("Step 8: Plotting 3D trajectory...")
-  plot_slingshot_3d(pca_df = res$pca_df,
-                    curve_df = res$curve_df,
-                    celltype_suffix = suffix)
-  
-  log_step("Step 9: Preparing data for quantile regression...")
-  no_s4 <- setdiff(names(colData(sce_sl)), "slingshot")
-  sce_df <- as.data.frame(colData(sce_sl)[, no_s4]) %>%
-    dplyr::mutate(visit_treatment = factor(paste(visit, treatment), 
-                                           levels = c("PRE Placebo", "POST Placebo",
-                                                      "PRE Dapagliflozin", "POST Dapagliflozin"))) %>%
-    group_by(subject_id, visit) %>%
-    mutate(weight_per_cell = 1/n()) %>%
-    ungroup()
-  
-  sce_sl$weight_per_cell <- sce_df$weight_per_cell
-  pseudotime_df$weight_per_cell <- sce_df$weight_per_cell
-  
-  log_step("Step 10: Running quantile regression...")
-  
-  rq_fit <- rq(slingPseudotime_1 ~ treatment * visit, 
-               tau = tau, 
-               data = sce_df)
-  
-  attr(rq_fit$terms, ".Environment") <- NULL
-  attr(rq_fit$formula, ".Environment") <- NULL
-  environment(attr(rq_fit$model, "terms")) <- baseenv()
-  
-  log_step("Step 10: Saving rq_fit...")
-  
-  temp_file <- tempfile(fileext = ".rds")
-  tryCatch({
-    R.utils::withTimeout({
-      saveRDS(rq_fit, temp_file)
-      message(sprintf("Actual file size: %.2f MB", file.size(temp_file) / 1024^2))
-    }, timeout = 30, onTimeout = "error")
-  }, error = function(e) {
-    message("Save timed out - confirms large serialization issue")
-  })
-  aws_s3$upload_file(temp_file, Bucket = "attempt", 
-                     Key = paste0("Results/", suffix, "_rq_fit.rds"))
-  if (file.exists(temp_file)) unlink(temp_file)
-  
-  log_step("Step 10b: Running quantile regression for clinical variables...")
-  
-  clin_vars <- c(
-    "hba1c_delta" = "\u0394HbA1c",
-    "weight_delta" = "\u0394Weight", 
-    "mgfr_jodal_delta" = "\u0394mGFR",
-    "mgfr_jodal_bsa_delta" = "\u0394mGFR (BSA)",
-    "tir_delta" = "\u0394TIR",
-    "avg_ketones_delta" =  "\u0394Ketones"
-  )
-  
-  for (clin_var in names(clin_vars)) {
-    formula_clin <- reformulate(clin_var, response = "slingPseudotime_1")
-    rq_fit_clin <- rq(formula_clin, tau = tau, data = sce_df)
+  if(study != "attempt") {
+    no_s4 <- setdiff(names(colData(sce_sl)), "slingshot")
+    sce_df <- as.data.frame(colData(sce_sl)[, no_s4])
+    return(list(sce = sce_sl, sce_df = sce_df, var_explained = var_explained))
+  } else {
     
-    # Clean environments for saving
-    attr(rq_fit_clin$terms, ".Environment") <- NULL
-    attr(rq_fit_clin$formula, ".Environment") <- NULL
-    environment(attr(rq_fit_clin$model, "terms")) <- baseenv()
+    log_step("Step 6: Creating pseudotime dataframe...")
+    pseudotime_df <- create_pseudotime_df(sce_sl)
     
-    # Save to temp file and upload
-    temp_file_clin <- tempfile(fileext = ".rds")
+    log_step("Step 7: Plotting pseudotime violin...")
+    plot_pseudotime_violin(df = pseudotime_df, celltype_suffix = suffix)
+    
+    log_step("Step 8: Plotting 3D trajectory...")
+    plot_slingshot_3d(pca_df = res$pca_df,
+                      curve_df = res$curve_df,
+                      celltype_suffix = suffix)
+    
+    log_step("Step 9: Preparing data for quantile regression...")
+    no_s4 <- setdiff(names(colData(sce_sl)), "slingshot")
+    sce_df <- as.data.frame(colData(sce_sl)[, no_s4]) %>%
+      dplyr::mutate(visit_treatment = factor(paste(visit, treatment), 
+                                             levels = c("PRE Placebo", "POST Placebo",
+                                                        "PRE Dapagliflozin", "POST Dapagliflozin"))) %>%
+      group_by(subject_id, visit) %>%
+      mutate(weight_per_cell = 1/n()) %>%
+      ungroup()
+    
+    sce_sl$weight_per_cell <- sce_df$weight_per_cell
+    pseudotime_df$weight_per_cell <- sce_df$weight_per_cell
+    
+    log_step("Step 10: Running quantile regression...")
+    
+    rq_fit <- rq(slingPseudotime_1 ~ treatment * visit, 
+                 tau = tau, 
+                 data = sce_df)
+    
+    attr(rq_fit$terms, ".Environment") <- NULL
+    attr(rq_fit$formula, ".Environment") <- NULL
+    environment(attr(rq_fit$model, "terms")) <- baseenv()
+    
+    log_step("Step 10: Saving rq_fit...")
+    
+    temp_file <- tempfile(fileext = ".rds")
     tryCatch({
       R.utils::withTimeout({
-        saveRDS(rq_fit_clin, temp_file_clin)
-        message(sprintf("   ✅ Saved rq for %s (%.2f MB)", clin_var, file.size(temp_file_clin) / 1024^2))
+        saveRDS(rq_fit, temp_file)
+        message(sprintf("Actual file size: %.2f MB", file.size(temp_file) / 1024^2))
       }, timeout = 30, onTimeout = "error")
     }, error = function(e) {
-      message(sprintf(" ❌ Save timed out for %s", clin_var))
+      message("Save timed out - confirms large serialization issue")
     })
+    aws_s3$upload_file(temp_file, Bucket = "attempt", 
+                       Key = paste0("Results/", suffix, "_rq_fit.rds"))
+    if (file.exists(temp_file)) unlink(temp_file)
     
-    s3_key_rq <- paste0("Results/", suffix, "_rq_fit_", clin_var, ".rds")
-    aws_s3$upload_file(temp_file_clin, Bucket = "attempt", Key = s3_key_rq)
-    if (file.exists(temp_file_clin)) unlink(temp_file_clin)
+    log_step("Step 10b: Running quantile regression for clinical variables...")
     
-    message(sprintf("⬆️  Clinical rq uploaded to s3://%s/%s", "attempt", s3_key_rq))
+    clin_vars <- c(
+      "hba1c_delta" = "\u0394HbA1c",
+      "weight_delta" = "\u0394Weight", 
+      "mgfr_jodal_delta" = "\u0394mGFR",
+      "mgfr_jodal_bsa_delta" = "\u0394mGFR (BSA)",
+      "tir_delta" = "\u0394TIR",
+      "avg_ketones_delta" =  "\u0394Ketones"
+    )
+    
+    for (clin_var in names(clin_vars)) {
+      formula_clin <- reformulate(clin_var, response = "slingPseudotime_1")
+      rq_fit_clin <- rq(formula_clin, tau = tau, data = sce_df)
+      
+      # Clean environments for saving
+      attr(rq_fit_clin$terms, ".Environment") <- NULL
+      attr(rq_fit_clin$formula, ".Environment") <- NULL
+      environment(attr(rq_fit_clin$model, "terms")) <- baseenv()
+      
+      # Save to temp file and upload
+      temp_file_clin <- tempfile(fileext = ".rds")
+      tryCatch({
+        R.utils::withTimeout({
+          saveRDS(rq_fit_clin, temp_file_clin)
+          message(sprintf("   ✅ Saved rq for %s (%.2f MB)", clin_var, file.size(temp_file_clin) / 1024^2))
+        }, timeout = 30, onTimeout = "error")
+      }, error = function(e) {
+        message(sprintf(" ❌ Save timed out for %s", clin_var))
+      })
+      
+      s3_key_rq <- paste0("Results/", suffix, "_rq_fit_", clin_var, ".rds")
+      aws_s3$upload_file(temp_file_clin, Bucket = "attempt", Key = s3_key_rq)
+      if (file.exists(temp_file_clin)) unlink(temp_file_clin)
+      
+      message(sprintf("⬆️  Clinical rq uploaded to s3://%s/%s", "attempt", s3_key_rq))
+    }
+    log_step("Step 11: Predicting values from quantile regression...")
+    rq_grid <- expand.grid(treatment = c("Placebo", "Dapagliflozin"),
+                           visit = c("PRE", "POST"))
+    rq_pred <- predict(rq_fit, rq_grid)
+    tau_names <- paste0("rq_tau_", gsub("\\.", "", as.character(tau * 100)))
+    rq_grid <- cbind(rq_grid, setNames(as.data.frame(rq_pred), tau_names))
+    
+    temp_file <- tempfile(fileext = ".rds")
+    saveRDS(rq_grid, temp_file)
+    aws_s3$upload_file(temp_file, Bucket = "attempt", 
+                       Key = paste0("Results/", suffix, "_rq_predict.rds"))
+    unlink(temp_file)
+    
+    message(sprintf("⬆️  Results uploaded to s3://%s/%s", "attempt", paste0("Results/", suffix, "_rq_predict.rds")))
+    
+    log_step("Step 12: Plotting density plots...")
+    p_pseudotime <- plot_and_test_pseudotime_distribution(pseudotime_df, sce_sl, filename_suffix = suffix)
+    p_pseudotime_trt <- plot_pseudotime_density_faceted_by_treatment(sce_df, filename_suffix = suffix)
+    p_pseudotime_heatmap <- plot_delta_percentile_heatmap(rq_grid, filename_suffix = suffix)
+    
+    log_step("Step 13: Running delta clinical variable analyses...")
+    
+    clin_var_res <- list()
+    for (clin_var in names(clin_vars)) {
+      message(sprintf("   [%s]   Analyzing %s...", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), clin_var))
+      res <- analyze_pseudotime_by_clinvar(sce_df, 
+                                           !!sym(clin_var), 
+                                           slingPseudotime_1,
+                                           bin_probs = "direction",
+                                           caption_clinical_var = clin_vars[clin_var],
+                                           celltype_suffix = suffix,
+                                           filesuffix = "delta",
+                                           bucket = "attempt")
+      clin_var_res[[clin_var]] <- res
+    }
+    
+    log_step("All steps completed successfully!")
+    message(sprintf("Total runtime: %.2f sec", as.numeric(difftime(Sys.time(), start_time, units = "secs"))))
+    
+    return(list(sce = sce_sl, sce_df = sce_df, 
+                pseudotime_df = pseudotime_df, 
+                rq_fit = rq_fit, rq_predict = rq_grid,
+                p_pseudotime = p_pseudotime,
+                p_pseudotime_trt = p_pseudotime_trt, 
+                p_pseudotime_heatmap = p_pseudotime_heatmap,
+                clin_var_res = clin_var_res,
+                var_explained = var_explained))
   }
-  log_step("Step 11: Predicting values from quantile regression...")
-  rq_grid <- expand.grid(treatment = c("Placebo", "Dapagliflozin"),
-                         visit = c("PRE", "POST"))
-  rq_pred <- predict(rq_fit, rq_grid)
-  tau_names <- paste0("rq_tau_", gsub("\\.", "", as.character(tau * 100)))
-  rq_grid <- cbind(rq_grid, setNames(as.data.frame(rq_pred), tau_names))
-  
-  temp_file <- tempfile(fileext = ".rds")
-  saveRDS(rq_grid, temp_file)
-  aws_s3$upload_file(temp_file, Bucket = "attempt", 
-                     Key = paste0("Results/", suffix, "_rq_predict.rds"))
-  unlink(temp_file)
-  
-  message(sprintf("⬆️  Results uploaded to s3://%s/%s", "attempt", paste0("Results/", suffix, "_rq_predict.rds")))
-  
-  log_step("Step 12: Plotting density plots...")
-  p_pseudotime <- plot_and_test_pseudotime_distribution(pseudotime_df, sce_sl, filename_suffix = suffix)
-  p_pseudotime_trt <- plot_pseudotime_density_faceted_by_treatment(sce_df, filename_suffix = suffix)
-  p_pseudotime_heatmap <- plot_delta_percentile_heatmap(rq_grid, filename_suffix = suffix)
-  
-  log_step("Step 13: Running delta clinical variable analyses...")
-  
-  clin_var_res <- list()
-  for (clin_var in names(clin_vars)) {
-    message(sprintf("   [%s]   Analyzing %s...", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), clin_var))
-    res <- analyze_pseudotime_by_clinvar(sce_df, 
-                                         !!sym(clin_var), 
-                                         slingPseudotime_1,
-                                         bin_probs = "direction",
-                                         caption_clinical_var = clin_vars[clin_var],
-                                         celltype_suffix = suffix,
-                                         filesuffix = "delta",
-                                         bucket = "attempt")
-    clin_var_res[[clin_var]] <- res
-  }
-  
-  log_step("All steps completed successfully!")
-  message(sprintf("Total runtime: %.2f sec", as.numeric(difftime(Sys.time(), start_time, units = "secs"))))
-  
-  return(list(sce = sce_sl, sce_df = sce_df, 
-              pseudotime_df = pseudotime_df, 
-              rq_fit = rq_fit, rq_predict = rq_grid,
-              p_pseudotime = p_pseudotime,
-              p_pseudotime_trt = p_pseudotime_trt, 
-              p_pseudotime_heatmap = p_pseudotime_heatmap,
-              clin_var_res = clin_var_res))
 }
 
 # ===========================================================================
@@ -6479,16 +6508,33 @@ create_pie_chart <- function(data,
     bin_data[[group_by]] <- factor(bin_data[[group_by]], levels = caption_groups)
   }
   
-  # Caption HTML
+  # # Caption HTML
+  # caption_text <- paste(
+  #   vapply(seq_len(nrow(cap_df)), function(i) {
+  #     g   <- as.character(cap_df[[group_by]][i])
+  #     pct <- round(cap_df$proportion[i], digits)
+  #     col <- if (!is.null(color_palette[[g]])) color_palette[[g]] else "#000000"
+  #     sprintf(
+  #       "<span style='color:%s;'>%s: %s%%</span>",
+  #       col, g, pct
+  #     )
+  #   }, character(1)),
+  #   collapse = "<br>"
+  # )
+  
   caption_text <- paste(
     vapply(seq_len(nrow(cap_df)), function(i) {
       g   <- as.character(cap_df[[group_by]][i])
       pct <- round(cap_df$proportion[i], digits)
-      col <- if (!is.null(color_palette[[g]])) color_palette[[g]] else "#000000"
-      sprintf("<span style='color:%s'>%s: %s%%</span>", col, g, pct)
+      col <- "#000000"
+      sprintf(
+        "<span style='color:%s;'>%s: %s%%</span>",
+        col, g, pct
+      )
     }, character(1)),
     collapse = "<br>"
   )
+  
   
   # Limit palette to groups present
   present_groups <- unique(as.character(bin_data[[group_by]]))
@@ -6499,6 +6545,7 @@ create_pie_chart <- function(data,
     coord_polar("y") +
     theme_void() +
     labs(fill = NULL, caption = caption_text) +
-    theme(plot.caption = ggtext::element_markdown(hjust = 0.5, face = "bold")) +
+    theme(plot.caption = ggtext::element_markdown(hjust = 0.5, size = 12),
+          legend.position = "none") +
     scale_fill_manual(values = pal_used)
 }
