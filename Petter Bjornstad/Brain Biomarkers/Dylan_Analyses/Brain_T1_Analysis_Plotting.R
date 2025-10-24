@@ -1681,6 +1681,452 @@ if (nrow(subcortical_heatmap_data) > 0) {
 
 
 
+
+
+
+
+
+#################### Brain biomarkers and brain volume analysis 
+
+
+
+library(tidyverse)
+library(patchwork)
+library(broom)
+library(corrplot)
+
+# Define biomarkers and labels
+biomarkers <- c("ab40_avg_conc", "ab42_avg_conc", "tau_avg_conc",
+                "nfl_avg_conc", "gfap_avg_conc", "ptau_181_avg_conc", 
+                "ptau_217_avg_conc")
+
+biomarker_labels <- c(
+  "ab40_avg_conc" = "Aβ40",
+  "ab42_avg_conc" = "Aβ42",
+  "tau_avg_conc" = "Tau",
+  "nfl_avg_conc" = "NfL",
+  "gfap_avg_conc" = "GFAP",
+  "ptau_181_avg_conc" = "pTau-181",
+  "ptau_217_avg_conc" = "pTau-217"
+)
+
+# Create output directory
+dir.create("brain_plots/Biomarker_Volume_Analysis", showWarnings = FALSE, recursive = TRUE)
+
+# ============================================================================
+# PART 1: Identify all brain volume columns
+# ============================================================================
+
+# Exclude biomarkers, ID, and grouping variables
+exclude_cols <- c(biomarkers, "record_id", "group2", "redcap_event_name")
+
+# Get all imaging traits (volumes) and filter to numeric columns only
+all_potential_traits <- setdiff(names(brain_data), exclude_cols)
+
+# Check which columns are numeric
+imaging_traits <- all_potential_traits[sapply(brain_data[all_potential_traits], is.numeric)]
+
+cat(sprintf("Found %d total potential columns\n", length(all_potential_traits)))
+cat(sprintf("Found %d numeric imaging traits (brain volumes) to analyze\n", length(imaging_traits)))
+
+# Show any non-numeric columns that were excluded
+non_numeric <- setdiff(all_potential_traits, imaging_traits)
+if (length(non_numeric) > 0) {
+  cat(sprintf("Excluded %d non-numeric columns: %s\n", 
+              length(non_numeric), 
+              paste(head(non_numeric, 5), collapse = ", ")))
+}
+
+# ============================================================================
+# PART 2: Correlation Analysis - Overall Sample
+# ============================================================================
+
+cat("\n=== Calculating correlations for overall sample ===\n")
+
+# Create correlation matrix
+biomarker_data <- brain_data %>% select(all_of(biomarkers))
+imaging_data <- brain_data %>% select(all_of(imaging_traits))
+
+# Calculate correlations with p-values
+cor_results_overall <- data.frame()
+
+for (biomarker in biomarkers) {
+  for (trait in imaging_traits) {
+    # Remove missing values
+    complete_data <- brain_data %>% 
+      select(all_of(c(biomarker, trait))) %>% 
+      na.omit()
+    
+    if (nrow(complete_data) > 3) {
+      cor_test <- cor.test(complete_data[[biomarker]], complete_data[[trait]])
+      
+      cor_results_overall <- rbind(cor_results_overall, data.frame(
+        biomarker = biomarker,
+        imaging_trait = trait,
+        n = nrow(complete_data),
+        correlation = cor_test$estimate,
+        p_value = cor_test$p.value
+      ))
+    }
+  }
+}
+
+# Add adjusted p-values
+cor_results_overall <- cor_results_overall %>%
+  mutate(
+    p_adj = p.adjust(p_value, method = "fdr"),
+    significant = p_value < 0.05,
+    sig_adj = p_adj < 0.05
+  ) %>%
+  arrange(p_value)
+
+# Save results
+write.csv(cor_results_overall, 
+          "brain_plots/Biomarker_Volume_Analysis/correlations_overall.csv", 
+          row.names = FALSE)
+
+cat(sprintf("Found %d significant correlations (p < 0.05)\n", 
+            sum(cor_results_overall$significant)))
+cat(sprintf("Found %d FDR-significant correlations (q < 0.05)\n", 
+            sum(cor_results_overall$sig_adj)))
+
+# ============================================================================
+# PART 3: Correlation Analysis - By Group
+# ============================================================================
+
+cat("\n=== Calculating correlations by group ===\n")
+
+cor_results_by_group <- data.frame()
+
+for (grp in unique(brain_data$group2)) {
+  grp_data <- brain_data %>% filter(group2 == grp)
+  
+  for (biomarker in biomarkers) {
+    for (trait in imaging_traits) {
+      complete_data <- grp_data %>% 
+        select(all_of(c(biomarker, trait))) %>% 
+        na.omit()
+      
+      if (nrow(complete_data) > 3) {
+        cor_test <- cor.test(complete_data[[biomarker]], complete_data[[trait]])
+        
+        cor_results_by_group <- rbind(cor_results_by_group, data.frame(
+          group = grp,
+          biomarker = biomarker,
+          imaging_trait = trait,
+          n = nrow(complete_data),
+          correlation = cor_test$estimate,
+          p_value = cor_test$p.value
+        ))
+      }
+    }
+  }
+}
+
+# Add adjusted p-values within each group
+cor_results_by_group <- cor_results_by_group %>%
+  group_by(group) %>%
+  mutate(
+    p_adj = p.adjust(p_value, method = "fdr"),
+    significant = p_value < 0.05,
+    sig_adj = p_adj < 0.05
+  ) %>%
+  ungroup() %>%
+  arrange(group, p_value)
+
+write.csv(cor_results_by_group, 
+          "brain_plots/Biomarker_Volume_Analysis/correlations_by_group.csv", 
+          row.names = FALSE)
+
+# ============================================================================
+# PART 4: Linear Models with Covariates
+# ============================================================================
+
+cat("\n=== Running linear models ===\n")
+
+# Check for available covariates
+potential_covariates <- c("age", "sex", "bmi", "education_years")
+available_covariates <- intersect(potential_covariates, names(brain_data))
+
+if (length(available_covariates) > 0) {
+  cat(sprintf("Using covariates: %s\n", paste(available_covariates, collapse = ", ")))
+  
+  lm_results <- data.frame()
+  
+  for (biomarker in biomarkers) {
+    for (trait in imaging_traits) {
+      # Create formula
+      formula_str <- paste(trait, "~", biomarker)
+      if (length(available_covariates) > 0) {
+        formula_str <- paste(formula_str, "+", paste(available_covariates, collapse = " + "))
+      }
+      
+      # Fit model
+      tryCatch({
+        model_data <- brain_data %>% 
+          select(all_of(c(trait, biomarker, available_covariates))) %>%
+          na.omit()
+        
+        if (nrow(model_data) > (length(available_covariates) + 5)) {
+          model <- lm(as.formula(formula_str), data = model_data)
+          model_summary <- summary(model)
+          biomarker_coef <- coef(model_summary)[biomarker, ]
+          
+          lm_results <- rbind(lm_results, data.frame(
+            biomarker = biomarker,
+            imaging_trait = trait,
+            n = nrow(model_data),
+            beta = biomarker_coef["Estimate"],
+            se = biomarker_coef["Std. Error"],
+            t_value = biomarker_coef["t value"],
+            p_value = biomarker_coef["Pr(>|t|)"],
+            r_squared = model_summary$r.squared,
+            adj_r_squared = model_summary$adj.r.squared
+          ))
+        }
+      }, error = function(e) {
+        # Skip if model fails
+      })
+    }
+  }
+  
+  # Add adjusted p-values
+  lm_results <- lm_results %>%
+    mutate(
+      p_adj = p.adjust(p_value, method = "fdr"),
+      significant = p_value < 0.05,
+      sig_adj = p_adj < 0.05
+    ) %>%
+    arrange(p_value)
+  
+  write.csv(lm_results, 
+            "brain_plots/Biomarker_Volume_Analysis/linear_models_adjusted.csv", 
+            row.names = FALSE)
+  
+  cat(sprintf("Found %d significant associations (p < 0.05) after adjustment\n", 
+              sum(lm_results$significant)))
+}
+
+# ============================================================================
+# PART 5: Heatmap of Correlations
+# ============================================================================
+
+cat("\n=== Creating correlation heatmaps ===\n")
+
+# Overall heatmap
+cor_matrix_overall <- cor_results_overall %>%
+  select(biomarker, imaging_trait, correlation) %>%
+  pivot_wider(names_from = imaging_trait, values_from = correlation) %>%
+  column_to_rownames("biomarker") %>%
+  as.matrix()
+
+# Clean row names
+rownames(cor_matrix_overall) <- biomarker_labels[rownames(cor_matrix_overall)]
+
+png("brain_plots/Biomarker_Volume_Analysis/correlation_heatmap_overall.png", 
+    width = 2400, height = 1000, res = 150)
+corrplot(cor_matrix_overall, 
+         method = "color",
+         type = "full",
+         tl.col = "black",
+         tl.srt = 45,
+         tl.cex = 0.6,
+         title = "Biomarker-Volume Correlations (Overall Sample)",
+         mar = c(0,0,2,0),
+         col = colorRampPalette(c("#2166AC", "white", "#B2182B"))(200))
+dev.off()
+
+# Group-specific heatmaps
+for (grp in unique(brain_data$group2)) {
+  cor_matrix_group <- cor_results_by_group %>%
+    filter(group == grp) %>%
+    select(biomarker, imaging_trait, correlation) %>%
+    pivot_wider(names_from = imaging_trait, values_from = correlation) %>%
+    column_to_rownames("biomarker") %>%
+    as.matrix()
+  
+  rownames(cor_matrix_group) <- biomarker_labels[rownames(cor_matrix_group)]
+  
+  png(paste0("brain_plots/Biomarker_Volume_Analysis/correlation_heatmap_", 
+             gsub(" ", "_", grp), ".png"), 
+      width = 2400, height = 1000, res = 150)
+  corrplot(cor_matrix_group, 
+           method = "color",
+           type = "full",
+           tl.col = "black",
+           tl.srt = 45,
+           tl.cex = 0.6,
+           title = paste("Biomarker-Volume Correlations -", grp),
+           mar = c(0,0,2,0),
+           col = colorRampPalette(c("#2166AC", "white", "#B2182B"))(200))
+  dev.off()
+}
+
+# ============================================================================
+# PART 6: Scatterplots for Significant Associations
+# ============================================================================
+
+cat("\n=== Creating scatterplots for significant associations ===\n")
+
+# Get top significant correlations from overall analysis
+sig_overall <- cor_results_overall %>%
+  filter(significant) %>%
+  arrange(p_value) %>%
+  head(20)  # Top 20
+
+if (nrow(sig_overall) > 0) {
+  for (i in 1:nrow(sig_overall)) {
+    biomarker <- sig_overall$biomarker[i]
+    trait <- sig_overall$imaging_trait[i]
+    
+    biomarker_clean <- biomarker_labels[biomarker]
+    trait_clean <- gsub("_", " ", trait)
+    
+    p <- ggplot(brain_data, 
+                aes(x = .data[[biomarker]], 
+                    y = .data[[trait]])) +
+      geom_point(alpha = 0.6, size = 2.5, color = "#4477AA") +
+      geom_smooth(method = "lm", se = TRUE, color = "#CC6677", linewidth = 1.2) +
+      labs(
+        title = paste(biomarker_clean, "vs", trait_clean),
+        subtitle = sprintf("r = %.3f, p = %.4f, n = %d", 
+                           sig_overall$correlation[i],
+                           sig_overall$p_value[i],
+                           sig_overall$n[i]),
+        x = paste(biomarker_clean, "(pg/mL)"),
+        y = trait_clean
+      ) +
+      theme_classic(base_size = 11) +
+      theme(
+        plot.title = element_text(face = "bold", hjust = 0.5, size = 12),
+        plot.subtitle = element_text(hjust = 0.5, size = 10)
+      )
+    
+    ggsave(paste0("brain_plots/Biomarker_Volume_Analysis/scatter_overall_", 
+                  sprintf("%02d", i), "_",
+                  gsub("[^A-Za-z0-9]", "_", biomarker), "_", 
+                  gsub("[^A-Za-z0-9]", "_", trait), ".png"),
+           plot = p, width = 6, height = 5, dpi = 300)
+  }
+}
+
+# Get significant associations by group
+sig_by_group <- cor_results_by_group %>%
+  filter(significant) %>%
+  arrange(group, p_value) %>%
+  group_by(group) %>%
+  slice_head(n = 10) %>%  # Top 10 per group
+  ungroup()
+
+if (nrow(sig_by_group) > 0) {
+  for (i in 1:nrow(sig_by_group)) {
+    grp <- sig_by_group$group[i]
+    biomarker <- sig_by_group$biomarker[i]
+    trait <- sig_by_group$imaging_trait[i]
+    
+    biomarker_clean <- biomarker_labels[biomarker]
+    trait_clean <- gsub("_", " ", trait)
+    
+    grp_data <- brain_data %>% filter(group2 == grp)
+    
+    p <- ggplot(grp_data, 
+                aes(x = .data[[biomarker]], 
+                    y = .data[[trait]])) +
+      geom_point(alpha = 0.6, size = 2.5, 
+                 color = ifelse(grp == "Control", "#00BFC4", "#F8766D")) +
+      geom_smooth(method = "lm", se = TRUE, 
+                  color = ifelse(grp == "Control", "#00BFC4", "#F8766D"), 
+                  linewidth = 1.2) +
+      labs(
+        title = paste(biomarker_clean, "vs", trait_clean, "-", grp),
+        subtitle = sprintf("r = %.3f, p = %.4f, n = %d", 
+                           sig_by_group$correlation[i],
+                           sig_by_group$p_value[i],
+                           sig_by_group$n[i]),
+        x = paste(biomarker_clean, "(pg/mL)"),
+        y = trait_clean
+      ) +
+      theme_classic(base_size = 11) +
+      theme(
+        plot.title = element_text(face = "bold", hjust = 0.5, size = 12),
+        plot.subtitle = element_text(hjust = 0.5, size = 10)
+      )
+    
+    ggsave(paste0("brain_plots/Biomarker_Volume_Analysis/scatter_", 
+                  gsub(" ", "_", grp), "_",
+                  sprintf("%02d", i), "_",
+                  gsub("[^A-Za-z0-9]", "_", biomarker), "_", 
+                  gsub("[^A-Za-z0-9]", "_", trait), ".png"),
+           plot = p, width = 6, height = 5, dpi = 300)
+  }
+}
+
+# ============================================================================
+# PART 7: Summary Statistics
+# ============================================================================
+
+cat("\n=== Summary Statistics ===\n")
+
+# Overall summary
+cat("\nOverall Sample:\n")
+cat(sprintf("  Total tests: %d\n", nrow(cor_results_overall)))
+cat(sprintf("  Significant (p < 0.05): %d (%.1f%%)\n", 
+            sum(cor_results_overall$significant),
+            100 * mean(cor_results_overall$significant)))
+cat(sprintf("  FDR-significant (q < 0.05): %d (%.1f%%)\n", 
+            sum(cor_results_overall$sig_adj),
+            100 * mean(cor_results_overall$sig_adj)))
+
+# By group summary
+cat("\nBy Group:\n")
+summary_by_group <- cor_results_by_group %>%
+  group_by(group) %>%
+  summarise(
+    total_tests = n(),
+    n_significant = sum(significant),
+    pct_significant = 100 * mean(significant),
+    n_fdr_sig = sum(sig_adj),
+    pct_fdr_sig = 100 * mean(sig_adj),
+    .groups = "drop"
+  )
+
+print(summary_by_group)
+
+# Top associations by biomarker
+cat("\nTop association for each biomarker (overall):\n")
+top_by_biomarker <- cor_results_overall %>%
+  group_by(biomarker) %>%
+  arrange(p_value) %>%
+  slice_head(n = 1) %>%
+  ungroup() %>%
+  mutate(biomarker_clean = biomarker_labels[biomarker]) %>%
+  select(biomarker_clean, imaging_trait, correlation, p_value, n)
+
+print(top_by_biomarker)
+
+cat("\n=== Analysis Complete ===\n")
+cat("Results saved to: brain_plots/Biomarker_Volume_Analysis/\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ############### fMRI data 
 
 
