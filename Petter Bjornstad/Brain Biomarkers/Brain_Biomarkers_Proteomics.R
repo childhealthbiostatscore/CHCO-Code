@@ -835,12 +835,13 @@ dat_small <- dat %>% filter(group %in% c('Lean Control', 'Type 1 Diabetes', 'Typ
 
 
 desc_table1_fixed <- dat_small %>%
-  select(age, sex, race_ethnicity, bmi, hba1c, study) %>%
+  select(age, sex, group, race_ethnicity, bmi, hba1c, study) %>%
   tbl_summary(
-    by = sex,
+    by = group,
     type = list(
       age ~ "continuous",
       bmi ~ "continuous", 
+      sex ~ 'categorical',
       hba1c ~ "continuous",
       race_ethnicity ~ "categorical",
       study ~ "categorical"
@@ -859,6 +860,7 @@ desc_table1_fixed <- dat_small %>%
     label = list(
       age ~ "Age, years",
       race_ethnicity ~ "Race/Ethnicity",
+      sex ~ 'Sex', 
       bmi ~ "BMI, kg/m²",
       hba1c ~ "HbA1c, %",
       study ~ "Study"
@@ -891,7 +893,6 @@ desc_table1_fixed %>%
 
 ############## Comparisons for PKD
 
-
 # ============================================================================
 # Brain Biomarker vs Proteomics Analysis: LC vs PKD
 # ============================================================================
@@ -911,11 +912,11 @@ biomarkers <- c("ab40_avg_conc", "ab42_avg_conc", "tau_avg_conc",
 
 # Filter data for LC vs PKD comparison
 dat_omics_pkd <- dat_omics %>% 
-  filter(group %in% c('Lean Control', 'Polycystic Kidney Disease'))
+  filter(group %in% c('Lean Control', 'PKD'))
 
 cat("\n=== LC vs PKD Analysis ===\n")
 cat(paste0("Lean Control: ", sum(dat_omics_pkd$group == 'Lean Control'), " subjects\n"))
-cat(paste0("Polycystic Kidney Disease: ", sum(dat_omics_pkd$group == 'Polycystic Kidney Disease'), " subjects\n"))
+cat(paste0("PKD: ", sum(dat_omics_pkd$group == 'PKD'), " subjects\n"))
 
 # Get proteomics columns
 proteomics_cols <- setdiff(names(dat_omics_pkd), 
@@ -988,7 +989,7 @@ cat("\nRunning Model 2: biomarker ~ protein * pkd_status + age + sex\n")
 
 # Create binary PKD variable
 dat_omics_pkd <- dat_omics_pkd %>%
-  mutate(pkd = ifelse(group == "Polycystic Kidney Disease", 1, 0))
+  mutate(pkd = ifelse(group == "PKD", 1, 0))
 
 results_model2_main <- tibble()
 results_model2_interaction <- tibble()
@@ -1283,7 +1284,6 @@ cat("  - LC_vs_PKD_model2_main_effects.csv\n")
 cat("  - LC_vs_PKD_model2_interactions.csv\n")
 cat("  - LC_vs_PKD_all_results.csv\n")
 cat("  - LC_vs_PKD_plots/ (folder with all significant result plots)\n")
-
 
 
 
