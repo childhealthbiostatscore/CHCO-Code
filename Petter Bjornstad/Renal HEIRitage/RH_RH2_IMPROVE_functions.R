@@ -1,4 +1,5 @@
 library(ggplot2)
+library(gtools)
 theme_transparent <- theme(
   plot.background   = element_rect(fill = "transparent", color = NA),
   panel.background  = element_rect(fill = "transparent", color = NA),
@@ -863,4 +864,89 @@ create_comparison_boxplot <- function(data,
     complete_pair_n = complete_pair_n,
     complete_pair_means = complete_pair_means
   )
+}
+
+plot_emms_with_brackets <- function(
+    emm_table,
+    contrast_table,
+    outcome_var,
+    x_var = "bmi_cat",
+    y_label = "Estimated marginal mean",
+    x_label = NULL,
+    use_stars = TRUE,
+    y_step_multiplier = 0.08,
+    point_size = 3,
+    errorbar_width = 0.2,
+    bracket_size = 0.5,
+    label_size = 5,
+    text_size = 15
+) {
+  
+  # Load required packages
+  require(ggplot2)
+  require(tidyverse)
+  require(ggpubr)
+  require(rstatix)
+  
+  # 1) Subset EMMs and contrasts for this outcome
+  emms_sub <- emm_table %>%
+    filter(outcome == outcome_var)
+  
+  contr_sub <- contrast_table %>%
+    filter(outcome == outcome_var) %>%
+    separate(contrast, into = c("group1", "group2"), sep = " - ", remove = FALSE) %>%
+    mutate(
+      group1 = trimws(group1),
+      group2 = trimws(group2),
+      # Label: either stars or formatted p-values
+      label = if(use_stars) {
+        stars.pval(p.value)
+      } else {
+        rstatix::p_format(p.value, add.p = TRUE)
+      }
+    )
+  
+  # Check if data exists
+  if(nrow(emms_sub) == 0) {
+    stop(paste("No data found for outcome:", outcome_var))
+  }
+  
+  # 2) Y positions for brackets (stack them above the highest CI)
+  y_base <- max(emms_sub$upper.CL, na.rm = TRUE)
+  y_step <- y_step_multiplier * diff(range(c(emms_sub$lower.CL, emms_sub$upper.CL), na.rm = TRUE))
+  
+  contr_sub <- contr_sub %>%
+    arrange(p.value) %>%  # optional: nicer stacking
+    mutate(y.position = y_base + row_number() * y_step)
+  
+  # 3) Create the plot
+  p <- ggplot(emms_sub, aes_string(x = x_var, y = "emmean")) +
+    geom_point(size = point_size) +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = errorbar_width) +
+    labs(
+      x = x_label,
+      y = y_label
+    ) +
+    theme_minimal() + 
+    theme(
+      text = element_text(size = text_size),
+      panel.grid = element_blank(),
+      legend.position = "none"
+    )
+  
+  # Add significance brackets if contrasts exist
+  if(nrow(contr_sub) > 0) {
+    p <- p + stat_pvalue_manual(
+      contr_sub,
+      label = "label",
+      y.position = "y.position",
+      xmin = "group1",
+      xmax = "group2",
+      tip.length = 0.01,
+      bracket.size = bracket_size,
+      size = label_size
+    )
+  }
+  
+  return(p)
 }
