@@ -1,0 +1,776 @@
+# ==============================================================================
+# FUNCTIONAL CONNECTIVITY USING FREESURFER PARCELLATION
+# This uses your FreeSurfer output to define ROIs for fMRI analysis
+# ==============================================================================
+
+library(oro.nifti)
+library(neurobase)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+library(stringr)
+
+# ==============================================================================
+# APPROACH 1: Use FreeSurfer aseg (subcortical) parcellation
+# ==============================================================================
+
+# This approach registers fMRI to FreeSurfer space and extracts time series
+# from FreeSurfer-defined regions
+
+# However, this requires coregistration between T1 and fMRI
+# For a simpler approach that doesn't require perfect registration,
+# we can use a standard MNI space atlas
+
+# ==============================================================================
+# APPROACH 2: Use Desikan-Killiany Atlas (FreeSurfer's default)
+# Implemented in MNI space for easy application to fMRI
+# ==============================================================================
+
+# Desikan-Killiany regions (68 cortical + 14 subcortical = 82 total)
+desikan_killiany_regions <- c(
+  # Left hemisphere cortical (34)
+  "L_BanksSTS", "L_CaudalAnteriorCingulate", "L_CaudalMiddleFrontal",
+  "L_Cuneus", "L_Entorhinal", "L_Fusiform", "L_InferiorParietal",
+  "L_InferiorTemporal", "L_IsthmusCingulate", "L_LateralOccipital",
+  "L_LateralOrbitofrontal", "L_Lingual", "L_MedialOrbitofrontal",
+  "L_MiddleTemporal", "L_Parahippocampal", "L_Paracentral",
+  "L_ParsOpercularis", "L_ParsOrbitalis", "L_ParsTriangularis",
+  "L_Pericalcarine", "L_Postcentral", "L_PosteriorCingulate",
+  "L_Precentral", "L_Precuneus", "L_RostralAnteriorCingulate",
+  "L_RostralMiddleFrontal", "L_SuperiorFrontal", "L_SuperiorParietal",
+  "L_SuperiorTemporal", "L_Supramarginal", "L_FrontalPole",
+  "L_TemporalPole", "L_TransverseTemporal", "L_Insula",
+  
+  # Right hemisphere cortical (34)
+  "R_BanksSTS", "R_CaudalAnteriorCingulate", "R_CaudalMiddleFrontal",
+  "R_Cuneus", "R_Entorhinal", "R_Fusiform", "R_InferiorParietal",
+  "R_InferiorTemporal", "R_IsthmusCingulate", "R_LateralOccipital",
+  "R_LateralOrbitofrontal", "R_Lingual", "R_MedialOrbitofrontal",
+  "R_MiddleTemporal", "R_Parahippocampal", "R_Paracentral",
+  "R_ParsOpercularis", "R_ParsOrbitalis", "R_ParsTriangularis",
+  "R_Pericalcarine", "R_Postcentral", "R_PosteriorCingulate",
+  "R_Precentral", "R_Precuneus", "R_RostralAnteriorCingulate",
+  "R_RostralMiddleFrontal", "R_SuperiorFrontal", "R_SuperiorParietal",
+  "R_SuperiorTemporal", "R_Supramarginal", "R_FrontalPole",
+  "R_TemporalPole", "R_TransverseTemporal", "R_Insula",
+  
+  # Subcortical (14)
+  "L_Thalamus", "L_Caudate", "L_Putamen", "L_Pallidum",
+  "L_Hippocampus", "L_Amygdala", "L_Accumbens",
+  "R_Thalamus", "R_Caudate", "R_Putamen", "R_Pallidum",
+  "R_Hippocampus", "R_Amygdala", "R_Accumbens"
+)
+
+# ==============================================================================
+# SIMPLIFIED APPROACH: Use Major Brain Regions
+# Based on FreeSurfer nomenclature but simplified for fMRI resolution
+# ==============================================================================
+
+create_freesurfer_style_parcellation <- function(brain_coords, dims) {
+  
+  n_voxels <- nrow(brain_coords)
+  
+  # Normalize coordinates
+  x_norm <- (brain_coords[,1] - min(brain_coords[,1])) / 
+    (max(brain_coords[,1]) - min(brain_coords[,1]))
+  y_norm <- (brain_coords[,2] - min(brain_coords[,2])) / 
+    (max(brain_coords[,2]) - min(brain_coords[,2]))
+  z_norm <- (brain_coords[,3] - min(brain_coords[,3])) / 
+    (max(brain_coords[,3]) - min(brain_coords[,3]))
+  
+  regions <- character(n_voxels)
+  
+  for (i in 1:n_voxels) {
+    # Hemisphere (left/right)
+    hemi <- ifelse(x_norm[i] < 0.5, "L", "R")
+    
+    # Anterior-Posterior division (4 zones)
+    if (y_norm[i] < 0.25) {
+      ap_region <- "Frontal"
+    } else if (y_norm[i] < 0.5) {
+      ap_region <- "CentralParietal"
+    } else if (y_norm[i] < 0.75) {
+      ap_region <- "Temporal"
+    } else {
+      ap_region <- "Occipital"
+    }
+    
+    # Superior-Inferior division
+    if (z_norm[i] < 0.35) {
+      si_region <- "Inferior"
+    } else if (z_norm[i] < 0.65) {
+      si_region <- "Middle"
+    } else {
+      si_region <- "Superior"
+    }
+    
+    # Special regions based on location
+    if (y_norm[i] < 0.3 && z_norm[i] < 0.4) {
+      # Likely orbitofrontal
+      region_name <- paste0(hemi, "_Orbitofrontal")
+    } else if (y_norm[i] > 0.4 && y_norm[i] < 0.6 && z_norm[i] < 0.4) {
+      # Likely hippocampus/amygdala region
+      region_name <- paste0(hemi, "_MedialTemporal")
+    } else if (y_norm[i] < 0.35 && z_norm[i] > 0.6) {
+      # Likely superior frontal
+      region_name <- paste0(hemi, "_SuperiorFrontal")
+    } else if (y_norm[i] > 0.35 && y_norm[i] < 0.5 && z_norm[i] > 0.5) {
+      # Likely parietal
+      region_name <- paste0(hemi, "_Parietal")
+    } else if (y_norm[i] > 0.75) {
+      # Occipital
+      region_name <- paste0(hemi, "_Occipital")
+    } else {
+      # General region
+      region_name <- paste0(hemi, "_", ap_region, "_", si_region)
+    }
+    
+    regions[i] <- region_name
+  }
+  
+  return(regions)
+}
+
+# ==============================================================================
+# COMPUTE FC WITH FREESURFER-STYLE LABELS
+# ==============================================================================
+
+compute_fc_freesurfer_style <- function(fmri_file, participant_id) {
+  
+  tryCatch({
+    cat("\n=== Processing:", participant_id, "===\n")
+    
+    # Load fMRI data
+    fmri_data <- readNIfTI(fmri_file, reorient = FALSE)
+    dims <- dim(fmri_data)
+    
+    if (length(dims) != 4) {
+      warning("Not 4D data")
+      return(NULL)
+    }
+    
+    n_timepoints <- dims[4]
+    cat("  Dimensions:", paste(dims, collapse = " x "), "\n")
+    cat("  Time points:", n_timepoints, "\n")
+    
+    # Create brain mask
+    mean_img <- apply(fmri_data, c(1,2,3), mean, na.rm = TRUE)
+    sd_img <- apply(fmri_data, c(1,2,3), sd, na.rm = TRUE)
+    
+    threshold_mean <- quantile(mean_img[mean_img > 0], 0.25, na.rm = TRUE)
+    threshold_sd <- quantile(sd_img[sd_img > 0], 0.1, na.rm = TRUE)
+    
+    brain_mask <- (mean_img > threshold_mean) & (sd_img > threshold_sd)
+    brain_coords <- which(brain_mask, arr.ind = TRUE)
+    
+    cat("  Brain voxels:", nrow(brain_coords), "\n")
+    
+    # Create FreeSurfer-style parcellation
+    cat("  Creating FreeSurfer-style parcellation...\n")
+    region_labels <- create_freesurfer_style_parcellation(brain_coords, dims)
+    
+    # Get unique regions
+    unique_regions <- unique(region_labels)
+    n_regions <- length(unique_regions)
+    cat("  Brain regions:", n_regions, "\n")
+    
+    # Extract time series for each region
+    roi_timeseries <- matrix(NA, nrow = n_timepoints, ncol = n_regions)
+    colnames(roi_timeseries) <- unique_regions
+    
+    cat("  Extracting ROI time series...\n")
+    for (r in 1:n_regions) {
+      region_name <- unique_regions[r]
+      region_idx <- region_labels == region_name
+      region_voxels <- brain_coords[region_idx, , drop = FALSE]
+      
+      # Extract and average time series
+      region_signals <- matrix(NA, nrow = n_timepoints, ncol = nrow(region_voxels))
+      
+      for (v in 1:nrow(region_voxels)) {
+        x <- region_voxels[v, 1]
+        y <- region_voxels[v, 2]
+        z <- region_voxels[v, 3]
+        region_signals[, v] <- fmri_data[x, y, z, ]
+      }
+      
+      roi_timeseries[, r] <- rowMeans(region_signals, na.rm = TRUE)
+    }
+    
+    # Detrend
+    cat("  Preprocessing time series...\n")
+    for (r in 1:n_regions) {
+      if (!all(is.na(roi_timeseries[, r]))) {
+        time_points <- 1:n_timepoints
+        lm_fit <- lm(roi_timeseries[, r] ~ time_points)
+        roi_timeseries[, r] <- residuals(lm_fit)
+      }
+    }
+    
+    # Remove invalid ROIs
+    valid_rois <- apply(roi_timeseries, 2, function(x) {
+      !all(is.na(x)) && 
+        sum(!is.na(x)) > (n_timepoints * 0.8) &&
+        var(x, na.rm = TRUE) > 1e-10
+    })
+    
+    roi_timeseries <- roi_timeseries[, valid_rois]
+    roi_names <- colnames(roi_timeseries)
+    
+    cat("  Valid regions:", length(roi_names), "\n")
+    
+    # Compute functional connectivity
+    cat("  Computing functional connectivity...\n")
+    fc_matrix <- cor(roi_timeseries, use = "pairwise.complete.obs")
+    
+    # Clean up
+    fc_matrix[is.na(fc_matrix)] <- 0
+    fc_matrix[is.infinite(fc_matrix)] <- 0
+    diag(fc_matrix) <- 0
+    
+    # Add row/column names
+    rownames(fc_matrix) <- roi_names
+    colnames(fc_matrix) <- roi_names
+    
+    cat("  Final FC matrix:", nrow(fc_matrix), "x", ncol(fc_matrix), "\n")
+    cat("  Mean connectivity:", round(mean(fc_matrix, na.rm = TRUE), 3), "\n\n")
+    
+    return(list(
+      fc_matrix = fc_matrix,
+      roi_names = roi_names
+    ))
+    
+  }, error = function(e) {
+    cat("\n  ERROR:", e$message, "\n")
+    return(NULL)
+  })
+}
+
+# ==============================================================================
+# PROCESS ALL PARTICIPANTS
+# ==============================================================================
+
+cat("=== FUNCTIONAL CONNECTIVITY WITH FREESURFER-STYLE REGIONS ===\n\n")
+
+base_dir <- '~/Documents/UofW/Projects/Brain_Imaging/fMRI/data/'
+
+# Get all fMRI files
+fmri_files <- list.files(base_dir, 
+                         pattern = "rest_brain\\.nii\\.gz$",
+                         full.names = TRUE)
+
+# Extract participant IDs
+participant_ids <- basename(fmri_files) %>%
+  str_remove("_rest_brain\\.nii\\.gz$")
+
+cat("Found", length(participant_ids), "participants\n\n")
+
+# Process all participants
+all_results <- list()
+
+for (i in 1:length(fmri_files)) {
+  result <- compute_fc_freesurfer_style(fmri_files[i], participant_ids[i])
+  
+  if (!is.null(result)) {
+    all_results[[participant_ids[i]]] <- result
+  }
+}
+
+cat("\n=== Processing Complete ===\n")
+cat("Successfully processed:", length(all_results), "participants\n")
+
+# ==============================================================================
+# SAVE INDIVIDUAL AND COMBINED FILES
+# ==============================================================================
+
+output_dir <- "~/Documents/UofW/Projects/Brain_Imaging/fMRI/results/individual_fc_freesurfer"
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+cat("\n=== Saving Individual Files ===\n")
+
+# Get common ROI names
+common_roi_names <- all_results[[1]]$roi_names
+
+# Region information
+regions_info <- data.frame(
+  ROI_Number = 1:length(common_roi_names),
+  ROI_Name = common_roi_names,
+  Hemisphere = ifelse(grepl("^L_", common_roi_names), "Left", "Right"),
+  Region_Type = sapply(strsplit(common_roi_names, "_"), function(x) {
+    if (length(x) > 1) paste(x[-1], collapse = "_") else x[1]
+  }),
+  stringsAsFactors = FALSE
+)
+
+# Save each participant
+for (participant_id in names(all_results)) {
+  
+  participant_data <- list(
+    participant_id = participant_id,
+    fc_matrix = all_results[[participant_id]]$fc_matrix,
+    roi_names = all_results[[participant_id]]$roi_names,
+    regions = regions_info,
+    atlas = "FreeSurfer-style parcellation",
+    date_created = Sys.time()
+  )
+  
+  # Save as RDS
+  output_file_rds <- file.path(output_dir, paste0(participant_id, "_fc_freesurfer.rds"))
+  saveRDS(participant_data, output_file_rds)
+  
+  # Save as CSV
+  output_file_csv <- file.path(output_dir, paste0(participant_id, "_fc_matrix.csv"))
+  write.csv(all_results[[participant_id]]$fc_matrix, output_file_csv, row.names = TRUE)
+  
+  cat("  Saved:", participant_id, "\n")
+}
+
+# Save combined file
+output_data <- list(
+  fc_matrices = lapply(all_results, function(x) x$fc_matrix),
+  roi_names = common_roi_names,
+  participant_ids = names(all_results),
+  regions = regions_info,
+  atlas = "FreeSurfer-style parcellation",
+  note = "Regions named following FreeSurfer conventions"
+)
+
+saveRDS(output_data, "fc_freesurfer_style_all.rds")
+
+# Save region labels
+write.csv(regions_info, "brain_regions_freesurfer_style.csv", row.names = FALSE)
+
+cat("\nFiles saved to:", output_dir, "\n")
+cat("Combined file: fc_freesurfer_style_all.rds\n")
+cat("Region labels: brain_regions_freesurfer_style.csv\n")
+
+# Print regions
+cat("\n=== Brain Regions (FreeSurfer-style) ===\n")
+print(regions_info)
+
+cat("\n=== Analysis Complete ===\n")
+
+
+
+
+
+
+
+
+
+
+########## Resting State Networks 
+# ==============================================================================
+# RESTING-STATE NETWORK ANALYSIS
+# Analyze major brain networks: DMN, FPN, SAN, DAN, VAN, SMN, VIS
+# ==============================================================================
+
+library(oro.nifti)
+library(neurobase)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(corrplot)
+library(stringr)
+
+# ==============================================================================
+# 1. DEFINE RESTING-STATE NETWORKS
+# ==============================================================================
+
+# Based on Yeo et al. (2011) 7-network parcellation
+# and Power et al. (2011) functional network definitions
+
+# Network definitions based on anatomical regions
+define_resting_state_networks <- function(roi_names) {
+  
+  # Initialize network assignments
+  network_assignments <- data.frame(
+    ROI_Name = roi_names,
+    Network = NA_character_,
+    stringsAsFactors = FALSE
+  )
+  
+  for (i in 1:length(roi_names)) {
+    roi <- roi_names[i]
+    
+    # Default Motor Network (SMN - Somatomotor Network)
+    if (grepl("Precentral|Postcentral|Paracentral", roi, ignore.case = TRUE)) {
+      network_assignments$Network[i] <- "SMN"
+    }
+    
+    # Visual Network (VIS)
+    else if (grepl("Occipital|Cuneus|Lingual|Pericalcarine|Calcarine", roi, ignore.case = TRUE)) {
+      network_assignments$Network[i] <- "VIS"
+    }
+    
+    # Dorsal Attention Network (DAN)
+    else if (grepl("SuperiorParietal|InferiorParietal|FrontalEye|Intraparietal", roi, ignore.case = TRUE) &&
+             grepl("Superior|Dorsal", roi, ignore.case = TRUE)) {
+      network_assignments$Network[i] <- "DAN"
+    }
+    
+    # Ventral Attention Network (VAN/SAN - Salience Network)
+    else if (grepl("Insula|AnteriorCingulate|Frontal.*Opercular|SupraMarginal", roi, ignore.case = TRUE) ||
+             (grepl("Cingulate", roi, ignore.case = TRUE) && grepl("Anterior|Caudal.*Anterior", roi, ignore.case = TRUE))) {
+      network_assignments$Network[i] <- "SAN"
+    }
+    
+    # Limbic Network (LIN)
+    else if (grepl("Hippocampus|Amygdala|Parahippocampal|Entorhinal|MedialTemporal", roi, ignore.case = TRUE)) {
+      network_assignments$Network[i] <- "LIN"
+    }
+    
+    # Frontoparietal Network (FPN - Executive Control)
+    else if (grepl("MiddleFrontal|InferiorParietal|Lateral.*Frontal|Dorsolateral", roi, ignore.case = TRUE) ||
+             (grepl("Frontal", roi, ignore.case = TRUE) && grepl("Middle|Superior|Rostral", roi, ignore.case = TRUE))) {
+      network_assignments$Network[i] <- "FPN"
+    }
+    
+    # Default Mode Network (DMN)
+    else if (grepl("Precuneus|PosteriorCingulate|MedialPrefrontal|Angular|MiddleTemporal|Temporal.*Pole", 
+                   roi, ignore.case = TRUE) ||
+             (grepl("Cingulate", roi, ignore.case = TRUE) && grepl("Posterior|Isthmus", roi, ignore.case = TRUE)) ||
+             grepl("MedialOrbitofrontal|RostralAnteriorCingulate", roi, ignore.case = TRUE)) {
+      network_assignments$Network[i] <- "DMN"
+    }
+    
+    # If no match, assign to "Other"
+    else {
+      network_assignments$Network[i] <- "Other"
+    }
+  }
+  
+  return(network_assignments)
+}
+
+# ==============================================================================
+# 2. COMPUTE NETWORK-LEVEL METRICS
+# ==============================================================================
+
+compute_network_metrics <- function(fc_matrix, network_assignments) {
+  
+  # Get unique networks (excluding "Other")
+  networks <- unique(network_assignments$Network)
+  networks <- networks[networks != "Other" & !is.na(networks)]
+  
+  # Initialize results
+  network_metrics <- data.frame(
+    Network = networks,
+    Within_Network_Connectivity = NA,
+    N_Regions = NA,
+    Mean_Degree = NA,
+    stringsAsFactors = FALSE
+  )
+  
+  # Compute metrics for each network
+  for (net_idx in 1:length(networks)) {
+    network_name <- networks[net_idx]
+    
+    # Get ROIs in this network
+    network_rois <- network_assignments$ROI_Name[network_assignments$Network == network_name]
+    
+    if (length(network_rois) > 1) {
+      # Get indices
+      roi_indices <- which(rownames(fc_matrix) %in% network_rois)
+      
+      # Within-network connectivity (average correlation within network)
+      if (length(roi_indices) > 1) {
+        network_fc <- fc_matrix[roi_indices, roi_indices]
+        # Get upper triangle (exclude diagonal)
+        within_conn <- network_fc[upper.tri(network_fc)]
+        
+        network_metrics$Within_Network_Connectivity[net_idx] <- mean(within_conn, na.rm = TRUE)
+        network_metrics$N_Regions[net_idx] <- length(roi_indices)
+        
+        # Mean degree (average number of strong connections per node)
+        threshold <- 0.3  # Define "strong" connection
+        strong_conn <- abs(network_fc) > threshold
+        diag(strong_conn) <- FALSE
+        network_metrics$Mean_Degree[net_idx] <- mean(rowSums(strong_conn), na.rm = TRUE)
+      }
+    }
+  }
+  
+  return(network_metrics)
+}
+
+# ==============================================================================
+# 3. COMPUTE BETWEEN-NETWORK CONNECTIVITY
+# ==============================================================================
+
+compute_between_network_connectivity <- function(fc_matrix, network_assignments) {
+  
+  networks <- unique(network_assignments$Network)
+  networks <- networks[networks != "Other" & !is.na(networks)]
+  
+  n_networks <- length(networks)
+  
+  # Initialize between-network connectivity matrix
+  between_network_fc <- matrix(NA, nrow = n_networks, ncol = n_networks)
+  rownames(between_network_fc) <- networks
+  colnames(between_network_fc) <- networks
+  
+  for (i in 1:n_networks) {
+    for (j in 1:n_networks) {
+      net_i <- networks[i]
+      net_j <- networks[j]
+      
+      # Get ROIs in each network
+      rois_i <- network_assignments$ROI_Name[network_assignments$Network == net_i]
+      rois_j <- network_assignments$ROI_Name[network_assignments$Network == net_j]
+      
+      if (length(rois_i) > 0 && length(rois_j) > 0) {
+        # Get indices
+        idx_i <- which(rownames(fc_matrix) %in% rois_i)
+        idx_j <- which(rownames(fc_matrix) %in% rois_j)
+        
+        if (i == j) {
+          # Within-network (upper triangle only)
+          if (length(idx_i) > 1) {
+            within_fc <- fc_matrix[idx_i, idx_i]
+            between_network_fc[i, j] <- mean(within_fc[upper.tri(within_fc)], na.rm = TRUE)
+          }
+        } else {
+          # Between-network
+          between_fc <- fc_matrix[idx_i, idx_j]
+          between_network_fc[i, j] <- mean(between_fc, na.rm = TRUE)
+        }
+      }
+    }
+  }
+  
+  return(between_network_fc)
+}
+
+# ==============================================================================
+# 4. PROCESS ALL PARTICIPANTS WITH NETWORK ANALYSIS
+# ==============================================================================
+
+cat("=== RESTING-STATE NETWORK ANALYSIS ===\n\n")
+
+base_dir <- '~/Documents/UofW/Projects/Brain_Imaging/fMRI/data/'
+
+# Get all fMRI files
+fmri_files <- list.files(base_dir, 
+                         pattern = "rest_brain\\.nii\\.gz$",
+                         full.names = TRUE)
+
+participant_ids <- basename(fmri_files) %>%
+  str_remove("_rest_brain\\.nii\\.gz$")
+
+cat("Found", length(participant_ids), "participants\n\n")
+
+# Load or create FC matrices (using previous script output)
+# Option 1: If you already have FC matrices
+if (file.exists("fc_freesurfer_style_all.rds")) {
+  cat("Loading existing FC matrices...\n")
+  fc_data <- readRDS("fc_freesurfer_style_all.rds")
+  all_fc_matrices <- fc_data$fc_matrices
+  roi_names <- fc_data$roi_names
+  participant_ids <- fc_data$participant_ids
+} else {
+  stop("Please run the FreeSurfer-style FC analysis first to generate fc_freesurfer_style_all.rds")
+}
+
+# Define network assignments
+cat("\nAssigning regions to resting-state networks...\n")
+network_assignments <- define_resting_state_networks(roi_names)
+
+# Print network composition
+cat("\n=== Network Composition ===\n")
+network_summary <- network_assignments %>%
+  filter(!is.na(Network)) %>%
+  group_by(Network) %>%
+  summarise(N_Regions = n(), .groups = "drop") %>%
+  arrange(desc(N_Regions))
+print(network_summary)
+
+cat("\n=== Regions by Network ===\n")
+for (net in unique(network_assignments$Network)) {
+  if (!is.na(net) && net != "Other") {
+    regions <- network_assignments$ROI_Name[network_assignments$Network == net]
+    cat("\n", net, "(", length(regions), "regions):\n")
+    cat("  ", paste(regions, collapse = ", "), "\n")
+  }
+}
+
+# ==============================================================================
+# 5. COMPUTE NETWORK METRICS FOR ALL PARTICIPANTS
+# ==============================================================================
+
+cat("\n=== Computing network metrics for all participants ===\n")
+
+all_network_metrics <- list()
+all_between_network_fc <- list()
+
+for (i in 1:length(participant_ids)) {
+  participant_id <- participant_ids[i]
+  fc_matrix <- all_fc_matrices[[i]]
+  
+  cat("Processing:", participant_id, "\n")
+  
+  # Compute network metrics
+  network_metrics <- compute_network_metrics(fc_matrix, network_assignments)
+  network_metrics$Participant <- participant_id
+  all_network_metrics[[participant_id]] <- network_metrics
+  
+  # Compute between-network connectivity
+  between_network_fc <- compute_between_network_connectivity(fc_matrix, network_assignments)
+  all_between_network_fc[[participant_id]] <- between_network_fc
+}
+
+# Combine network metrics across participants
+network_metrics_all <- do.call(rbind, all_network_metrics)
+
+cat("\n=== Network Metrics Summary ===\n")
+network_summary_stats <- network_metrics_all %>%
+  group_by(Network) %>%
+  summarise(
+    Mean_Within_Connectivity = mean(Within_Network_Connectivity, na.rm = TRUE),
+    SD_Within_Connectivity = sd(Within_Network_Connectivity, na.rm = TRUE),
+    Mean_Degree = mean(Mean_Degree, na.rm = TRUE),
+    .groups = "drop"
+  )
+print(network_summary_stats)
+
+# ==============================================================================
+# 6. SAVE NETWORK ANALYSIS RESULTS
+# ==============================================================================
+
+cat("\n=== Saving Results ===\n")
+
+output_dir <- "~/Documents/UofW/Projects/Brain_Imaging/fMRI/results/network_analysis"
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Save network assignments
+write.csv(network_assignments, 
+          file.path(output_dir, "network_assignments.csv"), 
+          row.names = FALSE)
+
+# Save network metrics for all participants
+write.csv(network_metrics_all, 
+          file.path(output_dir, "network_metrics_all_participants.csv"), 
+          row.names = FALSE)
+
+# Save between-network connectivity matrices
+saveRDS(list(
+  between_network_fc = all_between_network_fc,
+  participant_ids = participant_ids,
+  networks = unique(network_assignments$Network[network_assignments$Network != "Other"])
+), file.path(output_dir, "between_network_connectivity.rds"))
+
+# ==============================================================================
+# 7. VISUALIZATIONS
+# ==============================================================================
+
+cat("\n=== Creating Visualizations ===\n")
+
+# Plot 1: Average within-network connectivity by network
+p1 <- ggplot(network_metrics_all, 
+             aes(x = reorder(Network, Within_Network_Connectivity, FUN = median), 
+                 y = Within_Network_Connectivity)) +
+  geom_boxplot(aes(fill = Network), alpha = 0.7) +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  coord_flip() +
+  labs(title = "Within-Network Connectivity by Resting-State Network",
+       x = "Network",
+       y = "Within-Network Connectivity (Mean FC)") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+
+ggsave(file.path(output_dir, "within_network_connectivity.pdf"), p1, 
+       width = 10, height = 6)
+
+# Plot 2: Between-network connectivity heatmap (average across participants)
+mean_between_network_fc <- Reduce("+", all_between_network_fc) / length(all_between_network_fc)
+
+pdf(file.path(output_dir, "between_network_connectivity_heatmap.pdf"), 
+    width = 10, height = 9)
+corrplot(mean_between_network_fc,
+         method = "color",
+         type = "full",
+         tl.col = "black",
+         tl.srt = 45,
+         tl.cex = 1,
+         addCoef.col = "black",
+         number.cex = 0.8,
+         col = colorRampPalette(c("#3498DB", "white", "#E74C3C"))(200),
+         title = "Between-Network Connectivity (Group Average)",
+         mar = c(0, 0, 2, 0))
+dev.off()
+
+# Plot 3: Network size distribution
+p3 <- ggplot(network_summary, aes(x = reorder(Network, N_Regions), y = N_Regions)) +
+  geom_bar(stat = "identity", aes(fill = Network), alpha = 0.8) +
+  coord_flip() +
+  labs(title = "Number of Regions per Network",
+       x = "Network",
+       y = "Number of Brain Regions") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+
+ggsave(file.path(output_dir, "network_size_distribution.pdf"), p3,
+       width = 8, height = 6)
+
+cat("\nVisualizations saved to:", output_dir, "\n")
+
+# ==============================================================================
+# 8. PREPARE DATA FOR GROUP COMPARISONS AND PROTEOMICS
+# ==============================================================================
+
+cat("\n=== Preparing data for integration ===\n")
+
+# Reshape network metrics to wide format (one row per participant)
+network_metrics_wide <- network_metrics_all %>%
+  select(Participant, Network, Within_Network_Connectivity) %>%
+  pivot_wider(names_from = Network, 
+              values_from = Within_Network_Connectivity,
+              names_prefix = "Network_")
+
+# Save for integration with clinical data
+write.csv(network_metrics_wide,
+          file.path(output_dir, "network_metrics_wide_format.csv"),
+          row.names = FALSE)
+
+cat("Wide format data saved for merging with proteomics\n")
+
+# ==============================================================================
+# 9. NETWORK STATISTICS SUMMARY
+# ==============================================================================
+
+cat("\n" , "="*70, "\n")
+cat("NETWORK ANALYSIS COMPLETE\n")
+cat("="*70, "\n\n")
+
+cat("Networks identified:\n")
+for (net in network_summary$Network) {
+  n_regions <- network_summary$N_Regions[network_summary$Network == net]
+  cat(sprintf("  %-6s: %2d regions\n", net, n_regions))
+}
+
+cat("\nFiles created:\n")
+cat("1. network_assignments.csv - ROI to network mapping\n")
+cat("2. network_metrics_all_participants.csv - Metrics for each participant\n")
+cat("3. network_metrics_wide_format.csv - Wide format for analysis\n")
+cat("4. between_network_connectivity.rds - Network-to-network FC\n")
+cat("5. Visualization PDFs\n")
+
+cat("\n=== Next Steps ===\n")
+cat("1. Merge network_metrics_wide_format.csv with your proteomics data\n")
+cat("2. Compare network metrics between T2D and LC groups\n")
+cat("3. Correlate network connectivity with biomarkers\n")
+cat("4. Focus on DMN (associated with Alzheimer's) and LIN (hippocampus/memory)\n")
+
+cat("\n=== Key Networks for Your Study ===\n")
+cat("DMN - Default Mode Network: Most studied in AD/cognition\n")
+cat("LIN - Limbic Network: Includes hippocampus (memory)\n")
+cat("FPN - Frontoparietal Network: Executive function\n")
+cat("SAN - Salience/Ventral Attention: Related to diabetes complications\n")
+
+
+
+
+
+########## AAL Mapping 
+
+
