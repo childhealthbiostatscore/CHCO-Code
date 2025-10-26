@@ -33,6 +33,9 @@ library(purrr)
 library(stringr)
 library(nlme)
 library(emmeans)
+library(simr)
+library(effectsize)
+library(lme4)
 
 options(scipen=999)
 
@@ -291,40 +294,6 @@ m
 ```{r echo=FALSE}
 prs
 ```
-+## Glomerular pressure
-
-```{r echo=FALSE}
-mod <- lme(glomerular_pressure ~ tanner_stage_comp + cohort,random=~1|mrn,data = dat,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
-anova <- anova.lme(mod, type="marginal")
-m <- emmeans(mod,"tanner_stage_comp")
-prs <-  pairs(m,adjust="tukey")
-```
-
-```{r echo = FALSE, fig.width=8}
- p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = glomerular_pressure, color = cohort, group = cohort)) +
-    geom_point() +
-    labs(x = "TS", color = "cohort") +
-    theme_bw() 
-p
-```
-
-### ANOVA table
-
-```{r echo=FALSE}
-anova
-```
-
-### Estimated marginal means
-
-```{r echo=FALSE}
-m
-```
-
-### Pairwise comparisons
-
-```{r echo=FALSE}
-prs
-```
 
 ## GFR
 
@@ -338,7 +307,7 @@ prs <-  pairs(m,adjust="tukey")
 ```
 
 ```{r echo = FALSE, fig.width=8}
- p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = glomerular_pressure, color = cohort, group = cohort)) +
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = gfr_bsa_plasma, color = cohort, group = cohort)) +
     geom_point() +
     labs(x = "TS", color = "cohort") +
     theme_bw() 
@@ -373,7 +342,7 @@ prs <-  pairs(m,adjust="tukey")
 ```
 
 ```{r echo = FALSE, fig.width=8}
- p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = glomerular_pressure, color = cohort, group = cohort)) +
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = gfr_bsa_plasma, color = cohort, group = cohort)) +
     geom_point() +
     labs(x = "TS", color = "cohort") +
     theme_bw() 
@@ -410,7 +379,7 @@ prs <-  pairs(m,adjust="tukey")
 ```
 
 ```{r echo = FALSE, fig.width=8}
- p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = glomerular_pressure, color = cohort, group = cohort)) +
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = bold_l_t1_kidney, color = cohort, group = cohort)) +
     geom_point() +
     labs(x = "TS", color = "cohort") +
     theme_bw() 
@@ -445,7 +414,7 @@ prs <-  pairs(m,adjust="tukey")
 ```
 
 ```{r echo = FALSE, fig.width=8}
- p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = glomerular_pressure, color = cohort, group = cohort)) +
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = bold_l_t1_kidney, color = cohort, group = cohort)) +
     geom_point() +
     labs(x = "TS", color = "cohort") +
     theme_bw() 
@@ -482,7 +451,7 @@ prs <-  pairs(m,adjust="tukey")
 ```
 
 ```{r echo = FALSE, fig.width=8}
- p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = glomerular_pressure, color = cohort, group = cohort)) +
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = bold_r_t1_kidney, color = cohort, group = cohort)) +
     geom_point() +
     labs(x = "TS", color = "cohort") +
     theme_bw() 
@@ -517,7 +486,7 @@ prs <-  pairs(m,adjust="tukey")
 ```
 
 ```{r echo = FALSE, fig.width=8}
- p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = glomerular_pressure, color = cohort, group = cohort)) +
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = bold_r_t1_kidney, color = cohort, group = cohort)) +
     geom_point() +
     labs(x = "TS", color = "cohort") +
     theme_bw() 
@@ -542,3 +511,122 @@ m
 prs
 ```
 
+# Power calculations
+
+## GFR
+
+```{r echo=FALSE}
+mod <- lmer(gfr_bsa_plasma ~ as.numeric(tanner_stage_comp) + (1|mrn), 
+            data = dat, 
+            na.action = na.omit,
+            REML = FALSE)
+doTest(mod, fixed("as.numeric(tanner_stage_comp)"))
+effectsize::eta_squared(mod, partial = TRUE)[2]
+fixef(mod)["as.numeric(tanner_stage_comp)"] <- 1
+mod1 <- extend(mod, along = "mrn", n = 90, 
+               values = list(tanner_stage_comp = 1:5))
+doTest(mod1, fixed("as.numeric(tanner_stage_comp)"))
+powerSim(mod1, nsim=50, test = "as.numeric(tanner_stage_comp)")
+powerCurve(mod1, within = "mrn", breaks = c(10, 20, 30, 40, 50, 60, 70, 80, 90), 
+           test = fixed("as.numeric(tanner_stage_comp)"))
+```
+
+```{r echo = FALSE}
+mod <- lmer(gfr_bsa_plasma ~ as.numeric(tanner_stage_comp) + (1|mrn), 
+            data = dat, 
+            na.action = na.omit,
+            REML = FALSE)
+fixef(mod)["as.numeric(tanner_stage_comp)"] <- 100
+# Define sample sizes to test
+sample_sizes <- seq(20, 90, by = 10)
+
+# Initialize results
+power_results <- list()
+
+# Run power simulations for each sample size
+for(i in seq_along(sample_sizes)) {
+  n <- sample_sizes[i]
+  
+  # Extend model to n subjects
+  mod_temp <- extend(mod, along = "mrn", n = n)
+  
+  # Run power simulation
+  power_temp <- powerSim(mod_temp, nsim = 100, # increase nsim for final analysis
+                        test = fixed("as.numeric(tanner_stage_comp)"),
+                        progress = FALSE)
+  
+  # Store results
+  power_results[[i]] <- data.frame(
+    n_subjects = n,
+    power = summary(power_temp)$mean,
+    lower_ci = summary(power_temp)$lower,
+    upper_ci = summary(power_temp)$upper
+  )
+  
+  cat("Sample size:", n, "- Power:", round(summary(power_temp)$mean, 3), "\n")
+}
+
+# Combine results
+power_df <- do.call(rbind, power_results)
+print(power_df)
+
+# Plot
+library(ggplot2)
+ggplot(power_df, aes(x = n_subjects, y = power)) +
+  geom_line() +
+  geom_point() +
+  geom_ribbon(aes(ymin = lower_ci, ymax = upper_ci), alpha = 0.2) +
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "red") +
+  labs(x = "Number of Subjects", y = "Power", 
+       title = "Power Curve for Tanner Stage Effect") +
+  theme_minimal()
+```
+
+```{r echo = FALSE}
+mod <- lmer(gfr_bsa_plasma ~ as.numeric(tanner_stage_comp) + (1|mrn), 
+            data = dat, 
+            na.action = na.omit,
+            REML = FALSE)
+fixef(mod)["as.numeric(tanner_stage_comp)"] <- 100
+# 1. Check the modified model
+cat("Fixed effects after modification:\n")
+print(fixef(mod))
+
+# 2. Manually simulate some data to see what's happening
+set.seed(123)
+sim_data1 <- simulate(mod, nsim = 1)[[1]]
+cat("\nSimulated outcome summary:\n")
+summary(sim_data1)
+
+# 3. Check original data summary for comparison
+cat("\nOriginal outcome summary:\n")
+summary(dat$gfr_bsa_plasma)
+
+# 4. After extending, check the model
+mod1 <- extend(mod, along = "mrn", n = 90)
+cat("\nExtended model:\n")
+print(fixef(mod1))
+cat("\nNumber of groups:", ngrps(mod1), "\n")
+cat("Number of observations:", nobs(mod1), "\n")
+
+# 5. Simulate from extended model
+sim_data2 <- simulate(mod1, nsim = 1)[[1]]
+cat("\nSimulated outcome from extended model:\n")
+summary(sim_data2)
+
+# 6. Check the data structure that simr is using
+cat("\nModel data structure:\n")
+str(getData(mod1))
+head(getData(mod1), 20)
+
+# 7. Try a single test manually
+test_result <- doTest(mod1, fixed("as.numeric(tanner_stage_comp)"))
+cat("\nSingle test result:\n")
+print(test_result)
+
+# 8. Try powerSim with verbose output
+power_test <- powerSim(mod1, nsim = 5, 
+                       test = fixed("as.numeric(tanner_stage_comp)"),
+                       progress = TRUE)
+print(power_test)
+```
