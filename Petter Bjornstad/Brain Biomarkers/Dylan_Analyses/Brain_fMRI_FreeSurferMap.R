@@ -359,6 +359,18 @@ cat("\n=== Analysis Complete ===\n")
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 ########## Resting State Networks 
 # ==============================================================================
 # RESTING-STATE NETWORK ANALYSIS
@@ -383,7 +395,6 @@ library(stringr)
 # Network definitions based on anatomical regions
 define_resting_state_networks <- function(roi_names) {
   
-  # Initialize network assignments
   network_assignments <- data.frame(
     ROI_Name = roi_names,
     Network = NA_character_,
@@ -393,48 +404,36 @@ define_resting_state_networks <- function(roi_names) {
   for (i in 1:length(roi_names)) {
     roi <- roi_names[i]
     
-    # Default Motor Network (SMN - Somatomotor Network)
-    if (grepl("Precentral|Postcentral|Paracentral", roi, ignore.case = TRUE)) {
-      network_assignments$Network[i] <- "SMN"
-    }
-    
-    # Visual Network (VIS)
-    else if (grepl("Occipital|Cuneus|Lingual|Pericalcarine|Calcarine", roi, ignore.case = TRUE)) {
-      network_assignments$Network[i] <- "VIS"
-    }
-    
-    # Dorsal Attention Network (DAN)
-    else if (grepl("SuperiorParietal|InferiorParietal|FrontalEye|Intraparietal", roi, ignore.case = TRUE) &&
-             grepl("Superior|Dorsal", roi, ignore.case = TRUE)) {
-      network_assignments$Network[i] <- "DAN"
-    }
-    
-    # Ventral Attention Network (VAN/SAN - Salience Network)
-    else if (grepl("Insula|AnteriorCingulate|Frontal.*Opercular|SupraMarginal", roi, ignore.case = TRUE) ||
-             (grepl("Cingulate", roi, ignore.case = TRUE) && grepl("Anterior|Caudal.*Anterior", roi, ignore.case = TRUE))) {
-      network_assignments$Network[i] <- "SAN"
-    }
-    
-    # Limbic Network (LIN)
-    else if (grepl("Hippocampus|Amygdala|Parahippocampal|Entorhinal|MedialTemporal", roi, ignore.case = TRUE)) {
+    # LIMBIC NETWORK (LIN)
+    if (grepl("MedialTemporal|Orbitofrontal", roi, ignore.case = TRUE)) {
       network_assignments$Network[i] <- "LIN"
     }
     
-    # Frontoparietal Network (FPN - Executive Control)
-    else if (grepl("MiddleFrontal|InferiorParietal|Lateral.*Frontal|Dorsolateral", roi, ignore.case = TRUE) ||
-             (grepl("Frontal", roi, ignore.case = TRUE) && grepl("Middle|Superior|Rostral", roi, ignore.case = TRUE))) {
-      network_assignments$Network[i] <- "FPN"
+    # VISUAL NETWORK (VIS)
+    else if (grepl("Occipital", roi, ignore.case = TRUE)) {
+      network_assignments$Network[i] <- "VIS"
     }
     
-    # Default Mode Network (DMN)
-    else if (grepl("Precuneus|PosteriorCingulate|MedialPrefrontal|Angular|MiddleTemporal|Temporal.*Pole", 
-                   roi, ignore.case = TRUE) ||
-             (grepl("Cingulate", roi, ignore.case = TRUE) && grepl("Posterior|Isthmus", roi, ignore.case = TRUE)) ||
-             grepl("MedialOrbitofrontal|RostralAnteriorCingulate", roi, ignore.case = TRUE)) {
+    # SOMATOMOTOR NETWORK (SMN)
+    else if (grepl("CentralParietal", roi, ignore.case = TRUE)) {
+      network_assignments$Network[i] <- "SMN"
+    }
+    
+    # DEFAULT MODE NETWORK (DMN)
+    else if (grepl("Temporal_Middle|Temporal_Superior", roi, ignore.case = TRUE)) {
       network_assignments$Network[i] <- "DMN"
     }
     
-    # If no match, assign to "Other"
+    # FRONTOPARIETAL NETWORK (FPN)
+    else if (grepl("Frontal_Middle|SuperiorFrontal|^[LR]_Parietal$", roi, ignore.case = TRUE)) {
+      network_assignments$Network[i] <- "FPN"
+    }
+    
+    # SALIENCE NETWORK (SAN)
+    else if (grepl("Temporal_Inferior", roi, ignore.case = TRUE)) {
+      network_assignments$Network[i] <- "SAN"
+    }
+    
     else {
       network_assignments$Network[i] <- "Other"
     }
@@ -442,6 +441,12 @@ define_resting_state_networks <- function(roi_names) {
   
   return(network_assignments)
 }
+
+# NOW RE-RUN THE ASSIGNMENT
+network_assignments <- define_resting_state_networks(roi_names)
+
+# CHECK THE RESULTS
+table(network_assignments$Network)
 
 # ==============================================================================
 # 2. COMPUTE NETWORK-LEVEL METRICS
@@ -686,17 +691,24 @@ mean_between_network_fc <- Reduce("+", all_between_network_fc) / length(all_betw
 
 pdf(file.path(output_dir, "between_network_connectivity_heatmap.pdf"), 
     width = 10, height = 9)
-corrplot(mean_between_network_fc,
-         method = "color",
-         type = "full",
-         tl.col = "black",
-         tl.srt = 45,
-         tl.cex = 1,
-         addCoef.col = "black",
-         number.cex = 0.8,
-         col = colorRampPalette(c("#3498DB", "white", "#E74C3C"))(200),
-         title = "Between-Network Connectivity (Group Average)",
-         mar = c(0, 0, 2, 0))
+
+# Make sure corrplot is loaded
+if (!require("corrplot")) {
+  install.packages("corrplot")
+  library(corrplot)
+}
+
+corrplot::corrplot(mean_between_network_fc,
+                   method = "color",
+                   type = "full",
+                   tl.col = "black",
+                   tl.srt = 45,
+                   tl.cex = 1,
+                   addCoef.col = "black",
+                   number.cex = 0.8,
+                   col = colorRampPalette(c("#3498DB", "white", "#E74C3C"))(200),
+                   title = "Between-Network Connectivity (Group Average)",
+                   mar = c(0, 0, 2, 0))
 dev.off()
 
 # Plot 3: Network size distribution
@@ -738,9 +750,6 @@ cat("Wide format data saved for merging with proteomics\n")
 # 9. NETWORK STATISTICS SUMMARY
 # ==============================================================================
 
-cat("\n" , "="*70, "\n")
-cat("NETWORK ANALYSIS COMPLETE\n")
-cat("="*70, "\n\n")
 
 cat("Networks identified:\n")
 for (net in network_summary$Network) {
@@ -766,9 +775,6 @@ cat("DMN - Default Mode Network: Most studied in AD/cognition\n")
 cat("LIN - Limbic Network: Includes hippocampus (memory)\n")
 cat("FPN - Frontoparietal Network: Executive function\n")
 cat("SAN - Salience/Ventral Attention: Related to diabetes complications\n")
-
-
-
 
 
 ########## AAL Mapping 
