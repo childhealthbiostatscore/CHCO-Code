@@ -777,6 +777,464 @@ cat("FPN - Frontoparietal Network: Executive function\n")
 cat("SAN - Salience/Ventral Attention: Related to diabetes complications\n")
 
 
+
+
+
+
+
+########## Network Comparisons
+
+# ==============================================================================
+# NETWORK GROUP COMPARISONS: T2D vs OC vs LC
+# ==============================================================================
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(corrplot)
+library(stringr)
+library(gridExtra)
+library(ggpubr)
+
+# ==============================================================================
+# 1. LOAD DATA AND ASSIGN GROUPS
+# ==============================================================================
+
+cat("=== Loading Network Analysis Data ===\n\n")
+harmonized_data <- read.csv("../OneDrive/UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+
+dat <- harmonized_data %>%
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+                   .by = c(record_id, visit))
+
+
+
+mri_ids <- c('CRC-10', 'CRC-11', 'CRC-12', 'CRC-13', 'CRC-26', 'CRC-39', 'CRC-46', 'CRC-51', 'CRC-53', 
+             'CRC-55', 'CRC-58', 'CRC-60', 
+             'RH2-01-O', 'RH2-03-O', 'RH2-08-T', 'RH2-10-L', 'RH2-11-O', 'RH2-13-O', 'RH2-16-O', 'RH2-17-L', 
+             'RH2-18-O', 'RH2-19-T', 'RH2-22-T', 'RH2-24-L', 'RH2-27-L', 'RH2-28-L', 'RH2-29-L', 'RH2-33-L', 
+             'RH2-34-O', 'RH2-35-T', 'RH2-38-T', 'RH2-39-O', 'RH2-41-T', 'RH2-42-T', 'RH2-43-T', 
+             'RH2-44-T', 'RH2-45-T', 'RH2-48-T', 'RH2-49-T', 'RH2-50-L', 'RH2-52-T', 'RH2-53-T', 
+             'RH2-55-T')
+
+mri_ids_df <- data.frame(ID = mri_ids, file_id = c(
+  'crc_10', 'crc_11', 'crc_12', 'crc_13', 'crc_26', 'crc_39', 'crc_46', 'crc_51', 'crc_53', 
+  'crc_55', 'crc_58', 'crc_60', 
+  'RH2_01_O', 'RH2_03_O', 'RH2_08_T', 'RH2_10_L', 'RH2_11_O', 'RH2_13_O', 'RH2_16_O', 'RH2_17_L', 
+  'RH2_18_O', 'RH2_19_T', 'RH2_22_T', 'RH2_24_L', 'RH2_27_L', 'RH2_28_L', 'RH2_29_L', 'RH2_33_L', 
+  'RH2_34_O', 'RH2_35_T', 'RH2_38_T', 'RH2_39_O', 'RH2_41_T', 'RH2_42_T', 'RH2_43_T', 
+  'RH2_44_T', 'RH2_45_T', 'RH2_48_T', 'RH2_49_T', 'RH2_50_L', 'RH2_52_T', 'RH2_53_T', 
+  'RH2_55_T'
+))
+
+
+small_dat <- dat %>% 
+  filter(record_id %in% mri_ids)
+
+#find missing
+#mri_ids[which(!mri_ids %in% small_dat$record_id)]
+
+#missing_dat <- dat %>% filter(rh2_id == 'RH2-38-O')
+
+
+small_dat$group[which(small_dat$record_id == 'RH2-38-T')] <- 'Obese Control'
+small_dat$record_id[which(small_dat$record_id == 'RH2-38-T')] <- 'RH2-38-O'
+
+
+
+# ==============================================================================
+# NETWORK GROUP COMPARISONS: T2D vs OC vs LC
+# ==============================================================================
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(corrplot)
+library(stringr)
+library(gridExtra)
+library(ggpubr)
+
+# Set output directory
+output_dir <- "~/Documents/UofW/Projects/Brain_Imaging/fMRI/results/network_analysis"
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+cat("=== Output directory:", output_dir, "===\n\n")
+
+# ==============================================================================
+# 1. LOAD DATA AND ASSIGN GROUPS
+# ==============================================================================
+
+cat("=== Loading Network Analysis Data ===\n\n")
+network_metrics_all <- read.csv(file.path(output_dir, "network_metrics_all_participants.csv"))
+between_network_data <- readRDS(file.path(output_dir, "between_network_connectivity.rds"))
+
+# Match participants to groups
+participant_groups <- small_dat %>% select(record_id, group) %>% distinct()
+network_metrics_all$record_id <- mri_ids_df$ID[match(network_metrics_all$Participant, mri_ids_df$file_id)]
+network_metrics_all$record_id[which(network_metrics_all$Participant == 'RH2_38_O')] <- 'RH2-38-0'
+
+network_metrics_with_groups <- network_metrics_all %>%
+  left_join(participant_groups, by = "record_id") %>%
+  filter(!is.na(group))
+
+cat("Sample sizes:\n")
+print(table(network_metrics_with_groups$group))
+
+# ==============================================================================
+# 2. WITHIN-NETWORK CONNECTIVITY COMPARISONS
+# ==============================================================================
+
+cat("\n=== Comparing Within-Network Connectivity ===\n\n")
+
+networks <- unique(network_metrics_with_groups$Network)
+within_network_results <- data.frame()
+pairwise_results_all <- data.frame()
+
+for (net in networks) {
+  net_data <- network_metrics_with_groups %>% filter(Network == net)
+  cat("\n--- Network:", net, "---\n")
+  
+  # Check normality
+  normality_results <- data.frame()
+  for (grp in unique(net_data$group)) {
+    grp_data <- net_data$Within_Network_Connectivity[net_data$group == grp]
+    if (length(grp_data) >= 3) {
+      shapiro_test <- shapiro.test(grp_data)
+      normality_results <- rbind(normality_results, data.frame(
+        Network = net, Group = grp,
+        Shapiro_W = shapiro_test$statistic,
+        Shapiro_p = shapiro_test$p.value,
+        Normal = ifelse(shapiro_test$p.value > 0.05, "Yes", "No")
+      ))
+    }
+  }
+  cat("Normality tests:\n")
+  print(normality_results)
+  all_normal <- all(normality_results$Shapiro_p > 0.05, na.rm = TRUE)
+  
+  # Overall test
+  if (length(unique(net_data$group)) == 3) {
+    if (all_normal) {
+      cat("Using parametric tests\n")
+      aov_result <- aov(Within_Network_Connectivity ~ group, data = net_data)
+      aov_summary <- summary(aov_result)
+      overall_test <- "ANOVA"
+      overall_statistic <- aov_summary[[1]][1, 4]
+      overall_p <- aov_summary[[1]][1, 5]
+      
+      # Pairwise t-tests
+      pairs <- combn(unique(net_data$group), 2, simplify = FALSE)
+      for (pair in pairs) {
+        grp1 <- net_data$Within_Network_Connectivity[net_data$group == pair[1]]
+        grp2 <- net_data$Within_Network_Connectivity[net_data$group == pair[2]]
+        test_result <- t.test(grp1, grp2)
+        pooled_sd <- sqrt(((length(grp1)-1)*var(grp1) + (length(grp2)-1)*var(grp2)) / 
+                            (length(grp1) + length(grp2) - 2))
+        cohens_d <- (mean(grp1) - mean(grp2)) / pooled_sd
+        
+        pairwise_results_all <- rbind(pairwise_results_all, data.frame(
+          Network = net, Group1 = pair[1], Group2 = pair[2],
+          Test_Used = "t-test", p_value = test_result$p.value,
+          Effect_Size = cohens_d, N_Group1 = length(grp1), N_Group2 = length(grp2)
+        ))
+      }
+    } else {
+      cat("Using non-parametric tests\n")
+      kw_result <- kruskal.test(Within_Network_Connectivity ~ group, data = net_data)
+      overall_test <- "Kruskal-Wallis"
+      overall_statistic <- kw_result$statistic
+      overall_p <- kw_result$p.value
+      
+      # Pairwise Mann-Whitney U
+      pairs <- combn(unique(net_data$group), 2, simplify = FALSE)
+      for (pair in pairs) {
+        grp1 <- net_data$Within_Network_Connectivity[net_data$group == pair[1]]
+        grp2 <- net_data$Within_Network_Connectivity[net_data$group == pair[2]]
+        test_result <- wilcox.test(grp1, grp2, exact = FALSE)
+        n1 <- length(grp1)
+        n2 <- length(grp2)
+        effect_size <- 1 - (2*test_result$statistic) / (n1 * n2)
+        
+        pairwise_results_all <- rbind(pairwise_results_all, data.frame(
+          Network = net, Group1 = pair[1], Group2 = pair[2],
+          Test_Used = "Mann-Whitney U", p_value = test_result$p.value,
+          Effect_Size = effect_size, N_Group1 = n1, N_Group2 = n2
+        ))
+      }
+    }
+    
+    # Store overall results
+    group_stats <- net_data %>% group_by(group) %>%
+      summarise(Mean = mean(Within_Network_Connectivity, na.rm = TRUE),
+                SD = sd(Within_Network_Connectivity, na.rm = TRUE), .groups = "drop")
+    
+    within_network_results <- rbind(within_network_results, data.frame(
+      Network = net, Test = overall_test, Statistic = overall_statistic,
+      p_value = overall_p, All_Normal = all_normal,
+      T2D_mean = group_stats$Mean[group_stats$group == "Type 2 Diabetes"],
+      OC_mean = group_stats$Mean[group_stats$group == "Obese Control"],
+      LC_mean = group_stats$Mean[group_stats$group == "Lean Control"]
+    ))
+  }
+}
+
+# Print and save results
+cat("\n=== Within-Network Connectivity: Overall Tests ===\n")
+print(within_network_results %>% mutate(across(where(is.numeric), ~round(., 4))))
+
+cat("\n=== Pairwise Comparisons (uncorrected) ===\n")
+print(pairwise_results_all %>% mutate(across(where(is.numeric), ~round(., 4))))
+
+sig_pairwise <- pairwise_results_all %>% filter(p_value < 0.05) %>% arrange(p_value)
+cat("\n=== SIGNIFICANT (p < 0.05) ===\n")
+if (nrow(sig_pairwise) > 0) print(sig_pairwise %>% mutate(across(where(is.numeric), ~round(., 4))))
+
+write.csv(within_network_results, file.path(output_dir, "network_overall_tests.csv"), row.names = FALSE)
+write.csv(pairwise_results_all, file.path(output_dir, "network_pairwise_uncorrected.csv"), row.names = FALSE)
+
+cat("\n=== FILES SAVED TO:", output_dir, "===\n")
+cat("- network_overall_tests.csv\n")
+cat("- network_pairwise_uncorrected.csv\n")
+cat("\n=== ANALYSIS COMPLETE ===\n")
+
+# Add this after the line "cat("\n=== ANALYSIS COMPLETE ===\n")"
+
+# ==============================================================================
+# 3. VISUALIZATIONS
+# ==============================================================================
+
+cat("\n=== Creating Visualizations ===\n")
+
+# Plot 1: Main comparison with overall p-values
+p1 <- ggplot(network_metrics_with_groups, 
+             aes(x = Network, y = Within_Network_Connectivity, fill = group)) +
+  geom_boxplot(position = position_dodge(width = 0.8), alpha = 0.7) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.1, dodge.width = 0.8),
+             alpha = 0.5, size = 2) +
+  scale_fill_manual(values = c("Type 2 Diabetes" = "#E74C3C", 
+                               "Obese Control" = "#F39C12",
+                               "Lean Control" = "#3498DB"),
+                    name = "Group") +
+  labs(title = "Within-Network Connectivity by Group",
+       subtitle = "ANOVA p-values shown above each network",
+       x = "Network",
+       y = "Within-Network Connectivity") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5),
+        legend.position = "bottom",
+        plot.title = element_text(face = "bold"))
+
+# Add p-values above each network
+for (i in 1:nrow(within_network_results)) {
+  net <- within_network_results$Network[i]
+  p_val <- within_network_results$p_value[i]
+  p_label <- sprintf("p = %.3f", p_val)
+  
+  y_pos <- max(network_metrics_with_groups$Within_Network_Connectivity[
+    network_metrics_with_groups$Network == net], na.rm = TRUE) * 1.05
+  
+  p1 <- p1 + annotate("text", 
+                      x = which(unique(network_metrics_with_groups$Network) == net),
+                      y = y_pos, label = p_label, size = 4, fontface = "bold")
+}
+
+ggsave(file.path(output_dir, "within_network_by_group.pdf"), p1, width = 14, height = 7)
+ggsave(file.path(output_dir, "within_network_by_group.png"), p1, width = 14, height = 7, dpi = 300)
+cat("Saved: within_network_by_group.pdf/.png\n")
+
+# Plot 2: Heatmap of pairwise p-values
+p_matrix_data <- pairwise_results_all %>%
+  mutate(Comparison = paste0(Group1, " vs\n", Group2))
+
+p2 <- ggplot(p_matrix_data, aes(x = Network, y = Comparison, fill = -log10(p_value))) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = sprintf("%.3f", p_value)), size = 3) +
+  scale_fill_gradient2(low = "white", mid = "#FFA500", high = "#E74C3C",
+                       midpoint = -log10(0.05),
+                       name = "-log10(p)") +
+  labs(title = "Pairwise Comparison P-values (Uncorrected)",
+       subtitle = "Darker = more significant",
+       x = "Network",
+       y = "Group Comparison") +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave(file.path(output_dir, "pairwise_pvalue_heatmap.pdf"), p2, width = 10, height = 6)
+ggsave(file.path(output_dir, "pairwise_pvalue_heatmap.png"), p2, width = 10, height = 6, dpi = 300)
+cat("Saved: pairwise_pvalue_heatmap.pdf/.png\n")
+
+# Plot 3: Individual network panels with significance brackets
+plot_list <- list()
+for (net in unique(network_metrics_with_groups$Network)) {
+  net_data <- network_metrics_with_groups %>% filter(Network == net)
+  net_pairwise <- pairwise_results_all %>% filter(Network == net)
+  
+  p_net <- ggplot(net_data, aes(x = group, y = Within_Network_Connectivity, fill = group)) +
+    geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+    geom_jitter(width = 0.2, alpha = 0.6, size = 2) +
+    scale_fill_manual(values = c("Type 2 Diabetes" = "#E74C3C", 
+                                 "Obese Control" = "#F39C12",
+                                 "Lean Control" = "#3498DB")) +
+    labs(title = net, x = NULL, y = "Within-Network Connectivity") +
+    theme_minimal(base_size = 11) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.position = "none",
+          plot.title = element_text(face = "bold", hjust = 0.5))
+  
+  # Add p-value annotations for significant comparisons
+  if (nrow(net_pairwise) > 0) {
+    y_max <- max(net_data$Within_Network_Connectivity, na.rm = TRUE)
+    y_range <- diff(range(net_data$Within_Network_Connectivity, na.rm = TRUE))
+    
+    for (i in 1:nrow(net_pairwise)) {
+      if (net_pairwise$p_value[i] < 0.10) {
+        y_position <- y_max + y_range * (0.05 + i * 0.08)
+        sig_label <- ifelse(net_pairwise$p_value[i] < 0.001, "***",
+                            ifelse(net_pairwise$p_value[i] < 0.01, "**",
+                                   ifelse(net_pairwise$p_value[i] < 0.05, "*", "†")))
+        
+        grp1_x <- which(levels(factor(net_data$group)) == net_pairwise$Group1[i])
+        grp2_x <- which(levels(factor(net_data$group)) == net_pairwise$Group2[i])
+        
+        p_net <- p_net +
+          annotate("segment", x = grp1_x, xend = grp2_x,
+                   y = y_position, yend = y_position) +
+          annotate("text", x = mean(c(grp1_x, grp2_x)), y = y_position + y_range * 0.02,
+                   label = sprintf("p=%.3f %s", net_pairwise$p_value[i], sig_label), size = 3)
+      }
+    }
+  }
+  
+  plot_list[[net]] <- p_net
+}
+
+# Combine all network plots
+combined_plot <- do.call(grid.arrange, c(plot_list, ncol = 3))
+ggsave(file.path(output_dir, "within_network_detailed.pdf"), combined_plot, width = 14, height = 10)
+ggsave(file.path(output_dir, "within_network_detailed.png"), combined_plot, width = 14, height = 10, dpi = 300)
+cat("Saved: within_network_detailed.pdf/.png\n")
+
+cat("\n=== ALL VISUALIZATIONS CREATED ===\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+################## Brain biomarker associations
+
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(corrplot)
+library(stringr)
+library(gridExtra)
+library(ggpubr)
+
+# Set output directory
+output_dir <- "~/Documents/UofW/Projects/Brain_Imaging/fMRI/results/network_analysis"
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
+cat("=== Output directory:", output_dir, "===\n\n")
+
+# ==============================================================================
+# 1. LOAD DATA AND ASSIGN GROUPS
+# ==============================================================================
+
+harmonized_data <- read.csv("../OneDrive/UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+mri_ids <- c('CRC-10', 'CRC-11', 'CRC-12', 'CRC-13', 'CRC-26', 'CRC-39', 'CRC-46', 'CRC-51', 'CRC-53', 
+             'CRC-55', 'CRC-58', 'CRC-60', 
+             'RH2-01-O', 'RH2-03-O', 'RH2-08-T', 'RH2-10-L', 'RH2-11-O', 'RH2-13-O', 'RH2-16-O', 'RH2-17-L', 
+             'RH2-18-O', 'RH2-19-T', 'RH2-22-T', 'RH2-24-L', 'RH2-27-L', 'RH2-28-L', 'RH2-29-L', 'RH2-33-L', 
+             'RH2-34-O', 'RH2-35-T', 'RH2-38-T', 'RH2-39-O', 'RH2-41-T', 'RH2-42-T', 'RH2-43-T', 
+             'RH2-44-T', 'RH2-45-T', 'RH2-48-T', 'RH2-49-T', 'RH2-50-L', 'RH2-52-T', 'RH2-53-T', 
+             'RH2-55-T')
+
+mri_ids_df <- data.frame(ID = mri_ids, file_id = c(
+  'crc_10', 'crc_11', 'crc_12', 'crc_13', 'crc_26', 'crc_39', 'crc_46', 'crc_51', 'crc_53', 
+  'crc_55', 'crc_58', 'crc_60', 
+  'RH2_01_O', 'RH2_03_O', 'RH2_08_T', 'RH2_10_L', 'RH2_11_O', 'RH2_13_O', 'RH2_16_O', 'RH2_17_L', 
+  'RH2_18_O', 'RH2_19_T', 'RH2_22_T', 'RH2_24_L', 'RH2_27_L', 'RH2_28_L', 'RH2_29_L', 'RH2_33_L', 
+  'RH2_34_O', 'RH2_35_T', 'RH2_38_T', 'RH2_39_O', 'RH2_41_T', 'RH2_42_T', 'RH2_43_T', 
+  'RH2_44_T', 'RH2_45_T', 'RH2_48_T', 'RH2_49_T', 'RH2_50_L', 'RH2_52_T', 'RH2_53_T', 
+  'RH2_55_T'
+))
+
+
+dat <- harmonized_data %>%
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+                   .by = c(record_id, visit))
+
+small_dat <- dat %>% 
+  filter(record_id %in% mri_ids)
+
+#find missing
+#mri_ids[which(!mri_ids %in% small_dat$record_id)]
+
+#missing_dat <- dat %>% filter(rh2_id == 'RH2-38-O')
+
+
+small_dat$group[which(small_dat$record_id == 'RH2-38-T')] <- 'Obese Control'
+small_dat$record_id[which(small_dat$record_id == 'RH2-38-T')] <- 'RH2-38-O'
+
+
+
+
+
+qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
+            "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
+
+
+
+small_dat <- small_dat %>% 
+  dplyr::select(record_id, group, ab40_avg_conc, ab42_avg_conc, tau_avg_conc, 
+                nfl_avg_conc, gfap_avg_conc, ptau_181_avg_conc, ptau_217_avg_conc)
+
+
+
+t2d_ids <- small_dat$record_id[which(small_dat$group == 'Type 2 Diabetes')]
+lc_ids <- small_dat$record_id[which(small_dat$group == 'Lean Control')]
+
+
+
+cat("=== Loading Network Analysis Data ===\n\n")
+network_metrics_all <- read.csv(file.path(output_dir, "network_metrics_all_participants.csv"))
+between_network_data <- readRDS(file.path(output_dir, "between_network_connectivity.rds"))
+
+# Match participants to groups
+participant_groups <- small_dat %>% select(record_id, group) %>% distinct()
+network_metrics_all$record_id <- mri_ids_df$ID[match(network_metrics_all$Participant, mri_ids_df$file_id)]
+network_metrics_all$record_id[which(network_metrics_all$Participant == 'RH2_38_O')] <- 'RH2-38-0'
+
+network_metrics_with_groups <- network_metrics_all %>%
+  left_join(participant_groups, by = "record_id") %>%
+  filter(!is.na(group))
+
+cat("Sample sizes:\n")
+print(table(network_metrics_with_groups$group))
+
+
+network_w_bbiomarkers <- network_metrics_with_groups %>%
+  left_join(small_dat %>% dplyr::select(record_id, 3:9), by='record_id')
+
+
+
+
+
+
+
 ########## AAL Mapping 
 
 
