@@ -534,6 +534,8 @@ powerCurve(mod1, within = "mrn", breaks = c(10, 20, 30, 40, 50, 60, 70, 80, 90, 
 
 ### Using simr with makeLmer() to specify data
 
+#### Function to power on association of covariate Z with change in Y over time
+
 ```{r}
 sim_power <- function(n = 90, intercept = 135, beta_time = -2, beta_pred = 0.5, var_int = 2, resid_sd = 5) {
   # time, MRN, and variable being tested from PANTHER (Z)
@@ -575,5 +577,56 @@ sim_power <- function(n = 90, intercept = 135, beta_time = -2, beta_pred = 0.5, 
 }
 
 sim_power(n = 90, intercept = 135, beta_time = -2, beta_pred = 0.5, var_int = 2, resid_sd = 5)
-p
+```
+
+#### Function to power on interaction of covariate Z with change in Y over time
+
+Interaction is how change over time varies based on value of Z. The standardized effect size for the interaction is beta_interaction/sigma_residual.
+
+Example: if beta_interaction = 0.5, for a one unit increase in Z (e.g., slope of GFR during PANTHER), the outcome in PANTHER2 declines by an additional 0.5 residual SDs per year.
+
+```{r}
+sim_power_int <- function(n = 90, intercept = 135, beta_time = -2, beta_Z = 1, beta_pred_time_int = 1, var_int = 2, resid_sd = 1) {
+  # time, MRN, and variable being tested from PANTHER (Z)
+  years <- 1:5
+  set.seed(123)  # for reproducibility
+  mrn <- replicate(n, paste0(sample(c(letters, LETTERS, 0:9), 8, replace = TRUE), collapse = ""))
+  while(length(unique(mrn)) < n) {
+    mrn <- replicate(n, paste0(sample(c(letters, LETTERS, 0:9), 8, replace = TRUE), collapse = ""))
+  }
+  mrn <- unique(mrn)[1:n]
+  X <- expand.grid(years, mrn)
+  temp <- rnorm(n)
+  Z <- NULL
+  for (i in 1:n) {
+    c <- rep(temp[i],5)
+    Z <- c(Z, c)
+  }
+  X <- cbind(X, Z)
+  colnames(X) <- c("years", "mrn", "Z")
+  
+  # specify parameters
+  # fixed intercept, slope over time, association with Z
+  b <- c(intercept, beta_time, beta_Z, beta_pred_time_int)
+  # random intercept variance
+  V1 <- var_int
+  # residual standard deviation
+  s <- resid_sd
+  
+  model1 <- makeLmer(y ~ years + Z + years*Z + (1|mrn), data = X, fixef = b, VarCorr = V1, sigma = s)
+  doTest(model1, compare(. ~ years + Z + (1|mrn)))
+  dat1 <- getData(model1)
+  
+  p <-  ggplot(dat1, aes(x = years, y = y, color = Z)) +
+    geom_point() +
+    labs(x = "year", color = "Z") +
+    theme_bw() 
+  
+  
+  ps <- powerSim(model1, compare(. ~ years + Z + (1|mrn)) , nsim = 100)
+  return(ps)
+}
+
+sim_power_int(n = 90, intercept = 135, beta_time = -2, beta_pred_time_int = 0.5, var_int = 2, resid_sd = 5)
+ps
 ```
