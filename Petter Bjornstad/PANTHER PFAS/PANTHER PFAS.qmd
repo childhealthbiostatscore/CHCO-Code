@@ -1,0 +1,114 @@
+---
+title: "PANTHER PFAS"
+format: revealjs
+editor: visual
+
+---
+
+#1. Set Up 
+##a. Load Libraries & Directores 
+```{r}
+#Libraries
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+source("Libraries.R")
+
+#Directories
+user <- Sys.info()[["user"]]
+
+if (user == "hhampson") {
+  dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+  dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results")
+} else {
+  dir.dat <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+  dir.results <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results")
+}
+```
+
+##b. Load Data 
+```{r}
+#Load Metadata
+dat <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = "")
+lod <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS Quantification/PFAS_LODs.csv"))
+```
+
+##c. Clean & Format Data
+```{r}
+dat_collapsed <- dat %>%
+  group_by(record_id, visit) %>%
+  tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                                     race == "Black or African American" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                                     T ~ "Not Hispanic or Latino Other"))
+pfas <- c("N.EtFOSAA","N.MeFOSAA","PFBA","PFDA","PFDoA","PFHpA","PFHxA","PFNA","PFBS","PFPeA","PFTeDA","PFTrDA","PFUnA","PFBS","PFDoS","PFHps","PFHxS","PFNS","PFOS","PFOSA","PFPeAS")
+dat_collapsed2 <- dat_collapsed %>%
+  filter(study=="PANTHER") %>% 
+  dplyr::select(record_id, rh2_id, visit, mrn, group, age, sex, bmi, hba1c, albumin,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) 
+
+pfas_dat <- dat_collapsed2 %>% 
+  filter(visit=="baseline") %>% 
+  dplyr::select("record_id",all_of(pfas))%>% #127 panther baseline participants
+  filter(!is.na(N.EtFOSAA))
+  
+# meta <- dat_collapsed2 %>%
+#    dplyr::select(record_id, rh2_id, visit, mrn, group, age, sex, bmi, hba1c, albumin,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"))
+#   mutate(
+#     age_liver = if_else(!is.na(liver_k1) & !is.na(liver_k2) & !is.na(liver_k3), age, NA_real_),
+#     age_ins   = if_else(!is.na(m_i) | !is.na(gir_190), age, NA_real_)
+#   ) %>%
+#   group_by(mrn) %>%
+#   tidyr::fill(starts_with("liver"), m_i, gir_190, m_i_gir_190, age_liver, age_ins, .direction = "updown") %>%
+#   arrange(mrn) %>%
+#   filter(!is.na(age_liver) | !is.na(age_ins)) %>%
+#   distinct(mrn, age_liver, age_ins, .keep_all = T) %>%
+#   mutate(age_diff = age_liver - age_ins)
+
+# rm(harm_dat,harm_dat_collapsed)
+
+
+#Impute PFAS Data
+t_lod <- t(lod)
+colnames(t_lod) <- t_lod[1,]
+t_lod <- as.data.frame(t_lod)
+t_lod <- t_lod[-1,]
+lod <- t_lod
+rm(t_lod)
+lod <- lod %>% 
+  mutate(across(everything(), ~as.numeric(.)))
+
+pfas
+N.EtFOSAA <- length(which(pfas_dat$N.EtFOSAA < lod$`N-EtFOSAA`))/length(unique(pfas_dat$record_id))
+N.EtFOSAA < 2/3
+N.MeFOSAA <- length(which(pfas_dat$N.MeFOSAA < lod$`N-MeFOSAA`))/length(unique(pfas_dat$record_id))
+N.MeFOSAA < 2/3
+PFBA <- length(which(pfas_dat$PFBA < lod$`PFBA`))/length(unique(pfas_dat$record_id))
+PFDA <- length(which(pfas_dat$PFDA < lod$`PFDA`))/length(unique(pfas_dat$record_id))
+PFDoA <- length(which(pfas_dat$PFDoA < lod$`PFDoA`))/length(unique(pfas_dat$record_id))
+PFHpA <- length(which(pfas_dat$PFHpA < lod$`PFHpA`))/length(unique(pfas_dat$record_id))
+PFHxA <- length(which(pfas_dat$PFHxA < lod$`PFHxA`))/length(unique(pfas_dat$record_id))
+PFNA <- length(which(pfas_dat$PFNA < lod$`PFNA`))/length(unique(pfas_dat$record_id))
+PFBS <- length(which(pfas_dat$PFBS < lod$`PFBS`))/length(unique(pfas_dat$record_id))
+PFPeA <- length(which(pfas_dat$PFPeA < lod$`PFPeA`))/length(unique(pfas_dat$record_id))
+PFTeDA <- length(which(pfas_dat$PFTeDA < lod$`PFTeDA`))/length(unique(pfas_dat$record_id))
+PFTrDA <- length(which(pfas_dat$PFTrDA < lod$`PFTrDA`))/length(unique(pfas_dat$record_id))
+PFUnA <- length(which(pfas_dat$PFUnA < lod$`PFUnA`))/length(unique(pfas_dat$record_id))
+PFBS <- length(which(pfas_dat$PFBS < lod$`PFBS`))/length(unique(pfas_dat$record_id))
+PFDoS <- length(which(pfas_dat$PFDoS < lod$`PFDoS`))/length(unique(pfas_dat$record_id))
+PFHps <- length(which(pfas_dat$PFHps < lod$`PFHps`))/length(unique(pfas_dat$record_id))
+PFHxS <- length(which(pfas_dat$PFHxS < lod$`PFHxS`))/length(unique(pfas_dat$record_id))
+PFNS <- length(which(pfas_dat$PFNS < lod$`PFNS`))/length(unique(pfas_dat$record_id))
+PFOS <- length(which(pfas_dat$PFOS < lod$`PFOS`))/length(unique(pfas_dat$record_id))
+PFOSA <- length(which(pfas_dat$PFOSA < lod$`PFOSA`))/length(unique(pfas_dat$record_id))
+PFPeAS <- length(which(pfas_dat$PFPeAS < lod$`PFPeAS`))/length(unique(pfas_dat$record_id))
+
+```
+
+
+
+
