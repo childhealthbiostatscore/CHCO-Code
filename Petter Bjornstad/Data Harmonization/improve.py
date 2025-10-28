@@ -26,17 +26,23 @@ def clean_improve():
     import getpass
     user = getpass.getuser()  # safer than os.getlogin(), works in more environments
 
-    if user == "choiyej":
-        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
-        git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
-    elif user == "pylell":
-        base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
-        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
-    elif user == "shivaniramesh":
-        base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
-    else:
-        sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
+    base_paths = {
+        "choiyej": {
+            "base_data_path": "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/",
+            "git_path": "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+        },
+        "pylell": {
+            "base_data_path": "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/",
+            "git_path": "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+        },
+        "shivaniramesh": {
+            "base_data_path": os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"),
+            "git_path": "/Users/shivaniramesh/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+        }
+    }
+    
+    base_data_path = base_paths[user]["base_data_path"]
+    git_path = base_paths[user]["git_path"]
 
     tokens = pd.read_csv(base_data_path + "/Data Harmonization/api_tokens.csv")        #"/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
     uri = "https://redcap.ucdenver.edu/api/"

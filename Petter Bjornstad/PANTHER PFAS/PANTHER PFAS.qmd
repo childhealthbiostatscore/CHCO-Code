@@ -10,32 +10,41 @@ editor: visual
 #Libraries
 if (!require("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
-source("Libraries.R")
 
 #Directories
-# computer <- "mac studio"
-computer <- "mac laptop"
+computer <- "mac studio"
+# computer <- "mac laptop"
 if (computer == "mac studio") {
-user <- Sys.info()[["user"]]
-
-if (user == "hhampson") {
-  dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
-  dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results")
-} else {
-  dir.dat <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
-  dir.results <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results")
-}
+  user <- Sys.info()[["user"]]
+  if (user == "hhampson") {
+    dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+    dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results")
+    git_path <- "Users/hhampson/CHCO-Code/Petter Bjornstad"
+  } else if (user == "shivaniramesh") {
+    dir.dat <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+    dir.results <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results")
+  } else if (user == "choiyej") {
+    dir.dat <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  } else if (user == "pylell") {
+    dir.dat <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  }
 } else {
   user <- Sys.info()[["user"]]
+  if (user == "hhampson") {
+    dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
+    dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/PANTHER/Results")
+    git_path <- "Users/hhampson/CHCO-Code/Petter Bjornstad"
+  } else {
+    dir.dat <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+    dir.results <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results")
+  }
+}
 
-if (user == "hhampson") {
-  dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
-  dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/PANTHER/Results")
-} else {
-  dir.dat <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
-  dir.results <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results")
-}
-}
+source(file.path(git_path, "PANTHER PFAS/Libraries.R"))
 ```
 
 ##b. Load Data
@@ -49,17 +58,18 @@ lod <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS Quan
 ##c. Clean & Format Data
 
 ```{r}
+pfas <- c("N.EtFOSAA","N.MeFOSAA","PFBA","PFDA","PFDoA","PFHpA","PFHxA","PFNA","PFBS","PFPeA","PFTeDA","PFTrDA","PFUnA","PFBS","PFDoS","PFHps","PFHxS","PFNS","PFOS","PFOSA","PFPeAS")
+
 dat_collapsed <- dat %>%
     filter(study=="PANTHER") %>% 
     # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
-      dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u,all_of(pfas)) %>% 
+      dplyr::select(record_id, dob, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u,all_of(pfas)) %>% 
   # group_by(record_id, visit) %>%
   # tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) 
 
-pfas <- c("N.EtFOSAA","N.MeFOSAA","PFBA","PFDA","PFDoA","PFHpA","PFHxA","PFNA","PFBS","PFPeA","PFTeDA","PFTrDA","PFUnA","PFBS","PFDoS","PFHps","PFHxS","PFNS","PFOS","PFOSA","PFPeAS")
 pfas_dat <- dat_collapsed %>% 
   filter(visit=="baseline") %>% 
   dplyr::select("record_id",all_of(pfas))%>% #127 panther baseline participants

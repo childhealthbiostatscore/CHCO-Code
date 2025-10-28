@@ -25,8 +25,8 @@ def clean_panther():
     from pfas_data_merge import PFAS
     # REDCap project variables
     import getpass
-    user = getpass.getuser()  # safer than os.getlogin(), works in more environments
-
+    user = getpass.getuser() 
+    
     if user == "choiyej":
         base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"

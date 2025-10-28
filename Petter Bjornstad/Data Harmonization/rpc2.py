@@ -238,7 +238,7 @@ def clean_rpc2_redcap():
     mask_fsoc = datecheck["date"].replace("", np.nan).notna()
     sub_fsoc = datecheck[mask_fsoc][fields]
 
-    sub_fsoc.to_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/rpc2.csv", index=False)
+    # sub_fsoc.to_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/rpc2.csv", index=False)
     return df
 
 
