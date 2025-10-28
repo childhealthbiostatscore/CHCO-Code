@@ -3,66 +3,74 @@ import numpy as np
 
 harmonized = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv")
 
-fields = ["record_id", "dob", "date", "sex", "age", "group", "visit", "procedure", "creatinine_s", "bmi", "height", "acr_u", "hba1c", "cystatin_c_s", "bun"]
+fields = ["record_id", "dob", "date", "sex", "age", "group", "visit", "procedure", "creatinine_s", "bmi", "height", "weight", "acr_u", "hba1c", "cystatin_c_s", "bun"]
 
 # Initial filtering - ONLY by study and group
 rpc2 = harmonized[harmonized['study'] == "RPC2"][fields].drop_duplicates().copy()
-
-# Store information about which rows originally had date values
-rpc2['had_original_date'] = rpc2['date'].notna()
 
 # Make sure record_id is never marked as duplicate (even if there are multiple)
 cols = rpc2.columns
 duplicates = cols.duplicated()
 duplicates = duplicates & (cols != "record_id")
-
 rpc2 = rpc2.loc[:, ~duplicates]
 
 rpc2['group'] = rpc2.groupby('record_id')['group'].transform('first')
 rpc2['sex'] = rpc2.groupby('record_id')['sex'].transform('first')
 rpc2['dob'] = rpc2.groupby('record_id')['dob'].transform('first')
 
+# Fill missing values with mean by record_id and visit
 mean_heights = rpc2.groupby(['record_id', 'visit'])['height'].transform('mean')
 rpc2['height'] = rpc2['height'].fillna(mean_heights)
+mean_weight = rpc2.groupby(['record_id', 'visit'])['weight'].transform('mean')
+rpc2['weight'] = rpc2['weight'].fillna(mean_weight)
 mean_bmi = rpc2.groupby(['record_id', 'visit'])['bmi'].transform('mean')
 rpc2['bmi'] = rpc2['bmi'].fillna(mean_bmi)
+mean_creatinine = rpc2.groupby(['record_id', 'visit'])['creatinine_s'].transform('mean')
+rpc2['creatinine_s'] = rpc2['creatinine_s'].fillna(mean_creatinine)
+mean_uacr = rpc2.groupby(['record_id', 'visit'])['acr_u'].transform('mean')
+rpc2['acr_u'] = rpc2['acr_u'].fillna(mean_uacr)
+mean_hba1c = rpc2.groupby(['record_id', 'visit'])['hba1c'].transform('mean')
+rpc2['hba1c'] = rpc2['hba1c'].fillna(mean_hba1c)
+mean_cystatin = rpc2.groupby(['record_id', 'visit'])['cystatin_c_s'].transform('mean')
+rpc2['cystatin_c_s'] = rpc2['cystatin_c_s'].fillna(mean_cystatin)
+mean_bun = rpc2.groupby(['record_id', 'visit'])['bun'].transform('mean')
+rpc2['bun'] = rpc2['bun'].fillna(mean_bun)
 
 # Convert date columns BEFORE filling missing dates
 rpc2['date'] = pd.to_datetime(rpc2['date'])
 rpc2['dob'] = pd.to_datetime(rpc2['dob'])
 
-# NEW: Fill missing dates from adjacent rows with same visit or procedure
+# Fill missing dates with first date value for same record_id and visit
+rpc2['date'] = rpc2.groupby(['record_id', 'visit'])['date'].transform('first')
+
 # Sort by record_id to ensure we're looking at the right adjacent rows
 rpc2 = rpc2.sort_index().reset_index(drop=True)
 
-# To handle potential non-numeric values, first coerce them to NaN.
+# To handle potential non-numeric values, first coerce them to NaN
 rpc2['age'] = pd.to_numeric(rpc2['age'], errors='coerce')
 
-# Calculate age from date of birth using your formula
+# Calculate age from date of birth
 calculated_age = round((rpc2["date"] - rpc2["dob"]).dt.days / 365.25, 2)
 
-# Fill missing age values with calculated age (preserves existing non-null values)
+# Fill missing age values with calculated age
 rpc2['age'] = rpc2['age'].fillna(calculated_age)
 
 # Round and convert to proper data type
 rpc2['age'] = rpc2['age'].round().astype('Int64')
 
-# NEW: Create age_screening column - age at screening visit (lowercase 'screening')
-# Get age at screening for each record_id (where visit == 'screening')
+# Create age_screening column - age at screening visit
 screening_ages = rpc2[rpc2['visit'] == 'screening'].groupby('record_id')['age'].first()
 rpc2['age_screening'] = rpc2['record_id'].map(screening_ages)
 
 def calc_egfr(df, age="age", age_screening="age_screening", serum_creatinine="creatinine_s", 
               sex="sex", male="Male", female="Female"):
-    # Make a copy of the dataframe
     data = df.copy()
-    # Format input
     serum_creatinine = pd.to_numeric(data[serum_creatinine], errors="coerce")
     sex_data = data[sex].copy()
     sex_data.replace({male: "M", female: "F", "Other": np.nan, "": np.nan}, inplace=True)
     age_data = pd.to_numeric(data[age], errors="coerce")
     
-    # NEW: Use age_screening as fallback when age is missing
+    # Use age_screening as fallback when age is missing
     age_screening_data = pd.to_numeric(data[age_screening], errors="coerce")
     age_data = age_data.fillna(age_screening_data)
     
@@ -81,29 +89,40 @@ rpc2 = calc_egfr(rpc2, age="age", age_screening="age_screening",
                  serum_creatinine="creatinine_s", sex="sex",
                  male="Male", female="Female")
 
-# Modified filtering logic: Keep all rows that originally had dates, 
-# OR rows that have at least one of the clinical variables
-clinical_vars = ['creatinine_s','acr_u', 'hba1c', 'cystatin_c_s', 'bun', 'eGFR_CKD_epi']
+# Drop rows that are missing ALL of the specified clinical variables
+clinical_vars = ['creatinine_s', 'bmi', 'height', 'weight', 'acr_u', 'hba1c', 'cystatin_c_s', 'bun']
+rpc2_filtered = rpc2[rpc2[clinical_vars].notna().any(axis=1)].copy()
 
-# Create mask for rows to keep:
-# 1. Rows that originally had date values, OR
-# 2. Rows that have at least one non-null clinical variable
-keep_mask = (
-    rpc2['had_original_date'] | 
-    rpc2[clinical_vars].notna().any(axis=1)
-)
+# Remove study failed participants
+study_failed = ['RPC-06','RPC-09','RPC-10','RPC-11', 'RPC-12', 'RPC-14', 'RPC-15', 'RPC-18','RPC-19', 'RPC-20','RPC-22', 'RPC-23', 'RPC-24', 'RPC-28','RPC-30', 'RPC-31',
+                'RPC-32', 'RPC-33', 'RPC-34', 'RPC-35', 'RPC-36', 'RPC-39', 'RPC-40', 'RPC-42', 'RPC-43', 'RPC-45']
+rpc2_filtered = rpc2_filtered[~rpc2_filtered['record_id'].isin(study_failed)]
 
-# Apply the filter
-rpc2_filtered = rpc2[keep_mask].copy()
+# Drop procedure and age_screening columns before dropping duplicates
+rpc2_filtered = rpc2_filtered.drop(columns=['procedure', 'age_screening'])
 
-# Drop the helper column
-rpc2_filtered = rpc2_filtered.drop('had_original_date', axis=1)
+# Drop duplicates
+rpc2_filtered.drop_duplicates(inplace=True)
+
+# Group by record_id and visit, taking mean of numerical variables
+# First, identify non-numeric columns to keep using 'first'
+non_numeric_cols = ['record_id', 'visit', 'dob', 'date', 'sex', 'group']
+numeric_cols = [col for col in rpc2_filtered.columns if col not in non_numeric_cols]
+
+# Create aggregation dictionary
+agg_dict = {col: 'first' for col in non_numeric_cols if col not in ['record_id', 'visit']}
+agg_dict.update({col: 'mean' for col in numeric_cols})
+
+# Group by record_id and visit
+rpc2_filtered = rpc2_filtered.groupby(['record_id', 'visit'], as_index=False).agg(agg_dict)
+
+# Remove dob column
+rpc2_filtered = rpc2_filtered.drop(columns=['dob'])
 
 print(f"Original RPC2 rows: {len(rpc2)}")
-print(f"Rows with original dates: {rpc2['had_original_date'].sum()}")
-print(f"Rows with dates after filling from adjacent rows: {rpc2['date'].notna().sum()}")
-print(f"After filtering (keeping date rows + clinical data rows): {len(rpc2_filtered)} rows")
+print(f"After filtering and grouping: {len(rpc2_filtered)} rows")
+print(f"Rows with dates: {rpc2_filtered['date'].notna().sum()}")
 
 print(rpc2_filtered)
 
-rpc2_filtered.to_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/tomas_m_rpc2_subset.csv", index=False)
+rpc2_filtered.to_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/rpc2_update.csv", index=False)

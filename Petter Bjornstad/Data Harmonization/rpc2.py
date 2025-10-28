@@ -72,7 +72,7 @@ def clean_rpc2_redcap():
     demo = combine_checkboxes(demo, base_name="ethnicity", levels=["Hispanic", "Non-Hispanic", "Unknown/Not Reported"])
     demo["sex"].replace({1: "Male", 0: "Female", 2: "Other",
                         "1": "Male", "0": "Female", "2": "Other"}, inplace=True)
-    demo["group"] = demo["diabetes_hx_type"].replace({"1": "Type 1 Diabetes", "2": "Type 2 Diabetes"})
+    demo["group"] = demo["diabetes_hx_type"].replace({"1": "Type 1 Diabetes", "2": "Type 2 Diabetes", 1: "Type 1 Diabetes", 2: "Type 2 Diabetes"})
     demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
     demo["age"] = pd.to_numeric(demo["age"], downcast='integer', errors='coerce')
     
@@ -103,7 +103,7 @@ def clean_rpc2_redcap():
     phys.rename({"bp_systolic": "sbp", "bp_diastolic": "dbp", "phys_date": "date"}, axis=1, inplace=True)
     phys["procedure"] = "physical_exam"
     phys["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "baseline", "v2_gfr_mri_arm_1": "baseline", "v4_arm_1": "Post-biopsy vist", "v7_gfr_mri_arm_1": "Post-biopsy GFR MRI", "v61_med_dispense_arm_1": "Med Dispense 1",  "v62_med_dispense_arm_1": "Med Dispense 2"}, 
+        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "baseline", "v2_gfr_mri_arm_1": "baseline", "v4_arm_1": "post-biopsy vist", "v7_gfr_mri_arm_1": "1post-biopsy", "v61_med_dispense_arm_1": "Med Dispense 1",  "v62_med_dispense_arm_1": "Med Dispense 2"}, 
         inplace=True)
     phys = phys.rename(columns={"redcap_event_name": "visit"})
     phys["visit"] = "baseline"
@@ -127,7 +127,7 @@ def clean_rpc2_redcap():
     labs.rename({ "date_of_screen": "date"}, axis=1, inplace=True)
     labs["procedure"] = "labs"
     labs["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "baseline", "v2_gfr_mri_arm_1": "baseline", "v4_arm_1": "post_biopsy", "v7_gfr_mri_arm_1": "Post-biopsy GFR MRI", "v61_med_dispense_arm_1": "Med Dispense 1",  "v62_med_dispense_arm_1": "Med Dispense 2"}, 
+        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "baseline", "v2_gfr_mri_arm_1": "baseline", "v4_arm_1": "post_biopsy", "v7_gfr_mri_arm_1": "2Post-biopsy GFR MRI", "v61_med_dispense_arm_1": "Med Dispense 1",  "v62_med_dispense_arm_1": "Med Dispense 2"}, 
         inplace=True)
     labs = labs.rename(columns={"redcap_event_name": "visit"})
     print(labs)
@@ -166,7 +166,7 @@ def clean_rpc2_redcap():
     #kidney_outcomes.rename({"serum_creatinine": "creatinine_s", "urine_albumin": "screen_urine_acr", "creatinine_u": "creatinine_u"}, axis=1, inplace=True)
     kidney_outcomes["procedure"] = "kidney_hemodynamic_outcomes"
     kidney_outcomes["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "baseline", "v2_gfr_mri_arm_1": "baseline", "v4_arm_1": "post_biopsy", "v7_gfr_mri_arm_1": "Post-biopsy GFR MRI", "v61_med_dispense_arm_1": "Med Dispense 1",  "v62_med_dispense_arm_1": "Med Dispense 2"}, 
+        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "baseline", "v2_gfr_mri_arm_1": "baseline", "v4_arm_1": "post_biopsy", "v7_gfr_mri_arm_1": "3Post-biopsy GFR MRI", "v61_med_dispense_arm_1": "Med Dispense 1",  "v62_med_dispense_arm_1": "Med Dispense 2"}, 
         inplace=True)
     kidney_outcomes = kidney_outcomes.rename(columns={"redcap_event_name": "visit"})
 
@@ -181,7 +181,7 @@ def clean_rpc2_redcap():
     biopsy.rename({"bx_date": "date", "bx_kit_id":"kit_id"}, axis=1, inplace=True)
     biopsy["procedure"] = "kidney_biopsy"
     biopsy["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "baseline", "v2_gfr_mri_arm_1": "baseline", "v4_arm_1": "post_biopsy", "v7_gfr_mri_arm_1": "Post-biopsy GFR MRI", "v61_med_dispense_arm_1": "Med Dispense 1",  "v62_med_dispense_arm_1": "Med Dispense 2"}, 
+        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "baseline", "v2_gfr_mri_arm_1": "baseline", "v4_arm_1": "post_biopsy", "v7_gfr_mri_arm_1": "4Post-biopsy GFR MRI", "v61_med_dispense_arm_1": "Med Dispense 1",  "v62_med_dispense_arm_1": "Med Dispense 2"}, 
         inplace=True)
     biopsy = biopsy.rename(columns={"redcap_event_name": "visit"})
     print(biopsy)
@@ -196,7 +196,7 @@ def clean_rpc2_redcap():
 
     mri["procedure"] = "bold_mri"
     mri["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "baseline", "v2_gfr_mri_arm_1": "baseline", "v4_arm_1": "post_biopsy", "v7_gfr_mri_arm_1": "Post-biopsy GFR MRI", "v61_med_dispense_arm_1": "Med Dispense 1",  "v62_med_dispense_arm_1": "Med Dispense 2"}, 
+        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "baseline", "v2_gfr_mri_arm_1": "baseline", "v4_arm_1": "post_biopsy", "v7_gfr_mri_arm_1": "5post-biopsy", "v61_med_dispense_arm_1": "Med Dispense 1",  "v62_med_dispense_arm_1": "Med Dispense 2"}, 
         inplace=True)
     mri = mri.rename(columns={"redcap_event_name": "visit"})
     print(mri)

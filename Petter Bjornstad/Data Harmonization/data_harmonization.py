@@ -334,7 +334,7 @@ def harmonize_data():
     # Average F
     harmonized["avg_c_f"]= \
         harmonized[["lc_f", "rc_f"]].apply(lambda x: x.mean(), axis=1)
-    harmonized["avg_m_k2"]= \
+    harmonized["avg_m_f"]= \
         harmonized[["lm_f", "rm_f"]].apply(lambda x: x.mean(), axis=1)  
     optional_pet_vars = ['avg_c_f', 'avg_m_f']
     dictionary.loc[dictionary['variable_name'].isin(optional_pet_vars), 'form_name'] = 'optional_pet_scan'       

@@ -22,6 +22,7 @@ def clean_panther():
     from datetime import timedelta
     from natsort import natsorted, ns
     from harmonization_functions import combine_checkboxes
+    from pfas_data_merge import PFAS
     # REDCap project variables
     import getpass
     user = getpass.getuser()  # safer than os.getlogin(), works in more environments
@@ -48,6 +49,9 @@ def clean_panther():
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
+
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+
 
     # --------------------------------------------------------------------------
     # Demographics
@@ -379,6 +383,33 @@ def clean_panther():
     pc_mri["date"] = out["date"]
 
     # --------------------------------------------------------------------------
+    # PFAS
+    # --------------------------------------------------------------------------
+    pfas = PFAS()
+    pfas.replace(rep, np.nan, inplace=True)
+    pfas.rename({"Sample.ID": "record_id"}, axis=1, inplace=True)
+    print("###DEBUG###")
+    print("PFAS COLUMNS:", pfas.columns)
+    abbrev = {"N-ethylperfluoro-1-octanesulfonamidoacetic_acid_(N-EtFOSAA)": "N-EtFOSAA",	"N-methylperfluoro-1-octanesulfonamidoacetic_acid_(N-MeFOSAA)":"N-MeFOSAA",
+                "Perfluoro-n-butanoic_acid-Deg_(PFBA)": "PFBA", "Perfluoro-n-decanoic_acid_(PFDA)": "PFDA", "Perfluoro-n-dodecanoic_acid_(PFDoA)":"PFDoA", 
+                "Perfluoro-n-heptanoic_acid_(PFHpA)":"PFHpA", "Perfluoro-n-hexanoic_acid-Deg_(PFHxA)":"PFHxA",	"Perfluoro-n-nonanoic_acid_(PFNA)":"PFNA", 
+                "Perfluoro-n-octanoic_acid_(PFOA)":"PFOA",	"Perfluoro-n-pentanoic_acid-Deg_(PFPeA)":"PFPeA", "Perfluoro-n-tetradecanoic_acid_(PFTeDA)":"PFTeDA",
+                "Perfluoro-n-tridecanoic_acid_(PFTrDA)":"PFTrDA",	"Perfluoro-n-undecanoic_acid_(PFUnA)":"PFUnA",	"Perfluorobutane-1-sulfonic_acid_(PFBS)":"PFBS",
+            	"Perfluorodecane-1-sulfonic_acid_(PFDoS)":"PFDoS",	"Perfluoroheptanesulfonic_acid_(PFHps)":"PFHps", "Perfluorohexane-1-sulfonic_acid_(PFHxS)":"PFHxS",
+            	"Perfluorononanesulfonic_acid_(PFNS)":"PFNS", "Perfluorooctane-1-sulfonic_acid_(PFOS)":"PFOS",	"Perfluorooctane_sulfonamide_(PFOSA)":"PFOSA",
+            	"Perfluoropentanesulfonic_acid_(PFPeAS)":"PFPeAS"}
+    for col in pfas.columns:
+        if col not in dictionary['variable_name'].values:
+            new_row = pd.DataFrame({'variable_name': [col],
+                                    'description': abbrev.get(col, None),
+                                    'units': "ng/mL",
+                                    'form_name': 'PFAS'})
+            dictionary = pd.concat([dictionary, new_row], ignore_index=True)
+
+    #dictionary.loc[dictionary['variable_name'].isin(pfas.columns), 'form_name'] = 'PFAS'
+
+
+    # --------------------------------------------------------------------------
     # Missingness
     # --------------------------------------------------------------------------
 
@@ -392,6 +423,7 @@ def clean_panther():
     out.dropna(thresh=4, axis=0, inplace=True)
     bold_mri.dropna(thresh=4, axis=0, inplace=True)
     pc_mri.dropna(thresh=4, axis=0, inplace=True)
+    pfas.dropna(thresh=4, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge
@@ -405,6 +437,7 @@ def clean_panther():
     df = pd.concat([df, cgm], join='outer', ignore_index=True)
     df = pd.concat([df, bold_mri], join='outer', ignore_index=True)
     df = pd.concat([df, pc_mri], join='outer', ignore_index=True)
+    df = pd.concat([df, pfas], join='outer', ignore_index=True)
     df = pd.merge(df, out, how='outer')
     df = pd.merge(df, demo, how="outer")
     df = df.copy()
@@ -423,5 +456,7 @@ def clean_panther():
     df.sort_values(["record_id", "visit", "procedure"], inplace=True)
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
+    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+    dictionary.to_csv(tocsv_path, index=False) 
     # Return final data
     return df
