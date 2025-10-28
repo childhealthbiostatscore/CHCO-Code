@@ -99,7 +99,7 @@ def clean_panther():
     screen.rename({"creat_s": "creatinine_s", "a1c": "hba1c"},
                   axis=1, inplace=True)
     screen["procedure"] = "screening"
-    screen["visit"] = "baseline"
+    screen["visit"] = "screening"
 
     # --------------------------------------------------------------------------
     # Medications
