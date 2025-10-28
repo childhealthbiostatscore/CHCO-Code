@@ -51,7 +51,7 @@ exclude <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibrarie
 dat <- harm_dat %>% filter((study == "PANTHER" & visit %in% c("baseline", "screening"))|study == "RENAL-HEIR"|
                              study == "RENAL-HEIRitage" | (study == "IMPROVE" & visit == "baseline")) %>%
   mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
-         mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(screen_date)), T~ as.character(mrn))) %>%
+         mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(date_of_screen)), T~ as.character(mrn))) %>%
   filter(record_id %nin% exclude) %>% # Not removing anyone with proteomics data
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
@@ -386,11 +386,11 @@ summary(pnda_bx$age)
 harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
 
 proteomics <- harm_dat %>% 
-  dplyr::select(record_id, mrn, visit, group, study, age, bmi, seq.10000.28) %>%
+  dplyr::select(record_id, mrn, visit, group, study, age, bmi, seq.10000.28, seq.10000.28_urine) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) %>%
-  filter(!is.na(seq.10000.28))
+  filter(!is.na(seq.10000.28) | !is.na(seq.10000.28_urine))
 
 # RH/RH2
 rh_rh2_proteomics <- proteomics %>%
@@ -423,11 +423,30 @@ nrow(tl_unique)
 # RH/RH2/TODAY/TEEN-LABS: N = 644+61+324 = 1029
 
 # CASPER, CROCODILE, ATTEMPT
-t1d_proteomics <- proteomics %>%
-  filter(study %in% c("CASPER", "CROCODILE", "ATTEMPT")) %>%
+casper_proteomics <- proteomics %>%
+  filter(study %in% c("CASPER")) %>%
   filter(group == "Type 1 Diabetes" | is.na(group)) %>%
   distinct(mrn, seq.10000.28, .keep_all = T)
-nrow(t1d_proteomics)
-# N = 217  # CASPER proteomics not included here
+nrow(casper_proteomics)
 
+croc_proteomics <- proteomics %>%
+  filter(study %in% c("CROCODILE")) %>%
+  filter(group == "Type 1 Diabetes" | is.na(group)) %>%
+  distinct(mrn, seq.10000.28, .keep_all = T)
+nrow(croc_proteomics)
+# N = 30 for CROC
+
+attempt_blood_proteomics <- proteomics %>%
+  filter(study %in% c("ATTEMPT")) %>%
+  filter(group == "Type 1 Diabetes" | is.na(group)) %>%
+  distinct(mrn, seq.10000.28, .keep_all = T)
+nrow(attempt_blood_proteomics)
+# N = 188
+
+attempt_urine_proteomics <- proteomics %>%
+  filter(study %in% c("ATTEMPT")) %>%
+  filter(group == "Type 1 Diabetes" | is.na(group)) %>%
+  distinct(mrn, seq.10000.28_urine, .keep_all = T)
+nrow(attempt_urine_proteomics)
+# N = 127
 ```

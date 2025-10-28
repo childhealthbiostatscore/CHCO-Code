@@ -163,3 +163,60 @@ hist(max_proportion_per_gene)
 
 # Filter the Seurat object
 pb90_subset <- subset(pb90_subset, features = genes_to_keep)
+
+
+#Check the number of Mitochondrial genes to start
+sum(grepl("^MT-", rownames(pb90_subset))) 
+
+# Identify mitochondrial genes (human: start with "MT-")
+mito_genes <- grep("^MT-", rownames(pb90_subset), value = TRUE)
+pb90_subset <- subset(pb90_subset, features = setdiff(rownames(pb90_subset), mito_genes))
+
+#Check the number of Mitochondrial genes after filtering to ensure filtering step was successful
+sum(grepl("^MT-", rownames(pb90_subset))) #Should be 0
+
+# Identify ribosomal genes
+ribo_genes <- c(
+  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
+  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
+  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
+  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
+  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
+  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
+  "RPL10", "RPS4Y1"
+) # grep("^RPL|^RPS", rownames(attempt_so_raw), value = TRUE) captures some none ribosomal genes
+
+pb90_subset <- subset(pb90_subset, features = setdiff(rownames(pb90_subset), ribo_genes))
+
+
+# Check if data are normalized
+Assays(pb90_subset)  # Should show e.g., "RNA" with "counts" and "data"
+pb90_subset@assays # Another method to see RNA assays
+head(GetAssayData(pb90_subset, layer = "counts")[, 1:5])  # Raw counts
+head(GetAssayData(pb90_subset, layer = "data")[, 1:5])    # Normalized data
+
+
+# Exploration of data
+# Randomly select 100 genes from the Seurat object
+genes <- sample(rownames(pb90_subset), 100)
+
+# Set up a 2x3 plotting layout so you can plot multiple histograms in one figure
+par(mfrow = c(2, 3))
+
+# Loop over each randomly selected gene
+for (g in genes) {
+  
+  # Plot a histogram of the expression values for gene 'g'
+  # using normalized expression values from the "data" slot
+  hist(GetAssayData(pb90_subset, layer = "data")[g, ],
+       main = g,                # Title of the plot = gene name
+       xlab = "Normalized Expression")     # Label for x-axis
+  
+  # using raw counts expression values from the "counts" slot
+  hist(GetAssayData(pb90_subset, layer = "counts")[g, ],
+       main = g,                # Title of the plot = gene name
+       xlab = "Raw Counts Expression")     # Label for x-axis
+}
+
+# Save Seurat object for downstream analysis
+s3saveRDS(pb90_subset, object = "data_clean/subset/pb90_ckd_analysis_subset.rds", bucket = "scrna", region = "")

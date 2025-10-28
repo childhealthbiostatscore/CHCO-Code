@@ -186,8 +186,6 @@ qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
 # Set your base directory
 base_dir <- 'Projects/Brain_Imaging/data/'
 
-# Set your base directory
-base_dir <- 'Projects/Brain_Imaging/data/'
 
 # Function to extract regional brain volumes from T1 structural MRI
 # This creates a "morphometric feature matrix" for each participant

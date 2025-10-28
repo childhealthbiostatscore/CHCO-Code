@@ -62,6 +62,9 @@ harm_dat_collapsed <- harm_dat_collapsed %>%
                                        eGFR_CKD_epi >=75 | acr_u < 100 ~ "eGFR >= 75 and UACR <100 mg/g"),
                 uacr_group = factor(uacr_group, levels = c("eGFR >= 75 and UACR <100 mg/g",
                                                            "eGFR < 75 and/or UACR >=100 mg/g")),
+                dkd_group = case_when(uacr_group == "eGFR < 75 and/or UACR >=100 mg/g" ~ "DKD",
+                                      uacr_group == "eGFR >= 75 and UACR <100 mg/g" ~ "non_DKD"),
+                dkd_group = factor(dkd_group, levels = c("non_DKD", "DKD")),
                 # eGFR categories
                 egfr_cat = case_when(
                   eGFR_CKD_epi < 60                      ~ "<60",
