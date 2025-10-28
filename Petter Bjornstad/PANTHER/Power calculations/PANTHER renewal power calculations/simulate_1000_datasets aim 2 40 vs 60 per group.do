@@ -1,11 +1,11 @@
-aldsim, totn(100) cn(4) ci(1) pn(3) pi(1) agelb(8) ageub(14) intsd(5) slpsd(1) slpintcor(-0.1) resid(0.559017) effsize(0.94)
+aldsim, totn(36) cn(4) ci(1) pn(3) pi(1) agelb(8) ageub(14) intsd(5) slpsd(1) slpintcor(-0.1) resid(0.559017) effsize(0.84)
 
-generate group = "cSFK"
+generate group = "T1D"
 replace id = id + 0.2
 
 save temp, replace
 
-aldsim, totn(40) cn(4) ci(1) pn(3) pi(1) agelb(8) ageub(14) intsd(5) slpsd(1) slpintcor(-0.1) resid(0.559017) effsize(0.46)
+aldsim, totn(54) cn(4) ci(1) pn(3) pi(1) agelb(8) ageub(14) intsd(5) slpsd(1) slpintcor(-0.1) resid(0.559017) effsize(0.25)
 
 generate group = "Control"
 replace id = id + 0.1
@@ -17,13 +17,13 @@ generate sim = 1
 save temp, replace
 
 forvalues i=2/1000{
-    aldsim, totn(100) cn(4) ci(1) pn(3) pi(1) agelb(8) ageub(14) intsd(1) slpsd(1) slpintcor(-0.1) resid(0.559017) effsize(0.94)
-	generate group = "cSFK"
+    aldsim, totn(36) cn(4) ci(1) pn(3) pi(1) agelb(8) ageub(14) intsd(1) slpsd(1) slpintcor(-0.1) resid(0.559017) effsize(0.84)
+	generate group = "T1D"
 	replace id = id + 0.2
 	
 	save temp1, replace
 	
-	aldsim, totn(40) cn(4) ci(1) pn(3) pi(1) agelb(8) ageub(14) intsd(1) slpsd(1) slpintcor(-0.1) resid(0.559017) effsize(0.46)
+	aldsim, totn(54) cn(4) ci(1) pn(3) pi(1) agelb(8) ageub(14) intsd(1) slpsd(1) slpintcor(-0.1) resid(0.559017) effsize(0.3)
 	generate group = "Control"
 	replace id = id + 0.1
 	
@@ -38,4 +38,4 @@ forvalues i=2/1000{
 
 sort sim, stable
 
-outsheet id sim cohort group period age y using "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/Grants/LEOPARD power and stats/Revision/ald_sim_100_vs_40_per_group.csv" , comma replace
+outsheet id sim cohort group period age y using "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Grants/Puberty and kidney structure and function R01 (PANTHER)/Renewal application/Power calculations/ald_sim_40_vs_60_per_group.csv" , comma replace
