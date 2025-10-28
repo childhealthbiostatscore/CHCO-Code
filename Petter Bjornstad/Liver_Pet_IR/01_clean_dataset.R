@@ -8,14 +8,14 @@
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") {
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
 } else if (user == "pylell") {
-  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
 } else if (user == "hhampson") {
-  # root_path <- "/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
-  root_path <- "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
+  root_path <- "/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive"
+  # root_path <- "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive"
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
