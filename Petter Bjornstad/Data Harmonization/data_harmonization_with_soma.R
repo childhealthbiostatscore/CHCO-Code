@@ -59,10 +59,62 @@ clean <- clean %>%
                 rh_id, rh2_id, panther_id, panda_id, co_enroll_id,
                 mrn, date, screen_date, everything())
 
+# ---- Calculate BMI Percentiles using growthcleanr ----
+library(growthcleanr)
+library(lubridate)
+library(dplyr)
+
+# Step 1: Convert date columns safely
+clean <- clean %>%
+  mutate(
+    dob = suppressWarnings(parse_date_time(dob, orders = c("ymd", "mdy", "dmy"))),
+    screen_date = suppressWarnings(parse_date_time(screen_date, orders = c("ymd", "mdy", "dmy")))
+  )
+
+# Step 2: Compute age in months
+clean <- clean %>%
+  mutate(
+    age_mo = as.numeric(difftime(screen_date, dob, units = "days")) / 30.44
+  )
+
+# Step 3: Clean numeric columns (force conversion and drop bad rows)
+clean <- clean %>%
+  mutate(
+    age_mo = as.numeric(age_mo),
+    weight = as.numeric(weight),
+    height = as.numeric(height),
+    bmi = as.numeric(bmi)
+  )
+
+# Step 4: Keep only valid entries
+bmi_input <- clean %>%
+  filter(!is.na(sex) & !is.na(age_mo) & !is.na(weight) & !is.na(height) & !is.na(bmi))
+
+cat("📊 Using", nrow(bmi_input), "records with complete BMI input data.\n")
+
+# Step 5: Run growthcleanr BMI z-score and percentile calculation
+bmi_percentile <- growthcleanr::ext_bmiz(
+  data = subset(bmi_input, select = c(record_id, visit, sex, age_mo, weight, height, bmi)),
+  age = "age_mo",
+  wt = "weight",
+  ht = "height",
+  bmi = "bmi",
+  adjust.integer.age = FALSE
+) %>%
+  select(record_id, visit, bmip, bmiz) %>%
+  filter(!is.na(bmip))
+
+# Step 6: Merge results into harmonized dataset
+clean <- clean %>%
+  left_join(bmi_percentile, by = c("record_id", "visit"))
+
+
 # Save clinical harmonized dataset
 write.csv(clean, 
           file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), row.names = F,
           na = "")
+
+cat("Added BMI percentiles and z-scores to harmonized dataset and saved to CSV.\n")
 
 ##########################################################################################
 
