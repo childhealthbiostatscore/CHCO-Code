@@ -1,8 +1,10 @@
 library(dplyr)
 library(tidyr)
-library(table1)
+library(arsenal)
 library(purrr)
 library(Hmisc)
+library(growthcleanr)
+library(stringr)
 
 dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = c(" ", "", "-9999",-9999))
 
@@ -71,7 +73,7 @@ summary(tableby(group_risk ~ kwt(mm_di, "Nmiss", "medianq1q3", "range"), data = 
 summary(tableby(group_risk ~ kwt(mm_ir, "Nmiss", "medianq1q3", "range"), data = subset(dat,record_id %nin% exclude & mm_ir < 100), total = T, test = F))
 
 
-write.csv(ier, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/2025_panther_ier.csv", row.names = F)
+write.csv(ier, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned/2025_panther_ier_2.csv", row.names = F)
 
 summary_table <- ier %>%
   group_by(Race, Ethnicity, Gender) %>%
@@ -84,3 +86,6 @@ summary_table <- ier %>%
 summary_table
 
 
+dat %>%
+  # filter(record_id %nin% exclude) %>%
+  dplyr::select(record_id, visit, race, ethnicity, sex, age, status)

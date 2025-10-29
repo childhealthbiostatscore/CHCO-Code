@@ -5,6 +5,7 @@ import numpy as np
 def PFAS():
     import os
     import sys
+    import pandas as pd
     sys.path.insert(0, os.path.expanduser('~') +
                     "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
     import getpass
@@ -43,7 +44,22 @@ def PFAS():
     df["Sample.ID"] = df["Sample.ID"].str.removesuffix("_2")
     df["Sample.ID"] = df["Sample.ID"].str.removesuffix("_W_2")
     df["visit"] = "baseline"
-    df["procedure"] = "screening"
+    df["procedure"] = "pfas"
+    
+    # Define replacements
+    replacements = {
+        "PAN-110-O": "PAN-110-C",
+        "PAN-61-C": "PAN-61-O",
+        "PAN-71-C": "PAN-71-O",
+        "PAN-16-O-W": "PAN-16-O",
+        "PAN-08-T-W": "PAN-08-T",
+        "PAN-56-C-W": "PAN-56-C",
+        "PAN-57-C-W": "PAN-57-C"
+    }
+    
+    # Replace values
+    df["Sample.ID"] = df["Sample.ID"].replace(replacements)
+    
     df.drop(columns=['Run_order', 'Batch', 'Sample_type'], inplace=True)
 
     return df
