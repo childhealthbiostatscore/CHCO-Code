@@ -762,6 +762,7 @@ celltypes_vec <- c('All',
                    'PT', 
                    'TAL', 
                    'EC', 
+                   'POD',
                    'DCTall', 
                    'IC')
 
@@ -882,6 +883,7 @@ celltypes_vec <- c('All',
                    'PT', 
                    'TAL', 
                    'EC', 
+                   'POD',
                    'DCTall', 
                    'IC')
 
@@ -904,7 +906,7 @@ library(ggplot2)
 library(ggbreak)
 library(dplyr)
 
-variable_names <- c('All', 'PT', 'TAL', 'EC', 'IC', 'DCTall')
+variable_names <- c('All', 'PT', 'TAL', 'EC', 'IC', 'POD', 'DCTall')
 
 for(i in c(1:length(variable_names))){
   
