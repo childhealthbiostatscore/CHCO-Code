@@ -1,52 +1,78 @@
----
-title: "PANTHER PFAS"
-format: revealjs
-editor: visual
----
-
-<<<<<<< HEAD
-#1. Set Up 
-##a. Load Libraries & Directores
-```{r}
+#1. Set Up ----
+##a. Load Libraries & Directores----
 #Libraries
 if (!require("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
-=======
-# 1. Background
 
->>>>>>> 1c4d7a4a20d3c5b0c5e8bb1114c31365434c2aff
+#Directories
+# computer <- "mac studio"
+computer <- "mac laptop"
+if (computer == "mac studio") {
+  user <- Sys.info()[["user"]]
+  if (user == "hhampson") {
+    dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+    dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results")
+    git_path <- "Users/hhampson/CHCO-Code/Petter Bjornstad"
+  } else if (user == "shivaniramesh") {
+    dir.dat <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+    dir.results <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results")
+  } else if (user == "choiyej") {
+    dir.dat <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  } else if (user == "pylell") {
+    dir.dat <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+    dir.results <- paste0(dir.dat, "/PANTHER/Results")
+    git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  }
+} else {
+  user <- Sys.info()[["user"]]
+  if (user == "hhampson") {
+    dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
+    dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/PANTHER/Results")
+    git_path <- "Users/hhampson/CHCO-Code/Petter Bjornstad"
+  } else {
+    dir.dat <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+    dir.results <- c("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Pet IR/Results")
+  }
+}
 
-# 2. Methods
-
-<<<<<<< HEAD
 # source(file.path(git_path, "PANTHER PFAS/Libraries.R"))
 source("Libraries.R")
-```
 
-##b. Load Data
-
-```{r}
+##b. Load Data----
 #Load Metadata
 dat <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = "")
 lod <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS Quantification/PFAS_LODs.csv"))
-```
 
-##c. Clean & Format Data
 
-```{r}
+##c. Clean & Format Data----
 pfas <- c("N.EtFOSAA","N.MeFOSAA","PFBA","PFDA","PFDoA","PFHpA","PFHxA","PFNA","PFBS","PFPeA","PFTeDA","PFTrDA","PFUnA","PFBS","PFDoS","PFHps","PFHxS","PFNS","PFOS","PFOSA","PFPeAS")
-
-dat_collapsed <- dat %>%
-    filter(study=="PANTHER") %>% 
-    # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
-      dplyr::select(record_id, dob, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u,all_of(pfas)) %>% 
+dat_collapsed1 <- dat %>%
+  filter(study=="PANTHER") %>% 
+  filter(visit=="baseline" | visit=="screening") %>% 
+  # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
+  dplyr::select(record_id, dob, date, rh2_id, visit, mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
+  # group_by(record_id, visit) %>%
+  # tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id)) %>% 
+  mutate(visit="baseline_screening")
+dat_collapsed2 <- dat %>%
+  filter(study=="PANTHER") %>% 
+  filter(visit=="year_1" | visit=="year_2") %>% 
+  # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
+  dplyr::select(record_id, dob, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
   # group_by(record_id, visit) %>%
   # tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) 
+meta <- rbind(dat_collapsed1,dat_collapsed2)
 
-pfas_dat <- dat_collapsed %>% 
+pfas_dat <- dat %>% 
+  filter(study=="PANTHER") %>% 
   filter(visit=="baseline") %>% 
   dplyr::select("record_id",all_of(pfas))%>% #127 panther baseline participants
   filter(!is.na(N.EtFOSAA))
@@ -116,27 +142,16 @@ for (pfas in pfas_to_impute){
 
 #Save formatted and imputed pfas data
 # saveRDS(pfas_imputed,fs::path(dir.dat,"PFAS_Data_Imputed.rds"))
-# Create a custom rendering function for geometric mean
-render.geometric <- function(x, ...) {
-  gm <- exp(mean(log(x[x > 0]), na.rm = TRUE))  # geometric mean
-  gsd <- exp(sd(log(x[x > 0]), na.rm = TRUE))    # geometric SD
-  c("", 
-    " " = sprintf("%.2f (%.2f)", gm, gsd))
-}
+
 # pfas_to_impute
 table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFBS+PFHps+PFHxS+PFNS+PFOS+PFPeAS,data=pfas_imputed,render.continuous = render.geometric)
 
 #Format metadata
 # meta <- dat_collapsed
 dat <- tidylog::left_join(pfas_imputed,meta,by="record_id")
+dat_baseline <- dat %>% 
+  filter(visit=="baseline_screening")
+# table1(~age+sex+bmi+hba1c+microalbumin_u+creatinine_s+creatinine_u+eGFR_CKiD_U25_avg | group,data=dat)
 
-# table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFBS+PFHps+PFHxS+PFNS+PFOS+PFPeAS,data=pfas_imputed,render.continuous = render.geometric)
 
-```
-=======
-#3. Results
-```{r,echo=F}
-source("PANTHER_PFAS_Analysis.R")
-```
 
->>>>>>> 1c4d7a4a20d3c5b0c5e8bb1114c31365434c2aff
