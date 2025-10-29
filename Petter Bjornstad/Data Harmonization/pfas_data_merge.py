@@ -5,6 +5,7 @@ import numpy as np
 def PFAS():
     import os
     import sys
+    import pandas as pd
     sys.path.insert(0, os.path.expanduser('~') +
                     "/GitHub/CHCO-Code/Petter Bjornstad/Data Harmonization")
     import getpass
@@ -49,7 +50,11 @@ def PFAS():
     replacements = {
         "PAN-110-O": "PAN-110-C",
         "PAN-61-C": "PAN-61-O",
-        "PAN-71-C": "PAN-71-O"
+        "PAN-71-C": "PAN-71-O",
+        "PAN-16-O-W": "PAN-16-O",
+        "PAN-08-T-W": "PAN-08-T",
+        "PAN-56-C-W": "PAN-56-C",
+        "PAN-57-C-W": "PAN-57-C"
     }
     
     # Replace values
