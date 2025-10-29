@@ -43,7 +43,18 @@ def PFAS():
     df["Sample.ID"] = df["Sample.ID"].str.removesuffix("_2")
     df["Sample.ID"] = df["Sample.ID"].str.removesuffix("_W_2")
     df["visit"] = "baseline"
-    df["procedure"] = "screening"
+    df["procedure"] = "pfas"
+    
+    # Define replacements
+    replacements = {
+        "PAN-110-O": "PAN-110-C",
+        "PAN-61-C": "PAN-61-O",
+        "PAN-71-C": "PAN-71-O"
+    }
+    
+    # Replace values
+    df["Sample.ID"] = df["Sample.ID"].replace(replacements)
+    
     df.drop(columns=['Run_order', 'Batch', 'Sample_type'], inplace=True)
 
     return df

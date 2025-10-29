@@ -440,6 +440,7 @@ def clean_panther():
     df = pd.concat([df, pfas], join='outer', ignore_index=True)
     df = pd.merge(df, out, how='outer')
     df = pd.merge(df, demo, how="outer")
+
     df = df.copy()
 
     # --------------------------------------------------------------------------
