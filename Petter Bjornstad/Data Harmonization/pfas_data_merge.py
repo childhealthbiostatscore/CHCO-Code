@@ -42,7 +42,9 @@ def PFAS():
             	"Perfluorononanesulfonic_acid_(PFNS)":"PFNS", "Perfluorooctane-1-sulfonic_acid_(PFOS)":"PFOS",	"Perfluorooctane_sulfonamide_(PFOSA)":"PFOSA",
             	"Perfluoropentanesulfonic_acid_(PFPeAS)":"PFPeAS"}, axis=1, inplace=True)
     df["Sample.ID"] = df["Sample.ID"].str.removesuffix("_2")
-    df["Sample.ID"] = df["Sample.ID"].str.removesuffix("_W_2")
+    df["Sample.ID"] = df["Sample.ID"].str.removesuffix("-W")
+    df["Sample.ID"] = df["Sample.ID"].str.removesuffix("_W_2")    
+
     df["visit"] = "baseline"
     df["procedure"] = "pfas"
     

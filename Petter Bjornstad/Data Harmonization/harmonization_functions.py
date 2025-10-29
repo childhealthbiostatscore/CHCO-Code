@@ -182,3 +182,59 @@ def create_study_id_columns(harmonized):
     output_path = (base_data_path + "Data Harmonization/id_linkage_matrix.csv")
     linkage_df.to_csv(output_path, index=False)
     return harmonized
+
+def biopsy_merge(harmonized):
+    import getpass
+    import sys
+    import os
+    import pandas as pd
+    user = getpass.getuser()  # safer than os.getlogin(), works in more environments
+
+    if user == "choiyej":
+        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "pylell":
+        base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "shivaniramesh":
+        base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    else:
+        sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
+    biopsy_master = pd.read_excel(
+        base_data_path + "Data Harmonization/Biopsies/Biopsy master tracker.xlsx",
+        header=2,           # don't auto-detect headers           # skip rows above header
+        usecols="A:AC",         # only these columns
+        )
+
+    biopsy_master.columns = biopsy_master.columns.str.strip()
+
+    # Prepare biopsy data
+    biopsy_lookup = biopsy_master[['Study ID', 'Biopsy date', 'Kit ID']].copy()
+    biopsy_lookup.columns = ['record_id', 'date', 'kit_id_biopsy']
+    
+    # Convert dates
+    biopsy_lookup['date'] = pd.to_datetime(biopsy_lookup['date'], errors='coerce')
+    harmonized['date'] = pd.to_datetime(harmonized['date'], errors='coerce')
+    
+    # Remove nulls from biopsy lookup
+    biopsy_lookup = biopsy_lookup.dropna(subset=['record_id', 'date', 'kit_id_biopsy'])
+    
+    # STEP 1: Filter to ONLY kidney biopsy rows
+    kidney_biopsy_rows = harmonized['procedure'] == 'kidney_biopsy'
+    kb_subset = harmonized[kidney_biopsy_rows].copy()
+    
+    # STEP 2: Merge on record_id AND date (so only matching rows get kit_id_biopsy)
+    merged = kb_subset.merge(
+        biopsy_lookup[['record_id', 'date', 'kit_id_biopsy']],
+        on=['record_id', 'date'],  # <-- Both must match
+        how='left'  # <-- Keeps all kb rows, fills kit_id_biopsy only where match exists
+    )
+    
+    # STEP 3: Update ONLY the rows that:
+    #   - Are kidney biopsies (already filtered in kb_subset)
+    #   - Have matching record_id AND date (from the merge)
+    #   - Actually have a kit_id_biopsy value (merge put NaN for non-matches)
+    harmonized.loc[merged.index, 'kit_id'] = merged['kit_id_biopsy']
+    
+    return harmonized
