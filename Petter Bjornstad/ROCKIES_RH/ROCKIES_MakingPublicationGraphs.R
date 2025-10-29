@@ -514,11 +514,13 @@ for(i in c(1:length(celltypes))){
     legend_position <- 'bottom'
     axis_angle <- 0
     hjust_val <- 0.5
+    asterisk_size <- 8
   } else {
     text_size <- 12
     legend_position <- 'none'
     axis_angle <- 45
     hjust_val <- 1
+    asterisk_size <- 6
   }
   
   celltype2 <- str_replace_all(celltype,"/","_")
@@ -562,11 +564,12 @@ for(i in c(1:length(celltypes))){
       geom_text(aes(label = Significance), 
                 position = position_dodge(width = 0.9),
                 vjust = -0.5, 
-                size = 5) +
+                size = asterisk_size) +
       geom_hline(yintercept = 0, linetype = "solid", color = "black", linewidth = 0.3) +
       labs(x = NULL, 
            y = 'Log2 Fold Change',
            subtitle = celltype) +
+      scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
       scale_fill_manual(name = 'Regulation',
                         labels = c('Up' = 'Up-regulated', 'Down' = 'Down-regulated'),
                         values = c('Down' = '#d73027', 'Up' = '#4575b4')) +
@@ -575,7 +578,7 @@ for(i in c(1:length(celltypes))){
         text = element_text(color = "black"),
         axis.text.x = element_text(angle = axis_angle, hjust = hjust_val, 
                                    size = 10, color = "black",
-                                   margin = margin(t = 8)),  # Increased margin
+                                   margin = margin(t = 8)), 
         axis.text.y = element_text(size = 10, color = "black"),
         axis.title = element_text(size = 11, face = "bold", color = "black"),
         axis.title.y = element_text(margin = margin(r = 10)),
@@ -630,11 +633,12 @@ for(i in c(1:length(celltypes))){
       geom_text(aes(label = Significance), 
                 position = position_dodge(width = 0.9),
                 vjust = -0.5, 
-                size = 5) +
+                size = asterisk_size) +
       geom_hline(yintercept = 0, linetype = "solid", color = "black", linewidth = 0.3) +
       labs(x = NULL,
            y = 'Log2 Fold Change',
            subtitle = celltype) +
+      scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
       scale_fill_manual(name = 'Regulation',
                         labels = c('Up' = 'Up-regulated', 'Down' = 'Down-regulated'),
                         values = c('Down' = '#d73027', 'Up' = '#4575b4')) +
@@ -735,10 +739,9 @@ all_combined <- (tca_plots[['PT']]) /
     title = 'Figure 2',
     subtitle = 'TCA cycle and oxidative phosphorylation gene expression in proximal tubule cells',
     theme = theme(
-      plot.title = element_text(size = 12, face = "bold", hjust = 0, color = "black",
-                                margin = margin(b = 5)),
-      plot.subtitle = element_text(size = 11, hjust = 0, color = "black",
-                                   margin = margin(b = 15))
+      plot.title = element_text(size = 18, face = "bold", hjust = 0, color = "black"),  # Consistent with other figures
+      plot.subtitle = element_text(size = 16, hjust = 0, color = "black",  # Consistent with other figures
+                                   margin = margin(b = 10))
     )
   )
 
@@ -1252,7 +1255,9 @@ p2 <- ggplot(plot_df_clean, aes(x = avg_c_k2_f_binary, y = pseudotime, fill = av
   geom_violin(alpha = 0.6, trim = FALSE) +
   geom_boxplot(width = 0.2, alpha = 0.8, outlier.shape = NA) +
   geom_jitter(width = 0.1, alpha = 0.1, size = 0.5) +
-  stat_compare_means(method = "wilcox.test", label = "p.format") +
+  stat_compare_means(method = "wilcox.test", label = "p.format", 
+                     label.y = max(plot_df_clean$pseudotime) * 0.99,  # Near top
+                     label.x = 1.4) +
   theme_classic() +
   labs(title = "Pseudotime Comparison by Cortical K2/F Level",
        x = "Cortical K2/F Level",
@@ -1886,6 +1891,190 @@ pdf_subset(
 
 
 
+
+
+##### Module scores again
+
+library(Seurat)
+library(ggpubr)
+
+# Define TCA genes
+tca_genes <- c("ACO1", "ACO2", "DLD", "IDH1", "IDH3A", "MDH1", 
+               "OGDH", "PDHA1", "SDHD", "SUCLA2", "SUCLG1", "SUCLG2")
+
+# Add TCA module score to your Seurat object
+so_subset <- AddModuleScore(
+  so_subset,
+  features = list(tca_genes),
+  name = "TCA_module"
+)
+
+# Extract the scores and group info
+score_data <- FetchData(so_subset, vars = c("TCA_module1", "group"))
+
+# Statistical test
+test_result <- wilcox.test(TCA_module1 ~ group, data = score_data)
+print(test_result)
+
+# Get summary stats
+score_data %>% 
+  group_by(group) %>%
+  summarise(
+    mean = mean(TCA_module1),
+    median = median(TCA_module1),
+    sd = sd(TCA_module1)
+  )
+
+# Visualize
+VlnPlot(so_subset, 
+        features = "TCA_module1", 
+        group.by = "group",
+        pt.size = 0.1) +
+  stat_compare_means(method = "wilcox.test", label.y.npc = 0.95) +
+  labs(title = "TCA Cycle Module Score",
+       y = "Module Score",
+       x = "Group") +
+  theme_classic()
+
+
+
+
+
+library(Seurat)
+library(ggpubr)
+library(dplyr)
+
+# Extract OxPhos genes from your actual data files
+# (Use the same files you used in your original script)
+
+# Read the OxPhos file for PT cells (or whichever celltype you want)
+celltype <- 'PT'
+celltype2 <- str_replace_all(celltype, "/", "_")
+celltype2 <- str_replace_all(celltype2, "-", "_")
+
+lc_files <- list.files('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/', pattern='csv')
+tmp_lc <- lc_files[str_which(lc_files, pattern = paste0('cycle_', celltype2, '_cells'))]
+tmp_lc_oxphos <- tmp_lc[str_which(tmp_lc, pattern = 'PHOS_')]
+
+oxphos_data <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/', tmp_lc_oxphos))
+
+# Extract the gene list
+oxphos_genes <- oxphos_data$gene
+
+print(oxphos_genes)  # Check what genes you have
+
+# Add OxPhos module score to your Seurat object
+so_subset <- AddModuleScore(
+  so_subset,
+  features = list(oxphos_genes),
+  name = "OxPhos_module"
+)
+
+# Extract the scores and group info
+score_data <- FetchData(so_subset, vars = c("OxPhos_module1", "group"))
+
+# Statistical test
+test_result <- wilcox.test(OxPhos_module1 ~ group, data = score_data)
+print(test_result)
+
+# Get summary stats
+score_data %>% 
+  group_by(group) %>%
+  summarise(
+    mean = mean(OxPhos_module1),
+    median = median(OxPhos_module1),
+    sd = sd(OxPhos_module1)
+  )
+
+# Visualize
+VlnPlot(so_subset, 
+        features = "OxPhos_module1", 
+        group.by = "group",
+        pt.size = 0.1) +
+  stat_compare_means(method = "wilcox.test", label.y.npc = 0.95) +
+  labs(title = "Oxidative Phosphorylation Module Score",
+       y = "Module Score",
+       x = "Group") +
+  theme_classic()
+
+
+##### PET variables
+
+
+library(corrplot)
+library(Seurat)
+
+# Extract module scores and PET variables
+
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+dat <- harmonized_data %>% 
+  dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(
+    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+    .by = c(record_id, visit)
+  )
+
+dat <- dat %>% 
+  dplyr::select(mrn, avg_c_k2, avg_c_f) %>% 
+  dplyr::mutate(avg_c_k2_f = avg_c_k2/avg_c_f) %>% 
+  dplyr::filter(!is.na(mrn)) %>% 
+  dplyr::group_by(mrn) %>% 
+  dplyr::summarize(avg_c_k2 = mean(avg_c_k2, na.rm=T), 
+                   avg_c_f = mean(avg_c_f, na.rm=T), 
+                   avg_c_k2_f = mean(avg_c_k2_f, na.rm=T))
+
+test <- so_subset@meta.data %>% left_join(dat, by='mrn')
+
+
+
+so_subset@meta.data$avg_c_k2 <- test$avg_c_k2
+so_subset@meta.data$avg_c_f <- test$avg_c_f
+so_subset@meta.data$avg_c_k2_f <- test$avg_c_k2_f
+correlation_data <- FetchData(so_subset, vars = c("TCA_module1", "OxPhos_module1", 
+                                                  "avg_c_k2", "avg_c_f", "avg_c_k2_f"))
+
+# Create correlation matrix: rows = module scores, columns = PET variables
+module_scores <- correlation_data[, c("TCA_module1", "OxPhos_module1")]
+pet_variables <- correlation_data[, c("avg_c_k2", "avg_c_f", "avg_c_k2_f")]
+
+# Calculate correlation matrix (module scores vs PET variables)
+cor_matrix <- cor(module_scores, pet_variables, method = "spearman", use = "pairwise.complete.obs")
+
+# Rename rows for cleaner labels
+rownames(cor_matrix) <- c("TCA Module", "OxPhos Module")
+colnames(cor_matrix) <- c("Cortical K2", "Cortical F", "Cortical K2/F")
+
+print(cor_matrix)
+
+# Visualize as corrplot
+corrplot(cor_matrix, 
+         method = "color",
+         addCoef.col = "black",
+         number.cex = 1.2,
+         tl.col = "black",
+         tl.cex = 1,
+         tl.srt = 45,
+         col = colorRampPalette(c("#4575b4", "white", "#d73027"))(200),
+         cl.lim = c(-1, 1))
+
+# Alternative: Calculate p-values for each correlation
+p_values <- matrix(NA, nrow = 2, ncol = 3)
+rownames(p_values) <- c("TCA Module", "OxPhos Module")
+colnames(p_values) <- c("Cortical K2", "Cortical F", "Cortical K2/F")
+
+for(i in 1:nrow(module_scores)){
+  for(j in 1:ncol(pet_variables)){
+    test <- cor.test(module_scores[,i], pet_variables[,j], method = "spearman")
+    p_values[i, j] <- test$p.value
+  }
+}
+
+print("P-values:")
+print(p_values)
 
 
 
