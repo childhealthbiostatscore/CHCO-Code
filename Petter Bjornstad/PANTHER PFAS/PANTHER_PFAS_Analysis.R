@@ -5,8 +5,8 @@ if (!require("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
 
 #Directories
-# computer <- "mac studio"
-computer <- "mac laptop"
+computer <- "mac studio"
+# computer <- "mac laptop"
 if (computer == "mac studio") {
   user <- Sys.info()[["user"]]
   if (user == "hhampson") {
@@ -39,20 +39,25 @@ if (computer == "mac studio") {
 
 # source(file.path(git_path, "PANTHER PFAS/Libraries.R"))
 source("Libraries.R")
+source("Functions.R")
 
 ##b. Load Data----
 #Load Metadata
 dat <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean","harmonized_dataset.csv"),na.strings = "")
 lod <- read.csv(fs::path(dir.dat,"/PANTHER/Data_Raw/PFAS Emory 2025/8- PFAS Quantification/PFAS_LODs.csv"))
 
-
 ##c. Clean & Format Data----
+# dat <- dat %>% 
+#   mutate(group=ifelse(record_id=="PAN-110-O","Obese Control",
+#                       ifelse(record_id=="PAN-61-C","Lean Control",
+#                              ifelse(record_id=="PAN-71-C","Lean Control",group))))
+
 pfas <- c("N.EtFOSAA","N.MeFOSAA","PFBA","PFDA","PFDoA","PFHpA","PFHxA","PFNA","PFBS","PFPeA","PFTeDA","PFTrDA","PFUnA","PFBS","PFDoS","PFHps","PFHxS","PFNS","PFOS","PFOSA","PFPeAS")
 dat_collapsed1 <- dat %>%
   filter(study=="PANTHER") %>% 
   filter(visit=="baseline" | visit=="screening") %>% 
   # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
-  dplyr::select(record_id, dob, date, rh2_id, visit, mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
+  dplyr::select(record_id, dob, date, rh2_id, visit, mrn, group, age, sex, bmi, hba1c,albuminuria_cat,acr_u,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
   # group_by(record_id, visit) %>%
   # tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
@@ -63,7 +68,7 @@ dat_collapsed2 <- dat %>%
   filter(study=="PANTHER") %>% 
   filter(visit=="year_1" | visit=="year_2") %>% 
   # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
-  dplyr::select(record_id, dob, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
+  dplyr::select(record_id, dob, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,acr_u,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
   # group_by(record_id, visit) %>%
   # tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
@@ -74,8 +79,11 @@ meta <- rbind(dat_collapsed1,dat_collapsed2)
 pfas_dat <- dat %>% 
   filter(study=="PANTHER") %>% 
   filter(visit=="baseline") %>% 
-  dplyr::select("record_id",all_of(pfas))%>% #127 panther baseline participants
-  filter(!is.na(N.EtFOSAA))
+  dplyr::select("record_id",all_of(pfas)) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id)) %>% 
+  filter(!is.na(N.EtFOSAA)) #91 participants with baseline pfas data
 
 #Impute PFAS Data
 t_lod <- t(lod)
@@ -124,7 +132,7 @@ PFHps < 2/3 #True, impute
 PFHxS <- length(which(pfas_dat$PFHxS < lod$`PFHxS`))/length(unique(pfas_dat$record_id))
 PFHxS < 2/3 #True, impute
 PFNS <- length(which(pfas_dat$PFNS < lod$`PFNS`))/length(unique(pfas_dat$record_id))
-PFNA < 2/3 #True, impute
+PFNS < 2/3 #FALSE, exclude
 PFOS <- length(which(pfas_dat$PFOS < lod$`PFOS`))/length(unique(pfas_dat$record_id))
 PFOS < 2/3 #True, impute
 PFOSA <- length(which(pfas_dat$PFOSA < lod$`PFOSA`))/length(unique(pfas_dat$record_id))
@@ -133,7 +141,7 @@ PFPeAS <- length(which(pfas_dat$PFPeAS < lod$`PFPeAS`))/length(unique(pfas_dat$r
 PFPeAS < 2/3 #True, impute
 
 pfas_to_impute <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS", 
-                    "PFHps", "PFHxS", "PFNS", "PFOS", "PFPeAS")
+                    "PFHps", "PFHxS", "PFOS", "PFPeAS")
 pfas_imputed <- pfas_dat %>% 
   dplyr::select(c("record_id",all_of(pfas_to_impute)))
 for (pfas in pfas_to_impute){
@@ -144,14 +152,133 @@ for (pfas in pfas_to_impute){
 # saveRDS(pfas_imputed,fs::path(dir.dat,"PFAS_Data_Imputed.rds"))
 
 # pfas_to_impute
-table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFBS+PFHps+PFHxS+PFNS+PFOS+PFPeAS,data=pfas_imputed,render.continuous = render.geometric)
+table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFBS+PFHps+PFHxS+PFOS+PFPeAS,data=pfas_imputed,render.continuous = render.geometric)
 
 #Format metadata
 # meta <- dat_collapsed
 dat <- tidylog::left_join(pfas_imputed,meta,by="record_id")
+
+#Particpants 
 dat_baseline <- dat %>% 
   filter(visit=="baseline_screening")
-# table1(~age+sex+bmi+hba1c+microalbumin_u+creatinine_s+creatinine_u+eGFR_CKiD_U25_avg | group,data=dat)
+table1(~age+sex+bmi+hba1c+microalbumin_u+acr_u+creatinine_s+creatinine_u+eGFR_CKiD_U25_avg|group,data=dat_baseline)
+# # Convert to flextable
+# ft <- t1flex(t1)
+# save_as_image(ft, path = "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results/PFAS Results/PANTHER_PFAS_Table1_Baseline.png", webshot = "webshot2")
 
+table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFBS+PFHps+PFHxS+PFNS+PFOS+PFPeAS,data=pfas_imputed,render.continuous = render.geometric)
 
+#Filter out albumin and acru outlier
+dat_baseline2 <- dat_baseline %>% 
+  mutate(microalbumin_u=ifelse(microalbumin_u>3000,NA,microalbumin_u)) %>% 
+  mutate(acr_u=ifelse(acr_u>2367,NA,acr_u))
+#Filter out albumin outlier and acru outlier
+dat2 <- dat %>% 
+  mutate(microalbumin_u=ifelse(microalbumin_u>3000,NA,microalbumin_u)) %>% 
+  mutate(acr_u=ifelse(acr_u>2367,NA,acr_u))
 
+#Exposure assessment: 
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results/PFAS Results/pfas_acru_plots_no_outlier.pdf", width = 8, height = 6)
+#Baseline Analysis
+pfas_vars <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS", 
+               "PFHps", "PFHxS", "PFOS", "PFPeAS")
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("acr_u~",pfas,"+age+sex"))
+  m1 <- lm(m0,dat=dat_baseline2)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  
+  p <- ggplot(data=dat_baseline2,aes(x=.data[[pfas]],y=acr_u))+
+    geom_point()+
+    geom_smooth(method="lm",se=F)+
+    theme_bw()+
+    labs(title = c("Association between PFAS and ACRu, adj. Age & Sex"),
+         subtitle = paste0("Beta = ", round(beta,3), ", pval = ", round(pval,3)),
+         x = pfas,  # This will use the variable name from pfas
+         y = "ACRu")
+  print(p)
+  
+}
+dev.off()
+
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results/PFAS Results/pfas_microalbumin_plots_no_outlier.pdf", width = 8, height = 6)
+#Baseline Analysis
+pfas_vars <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS", 
+                    "PFHps", "PFHxS", "PFOS", "PFPeAS")
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("microalbumin_u~",pfas,"+age+sex"))
+  m1 <- lm(m0,dat=dat_baseline2)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  
+  p <- ggplot(data=dat_baseline2,aes(x=.data[[pfas]],y=microalbumin_u))+
+    geom_point()+
+    geom_smooth(method="lm",se=F)+
+    theme_bw()+
+    labs(title = c("Association between PFAS and Microalbuminuria, adj. Age & Sex"),
+         subtitle = paste0("Beta = ", round(beta,3), ", pval = ", round(pval,3)),
+         x = pfas,  # This will use the variable name from pfas
+         y = "Microalbumin (U)")
+  print(p)
+  
+}
+dev.off()
+
+pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results/PFAS Results/pfas_eGFR_plots.pdf", width = 8, height = 6)
+#Baseline Analysis
+pfas_vars <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS", 
+               "PFHps", "PFHxS", "PFOS", "PFPeAS")
+for (pfas in pfas_vars) {
+  m0 <- as.formula(paste0("eGFR_CKiD_U25_avg~",pfas,"+age+sex"))
+  m1 <- lm(m0,dat=dat_baseline2)
+  beta <- summary(m1)$coef[2,1]
+  pval <- summary(m1)$coef[2,4]
+  
+  p <- ggplot(data=dat_baseline2,aes(x=.data[[pfas]],y=eGFR_CKiD_U25_avg))+
+    geom_point()+
+    geom_smooth(method="lm",se=F)+
+    theme_bw()+
+    labs(title = c("Association between PFAS and eGFR, adj. Age & Sex"),
+         subtitle = paste0("Beta = ", round(beta,3), ", pval = ", round(pval,3)),
+         x = pfas,  # This will use the variable name from pfas
+         y = "eGFR")
+  print(p)
+  
+}
+dev.off()
+
+#Mixed Model Analysis
+# Basic spaghetti plot
+dat2$time_numeric <- as.numeric(factor(dat2$visit)) - 1 
+p <- ggplot(dat2, aes(x = time_numeric, y = acr_u, group = record_id)) +
+  geom_line(alpha = 0.5, aes(color = record_id)) +
+  geom_point(alpha = 0.5, size = 1.5, aes(color = record_id)) +
+  # labs(title = "ALT Values Over Time by Individual",
+  #      x = "mvisit",
+  #      y = "ALT") +
+  theme_minimal() +
+  theme(legend.position="none")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(p)
+
+#AST
+dat2$time_numeric <- as.numeric(factor(dat2$visit)) - 1  # Start at 0 for baseline
+m0 <- as.formula(paste0("acr_u ~ time + (1|record_id)"))
+model_simple <- lmer(m0, data = dat2)
+summary(model_simple)$coef
+
+# Scatter plot with individual trajectories
+p3 <- ggplot(dat2, aes(x = time, y = acr_u)) +
+  geom_point(aes(color = factor(visit)), alpha = 0.6) +
+  geom_path(aes(group = record_id), alpha = 0.2) +
+  geom_smooth(method = "lm", color = "red4", linewidth= 0.5,se=F) +
+  scale_color_viridis_d(name = "Time") +
+  theme_minimal() +
+  labs(title = "ACRu Levels over Time",
+       subtitle = "Beta = -3.15, P-value = 0.418",
+       x = "Time",
+       y = "acr_u Level") +
+  theme(plot.title = element_text(face = "bold"))
+# legend.position="none")
+
+print(p3)
