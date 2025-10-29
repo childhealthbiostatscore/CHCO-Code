@@ -465,7 +465,7 @@ data_set$aki_0_24 <- as.logical(data_set$aki_0_24)
 
 data_set$aki_0_24 <- ifelse(data_set$aki_0_24, "Yes","No")
 
-mmp9_dat <- read_excel("16-1403 MMP9 results 2020.csv", sheet = 1, skip = 1)
+mmp9_dat <- read_excel("16-1403 MMP9 results 2020.xlsx", sheet = 1, skip = 1)
 mmp9_dat <- mmp9_dat %>% select(SID, `Time Point`, `Actual Result`)
 names(mmp9_dat) <- c("record_id", "time", "mmp9_actual")
 mmp9_dat$time[mmp9_dat$time == "Follow-up"] <- "3 months"
@@ -493,7 +493,7 @@ library(ggsignif)
 
 # Function to run mixed effects model and get pairwise comparisons
 get_mixed_model_pvalues <- function(data, grouping_var) {
-  formula_str <- paste0("mmp9_actual ~ time * ", grouping_var)
+  formula_str <- paste0("mmp9_egfr ~ time * ", grouping_var)
   
   model <- lme(as.formula(formula_str), 
                random = ~1|record_id,  # Change to your subject ID variable
@@ -532,16 +532,16 @@ create_plot_with_brackets <- function(data, grouping_var, results,
   times <- c("0-8 hours", "3 months")
   
   # Base plot
-  p <- ggplot(data, aes(x = time, y = mmp9_actual, fill = .data[[grouping_var]])) +
+  p <- ggplot(data, aes(x = time, y = mmp9_egfr, fill = .data[[grouping_var]])) +
     geom_boxplot(position = position_dodge(0.8)) +
     theme_classic() +
     scale_fill_manual(values = fill_colors) +
-    labs(x = '', y = 'MMP9', fill = legend_title) +
+    labs(x = '', y = 'MMP9 (eGFR-adj)', fill = legend_title) +
     theme(text = element_text(size = 16))
   
   # Calculate y positions
-  y_max <- max(data$mmp9_actual, na.rm = TRUE)
-  y_range <- diff(range(data$mmp9_actual, na.rm = TRUE))
+  y_max <- max(data$mmp9_egfr, na.rm = TRUE)
+  y_range <- diff(range(data$mmp9_egfr, na.rm = TRUE))
   y_step <- y_range * 0.12
   current_y <- y_max + y_step * 0.5
   
@@ -667,22 +667,22 @@ data_filtered <- data_set %>% filter(time %in% c('0-8 hours', '3 months'))
 # Run models with specific filtering for each variable
 # Severity - remove Unknown and NAs
 data_severity <- data_filtered %>% 
-  filter(!is.na(mmp9_actual), !is.na(severity), severity != "Unknown")
+  filter(!is.na(mmp9_egfr), !is.na(severity), severity != "Unknown")
 results_severity <- get_mixed_model_pvalues(data_severity, "severity")
 
 # IV Insulin - remove NAs only
 data_insulin <- data_filtered %>% 
-  filter(!is.na(mmp9_actual), !is.na(ivinsdurtile))
+  filter(!is.na(mmp9_egfr), !is.na(ivinsdurtile))
 results_insulin <- get_mixed_model_pvalues(data_insulin, "ivinsdurtile")
 
 # AKI - remove NAs only
 data_aki <- data_filtered %>% 
-  filter(!is.na(mmp9_actual), !is.na(aki_0_24))
+  filter(!is.na(mmp9_egfr), !is.na(aki_0_24))
 results_aki <- get_mixed_model_pvalues(data_aki, "aki_0_24")
 
 # T1D Status - remove NAs only
 data_t1d <- data_filtered %>% 
-  filter(!is.na(mmp9_actual), !is.na(t1d_status))
+  filter(!is.na(mmp9_egfr), !is.na(t1d_status))
 results_t1d <- get_mixed_model_pvalues(data_t1d, "t1d_status")
 
 # Print results
@@ -725,24 +725,24 @@ graph4 <- create_plot_with_brackets(data_filtered, "t1d_status", results_t1d,
 
 # Create scatter plots with regression lines
 graph5 <- ggplot(data_filtered %>% filter(!is.na(scopeptin)), 
-                 aes(x = scopeptin, y = mmp9_actual, color = time)) +
+                 aes(x = scopeptin, y = mmp9_egfr, color = time)) +
   geom_point(size = 2.5, alpha = 0.7) +
   geom_smooth(method = 'lm', se = TRUE, linewidth = 1) +
   theme_classic() +
   scale_color_manual(values = c("0-8 hours" = "#2E86AB", "3 months" = "#A23B72"),
                      name = "Time") +
-  labs(x = 'Serum Copeptin', y = 'MMP9') +
+  labs(x = 'Serum Copeptin', y = 'MMP9 (eGFR adj)') +
   theme(text = element_text(size = 16),
         legend.position = "bottom")
 
 graph6 <- ggplot(data_filtered %>% filter(!is.na(sua)), 
-                 aes(x = sua, y = mmp9_actual, color = time)) +
+                 aes(x = sua, y = mmp9_egfr, color = time)) +
   geom_point(size = 2.5, alpha = 0.7) +
   geom_smooth(method = 'lm', se = TRUE, linewidth = 1) +
   theme_classic() +
   scale_color_manual(values = c("0-8 hours" = "#2E86AB", "3 months" = "#A23B72"),
                      name = "Time") +
-  labs(x = 'Serum Uric Acid', y = 'MMP9') +
+  labs(x = 'Serum Uric Acid', y = 'MMP9 (eGFR adj)') +
   theme(text = element_text(size = 16),
         legend.position = "bottom")
 
@@ -1075,3 +1075,59 @@ print(coef2)
 
 
 
+
+
+
+
+
+
+
+
+### Analyses from plots 
+
+get_mixed_model_pvalues <- function(data, grouping_var) {
+  formula_str <- paste0("mmp9_egfr ~ time * ", grouping_var)
+  
+  model <- lme(as.formula(formula_str), 
+               random = ~1|record_id,  # Change to your subject ID variable
+               data = data,
+               na.action = na.omit)
+  
+  # Within-timepoint comparisons (compare groups at each time)
+  emm_within <- emmeans(model, specs = as.formula(paste0("~ ", grouping_var, " | time")))
+  within_time <- pairs(emm_within, adjust = "none")  # Changed from "tukey"
+  
+  # Across-time comparisons (compare times within each group)
+  emm_across <- emmeans(model, specs = as.formula(paste0("~ time | ", grouping_var)))
+  across_time <- pairs(emm_across, adjust = "none")  # Changed from "tukey"
+  
+  return(list(
+    within_time = within_time,
+    across_time = across_time,
+    model = model
+  ))
+}
+
+
+data_filtered <- data_set %>% filter(time %in% c('0-8 hours', '3 months'))
+
+# Run models with specific filtering for each variable
+# Severity - remove Unknown and NAs
+data_severity <- data_filtered %>% 
+  filter(!is.na(mmp9_egfr), !is.na(severity), severity != "Unknown")
+results_severity <- get_mixed_model_pvalues(data_severity, "severity")
+
+# IV Insulin - remove NAs only
+data_insulin <- data_filtered %>% 
+  filter(!is.na(mmp9_egfr), !is.na(ivinsdurtile))
+results_insulin <- get_mixed_model_pvalues(data_insulin, "ivinsdurtile")
+
+# AKI - remove NAs only
+data_aki <- data_filtered %>% 
+  filter(!is.na(mmp9_egfr), !is.na(aki_0_24))
+results_aki <- get_mixed_model_pvalues(data_aki, "aki_0_24")
+
+# T1D Status - remove NAs only
+data_t1d <- data_filtered %>% 
+  filter(!is.na(mmp9_egfr), !is.na(t1d_status))
+results_t1d <- get_mixed_model_pvalues(data_t1d, "t1d_status")
