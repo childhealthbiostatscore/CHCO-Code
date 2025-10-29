@@ -38,7 +38,7 @@ def harmonize_data():
     from rpc2 import clean_rpc2_redcap
     from ultra import clean_ultra
     from sweetheart import clean_sweetheart
-    from harmonization_functions import calc_egfr, create_study_id_columns
+    from harmonization_functions import calc_egfr, create_study_id_columns, biopsy_merge
     import getpass
     user = getpass.getuser() 
     # Use individual data functions to import cleaned DFs
@@ -483,7 +483,7 @@ def harmonize_data():
     dictionary.loc[dictionary['variable_name'] == 'acprg', 'form_name'] = 'clamp'
     dictionary.loc[dictionary['variable_name'] == 'acr_u_pm', 'form_name'] = 'clamp'
 
-
+    harmonized = biopsy_merge(harmonized)
 
 
 

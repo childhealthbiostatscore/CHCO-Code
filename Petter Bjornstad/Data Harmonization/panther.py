@@ -90,6 +90,7 @@ def clean_panther():
     demo.rename({"sglt2i": "sglt2i_ever"}, axis=1, inplace=True)
     demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
 
+
     # --------------------------------------------------------------------------
     # Screening labs
     # --------------------------------------------------------------------------
@@ -405,6 +406,19 @@ def clean_panther():
                                     'units': "ng/mL",
                                     'form_name': 'PFAS'})
             dictionary = pd.concat([dictionary, new_row], ignore_index=True)
+    
+        replacements = {
+        "PAN-110-O": "PAN-110-C",
+        "PAN-61-C": "PAN-61-O",
+        "PAN-71-C": "PAN-71-O",
+        "PAN-16-O-W": "PAN-16-O",
+        "PAN-08-T-W": "PAN-08-T",
+        "PAN-56-C-W": "PAN-56-C",
+        "PAN-57-C-W": "PAN-57-C"
+    }
+    
+    # Replace values
+    pfas["record_id"] = pfas["record_id"].replace(replacements)
 
     #dictionary.loc[dictionary['variable_name'].isin(pfas.columns), 'form_name'] = 'PFAS'
 
@@ -440,6 +454,7 @@ def clean_panther():
     df = pd.concat([df, pfas], join='outer', ignore_index=True)
     df = pd.merge(df, out, how='outer')
     df = pd.merge(df, demo, how="outer")
+
     df = df.copy()
 
     # --------------------------------------------------------------------------
