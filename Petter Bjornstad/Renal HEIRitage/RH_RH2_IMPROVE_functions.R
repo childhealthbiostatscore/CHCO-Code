@@ -1,5 +1,94 @@
-library(ggplot2)
-library(gtools)
+library(arsenal)
+library(Biobase)
+library(BiocGenerics)
+library(BiocParallel)
+library(broom.mixed)
+library(colorspace)
+library(cowplot)
+library(data.table)
+library(dplyr)
+library(edgeR)
+library(emmeans)
+library(enrichR)
+library(foreach)
+library(future)
+library(future.apply)
+library(GSEABase)
+library(ggdendro)
+library(ggpubr)
+library(glmmTMB)
+library(harmony)
+library(jsonlite)
+library(kableExtra)
+library(limma)
+library(MAST)
+library(Matrix)
+library(msigdbr)
+library(NMF)
+library(nebula)
+library(patchwork)
+library(pheatmap)
+library(readxl)
+library(REDCapR)
+library(reshape2)
+library(rstatix)
+library(SAVER)
+library(slingshot)
+library(tidyverse)
+library(UpSetR)
+library(WriteXLS)
+library(quantreg)
+library(aws.s3)
+
+# Set up environment for Kopah
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
+# Define common parameters
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  DTL_ATL = c("DTL", "aDTL", "ATL"),   # grouped thin limbs
+  DCT_CNT = c("DCT", "dDCT", "CNT"),   # grouped distal tubule/connecting tubule
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"), 
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD",
+  MC = "MC",                         # mesangial cells
+  PEC = "PEC",                       # parietal epithelial cells
+  Schwann = "SchwannCells",
+  Other = c("non-specific")          # catchall
+)
+
+
 theme_transparent <- theme(
   plot.background   = element_rect(fill = "transparent", color = NA),
   panel.background  = element_rect(fill = "transparent", color = NA),
@@ -949,4 +1038,51 @@ plot_emms_with_brackets <- function(
   }
   
   return(p)
+}
+
+# ===========================================================================
+# Function: process_nebula_results
+# ===========================================================================
+
+process_nebula_results <- function(nebula_list, 
+                                   pval_col = "p_groupType_1_Diabetes", 
+                                   convergence_cut = -10) {
+  # Extract convergence codes
+  convergence_df <- purrr::map_dfr(names(nebula_list), function(gene_name) {
+    convergence_code <- nebula_list[[gene_name]]$convergence
+    data.frame(Gene = gene_name, Convergence_Code = convergence_code)
+  })
+  
+  # Filter to converged models
+  converged_genes <- convergence_df %>%
+    filter(Convergence_Code >= convergence_cut) %>%
+    pull(Gene)
+  
+  # Combine model summary results
+  summary_df <- purrr::map_dfr(converged_genes, function(gene_name) {
+    nebula_list[[gene_name]]$summary %>%
+      dplyr::mutate(Gene = gene_name)
+  })
+  
+  # Add FDR adjustment
+  if (pval_col %in% names(summary_df)) {
+    summary_df <- summary_df %>%
+      dplyr::mutate(fdr = p.adjust(.data[[pval_col]], method = "fdr"))
+  } else {
+    warning(paste("Column", pval_col, "not found in summary data. FDR not computed."))
+    summary_df$fdr <- NA
+  }
+  
+  # Extract overdispersion estimates
+  overdisp_df <- purrr::map_dfr(names(nebula_list), function(gene_name) {
+    od <- nebula_list[[gene_name]]$overdispersion
+    od$Gene <- gene_name
+    od
+  })
+  
+  return(list(
+    convergence     = convergence_df,
+    results         = summary_df,
+    overdispersion  = overdisp_df
+  ))
 }

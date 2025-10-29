@@ -36,11 +36,13 @@ Sys.setenv(
 harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
 
 harm_dat_collapsed <- harm_dat %>%
+  mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit)) %>%
   group_by(record_id, visit) %>%
   fill(date, .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit))
+
 harm_dat_collapsed$agem = harm_dat_collapsed$age * 12
 bmi_percentile = ext_bmiz(data = subset(harm_dat_collapsed, 
                                         select = c("record_id", "visit", "sex", "agem", 
@@ -58,13 +60,30 @@ harm_dat_collapsed <- harm_dat_collapsed %>%
                                                      T ~ "Not Hispanic or Latino Other"),
                 uacr_100 = case_when(acr_u >= 100 ~ "UACR >=100 mg/g",
                                      acr_u < 100 ~ "UACR <100 mg/g"),
-                uacr_group = case_when(eGFR_CKD_epi < 75 | acr_u >= 100 ~ "eGFR < 75 and/or UACR >=100 mg/g",
-                                       eGFR_CKD_epi >=75 | acr_u < 100 ~ "eGFR >= 75 and UACR <100 mg/g"),
-                uacr_group = factor(uacr_group, levels = c("eGFR >= 75 and UACR <100 mg/g",
-                                                           "eGFR < 75 and/or UACR >=100 mg/g")),
-                dkd_group = case_when(uacr_group == "eGFR < 75 and/or UACR >=100 mg/g" ~ "DKD",
-                                      uacr_group == "eGFR >= 75 and UACR <100 mg/g" ~ "non_DKD"),
-                dkd_group = factor(dkd_group, levels = c("non_DKD", "DKD")),
+                uacr_group = case_when(
+                  eGFR_CKD_epi < 90 | acr_u >= 100 ~ "eGFR < 90 and/or UACR >=100 mg/g",
+                  eGFR_CKD_epi >= 90 & acr_u < 100 ~ "eGFR >= 90 and UACR <100 mg/g",
+                  TRUE ~ NA_character_
+                ),
+                uacr_group = factor(
+                  uacr_group,
+                  levels = c("eGFR >= 90 and UACR <100 mg/g",
+                             "eGFR < 90 and/or UACR >=100 mg/g")
+                ),
+                
+                dkd_group_100 = case_when(
+                  eGFR_CKD_epi < 90 | acr_u >= 100 ~ "DKD",
+                  eGFR_CKD_epi >= 90 & acr_u < 100 ~ "non_DKD",
+                  TRUE ~ NA_character_
+                ),
+                dkd_group_100 = factor(dkd_group_100, levels = c("non_DKD", "DKD")),
+                
+                dkd_group_30 = case_when(
+                  eGFR_CKD_epi < 90 | acr_u >= 30 ~ "DKD",
+                  eGFR_CKD_epi >= 90 & acr_u < 30 ~ "non_DKD",
+                  TRUE ~ NA_character_
+                ),
+                dkd_group_30 = factor(dkd_group_30, levels = c("non_DKD", "DKD")),
                 # eGFR categories
                 egfr_cat = case_when(
                   eGFR_CKD_epi < 60                      ~ "<60",
@@ -100,8 +119,17 @@ harm_dat_collapsed <- harm_dat_collapsed %>%
                 ),
                 group_risk = case_when(bmip >= 95 | hba1c >=6 | group == "Type 2 Diabetes" ~ "High",
                                        bmip < 85 & hba1c <=5.6 ~ "Low"),
+                group_risk_lowyn = case_when(group_risk == "Low" ~ "Low", 
+                                             T ~ "Not Low"), 
                 tkv_combined = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual),
-                htadjtkv_combined = coalesce(ht_adj_tkv, ht_adj_tkv_manual)
+                htadjtkv_combined = coalesce(ht_adj_tkv, ht_adj_tkv_manual),
+                glp_t2dob = case_when(group == "Lean Control" ~ "HC",
+                                      epic_glp1ra_1 == "Yes" ~ "GLP_Y",
+                                      epic_glp1ra_1 == "No" ~ "GLP_N"),
+                dkd_group_30_hc = case_when(group == "Lean Control" ~ "HC",
+                                            T ~ dkd_group_30),
+                dkd_group_100_hc = case_when(group == "Lean Control" ~ "HC",
+                                      T ~ dkd_group_100)
   )
 
 # RH/RH2 subset
