@@ -64,59 +64,59 @@ library(dplyr)
 ### SDOH Data
 setwd('/Users/netio/Documents/UofW/Projects/PFAS_Water/')
 
-all_data <- data.table::fread("ucmr5-occurrence-data/UCMR5_All.txt") %>%
-  filter(Contaminant != 'lithium')
+#all_data <- data.table::fread("ucmr5-occurrence-data/UCMR5_All.txt") %>%
+#  filter(Contaminant != 'lithium')
 
 #Classifications 
-PFCA_long <- c('PFOA', 'PFNA', 'PFDA','PFUnA', 'PFDoA', 'PFTrDA', 'PFTA', 'ADONA')
-PFCA_short <- c('PFBA', 'PFPeA', 'PFHxA', 'PFHpA')
-PFCA_ultashort <- c('PFMPA', 'PFMBA')
-PFCA_full <- c(PFCA_long, PFCA_short, PFCA_ultashort)
+#PFCA_long <- c('PFOA', 'PFNA', 'PFDA','PFUnA', 'PFDoA', 'PFTrDA', 'PFTA', 'ADONA')
+#PFCA_short <- c('PFBA', 'PFPeA', 'PFHxA', 'PFHpA')
+#PFCA_ultashort <- c('PFMPA', 'PFMBA')
+#PFCA_full <- c(PFCA_long, PFCA_short, PFCA_ultashort)
 
-PFSA_long <- c('PFHxS', 'PFHpS', 'PFOS')
-PFSA_short <- c('PFBS', 'PFPeS')
-PFSA_full <- c(PFSA_long, PFSA_short)
+#PFSA_long <- c('PFHxS', 'PFHpS', 'PFOS')
+#PFSA_short <- c('PFBS', 'PFPeS')
+#PFSA_full <- c(PFSA_long, PFSA_short)
 
-FTS <- c("4:2 FTS", "6:2 FTS", "8:2 FTS")
+#FTS <- c("4:2 FTS", "6:2 FTS", "8:2 FTS")
 
-PFAS_deriv <- c('NEtFOSAA', 'NMeFOSAA', 'HFPO-DA', 'ADONA', 'PFEESA', 'NFDHA')
+#PFAS_deriv <- c('NEtFOSAA', 'NMeFOSAA', 'HFPO-DA', 'ADONA', 'PFEESA', 'NFDHA')
 
-chlorinated <- c("9Cl-PF3ONS", "11Cl-PF3OUdS")
-
-
-PFAS_all <- c(PFCA_full, PFSA_full, FTS, PFAS_deriv, chlorinated)
+#chlorinated <- c("9Cl-PF3ONS", "11Cl-PF3OUdS")
 
 
-zip_codes <- data.table::fread("ucmr5-occurrence-data/UCMR5_ZIPCodes.txt")
+#PFAS_all <- c(PFCA_full, PFSA_full, FTS, PFAS_deriv, chlorinated)
 
 
-all_data <- all_data %>% left_join(zip_codes)
+#zip_codes <- data.table::fread("ucmr5-occurrence-data/UCMR5_ZIPCodes.txt")
+
+
+#all_data <- all_data %>% left_join(zip_codes)
 
 
 # 1. Create wide format table with zip codes and contaminant values
-contaminant_wide <- all_data %>%
-  select(ZIPCODE, Contaminant, AnalyticalResultValue) %>%
+#contaminant_wide <- all_data %>%
+ # select(ZIPCODE, Contaminant, AnalyticalResultValue) %>%
   # Handle non-detects (NA values) - you can replace with 0 or keep as NA
-  pivot_wider(
-    names_from = Contaminant,
-    values_from = AnalyticalResultValue,
-    values_fn = mean  # If multiple samples per zip/contaminant, take mean
-  ) %>%
-  arrange(ZIPCODE)
+ # pivot_wider(
+ #   names_from = Contaminant,
+ #   values_from = AnalyticalResultValue,
+ #   values_fn = mean  # If multiple samples per zip/contaminant, take mean
+ # ) %>%
+ # arrange(ZIPCODE)
 
 # View the result
-head(contaminant_wide)
+#head(contaminant_wide)
 
 # 2. Create MRL reference table (one row per contaminant)
-mrl_table <- all_data %>%
-  select(Contaminant, MRL, Units) %>%
-  distinct() %>%
-  arrange(Contaminant)
+#mrl_table <- all_data %>%
+#  select(Contaminant, MRL, Units) %>%
+#  distinct() %>%
+ # arrange(Contaminant)
 
 # View the MRL table
-print(mrl_table)
+#print(mrl_table)
 
-remove(all_data)
+#remove(all_data)
 
 #participant data
 
@@ -132,12 +132,17 @@ PANTHER <- data.table::fread('Participant_Zips/PANTHER-ZipCodes_DATA_2025-10-20_
   filter(!is.na(mrn)) %>% 
   dplyr::select(record_id, mrn, zip_code)
 
-full_zip <- bind_rows(IMPROVE, RH, PANTHER)
+RH2 <- readxl::read_excel('Participant_Zips/Final_Renal_Croc_Zip.xlsx') %>%
+  dplyr::select(record_id = `Subject ID`, zip_code = `ZIP Code`) %>%
+  mutate(mrn = NA)
+
+
+full_zip <- bind_rows(IMPROVE, RH, PANTHER, RH2)
 full_zip$zip_code <- as.character(full_zip$zip_code)
 
 
 
-contaminant_wide_small <- contaminant_wide %>% filter(ZIPCODE %in% full_zip$zip_code)
+#contaminant_wide_small <- contaminant_wide %>% filter(ZIPCODE %in% full_zip$zip_code)
 
 
 
