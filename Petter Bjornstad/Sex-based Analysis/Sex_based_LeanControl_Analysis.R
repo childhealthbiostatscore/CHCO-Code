@@ -680,6 +680,8 @@ LC_NEBULA_Analysis <- function(so_subset, dir.results, celltype, genes){
       "MC"))
   }else if(celltype == 'DCTall'){
     so_celltype <- subset(so_subset, DCT_celltype=='DCT')
+  }else if(celltype == 'intercalated'){
+    so_celltype <- subset(so_subset, KPMP_celltype %in% c('IC-B', 'IC-A', 'tPC-IC', 'aIC'))
   }
   
   
@@ -801,6 +803,8 @@ LC_NEBULA_Analysis_full <- function(so_subset, dir.results, celltype, genes){
       "MC"))
   }else if(celltype == 'DCTall'){
     so_celltype <- subset(so_subset, DCT_celltype=='DCT')
+  }else if(celltype == 'intercalated'){
+    so_celltype <- subset(so_subset, KPMP_celltype %in% c('IC-B', 'IC-A', 'tPC-IC', 'aIC'))
   }
   
   
@@ -906,7 +910,7 @@ library(ggplot2)
 library(ggbreak)
 library(dplyr)
 
-variable_names <- c('All', 'PT', 'TAL', 'EC', 'IC', 'POD', 'DCTall')
+variable_names <- c('All', 'PT', 'TAL', 'EC', 'IC', 'POD', 'DCTall', 'intercalated')
 
 for(i in c(1:length(variable_names))){
   
@@ -1073,7 +1077,7 @@ library(dplyr)
 library(patchwork)  # Optional: for combining plots
 
 # Define cell types
-celltypes_vec <- c('All', 'PT', 'TAL', 'EC', 'DCTall', 'IC')
+celltypes_vec <- c('All', 'PT', 'TAL', 'EC', 'DCTall', 'IC', 'POD', 'intercalated')
 
 # Get gene sets from MSigDB for human
 hallmark_sets <- msigdbr(species = "Homo sapiens", category = "H")
