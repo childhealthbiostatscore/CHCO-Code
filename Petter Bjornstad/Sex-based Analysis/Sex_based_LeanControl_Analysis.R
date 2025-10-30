@@ -2662,22 +2662,135 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  
  ### Recreate plots with enhanced protein names
+
+ 
+ ### Recreate plots with enhanced protein names (with individual querying for missing)
  
  cat("\n=== Recreating plots with enhanced protein names ===\n")
  
  library(ggplot2)
  library(gridExtra)
+ library(httr)
+ library(dplyr)
+ library(stringr)
+ 
+ # Function to query individual UniProt ID
+ get_single_protein <- function(uniprot_id) {
+   if(is.na(uniprot_id) || uniprot_id == "") {
+     return(NULL)
+   }
+   
+   tryCatch({
+     url <- paste0("https://rest.uniprot.org/uniprotkb/", uniprot_id, ".tsv")
+     response <- GET(url, 
+                     query = list(fields = "accession,gene_names,protein_name"),
+                     timeout(10))
+     
+     if(status_code(response) == 200) {
+       content_text <- content(response, "text", encoding = "UTF-8")
+       if(nchar(content_text) > 0) {
+         result <- read.delim(text = content_text, sep = "\t", stringsAsFactors = FALSE)
+         if(nrow(result) > 0) {
+           return(data.frame(
+             Entry = result$Entry[1],
+             Gene.Names = result$Gene.Names[1],
+             Protein.names = result$Protein.names[1],
+             stringsAsFactors = FALSE
+           ))
+         }
+       }
+     }
+     return(NULL)
+   }, error = function(e) {
+     return(NULL)
+   })
+ }
  
  # Read the enhanced results
  results_enhanced <- read.csv('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/proteomics_sex_comparison_results_ENHANCED.csv')
- 
- # Read the omics data
+
  
  output_folder <- '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/'
  
  # Sort by p_fdr to get top results
  results_enhanced <- results_enhanced %>%
    arrange(p_fdr)
+ 
+ # Get top 20 to check for missing annotations
+ top_results_20 <- head(results_enhanced, 20)
+ 
+ # Check which ones are missing gene names
+ missing_annotations <- top_results_20 %>%
+   filter(is.na(gene_name) | gene_name == "") %>%
+   filter(!is.na(uniprot_id) & uniprot_id != "")
+ 
+ if(nrow(missing_annotations) > 0) {
+   cat("\nFound", nrow(missing_annotations), "results without gene names in top 20\n")
+   cat("Querying UniProt individually...\n")
+   
+   additional_annotations <- data.frame()
+   
+   for(i in 1:nrow(missing_annotations)) {
+     uniprot <- missing_annotations$uniprot_id[i]
+     cat("  Querying", uniprot, "...")
+     
+     result <- get_single_protein(uniprot)
+     
+     if(!is.null(result)) {
+       cat(" Found!\n")
+       additional_annotations <- rbind(additional_annotations, result)
+       Sys.sleep(0.5)  # Be nice to the API
+     } else {
+       cat(" Not found\n")
+     }
+   }
+   
+   if(nrow(additional_annotations) > 0) {
+     # Process the additional annotations
+     additional_annotations <- additional_annotations %>%
+       mutate(
+         gene_name_clean = str_trim(str_split(Gene.Names, " ", simplify = TRUE)[,1])
+       ) %>%
+       rename(
+         uniprot_id = Entry,
+         gene_name_full = Gene.Names,
+         protein_name = Protein.names
+       )
+     
+     cat("\nSuccessfully retrieved", nrow(additional_annotations), "additional annotations\n")
+     
+     # Update results_enhanced with new annotations
+     for(i in 1:nrow(additional_annotations)) {
+       matching_rows <- which(results_enhanced$uniprot_id == additional_annotations$uniprot_id[i])
+       
+       if(length(matching_rows) > 0) {
+         results_enhanced$gene_name[matching_rows] <- additional_annotations$gene_name_clean[i]
+         results_enhanced$gene_name_full[matching_rows] <- additional_annotations$gene_name_full[i]
+         results_enhanced$protein_name[matching_rows] <- additional_annotations$protein_name[i]
+         
+         # Update enhanced label
+         gene <- additional_annotations$gene_name_clean[i]
+         protein <- additional_annotations$protein_name[i]
+         
+         if(!is.na(gene) && !is.na(protein)) {
+           results_enhanced$variable_label_enhanced[matching_rows] <- paste0(gene, " - ", protein)
+         } else if(!is.na(gene)) {
+           results_enhanced$variable_label_enhanced[matching_rows] <- gene
+         }
+       }
+     }
+     
+     # Save the updated results
+     write.csv(results_enhanced, 
+               '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/proteomics_sex_comparison_results_ENHANCED.csv',
+               row.names = FALSE)
+     
+     cat("Updated enhanced results file saved\n")
+   }
+ }
+ 
+ # Re-get top results after potential updates
+ top_results_20 <- head(results_enhanced, 20)
  
  # Plot top 10 most significant
  top_results <- head(results_enhanced, 10)
@@ -2689,7 +2802,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
    
    # Use enhanced label if available, otherwise use original
    var_label <- ifelse(!is.na(top_results$variable_label_enhanced[i]) & 
-                         top_results$variable_label_enhanced[i] != "",
+                         top_results$variable_label_enhanced[i] != "" &
+                         top_results$variable_label_enhanced[i] != "NA",
                        top_results$variable_label_enhanced[i],
                        top_results$variable_label[i])
    
@@ -2731,10 +2845,9 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  grid.arrange(grobs = plot_list, ncol = 2)
  dev.off()
  
- cat("Saved:", paste0(output_folder, 'proteomics_top10_sex_differences_ENHANCED.png\n'))
+ cat("\nSaved:", paste0(output_folder, 'proteomics_top10_sex_differences_ENHANCED.png\n'))
  
- # Also create a plot for top 20
- top_results_20 <- head(results_enhanced, 20)
+ # Create plot for top 20
  plot_list_20 <- list()
  
  for(i in 1:nrow(top_results_20)){
@@ -2742,7 +2855,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
    
    # Use enhanced label if available, otherwise use original
    var_label <- ifelse(!is.na(top_results_20$variable_label_enhanced[i]) & 
-                         top_results_20$variable_label_enhanced[i] != "",
+                         top_results_20$variable_label_enhanced[i] != "" &
+                         top_results_20$variable_label_enhanced[i] != "NA",
                        top_results_20$variable_label_enhanced[i],
                        top_results_20$variable_label[i])
    
@@ -2785,19 +2899,396 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  # Summary of what was enhanced
  cat("\n=== Enhancement Summary ===\n")
- top_20_enhanced <- sum(!is.na(top_results_20$gene_name) & top_results_20$gene_name != "")
+ top_20_enhanced <- sum(!is.na(top_results_20$gene_name) & top_results_20$gene_name != "" & top_results_20$gene_name != "NA")
  cat("Top 20 results with protein names:", top_20_enhanced, "out of 20\n")
  cat("Enhancement rate:", round(100 * top_20_enhanced / 20, 1), "%\n")
  
  cat("\nTop 20 Enhanced Labels:\n")
  print(data.frame(
    Rank = 1:20,
-   Original = top_results_20$variable_label,
-   Enhanced = top_results_20$variable_label_enhanced,
-   Gene = top_results_20$gene_name
+   UniProt_ID = top_results_20$uniprot_id,
+   Gene = top_results_20$gene_name,
+   Enhanced_Label = substr(top_results_20$variable_label_enhanced, 1, 60)  # Truncate for display
  ) %>% head(20))
  
  cat("\n=== Plot regeneration complete! ===\n")
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ### Proteomics GSEA 
+
+ 
+ ### Pathway Analysis for Proteomics Results
+ ### Using GSEA (GO: BP, CC, MF) and Reactome
+ 
+ cat("\n=== Starting Pathway Analysis ===\n")
+ 
+ library(clusterProfiler)
+ library(org.Hs.eg.db)
+ library(ReactomePA)
+ library(enrichplot)
+ library(ggplot2)
+ library(dplyr)
+ 
+ # Set output folder
+ output_folder <- '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/'
+ pathway_folder <- paste0(output_folder, 'pathway_analysis/')
+ 
+ # Create pathway folder if it doesn't exist
+ if(!dir.exists(pathway_folder)) {
+   dir.create(pathway_folder, recursive = TRUE)
+ }
+ 
+ # Read enhanced results
+ results_enhanced <- read.csv(paste0(output_folder, 'proteomics_sex_comparison_results_ENHANCED.csv'))
+ 
+ cat("Total proteins in results:", nrow(results_enhanced), "\n")
+ 
+ # Prepare ranked gene list for GSEA
+ # Remove proteins without gene names
+ ranked_data <- results_enhanced %>%
+   filter(!is.na(gene_name), gene_name != "", gene_name != "NA") %>%
+   arrange(desc(abs(difference))) %>%
+   # Create signed ranking metric (positive = higher in males, negative = higher in females)
+   mutate(rank_metric = difference) %>%  # Using difference as metric
+   select(gene_name, rank_metric, p_fdr) %>%
+   distinct(gene_name, .keep_all = TRUE)
+ 
+ cat("Proteins with gene names:", nrow(ranked_data), "\n")
+ cat("Significant proteins (FDR < 0.05):", sum(ranked_data$p_fdr < 0.05), "\n\n")
+ 
+ # Create ranked list (named vector)
+ ranked_list <- ranked_data$rank_metric
+ names(ranked_list) <- ranked_data$gene_name
+ ranked_list <- sort(ranked_list, decreasing = TRUE)
+ 
+ cat("Ranked list created with", length(ranked_list), "genes\n")
+ cat("Range:", min(ranked_list), "to", max(ranked_list), "\n\n")
+ 
+ ################################################################################
+ ### 1. GSEA - GO Biological Process (BP)
+ ################################################################################
+ 
+ cat("=== Running GSEA: GO Biological Process ===\n")
+ 
+ gsea_go_bp <- gseGO(
+   geneList = ranked_list,
+   OrgDb = org.Hs.eg.db,
+   ont = "BP",
+   keyType = "SYMBOL",
+   pvalueCutoff = 0.05,
+   pAdjustMethod = "BH",
+   verbose = TRUE
+ )
+ 
+ if(!is.null(gsea_go_bp) && nrow(gsea_go_bp@result) > 0) {
+   cat("Found", nrow(gsea_go_bp@result), "enriched BP terms\n")
+   
+   # Save results
+   write.csv(gsea_go_bp@result, 
+             paste0(pathway_folder, "GSEA_GO_BP_results.csv"), 
+             row.names = FALSE)
+   
+   # Create and save dotplot
+   if(nrow(gsea_go_bp@result) > 0) {
+     n_show <- min(20, nrow(gsea_go_bp@result))
+     
+     p_bp_dot <- dotplot(gsea_go_bp, showCategory = n_show, 
+                         title = "GSEA: GO Biological Process",
+                         font.size = 10) +
+       theme(plot.title = element_text(size = 14, face = "bold"))
+     
+     ggsave(paste0(pathway_folder, "GSEA_GO_BP_dotplot.png"), 
+            p_bp_dot, width = 12, height = 8, dpi = 300)
+     
+     # Create enrichment plot for top 3 pathways
+     if(nrow(gsea_go_bp@result) >= 3) {
+       p_bp_enrich <- gseaplot2(gsea_go_bp, geneSetID = 1:3, 
+                                pvalue_table = TRUE,
+                                title = "Top 3 GO BP Pathways")
+       
+       ggsave(paste0(pathway_folder, "GSEA_GO_BP_enrichment_plot.png"), 
+              p_bp_enrich, width = 10, height = 8, dpi = 300)
+     }
+   }
+ } else {
+   cat("No significant BP terms found\n")
+ }
+ 
+ ################################################################################
+ ### 2. GSEA - GO Cellular Component (CC)
+ ################################################################################
+ 
+ cat("\n=== Running GSEA: GO Cellular Component ===\n")
+ 
+ gsea_go_cc <- gseGO(
+   geneList = ranked_list,
+   OrgDb = org.Hs.eg.db,
+   ont = "CC",
+   keyType = "SYMBOL",
+   pvalueCutoff = 0.05,
+   pAdjustMethod = "BH",
+   verbose = TRUE
+ )
+ 
+ if(!is.null(gsea_go_cc) && nrow(gsea_go_cc@result) > 0) {
+   cat("Found", nrow(gsea_go_cc@result), "enriched CC terms\n")
+   
+   # Save results
+   write.csv(gsea_go_cc@result, 
+             paste0(pathway_folder, "GSEA_GO_CC_results.csv"), 
+             row.names = FALSE)
+   
+   # Create and save dotplot
+   if(nrow(gsea_go_cc@result) > 0) {
+     n_show <- min(20, nrow(gsea_go_cc@result))
+     
+     p_cc_dot <- dotplot(gsea_go_cc, showCategory = n_show, 
+                         title = "GSEA: GO Cellular Component",
+                         font.size = 10) +
+       theme(plot.title = element_text(size = 14, face = "bold"))
+     
+     ggsave(paste0(pathway_folder, "GSEA_GO_CC_dotplot.png"), 
+            p_cc_dot, width = 12, height = 8, dpi = 300)
+     
+     # Create enrichment plot for top 3 pathways
+     if(nrow(gsea_go_cc@result) >= 3) {
+       p_cc_enrich <- gseaplot2(gsea_go_cc, geneSetID = 1:3, 
+                                pvalue_table = TRUE,
+                                title = "Top 3 GO CC Terms")
+       
+       ggsave(paste0(pathway_folder, "GSEA_GO_CC_enrichment_plot.png"), 
+              p_cc_enrich, width = 10, height = 8, dpi = 300)
+     }
+   }
+ } else {
+   cat("No significant CC terms found\n")
+ }
+ 
+ ################################################################################
+ ### 3. GSEA - GO Molecular Function (MF)
+ ################################################################################
+ 
+ cat("\n=== Running GSEA: GO Molecular Function ===\n")
+ 
+ gsea_go_mf <- gseGO(
+   geneList = ranked_list,
+   OrgDb = org.Hs.eg.db,
+   ont = "MF",
+   keyType = "SYMBOL",
+   pvalueCutoff = 0.05,
+   pAdjustMethod = "BH",
+   verbose = TRUE
+ )
+ 
+ if(!is.null(gsea_go_mf) && nrow(gsea_go_mf@result) > 0) {
+   cat("Found", nrow(gsea_go_mf@result), "enriched MF terms\n")
+   
+   # Save results
+   write.csv(gsea_go_mf@result, 
+             paste0(pathway_folder, "GSEA_GO_MF_results.csv"), 
+             row.names = FALSE)
+   
+   # Create and save dotplot
+   if(nrow(gsea_go_mf@result) > 0) {
+     n_show <- min(20, nrow(gsea_go_mf@result))
+     
+     p_mf_dot <- dotplot(gsea_go_mf, showCategory = n_show, 
+                         title = "GSEA: GO Molecular Function",
+                         font.size = 10) +
+       theme(plot.title = element_text(size = 14, face = "bold"))
+     
+     ggsave(paste0(pathway_folder, "GSEA_GO_MF_dotplot.png"), 
+            p_mf_dot, width = 12, height = 8, dpi = 300)
+     
+     # Create enrichment plot for top 3 pathways
+     if(nrow(gsea_go_mf@result) >= 3) {
+       p_mf_enrich <- gseaplot2(gsea_go_mf, geneSetID = 1:3, 
+                                pvalue_table = TRUE,
+                                title = "Top 3 GO MF Terms")
+       
+       ggsave(paste0(pathway_folder, "GSEA_GO_MF_enrichment_plot.png"), 
+              p_mf_enrich, width = 10, height = 8, dpi = 300)
+     }
+   }
+ } else {
+   cat("No significant MF terms found\n")
+ }
+ 
+ ################################################################################
+ ### 4. Reactome Pathway Analysis
+ ################################################################################
+ 
+ cat("\n=== Running Reactome Pathway Analysis ===\n")
+ 
+ # Convert gene symbols to Entrez IDs for Reactome
+ gene_entrez <- bitr(names(ranked_list), 
+                     fromType = "SYMBOL", 
+                     toType = "ENTREZID", 
+                     OrgDb = org.Hs.eg.db)
+ 
+ cat("Converted", nrow(gene_entrez), "genes to Entrez IDs\n")
+ 
+ # Create ranked list with Entrez IDs
+ ranked_list_entrez <- ranked_list[gene_entrez$SYMBOL]
+ names(ranked_list_entrez) <- gene_entrez$ENTREZID
+ ranked_list_entrez <- sort(ranked_list_entrez, decreasing = TRUE)
+ 
+ # Run Reactome GSEA
+ gsea_reactome <- gsePathway(
+   geneList = ranked_list_entrez,
+   organism = "human",
+   pvalueCutoff = 0.05,
+   pAdjustMethod = "BH",
+   verbose = TRUE
+ )
+ 
+ if(!is.null(gsea_reactome) && nrow(gsea_reactome@result) > 0) {
+   cat("Found", nrow(gsea_reactome@result), "enriched Reactome pathways\n")
+   
+   # Save results
+   write.csv(gsea_reactome@result, 
+             paste0(pathway_folder, "GSEA_Reactome_results.csv"), 
+             row.names = FALSE)
+   
+   # Create and save dotplot
+   if(nrow(gsea_reactome@result) > 0) {
+     n_show <- min(20, nrow(gsea_reactome@result))
+     
+     p_reactome_dot <- dotplot(gsea_reactome, showCategory = n_show, 
+                               title = "GSEA: Reactome Pathways",
+                               font.size = 10) +
+       theme(plot.title = element_text(size = 14, face = "bold"))
+     
+     ggsave(paste0(pathway_folder, "GSEA_Reactome_dotplot.png"), 
+            p_reactome_dot, width = 12, height = 10, dpi = 300)
+     
+     # Create enrichment plot for top 3 pathways
+     if(nrow(gsea_reactome@result) >= 3) {
+       p_reactome_enrich <- gseaplot2(gsea_reactome, geneSetID = 1:3, 
+                                      pvalue_table = TRUE,
+                                      title = "Top 3 Reactome Pathways")
+       
+       ggsave(paste0(pathway_folder, "GSEA_Reactome_enrichment_plot.png"), 
+              p_reactome_enrich, width = 10, height = 8, dpi = 300)
+     }
+     
+     # Create barplot as alternative visualization
+     p_reactome_bar <- barplot(gsea_reactome, showCategory = 15,
+                               title = "Top 15 Reactome Pathways") +
+       theme(plot.title = element_text(size = 14, face = "bold"))
+     
+     ggsave(paste0(pathway_folder, "GSEA_Reactome_barplot.png"), 
+            p_reactome_bar, width = 12, height = 8, dpi = 300)
+   }
+ } else {
+   cat("No significant Reactome pathways found\n")
+ }
+ 
+ ################################################################################
+ ### Summary Report
+ ################################################################################
+ 
+ cat("\n=== Pathway Analysis Summary ===\n")
+ 
+ summary_df <- data.frame(
+   Analysis = c("GO Biological Process", "GO Cellular Component", 
+                "GO Molecular Function", "Reactome Pathways"),
+   Significant_Terms = c(
+     ifelse(!is.null(gsea_go_bp), nrow(gsea_go_bp@result), 0),
+     ifelse(!is.null(gsea_go_cc), nrow(gsea_go_cc@result), 0),
+     ifelse(!is.null(gsea_go_mf), nrow(gsea_go_mf@result), 0),
+     ifelse(!is.null(gsea_reactome), nrow(gsea_reactome@result), 0)
+   )
+ )
+ 
+ print(summary_df)
+ 
+ # Save summary
+ write.csv(summary_df, paste0(pathway_folder, "pathway_analysis_summary.csv"), 
+           row.names = FALSE)
+ 
+ # Create a combined summary of top pathways from each analysis
+ cat("\n=== Top 5 from each analysis ===\n")
+ 
+ create_top_summary <- function(gsea_obj, analysis_name) {
+   if(!is.null(gsea_obj) && nrow(gsea_obj@result) > 0) {
+     gsea_obj@result %>%
+       slice_head(n = 5) %>%
+       mutate(Analysis = analysis_name) %>%
+       select(Analysis, Description, NES, pvalue, p.adjust, setSize)
+   } else {
+     NULL
+   }
+ }
+ 
+ top_pathways <- bind_rows(
+   create_top_summary(gsea_go_bp, "GO_BP"),
+   create_top_summary(gsea_go_cc, "GO_CC"),
+   create_top_summary(gsea_go_mf, "GO_MF"),
+   create_top_summary(gsea_reactome, "Reactome")
+ )
+ 
+ if(!is.null(top_pathways) && nrow(top_pathways) > 0) {
+   print(top_pathways)
+   write.csv(top_pathways, paste0(pathway_folder, "top5_pathways_each_analysis.csv"), 
+             row.names = FALSE)
+ }
+ 
+ cat("\n=== All results saved to:", pathway_folder, "===\n")
+ cat("\nFiles created:\n")
+ cat("  - GSEA_GO_BP_results.csv & dotplot\n")
+ cat("  - GSEA_GO_CC_results.csv & dotplot\n")
+ cat("  - GSEA_GO_MF_results.csv & dotplot\n")
+ cat("  - GSEA_Reactome_results.csv & dotplot\n")
+ cat("  - Enrichment plots for top pathways\n")
+ cat("  - pathway_analysis_summary.csv\n")
+ cat("  - top5_pathways_each_analysis.csv\n")
+ 
+ cat("\n=== Pathway Analysis Complete! ===\n")
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
  
  
  
