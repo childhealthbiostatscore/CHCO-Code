@@ -1533,7 +1533,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  output_folder <- '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/'
  
  # Get all numeric columns (excluding ID columns and grouping variables)
- numeric_cols <- names(dat_omics)[!names(dat_omics) %in% c('record_id', 'group', 'sex')]
+ numeric_cols <- names(dat_omics)[!names(dat_omics) %in% c('record_id', 'group', 'sex', 'study')]
  
  # Initialize results dataframe
  results <- data.frame(
@@ -2457,10 +2457,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  library(stringr)
  library(httr)
  
- # Function to get protein names from UniProt IDs
  get_protein_names <- function(uniprot_ids) {
    
-   # Remove NAs and duplicates
    unique_ids <- unique(uniprot_ids[!is.na(uniprot_ids)])
    
    if(length(unique_ids) == 0) {
@@ -2469,51 +2467,74 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
                        Protein.names = character()))
    }
    
-   # Split into batches of 100 (API limit)
-   batch_size <- 100
+   # Use MUCH smaller batch size - 50 instead of 100
+   batch_size <- 50
    batches <- split(unique_ids, ceiling(seq_along(unique_ids) / batch_size))
    
    all_results <- data.frame()
+   failed_count <- 0
    
    cat("Retrieving protein names from UniProt...\n")
+   cat("Total IDs:", length(unique_ids), "\n")
+   cat("Total batches:", length(batches), "\n\n")
    
    for (i in seq_along(batches)) {
-     cat(paste0("Processing batch ", i, " of ", length(batches), "...\n"))
+     if(i %% 20 == 0) {
+       cat(paste0("Processed ", i, "/", length(batches), " batches (", 
+                  nrow(all_results), " proteins retrieved so far)\n"))
+     }
      
      batch <- batches[[i]]
      
-     # Query UniProt API
-     url <- "https://rest.uniprot.org/uniprotkb/search"
-     query <- paste0("accession:(", paste(batch, collapse = " OR "), ")")
-     
-     response <- GET(
-       url,
-       query = list(
-         query = query,
-         format = "tsv",
-         fields = "accession,gene_names,protein_name"
+     # Query UniProt API with error handling
+     tryCatch({
+       url <- "https://rest.uniprot.org/uniprotkb/search"
+       query <- paste0("accession:(", paste(batch, collapse = " OR "), ")")
+       
+       response <- GET(
+         url,
+         query = list(
+           query = query,
+           format = "tsv",
+           fields = "accession,gene_names,protein_name"
+         ),
+         timeout(30)
        )
-     )
-     
-     if (status_code(response) == 200) {
-       # Parse response
-       content <- content(response, "text", encoding = "UTF-8")
-       if(nchar(content) > 0) {
-         batch_results <- read.delim(text = content, sep = "\t", stringsAsFactors = FALSE)
-         all_results <- rbind(all_results, batch_results)
+       
+       if (status_code(response) == 200) {
+         content_text <- content(response, "text", encoding = "UTF-8")
+         if(nchar(content_text) > 0) {
+           batch_results <- read.delim(text = content_text, sep = "\t", stringsAsFactors = FALSE)
+           if(nrow(batch_results) > 0) {
+             all_results <- rbind(all_results, batch_results)
+           }
+         }
+       } else {
+         failed_count <- failed_count + 1
+         if(failed_count <= 5) {  # Only warn for first few failures
+           warning(paste("Batch", i, "failed with status:", status_code(response)))
+         }
        }
-     } else {
-       warning(paste("Failed to retrieve batch", i, ". Status code:", status_code(response)))
-     }
+     }, error = function(e) {
+       failed_count <<- failed_count + 1
+       if(failed_count <= 5) {
+         warning(paste("Error in batch", i, ":", e$message))
+       }
+     })
      
-     # Be nice to the API
-     Sys.sleep(0.5)
+     # Be nice to the API - add delay
+     Sys.sleep(0.4)
    }
    
-   cat(paste0("Retrieved information for ", nrow(all_results), " proteins\n"))
+   cat("\n=== Retrieval complete ===\n")
+   cat("Successfully retrieved:", nrow(all_results), "out of", length(unique_ids), "IDs\n")
+   cat("Failed batches:", failed_count, "\n")
    
    return(all_results)
  }
+ 
+ # Run it
+ protein_mapping <- get_protein_names(uniprot_ids)
  
  # Read your existing results
  results <- read.csv('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/proteomics_sex_comparison_results.csv')
@@ -2548,9 +2569,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  uniprot_ids <- uniprot_ids[!is.na(uniprot_ids)]
  
  cat("\nUnique UniProt IDs to query:", length(uniprot_ids), "\n\n")
- 
- # Get protein names from UniProt
- protein_mapping <- get_protein_names(uniprot_ids)
+
  
  # Clean up the protein mapping
  protein_mapping <- protein_mapping %>%
@@ -2642,7 +2661,143 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  cat("  - protein_name: Full protein description\n") 
  
  
+ ### Recreate plots with enhanced protein names
  
+ cat("\n=== Recreating plots with enhanced protein names ===\n")
+ 
+ library(ggplot2)
+ library(gridExtra)
+ 
+ # Read the enhanced results
+ results_enhanced <- read.csv('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/proteomics_sex_comparison_results_ENHANCED.csv')
+ 
+ # Read the omics data
+ 
+ output_folder <- '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/'
+ 
+ # Sort by p_fdr to get top results
+ results_enhanced <- results_enhanced %>%
+   arrange(p_fdr)
+ 
+ # Plot top 10 most significant
+ top_results <- head(results_enhanced, 10)
+ 
+ plot_list <- list()
+ 
+ for(i in 1:nrow(top_results)){
+   var <- top_results$variable[i]
+   
+   # Use enhanced label if available, otherwise use original
+   var_label <- ifelse(!is.na(top_results$variable_label_enhanced[i]) & 
+                         top_results$variable_label_enhanced[i] != "",
+                       top_results$variable_label_enhanced[i],
+                       top_results$variable_label[i])
+   
+   plot_data <- dat_omics %>%
+     filter(!is.na(sex) & sex != "") %>%
+     select(sex, all_of(var)) %>%
+     rename(value = all_of(var)) %>%
+     filter(!is.na(value))
+   
+   # Get p-value for this variable
+   p_val <- top_results$p_value[i]
+   p_fdr <- top_results$p_fdr[i]
+   
+   # Format p-values
+   p_label <- ifelse(p_val < 0.001, "p < 0.001", sprintf("p = %.3f", p_val))
+   p_fdr_label <- ifelse(p_fdr < 0.001, "FDR < 0.001", sprintf("FDR = %.3f", p_fdr))
+   
+   plot_list[[i]] <- ggplot(plot_data, aes(x = sex, y = value, fill = sex)) +
+     geom_boxplot() +
+     scale_fill_manual(values = c("Male" = "#00008B", "Female" = "#8B0000")) +
+     theme_classic(base_size = 12) +
+     labs(
+       title = var_label,  # Now uses enhanced gene name and protein name
+       subtitle = paste0(p_label, " | ", p_fdr_label),
+       x = "Sex",
+       y = "Value",
+       fill = "Sex"
+     ) +
+     theme(
+       plot.title = element_text(size = 10, face = "bold"),
+       plot.subtitle = element_text(size = 8),
+       legend.position = "none"
+     )
+ }
+ 
+ # Save plots
+ png(paste0(output_folder, 'proteomics_top10_sex_differences_ENHANCED.png'), 
+     height = 15, width = 12, units = 'in', res = 300)
+ grid.arrange(grobs = plot_list, ncol = 2)
+ dev.off()
+ 
+ cat("Saved:", paste0(output_folder, 'proteomics_top10_sex_differences_ENHANCED.png\n'))
+ 
+ # Also create a plot for top 20
+ top_results_20 <- head(results_enhanced, 20)
+ plot_list_20 <- list()
+ 
+ for(i in 1:nrow(top_results_20)){
+   var <- top_results_20$variable[i]
+   
+   # Use enhanced label if available, otherwise use original
+   var_label <- ifelse(!is.na(top_results_20$variable_label_enhanced[i]) & 
+                         top_results_20$variable_label_enhanced[i] != "",
+                       top_results_20$variable_label_enhanced[i],
+                       top_results_20$variable_label[i])
+   
+   plot_data <- dat_omics %>%
+     filter(!is.na(sex) & sex != "") %>%
+     select(sex, all_of(var)) %>%
+     rename(value = all_of(var)) %>%
+     filter(!is.na(value))
+   
+   p_val <- top_results_20$p_value[i]
+   p_fdr <- top_results_20$p_fdr[i]
+   
+   p_label <- ifelse(p_val < 0.001, "p < 0.001", sprintf("p = %.3f", p_val))
+   p_fdr_label <- ifelse(p_fdr < 0.001, "FDR < 0.001", sprintf("FDR = %.3f", p_fdr))
+   
+   plot_list_20[[i]] <- ggplot(plot_data, aes(x = sex, y = value, fill = sex)) +
+     geom_boxplot() +
+     scale_fill_manual(values = c("Male" = "#00008B", "Female" = "#8B0000")) +
+     theme_classic(base_size = 10) +
+     labs(
+       title = var_label,  # Now uses enhanced gene name and protein name
+       subtitle = paste0(p_label, " | ", p_fdr_label),
+       x = "Sex",
+       y = "Value",
+       fill = "Sex"
+     ) +
+     theme(
+       plot.title = element_text(size = 9, face = "bold"),
+       plot.subtitle = element_text(size = 7),
+       legend.position = "none"
+     )
+ }
+ 
+ png(paste0(output_folder, 'proteomics_top20_sex_differences_ENHANCED.png'), 
+     height = 25, width = 15, units = 'in', res = 300)
+ grid.arrange(grobs = plot_list_20, ncol = 3)
+ dev.off()
+ 
+ cat("Saved:", paste0(output_folder, 'proteomics_top20_sex_differences_ENHANCED.png\n'))
+ 
+ # Summary of what was enhanced
+ cat("\n=== Enhancement Summary ===\n")
+ top_20_enhanced <- sum(!is.na(top_results_20$gene_name) & top_results_20$gene_name != "")
+ cat("Top 20 results with protein names:", top_20_enhanced, "out of 20\n")
+ cat("Enhancement rate:", round(100 * top_20_enhanced / 20, 1), "%\n")
+ 
+ cat("\nTop 20 Enhanced Labels:\n")
+ print(data.frame(
+   Rank = 1:20,
+   Original = top_results_20$variable_label,
+   Enhanced = top_results_20$variable_label_enhanced,
+   Gene = top_results_20$gene_name
+ ) %>% head(20))
+ 
+ cat("\n=== Plot regeneration complete! ===\n")
  
  
  
