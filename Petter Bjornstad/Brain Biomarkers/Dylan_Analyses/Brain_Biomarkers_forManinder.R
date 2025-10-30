@@ -64,7 +64,8 @@ qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
 
 
 
-harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na = '')
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 
 dat <- harmonized_data %>% 
   dplyr::select(-dob) %>% 
@@ -75,13 +76,11 @@ dat <- harmonized_data %>%
     .by = c(record_id, visit)
   )
 
+names_dat <- names(dat)
+
 dat <- dat %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
 
-
-
-
-
-
+dat <- dat %>% dplyr::select(record_id, group, age, sex, bmi, hba1c, study, all_of(qx_var))
 
 
 
