@@ -2139,7 +2139,71 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  # Select only those
  dat_omics <- dat %>% 
-   dplyr::select(record_id, group, study, sex, age, all_of(existing_cols))
+   dplyr::select(record_id, group, study, sex, age, bmi, race_ethnicity, bmi, hba1c, all_of(existing_cols)) %>% 
+   filter(age >= 16)
+ 
+ library(gt)
+ library(gtsummary)
+ # Now create the table with proper data types
+ desc_table1_fixed <- dat_omics%>%
+   select(age, sex, race_ethnicity, bmi, hba1c, study, group) %>%
+   tbl_summary(
+     by = sex,
+     type = list(
+       age ~ "continuous",
+       bmi ~ "continuous", 
+       hba1c ~ "continuous",
+       group ~ "categorical",
+       race_ethnicity ~ "categorical",
+       study ~ "categorical"
+     ),
+     statistic = list(
+       all_continuous() ~ "{mean} ({sd})",
+       all_categorical() ~ "{n} ({p}%)"
+     ),
+     digits = list(
+       age ~ 1,
+       bmi ~ 1,
+       hba1c ~ 2,
+       all_categorical() ~ c(0, 1)
+     ),
+     label = list(
+       age ~ "Age, years",
+       group ~ "Group", 
+       race_ethnicity ~ "Race/Ethnicity",
+       bmi ~ "BMI, kg/m²",
+       hba1c ~ "HbA1c, %",
+       study ~ "Study"
+     ),
+     missing_text = "Missing"
+   ) %>%
+   add_p(test = list(
+     all_continuous() ~ "t.test"
+     # Skip categorical p-values if they cause issues
+   )) %>%
+   add_overall(col_label = "**Overall**\nN = {N}") %>%
+   modify_header(label ~ "**Characteristic**") %>%
+   modify_spanning_header(all_stat_cols() ~ "**Sex**") %>%
+   modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+ 
+ # Save version with epic
+ desc_table1_fixed %>%
+   as_gt() %>%
+   tab_options(
+     table.font.size = 11,
+     heading.title.font.size = 14,
+     column_labels.font.size = 12
+   ) %>%
+   gtsave("C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/LeanControl_Proteomics_Demographics.png", 
+          vwidth = 1200, vheight = 800)
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
  
  # Check how many were found vs missing
  cat("Found:", length(existing_cols), "out of", length(data_dictionary_small$variable_name), "\n")
@@ -2151,7 +2215,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  output_folder <- '/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/omics/'
  
  # Get all numeric columns (excluding ID columns and grouping variables)
- numeric_cols <- names(dat_omics)[!names(dat_omics) %in% c('record_id', 'group', 'sex')]
+ numeric_cols <- names(dat_omics)[!names(dat_omics) %in% c('record_id', 'group', 'sex', 'study', 'age', 'bmi', 'race_ethnicity', 'hba1c')]
  
  # Initialize results dataframe
  results <- data.frame(
