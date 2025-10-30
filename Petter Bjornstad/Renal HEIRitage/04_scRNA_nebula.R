@@ -66,7 +66,8 @@ for (cell in names(celltype_groups)) {
                                     group = F)
   
   processed <- process_nebula_results(nebula_res$results,
-                                      pval_col = "p_dkd_group_100DKD")
+                                      pval_col = "p_dkd_group_100DKD",
+                                      logfc_col = "logFC_dkd_group_100DKD")
   
   # Get gene symbols
   gene_symbols <- processed$results$Gene
@@ -118,7 +119,8 @@ for (cell in names(celltype_groups)) {
                                     group = F)
   
   processed <- process_nebula_results(nebula_res$results,
-                                      pval_col = "p_dkd_group_100_hcDKD")
+                                      pval_col = "p_dkd_group_100_hcDKD",
+                                      logfc_col = "logFC_dkd_group_100_hcDKD")
   
   # Get gene symbols
   gene_symbols <- processed$results$Gene
@@ -171,7 +173,8 @@ for (cell in names(celltype_groups)) {
                                     group = F)
   
   processed <- process_nebula_results(nebula_res$results,
-                                      pval_col = "p_dkd_group_100_hcnon_DKD")
+                                      pval_col = "p_dkd_group_100_hcnon_DKD",
+                                      logfc_col = "logFC_dkd_group_100_hcnon_DKD")
   
   # Get gene symbols
   gene_symbols <- processed$results$Gene
@@ -222,7 +225,8 @@ for (cell in names(celltype_groups)) {
                                     group = F)
   
   processed <- process_nebula_results(nebula_res$results,
-                                      pval_col = "p_dkd_group_30DKD")
+                                      pval_col = "p_dkd_group_30DKD",
+                                      logfc_col = "logFC_dkd_group_30DKD")
   
   # Get gene symbols
   gene_symbols <- processed$results$Gene
@@ -275,7 +279,8 @@ for (cell in names(celltype_groups)) {
                                     group = F)
   
   processed <- process_nebula_results(nebula_res$results,
-                                      pval_col = "p_dkd_group_30_hcDKD")
+                                      pval_col = "p_dkd_group_30_hcDKD",
+                                      logfc_col = "logFC_dkd_group_30_hcDKD")
   
   # Get gene symbols
   gene_symbols <- processed$results$Gene
@@ -328,7 +333,8 @@ for (cell in names(celltype_groups)) {
                                     group = F)
   
   processed <- process_nebula_results(nebula_res$results,
-                                      pval_col = "p_dkd_group_30_hcnon_DKD")
+                                      pval_col = "p_dkd_group_30_hcnon_DKD",
+                                      logfc_col = "logFC_dkd_group_30_hcnon_DKD")
   
   # Get gene symbols
   gene_symbols <- processed$results$Gene
@@ -383,7 +389,8 @@ for (cell in names(celltype_groups)) {
                                     group = F)
   
   processed <- process_nebula_results(nebula_res$results,
-                                      pval_col = "p_glp_t2dobGLP_N")
+                                      pval_col = "p_glp_t2dobGLP_N",
+                                      logfc_col = "logFC_glp_t2dobGLP_N")
   
   # Get gene symbols
   gene_symbols <- processed$results$Gene
@@ -438,7 +445,8 @@ for (cell in names(celltype_groups)) {
                                     group = F) 
   
   processed <- process_nebula_results(nebula_res$results,
-                                      pval_col = "p_glp_t2dobGLP_Y")
+                                      pval_col = "p_glp_t2dobGLP_Y",
+                                      logfc_col = "logFC_glp_t2dobGLP_Y")
   
   # Get gene symbols
   gene_symbols <- processed$results$Gene
