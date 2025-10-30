@@ -1077,7 +1077,8 @@ library(dplyr)
 library(patchwork)  # Optional: for combining plots
 
 # Define cell types
-celltypes_vec <- c('All', 'PT', 'TAL', 'EC', 'DCTall', 'IC', 'POD', 'intercalated')
+celltypes_vec <- c(#'All', 'PT', 'TAL', 'EC', 'DCTall', 'IC', 
+  'POD', 'intercalated')
 
 # Get gene sets from MSigDB for human
 hallmark_sets <- msigdbr(species = "Homo sapiens", category = "H")
@@ -1189,6 +1190,8 @@ for(celltype in celltypes_vec) {
       # Save individual plot
       ggsave(paste0(dir.results, 'GSEA/', geneset_name, '_gsea_', celltype, ".pdf"), 
              plot = p, width = 10, height = 8)
+      ggsave(paste0(dir.results, 'GSEA/', geneset_name, '_gsea_', celltype, ".png"), 
+             plot = p, width = 10, height = 8, dpi = 300)
       
       cat("Saved plot for", celltype, "-", geneset_name, "\n")
     } else {
@@ -4459,6 +4462,317 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  
  
+ 
+ 
+ 
+ 
+ 
+ 
+ ##### Cell type proportions
+
+ library(ggplot2)
+ library(dplyr)
+ library(tidyr)
+ 
+ # Function to create stacked barplots by sex for each cell type
+ create_celltype_barplots <- function(so_subset, dir.results, celltype, 
+                                      subtype_column = "KPMP_celltype",
+                                      test_method = "fisher",  # "fisher" or "proportion"
+                                      alpha = 0.01) {  # More stringent alpha level
+   
+   # Subset Seurat object based on celltype
+   if(celltype == 'All'){
+     so_celltype <- so_subset 
+   } else if(celltype %in% c('TAL', 'EC', 'POD', 'PT')){
+     so_celltype <- subset(so_subset, celltype2 == celltype)
+   } else if(celltype == 'IC'){
+     so_celltype <- subset(so_subset, KPMP_celltype %in% c(
+       "cDC", "cycT", "CD4+ T", "CD8+ T", "NK", "B", "MON", "MAC", "MC"))
+   } else if(celltype == 'DCTall'){
+     so_celltype <- subset(so_subset, DCT_celltype == 'DCT')
+   } else if(celltype == 'intercalated'){
+     so_celltype <- subset(so_subset, KPMP_celltype %in% c('IC-B', 'IC-A', 'tPC-IC', 'aIC'))
+   } else {
+     stop("Unknown celltype specified")
+   }
+   
+   # Clean celltype name for file saving
+   celltype2 <- str_replace_all(celltype, "/", "_")
+   celltype2 <- str_replace_all(celltype2, "-", "_")
+   
+   cat("\n=== Processing", celltype, "===\n")
+   
+   # Extract metadata
+   metadata <- so_celltype@meta.data
+   
+   # Check if sex and subtype columns exist
+   if(!"sex" %in% colnames(metadata)) {
+     stop("'sex' column not found in metadata")
+   }
+   if(!subtype_column %in% colnames(metadata)) {
+     stop(paste0("'", subtype_column, "' column not found in metadata"))
+   }
+   
+   # Remove NAs
+   metadata <- metadata %>%
+     filter(!is.na(sex) & !is.na(!!sym(subtype_column)))
+   
+   # Calculate counts and proportions
+   cell_counts <- metadata %>%
+     group_by(sex, !!sym(subtype_column)) %>%
+     summarise(count = n(), .groups = 'drop')
+   
+   cell_props <- cell_counts %>%
+     group_by(sex) %>%
+     mutate(
+       total = sum(count),
+       proportion = count / total * 100
+     ) %>%
+     ungroup()
+   
+   # Perform chi-square test for overall differences
+   contingency_table <- metadata %>%
+     count(sex, !!sym(subtype_column)) %>%
+     pivot_wider(names_from = sex, values_from = n, values_fill = 0) %>%
+     column_to_rownames(subtype_column) %>%
+     as.matrix()
+   
+   chi_test <- chisq.test(contingency_table)
+   
+   # Only proceed with pairwise tests if overall chi-square is significant
+   subtypes <- unique(metadata[[subtype_column]])
+   prop_tests <- list()
+   
+   if(chi_test$p.value < 0.05) {  # Only do pairwise if overall is significant
+     
+     for(subtype in subtypes) {
+       # Create 2x2 contingency table for this subtype
+       subtype_data <- metadata %>%
+         mutate(is_subtype = !!sym(subtype_column) == subtype)
+       
+       # Count for each sex
+       test_table <- table(subtype_data$sex, subtype_data$is_subtype)
+       
+       # Only test if we have enough observations (at least 5 in each cell)
+       if(all(test_table >= 5)) {
+         
+         if(test_method == "fisher") {
+           # Fisher's exact test - more conservative, better for small samples
+           stat_test <- fisher.test(test_table)
+           p_val <- stat_test$p.value
+         } else {
+           # Proportion test
+           stat_test <- prop.test(test_table)
+           p_val <- stat_test$p.value
+         }
+         
+         # Calculate the actual proportions for each sex
+         male_prop <- test_table["Male", "TRUE"] / sum(test_table["Male", ])
+         female_prop <- test_table["Female", "TRUE"] / sum(test_table["Female", ])
+         
+         # Calculate effect size (absolute difference)
+         abs_diff <- abs(male_prop - female_prop) * 100
+         
+         prop_tests[[subtype]] <- data.frame(
+           subtype = subtype,
+           male_proportion = male_prop * 100,
+           female_proportion = female_prop * 100,
+           difference = (male_prop - female_prop) * 100,
+           abs_difference = abs_diff,
+           p_value = p_val,
+           male_count = test_table["Male", "TRUE"],
+           female_count = test_table["Female", "TRUE"],
+           significant = p_val < alpha
+         )
+       }
+     }
+   } else {
+     cat("Overall chi-square test not significant (p =", chi_test$p.value, 
+         "), skipping pairwise tests\n")
+   }
+   
+   # Combine proportion test results
+   if(length(prop_tests) > 0) {
+     prop_test_results <- bind_rows(prop_tests)
+     
+     # Apply Bonferroni correction (more conservative than FDR)
+     prop_test_results$p_bonferroni <- p.adjust(prop_test_results$p_value, method = "bonferroni")
+     prop_test_results$p_fdr <- p.adjust(prop_test_results$p_value, method = "BH")
+     
+     # Require both: statistical significance AND meaningful effect size (>5% difference)
+     prop_test_results$significant_bonferroni <- 
+       (prop_test_results$p_bonferroni < alpha) & (prop_test_results$abs_difference > 5)
+     
+     prop_test_results$significant_fdr <- 
+       (prop_test_results$p_fdr < alpha) & (prop_test_results$abs_difference > 5)
+     
+   } else {
+     prop_test_results <- data.frame()
+   }
+   
+   # Save statistical results
+   stat_results <- list(
+     chi_square_test = data.frame(
+       statistic = chi_test$statistic,
+       p_value = chi_test$p.value,
+       df = chi_test$parameter,
+       method = chi_test$method
+     ),
+     proportion_tests = prop_test_results,
+     test_method = test_method,
+     alpha_threshold = alpha
+   )
+   
+   write.csv(stat_results$chi_square_test, 
+             paste0(dir.results, 'barplot_', celltype2, '_chisq_test.csv'),
+             row.names = FALSE)
+   
+   if(nrow(prop_test_results) > 0) {
+     write.csv(prop_test_results, 
+               paste0(dir.results, 'barplot_', celltype2, '_', test_method, '_tests.csv'),
+               row.names = FALSE)
+   }
+   
+   # Add significance annotation to plot data (using Bonferroni)
+   if(nrow(prop_test_results) > 0) {
+     cell_props <- cell_props %>%
+       left_join(
+         prop_test_results %>% 
+           dplyr::select(subtype, significant_bonferroni, p_bonferroni) %>%
+           rename(!!subtype_column := subtype),
+         by = subtype_column
+       )
+   } else {
+     cell_props$significant_bonferroni <- FALSE
+     cell_props$p_bonferroni <- NA
+   }
+   
+   # Calculate midpoints for each subtype segment for asterisk placement
+   cell_props <- cell_props %>%
+     arrange(sex, desc(!!sym(subtype_column))) %>%
+     group_by(sex) %>%
+     mutate(
+       cumsum_prop = cumsum(proportion),
+       midpoint = cumsum_prop - proportion/2
+     ) %>%
+     ungroup()
+   
+   # Prepare asterisk data - only for Female bars (right bar)
+   asterisk_data <- cell_props %>%
+     filter(sex == "Female" & significant_bonferroni == TRUE) %>%
+     mutate(
+       label = case_when(
+         p_bonferroni < 0.001 ~ "***",
+         p_bonferroni < 0.01 ~ "**",
+         p_bonferroni < alpha ~ "*",
+         TRUE ~ ""
+       )
+     )
+   
+   # Create color palette
+   n_subtypes <- length(unique(cell_props[[subtype_column]]))
+   colors <- scales::hue_pal()(n_subtypes)
+   
+   # Create the plot
+   p <- ggplot(cell_props, aes(x = sex, y = proportion, fill = !!sym(subtype_column))) +
+     geom_bar(stat = "identity", position = "stack", color = "black", linewidth = 0.3) +
+     scale_fill_manual(values = colors) +
+     theme_bw() +
+     theme(
+       axis.text.x = element_text(size = 12, color = "black", face = "bold"),
+       axis.text.y = element_text(size = 11, color = "black"),
+       axis.title = element_text(size = 12, face = "bold"),
+       legend.title = element_text(size = 11, face = "bold"),
+       legend.text = element_text(size = 10),
+       plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+       plot.subtitle = element_text(size = 10, hjust = 0.5),
+       panel.grid.major.x = element_blank(),
+       panel.grid.minor = element_blank()
+     ) +
+     labs(
+       x = "Sex",
+       y = "Percentage (%)",
+       fill = "Cell Type",
+       title = paste0("Cell Type Composition: ", celltype),
+       subtitle = paste0("Chi-square test p-value: ", format.pval(chi_test$p.value, digits = 3))
+     ) +
+     scale_y_continuous(expand = c(0, 0), limits = c(0, 105))
+   
+   # Add asterisks for significant subtypes
+   if(nrow(asterisk_data) > 0) {
+     p <- p + 
+       geom_text(
+         data = asterisk_data,
+         aes(x = sex, y = midpoint, label = label),
+         inherit.aes = FALSE,
+         size = 6,
+         fontface = "bold",
+         color = "white"
+       )
+   }
+   
+   # Add caption with legend for asterisks
+   correction_method <- "Bonferroni"
+   caption_text <- paste0("* p < ", alpha, " (", correction_method, "-corrected & >5% difference)")
+   
+   if(nrow(prop_test_results) > 0 && any(prop_test_results$significant_bonferroni, na.rm = TRUE)) {
+     sig_subtypes <- prop_test_results %>%
+       filter(significant_bonferroni) %>%
+       arrange(p_bonferroni) %>%
+       mutate(display = paste0(subtype, " (Δ=", round(abs_difference, 1), "%)")) %>%
+       pull(display)
+     
+     caption_text <- paste0(caption_text, "\nSignificant: ", 
+                            paste(sig_subtypes, collapse = ", "))
+   }
+   
+   p <- p + labs(caption = caption_text)
+   
+   # Save plots
+   ggsave(paste0(dir.results, 'barplot_', celltype2, '_composition.pdf'),
+          plot = p, width = 8, height = 6)
+   
+   ggsave(paste0(dir.results, 'barplot_', celltype2, '_composition.png'),
+          plot = p, width = 8, height = 6, dpi = 300)
+   
+   cat("Saved barplot for", celltype, "\n")
+   cat("Chi-square p-value:", chi_test$p.value, "\n")
+   
+   if(nrow(prop_test_results) > 0) {
+     sig_count <- sum(prop_test_results$significant_bonferroni, na.rm = TRUE)
+     cat("Number of significantly different subtypes (Bonferroni < ", alpha, " & >5% diff):", sig_count, "\n")
+     if(sig_count > 0) {
+       cat("Significant subtypes:\n")
+       print(prop_test_results %>% 
+               filter(significant_bonferroni) %>% 
+               arrange(p_bonferroni) %>%
+               dplyr::select(subtype, male_proportion, female_proportion, 
+                             difference, abs_difference, p_bonferroni))
+     }
+   }
+   
+   return(list(
+     plot = p,
+     statistics = stat_results,
+     proportions = cell_props
+   ))
+ }
+ 
+ # Run for all cell types
+ celltypes_vec <- c( 'PT', 'TAL', 'EC',  'DCTall', 'IC', 'intercalated')
+ 
+ results_list <- list()
+ for(celltype in celltypes_vec) {
+   results_list[[celltype]] <- create_celltype_barplots(
+     so_subset = so_subset, 
+     dir.results = dir.results, 
+     celltype = celltype,
+     subtype_column = "KPMP_celltype",
+     test_method = "fisher",  # Use "fisher" for more conservative, "proportion" for original
+     alpha = 0.01  # More stringent threshold (0.01 instead of 0.05)
+   )
+   cat("\n")
+ }
  
  
  
