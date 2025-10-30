@@ -35,7 +35,7 @@ library(fgsea)
 library(EnhancedVolcano)
 library(openxlsx)
 library(BiocManager)
-library(MAST)
+# library(MAST)
 library(ggrepel)
 # library(qpcR)
 library(ggpubr)
@@ -52,7 +52,7 @@ library(stringr)
 #library(NMF)
 library(rsvd)
 library(RColorBrewer)
-library(MAST)
+# library(MAST)
 library(devtools)
 # install_github("Sun-lab/ideas",force=T)
 #library(ideas)
@@ -65,7 +65,7 @@ library(fs)
 library(VennDiagram)
 library(janitor)
 # devtools::install_github('immunogenomics/presto')
-library(presto)
+# library(presto)
 library(knitr)
 library(lme4)
 library(lmerTest)
@@ -114,10 +114,10 @@ library(DESeq2)
 # dir.code <- c("/Users/hhampson/Documents/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
 # dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
 
-#Mac Studio File Path
-dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
-dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/scRNA")
-dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
+# #Mac Studio File Path
+# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+# dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/scRNA")
+# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
 
 ##c. Load functions ----
 source("Kidney_functions_sc.R")
@@ -127,18 +127,9 @@ source("Celltype_Annotation_Function.R")
 
 ## a. Hyak Data Load
 ```{r, Cyberduck setup}
-# knitr::opts_knit$set(root.dir = dir.results)
-# install.packages("reticulate")
-# Sys.setenv(RETICULATE_PYTHON = "/home/hailey/miniconda3/envs/py310_env/bin/python")
+install.packages("reticulate")
 library(reticulate)
-reticulate::py_config()
-# library(reticulate)
-# reticulate::use_condaenv("py310_env", required = TRUE)
-# reticulate::py_config()
-# Sys.setenv(LD_LIBRARY_PATH = "/usr/lib/x86_64-linux-gnu")
-# reticulate::use_python("/home/hailey/miniconda3/bin/python")
-# reticulate::use_condaenv("base", required = TRUE)
-
+reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
 ## Load boto3 and pandas
 boto3 <- reticulate::import("boto3")
 pd <- reticulate::import("pandas")
@@ -147,7 +138,7 @@ pd <- reticulate::import("pandas")
 # install.packages("jsonlite")  # Install if not already installed
 library(jsonlite)  # Load the package
 
-keys <- fromJSON("/mmfs1/home/hhampson/keys.json") # replace with your Lambda username
+keys <- fromJSON("/home/hhampson/keys.json") # replace with your Lambda username
 session <- boto3$session$Session(
   aws_access_key_id = keys$MY_ACCESS_KEY,
   aws_secret_access_key = keys$MY_SECRET_KEY
@@ -161,6 +152,32 @@ bucket <- "scrna" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
 s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
 so_kpmp_sc <- readRDS(temp_file)
+# # read file
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket,"Liver transcriptomics/Single nucleus RNA seq/NoRef_PetterLiver_ClinData_Labels_Char_041924.rds", temp_file)
+# so_liver_sn <- readRDS(temp_file)
+
+# DefaultAssay(so_liver_sn) <- "RNA"
+# dim(so_liver_sn)#36601 130124
+# nrow(so_liver_sn) #36,601 genes
+# ncol(so_liver_sn) # 130,124 nuceli
+# invisible(gc())
+
+# #Load metadata
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+# s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
+# meta_liver_raw <- read.csv(temp_file)
+# gc()
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
+harm_meta_data <- read.csv(temp_file)
+
+
 ```
 
 ##b. Local Data Load
@@ -180,8 +197,8 @@ ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
 # so_kpmp_sc <- readRDS(fs::path(dir.dat2,"data_raw","PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
 so_kpmp_sc <- subset(so_kpmp_sc,record_id %in% ids)
 
-#Load harmonized data that has been filtered from 90 to the 83 participants that have baseline single cell data
-harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
+# #Load harmonized data that has been filtered from 90 to the 83 participants that have baseline single cell data
+# harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
 
 #Hyak load
 # gc()
