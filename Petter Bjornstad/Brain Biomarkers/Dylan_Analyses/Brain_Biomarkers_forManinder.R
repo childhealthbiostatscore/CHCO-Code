@@ -707,19 +707,438 @@ cat("Statistical test: Mann-Whitney U (Wilcoxon rank-sum test)\n")
 
 #Clinical characteristics (eGFR, UACR, HBA1C, Clamp, PET, DEXA, glycemia, insulin sensitivity)
 
+
+data_dictionary <- readxl::read_xlsx('C:/Users/netio/Downloads/data_dictionary_master.xlsx')
+data_dictionary <- data_dictionary %>% filter(form_name %in% c('clamp', 'UACR', 'fmri', 'eGFR', 'FSOC', 'brain_mri', 'pet_scan', 'dextran_data'))
+
+
 traits_of_interest <- c('acr_u', 
                         'eGFR_bedside_Schwartz', 'eGFR_CKD_epi', 'eGFR_fas_cr', 'eGFR_fas_cr_cysc','eGFR_Zap','eGFR_Schwartz', 
                         'hba1c')
 
+dat_analysis <- dat %>% 
+  dplyr::select(record_id, group, hba1c, #age, sex, bmi, hba1c, study, 
+                all_of(qx_var), 
+                any_of(data_dictionary$variable_name))
 
-dat <- dat %>% dplyr::select(record_id, group, age, sex, bmi, hba1c, study, all_of(qx_var))
 
+dat_analysis <- dat %>% 
+  dplyr::select(group, all_of(qx_var), acr_u, adipose_ir, cholesterol, hba1c, eGFR_CKD_epi, eGFR_fas_cr, fbg, ldl, left_kidney_volume_ml, right_kidney_volume_ml, 
+                triglycerides, urine_glucose_bl, avg_k_fsoc, avg_c_fsoc, avg_m_fsoc, homa_ir, search_eis)
+
+
+dat_clean <- dat_analysis[complete.cases(dat_analysis), ]
+
+library(corrplot)
+
+dat_clean_temp <- dat_clean %>% dplyr::select(-group) %>% cor()
+
+
+corrplot(dat_clean_temp)
 
 
 
 
 
 #### Elastic net models 
+library(readxl)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(glmnet)
+library(ggplot2)
+library(patchwork)
+
+set.seed(123)
+
+# Define biomarkers (outcomes)
+biomarkers <- c("ab40_avg_conc", "ab42_avg_conc", "tau_avg_conc",
+                "nfl_avg_conc", "gfap_avg_conc", "ptau_181_avg_conc", 
+                "ptau_217_avg_conc")
+
+biomarker_labels <- c(
+  "ab40_avg_conc" = "Aβ40",
+  "ab42_avg_conc" = "Aβ42",
+  "tau_avg_conc" = "Tau",
+  "nfl_avg_conc" = "NfL",
+  "gfap_avg_conc" = "GFAP",
+  "ptau_181_avg_conc" = "pTau-181",
+  "ptau_217_avg_conc" = "pTau-217"
+)
+
+
+#### Functions 
+
+test_transformation <- function(x, var_name = "") {
+  # Remove NAs
+  x <- x[!is.na(x)]
+  
+  if (length(x) < 3) {
+    return(list(transform = "none", reason = "insufficient_data"))
+  }
+  
+  # Test raw data
+  shapiro_raw <- tryCatch(shapiro.test(x)$p.value, error = function(e) NA)
+  skew_raw <- (mean(x) - median(x)) / sd(x)
+  
+  # Test log-transformed (add small constant if zeros)
+  if (min(x) <= 0) {
+    x_log <- log(x - min(x) + 0.01)
+  } else {
+    x_log <- log(x)
+  }
+  
+  shapiro_log <- tryCatch(shapiro.test(x_log)$p.value, error = function(e) NA)
+  skew_log <- (mean(x_log) - median(x_log)) / sd(x_log)
+  
+  # Decision: use log if it improves normality and reduces skewness
+  if (!is.na(shapiro_log) && !is.na(shapiro_raw)) {
+    if (shapiro_log > shapiro_raw && abs(skew_log) < abs(skew_raw)) {
+      return(list(
+        transform = "log",
+        shapiro_raw = shapiro_raw,
+        shapiro_log = shapiro_log,
+        skew_raw = abs(skew_raw),
+        skew_log = abs(skew_log)
+      ))
+    }
+  }
+  
+  return(list(
+    transform = "none",
+    shapiro_raw = shapiro_raw,
+    shapiro_log = ifelse(is.na(shapiro_log), NA, shapiro_log),
+    skew_raw = abs(skew_raw),
+    skew_log = abs(skew_log)
+  ))
+}
+
+
+apply_transformations <- function(data, transform_decisions) {
+  data_transformed <- data
+  
+  for (var in names(transform_decisions)) {
+    if (transform_decisions[[var]]$transform == "log") {
+      x <- data_transformed[[var]]
+      if (min(x, na.rm = TRUE) <= 0) {
+        data_transformed[[var]] <- log(x - min(x, na.rm = TRUE) + 0.01)
+      } else {
+        data_transformed[[var]] <- log(x)
+      }
+    }
+  }
+  
+  data_transformed
+}
+
+
+run_elastic_net <- function(data, outcome_var, predictor_vars, cohort_name) {
+  
+  cat(sprintf("\n=== Running Elastic Net: %s in %s ===\n", 
+              outcome_var, cohort_name))
+  
+  # Prepare data
+  complete_data <- data %>%
+    select(all_of(c(outcome_var, predictor_vars))) %>%
+    drop_na()
+  
+  if (nrow(complete_data) < 10) {
+    cat("Insufficient data (n < 10). Skipping.\n")
+    return(NULL)
+  }
+  
+  cat(sprintf("Sample size: %d\n", nrow(complete_data)))
+  
+  # Prepare matrices
+  X <- as.matrix(complete_data[, predictor_vars])
+  y <- complete_data[[outcome_var]]
+  
+  # Standardize predictors (glmnet does this internally, but we track it)
+  X_scaled <- scale(X)
+  
+  # Set up cross-validation folds
+  nFolds <- min(5, nrow(complete_data))
+  foldid <- sample(rep(seq(nFolds), length.out = nrow(complete_data)))
+  
+  # Run elastic net with alpha = 0.5 (equal mix of L1 and L2)
+  cv_fit <- cv.glmnet(
+    x = X_scaled,
+    y = y,
+    family = "gaussian",
+    alpha = 0.5,
+    nfolds = nFolds,
+    foldid = foldid,
+    keep = TRUE
+  )
+  
+  # Extract coefficients at lambda.min
+  coef_min <- coef(cv_fit, s = "lambda.min")
+  coef_df <- data.frame(
+    Variable = rownames(coef_min),
+    Coefficient = as.numeric(coef_min),
+    stringsAsFactors = FALSE
+  ) %>%
+    filter(Variable != "(Intercept)", Coefficient != 0) %>%
+    arrange(desc(abs(Coefficient)))
+  
+  # Extract coefficients at lambda.1se (more regularized)
+  coef_1se <- coef(cv_fit, s = "lambda.1se")
+  coef_1se_df <- data.frame(
+    Variable = rownames(coef_1se),
+    Coefficient = as.numeric(coef_1se),
+    stringsAsFactors = FALSE
+  ) %>%
+    filter(Variable != "(Intercept)", Coefficient != 0) %>%
+    arrange(desc(abs(Coefficient)))
+  
+  # Calculate R-squared
+  predictions_min <- predict(cv_fit, newx = X_scaled, s = "lambda.min")
+  r2_min <- 1 - sum((y - predictions_min)^2) / sum((y - mean(y))^2)
+  
+  predictions_1se <- predict(cv_fit, newx = X_scaled, s = "lambda.1se")
+  r2_1se <- 1 - sum((y - predictions_1se)^2) / sum((y - mean(y))^2)
+  
+  cat(sprintf("Lambda.min: %.6f (R² = %.4f, %d variables)\n", 
+              cv_fit$lambda.min, r2_min, nrow(coef_df)))
+  cat(sprintf("Lambda.1se: %.6f (R² = %.4f, %d variables)\n", 
+              cv_fit$lambda.1se, r2_1se, nrow(coef_1se_df)))
+  
+  list(
+    cv_fit = cv_fit,
+    coef_min = coef_df,
+    coef_1se = coef_1se_df,
+    r2_min = r2_min,
+    r2_1se = r2_1se,
+    n = nrow(complete_data),
+    outcome = outcome_var,
+    cohort = cohort_name
+  )
+}
+
+
+plot_cv_results <- function(result, biomarker_label) {
+  
+  cv_fit <- result$cv_fit
+  
+  # Lambda plot
+  lambda_df <- data.frame(
+    lambda = cv_fit$lambda,
+    mse = cv_fit$cvm,
+    mse_lower = cv_fit$cvlo,
+    mse_upper = cv_fit$cvup,
+    nzero = cv_fit$nzero
+  )
+  
+  p1 <- ggplot(lambda_df, aes(x = log(lambda), y = mse)) +
+    geom_point(color = "#E64B35", size = 2) +
+    geom_errorbar(aes(ymin = mse_lower, ymax = mse_upper), 
+                  width = 0.1, color = "#E64B35", alpha = 0.5) +
+    geom_vline(xintercept = log(cv_fit$lambda.min), 
+               linetype = "dashed", color = "blue", size = 1) +
+    geom_vline(xintercept = log(cv_fit$lambda.1se), 
+               linetype = "dashed", color = "darkgreen", size = 1) +
+    labs(
+      title = sprintf("%s - %s", biomarker_label, result$cohort),
+      x = "Log(Lambda)",
+      y = "Mean Squared Error",
+      subtitle = sprintf("λ.min (blue): %.4f | λ.1se (green): %.4f", 
+                         cv_fit$lambda.min, cv_fit$lambda.1se)
+    ) +
+    theme_classic(base_size = 12) +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(hjust = 0.5, size = 10)
+    )
+  
+  # Coefficient plot at lambda.min
+  if (nrow(result$coef_min) > 0) {
+    coef_plot_df <- result$coef_min %>%
+      arrange(Coefficient) %>%
+      mutate(Variable = factor(Variable, levels = Variable))
+    
+    p2 <- ggplot(coef_plot_df, aes(x = Coefficient, y = Variable)) +
+      geom_segment(aes(x = 0, xend = Coefficient, y = Variable, yend = Variable),
+                   color = "grey50", size = 1) +
+      geom_point(color = "#4DBBD5", size = 4) +
+      geom_vline(xintercept = 0, linetype = "solid", color = "black") +
+      labs(
+        title = "Selected Features (λ.min)",
+        x = "Standardized Coefficient",
+        y = NULL,
+        subtitle = sprintf("R² = %.3f, n = %d", result$r2_min, result$n)
+      ) +
+      theme_classic(base_size = 11) +
+      theme(
+        plot.title = element_text(face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5, size = 9)
+      )
+  } else {
+    p2 <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+               label = "No variables selected", size = 6) +
+      theme_void()
+  }
+  
+  p1 + p2 + plot_layout(ncol = 2, widths = c(1, 1))
+}
+
+
+dat <- dat_clean
+# Define predictors (exclude biomarkers and group)
+all_vars <- setdiff(names(dat), c(biomarkers, "group"))
+predictor_vars <- all_vars
+
+cat("Biomarkers (outcomes):", paste(biomarker_labels[biomarkers], collapse = ", "), "\n")
+cat("Number of predictors:", length(predictor_vars), "\n")
+cat("Predictors:", paste(predictor_vars, collapse = ", "), "\n\n")
+
+
+transform_decisions <- list()
+
+# Test biomarkers
+cat("BIOMARKERS:\n")
+for (var in biomarkers) {
+  result <- test_transformation(dat[[var]], var)
+  transform_decisions[[var]] <- result
+  cat(sprintf("%-20s: %s", biomarker_labels[var], 
+              ifelse(result$transform == "log", "LOG TRANSFORM", "NO TRANSFORM")))
+  if (!is.null(result$shapiro_raw)) {
+    cat(sprintf(" (Shapiro raw: %.3f, log: %.3f)\n", 
+                result$shapiro_raw, result$shapiro_log))
+  } else {
+    cat("\n")
+  }
+}
+
+# Test predictors
+cat("\nPREDICTORS:\n")
+for (var in predictor_vars) {
+  result <- test_transformation(dat[[var]], var)
+  transform_decisions[[var]] <- result
+  cat(sprintf("%-25s: %s\n", var, 
+              ifelse(result$transform == "log", "LOG TRANSFORM", "NO TRANSFORM")))
+}
+
+# Apply transformations
+dat_transformed <- apply_transformations(dat, transform_decisions)
+
+cat("\nTransformations applied.\n")
+cat(sprintf("Log-transformed variables: %d\n", 
+            sum(sapply(transform_decisions, function(x) x$transform == "log"))))
+
+
+
+#Run elastic net models
+
+# Initialize results lists HERE - BEFORE the loop
+results_all <- list()
+plot_list <- list()
+
+# Define cohorts
+cohorts <- list(
+  "All" = dat_transformed,
+  "T1D_only" = dat_transformed %>% filter(group == "Type 1 Diabetes")
+)
+
+counter <- 1
+
+for (cohort_name in names(cohorts)) {
+  cohort_data <- cohorts[[cohort_name]]
+  
+  cat(sprintf("\n--- COHORT: %s (n = %d) ---\n", cohort_name, nrow(cohort_data)))
+  
+  for (biomarker in biomarkers) {
+    
+    result <- tryCatch({
+      run_elastic_net(
+        data = cohort_data,
+        outcome_var = biomarker,
+        predictor_vars = predictor_vars,
+        cohort_name = cohort_name
+      )
+    }, error = function(e) {
+      cat(sprintf("ERROR in %s - %s: %s\n", biomarker, cohort_name, e$message))
+      return(NULL)
+    })
+    
+    if (!is.null(result)) {
+      results_all[[counter]] <- result
+      
+      # Create plot
+      tryCatch({
+        p <- plot_cv_results(result, biomarker_labels[biomarker])
+        plot_list[[counter]] <- p
+      }, error = function(e) {
+        cat(sprintf("ERROR creating plot for %s - %s: %s\n", 
+                    biomarker, cohort_name, e$message))
+      })
+      
+      counter <- counter + 1
+    }
+  }
+}
+
+cat(sprintf("\n\nTotal models successfully run: %d\n", length(results_all)))
+
+# Create output directory
+dir.create("elastic_net_results", showWarnings = FALSE)
+
+# Save individual plots
+for (i in seq_along(plot_list)) {
+  result <- results_all[[i]]
+  filename <- sprintf("elastic_net_results/%s_%s_plot.png",
+                      result$outcome, 
+                      gsub(" ", "_", result$cohort))
+  
+  ggsave(filename, plot_list[[i]], width = 12, height = 6, dpi = 300)
+  cat(sprintf("Saved: %s\n", filename))
+}
+
+# Save coefficients
+for (i in seq_along(results_all)) {
+  result <- results_all[[i]]
+  
+  # Lambda.min coefficients
+  if (nrow(result$coef_min) > 0) {
+    filename <- sprintf("elastic_net_results/%s_%s_coefficients_lambda_min.csv",
+                        result$outcome, 
+                        gsub(" ", "_", result$cohort))
+    
+    write.csv(result$coef_min, filename, row.names = FALSE)
+    cat(sprintf("Saved: %s\n", filename))
+  }
+  
+  # Lambda.1se coefficients
+  if (nrow(result$coef_1se) > 0) {
+    filename <- sprintf("elastic_net_results/%s_%s_coefficients_lambda_1se.csv",
+                        result$outcome, 
+                        gsub(" ", "_", result$cohort))
+    
+    write.csv(result$coef_1se, filename, row.names = FALSE)
+  }
+}
+
+# Create summary table
+summary_df <- data.frame(
+  Biomarker = sapply(results_all, function(x) biomarker_labels[x$outcome]),
+  Cohort = sapply(results_all, function(x) x$cohort),
+  N = sapply(results_all, function(x) x$n),
+  Lambda_min = sapply(results_all, function(x) x$cv_fit$lambda.min),
+  R2_min = sapply(results_all, function(x) x$r2_min),
+  N_vars_min = sapply(results_all, function(x) nrow(x$coef_min)),
+  Lambda_1se = sapply(results_all, function(x) x$cv_fit$lambda.1se),
+  R2_1se = sapply(results_all, function(x) x$r2_1se),
+  N_vars_1se = sapply(results_all, function(x) nrow(x$coef_1se))
+)
+
+write.csv(summary_df, "elastic_net_results/summary_all_models.csv", row.names = FALSE)
+cat("Saved: elastic_net_results/summary_all_models.csv\n")
+
+cat("\n==========================================\n")
+cat("ANALYSIS COMPLETE\n")
+cat("==========================================\n")
+cat(sprintf("Total models run: %d\n", length(results_all)))
+print(summary_df)
 
 
 
@@ -731,12 +1150,76 @@ dat <- dat %>% dplyr::select(record_id, group, age, sex, bmi, hba1c, study, all_
 
 
 
+#Follow-up Analysis
 
+# ==========================================
+# COMPARISON: ELASTIC NET VS LINEAR REGRESSION
+# ==========================================
 
+cat("\n==========================================\n")
+cat("ELASTIC NET VS LINEAR REGRESSION COMPARISON\n")
+cat("==========================================\n\n")
 
+comparison_table <- data.frame(
+  Biomarker = character(),
+  Cohort = character(),
+  N = integer(),
+  ElasticNet_R2 = numeric(),
+  LinearReg_R2 = numeric(),
+  LinearReg_AdjR2 = numeric(),
+  N_predictors = integer(),
+  stringsAsFactors = FALSE
+)
 
+for (i in seq_along(results_all)) {
+  result <- results_all[[i]]
+  
+  # Find matching regression result
+  matching_idx <- which(sapply(regression_results_all, function(x) 
+    x$outcome == result$outcome && x$cohort == result$cohort))
+  
+  if (length(matching_idx) > 0) {
+    reg_result <- regression_results_all[[matching_idx[1]]]
+    
+    comparison_table <- rbind(comparison_table, data.frame(
+      Biomarker = biomarker_labels[result$outcome],
+      Cohort = result$cohort,
+      N = result$n,
+      ElasticNet_R2 = result$r2_min,
+      LinearReg_R2 = reg_result$model_summary$r.squared,
+      LinearReg_AdjR2 = reg_result$model_summary$adj.r.squared,
+      N_predictors = nrow(result$coef_min),
+      stringsAsFactors = FALSE
+    ))
+  } else {
+    # No regression was run (no variables selected)
+    comparison_table <- rbind(comparison_table, data.frame(
+      Biomarker = biomarker_labels[result$outcome],
+      Cohort = result$cohort,
+      N = result$n,
+      ElasticNet_R2 = result$r2_min,
+      LinearReg_R2 = NA,
+      LinearReg_AdjR2 = NA,
+      N_predictors = nrow(result$coef_min),
+      stringsAsFactors = FALSE
+    ))
+  }
+}
 
+write.csv(comparison_table, 
+          "regression_results/elasticnet_vs_linear_comparison.csv", 
+          row.names = FALSE)
+cat("Saved: regression_results/elasticnet_vs_linear_comparison.csv\n")
 
+cat("\nComparison Table:\n")
+print(comparison_table)
+
+cat("\n==========================================\n")
+cat("REGRESSION ANALYSIS COMPLETE\n")
+cat("==========================================\n")
+cat(sprintf("Total elastic net models: %d\n", length(results_all)))
+cat(sprintf("Total regression models: %d\n", length(regression_results_all)))
+cat("Results saved in: regression_results/\n")
 
 
 
