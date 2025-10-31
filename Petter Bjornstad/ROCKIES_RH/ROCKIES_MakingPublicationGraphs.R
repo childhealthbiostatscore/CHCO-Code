@@ -994,7 +994,251 @@ cat(sprintf("  OxPhos significant: %d/%d\n",
 
 
 
+### Analyses using GSEA with custom 
+library(dplyr)
+library(stringr)
 
+# Initialize results dataframe
+meta_analysis_results <- data.frame(
+  Pathway = character(),
+  Cell_Type = character(),
+  n_genes = integer(),
+  Pooled_log2FC = numeric(),
+  Pooled_SE = numeric(),
+  z_statistic = numeric(),
+  p_value_twosided = numeric(),
+  p_value_greater = numeric(),
+  CI_lower = numeric(),
+  CI_upper = numeric(),
+  Significant = character(),
+  stringsAsFactors = FALSE
+)
+
+lc_files <- list.files('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/', pattern='csv')
+t2d_files <- list.files('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/T2D_SGLT2/', pattern = 'csv')
+
+# Define cell types - PT overall first, then subtypes
+celltypes <- c('PT', 'PT-S1/S2', 'PT-S3', 'aPT')
+
+cat("\n==========================================\n")
+cat("Running Inverse Variance Weighted Meta-Analysis\n")
+cat("==========================================\n")
+for(i in 1:length(celltypes)) {
+  cat(sprintf("%d. %s\n", i, celltypes[i]))
+}
+cat("\n")
+
+# Function for inverse variance weighted meta-analysis
+meta_analysis_geneset <- function(logFC, SE) {
+  
+  # Inverse variance weights
+  weights <- 1 / SE^2
+  
+  # Pooled effect size
+  pooled_logFC <- sum(logFC * weights) / sum(weights)
+  pooled_SE <- sqrt(1 / sum(weights))
+  
+  # Test statistics
+  z_stat <- pooled_logFC / pooled_SE
+  p_value_twosided <- 2 * pnorm(-abs(z_stat))
+  p_value_greater <- pnorm(z_stat, lower.tail = FALSE)  # one-sided: upregulated
+  
+  # 95% Confidence interval
+  CI_lower <- pooled_logFC - 1.96 * pooled_SE
+  CI_upper <- pooled_logFC + 1.96 * pooled_SE
+  
+  return(list(
+    n_genes = length(logFC),
+    pooled_logFC = pooled_logFC,
+    pooled_SE = pooled_SE,
+    z_statistic = z_stat,
+    p_value_twosided = p_value_twosided,
+    p_value_greater = p_value_greater,
+    CI_lower = CI_lower,
+    CI_upper = CI_upper
+  ))
+}
+
+for(i in c(1:length(celltypes))){
+  
+  celltype <- celltypes[i]
+  celltype2 <- str_replace_all(celltype,"/","_")
+  celltype2 <- str_replace_all(celltype2,"-","_")
+  
+  tmp_lc <- lc_files[str_which(lc_files, pattern = paste0('cycle_', celltype2, '_cells'))]
+  tmp_t2d <- t2d_files[str_which(t2d_files, pattern = paste0('cycle_', celltype2, '_cells'))]
+  
+  #========================================
+  # TCA Meta-Analysis
+  #========================================
+  tmp_lc_tca <- tmp_lc[str_which(tmp_lc, pattern = 'TCA')]
+  
+  tca_lc <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/', tmp_lc_tca))
+  
+  tca_lc <- tca_lc %>% dplyr::select(
+    gene, 
+    logFC_lc = logFC_groupType_2_Diabetes,
+    SE_lc = se_groupType_2_Diabetes,
+    pvalue_lc = any_of(c("p_groupType_2_Diabetes", "pvalue"))
+  )
+  
+  # Run meta-analysis
+  tca_meta <- meta_analysis_geneset(
+    logFC = tca_lc$logFC_lc,
+    SE = tca_lc$SE_lc
+  )
+  
+  # Store results
+  meta_analysis_results <- rbind(meta_analysis_results, data.frame(
+    Pathway = "TCA Cycle",
+    Cell_Type = celltype,
+    n_genes = tca_meta$n_genes,
+    Pooled_log2FC = tca_meta$pooled_logFC,
+    Pooled_SE = tca_meta$pooled_SE,
+    z_statistic = tca_meta$z_statistic,
+    p_value_twosided = tca_meta$p_value_twosided,
+    p_value_greater = tca_meta$p_value_greater,
+    CI_lower = tca_meta$CI_lower,
+    CI_upper = tca_meta$CI_upper,
+    Significant = ifelse(tca_meta$p_value_greater < 0.05, "Yes", "No"),
+    stringsAsFactors = FALSE
+  ))
+  
+  cat("\n==========================================\n")
+  cat(sprintf("%s - TCA Cycle Meta-Analysis\n", celltype))
+  cat("==========================================\n")
+  cat(sprintf("Number of genes: %d\n", tca_meta$n_genes))
+  cat(sprintf("Pooled log2FC: %.4f ± %.4f\n", tca_meta$pooled_logFC, tca_meta$pooled_SE))
+  cat(sprintf("95%% CI: (%.4f, %.4f)\n", tca_meta$CI_lower, tca_meta$CI_upper))
+  cat(sprintf("Z-statistic: %.4f\n", tca_meta$z_statistic))
+  cat(sprintf("P-value (two-sided): %.6f\n", tca_meta$p_value_twosided))
+  cat(sprintf("P-value (upregulation): %.6f\n", tca_meta$p_value_greater))
+  cat(sprintf("Significant upregulation (p < 0.05): %s\n", 
+              ifelse(tca_meta$p_value_greater < 0.05, "YES", "NO")))
+  
+  #========================================
+  # OxPhos Meta-Analysis
+  #========================================
+  tmp_lc_oxphos <- tmp_lc[str_which(tmp_lc, pattern = 'PHOS_')]
+  
+  oxphos_lc <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/', tmp_lc_oxphos))
+  
+  oxphos_lc <- oxphos_lc %>% dplyr::select(
+    gene, 
+    logFC_lc = logFC_groupType_2_Diabetes,
+    SE_lc = se_groupType_2_Diabetes,
+    pvalue_lc = any_of(c("p_groupType_2_Diabetes", "pvalue"))
+  )
+  
+  # Run meta-analysis
+  oxphos_meta <- meta_analysis_geneset(
+    logFC = oxphos_lc$logFC_lc,
+    SE = oxphos_lc$SE_lc
+  )
+  
+  # Store results
+  meta_analysis_results <- rbind(meta_analysis_results, data.frame(
+    Pathway = "OxPhos",
+    Cell_Type = celltype,
+    n_genes = oxphos_meta$n_genes,
+    Pooled_log2FC = oxphos_meta$pooled_logFC,
+    Pooled_SE = oxphos_meta$pooled_SE,
+    z_statistic = oxphos_meta$z_statistic,
+    p_value_twosided = oxphos_meta$p_value_twosided,
+    p_value_greater = oxphos_meta$p_value_greater,
+    CI_lower = oxphos_meta$CI_lower,
+    CI_upper = oxphos_meta$CI_upper,
+    Significant = ifelse(oxphos_meta$p_value_greater < 0.05, "Yes", "No"),
+    stringsAsFactors = FALSE
+  ))
+  
+  cat("\n==========================================\n")
+  cat(sprintf("%s - OxPhos Meta-Analysis\n", celltype))
+  cat("==========================================\n")
+  cat(sprintf("Number of genes: %d\n", oxphos_meta$n_genes))
+  cat(sprintf("Pooled log2FC: %.4f ± %.4f\n", oxphos_meta$pooled_logFC, oxphos_meta$pooled_SE))
+  cat(sprintf("95%% CI: (%.4f, %.4f)\n", oxphos_meta$CI_lower, oxphos_meta$CI_upper))
+  cat(sprintf("Z-statistic: %.4f\n", oxphos_meta$z_statistic))
+  cat(sprintf("P-value (two-sided): %.6f\n", oxphos_meta$p_value_twosided))
+  cat(sprintf("P-value (upregulation): %.6f\n", oxphos_meta$p_value_greater))
+  cat(sprintf("Significant upregulation (p < 0.05): %s\n", 
+              ifelse(oxphos_meta$p_value_greater < 0.05, "YES", "NO")))
+}
+
+cat("\n\n==========================================\n")
+cat("SUMMARY TABLE\n")
+cat("==========================================\n\n")
+
+# Organize results: PT overall first, then subtypes
+meta_analysis_results$Cell_Type <- factor(meta_analysis_results$Cell_Type, 
+                                          levels = c('PT', 'PT-S1/S2', 'PT-S3', 'aPT'))
+meta_analysis_results <- meta_analysis_results %>%
+  arrange(Pathway, Cell_Type)
+
+# Print summary table
+print(meta_analysis_results)
+
+# Save results to CSV
+write.csv(meta_analysis_results, 
+          'C:/Users/netio/Documents/UofW/Rockies/publication_figures/TCA_OxPhos_MetaAnalysis_all_PT.csv',
+          row.names = FALSE)
+
+cat("\n\nResults saved to: TCA_OxPhos_MetaAnalysis_all_PT.csv\n")
+
+# Create a nicely formatted summary for copying
+cat("\n\n==========================================\n")
+cat("FORMATTED SUMMARY FOR MANUSCRIPT\n")
+cat("==========================================\n\n")
+
+cat("TCA CYCLE:\n")
+cat("----------\n")
+tca_results <- meta_analysis_results %>% filter(Pathway == "TCA Cycle")
+for(i in 1:nrow(tca_results)) {
+  row <- tca_results[i,]
+  cat(sprintf("%-12s: Pooled log2FC = %6.3f ± %5.3f (95%% CI: %.3f to %.3f), Z = %6.3f, p %s\n",
+              row$Cell_Type,
+              row$Pooled_log2FC,
+              row$Pooled_SE,
+              row$CI_lower,
+              row$CI_upper,
+              row$z_statistic,
+              ifelse(row$p_value_greater < 0.001, "< 0.001",
+                     ifelse(row$p_value_greater < 0.01, sprintf("= %.3f", row$p_value_greater),
+                            sprintf("= %.4f", row$p_value_greater)))))
+}
+
+cat("\nOXIDATIVE PHOSPHORYLATION:\n")
+cat("--------------------------\n")
+oxphos_results <- meta_analysis_results %>% filter(Pathway == "OxPhos")
+for(i in 1:nrow(oxphos_results)) {
+  row <- oxphos_results[i,]
+  cat(sprintf("%-12s: Pooled log2FC = %6.3f ± %5.3f (95%% CI: %.3f to %.3f), Z = %6.3f, p %s\n",
+              row$Cell_Type,
+              row$Pooled_log2FC,
+              row$Pooled_SE,
+              row$CI_lower,
+              row$CI_upper,
+              row$z_statistic,
+              ifelse(row$p_value_greater < 0.001, "< 0.001",
+                     ifelse(row$p_value_greater < 0.01, sprintf("= %.3f", row$p_value_greater),
+                            sprintf("= %.4f", row$p_value_greater)))))
+}
+
+cat("\n==========================================\n")
+cat("SUMMARY STATISTICS\n")
+cat("==========================================\n")
+cat(sprintf("Total comparisons: %d\n", nrow(meta_analysis_results)))
+cat(sprintf("Significant results (p < 0.05): %d (%.1f%%)\n", 
+            sum(meta_analysis_results$Significant == "Yes"),
+            100 * sum(meta_analysis_results$Significant == "Yes") / nrow(meta_analysis_results)))
+
+cat("\nBy Pathway:\n")
+cat(sprintf("  TCA Cycle significant: %d/%d\n", 
+            sum(tca_results$Significant == "Yes"), 
+            nrow(tca_results)))
+cat(sprintf("  OxPhos significant: %d/%d\n", 
+            sum(oxphos_results$Significant == "Yes"), 
+            nrow(oxphos_results)))
 
 
 
