@@ -43,6 +43,7 @@ library(cardx)
 library(forestploter)
 library(forcats)
 library(fgsea)
+library(car)
 
 # specify user for paths
 user <- Sys.info()[["user"]]
@@ -60,6 +61,30 @@ if (user == "laurapyle") {
 ```
 
 ```{r functions, include=FALSE}
+clean_variable_names <- function(data) {
+  # Get current names
+  old_names <- names(data)
+  
+  # Create new names
+  new_names <- gsub(" ", "", old_names)           # Remove spaces
+  new_names <- gsub("-", "_", new_names)          # Replace hyphens with underscores
+  new_names <- gsub("[()]", "", new_names)        # Remove parentheses
+  
+  # Apply new names
+  names(data) <- new_names
+  
+  # Optional: Print what changed for verification
+  changed <- old_names != new_names
+  if (any(changed)) {
+    cat("Changed variable names:\n")
+    for (i in which(changed)) {
+      cat(sprintf("  '%s' -> '%s'\n", old_names[i], new_names[i]))
+    }
+  }
+  
+  return(data)
+}
+
 domod <- function(data, outcome, predictor){
   data <- as.data.frame(data)
   form = as.formula(paste0(outcome,"~", predictor))
@@ -86,27 +111,30 @@ domod_adj <- function(data, outcome, predictor, covariate){
 
 setwd(data_path)
 data <- read_xlsx("./EDIPE_wide_delta_renamed.xlsx")
+
+data <- clean_variable_names(data)
+
 data$TG_HDL_T1 <- data$TG_T1 / data$HDL_T1
 data$TG_HDL_T2 <- data$TG_T2 / data$HDL_T2
 data$TG_HDL_delta <- data$TG_HDL_T2 - data$TG_HDL_T1
-data$`PBR4-25_T1` <- data$`PBR4-25`
-data$`PBR4-25_delta` <- data$`PBR4-25_T2` - data$`PBR4-25_T1`
+data$PBR4_25_T1 <- data$PBR4_25
+data$PBR4_25_delta <- data$PBR4_25_T2 - data$PBR4_25_T1
 
 # identify outcome variables
 outcomes <- c("HDP", "HDPbinary", "GDM", "Neonweight", "Egdelivery", "neonatalsex", "Csection")
 
 # identify predictors
 main_predictors_adj <- c("PWVcf_T1", "PWVcf_T2", "PWVcf_delta")
-main_predictors <- c("PWVcf_at_85PAM_T1",	"PWVcf_at_85PAM_T2", "PWVcf_at_85PAM_delta", "PBR4-25_T1", "PBR4-25_T2", "PBR4-25_delta")
+main_predictors <- c("PWVcf_at_85PAM_T1",	"PWVcf_at_85PAM_T2", "PWVcf_at_85PAM_delta", "PBR4_25_T1", "PBR4_25_T2", "PBR4_25_delta")
 # PWVcf_T1 and PWVcf_T2 are better adjusted for MAP_T1, MAP_T2, MAP_delta
 
 # yellow are secondary predictors
 secondary_predictors <- c("Morphologpulse_T1",	"Morphologpulse_T2", "morphologypulse_delta", "PWVcr_T1",	"PWVcr_T2", "PWVcr_delta", "TG_T1",	"TG_T2", "TG_delta", "APO B_T1",	"APO B_T2", "APO B_delta",	
-                          "Lp(a)_T1",	"Lp(a)_T2", "Lp(a)_delta", "CRP hs_T1",	"CRP hs_T2", "CRP hs_delta",
+                          "Lpa_T1",	"Lpa_T2", "Lpa_delta", "CRP hs_T1",	"CRP hs_T2", "CRP hs_delta",
                           "PWVcf_at_85PAM_T1",	"PWVcf_at_85PAM_T2",	"PWVcf_at_85PAM_delta", "AIx75_calc_T1",	"AIx75_calc_T2",	"AIx75_calc_delta", "AvrgSBPsitting_T1",	"AvrgSBPsitting_T2", "AvrgSBPsitting_delta")
 
 # orange are tertiary predictors
-tertiary_predictors <- c("AIx_T1",	"AIx_T2", "AIx_delta", "SEVR_T1", "SEVR_T2", "SEVR_delta", "Vasc.Age_T1",	"Vasc.Age_T2", "Vasc.Age_delta", "Car-Rad_PWV sub._T1",	"Car-Rad_PWV sub._T2", "Car-Rad_PWV sub._delta")
+tertiary_predictors <- c("AIx_T1",	"AIx_T2", "AIx_delta", "SEVR_T1", "SEVR_T2", "SEVR_delta", "Vasc.Age_T1",	"Vasc.Age_T2", "Vasc.Age_delta", "Car-Rad_PWVsub._T1",	"Car-Rad_PWVsub._T2", "Car-Rad_PWVsub._delta")
 
 # other things that are not highlighted that Fede may be interested in are lipid profile, serum uric acid, serum creatinine ratio, TG/HDL ratio
 other_predictors <- c("HDL_T1",	"HDL_T2", "HDL_delta",	"LDL_T1",	"LDL_T2", "LDL_delta", "HDL_T1",	"HDL_T2", "HDL_delta",	"LDL_T1", "LDL_T2", "LDL_delta", "URI_T1", "URI_T2", "URI_delta", "CREA_T1", 'CREA_T2', 'CREA_delta', 'TG_HDL_T1', "TG_HDL_T2", "TG_HDL_delta")
@@ -176,6 +204,18 @@ t1
 ```{r}
 domod(data, outcome = "Neonweight", predictor = "PWVcf_T1")
 ```
+
+
+```{r}
+# run all models and save to file
+
+for (i in 1:length(main_predictors)) {
+  form = as.formula(paste0("Neonweight ~", paste0(main_predictors[i])))
+  mod <- lm(as.formula(form), data = data, na.action = na.omit)
+  res <- summary(mod)$coef[2,]
+}
+```
+
 
 ### Egdelivery
 
