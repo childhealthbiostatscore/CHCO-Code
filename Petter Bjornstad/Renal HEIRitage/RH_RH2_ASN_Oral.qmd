@@ -33,7 +33,8 @@ library(growthcleanr)
 library(ggbreak)
 library(janitor)   # for tabyl/adorn helpers
 library(forcats)   # for fct_relevel (optional but nice)
-
+library(grid)
+library(gtable)
 
 source("~/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
 source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
@@ -311,7 +312,104 @@ create_comparison_boxplot(
   p_label_size = 12,
   text_size = 20,
   p_format = "p.format"
+) 
+
+cutoff <- 30
+
+# Copy part of data above break
+df2 <- rh_rh2_unique[rh_rh2_unique$avg_k_r2 > cutoff,]
+df2 <- df2 %>%
+  filter(!is.na(avg_k_r2) & !is.na(study))
+
+# Assign panels
+df <- rh_rh2_unique
+df$panel  <- factor("lower", levels = c("upper", "lower"))
+df2$panel <- factor("upper", levels = levels(df$panel))
+
+# Cut off y-values in lower panel
+df$avg_k_r2 <- pmin(df$avg_k_r2, cutoff)
+# Plot
+p <- df %>%
+  filter(!is.na(avg_k_r2) & !is.na(study)) %>% 
+  # mutate(study = as.character(study)) %>%
+  ggplot(aes(x=study, y=avg_k_r2, fill = study)) +
+  geom_boxplot(outlier.shape = NA, color = "#3a5a40", size = 1, width = 0.8) +
+  ggplot2::geom_jitter(size = 2.0, alpha = 0.5, width = 0) +
+  ggplot2::labs(x = NULL, y = "Kidney R2*") +
+  
+  geom_point(aes(xmin = 0.5, xmax = 0.5,
+                 ymin = 45, ymax = avg_k_r2+2), 
+             data = df2,
+             position = position_dodge(),
+             color = "black", size = 2.0, alpha = 0.5) +
+  # Use facets to resemble an axis interruption
+  facet_grid(panel ~ ., scales = "free_y") +
+  force_panelsizes(rows = c(1,5))  +
+  ggplot2::scale_fill_manual(values = c("#a3b18a", "#588157")) +
+  ggplot2::theme(panel.grid = ggplot2::element_blank(),
+                 panel.background = ggplot2::element_blank(),
+                 legend.position = "none",
+                 text = ggplot2::element_text(size = 20)) + 
+  # Hide away evidence of facetting
+  theme(strip.text = element_blank()) + 
+  theme_transparent 
+
+# If you want to manually add a specific p-value:
+manual_p_value <- "p=0.0012"
+
+# Create annotation data for the bracket and p-value
+annotation_df <- data.frame(
+  panel = factor("lower", levels = c("upper", "lower")),
+  x = 1.5,  # Center between the two groups
+  xmin = 1,  # Start of bracket
+  xmax = 2,  # End of bracket
+  y = cutoff - 1.5,  # Height of bracket
+  label = manual_p_value
 )
+
+# Add manual p-value with bracket
+p_manual <- p + 
+  # Add horizontal lines for bracket
+  geom_segment(data = annotation_df,
+               aes(x = xmin, xend = xmax, y = y, yend = y),
+               inherit.aes = FALSE,
+               size = 0.5) +
+  # Add vertical ticks for bracket
+  geom_segment(data = annotation_df,
+               aes(x = xmin, xend = xmin, y = y - 0.3, yend = y),
+               inherit.aes = FALSE,
+               size = 0.5) +
+  geom_segment(data = annotation_df,
+               aes(x = xmax, xend = xmax, y = y - 0.3, yend = y),
+               inherit.aes = FALSE,
+               size = 0.5) +
+  # Add p-value text
+  geom_text(data = annotation_df,
+            aes(x = x, y = y + 0.5, label = label),
+            inherit.aes = FALSE,
+            size = 8,
+            vjust = 0)
+
+p_manual
+
+
+# UACR
+rh_rh2_unique$log_acr_u <- log(rh_rh2_unique$acr_u)
+create_comparison_boxplot(
+  data = rh_rh2_unique,
+  x_var = "study",
+  y_var = "log_acr_u",
+  y_label = "Log(UACR)*",
+  y_buffer = 5,
+  paired = F,
+  show_lines = F,
+  comparisons = list(c("RENAL-HEIR", "RENAL-HEIRitage")),
+  p_label_size = 12,
+  text_size = 20,
+  p_format = "p.format"
+) 
+
+rh_rh2_unique$
 ```
 
 ## Deltas
