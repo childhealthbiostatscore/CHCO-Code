@@ -752,6 +752,40 @@ scrna_combined_data %>%
   mutate(source = "ATTEMPT") %>%
   rbind(croc_scrna_combined_data %>% 
   mutate(source = "CROC"))
+```
 
+# Filter ATTEMPT DEGs and urine proteomics to pathoplex
+```{r}
+# ATTEMPT urine proteomics filtered
+spatial_proteomics_urine_filtered <- spatial_proteomics_urine %>%
+  filter(urine_comp!= "not found") 
+
+# ATTEMPT DEG filtered
+scrna_combined_data_filtered <- scrna_combined_data %>%
+  filter(!is.na(Gene))
+
+# CROC reversal filtered
+celltypes <- c("PT", "TAL", "PC", "Immune_myeloid", "Immune_lymphoid", 
+               "Immune", "IC", "EC", "VSMC_P_FIB", "POD")
+
+croc_rev_combined <- data.frame()
+
+for (cell in celltypes){ 
+  reversal_excel <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/PB/MS/Supplemental Materials/croc_attempt_overlap_all_celltypes.xlsx",
+                               sheet = cell) %>%
+    filter(direction == "reversed") %>%
+    right_join(spatial_proteomics_long_gene %>%
+                 dplyr::select(Gene, markers) %>%
+                 distinct(markers, .keep_all = T)) %>%
+    filter(!is.na(cell_type))
+  croc_rev_combined <- rbind(croc_rev_combined, reversal_excel)
+  assign(paste0(cell, "_reversal"), reversal_excel)
+}
+
+write.csv(spatial_proteomics_urine_filtered, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Spatial Proteomics/Filtered to pathoplex/ATTEMPT_urine_proteomics_filtered_patho.csv", row.names = F, na = "")
+
+write.csv(scrna_combined_data_filtered, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Spatial Proteomics/Filtered to pathoplex/ATTEMPT_DEG_filtered_patho.csv", row.names = F, na = "")
+
+write.csv(croc_rev_combined, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/Spatial Proteomics/Filtered to pathoplex/ATTEMPT_CROC_rev_filtered_patho.csv", row.names = F, na = "")
 
 ```

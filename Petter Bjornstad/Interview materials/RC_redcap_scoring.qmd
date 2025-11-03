@@ -1,0 +1,280 @@
+---
+title: "Research Coordinator Mock Entry Score Report"
+format: pdf
+---
+
+```{r, include = F}
+library(REDCapR)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(knitr)
+# specify user for paths
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r, include = F}
+mock_api <- read.csv(file.path(root_path, "Ye Ji Choi/Mock data for interviews/mock_redcap_api.csv"))$api
+redcap_dat <- redcap_read(redcap_uri = "https://redcap.ucdenver.edu/api/",
+                          token = mock_api)$data
+redcap_dat
+
+redcap_meta <- redcap_metadata_read(redcap_uri = "https://redcap.ucdenver.edu/api/",
+                                    token = mock_api)$data %>%
+  dplyr::select(field_name, field_label) %>%
+  rbind(data.frame(field_name = c("email", "identifier"),
+                   field_label = c("Email", "ID")))
+  
+
+survey_participation_list <- read.csv(file.path(root_path, "Ye Ji Choi/Mock data for interviews/mock_survey_participation_list.csv")) %>%
+  dplyr::select(record_id = Record, email = Email.Address, identifier = Participant.Identifier..if.exists.) %>%
+  filter(!is.na(record_id))
+
+redcap_dat <- redcap_dat %>% left_join(survey_participation_list)
+```
+
+```{r, include = F}
+# Function to get field label from field name
+get_field_label <- function(field_name, metadata_df) {
+  # Handle checkbox fields (e.g., mock_race___1)
+  base_field <- gsub("___\\d+$", "", field_name)
+  
+  # Look up the label
+  label_row <- metadata_df %>% 
+    filter(field_name == base_field)
+  
+  if(nrow(label_row) > 0) {
+    label <- label_row$field_label[1]
+    # If it's a checkbox field, append the option number
+    if(grepl("___", field_name)) {
+      option_num <- gsub(".*___", "", field_name)
+      label <- paste0(label, " (Option ", option_num, ")")
+    }
+    return(label)
+  } else {
+    # If no label found, use the column name as-is
+    return(field_name)
+  }
+}
+
+# Function to compare answers against the answer key
+compare_to_answer_key <- function(data, answer_key_id = 1, metadata_df = redcap_meta) {
+  
+  # Get the answer key row
+  answer_key <- data %>%
+    filter(record_id == answer_key_id) %>%
+    slice(1)
+  
+  if(nrow(answer_key) == 0) {
+    stop(paste("No record found with record_id =", answer_key_id))
+  }
+  
+  # Fields to exclude from comparison (identifiers only)
+  fields_to_exclude <- c("record_id", "mock_candidate_name", "email", "identifier")
+  
+  # Fields to compare
+  fields_to_compare <- names(data)[!names(data) %in% fields_to_exclude]
+  
+  # Get all other records to compare
+  comparison_data <- data %>%
+    filter(record_id != answer_key_id)
+  
+  # Initialize results list
+  results_list <- list()
+  
+  # Compare each person's answers
+  for(i in 1:nrow(comparison_data)) {
+    current_row <- comparison_data[i,]
+    
+    # Initialize tracking variables
+    correct_count <- 0
+    incorrect_fields <- list()
+    field_comparison <- data.frame()
+    
+    # Compare each field
+    for(field in fields_to_compare) {
+      answer_key_value <- answer_key[[field]]
+      current_value <- current_row[[field]]
+      
+      # Get the field label for display
+      field_label <- get_field_label(field, metadata_df)
+      
+      # Check if values match
+      is_correct <- identical(as.character(answer_key_value), as.character(current_value))
+      
+      if(is_correct) {
+        correct_count <- correct_count + 1
+      } else {
+        incorrect_fields[[length(incorrect_fields) + 1]] <- data.frame(
+          field = field,
+          field_label = field_label,
+          their_answer = as.character(current_value),
+          correct_answer = as.character(answer_key_value),
+          stringsAsFactors = FALSE
+        )
+      }
+      
+      # Store field-by-field comparison
+      field_comparison <- rbind(field_comparison, data.frame(
+        field = field,
+        field_label = field_label,
+        their_answer = as.character(current_value),
+        correct_answer = as.character(answer_key_value),
+        is_correct = is_correct,
+        stringsAsFactors = FALSE
+      ))
+    }
+    
+    # Calculate accuracy
+    total_fields <- length(fields_to_compare)
+    accuracy <- (correct_count / total_fields) * 100
+    
+    # Store results
+    results_list[[i]] <- list(
+      record_id = current_row$record_id,
+      name = current_row$mock_candidate_name,
+      email = current_row$email,
+      identifier = current_row$identifier,
+      correct_count = correct_count,
+      total_fields = total_fields,
+      accuracy_percent = accuracy,
+      incorrect_fields = if(length(incorrect_fields) > 0) do.call(rbind, incorrect_fields) else NULL,
+      field_comparison = field_comparison
+    )
+  }
+  
+  # Create field labels mapping for display
+  field_labels <- sapply(fields_to_compare, function(x) get_field_label(x, metadata_df))
+  
+  return(list(
+    answer_key = answer_key,
+    results = results_list,
+    fields_compared = fields_to_compare,
+    field_labels = field_labels
+  ))
+}
+
+# Generate accuracy summary
+create_accuracy_summary <- function(comparison_results) {
+  
+  # Extract summary data
+  summary_df <- map_df(comparison_results$results, function(x) {
+    data.frame(
+      record_id = x$record_id,
+      name = x$name,
+      email = x$email,
+      identifier = x$identifier,
+      correct = x$correct_count,
+      total = x$total_fields,
+      accuracy_percent = round(x$accuracy_percent, 1),
+      stringsAsFactors = FALSE
+    )
+  }) %>%
+    arrange(desc(accuracy_percent), name)
+  
+  return(summary_df)
+}
+
+# Generate detailed error report
+create_error_report <- function(comparison_results) {
+  
+  cat("\n========================================\n")
+  cat("DETAILED ERROR REPORT\n")
+  cat("========================================\n")
+  cat(paste("\nAnswer Key: Record ID", comparison_results$answer_key$record_id, 
+            "-", comparison_results$answer_key$mock_candidate_name, "\n"))
+  cat(paste("Email:", comparison_results$answer_key$email, "\n"))
+  cat(paste("Identifier:", comparison_results$answer_key$identifier, "\n"))
+  cat(paste("\nTotal Fields Compared:", length(comparison_results$fields_compared), "\n"))
+  
+  
+  for(result in comparison_results$results) {
+    if(!is.na(result$identifier)) {
+      cat("\n----------------------------------------\n")
+      cat(paste("Name:", result$name, "\n"))
+      cat(paste("Email:", result$email, "\n"))
+      cat(paste("Identifier:", result$identifier, "\n"))
+      cat(paste("Record ID:", result$record_id, "\n"))
+      cat(paste("Accuracy:", round(result$accuracy_percent, 1), "%", 
+                "(", result$correct_count, "/", result$total_fields, "correct)\n"))
+      
+      if(is.null(result$incorrect_fields)) {
+        cat("✓ All answers correct!\n")
+      } else {
+        cat("\nIncorrect Answers:\n")
+        for(j in 1:nrow(result$incorrect_fields)) {
+          cat(paste("  •", result$incorrect_fields$field_label[j], 
+                    "(", result$incorrect_fields$field[j], "):\n"))
+          cat(paste("    Their answer:   '", result$incorrect_fields$their_answer[j], "'\n", sep = ""))
+          cat(paste("    Correct answer: '", result$incorrect_fields$correct_answer[j], "'\n", sep = ""))
+        }
+      }
+    }
+    cat("\n========================================\n")
+  }
+}
+# Create field-by-field comparison matrix
+create_comparison_matrix <- function(comparison_results) {
+  
+  # Use field labels for column names
+  all_fields <- comparison_results$fields_compared
+  all_field_labels <- comparison_results$field_labels
+  all_names <- map_chr(comparison_results$results, "name")
+  
+  comparison_matrix <- matrix(NA, 
+                             nrow = length(all_names), 
+                             ncol = length(all_fields))
+  
+  rownames(comparison_matrix) <- all_names
+  colnames(comparison_matrix) <- all_field_labels
+  
+  # Fill matrix
+  for(i in 1:length(comparison_results$results)) {
+    result <- comparison_results$results[[i]]
+    for(j in 1:nrow(result$field_comparison)) {
+      field_name <- result$field_comparison$field[j]
+      field_index <- which(all_fields == field_name)
+      comparison_matrix[i, field_index] <- ifelse(result$field_comparison$is_correct[j], "✓", "✗")
+    }
+  }
+  
+  return(comparison_matrix)
+}
+
+```
+
+```{r echo = F}
+# Run the analysis
+# Perform comparison using record_id 1 as answer key
+comparison_results <- compare_to_answer_key(redcap_dat, answer_key_id = 1, metadata_df = redcap_meta)
+
+# Generate and display accuracy summary
+cat("\nACCURACY SUMMARY\n")
+cat("-----------------\n")
+accuracy_summary <- create_accuracy_summary(comparison_results)
+print(accuracy_summary %>%
+        filter(!is.na(identifier)) %>%
+        arrange(record_id))
+
+# Generate detailed error report
+create_error_report(comparison_results)
+```

@@ -46,6 +46,8 @@ def clean_penguin():
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+
 
     # --------------------------------------------------------------------------
     # Demographics
@@ -160,6 +162,8 @@ def clean_penguin():
     labs["procedure"] = "clamp"
     labs["visit"] = "baseline"
 
+    dictionary.loc[dictionary['variable_name'].isin(labs.columns), 'form_name'] = 'labs'
+
     # --------------------------------------------------------------------------
     # DXA Scan
     # --------------------------------------------------------------------------
@@ -242,6 +246,9 @@ def clean_penguin():
     clamp["p2_steady_state_insulin"] = \
         clamp[['insulin_250', 'insulin_260', 'insulin_270']].mean(axis=1)
     clamp["ffa_method"] = "hyperinsulinemic_euglycemic_clamp"
+
+    dictionary.loc[dictionary['variable_name'].isin(clamp.columns), 'form_name'] = 'clamp'
+
 
     # --------------------------------------------------------------------------
     # Renal Clearance Testing
@@ -390,4 +397,7 @@ def clean_penguin():
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
     # Return final data
+
+    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
+    dictionary.to_csv(tocsv_path, index=False) 
     return df

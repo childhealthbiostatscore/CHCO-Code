@@ -35,9 +35,25 @@ library(ggbreak)
 library(janitor)   # for tabyl/adorn helpers
 library(forcats)   # for fct_relevel (optional but nice)
 
+user <- Sys.info()[["user"]]
 
-source("~/GitHub/CHCO-Code/Petter Bjornstad/Resources/YC/R Functions/correlation_function.R")
-source("~/GitHub/CHCO-Code/Petter Bjornstad/ATTEMPT/attempt_functions.R")
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "hhampson") {
+  root_path <- "/Volumes/Peds Endo/"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r include = F}
+source(file.path(git_path, "Resources/YC/R Functions/correlation_function.R"))
+source(file.path(git_path, "ATTEMPT/attempt_functions.R"))
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
 ```
 
 ```{r include = F}
@@ -53,118 +69,26 @@ Sys.setenv(
 )
 ```
 
-```{r echo = F}
-harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na.strings = "")
+# Data pull
 
-harm_dat_collapsed <- harm_dat %>%
-  group_by(record_id, visit) %>%
-  fill(date, .direction = "updown") %>% ungroup() %>%
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id, visit)) %>%
-  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
-                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
-                                                     race == "Black or African American" &
-                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
-                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
-                                                     T ~ "Not Hispanic or Latino Other")) %>%
-  arrange(record_id) %>%
-  mutate(agem = age*12)
-
-# subset(harm_dat, eGFR_CKD_epi < 40)$record_id
-```
-
-```{r echo = F}
-# RH/RH2 subset
-rh_rh2_croc_panther <- harm_dat_collapsed %>% 
-  filter(study %in% c("RENAL-HEIR", "RENAL-HEIRitage", "CROCODILE", "PANTHER")) %>%
-  filter(group %in% c("Type 2 Diabetes", "Obese Control", "Lean Control")) %>%
-  filter(visit == "baseline")
-
-bmi_percentile = ext_bmiz(data = subset(rh_rh2_croc_panther, 
-                                        select = c("record_id", "sex", "agem", "weight", "height", "bmi")),
-                          wt = "weight", ht = "height") %>%
-  dplyr::select(record_id, bmip)
-  
-rh_rh2_croc_panther_unique <- rh_rh2_croc_panther %>%
-  left_join(bmi_percentile) %>%
-  arrange(mrn, date) %>%
-  distinct(mrn, date, .keep_all = TRUE) %>%
-  group_by(mrn) %>%
-  mutate(
-    date = as.Date(date),
-    new_cluster = if_else(is.na(lag(date)) | difftime(date, lag(date), units = "days") > 7,
-                          1, 0),
-    cluster_id = cumsum(replace_na(new_cluster, 1))
-  ) %>%
-  group_by(mrn, cluster_id) %>%
-  slice_min(order_by = date, with_ties = FALSE) %>%
-  ungroup() %>%
-  #stratify T2D and OB in RH/RH2 by UACR >= 100 mg/g and look at the kidney MRI parameters.. I want to include some of this preliminary data in my slides for Spain
-  # eGFR <60 for eGFR_CKD_epi AND/OR UACR>= 100 mg/g
-  # in other words, to be in the high risk group EITHER eGFR <60 AND/OR UACR>= 100mg/g
-  # so if you have UACR >= 100 mg/g but eGFR >60 you qualify, or if you have UACR <100 but eGFR <60 you qualify, and if you have both, i.e., UACR >= 100 and eGFR <60 you qualify
-  mutate(uacr_100 = case_when(acr_u >= 100 ~ "UACR >=100 mg/g",
-                              acr_u < 100 ~ "UACR <100 mg/g"),
-         uacr_group = case_when(eGFR_CKD_epi < 75 | acr_u >= 100 ~ "eGFR < 75 and/or UACR >=100 mg/g",
-                                eGFR_CKD_epi >=75 | acr_u < 100 ~ "eGFR >= 75 and UACR <100 mg/g"),
-         uacr_group = factor(uacr_group, levels = c("eGFR >= 75 and UACR <100 mg/g",
-                                                    "eGFR < 75 and/or UACR >=100 mg/g")),
-         # eGFR categories
-         egfr_cat = case_when(
-           eGFR_CKD_epi < 60                      ~ "<60",
-           eGFR_CKD_epi >= 60 & eGFR_CKD_epi < 90 ~ "60–<90",
-           eGFR_CKD_epi >= 90                     ~ "≥90",
-           TRUE ~ NA_character_
-         ),
-         egfr_cat = factor(egfr_cat, levels = c("<60", "60–<90", "≥90")),
-         # ACR categories
-         acr_u_cat3 = case_when(
-           acr_u < 30                  ~ "<30",
-           acr_u >= 30 & acr_u < 300   ~ "30–<300",
-           acr_u >= 300                ~ "≥300",
-           TRUE ~ NA_character_
-         ),
-         acr_u_cat3 = factor(acr_u_cat3, levels = c("<30", "30–<300", "≥300")),
-         bmi_cat = case_when(
-           # Adults (≥18 years)
-           age >= 18 & bmi < 25                ~ "Lean",
-           age >= 18 & bmi >= 25 & bmi < 30    ~ "Overweight",
-           age >= 18 & bmi >= 30               ~ "Obese",
-           
-           # Pediatrics (<18 years)
-           age < 18 & bmip < 85      ~ "Lean",
-           age < 18 & bmip >= 85 & bmip < 95 ~ "Overweight",
-           age < 18 & bmip >= 95     ~ "Obese",
-           
-           TRUE ~ NA_character_
-         ),
-         bmi_cat = factor(
-           bmi_cat,
-           levels = c("Lean", "Overweight", "Obese")
-         ),
-         group_risk = case_when(bmip >= 95 | hba1c >=6 | group == "Type 2 Diabetes" ~ "High",
-                                bmip < 85 & hba1c <=5.6 ~ "Low"),
-         tkv_combined = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual),
-         htadjtkv_combined = coalesce(ht_adj_tkv, ht_adj_tkv_manual),
-  )
-
-rh_rh2_unique <- rh_rh2_croc_panther_unique %>%
-  filter(group %nin% c("Lean Control")) %>%
-  filter(study != "PANTHER")
+```{r}
+# Pull data from 01_clean_dataset.R
+rh_rh2_croc_panther_unique <- read.csv(file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh_rh2_croc_panther_unique.csv"))
+rh_rh2_unique <- read.csv(file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh_rh2_unique.csv"))
 ```
 
 # MRI Parameters
 
+## Tables & Descriptives
 ```{r echo = F}
-rh_rh2_unique %>%
-  dplyr::select(avg_c_r2, avg_m_r2, avg_k_r2,
-         avg_c_adc, avg_c_fsoc, avg_m_fsoc, avg_k_fsoc, avg_pcascl) %>%
-  pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
-  ggplot(aes(x = value)) +
-  geom_histogram(bins = 100, fill = "steelblue", color = "white") +
-  facet_wrap(~ variable, scales = "free") +
-  theme_minimal()
+# rh_rh2_unique %>%
+#   dplyr::select(avg_c_r2, avg_m_r2, avg_k_r2,
+#          avg_c_adc, avg_c_fsoc, avg_m_fsoc, avg_k_fsoc, avg_pcascl) %>%
+#   pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
+#   ggplot(aes(x = value)) +
+#   geom_histogram(bins = 100, fill = "steelblue", color = "white") +
+#   facet_wrap(~ variable, scales = "free") +
+#   theme_minimal()
 
 summary(arsenal::tableby(uacr_group ~ avg_c_r2 + avg_m_r2 + avg_k_r2 +
                            avg_c_adc + avg_c_fsoc + avg_m_fsoc + avg_k_fsoc + avg_pcascl + avg_c_t1, data=rh_rh2_unique),
@@ -173,14 +97,27 @@ summary(arsenal::tableby(uacr_group ~ avg_c_r2 + avg_m_r2 + avg_k_r2 +
 summary(arsenal::tableby(uacr_group ~ tkv_combined + htadjtkv_combined + age + sex + kwt(acr_u, "medianq1q3") + eGFR_CKD_epi + bmi + egfr_cat + acr_u_cat3, data=rh_rh2_unique),
         total = T)
 
-summary(arsenal::tableby(bmi_cat ~ avg_c_t1, data=subset(rh_rh2_croc_panther_unique, study == "PANTHER" & bmi_cat != "Overweight")),
+summary(arsenal::tableby(bmi_cat ~ avg_c_t1, 
+                         data=subset(rh_rh2_croc_panther_unique, study == "PANTHER" & bmi_cat != "Overweight")),
         total = F)
 
-summary(arsenal::tableby(group_risk ~ avg_c_t1, data=subset(rh_rh2_croc_panther_unique, study == "PANTHER")),
+summary(arsenal::tableby(group_risk_lowyn ~ avg_c_t1, 
+                         data=subset(rh_rh2_croc_panther_unique, study == "PANTHER")),
         total = F)
 
+summary(arsenal::tableby(group_risk_lowyn ~ avg_c_r2 + avg_k_r2 +
+                           avg_c_adc  + avg_pcascl + avg_c_t1, 
+                         data=subset(rh_rh2_croc_panther_unique, study == "PANTHER")),
+        total = F)
+
+subset(rh_rh2_croc_panther_unique, study == "PANTHER")$avg_c_t1
+
+summary(arsenal::tableby(group ~ dexa_body_fat + dexa_fat_kg + dexa_lean_mass + dexa_lean_kg + dexa_trunk_mass + dexa_trunk_kg + dexa_bone_mineral_density, 
+                         data = subset(rh_rh2_croc_panther_unique, study == "PANTHER" & is.na(group_risk) & !is.na(avg_c_t1))))
+
+summary(arsenal::tableby(group_risk ~ dexa_body_fat + dexa_fat_kg + dexa_lean_mass + dexa_lean_kg + dexa_trunk_mass + dexa_trunk_kg + dexa_bone_mineral_density, 
+                         data=subset(rh_rh2_croc_panther_unique, study == "PANTHER")), total = F)
 ```
-
 
 ```{r}
 rh_rh2_unique %>%
@@ -287,6 +224,8 @@ acr_ge30_by_group
 
 ```
 
+## Adjusting for other vars
+
 ```{r}
 # one more request once we have this done for all of you that I think will be important... can we look at ASL, R2* and ADC in 3 groups lean, overweight and obese while controlling for diabetes status, eGFR and UACR...
 fit_fas <- fit_models_emm(
@@ -308,7 +247,6 @@ plot_emms_with_brackets(
   outcome_var = "avg_k_r2",
   y_label = "Estimated marginal mean\nof kidney R2*"
 )
-
 ```
 
 ```{r}
@@ -331,7 +269,6 @@ plot_emms_with_brackets(
   y_label = "Estimated marginal mean\nof kidney R2*"
 )
 ```
-
 
 ```{r}
 # one more request once we have this done for all of you that I think will be important... can we look at ASL, R2* and ADC in 3 groups lean, overweight and obese while controlling for diabetes status, eGFR and UACR...
@@ -375,4 +312,24 @@ plot_emms_with_brackets(
   outcome_var = "avg_c_t1",
   y_label = "Estimated marginal mean\nof kidney R2*"
 )
+```
+
+```{r}
+subset(rh_rh2_croc_panther_unique, study == "PANTHER") %>% 
+  filter(!is.na(group_risk)) %>%
+  ggplot(aes(x = factor(group_risk, levels = c("Low", "High")), y = avg_c_t1, fill = group_risk)) +
+  geom_boxplot(size = 1.5, width = 0.8, outlier.shape = NA) +
+  labs(x = NULL, y = "Avg cortical T1") +
+  scale_fill_manual(values = c("#e29578", "#babd8d")) +
+  theme(legend.position = "none",
+        text = element_text(size = 30),
+        axis.text.x = element_text(size = 30),
+        axis.text.y = element_text(size = 28)) +
+  theme_transparent + 
+  stat_compare_means(
+    comparisons = list(c("Low", "High")),
+    method = "t.test",
+    size = 15,
+    label = "p.signif") +
+   scale_y_continuous(limits = c(NA, 1550))
 ```

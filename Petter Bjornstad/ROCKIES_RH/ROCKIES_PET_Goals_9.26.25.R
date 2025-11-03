@@ -1,4 +1,4 @@
-### ROCKIES Updates 9/15/25
+### ROCKIES Updates 9/26/25
 
 
 library(scran)
@@ -4637,7 +4637,7 @@ desc_table1_fixed %>%
 combined_df <- dat2 %>% #filter(group %in% c('Type 2 Diabetes', 'Obese Control')) %>% 
   dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f, 
                 avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
-                acr_u)
+                acr_u, fia, glom_tuft_area, glom_nuc_count, mes_matrix_area, mes_index, mes_volume_con)
 
 
 colSums(is.na(combined_df))
@@ -4645,7 +4645,7 @@ colSums(is.na(combined_df))
 combined_df <- combined_df %>% 
   dplyr::select(avg_c_k2, avg_c_f, avg_c_k2_f, 
                 avg_c_k2_vw, avg_c_f_vw, avg_c_k2_f_vw, 
-                acr_u)
+                acr_u, fia, glom_tuft_area, glom_nuc_count, mes_matrix_area, mes_index, mes_volume_con)
 
 library(corrplot)
 
@@ -5106,6 +5106,7 @@ library(ggplot2)
 library(dplyr)
 library(ggpubr)
 library(gridExtra)
+library(stringr)
 
 dat2 <- data.table::fread("/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")
 
@@ -5222,5 +5223,185 @@ dev.off()
 
 
 
+########## Make demographics for GBM/Arteriosclerosis
+
+
+
+
+library(purrr)
+library(corrplot)
+library(ggplot2)
+library(dplyr)
+library(ggpubr)
+library(gridExtra)
+library(stringr)
+
+dat2 <- data.table::fread("/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")
+
+dat2 <- dat2[-str_which(dat2$record_id, '-O')]
+
+
+
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+                   .by = c(record_id, visit))
+
+dat_small <- dat %>% 
+  filter(record_id %in% dat2$record_id) %>% 
+  dplyr::select(record_id, age, bmi, hba1c, sex, race_ethnicity, study, group)
+
+
+
+dat2 <- dat2 %>% left_join(dat_small, by='record_id')
+
+dat2[dat2 == ""] <- NA
+
+dat2 <- dat2 %>% filter(!is.na(arteriosclerosis))
+
+# Convert variables to proper data types
+combined_df <- dat2 %>%
+  mutate(
+    # Ensure continuous variables are numeric
+    age = as.numeric(age),
+    bmi = as.numeric(bmi),
+    hba1c = as.numeric(hba1c),
+    
+    # Ensure categorical variables are factors or characters
+    sex = as.factor(sex),
+    race_ethnicity = as.factor(race_ethnicity),
+    study = as.factor(study),
+    group = as.factor(group),
+    arteriosclerosis = as.factor(arteriosclerosis),
+    arteriolohyalinosis = as.factor(arteriolohyalinosis),
+    `GBM thickness` = as.factor(`GBM thickness`)
+  ) %>%
+  # Filter out rows with missing arteriosclerosis or GBM thickness
+  filter(!is.na(arteriosclerosis) & !is.na(`GBM thickness`))
+
+# ===== TABLE 1: Stratified by Arteriosclerosis =====
+desc_table_arterio <- combined_df %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, group, 
+         arteriolohyalinosis, `GBM thickness`, arteriosclerosis) %>%
+  tbl_summary(
+    by = arteriosclerosis,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      hba1c ~ "continuous",
+      sex ~ "categorical",
+      race_ethnicity ~ "categorical",
+      study ~ "categorical",
+      group ~ "categorical",
+      arteriolohyalinosis ~ 'categorical',
+      `GBM thickness` ~ 'categorical'
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex", 
+      race_ethnicity ~ "Race/Ethnicity",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      study ~ "Study",
+      group ~ "Group",
+      arteriolohyalinosis ~ 'Arteriolohyalinosis Severity',
+      `GBM thickness` ~ 'GBM Thickening'
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test",
+    all_categorical() ~ "fisher.test"
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Arteriosclerosis**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save arteriosclerosis table
+desc_table_arterio %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/demographics_arteriosclerosis.png", 
+         vwidth = 1400, vheight = 900)
+
+# ===== TABLE 2: Stratified by GBM Thickness =====
+desc_table_gbm <- combined_df %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, group, 
+         arteriolohyalinosis, arteriosclerosis, `GBM thickness`) %>%
+  tbl_summary(
+    by = `GBM thickness`,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      hba1c ~ "continuous",
+      sex ~ "categorical",
+      race_ethnicity ~ "categorical",
+      study ~ "categorical",
+      group ~ "categorical",
+      arteriolohyalinosis ~ 'categorical',
+      arteriosclerosis ~ 'categorical'
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex", 
+      race_ethnicity ~ "Race/Ethnicity",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      study ~ "Study",
+      group ~ "Group",
+      arteriolohyalinosis ~ 'Arteriolohyalinosis Severity',
+      arteriosclerosis ~ 'Arteriosclerosis'
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test",
+    all_categorical() ~ "fisher.test"
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**GBM Thickening**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save GBM thickness table
+desc_table_gbm %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave("C:/Users/netio/Documents/UofW/Rockies/Rockies_updates_9.26.25/demographics_GBMthickness.png", 
+         vwidth = 1400, vheight = 900)
 
 

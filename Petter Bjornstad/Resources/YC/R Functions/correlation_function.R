@@ -191,14 +191,21 @@ correlation_p_value_matrix <- function(data, relevant_vars, n_cols, cor_method =
   return(as.matrix(corr_pval))
 }
 
-corr_plot_modified <- function(data, X, Y, cor_method = "pearson", adj_var = NULL, dict = dict,
-                               method = "color", insig = "pch", coef_col = NULL,
-                               pch = 4, pch.col = "black", pch.cex = 0) {
+corr_plot_modified <- function(
+    data, X, Y, cor_method = "pearson", adj_var = NULL, dict = dict,
+    method = "color", insig = "pch", coef_col = NULL,
+    pch = 4, pch.col = "black",
+    pch.cex = 0, tl.cex = .8, cl.cex = 0.8, number.cex = 1,
+    coef_text_cex = 0.9,   # NEW: size for printed coefficients via graphics::text
+    star_text_cex = 0.9,   # NEW: size for p-value stars via graphics::text
+    col = colorRampPalette(c("#0096c7", "white", "#d62828"))(200)
+) {
   n_cols <- length(Y)
   M <- cor(y = subset(data, select = Y),
            x = subset(data, select = X),
            use = "pairwise.complete.obs",
            method = cor_method)
+  
   colnames(M) <- as.list(dict[match(colnames(M), names(dict))])
   rownames(M) <- as.list(dict[match(rownames(M), names(dict))])
   
@@ -234,34 +241,45 @@ corr_plot_modified <- function(data, X, Y, cor_method = "pearson", adj_var = NUL
     }
   }
   
-  correlation_p_value <- correlation_p_value_matrix(data, relevant_vars = c(Y, X), 
-                                                    n_cols = n_cols, cor_method = cor_method)
+  correlation_p_value <- correlation_p_value_matrix(
+    data, relevant_vars = c(Y, X), n_cols = n_cols, cor_method = cor_method
+  )
   
   corrplot(M,
            p.mat = correlation_p_value,
            method = method,
            tl.col = "black",
            tl.srt = 45,
-           tl.cex = .8,
+           tl.cex = tl.cex,         # variable label size
            insig = insig,
-           addCoef.col = coef_col,
-           addgrid.col = 'lightgray',
+           addCoef.col = coef_col,  # if non-NULL, corrplot prints numbers; size via number.cex
+           addgrid.col = 'white',
            number.digits = 2,
-           pch.col = pch.col, 
+           number.cex = number.cex, # on-cell number size (if using addCoef.col)
+           pch.col = pch.col,
            pch = pch,
-           pch.cex = pch.cex)$corrPos -> p1
-  p1_sub <- subset(p1, p.value <= 0.05)
+           pch.cex = pch.cex,
+           col = col,
+           cl.cex = cl.cex          # legend tick label size
+  )$corrPos -> p1
+  
+  p1_sub  <- subset(p1, p.value <= 0.05)
   p1_sub2 <- subset(p1, p.value <= 0.05 & abs(corr) >= 0.7)
   
+  # Custom overlays: control size with cex =
   if (nrow(p1) > 0) {
-    graphics::text(p1$x, p1$y, sprintf("%.2f", p1$corr), adj = c(0.5, 0))
+    graphics::text(p1$x, p1$y, sprintf("%.2f", p1$corr),
+                   adj = c(0.5, 0), cex = coef_text_cex)
   }
   if (nrow(p1_sub) > 0) {
-    graphics::text(p1_sub$x, p1_sub$y, stars.pval(p1_sub$p.value), adj = c(0.5, 2))
+    graphics::text(p1_sub$x, p1_sub$y, stars.pval(p1_sub$p.value),
+                   adj = c(0.5, 2), cex = star_text_cex)
   }
   if (nrow(p1_sub2) > 0) {
-    graphics::text(p1_sub2$x, p1_sub2$y, sprintf("%.2f", p1_sub2$corr), col = "white", adj = c(0.5, 0))
-    graphics::text(p1_sub2$x, p1_sub2$y, stars.pval(p1_sub2$p.value), col = "white", adj = c(0.5, 2))
+    graphics::text(p1_sub2$x, p1_sub2$y, sprintf("%.2f", p1_sub2$corr),
+                   col = "white", adj = c(0.5, 0), cex = coef_text_cex)
+    graphics::text(p1_sub2$x, p1_sub2$y, stars.pval(p1_sub2$p.value),
+                   col = "white", adj = c(0.5, 2), cex = star_text_cex)
   }
   if (!is.null(adj_var)) {
     lm_extracted <- subset(lm_extracted, adj_x_pval <= 0.05)
@@ -273,7 +291,6 @@ corr_plot_modified <- function(data, X, Y, cor_method = "pearson", adj_var = NUL
     }
   }
 }
-
 
 corr_plot_ver2 <- function(data, X, Y, cor_method = "pearson", adj_var = NULL, dict = dict,
                                method = "color", insig = "pch", coef_col = NULL,

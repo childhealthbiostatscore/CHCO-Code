@@ -398,13 +398,13 @@ proportions_df <- calculate_celltype_proportions(pt_kpmp_results$sce_df, bin_wid
   ungroup()
 
 slingshot_main_pies <- lapply(bins, function(bin) {
-  create_pie_chart(proportions_df, bin, color_palette)
+  create_pie_chart(proportions_df, bin, color_palette,
+                   caption_groups = c("aPT", "PT-S1/S2", "PT-S3"))
 })
 names(slingshot_main_pies) <- paste0("p", 1:5)
 
 ggarrange(pt_kpmp_results$p_pseudotime$plot, 
-          ggarrange(slingshot_main_pies$p1, slingshot_main_pies$p2, slingshot_main_pies$p3, slingshot_main_pies$p4, slingshot_main_pies$p5, nrow = 1,
-                    common.legend = T, legend = "bottom"),
+          ggarrange(slingshot_main_pies$p1, slingshot_main_pies$p2, slingshot_main_pies$p3, slingshot_main_pies$p4, slingshot_main_pies$p5, nrow = 1),
           nrow = 2, align = "v", heights = c(4,1))
 
 temp_file <- tempfile(fileext = ".png")
@@ -449,38 +449,6 @@ build_pie_row <- function(df, group_by = group_by_col, n_pies = n_pies_to_show) 
   pies
 }
 
-# Main loop over all clinical variables you’ve analyzed
-all_outputs <- list()
-
-for (clin_var in names(pt_kpmp_results$clin_var_res)) {
-  message(sprintf("[%s] Rendering panels for %s...", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), clin_var))
-
-  res_obj <- pt_kpmp_results$clin_var_res[[clin_var]]
-  df      <- res_obj$df
-  mainplt <- res_obj$plot
-
-  # Build the pies row (may be fewer than n_pies_to_show if data has fewer bins)
-  pies <- build_pie_row(df, group_by = group_by_col, n_pies = n_pies_to_show)
-
-  # Combine: main plot on top, pies in a single row below (shared legend at bottom)
-  pies_row <- do.call(
-    ggpubr::ggarrange,
-    c(pies, list(nrow = 1, common.legend = TRUE, legend = "bottom"))
-  )
-
-  combo <- ggpubr::ggarrange(mainplt, pies_row, nrow = 2, align = "v", heights = c(4, 1))
-
-  # Save and upload
-  tmpfile <- tempfile(fileext = ".png")
-  ggplot2::ggsave(filename = tmpfile, plot = combo, width = 12, height = 10, dpi = 300)
-
-  key_name <- file.path(out_dir_key, paste0("attempt_pt_slingshot_density_", sanitize_name(clin_var), "_pie.png"))
-  s3$upload_file(tmpfile, "attempt", key_name)
-
-  all_outputs[[clin_var]] <- list(plot = combo, s3_key = key_name)
-}
-
-pt_kpmp_results$clin_var_res$hba1c_delta$plot_visit_direction
 ```
 
 

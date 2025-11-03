@@ -332,15 +332,15 @@ save(yr10risk,file = "./Clinical data/TODAY/yr10risk.Rdata")
 BASELINE <- read.csv("./Clinical data/TODAY/BASELINE.csv")
 BASELINE$visit <- "M00"
 BASELINE$visit_days <- BASELINE$days
-BASELINE_keep <- BASELINE %>% select(releaseid,visit,bmi,visit_days)
-BASELINE_keep$height <- NA
-BASELINE_keep$weight <- NA
+BASELINE_keep <- BASELINE %>% select(releaseid,visit,bmi,visit_days,bmipct,wastcirc,height,weight)
+#BASELINE_keep$height <- NA
+#BASELINE_keep$weight <- NA
 
 # TODAY VISIT - BMI 
 VISIT <- read.csv("./Clinical data/TODAY/VISIT.csv")
 VISIT$visit <- VISIT$mvisit
 VISIT$visit_days <- VISIT$days
-VISIT_keep <- VISIT %>% select(releaseid,visit,bmi,height,weight,visit_days)
+VISIT_keep <- VISIT %>% select(releaseid,visit,bmi,height,weight,visit_days,bmipct,wastcirc)
 
 # TODAY CBL - eIS
 CBL <- read.csv("./Clinical data/TODAY/CBL.csv")
@@ -363,11 +363,13 @@ VISIT_TODAY2$releaseid <- VISIT_TODAY2$RELEASEID
 VISIT_TODAY2$bmi <- VISIT_TODAY2$BMI
 VISIT_TODAY2$visit <- VISIT_TODAY2$PVISIT
 VISIT_TODAY2$visit_days <- VISIT_TODAY2$DAYS
-VISIT_TODAY2_KEEP <- VISIT_TODAY2 %>% select(releaseid, visit, bmi, HEIGHT, WEIGHT, visit_days)
+VISIT_TODAY2$bmipct <- VISIT_TODAY2$BMIPCT
+VISIT_TODAY2_KEEP <- VISIT_TODAY2 %>% select(releaseid, visit, bmi, HEIGHT, WEIGHT, visit_days, bmipct)
 VISIT_TODAY2_KEEP$height <- VISIT_TODAY2_KEEP$HEIGHT
 VISIT_TODAY2_KEEP$weight <- VISIT_TODAY2_KEEP$WEIGHT
 VISIT_TODAY2_KEEP$HEIGHT <- NULL
 VISIT_TODAY2_KEEP$WEIGHT <- NULL
+VISIT_TODAY2_KEEP$wastcirc <- NA
 
 # TODAY2 CBL - eIS and coDI
 CBL_TODAY2 <- read.csv("./Clinical data/TODAY2/CBL.csv")

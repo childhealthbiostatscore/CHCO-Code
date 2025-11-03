@@ -1,4 +1,8 @@
 library(reticulate)
+use_python("/usr/bin/python3", required = TRUE)
+py_config()
+
+library(reticulate)
 library(dplyr)
 library(tidyr)
 library(purrr)
@@ -12,6 +16,10 @@ if (user == "choiyej") {
 } else if (user == "pylell") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "shivaniramesh") {
+  root_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
+  git_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad/"
+  use_python("/usr/bin/python3", required = TRUE)
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -51,10 +59,62 @@ clean <- clean %>%
                 rh_id, rh2_id, panther_id, panda_id, co_enroll_id,
                 mrn, date, screen_date, everything())
 
+# ---- Calculate BMI Percentiles using growthcleanr ----
+library(growthcleanr)
+library(lubridate)
+library(dplyr)
+
+# Step 1: Convert date columns safely
+clean <- clean %>%
+  mutate(
+    dob = suppressWarnings(parse_date_time(dob, orders = c("ymd", "mdy", "dmy"))),
+    screen_date = suppressWarnings(parse_date_time(screen_date, orders = c("ymd", "mdy", "dmy")))
+  )
+
+# Step 2: Compute age in months
+clean <- clean %>%
+  mutate(
+    age_mo = as.numeric(difftime(screen_date, dob, units = "days")) / 30.44
+  )
+
+# Step 3: Clean numeric columns (force conversion and drop bad rows)
+clean <- clean %>%
+  mutate(
+    age_mo = as.numeric(age_mo),
+    weight = as.numeric(weight),
+    height = as.numeric(height),
+    bmi = as.numeric(bmi)
+  )
+
+# Step 4: Keep only valid entries
+bmi_input <- clean %>%
+  filter(!is.na(sex) & !is.na(age_mo) & !is.na(weight) & !is.na(height) & !is.na(bmi))
+
+cat("📊 Using", nrow(bmi_input), "records with complete BMI input data.\n")
+
+# Step 5: Run growthcleanr BMI z-score and percentile calculation
+bmi_percentile <- growthcleanr::ext_bmiz(
+  data = subset(bmi_input, select = c(record_id, visit, sex, age_mo, weight, height, bmi)),
+  age = "age_mo",
+  wt = "weight",
+  ht = "height",
+  bmi = "bmi",
+  adjust.integer.age = FALSE
+) %>%
+  select(record_id, visit, bmip, bmiz) %>%
+  filter(!is.na(bmip))
+
+# Step 6: Merge results into harmonized dataset
+clean <- clean %>%
+  left_join(bmi_percentile, by = c("record_id", "visit"))
+
+
 # Save clinical harmonized dataset
 write.csv(clean, 
           file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), row.names = F,
           na = "")
+
+cat("Added BMI percentiles and z-scores to harmonized dataset and saved to CSV.\n")
 
 ##########################################################################################
 
@@ -184,50 +244,50 @@ write.csv(clean_proteomics_comb,
           na = "")
 
 #### INDICATORS FOR TABLEAU ####
-clean_ind <- clean %>% 
-  left_join(soma, by = c("record_id", "visit")) %>%
-  dplyr::mutate(soma_ind = if_else(rowSums(!is.na(dplyr::select(., starts_with("seq")))) > 0, 
-                                   1,0),
-                ivgtt_ind = if_else(grepl("ivgtt", procedure) & !is.na(date), 
-                                   1,0),
-                minmod_ind = if_else(rowSums(!is.na(dplyr::select(., starts_with("mm_")))) > 0, 
-                                     1,0),
-                clamp_ind = if_else(procedure == "clamp" & rowSums(!is.na(dplyr::select(., starts_with("glucose_1")))) > 0, 
-                                    1,0),
-                mmtt_ind = if_else(procedure == "mmtt" & rowSums(!is.na(dplyr::select(., starts_with("glucose_1")))) > 0, 
-                                   1,0),
-                kidney_biopsy_ind = if_else(procedure == "kidney_biopsy" & !is.na(date), 
-                                    1,0),
-                rc_ind = if_else(procedure == "renal_clearance_testing" & !is.na(date), 
-                                1,0),
-                hemo_ind = if_else(rowSums(!is.na(dplyr::select(., starts_with("gfr_raw")))) > 0, 
-                                   1,0),
-                dxa_ind = if_else(procedure == "dxa" & !is.na(date), 
-                                  1,0),
-                mri_ind = if_else(procedure == "bold_mri" & !is.na(date), 
-                                  1,0),
-                pet_ind = if_else(procedure == "pet_scan" & !is.na(date), 
-                                  1,0),
-                brain_bio_ind = if_else(rowSums(!is.na(dplyr::select(., ends_with("_avg_conc")))) > 0, 
-                                        1,0),
-                morpho_ind = if_else(rowSums(!is.na(dplyr::select(., starts_with("mes_")))) > 0, 
-                                     1,0),
-                metab_tissue_ind = if_else(rowSums(!is.na(dplyr::select(., ends_with("_tissue")))) > 0, 
-                                           1,0),
-                metab_blood_ind = if_else(!is.na(alanine), 
-                                          1,0),
-                hispanic_ind = if_else(grepl("^Hispanic", ethnicity), 
-                                       1,0),
-                non_hispanic_ind = if_else(grepl("^Not", ethnicity), 
-                                           1,0)) %>%
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, max(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, max(.x, na.rm = TRUE))),
-                   .by = c(mrn, screen_date)) %>%
-  ungroup() %>%
-  dplyr::select(record_id, ends_with("ind")) %>%
-  distinct(record_id, .keep_all = T)
-
-# Save indicators
-write.csv(clean_ind, 
-          file.path(root_path, "Data Harmonization/Data Clean/procedure_indicator.csv"), row.names = F,
-          na = "")
+# clean_ind <- clean %>% 
+#   left_join(soma, by = c("record_id", "visit")) %>%
+#   dplyr::mutate(soma_ind = if_else(rowSums(!is.na(dplyr::select(., starts_with("seq")))) > 0, 
+#                                    1,0),
+#                 ivgtt_ind = if_else(grepl("ivgtt", procedure) & !is.na(date), 
+#                                    1,0),
+#                 minmod_ind = if_else(rowSums(!is.na(dplyr::select(., starts_with("mm_")))) > 0, 
+#                                      1,0),
+#                 clamp_ind = if_else(procedure == "clamp" & rowSums(!is.na(dplyr::select(., starts_with("glucose_1")))) > 0, 
+#                                     1,0),
+#                 mmtt_ind = if_else(procedure == "mmtt" & rowSums(!is.na(dplyr::select(., starts_with("glucose_1")))) > 0, 
+#                                    1,0),
+#                 kidney_biopsy_ind = if_else(procedure == "kidney_biopsy" & !is.na(date), 
+#                                     1,0),
+#                 rc_ind = if_else(procedure == "renal_clearance_testing" & !is.na(date), 
+#                                 1,0),
+#                 hemo_ind = if_else(rowSums(!is.na(dplyr::select(., starts_with("gfr_raw")))) > 0, 
+#                                    1,0),
+#                 dxa_ind = if_else(procedure == "dxa" & !is.na(date), 
+#                                   1,0),
+#                 mri_ind = if_else(procedure == "bold_mri" & !is.na(date), 
+#                                   1,0),
+#                 pet_ind = if_else(procedure == "pet_scan" & !is.na(date), 
+#                                   1,0),
+#                 brain_bio_ind = if_else(rowSums(!is.na(dplyr::select(., ends_with("_avg_conc")))) > 0, 
+#                                         1,0),
+#                 morpho_ind = if_else(rowSums(!is.na(dplyr::select(., starts_with("mes_")))) > 0, 
+#                                      1,0),
+#                 metab_tissue_ind = if_else(rowSums(!is.na(dplyr::select(., ends_with("_tissue")))) > 0, 
+#                                            1,0),
+#                 metab_blood_ind = if_else(!is.na(alanine), 
+#                                           1,0),
+#                 hispanic_ind = if_else(grepl("^Hispanic", ethnicity), 
+#                                        1,0),
+#                 non_hispanic_ind = if_else(grepl("^Not", ethnicity), 
+#                                            1,0)) %>%
+#   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, max(na.omit(.x)))),
+#                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, max(.x, na.rm = TRUE))),
+#                    .by = c(mrn, screen_date)) %>%
+#   ungroup() %>%
+#   dplyr::select(record_id, ends_with("ind")) %>%
+#   distinct(record_id, .keep_all = T)
+# 
+# # Save indicators
+# write.csv(clean_ind, 
+#           file.path(root_path, "Data Harmonization/Data Clean/procedure_indicator.csv"), row.names = F,
+#           na = "")

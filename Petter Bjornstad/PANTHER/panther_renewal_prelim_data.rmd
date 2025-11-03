@@ -1,0 +1,633 @@
+---
+title: "PANTHER - preliminary data for renewal"
+author: "Laura Pyle"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+---
+
+```{r libraries, echo=F, include = F}
+library(SomaDataIO)
+library(tidyverse)
+library(growthcleanr)
+library(arsenal)
+library(dplyr)
+library(naniar)
+library(ggplot2)
+library(ggrepel)
+library(ggpubr)
+library(pedbp)
+library(psych)
+library(EnhancedVolcano)
+library(gt)
+library(SomaPlotr)
+library(readxl)
+library(limma)
+library(glue)
+library(purrr)
+library(stringr)
+library(nlme)
+library(emmeans)
+library(simr)
+library(effectsize)
+library(lme4)
+
+options(scipen=999)
+
+# specify user for paths
+user <- Sys.info()[["user"]]
+if (user == "laurapyle") {
+  data_path <- "/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean"
+  git_path <- "/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  panther_path <- "/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned"
+} else if (user == "lpyle") {
+  data_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean"
+  git_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  panther_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned"
+} else if (user == "pylell") {
+  data_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  panther_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/PANTHER/Data_Cleaned"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+
+```
+
+```{r load-data, echo = F, include = F}
+# Load dictionary function and file
+filename <- "/Resources/YC/R Functions/label_harmonized_function.R"
+full_path <- file.path(git_path, filename)
+source(full_path)
+filename <- "/Resources/YC/R Functions/correlation_function.R"
+full_path <- file.path(git_path, filename)
+source(full_path)
+```
+
+```{r prep-data, echo = F, include = F}
+# Load clinical data
+filename <- "/harmonized_dataset.csv"
+full_path <- file.path(data_path, filename)
+harm_dat <- read.csv(full_path, na.strings = "")
+filename <- "/panther_withdrew_ltfu_list.csv"
+full_path <- file.path(panther_path, filename)
+exclude <- read.csv(full_path) %>%
+  filter(category == "SF") %>%
+  pull(record_id) # Remove screen fails only (not lost to follow up)
+
+dat <- harm_dat %>% filter(study == "PANTHER") %>%
+  mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit),
+         mrn = case_when(study != "PANTHER" ~ paste0(as.character(mrn), as.character(date_of_screen)), T~ as.character(mrn))) %>%
+  filter(record_id %nin% exclude) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                    .by = c(mrn, visit)) %>%
+  dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
+                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                              race == "Black or African American" &
+                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                              ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                              T ~ "Not Hispanic (or Latino Other"),
+         tanner_stage_comp = coalesce(tan_fgd, tan_fph, tan_tveq, tan_mgd, tan_mph, breast_tanner),
+         tanner_stage_comp_panther = case_when(tanner_stage_comp > 3 ~ 4, T~ tanner_stage_comp),
+         tanner_stage_cat = case_when(tanner_stage_comp <3 ~ "I_II",
+                                      tanner_stage_comp >=3 ~ "III_V"),
+         tanner_stage_cat_2 = case_when(tanner_stage_comp == 1 ~ "I",
+                                        tanner_stage_comp <4 ~ "II_III",
+                                        tanner_stage_comp >=4 ~ "IV_V"),
+         tanner_stage_cat_3 = case_when(tanner_stage_comp < 2 ~ "I_II",
+                                        tanner_stage_comp == 3 ~ "III",
+                                        tanner_stage_comp >= 4 ~ "IV_V"),
+         tanner_stage_comp_panther_cat =
+                  case_when(tanner_stage_comp_panther == 4 ~ "4 & 5",
+                            T ~ as.character(tanner_stage_comp_panther)),
+         age_mo = (age * 12),
+         sex = case_when(sex == "Male" ~ "male",
+                         sex == "Female" ~ "female"),
+         male_ind = case_when(sex == "male" ~ 1, sex == "female" ~ 0),
+         combined_tkv = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual),
+         combined_ht_tkv = coalesce(ht_adj_tkv, ht_adj_tkv_manual),
+         log_tot_test = log(tot_test),
+         log_free_test = log(free_test),
+         log_lh = log(lh),
+         log_estrad = log(estrad),
+         log_acr_u = log(acr_u),
+         avg_c_adc_tkv = avg_c_adc/combined_tkv,
+         avg_c_r2_tkv = avg_c_r2/combined_tkv,
+         avg_pcascl_tkv = avg_pcascl/combined_tkv,
+         avg_c_t1_tkv = avg_c_t1/combined_tkv,
+         mm_airg = case_when(mm_airg > 0 ~ mm_airg),
+         mm_bcell = case_when(mm_bcell > 0 ~ mm_bcell),
+         mm_di = case_when(mm_di > 0 & mm_di < 10000 ~ mm_di),
+         mm_ir = case_when(mm_ir > 0 ~ mm_ir),
+         mm_si = case_when(mm_si > 0 & mm_si < 500 ~ mm_si),
+         birthweight = gsub(" kg", "", birthweight),
+         birthweight = as.numeric(birthweight),
+         glp1_agonist_timepoint = case_when(is.na(glp1_agonist_timepoint) ~ "No", T ~ glp1_agonist_timepoint),
+         uacr_cat = case_when(acr_u <= 10 ~ "UACR [0, 10]",
+                              acr_u <= 20 ~ "UACR (10, 20]",
+                              acr_u <= 30 ~ "UACR (20, 30]",
+                              acr_u > 30 ~ "UACR > 30")) %>%
+  arrange(record_id) %>%
+  # filter(!is.na(dexa_body_fat)) %>% # filter based on DEXA (to filter those who may just be screen fails)
+  filter(!is.na(male_ind)) 
+dat$tanner_stage_comp <- as.factor(dat$tanner_stage_comp)
+bp_percentile = p_bp(q_sbp = dat$sbp, q_dbp = dat$dbp, age = dat$age_mo, male = dat$male_ind)
+dat$sbp_p <- bp_percentile$sbp_p
+dat$dbp_p <- bp_percentile$dbp_p
+bmi_percentile = ext_bmiz(data = subset(dat,
+                                        select = c("mrn", "visit", "sex", "age_mo", "weight", "height", "bmi")),
+                          age = "age_mo",
+                          wt = "weight",
+                          ht = "height",
+                          bmi = "bmi",
+                          adjust.integer.age = F) %>%
+  dplyr:: select(mrn, visit, bmip, bmiz) 
+dat <- left_join(dat, bmi_percentile, by = c("mrn", "visit")) %>%
+  dplyr::mutate(group_risk = case_when(bmip >= 95 | hba1c >=6 | group == "Type 2 Diabetes" ~ "High",
+                                       T ~ "Low"),
+                sex_group_risk = case_when(sex == "male" & group_risk == "High" ~ "M, High",
+                                           sex == "male" & group_risk == "Low" ~ "M, Low",
+                                           sex == "female" & group_risk == "High" ~ "F, High",
+                                           sex == "female" & group_risk == "Low" ~ "F, Low"))
+dat$tanner_combined <- as.factor(ifelse(dat$tanner_stage_comp %in% c(4,5), "4/5", dat$tanner_stage_comp))
+
+# separate datasets by visit for descriptive statistics
+base <- dat %>% filter(visit == "baseline")
+yr1 <- dat %>% filter(visit == "year_1")
+yr2 <- dat %>% filter(visit == "year_2")
+  
+# create a variable to indicate cohort (i.e., the TS at which they were enrolled)
+cohortdf <- base %>% select(mrn, tanner_stage_comp)
+cohortdf$cohort <- paste0("Cohort", cohortdf$tanner_stage_comp)
+cohortdf <- cohortdf %>% select(mrn, cohort)
+dat <- merge(dat, cohortdf, by = "mrn")
+
+# Remove people TS5 at baseline
+dat <- dat %>% filter(!tanner_stage_comp == "5")
+```
+
+
+```{r echo=FALSE, include=FALSE}
+mixed <- function(data, outcome, grouping_var){
+  data <- as.data.frame(data)
+  data$time <- as.factor(data$time)
+  form = as.formula(paste0(outcome,"~ ", grouping_var, "*time"))
+  mod <- lme(as.formula(form),random=~1|mrn,data = data,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
+  anova <- anova.lme(mod, type="marginal")
+  m <- emmeans(mod,c(grouping_var,"time"))
+  prs <-  pairs(m,adjust="tukey",by="time")
+  return(list(anova,m,prs))
+}
+
+mixed_adj <- function(data, outcome, grouping_var){
+  data <- as.data.frame(data)
+  data$time <- as.factor(data$time)
+  form = as.formula(paste0(outcome,"~ ", grouping_var, "*time + group_risk"))
+  mod <- lme(as.formula(form),random=~1|mrn,data = data,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
+  anova <- anova.lme(mod, type="marginal")
+  m <- emmeans(mod,c(grouping_var,"time"))
+  prs <-  pairs(m,adjust="tukey",by="time")
+  return(list(anova,m,prs))
+}
+
+plot_mixed_group_risk <- function(mixed_output, data, ylab) {
+  emmeans_result <- mixed_output[[2]]
+  emmeans_result <- as.data.frame(emmeans_result)
+  emmeans_result$group <- ifelse(emmeans_result$group_risk == "High", "High", "Low")
+  # Create line plot
+  p <-  ggplot(emmeans_result, aes(x = time, y = emmean, color = group, group = group, 
+                                  line = group)) +
+    geom_line() +
+    geom_point() +
+    labs(x = "Time", y = ylab, color = "group") +
+    theme_bw() + 
+    #geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL), linetype = 1, alpha = 0.1) +
+    theme(legend.title=element_blank()) + geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL))
+}
+
+plot_mixed_tanner <- function(mixed_output, data, ylab) {
+  emmeans_result <- mixed_output[[2]]
+  emmeans_result <- as.data.frame(emmeans_result)
+  emmeans_result$group <- emmeans_result$tanner_combined
+  # Create line plot
+  p <-  ggplot(emmeans_result, aes(x = time, y = emmean, color = group, group = group, 
+                                  line = group)) +
+    geom_line() +
+    geom_point() +
+    labs(x = "Time", y = ylab, color = "group") +
+    theme_bw() + 
+    #geom_ribbon(aes(ymin = lower.CL, ymax = upper.CL), linetype = 1, alpha = 0.1) +
+    theme(legend.title=element_blank()) + geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL))
+}
+
+```
+
+# Descriptive statistics
+
+## Baseline
+
+```{r results = 'asis'}
+summary(arsenal::tableby(tanner_stage_comp ~ age + bmiz + sex + group_risk + albuminuria_cat + 
+                           kwt(acr_u, "medianq1q3") + total_kidney_volume_ml + mm_si + mm_bcell + 
+                           gfr_bsa_plasma + glomerular_pressure + hba1c, data = base),
+        digits = 1)
+```
+
+## Year 1
+
+```{r results = 'asis'}
+summary(arsenal::tableby(tanner_stage_comp ~ age + bmiz + sex + group_risk + albuminuria_cat + 
+                           kwt(acr_u, "medianq1q3") + total_kidney_volume_ml + 
+                           gfr_bsa_plasma + glomerular_pressure , data = yr1),
+        digits = 1)
+```
+
+## Year 2
+
+```{r results = 'asis'}
+summary(arsenal::tableby(tanner_stage_comp ~ age + bmiz + sex + group_risk + albuminuria_cat + 
+                           kwt(acr_u, "medianq1q3") + total_kidney_volume_ml + 
+                           gfr_bsa_plasma + glomerular_pressure , data = yr2),
+        digits = 1)
+```
+
+# Mixed-effects models
+
+## Glomerular pressure
+
+```{r}
+mod <- lme(glomerular_pressure ~ tanner_stage_comp + cohort,random=~1|mrn,data = dat,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
+anova <- anova.lme(mod, type="marginal")
+m <- emmeans(mod,"tanner_stage_comp")
+prs <-  pairs(m,adjust="tukey")
+```
+
+```{r, fig.width=8}
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = glomerular_pressure, color = cohort, group = cohort)) +
+    geom_point() +
+    labs(x = "TS", color = "cohort") +
+    theme_bw() 
+p
+```
+
+### ANOVA table
+
+```{r}
+anova
+```
+
+### Estimated marginal means
+
+```{r}
+m
+```
+
+### Pairwise comparisons
+
+```{r echo=FALSE}
+prs
+```
+
+## GFR
+
+### With cohort effect
+
+```{r}
+mod <- lme(gfr_bsa_plasma ~ tanner_stage_comp + cohort,random=~1|mrn,data = dat,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
+anova <- anova.lme(mod, type="marginal")
+m <- emmeans(mod,"tanner_stage_comp")
+prs <-  pairs(m,adjust="tukey")
+```
+
+```{r, fig.width=8}
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = gfr_bsa_plasma, color = cohort, group = cohort)) +
+    geom_point() +
+    labs(x = "TS", color = "cohort") +
+    theme_bw() 
+p
+```
+
+#### ANOVA table
+
+```{r}
+anova
+```
+
+#### Estimated marginal means
+
+```{r}
+m
+```
+
+#### Pairwise comparisons
+
+```{r}
+prs
+```
+
+### Without cohort effect
+
+```{r}
+mod <- lme(gfr_bsa_plasma ~ tanner_stage_comp ,random=~1|mrn,data = dat,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
+anova <- anova.lme(mod, type="marginal")
+m <- emmeans(mod,"tanner_stage_comp")
+prs <-  pairs(m,adjust="tukey")
+```
+
+```{r, fig.width=8}
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = gfr_bsa_plasma, color = cohort, group = cohort)) +
+    geom_point() +
+    labs(x = "TS", color = "cohort") +
+    theme_bw() 
+p
+```
+
+#### ANOVA table
+
+```{r}
+anova
+```
+
+#### Estimated marginal means
+
+```{r}
+m
+```
+
+#### Pairwise comparisons
+
+```{r}
+prs
+```
+
+## Left T1 Kidney
+
+### With cohort effect
+
+```{r}
+mod <- lme(bold_l_t1_kidney ~ tanner_stage_comp + cohort,random=~1|mrn,data = dat,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
+anova <- anova.lme(mod, type="marginal")
+m <- emmeans(mod,"tanner_stage_comp")
+prs <-  pairs(m,adjust="tukey")
+```
+
+```{r, fig.width=8}
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = bold_l_t1_kidney, color = cohort, group = cohort)) +
+    geom_point() +
+    labs(x = "TS", color = "cohort") +
+    theme_bw() 
+p
+```
+
+#### ANOVA table
+
+```{r}
+anova
+```
+
+#### Estimated marginal means
+
+```{r}
+m
+```
+
+#### Pairwise comparisons
+
+```{r}
+prs
+```
+
+### Without cohort effect
+
+```{r}
+mod <- lme(bold_l_t1_kidney ~ tanner_stage_comp ,random=~1|mrn,data = dat,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
+anova <- anova.lme(mod, type="marginal")
+m <- emmeans(mod,"tanner_stage_comp")
+prs <-  pairs(m,adjust="tukey")
+```
+
+```{r, fig.width=8}
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = bold_l_t1_kidney, color = cohort, group = cohort)) +
+    geom_point() +
+    labs(x = "TS", color = "cohort") +
+    theme_bw() 
+p
+```
+
+#### ANOVA table
+
+```{r}
+anova
+```
+
+#### Estimated marginal means
+
+```{r}
+m
+```
+
+#### Pairwise comparisons
+
+```{r}
+prs
+```
+
+## Right T1 Kidney
+
+### With cohort effect
+
+```{r}
+mod <- lme(bold_r_t1_kidney ~ tanner_stage_comp + cohort,random=~1|mrn,data = dat,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
+anova <- anova.lme(mod, type="marginal")
+m <- emmeans(mod,"tanner_stage_comp")
+prs <-  pairs(m,adjust="tukey")
+```
+
+```{r, fig.width=8}
+ p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = bold_r_t1_kidney, color = cohort, group = cohort)) +
+    geom_point() +
+    labs(x = "TS", color = "cohort") +
+    theme_bw() 
+p
+```
+
+#### ANOVA table
+
+```{r}
+anova
+```
+
+#### Estimated marginal means
+
+```{r}
+m
+```
+
+#### Pairwise comparisons
+
+```{r }
+prs
+```
+
+### Without cohort effect
+
+```{r}
+mod <- lme(bold_r_t1_kidney ~ tanner_stage_comp ,random=~1|mrn,data = dat,na.action = na.omit, correlation = corCompSymm(form = ~1|mrn))
+anova <- anova.lme(mod, type="marginal")
+m <- emmeans(mod,"tanner_stage_comp")
+prs <-  pairs(m,adjust="tukey")
+```
+
+```{r, fig.width=8}
+p <-  ggplot(dat, aes(x = as.numeric(tanner_stage_comp), y = bold_r_t1_kidney, color = cohort, group = cohort)) +
+    geom_point() +
+    labs(x = "TS", color = "cohort") +
+    theme_bw() 
+p
+```
+
+#### ANOVA table
+
+```{r echo=FALSE}
+anova
+```
+
+#### Estimated marginal means
+
+```{r}
+m
+```
+
+#### Pairwise comparisons
+
+```{r}
+prs
+```
+
+# Power calculations
+
+## GFR
+
+### Using simr on pilot data - this is not working
+
+```{r}
+mod <- lmer(gfr_bsa_plasma ~ as.numeric(tanner_stage_comp) + (1|mrn), 
+            data = dat, 
+            na.action = na.omit,
+            REML = FALSE)
+doTest(mod, fixed("as.numeric(tanner_stage_comp)"))
+fixef(mod)["as.numeric(tanner_stage_comp)"] <- -10
+mod1 <- extend(mod, along = "mrn", n = 90, 
+               values = list(tanner_stage_comp = 1:5))
+doTest(mod1, fixed("as.numeric(tanner_stage_comp)"))
+powerSim(mod1, nsim=50, test = "as.numeric(tanner_stage_comp)")
+powerCurve(mod1, within = "mrn", breaks = c(10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130), 
+           test = fixed("as.numeric(tanner_stage_comp)"))
+```
+
+### Using simr with makeLmer() to specify data
+
+#### Function to power on association of covariate Z with change in Y over time
+
+```{r}
+sim_power <- function(n = 90, intercept = 135, beta_time = -2, beta_pred = 0.5, var_int = 2, resid_sd = 5) {
+  # time, MRN, and variable being tested from PANTHER (Z)
+  years <- 1:5
+  set.seed(123)  # for reproducibility
+  mrn <- replicate(n, paste0(sample(c(letters, LETTERS, 0:9), 8, replace = TRUE), collapse = ""))
+  while(length(unique(mrn)) < n) {
+    mrn <- replicate(n, paste0(sample(c(letters, LETTERS, 0:9), 8, replace = TRUE), collapse = ""))
+  }
+  mrn <- unique(mrn)[1:n]
+  X <- expand.grid(years, mrn)
+  temp <- rnorm(n)
+  Z <- NULL
+  for (i in 1:n) {
+    c <- rep(temp[i],5)
+    Z <- c(Z, c)
+  }
+  X <- cbind(X, Z)
+  colnames(X) <- c("years", "mrn", "Z")
+  
+  # specify parameters
+  # fixed intercept, slope over time, association with Z
+  b <- c(intercept, beta_time, beta_pred)
+  # random intercept variance
+  V1 <- var_int
+  # residual standard deviation
+  s <- resid_sd
+  
+  model1 <- makeLmer(y ~ years + Z + (1|mrn), data = X, fixef = b, VarCorr = V1, sigma = s)
+  dat1 <- getData(model1)
+  
+  p <-  ggplot(dat1, aes(x = years, y = y, color = Z)) +
+    geom_point() +
+    labs(x = "year", color = "Z") +
+    theme_bw() 
+  return(p)
+  
+  powerSim(model1, nsim = 50)
+}
+
+sim_power(n = 90, intercept = 135, beta_time = -2, beta_pred = 0.5, var_int = 2, resid_sd = 5)
+```
+
+#### Function to power on interaction of covariate Z with change in Y over time
+
+Interaction is how change over time varies based on value of Z. The standardized effect size for the interaction is beta_interaction/sigma_residual.
+
+Example: if beta_interaction = 0.5, for a one unit increase in Z (e.g., slope of GFR during PANTHER), the outcome in PANTHER2 declines by an additional 0.5 residual SDs per year.
+
+```{r}
+sim_power_int <- function(n, intercept, beta_time, beta_Z, beta_pred_time_int, var_int, resid_sd) {
+  # time, MRN, and variable being tested from PANTHER (Z)
+  years <- 1:5
+  set.seed(123)  # for reproducibility
+  mrn <- replicate(n, paste0(sample(c(letters, LETTERS, 0:9), 8, replace = TRUE), collapse = ""))
+  while(length(unique(mrn)) < n) {
+    mrn <- replicate(n, paste0(sample(c(letters, LETTERS, 0:9), 8, replace = TRUE), collapse = ""))
+  }
+  mrn <- unique(mrn)[1:n]
+  X <- expand.grid(years, mrn)
+  temp <- rnorm(n)
+  Z <- NULL
+  for (i in 1:n) {
+    c <- rep(temp[i],5)
+    Z <- c(Z, c)
+  }
+  X <- cbind(X, Z)
+  colnames(X) <- c("years", "mrn", "Z")
+  
+  # specify parameters
+  # fixed intercept, slope over time, association with Z
+  b <- c(intercept, beta_time, beta_Z, beta_pred_time_int)
+  # random intercept variance
+  V1 <- var_int
+  # residual standard deviation
+  s <- resid_sd
+  
+  model1 <- makeLmer(y ~ years + Z + years*Z + (1|mrn), data = X, fixef = b, VarCorr = V1, sigma = s)
+  doTest(model1, compare(. ~ years + Z + (1|mrn)))
+  dat1 <- getData(model1)
+  
+  p <-  ggplot(dat1, aes(x = years, y = y, color = Z)) +
+    geom_point() +
+    labs(x = "year", color = "Z") +
+    theme_bw() 
+  
+  
+  ps <- powerSim(model1, compare(. ~ years + Z + (1|mrn)) , nsim = 100)
+  return(ps)
+}
+
+sim_power_int(n = 90, intercept = 100, beta_time = -1, beta_Z = 1, beta_pred_time_int = 0.1, var_int = 10, resid_sd = 1)
+
+sim_power_int(n = 90, intercept = 100, beta_time = -1, beta_Z = 1, beta_pred_time_int = 0.5, var_int = 10, resid_sd = 1)
+```

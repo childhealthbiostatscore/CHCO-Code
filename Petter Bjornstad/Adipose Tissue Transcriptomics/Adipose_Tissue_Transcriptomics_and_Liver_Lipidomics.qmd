@@ -1,0 +1,1032 @@
+---
+title: "Adipose Tissue Transcriptomics & Liver Lipidomics"
+author: "Hailey E. Hampson"
+format: revealjs
+editor: visual
+---
+
+------------------------------------------------------------------------
+
+## Title: "Multi-tissue Adipose Transcriptomics and Lipidomics Analysis" author: "Hailey E. Hampson" date: "`r Sys.Date()`" format: revealjs: theme: default slide-number: true chalkboard: true preview-links: auto execute: echo: true warning: false message: false
+
+## Setup and Data Loading
+### a. Libraries & Directories
+```{r}
+# Load required libraries
+library(DESeq2)
+library(tidyverse)
+library(ggplot2)
+library(pheatmap)
+# library(clusterProfiler)
+# library(org.Hs.eg.db)
+# library(enrichplot)
+# library(mixOmics)
+# library(reshape2)
+# library(viridis)
+# library(ggrepel)
+library(readxl)
+library(tidyverse)
+library(reshape2)
+library(ggplot2)
+
+```
+
+###b. Load Data
+```{r, Cyberduck setup}
+Sys.setenv(RETICULATE_PYTHON = "/home/hhampson/miniconda3/bin/python")
+# install.packages("reticulate")
+# library(reticulate)
+# reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+# install.packages("jsonlite")  # Install if not already installed
+library(jsonlite)  # Load the package
+
+keys <- fromJSON("/home/hhampson/keys.json") # replace with your Lambda username
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+
+# read file
+bucket <- "adipose.tissue" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket,"full melted kallisto counts and tpm.csv", temp_file)
+counts_matrix <- read.csv(temp_file)
+
+# # 1. COUNTS MATRIX - assuming you have RNA-seq counts
+# counts_matrix <- read.csv("full melted kallisto counts and tpm.csv")
+
+#Load metadata
+gc()
+bucket <- "adipose.tissue" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "sample_table.csv", temp_file)
+coldata <- read.csv(temp_file)
+gc()
+# # 2. SAMPLE METADATA - you already have this as coldata
+# coldata = read.csv('sample_table.csv')
+```
+
+###c. Format Data
+```{r}
+sample_metadata <- coldata
+# Make sure it has the required columns
+# Check what columns you have:
+names(sample_metadata)
+
+# 3. LIPID DATA - load from Excel
+lipid_file <- "MAT Pilot stats lipidomics n14 subset.xlsx"
+
+# Check sheet names
+excel_sheets(lipid_file)
+
+# Load the appropriate sheet (adjust sheet name/number)
+lipid_raw <- read_excel(lipid_file, sheet = 1)  # or sheet = "SheetName"
+lipid_raw <- lipid_raw[-1, ]
+
+# Check structure
+glimpse(lipid_raw)
+
+# Format lipid data - assuming first column has lipid names
+# and other columns are samples
+lipid_data <- lipid_raw %>%
+  column_to_rownames(var = names(lipid_raw)[1]) %>%  # First column as row names
+  as.data.frame()
+
+# 4. LIPID METADATA - extract from lipid names
+lipid_metadata <- data.frame(
+  lipid_id = rownames(lipid_data),
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    # Extract lipid class (adjust patterns based on your naming)
+    lipid_class = case_when(
+      grepl("^TAG", lipid_id) ~ "TAG",
+      grepl("^DAG", lipid_id) ~ "DAG",
+      grepl("^CE", lipid_id) ~ "CE",
+      grepl("^Cer", lipid_id) ~ "Ceramide",
+      grepl("^SM", lipid_id) ~ "SM",
+      grepl("^PC", lipid_id) ~ "PC",
+      grepl("^PE", lipid_id) ~ "PE",
+      grepl("^PI", lipid_id) ~ "PI",
+      grepl("^PS", lipid_id) ~ "PS",
+      grepl("^LPC", lipid_id) ~ "LPC",
+      grepl("^LPE", lipid_id) ~ "LPE",
+      TRUE ~ "Other"
+    ),
+    # Extract carbon number and double bonds
+    n_carbons = as.numeric(str_extract(lipid_id, "\\d+(?=:)")),
+    n_double_bonds = as.numeric(str_extract(lipid_id, "(?<=:)\\d+"))
+  )
+
+# Verify data alignment
+print("Counts matrix dimensions:")
+dim(counts_matrix)
+
+print("Sample metadata rows:")
+nrow(sample_metadata)
+
+print("Lipid data dimensions:")
+dim(lipid_data)
+
+print("Samples in counts:")
+colnames(counts_matrix)[1:5]
+
+print("Samples in metadata:")
+head(sample_metadata$SampleID)
+
+print("Samples in lipid data:")
+colnames(lipid_data)[1:5]
+
+# Make sure sample names match across datasets
+# You might need to clean sample names
+fix_sample_names <- function(names) {
+  # Adjust this based on your naming conventions
+  gsub("_S\\d+$", "", names)  # Remove _S## suffixes if present
+}
+
+# Apply to all datasets if needed
+colnames(counts_matrix) <- fix_sample_names(colnames(counts_matrix))
+colnames(lipid_data) <- fix_sample_names(colnames(lipid_data))
+sample_metadata$SampleID <- fix_sample_names(sample_metadata$SampleID)
+
+# Find common samples across all datasets
+common_samples <- Reduce(intersect, list(
+  colnames(counts_matrix),
+  sample_metadata$SampleID,
+  colnames(lipid_data)
+))
+
+print(paste("Common samples across all datasets:", length(common_samples)))
+
+# Subset to common samples
+counts_matrix <- counts_matrix[, common_samples]
+lipid_data <- lipid_data[, common_samples]
+sample_metadata <- sample_metadata[sample_metadata$SampleID %in% common_samples, ]
+
+# Ensure order matches
+sample_metadata <- sample_metadata[match(common_samples, sample_metadata$SampleID), ]
+```
+###b. Load Data & Format DESeq2 Object
+```{r}
+sample_metadata <- coldata
+names(sample_metadata)
+
+# Prepare the data
+counts_matrix$est_counts <- as.integer(counts_matrix$est_counts)
+counts_matrix <- counts_matrix[!is.na(counts_matrix$gene_symbol), ]
+counts_matrix <- counts_matrix[!counts_matrix$gene_symbol == '', ]
+
+# Create counts matrix
+cnts_mat <- dcast(counts_matrix, gene_symbol ~ sample, 
+                  value.var = 'est_counts', 
+                  fun.aggregate = mean, 
+                  na.rm = TRUE)
+row.names(cnts_mat) <- cnts_mat$gene_symbol
+cnts_mat$gene_symbol <- NULL
+
+# # Filter low-count genes
+# # Keep genes with at least 10 counts in at least 5 samples
+# cnts_mat1 <- cnts_mat[rowMeans(cnts_mat) > 10, ]
+# 
+# cat("Genes before filtering:", nrow(cnts_mat), "\n") #Genes before filtering: 28118 
+# cat("Genes after filtering:", nrow(cnts_mat1), "\n") #Genes after filtering: 13231
+# 
+# # Convert to integers (truncate, don't round)
+# cnts_mat1 <- dplyr::mutate_all(cnts_mat1, function(x) as.integer(as.character(x)))
+# 
+# 
+# # Prepare metadata
+# coldata$group <- paste0(coldata$Tissue, '_', coldata$Sample)
+# row.names(coldata) <- coldata$SampleID
+# 
+# # Make sure sample order matches between counts and metadata
+# coldata <- coldata[colnames(cnts_mat1), ]
+# 
+# # Convert to factors for DESeq2
+# coldata$Tissue <- as.factor(coldata$Tissue)
+# coldata$Sample <- as.factor(coldata$Sample)
+# coldata$group <- as.factor(coldata$group)
+# 
+# # Create DESeq2 object
+# # You can design by Tissue, Sample (healthy vs T2D), or both
+# dds <- DESeqDataSetFromMatrix(
+#   countData = cnts_mat1,
+#   colData = coldata,
+#   design = ~ Tissue + Sample + Tissue:Sample
+#   # design = ~ Tissue + Sample  # This tests for tissue effects while controlling for disease status
+# )
+# 
+# # Run DESeq2
+# dds <- DESeq(dds)
+# 
+# # Check the results names to see what comparisons are available
+# resultsNames(dds)
+# 
+# # Save the DESeq object
+# saveRDS(dds, file = "adipose_deseq2_object.rds")
+# 
+# print(dds)
+
+# Subset metadata for VAT tissue only
+coldata_VAT <- coldata[coldata$Tissue == "VAT", ]
+
+# Subset count matrix to only VAT samples
+cnts_mat_VAT <- cnts_mat[, colnames(cnts_mat) %in% coldata_VAT$SampleID]
+
+# Filter: keep genes with mean count > 10 in VAT
+cnts_mat_VAT <- cnts_mat_VAT[rowMeans(cnts_mat_VAT) > 10, ]
+
+# Convert to integers (truncate)
+cnts_mat_VAT <- dplyr::mutate_all(cnts_mat_VAT, function(x) as.integer(as.character(x)))
+
+# Make sure metadata matches the filtered count matrix columns
+coldata_VAT <- coldata_VAT[colnames(cnts_mat_VAT), ]
+
+# Set factor levels (healthy as reference)
+coldata_VAT$Sample <- factor(coldata_VAT$Sample, levels = c("healthy", "T2D"))
+
+# Check what we have
+cat("Number of VAT samples:", ncol(cnts_mat_VAT), "\n") #Number of VAT samples: 14 
+cat("Number of genes after filtering:", nrow(cnts_mat_VAT), "\n") #umber of genes after filtering: 13309 
+print(table(coldata_VAT$Sample))
+# healthy     T2D 
+#       7       7 
+
+# Create DESeq2 object
+dds_VAT <- DESeqDataSetFromMatrix(
+  countData = cnts_mat_VAT,
+  colData = coldata_VAT,
+  design = ~ Sample
+)
+
+# Run DESeq2
+dds_VAT <- DESeq(dds_VAT)
+
+# Get results (T2D vs healthy)
+res_VAT <- results(dds_VAT, contrast = c("Sample", "T2D", "healthy"))
+
+# Convert to data frame and sort by p-value
+results_VAT <- as.data.frame(res_VAT)
+results_VAT <- results_VAT[order(results_VAT$pvalue, decreasing = FALSE), ]
+results_VAT$gene_symbol <- rownames(results_VAT)
+
+# Save results
+# write.csv(results_VAT, file = "DESeq2_results_VAT_T2D_vs_healthy.csv", row.names = FALSE)
+cat("Genes with NA padj:", sum(is.na(results_VAT$padj)), "\n")
+cat("Total genes:", nrow(results_VAT), "\n")
+
+# Print summary
+summary(res_VAT)
+
+# View top 20 genes
+head(results_VAT, 20)
+
+# Prepare data for volcano plot
+# results_VAT <- na.omit(results_VAT)  # Remove NAs for plotting
+# Remove NAs - this is the standard approach
+results_VAT_plot <- results_VAT[!is.na(results_VAT$padj), ]
+
+cat("Genes for analysis after independent filtering:", nrow(results_VAT_plot), "\n")
+
+results_VAT_plot$label <- ""  # Initialize empty labels
+
+# Label ALL significant genes (padj < 0.05)
+results_VAT_plot$label <- ifelse(results_VAT_plot$padj < 0.05, 
+                                 results_VAT_plot$gene_symbol, 
+                                 "")
+
+# Color ALL significant genes (padj < 0.05)
+results_VAT_plot$color <- ifelse(results_VAT_plot$padj < 0.05 & results_VAT_plot$log2FoldChange > 0, 
+                                 "darkred",      # Upregulated in T2D
+                          ifelse(results_VAT_plot$padj < 0.05 & results_VAT_plot$log2FoldChange < 0,
+                                 "darkblue",     # Downregulated in T2D
+                                 "gray74"))      # Not significant
+
+# Count significant genes
+cat("Significant upregulated genes:", sum(results_VAT_plot$padj < 0.05 & results_VAT_plot$log2FoldChange > 0, na.rm = TRUE), "\n")
+cat("Significant downregulated genes:", sum(results_VAT_plot$padj < 0.05 & results_VAT_plot$log2FoldChange < 0, na.rm = TRUE), "\n")
+cat("Total genes to label:", sum(results_VAT_plot$label != ""), "\n")
+
+# Create volcano plot
+library(ggrepel)
+
+volcano_VAT <- ggplot(results_VAT_plot, aes(x = log2FoldChange, y = -log10(padj))) + 
+  theme_bw() +
+  geom_point(aes(color = color), alpha = 0.6, size = 1.5) +
+  scale_color_identity() +
+  geom_label_repel(aes(label = label, color = color), 
+                   size = 2.5,
+                   label.size = NA,
+                   box.padding = 0.5,
+                   max.overlaps = Inf,  # Show all labels
+                   min.segment.length = 0,
+                   segment.color = 'grey50') +
+  # geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", linewidth = 0.5) +
+  # geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "grey50", linewidth = 0.5) +
+  ggtitle("VAT: T2D vs Healthy") +
+  xlab("log2 Fold Change (T2D / Healthy)") +
+  ylab("-log10(adjusted p-value)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+
+print(volcano_VAT)
+
+# # Save to PDF
+# pdf(file = "Volcano_plot_VAT_T2D_vs_healthy.pdf", width = 12, height = 10)
+# print(volcano_VAT)
+# dev.off()
+
+# Subset metadata for SAT tissue only
+coldata_SAT <- coldata[coldata$Tissue == "SAT", ]
+
+# Subset count matrix to only SAT samples
+cnts_mat_SAT <- cnts_mat[, colnames(cnts_mat) %in% coldata_SAT$SampleID]
+
+# Filter: keep genes with mean count > 10 in SAT
+cnts_mat_SAT <- cnts_mat_SAT[rowMeans(cnts_mat_SAT) > 10, ]
+
+# Convert to integers (truncate)
+cnts_mat_SAT <- dplyr::mutate_all(cnts_mat_SAT, function(x) as.integer(as.character(x)))
+
+# Make sure metadata matches the filtered count matrix columns
+coldata_SAT <- coldata_SAT[colnames(cnts_mat_SAT), ]
+
+# Set factor levels (healthy as reference)
+coldata_SAT$Sample <- factor(coldata_SAT$Sample, levels = c("healthy", "T2D"))
+
+# Check what we have
+cat("Number of SAT samples:", ncol(cnts_mat_SAT), "\n") #Number of SAT samples: 14 
+cat("Number of genes after filtering:", nrow(cnts_mat_SAT), "\n") #umber of genes after filtering: 12848 
+print(table(coldata_SAT$Sample))
+# healthy     T2D 
+#       7       7 
+
+# Create DESeq2 object
+dds_SAT <- DESeqDataSetFromMatrix(
+  countData = cnts_mat_SAT,
+  colData = coldata_SAT,
+  design = ~ Sample
+)
+
+# Run DESeq2
+dds_SAT <- DESeq(dds_SAT)
+
+# Get results (T2D vs healthy)
+res_SAT <- results(dds_SAT, contrast = c("Sample", "T2D", "healthy"))
+
+# Convert to data frame and sort by p-value
+results_SAT <- as.data.frame(res_SAT)
+results_SAT <- results_SAT[order(results_SAT$pvalue, decreasing = FALSE), ]
+results_SAT$gene_symbol <- rownames(results_SAT)
+
+# Save results
+# write.csv(results_SAT, file = "DESeq2_results_SAT_T2D_vs_healthy.csv", row.names = FALSE)
+cat("Genes with NA padj:", sum(is.na(results_SAT$padj)), "\n")
+cat("Total genes:", nrow(results_SAT), "\n")
+
+# Print summary
+summary(res_SAT)
+
+# View top 20 genes
+head(results_SAT, 20)
+
+# Prepare data for volcano plot
+# results_SAT <- na.omit(results_SAT)  # Remove NAs for plotting
+# Remove NAs - this is the standard approach
+results_SAT_plot <- results_SAT[!is.na(results_SAT$padj), ]
+
+cat("Genes for analysis after independent filtering:", nrow(results_SAT_plot), "\n")
+
+results_SAT_plot$label <- ""  # Initialize empty labels
+
+# Label ALL significant genes (padj < 0.05)
+results_SAT_plot$label <- ifelse(results_SAT_plot$padj < 0.05, 
+                                 results_SAT_plot$gene_symbol, 
+                                 "")
+
+# Color ALL significant genes (padj < 0.05)
+results_SAT_plot$color <- ifelse(results_SAT_plot$padj < 0.05 & results_SAT_plot$log2FoldChange > 0, 
+                                 "darkred",      # Upregulated in T2D
+                          ifelse(results_SAT_plot$padj < 0.05 & results_SAT_plot$log2FoldChange < 0,
+                                 "darkblue",     # Downregulated in T2D
+                                 "gray74"))      # Not significant
+
+# Count significant genes
+cat("Significant upregulated genes:", sum(results_SAT_plot$padj < 0.05 & results_SAT_plot$log2FoldChange > 0, na.rm = TRUE), "\n")
+cat("Significant downregulated genes:", sum(results_SAT_plot$padj < 0.05 & results_SAT_plot$log2FoldChange < 0, na.rm = TRUE), "\n")
+cat("Total genes to label:", sum(results_SAT_plot$label != ""), "\n")
+
+# Create volcano plot
+library(ggrepel)
+
+volcano_SAT <- ggplot(results_SAT_plot, aes(x = log2FoldChange, y = -log10(padj))) + 
+  theme_bw() +
+  geom_point(aes(color = color), alpha = 0.6, size = 1.5) +
+  scale_color_identity() +
+  geom_label_repel(aes(label = label, color = color), 
+                   size = 2.5,
+                   label.size = NA,
+                   box.padding = 0.5,
+                   max.overlaps = Inf,  # Show all labels
+                   min.segment.length = 0,
+                   segment.color = 'grey50') +
+  # geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black", linewidth = 0.5) +
+  # geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "grey50", linewidth = 0.5) +
+  ggtitle("SAT: T2D vs Healthy") +
+  xlab("log2 Fold Change (T2D / Healthy)") +
+  ylab("-log10(adjusted p-value)") +
+  theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+
+print(volcano_SAT)
+```
+
+## 1. Transcriptomics Analysis
+
+### 1.1 Differential Gene Expression Setup
+
+```{r}
+# Create DESeq2 dataset
+# dds <- DESeqDataSetFromMatrix(
+#   countData = counts_matrix,
+#   colData = sample_metadata,
+#   design = ~ tissue_type + glucose_status + tissue_type:glucose_status
+# )
+
+# Filter low-expressed genes
+# keep <- rowSums(counts(dds)) >= 10
+# dds <- dds[keep,]
+
+# Run DESeq2
+# dds <- DESeq(dds)
+```
+
+### 1.1 Differential Expression: Disease Status
+
+```{r}         
+# Function to perform DE analysis by disease status within each tissue
+perform_DE_by_disease <- function(dds, tissue) {
+  # Subset to specific tissue
+  dds_tissue <- dds[, dds$tissue_type == tissue]
+  
+  # Re-run DESeq2 for this subset
+  dds_tissue <- DESeq(dds_tissue)
+  
+  # Get results comparing disease vs normal
+  res <- results(dds_tissue, 
+                 contrast = c("glucose_status", "Prediabetes_T2D", "NGT"),
+                 alpha = 0.05)
+  
+  # Add gene symbols and filter
+  res_df <- as.data.frame(res) %>%
+    rownames_to_column("gene_id") %>%
+    filter(!is.na(padj)) %>%
+    mutate(
+      significant = padj < 0.05 & abs(log2FoldChange) > 1,
+      direction = case_when(
+        log2FoldChange > 0 ~ "up",
+        log2FoldChange < 0 ~ "down",
+        TRUE ~ "ns"
+      )
+    )
+  
+  return(res_df)
+}
+
+# Run for each tissue type
+# tissues <- c("Subcutaneous", "Omental", "Mesenteric")
+# de_results_disease <- map(tissues, ~perform_DE_by_disease(dds, .x))
+# names(de_results_disease) <- tissues
+```
+
+### 1.1 Differential Expression: Tissue Comparisons
+
+```         
+# Function to compare tissues
+compare_tissues <- function(dds, tissue1, tissue2) {
+  res <- results(dds, 
+                 contrast = c("tissue_type", tissue1, tissue2),
+                 alpha = 0.05)
+  
+  res_df <- as.data.frame(res) %>%
+    rownames_to_column("gene_id") %>%
+    filter(!is.na(padj)) %>%
+    mutate(
+      significant = padj < 0.05 & abs(log2FoldChange) > 1,
+      comparison = paste(tissue1, "vs", tissue2)
+    )
+  
+  return(res_df)
+}
+
+# Perform all pairwise tissue comparisons
+# tissue_comparisons <- list(
+#   compare_tissues(dds, "Subcutaneous", "Omental"),
+#   compare_tissues(dds, "Subcutaneous", "Mesenteric"),
+#   compare_tissues(dds, "Omental", "Mesenteric")
+# )
+```
+
+### 1.1 Volcano Plots
+
+```         
+# Function to create volcano plot
+create_volcano <- function(de_results, title) {
+  ggplot(de_results, aes(x = log2FoldChange, y = -log10(padj))) +
+    geom_point(aes(color = significant), alpha = 0.6, size = 1.5) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "gray50") +
+    geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "gray50") +
+    scale_color_manual(values = c("TRUE" = "red", "FALSE" = "gray30")) +
+    labs(
+      title = title,
+      x = "log2 Fold Change",
+      y = "-log10(adjusted p-value)"
+    ) +
+    theme_bw() +
+    theme(legend.position = "none")
+}
+
+# Create volcano plots for each comparison
+# volcano_plots <- map2(de_results_disease, tissues, 
+#                       ~create_volcano(.x, paste(.y, ": Prediabetes/T2D vs NGT")))
+```
+
+### 1.2 Pathway Analysis - GSEA
+
+```         
+# Function to run GSEA
+run_gsea <- function(de_results, title) {
+  # Create ranked gene list
+  gene_list <- de_results$log2FoldChange
+  names(gene_list) <- de_results$gene_id
+  gene_list <- sort(gene_list, decreasing = TRUE)
+  
+  # Run GSEA for KEGG pathways
+  gsea_kegg <- gseKEGG(
+    geneList = gene_list,
+    organism = 'hsa',
+    minGSSize = 10,
+    maxGSSize = 500,
+    pvalueCutoff = 0.05,
+    verbose = FALSE
+  )
+  
+  # Run GSEA for GO terms
+  gsea_go <- gseGO(
+    geneList = gene_list,
+    ont = "BP",
+    OrgDb = org.Hs.eg.db,
+    minGSSize = 10,
+    maxGSSize = 500,
+    pvalueCutoff = 0.05,
+    verbose = FALSE
+  )
+  
+  return(list(kegg = gsea_kegg, go = gsea_go))
+}
+
+# Run GSEA for each comparison
+# gsea_results <- map(de_results_disease, ~run_gsea(.x))
+```
+
+### 1.2 Pathway Visualization
+
+```         
+# Function to create dotplot for enriched pathways
+plot_enrichment <- function(gsea_result, title) {
+  if(nrow(gsea_result) > 0) {
+    dotplot(gsea_result, 
+            showCategory = 20, 
+            title = title,
+            font.size = 10) +
+      theme(axis.text.y = element_text(size = 8))
+  }
+}
+
+# Create pathway plots
+# pathway_plots <- map2(gsea_results, tissues,
+#                       ~plot_enrichment(.x$kegg, paste(.y, ": KEGG Pathways")))
+```
+
+## 2. Lipidomics Analysis
+
+### 2.1 Lipid Profiling - Differential Abundance
+
+```         
+# Function to identify differentially abundant lipids
+diff_abundant_lipids <- function(lipid_data, metadata, tissue, comparison) {
+  # Subset data
+  tissue_samples <- metadata$sample_id[metadata$tissue_type == tissue]
+  tissue_data <- lipid_data[, tissue_samples]
+  tissue_metadata <- metadata[metadata$tissue_type == tissue,]
+  
+  # Perform t-tests for each lipid
+  results <- apply(tissue_data, 1, function(lipid_values) {
+    ngt_values <- lipid_values[tissue_metadata$glucose_status == "NGT"]
+    disease_values <- lipid_values[tissue_metadata$glucose_status == "Prediabetes_T2D"]
+    
+    if(length(ngt_values) > 2 & length(disease_values) > 2) {
+      t_result <- t.test(disease_values, ngt_values)
+      return(c(
+        mean_ngt = mean(ngt_values, na.rm = TRUE),
+        mean_disease = mean(disease_values, na.rm = TRUE),
+        log2FC = log2(mean(disease_values, na.rm = TRUE) / mean(ngt_values, na.rm = TRUE)),
+        p_value = t_result$p.value
+      ))
+    } else {
+      return(c(mean_ngt = NA, mean_disease = NA, log2FC = NA, p_value = NA))
+    }
+  })
+  
+  # Convert to dataframe and add FDR correction
+  results_df <- as.data.frame(t(results)) %>%
+    rownames_to_column("lipid_id") %>%
+    filter(!is.na(p_value)) %>%
+    mutate(
+      padj = p.adjust(p_value, method = "BH"),
+      significant = padj < 0.05 & abs(log2FC) > 0.5,
+      tissue = tissue
+    )
+  
+  return(results_df)
+}
+
+# Run for each tissue
+# lipid_de_results <- map(tissues, ~diff_abundant_lipids(lipid_data, sample_metadata, .x))
+# names(lipid_de_results) <- tissues
+```
+
+### 2.1 Lipid Class Analysis
+
+```         
+# Function to summarize by lipid class
+summarize_lipid_classes <- function(lipid_de, lipid_annotations) {
+  lipid_de %>%
+    left_join(lipid_annotations, by = "lipid_id") %>%
+    group_by(lipid_class, significant, direction = sign(log2FC)) %>%
+    summarise(
+      count = n(),
+      mean_log2FC = mean(log2FC, na.rm = TRUE),
+      .groups = "drop"
+    )
+}
+
+# Create lipid class summary plots
+plot_lipid_classes <- function(lipid_class_summary, title) {
+  ggplot(lipid_class_summary %>% filter(significant), 
+         aes(x = lipid_class, y = count, fill = factor(direction))) +
+    geom_bar(stat = "identity", position = "dodge") +
+    scale_fill_manual(values = c("-1" = "blue", "1" = "red"),
+                      labels = c("-1" = "Down", "1" = "Up")) +
+    labs(title = title, x = "Lipid Class", y = "Number of Significant Lipids", 
+         fill = "Direction") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+# Analyze lipid classes
+# lipid_class_summaries <- map(lipid_de_results, ~summarize_lipid_classes(.x, lipid_metadata))
+```
+
+### 2.2 Lipid Signatures - Saturation Index
+
+```         
+# Calculate lipid saturation and chain length indices
+calculate_lipid_indices <- function(lipid_data, lipid_annotations, sample_metadata) {
+  # Extract saturation info from lipid annotations
+  lipid_features <- lipid_annotations %>%
+    mutate(
+      n_carbons = as.numeric(str_extract(lipid_id, "\\d+(?=:)")),
+      n_double_bonds = as.numeric(str_extract(lipid_id, "(?<=:)\\d+"))
+    )
+  
+  # Calculate indices for each sample
+  indices <- map_df(colnames(lipid_data), function(sample) {
+    sample_values <- lipid_data[, sample]
+    
+    # Weighted average by abundance
+    total_abundance <- sum(sample_values, na.rm = TRUE)
+    
+    avg_carbons <- sum(sample_values * lipid_features$n_carbons, na.rm = TRUE) / total_abundance
+    avg_double_bonds <- sum(sample_values * lipid_features$n_double_bonds, na.rm = TRUE) / total_abundance
+    saturation_index <- avg_double_bonds / avg_carbons
+    
+    return(data.frame(
+      sample_id = sample,
+      avg_chain_length = avg_carbons,
+      saturation_index = saturation_index
+    ))
+  })
+  
+  # Merge with metadata
+  indices_with_meta <- indices %>%
+    left_join(sample_metadata, by = "sample_id")
+  
+  return(indices_with_meta)
+}
+
+# Calculate indices
+# lipid_indices <- calculate_lipid_indices(lipid_data, lipid_metadata, sample_metadata)
+
+# Plot indices by tissue and disease status
+# ggplot(lipid_indices, aes(x = tissue_type, y = saturation_index, 
+#                           fill = glucose_status)) +
+#   geom_boxplot() +
+#   labs(title = "Lipid Saturation Index by Tissue and Disease Status",
+#        y = "Saturation Index", x = "Tissue Type") +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## 3. Integrated Analysis
+
+### 3.1 Gene-Lipid Correlation Analysis
+
+```         
+# Extract lipid metabolism genes
+lipid_metabolism_genes <- c(
+  "FASN", "ACACA", "SCD", "SREBF1", "SREBF2",  # Fatty acid synthesis
+  "SPTLC1", "SPTLC2", "CERS1", "CERS2", "CERS6",  # Ceramide metabolism
+  "LPCAT1", "LPCAT3", "PLA2G4A"  # Phospholipid remodeling
+)
+
+# Function to correlate genes with lipids
+correlate_genes_lipids <- function(gene_expr, lipid_data, genes_of_interest) {
+  # Filter to genes of interest
+  gene_expr_subset <- gene_expr[rownames(gene_expr) %in% genes_of_interest, ]
+  
+  # Calculate correlations
+  cor_matrix <- cor(t(gene_expr_subset), t(lipid_data), 
+                    use = "pairwise.complete.obs", method = "spearman")
+  
+  # Convert to long format for plotting
+  cor_long <- melt(cor_matrix) %>%
+    rename(gene = Var1, lipid = Var2, correlation = value) %>%
+    filter(abs(correlation) > 0.5)  # Filter for strong correlations
+  
+  return(list(matrix = cor_matrix, long = cor_long))
+}
+
+# Calculate correlations
+# gene_lipid_cor <- correlate_genes_lipids(normalized_counts, lipid_data, lipid_metabolism_genes)
+
+# Create correlation heatmap
+plot_correlation_heatmap <- function(cor_matrix, title) {
+  # Filter to show top correlations
+  top_correlations <- apply(abs(cor_matrix), 1, max, na.rm = TRUE)
+  top_genes <- names(sort(top_correlations, decreasing = TRUE)[1:20])
+  
+  pheatmap(cor_matrix[top_genes, ],
+           color = colorRampPalette(c("blue", "white", "red"))(100),
+           breaks = seq(-1, 1, length.out = 101),
+           cluster_rows = TRUE,
+           cluster_cols = TRUE,
+           main = title,
+           fontsize_row = 8,
+           fontsize_col = 6)
+}
+```
+
+### 3.2 Multi-omics Integration with mixOmics
+
+```         
+# Prepare data for mixOmics
+prepare_mixomics_data <- function(gene_expr, lipid_data, sample_metadata) {
+  # Ensure samples are matched
+  common_samples <- intersect(colnames(gene_expr), colnames(lipid_data))
+  
+  X <- t(gene_expr[, common_samples])  # Genes
+  Y <- t(lipid_data[, common_samples])  # Lipids
+  
+  # Get sample groups
+  metadata_subset <- sample_metadata[match(common_samples, sample_metadata$sample_id), ]
+  
+  return(list(X = X, Y = Y, metadata = metadata_subset))
+}
+
+# Run sparse PLS-DA for tissue discrimination
+run_splsda_tissue <- function(omics_data) {
+  # Create tissue labels
+  Y_tissue <- omics_data$metadata$tissue_type
+  
+  # Run sPLS-DA
+  splsda_result <- splsda(
+    X = omics_data$X,
+    Y = Y_tissue,
+    ncomp = 3,
+    keepX = c(50, 50, 50)  # Keep top 50 genes per component
+  )
+  
+  # Add lipid block
+  splsda_diablo <- block.splsda(
+    X = list(genes = omics_data$X, lipids = omics_data$Y),
+    Y = Y_tissue,
+    ncomp = 3,
+    design = "full"
+  )
+  
+  return(splsda_diablo)
+}
+
+# Run sparse PLS-DA for disease discrimination
+run_splsda_disease <- function(omics_data) {
+  Y_disease <- omics_data$metadata$glucose_status
+  
+  splsda_diablo <- block.splsda(
+    X = list(genes = omics_data$X, lipids = omics_data$Y),
+    Y = Y_disease,
+    ncomp = 3,
+    design = "full"
+  )
+  
+  return(splsda_diablo)
+}
+
+# Prepare data and run analyses
+# omics_data <- prepare_mixomics_data(normalized_counts, lipid_data, sample_metadata)
+# splsda_tissue <- run_splsda_tissue(omics_data)
+# splsda_disease <- run_splsda_disease(omics_data)
+```
+
+### 3.2 Visualize Multi-omics Results
+
+```         
+# Plot sample separation
+plot_splsda_samples <- function(splsda_result, title) {
+  plotIndiv(splsda_result,
+            group = splsda_result$Y,
+            ind.names = FALSE,
+            legend = TRUE,
+            title = title,
+            ellipse = TRUE,
+            style = "graphics")
+}
+
+# Plot top contributing features
+plot_splsda_loadings <- function(splsda_result, block_name, comp = 1) {
+  plotLoadings(splsda_result,
+               block = block_name,
+               comp = comp,
+               title = paste("Top features -", block_name, "- Component", comp),
+               contrib = "max",
+               method = "median")
+}
+
+# Create circos plot for gene-lipid correlations
+plot_circos_correlations <- function(splsda_result) {
+  circosPlot(splsda_result,
+             cutoff = 0.7,
+             line = TRUE,
+             color.blocks = c("darkorchid", "brown1"),
+             color.cor = c("chocolate3", "grey20"))
+}
+
+# Network visualization
+plot_correlation_network <- function(splsda_result) {
+  network_result <- network(splsda_result,
+                           blocks = c("genes", "lipids"),
+                           cutoff = 0.7)
+  
+  # Extract edge list for custom visualization
+  return(network_result)
+}
+```
+
+### 3.3 Pathway-Level Integration
+
+```         
+# Map lipids to pathways
+map_lipids_to_pathways <- function(lipid_annotations) {
+  # Define lipid pathway mappings
+  pathway_mappings <- list(
+    "Fatty acid synthesis" = c("FA", "TAG", "DAG"),
+    "Ceramide metabolism" = c("Cer", "SM", "HexCer", "Hex2Cer"),
+    "Phospholipid remodeling" = c("PC", "PE", "PS", "PI", "PA", "PG"),
+    "Sphingolipid metabolism" = c("Cer", "SM", "S1P", "HexCer"),
+    "Glycerolipid metabolism" = c("TAG", "DAG", "MAG")
+  )
+  
+  # Assign pathways to lipids
+  lipid_pathways <- lipid_annotations %>%
+    mutate(
+      pathway = case_when(
+        str_detect(lipid_class, paste(pathway_mappings$`Fatty acid synthesis`, collapse = "|")) ~ "Fatty acid synthesis",
+        str_detect(lipid_class, paste(pathway_mappings$`Ceramide metabolism`, collapse = "|")) ~ "Ceramide metabolism",
+        str_detect(lipid_class, paste(pathway_mappings$`Phospholipid remodeling`, collapse = "|")) ~ "Phospholipid remodeling",
+        TRUE ~ "Other"
+      )
+    )
+  
+  return(lipid_pathways)
+}
+
+# Integrate pathway changes
+integrate_pathway_changes <- function(gene_de, lipid_de, pathway_genes, lipid_pathways) {
+  # Summarize gene changes by pathway
+  gene_pathway_summary <- gene_de %>%
+    filter(gene_id %in% pathway_genes) %>%
+    group_by(pathway) %>%
+    summarise(
+      n_sig_genes = sum(significant),
+      mean_gene_log2FC = mean(log2FoldChange[significant], na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  # Summarize lipid changes by pathway
+  lipid_pathway_summary <- lipid_de %>%
+    left_join(lipid_pathways, by = "lipid_id") %>%
+    group_by(pathway) %>%
+    summarise(
+      n_sig_lipids = sum(significant),
+      mean_lipid_log2FC = mean(log2FC[significant], na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  # Combine summaries
+  pathway_summary <- full_join(gene_pathway_summary, lipid_pathway_summary, by = "pathway")
+  
+  return(pathway_summary)
+}
+
+# Create integrated pathway visualization
+plot_integrated_pathways <- function(pathway_summary) {
+  ggplot(pathway_summary, aes(x = mean_gene_log2FC, y = mean_lipid_log2FC)) +
+    geom_point(aes(size = n_sig_genes + n_sig_lipids), alpha = 0.7) +
+    geom_text_repel(aes(label = pathway), size = 3) +
+    geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+    geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+    labs(
+      title = "Integrated Pathway Changes: Genes vs Lipids",
+      x = "Mean Gene log2FC",
+      y = "Mean Lipid log2FC",
+      size = "Total Significant\nFeatures"
+    ) +
+    theme_bw()
+}
+```
+
+## Summary and Future Directions
+
+### Key Findings Summary
+
+```         
+# Function to create summary statistics
+create_analysis_summary <- function(de_results, lipid_results, integration_results) {
+  summary_stats <- list(
+    n_deg_tissue = map_int(de_results, ~sum(.x$significant)),
+    n_del_tissue = map_int(lipid_results, ~sum(.x$significant)),
+    top_pathways = map(gsea_results, ~head(.x$kegg@result$Description, 5)),
+    top_correlated_pairs = head(gene_lipid_cor$long[order(-abs(gene_lipid_cor$long$correlation)), ], 10)
+  )
+  
+  return(summary_stats)
+}
+
+# Create summary table
+# analysis_summary <- create_analysis_summary(de_results_disease, lipid_de_results, splsda_tissue)
+```
+
+### Future Steps: Pseudo-single Cell Analysis
+
+```         
+# Placeholder for future deconvolution analysis
+# Using CIBERSORTx or similar tools
+
+# Example workflow:
+# 1. Prepare signature matrix from scRNA-seq reference
+# 2. Run deconvolution on bulk RNA-seq
+# 3. Correlate cell type proportions with metabolic phenotypes
+
+# deconvolution_results <- run_cibersortx(
+#   bulk_expression = normalized_counts,
+#   signature_matrix = adipose_signature_matrix,
+#   absolute = FALSE
+# )
+```
+
+### Future Steps: Cell-Cell Interactions
+
+```         
+# Placeholder for cell-cell interaction analysis
+# Using CellChat or similar frameworks adapted for bulk deconvolution
+
+# Example workflow:
+# 1. Infer cell type proportions
+# 2. Predict ligand-receptor interactions
+# 3. Build communication networks
+
+# interaction_analysis <- predict_interactions(
+#   deconvolution_results,
+#   ligand_receptor_database = "cellchat_human"
+# )
+```
+
+## Session Information
+
+```         
+sessionInfo()
+```

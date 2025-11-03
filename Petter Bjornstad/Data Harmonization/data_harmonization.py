@@ -38,7 +38,9 @@ def harmonize_data():
     from rpc2 import clean_rpc2_redcap
     from ultra import clean_ultra
     from sweetheart import clean_sweetheart
-    from harmonization_functions import calc_egfr, create_study_id_columns
+    from harmonization_functions import calc_egfr, create_study_id_columns, biopsy_merge
+    import getpass
+    user = getpass.getuser() 
     # Use individual data functions to import cleaned DFs
     casper = clean_casper()
     coffee = clean_coffee()
@@ -78,6 +80,21 @@ def harmonize_data():
     harmonized = pd.concat([harmonized, sweetheart],
                            join='outer', ignore_index=True)
     
+
+    if user == "choiyej":
+        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "pylell":
+        base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "shivaniramesh":
+        base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    else:
+        sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+
+    
   
                            
     # Fix levels of categorical variables
@@ -103,10 +120,13 @@ def harmonize_data():
 
     # Replace blanks with missing
     harmonized.replace("", np.nan, inplace=True)
-   
+
+    operational = ['study', 'visit', 'record_id', 'procedure', 'date']
+    dictionary.loc[dictionary['variable_name'].isin(operational), 'form_name'] = 'operational'
+    dictionary.loc[dictionary['variable_name']== "race_ethnicity", 'form_name'] = 'demographics'
 
 
-   
+
     # Date variables
 
 
@@ -172,6 +192,10 @@ def harmonize_data():
             year += 2000 if year <= 25 else 1900  # adjust based on your data
 
         return f"{year:04d}-{month:02d}-{day:02d}"
+    harmonized.loc[harmonized['record_id'] == 'RH2-22-T', 'diabetes_dx_date'] = '2013-06-26'
+    harmonized.loc[harmonized['record_id'] == 'RH2-42-T', 'diabetes_dx_date'] = '2004-10-06'
+    harmonized.loc[harmonized['record_id'] == 'RH2-13-O', 'diabetes_dx_date'] = '2017-03-24'
+
 
     
     for col in dates:
@@ -189,7 +213,6 @@ def harmonize_data():
     # ----------------------
     # Calculated variables
     # ----------------------
-    dictionary = pd.read_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv")
 
     # Age
     print("\nStudies with dob:")
@@ -311,7 +334,7 @@ def harmonize_data():
     # Average F
     harmonized["avg_c_f"]= \
         harmonized[["lc_f", "rc_f"]].apply(lambda x: x.mean(), axis=1)
-    harmonized["avg_m_k2"]= \
+    harmonized["avg_m_f"]= \
         harmonized[["lm_f", "rm_f"]].apply(lambda x: x.mean(), axis=1)  
     optional_pet_vars = ['avg_c_f', 'avg_m_f']
     dictionary.loc[dictionary['variable_name'].isin(optional_pet_vars), 'form_name'] = 'optional_pet_scan'       
@@ -408,6 +431,12 @@ def harmonize_data():
     dictionary.loc[dictionary['variable_name'].isin(clamp_vars), 'form_name'] = 'clamp'
     dictionary.loc[dictionary['variable_name'] == 'mm_si', 'units'] = '(mu/I)^-1.min^-1'
 
+    harmonized["m_i_p2_raw_lean"] = pd.to_numeric(harmonized["p2_raw_leanm"])/pd.to_numeric(harmonized["p2_steady_state_insulin"]) #CROC, PENGUIN
+    harmonized["m_i_gir_190"] = pd.to_numeric(harmonized["gir_190"])/pd.to_numeric(harmonized["steady_state_insulin"]) #CROC?, IMPR, RH
+    mi_vars = ['m_i_p2_raw_lean', 'm_i_gir_190', "m_i"]
+
+    dictionary.loc[dictionary['variable_name'].isin(mi_vars), 'form_name'] = 'clamp'
+    dictionary.loc[dictionary['variable_name'] == 'm_value', 'units'] = 'mg/kg lean/min'
     
 
     # HOMA-IR (https://link.springer.com/article/10.1007/BF00280883), FBG entered as mg/dL, converting to mmol/L (18 mg/dL = 1 mmol/L)
@@ -454,7 +483,7 @@ def harmonize_data():
     dictionary.loc[dictionary['variable_name'] == 'acprg', 'form_name'] = 'clamp'
     dictionary.loc[dictionary['variable_name'] == 'acr_u_pm', 'form_name'] = 'clamp'
 
-
+    harmonized = biopsy_merge(harmonized)
 
 
 
@@ -510,6 +539,6 @@ def harmonize_data():
         lambda x: x.dt.strftime('%Y-%m-%d'))
     # Return
     harmonized = harmonized.astype(object)
-    tocsv_path = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/data_dictionary_master.csv"
+    tocsv_path = base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv"
     dictionary.to_csv(tocsv_path, index=False)
     return harmonized

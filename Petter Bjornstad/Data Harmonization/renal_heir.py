@@ -46,6 +46,8 @@ def clean_renal_heir():
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+
 
     # --------------------------------------------------------------------------
     # Demographics
@@ -342,6 +344,9 @@ def clean_renal_heir():
     out["visit"] = "baseline"
     bold_mri["procedure"] = "bold_mri"
     bold_mri["visit"] = "baseline"
+    outcome_vars = out.columns.difference(["subject_id", "procedure", "visit", "date"])
+    dictionary.loc[dictionary['variable_name'].isin(outcome_vars), 'form_name'] = 'outcomes'
+
 
     # --------------------------------------------------------------------------
     # Kidney Biopsy
