@@ -167,11 +167,6 @@ fit_models_emm <- function(outcomes,
 }
 
 
-library(tidyverse)
-library(ggplot2)
-library(emmeans)
-library(lme4)
-library(broom)
 
 plot_mean_ci_stars_renal <- function(data, 
                                      y_var, 
@@ -538,10 +533,6 @@ check_data_structure <- function(data, y_var, group_var = "uacr_group",
 }
 
 
-library(tidyverse)
-library(ggplot2)
-library(broom)
-
 plot_mean_ci_continuous_time <- function(data, 
                                          y_var, 
                                          time_var = "years_from_baseline",  # Continuous time variable
@@ -704,7 +695,6 @@ plot_mean_ci_continuous_time <- function(data,
   return(p)
 }
 
-library(ggbreak)
 create_comparison_boxplot <- function(data, 
                                       y_var, 
                                       x_var = "study",

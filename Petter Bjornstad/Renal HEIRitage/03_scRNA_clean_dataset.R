@@ -220,3 +220,13 @@ for (g in genes) {
 
 # Save Seurat object for downstream analysis
 s3saveRDS(pb90_subset, object = "data_clean/subset/pb90_ckd_analysis_subset.rds", bucket = "scrna", region = "")
+
+# Subset Seurat object into general cell types and save
+for (cell in names(celltype_groups)) {
+  gc()
+  pb90_celltype <- subset(pb90_subset_clean, 
+                          KPMP_celltype_general == cell)
+  s3saveRDS(pb90_celltype, object = paste0("data_clean/subset/pb90_ckd_analysis/pb90_ckd_analysis_subset_", cell, ".rds"), 
+            bucket = "scrna", region = "", multipart = T)
+  
+}

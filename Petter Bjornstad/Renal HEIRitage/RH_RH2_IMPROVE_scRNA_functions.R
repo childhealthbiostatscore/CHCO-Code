@@ -194,9 +194,6 @@ process_nebula_results <- function(nebula_list,
                                    convergence_cut = -10,
                                    logfc_cut = 10) {
   # Extract convergence codes
-  nebula_list <- nebula_list%>%
-    filter(abs(.data[[logfc_col]]) < logfc_cut)
-  
   convergence_df <- purrr::map_dfr(names(nebula_list), function(gene_name) {
     convergence_code <- nebula_list[[gene_name]]$convergence
     data.frame(Gene = gene_name, Convergence_Code = convergence_code)
@@ -211,7 +208,8 @@ process_nebula_results <- function(nebula_list,
   summary_df <- purrr::map_dfr(converged_genes, function(gene_name) {
     nebula_list[[gene_name]]$summary %>%
       dplyr::mutate(Gene = gene_name)
-  })
+  }) %>%
+    filter(abs(.data[[logfc_col]]) < logfc_cut)
   
   # Add FDR adjustment
   if (pval_col %in% names(summary_df)) {
