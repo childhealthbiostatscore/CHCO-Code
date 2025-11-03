@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=nebula_array
-#SBATCH --array=1-84%20             # Run 84 jobs, max 20 concurrent
-#SBATCH --time=00:40:00             # 1 hour per job (30min + buffer)
-#SBATCH --mem=64G                   # Memory per job
+#SBATCH --array=1-5%15             # Run 84 jobs, max 15 concurrent
+#SBATCH --time=03:00:00             # 1 hour per job (30min + buffer)
+#SBATCH --mem=100G                  # Memory per job
 #SBATCH --cpus-per-task=16          # CPUs (nebula uses 15 cores)
 #SBATCH --partition=cpu-g2          # Adjust to your partition
 #SBATCH --account=togo              # Adjust to your account
@@ -13,7 +13,7 @@
 module load apptainer  # or module load singularity
 
 # Set the container path
-CONTAINER="/mmfs1/gscratch/togo/yzhangtufts_r_scrnaseq.sif"
+CONTAINER="/mmfs1/gscratch/togo/YC_scRNA.sif"
 
 # Set the base directory for your project - PROPERLY QUOTED
 BASE_DIR="/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad/Renal HEIRitage/nebula_parallel"

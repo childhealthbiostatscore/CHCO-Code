@@ -7,7 +7,7 @@ if (length(args) != 2) {
 }
 
 analysis_type <- args[1]
-cell_type_group <- args[2]
+celltype_group_input <- args[2]
 
 # Load libraries
 library(aws.s3)
@@ -18,7 +18,7 @@ library(dplyr)
 
 # Log start time
 cat(sprintf("Starting analysis: %s for cell type group: %s at %s\n", 
-            analysis_type, cell_type_group, Sys.time()))
+            analysis_type, celltype_group_input, Sys.time()))
 
 # Set up user environment
 user <- "yejichoi"  # HPC username
@@ -37,9 +37,38 @@ Sys.setenv(
 )
 
 # Load data and functions
-cat("Loading data...\n")
-pb90_subset_clean <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset.rds", 
-                               bucket = "scrna", region = "")
+cat(sprintf("Loading cell type-specific data for %s...\n", celltype_group_input))
+
+# Try to load cell type-specific subset first
+subset_file <- paste0("data_clean/subset/pb90_ckd_analysis/pb90_ckd_analysis_subset_", celltype_group_input, ".rds")
+cat(sprintf("Looking for: %s\n", subset_file))
+
+tryCatch({
+  pb90_subset_clean <- s3readRDS(
+    object = subset_file,
+    bucket = "scrna", 
+    region = ""
+  )
+  cat(sprintf("Successfully loaded cell type-specific subset with %d cells\n", ncol(pb90_subset_clean)))
+}, error = function(e) {
+  cat(sprintf("Cell type-specific file not found: %s\n", subset_file))
+  cat("Falling back to loading full dataset and subsetting...\n")
+  
+  # Fall back to loading full dataset if cell type-specific doesn't exist
+  pb90_subset_clean <- s3readRDS(
+    object = "data_clean/subset/pb90_ckd_analysis_subset.rds",
+    bucket = "scrna", 
+    region = ""
+  )
+  cat(sprintf("Loaded full dataset with %d cells\n", ncol(pb90_subset_clean)))
+  
+  # Subset to the specific cell types
+  cell_types <- celltype_groups[[celltype_group_input]]
+  pb90_subset_clean <- subset(pb90_subset_clean, 
+                              KPMP_celltype_general %in% cell_types)
+  cat(sprintf("Subset to %s: %d cells\n", celltype_group_input, ncol(pb90_subset_clean)))
+})
+
 rh_rh2_croc_improve_unique <- s3readRDS(object = "data_clean/rh_rh2_croc_improve_unique.RDS", 
                                         bucket = "harmonized.dataset", region = "")
 
@@ -50,20 +79,20 @@ source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
 mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
 
 # Function to run specific analysis
-run_analysis <- function(analysis_type, cell_type_group) {
+run_analysis <- function(analysis_type, celltype_group_input) {
   gc()
   
   # Get the actual cell types for this group
-  cell_types <- celltype_groups[[cell_type_group]]
+  cell_types <- celltype_groups[[celltype_group_input]]
   
   if (analysis_type == "DKD_vs_nonDKD_100") {
     # DKD vs non-DKD (ACR >= 100)
     pb90_celltype <- subset(pb90_subset_clean, 
-                            KPMP_celltype_general %in% cell_types & 
+                            KPMP_celltype_general == celltype_group_input & 
                               group != "Lean_Control" & 
                               !is.na(pb90_subset_clean@meta.data$dkd_group_100))
     
-    cat(sprintf("Sample counts for %s:\n", cell_type_group))
+    cat(sprintf("Sample counts for %s:\n", celltype_group_input))
     print(table(pb90_celltype@meta.data %>%
                   distinct(record_id, .keep_all = T) %>%
                   pull(dkd_group_100)))
@@ -74,7 +103,7 @@ run_analysis <- function(analysis_type, cell_type_group) {
                                       formula = ~ dkd_group_100,
                                       s3_bucket = "scrna",
                                       s3_key = paste0("Projects/CKD/RH_RH2/Results/nebula/DKD_vs_nonDKD_100/", 
-                                                      cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_dkd100.rds"),
+                                                      celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_dkd100.rds"),
                                       group = F)
     
     processed <- process_nebula_results(nebula_res$results,
@@ -84,14 +113,14 @@ run_analysis <- function(analysis_type, cell_type_group) {
   } else if (analysis_type == "DKD_100_vs_HC") {
     # DKD (ACR >= 100) vs HC
     pb90_celltype <- subset(pb90_subset_clean, 
-                            KPMP_celltype_general %in% cell_types & 
+                            KPMP_celltype_general == celltype_group_input & 
                               dkd_group_100_hc != "non_DKD" &
                               !is.na(pb90_subset_clean@meta.data$dkd_group_100_hc))
     
     pb90_celltype$dkd_group_100_hc <- factor(pb90_celltype$dkd_group_100_hc)
     pb90_celltype$dkd_group_100_hc <- relevel(pb90_celltype$dkd_group_100_hc, ref = "HC")
     
-    cat(sprintf("Sample counts for %s:\n", cell_type_group))
+    cat(sprintf("Sample counts for %s:\n", celltype_group_input))
     print(table(pb90_celltype@meta.data %>%
                   distinct(record_id, .keep_all = T) %>%
                   pull(dkd_group_100_hc)))
@@ -102,7 +131,7 @@ run_analysis <- function(analysis_type, cell_type_group) {
                                       formula = ~ dkd_group_100_hc,
                                       s3_bucket = "scrna",
                                       s3_key = paste0("Projects/CKD/RH_RH2/Results/nebula/DKD_100_vs_hc/", 
-                                                      cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_dkd100_hc.rds"),
+                                                      celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_dkd100_hc.rds"),
                                       group = F)
     
     processed <- process_nebula_results(nebula_res$results,
@@ -112,14 +141,14 @@ run_analysis <- function(analysis_type, cell_type_group) {
   } else if (analysis_type == "nonDKD_100_vs_HC") {
     # non-DKD (ACR >= 100) vs HC
     pb90_celltype <- subset(pb90_subset_clean, 
-                            KPMP_celltype_general %in% cell_types & 
+                            KPMP_celltype_general == celltype_group_input & 
                               dkd_group_100_hc != "DKD" &
                               !is.na(pb90_subset_clean@meta.data$dkd_group_100_hc))
     
     pb90_celltype$dkd_group_100_hc <- factor(pb90_celltype$dkd_group_100_hc)
     pb90_celltype$dkd_group_100_hc <- relevel(pb90_celltype$dkd_group_100_hc, ref = "HC")
     
-    cat(sprintf("Sample counts for %s:\n", cell_type_group))
+    cat(sprintf("Sample counts for %s:\n", celltype_group_input))
     print(table(pb90_celltype@meta.data %>%
                   distinct(record_id, .keep_all = T) %>%
                   pull(dkd_group_100_hc)))
@@ -130,7 +159,7 @@ run_analysis <- function(analysis_type, cell_type_group) {
                                       formula = ~ dkd_group_100_hc,
                                       s3_bucket = "scrna",
                                       s3_key = paste0("Projects/CKD/RH_RH2/Results/nebula/nonDKD_100_vs_hc/", 
-                                                      cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_nondkd100_hc.rds"),
+                                                      celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_nondkd100_hc.rds"),
                                       group = F)
     
     processed <- process_nebula_results(nebula_res$results,
@@ -140,11 +169,11 @@ run_analysis <- function(analysis_type, cell_type_group) {
   } else if (analysis_type == "DKD_vs_nonDKD_30") {
     # DKD vs non-DKD (ACR >= 30)
     pb90_celltype <- subset(pb90_subset_clean, 
-                            KPMP_celltype_general %in% cell_types & 
+                            KPMP_celltype_general == celltype_group_input & 
                               group != "Lean_Control" & 
                               !is.na(pb90_subset_clean@meta.data$dkd_group_30))
     
-    cat(sprintf("Sample counts for %s:\n", cell_type_group))
+    cat(sprintf("Sample counts for %s:\n", celltype_group_input))
     print(table(pb90_celltype@meta.data %>%
                   distinct(record_id, .keep_all = T) %>%
                   pull(dkd_group_30)))
@@ -155,7 +184,7 @@ run_analysis <- function(analysis_type, cell_type_group) {
                                       formula = ~ dkd_group_30,
                                       s3_bucket = "scrna",
                                       s3_key = paste0("Projects/CKD/RH_RH2/Results/nebula/DKD_vs_nonDKD_30/", 
-                                                      cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_dkd30.rds"),
+                                                      celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_dkd30.rds"),
                                       group = F)
     
     processed <- process_nebula_results(nebula_res$results,
@@ -165,14 +194,14 @@ run_analysis <- function(analysis_type, cell_type_group) {
   } else if (analysis_type == "DKD_30_vs_HC") {
     # DKD (ACR >= 30) vs HC
     pb90_celltype <- subset(pb90_subset_clean, 
-                            KPMP_celltype_general %in% cell_types & 
+                            KPMP_celltype_general == celltype_group_input & 
                               dkd_group_30_hc != "non_DKD" &
                               !is.na(pb90_subset_clean@meta.data$dkd_group_30_hc))
     
     pb90_celltype$dkd_group_30_hc <- factor(pb90_celltype$dkd_group_30_hc)
     pb90_celltype$dkd_group_30_hc <- relevel(pb90_celltype$dkd_group_30_hc, ref = "HC")
     
-    cat(sprintf("Sample counts for %s:\n", cell_type_group))
+    cat(sprintf("Sample counts for %s:\n", celltype_group_input))
     print(table(pb90_celltype@meta.data %>%
                   distinct(record_id, .keep_all = T) %>%
                   pull(dkd_group_30_hc)))
@@ -183,7 +212,7 @@ run_analysis <- function(analysis_type, cell_type_group) {
                                       formula = ~ dkd_group_30_hc,
                                       s3_bucket = "scrna",
                                       s3_key = paste0("Projects/CKD/RH_RH2/Results/nebula/DKD_30_vs_hc/", 
-                                                      cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_dkd30_hc.rds"),
+                                                      celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_dkd30_hc.rds"),
                                       group = F)
     
     processed <- process_nebula_results(nebula_res$results,
@@ -193,14 +222,14 @@ run_analysis <- function(analysis_type, cell_type_group) {
   } else if (analysis_type == "nonDKD_30_vs_HC") {
     # non-DKD (ACR >= 30) vs HC
     pb90_celltype <- subset(pb90_subset_clean, 
-                            KPMP_celltype_general %in% cell_types & 
+                            KPMP_celltype_general == celltype_group_input & 
                               dkd_group_30_hc != "DKD" &
                               !is.na(pb90_subset_clean@meta.data$dkd_group_30_hc))
     
     pb90_celltype$dkd_group_30_hc <- factor(pb90_celltype$dkd_group_30_hc)
     pb90_celltype$dkd_group_30_hc <- relevel(pb90_celltype$dkd_group_30_hc, ref = "HC")
     
-    cat(sprintf("Sample counts for %s:\n", cell_type_group))
+    cat(sprintf("Sample counts for %s:\n", celltype_group_input))
     print(table(pb90_celltype@meta.data %>%
                   distinct(record_id, .keep_all = T) %>%
                   pull(dkd_group_30_hc)))
@@ -211,7 +240,7 @@ run_analysis <- function(analysis_type, cell_type_group) {
                                       formula = ~ dkd_group_30_hc,
                                       s3_bucket = "scrna",
                                       s3_key = paste0("Projects/CKD/RH_RH2/Results/nebula/nonDKD_30_vs_hc/", 
-                                                      cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_nondkd30_hc.rds"),
+                                                      celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_nondkd30_hc.rds"),
                                       group = F)
     
     processed <- process_nebula_results(nebula_res$results,
@@ -221,14 +250,14 @@ run_analysis <- function(analysis_type, cell_type_group) {
   } else if (analysis_type == "GLP_N_vs_HC") {
     # GLP- vs HC
     pb90_celltype <- subset(pb90_subset_clean, 
-                            KPMP_celltype_general %in% cell_types & 
+                            KPMP_celltype_general == celltype_group_input & 
                               glp_t2dob != "GLP_Y" & 
                               !is.na(pb90_subset_clean@meta.data$glp_t2dob))
     
     pb90_celltype$glp_t2dob <- factor(pb90_celltype$glp_t2dob)
     pb90_celltype$glp_t2dob <- relevel(pb90_celltype$glp_t2dob, ref = "HC")
     
-    cat(sprintf("Sample counts for %s:\n", cell_type_group))
+    cat(sprintf("Sample counts for %s:\n", celltype_group_input))
     print(table(pb90_celltype@meta.data %>%
                   distinct(record_id, .keep_all = T) %>%
                   pull(glp_t2dob)))
@@ -239,7 +268,7 @@ run_analysis <- function(analysis_type, cell_type_group) {
                                       formula = ~ glp_t2dob,
                                       s3_bucket = "scrna",
                                       s3_key = paste0("Projects/CKD/RH_RH2/Results/nebula/GLP_N_vs_HC/", 
-                                                      cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_glpn_hc.rds"),
+                                                      celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_glpn_hc.rds"),
                                       group = F)
     
     processed <- process_nebula_results(nebula_res$results,
@@ -249,14 +278,14 @@ run_analysis <- function(analysis_type, cell_type_group) {
   } else if (analysis_type == "GLP_Y_vs_GLP_N") {
     # GLP+ vs GLP-
     pb90_celltype <- subset(pb90_subset_clean, 
-                            KPMP_celltype_general %in% cell_types & 
+                            KPMP_celltype_general == celltype_group_input & 
                               group != "Lean_Control" & 
                               !is.na(pb90_subset_clean@meta.data$glp_t2dob))
     
     pb90_celltype$glp_t2dob <- factor(pb90_celltype$glp_t2dob)
     pb90_celltype$glp_t2dob <- relevel(pb90_celltype$glp_t2dob, ref = "GLP_N")
     
-    cat(sprintf("Sample counts for %s:\n", cell_type_group))
+    cat(sprintf("Sample counts for %s:\n", celltype_group_input))
     print(table(pb90_celltype@meta.data %>%
                   distinct(record_id, .keep_all = T) %>%
                   pull(glp_t2dob)))
@@ -267,7 +296,7 @@ run_analysis <- function(analysis_type, cell_type_group) {
                                       formula = ~ glp_t2dob,
                                       s3_bucket = "scrna",
                                       s3_key = paste0("Projects/CKD/RH_RH2/Results/nebula/GLP_Y_vs_GLP_N/", 
-                                                      cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_glpy_glpn.rds"),
+                                                      celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_glpy_glpn.rds"),
                                       group = F)
     
     processed <- process_nebula_results(nebula_res$results,
@@ -281,8 +310,8 @@ run_analysis <- function(analysis_type, cell_type_group) {
 }
 
 # Run the analysis
-cat(sprintf("Running %s analysis for %s...\n", analysis_type, cell_type_group))
-processed <- run_analysis(analysis_type, cell_type_group)
+cat(sprintf("Running %s analysis for %s...\n", analysis_type, celltype_group_input))
+processed <- run_analysis(analysis_type, celltype_group_input)
 
 # Annotate with gene information
 cat("Adding gene annotations...\n")
@@ -302,29 +331,29 @@ annotated_df <- processed$results %>%
 # Save processed results
 output_key <- switch(analysis_type,
                      "DKD_vs_nonDKD_100" = paste0("Projects/CKD/RH_RH2/Results/nebula/DKD_vs_nonDKD_100/", 
-                                                  cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_dkd100_processed.rds"),
+                                                  celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_dkd100_processed.rds"),
                      "DKD_100_vs_HC" = paste0("Projects/CKD/RH_RH2/Results/nebula/DKD_100_vs_hc/", 
-                                              cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_dkd100_hc_processed.rds"),
+                                              celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_dkd100_hc_processed.rds"),
                      "nonDKD_100_vs_HC" = paste0("Projects/CKD/RH_RH2/Results/nebula/nonDKD_100_vs_hc/", 
-                                                 cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_nondkd100_hc_processed.rds"),
+                                                 celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_nondkd100_hc_processed.rds"),
                      "DKD_vs_nonDKD_30" = paste0("Projects/CKD/RH_RH2/Results/nebula/DKD_vs_nonDKD_30/", 
-                                                 cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_dkd30_processed.rds"),
+                                                 celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_dkd30_processed.rds"),
                      "DKD_30_vs_HC" = paste0("Projects/CKD/RH_RH2/Results/nebula/DKD_30_vs_hc/", 
-                                             cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_dkd30_hc_processed.rds"),
+                                             celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_dkd30_hc_processed.rds"),
                      "nonDKD_30_vs_HC" = paste0("Projects/CKD/RH_RH2/Results/nebula/nonDKD_30_vs_hc/", 
-                                                cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_nondkd30_hc_processed.rds"),
+                                                celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_nondkd30_hc_processed.rds"),
                      "GLP_N_vs_HC" = paste0("Projects/CKD/RH_RH2/Results/nebula/GLP_N_vs_HC/", 
-                                            cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_glpn_hc_processed.rds"),
+                                            celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_glpn_hc_processed.rds"),
                      "GLP_Y_vs_GLP_N" = paste0("Projects/CKD/RH_RH2/Results/nebula/GLP_Y_vs_GLP_N/", 
-                                               cell_type_group, "/", cell_type_group, "_rh_rh2_imp_nebula_kpmp_glpy_glpn_processed.rds")
+                                               celltype_group_input, "/", celltype_group_input, "_rh_rh2_imp_nebula_kpmp_glpy_glpn_processed.rds")
 )
 
 cat(sprintf("Saving results to S3: %s\n", output_key))
 s3saveRDS(annotated_df, object = output_key, bucket = "scrna", region = "")
 
 # Also save the variable locally with a lowercase name (as in original code)
-var_name <- paste0(tolower(cell_type_group), "_kpmp_", 
+var_name <- paste0(tolower(celltype_group_input), "_kpmp_", 
                    gsub("_", "", tolower(analysis_type)))
 assign(var_name, annotated_df, envir = .GlobalEnv)
 
-cat(sprintf("Analysis complete for %s - %s at %s\n", analysis_type, cell_type_group, Sys.time()))
+cat(sprintf("Analysis complete for %s - %s at %s\n", analysis_type, celltype_group_input, Sys.time()))
