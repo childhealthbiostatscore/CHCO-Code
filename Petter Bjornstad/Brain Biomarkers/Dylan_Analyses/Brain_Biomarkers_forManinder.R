@@ -2537,3 +2537,69 @@ for (model_spec in special_models) {
 
 
 
+
+
+
+
+##### Correlation matrix 
+library(corrplot)
+
+# Prepare data for correlation - include biomarkers and predictors
+cor_data <- dat_transformed %>%
+  select(all_of(c(biomarkers, predictor_vars))) %>%
+  select(where(is.numeric))
+
+# Calculate correlation matrix with pairwise complete observations
+cor_matrix <- cor(cor_data, use = "pairwise.complete.obs")
+
+# Check for any issues
+cat(sprintf("Correlation matrix dimensions: %d x %d\n", nrow(cor_matrix), ncol(cor_matrix)))
+cat(sprintf("Variables included: %d\n", ncol(cor_data)))
+
+# Create correlation plot with hierarchical clustering - LARGER SIZE
+png("elastic_net_results_largeranalysis/correlation_plot_clustered_largeranalysis.png", 
+    width = 4500, height = 4500, res = 300)
+
+corrplot(cor_matrix, 
+         method = "color",           # Color-coded correlations
+         type = "full",              # Show full matrix
+         order = "hclust",           # Hierarchical clustering
+         hclust.method = "complete", # Complete linkage clustering
+         addrect = 5,                # Add 5 rectangles around clusters
+         tl.col = "black",           # Text label color
+         tl.cex = 0.8,               # Text label size (increased)
+         tl.srt = 45,                # Text label rotation
+         col = colorRampPalette(c("#6D9EC1", "white", "#E46726"))(200), # Color palette
+         addCoef.col = NULL,         # Don't add correlation coefficients (too crowded)
+         cl.cex = 1.0,               # Color legend text size (increased)
+         title = "Correlation Matrix with Hierarchical Clustering\n(Transformed Variables Including Biomarkers)",
+         mar = c(0, 0, 3, 0))        # Margins
+
+dev.off()
+
+cat("Saved: elastic_net_results_largeranalysis/correlation_plot_clustered_largeranalysis.png\n")
+
+# Also create a version with only biomarkers for clearer visualization
+cor_matrix_biomarkers <- cor(dat_transformed[, biomarkers], 
+                             use = "pairwise.complete.obs")
+
+png("elastic_net_results_largeranalysis/correlation_plot_biomarkers_largeranalysis.png", 
+    width = 2000, height = 2000, res = 300)
+
+corrplot(cor_matrix_biomarkers, 
+         method = "color",
+         type = "upper",
+         order = "hclust",
+         addCoef.col = "black",      # Add correlation coefficients for biomarkers
+         number.cex = 0.8,
+         tl.col = "black",
+         tl.cex = 1,
+         tl.srt = 45,
+         col = colorRampPalette(c("#6D9EC1", "white", "#E46726"))(200),
+         cl.cex = 1,
+         title = "Biomarker Correlations with Clustering\n(Transformed Variables)",
+         mar = c(0, 0, 2, 0))
+
+dev.off()
+
+
