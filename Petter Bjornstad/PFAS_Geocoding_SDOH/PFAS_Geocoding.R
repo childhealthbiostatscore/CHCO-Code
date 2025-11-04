@@ -732,17 +732,20 @@ cat("✓ Saved detection_rates_by_zipcode_heatmap.png\n")
 
 
 
-library(tidyverse)
 
-# Create study classification based on record_id
+#### Participants 
+
+
+# Fixed study classification based on record_id
 study_participants <- full_zip_analysis %>%
-  filter(!is.na(city_name)) %>%  # Only participants with city_name
+  filter(!is.na(city_name)) %>%
+  filter(!duplicated(mrn)) %>% 
   mutate(
     study = case_when(
-      str_detect(record_id, "^IT-") ~ "IMPROVE",
-      str_detect(record_id, "^RH2") ~ "Renal-HEIRitage",  # Check RH2 before RH
-      str_detect(record_id, "^RH") ~ "Renal-HEIR",
-      str_detect(record_id, "^PAN") ~ "PANTHER",
+      str_detect(record_id, "^IT[-_]") ~ "IMPROVE",  # ← Fixed: IT- OR IT_
+      str_detect(record_id, "^RH2[-_]") ~ "Renal-HEIRitage",  # ← Fixed: RH2- OR RH2_
+      str_detect(record_id, "^RH[-_]") ~ "Renal-HEIR",  # ← Fixed: RH- OR RH_
+      str_detect(record_id, "^PAN[-_]") ~ "PANTHER",  # ← Fixed: PAN- OR PAN_
       str_detect(record_id, "^\\d+$") ~ "CROCODILE",  # Just numbers
       TRUE ~ "Other"  # Catch any unexpected formats
     )
@@ -760,6 +763,14 @@ study_counts <- study_participants %>%
 cat("=== PARTICIPANTS BY STUDY (with city_name) ===\n")
 print(study_counts)
 cat("\nTotal participants with city_name:", sum(study_counts$n_participants), "\n\n")
+
+# Verify IT_ records are now classified correctly
+cat("=== SAMPLE IT RECORDS ===\n")
+study_participants %>%
+  filter(str_detect(record_id, "^IT")) %>%
+  select(record_id, study) %>%
+  head(10) %>%
+  print()
 
 # Create pie chart
 p_pie <- ggplot(study_counts, aes(x = "", y = n_participants, fill = study)) +
@@ -785,7 +796,7 @@ p_pie <- ggplot(study_counts, aes(x = "", y = n_participants, fill = study)) +
 ggsave("participants_by_study_pie.png", p_pie, width = 10, height = 8, dpi = 300)
 cat("✓ Saved participants_by_study_pie.png\n")
 
-# Optional: Create a bar chart version as well (often clearer than pie)
+# Bar chart version
 p_bar <- ggplot(study_counts, aes(x = reorder(study, n_participants), 
                                   y = n_participants, fill = study)) +
   geom_col(alpha = 0.8, show.legend = FALSE) +
@@ -808,22 +819,8 @@ p_bar <- ggplot(study_counts, aes(x = reorder(study, n_participants),
 ggsave("participants_by_study_bar.png", p_bar, width = 10, height = 6, dpi = 300)
 cat("✓ Saved participants_by_study_bar.png\n")
 
-# Show some example record_ids to verify classification
-cat("\n=== EXAMPLE RECORD IDs BY STUDY ===\n")
-study_participants %>%
-  group_by(study) %>%
-  slice_head(n = 3) %>%
-  select(record_id, study, city_name) %>%
-  print(n = 20)
-
 # Save the study classification data
 write_csv(study_participants, "participants_with_study_classification.csv")
 cat("\n✓ Saved participants_with_study_classification.csv\n")
-
-
-
-
-
-
 
 
