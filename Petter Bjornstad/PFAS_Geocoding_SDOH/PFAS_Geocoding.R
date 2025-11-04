@@ -292,6 +292,18 @@ names(full_crosswalk_list) # Check all the variable names included
 # Save the complete list to a CSV file
 write.table(full_crosswalk_list, "PWS_Variables_with_ZipCodes_List.txt", row.names = FALSE, quote=F, sep ='\t')
 
+save.image('PWS_Variables_withZipCodes_Line295.RData')
+
+
+full_crosswalk_list_overlap <- full_crosswalk_list %>% filter(MAIL_ZIP %in% full_zip$zip_code) %>% 
+  filter(!duplicated(MAIL_ZIP, Name))
+
+
+
+pfas_drinking <- readxl::read_excel('PFAS2020SamplingProject_DrinkingWaterResults.xlsx')
+
+
+
 
 
 
