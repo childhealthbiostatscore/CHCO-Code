@@ -55,6 +55,7 @@ library(gridExtra)
 library(readxl)
 library(stringr)
 library(httr)
+library(httr2)
 
 qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
             "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
@@ -94,24 +95,23 @@ get_protein_names <- function(uniprot_ids) {
     url <- "https://rest.uniprot.org/uniprotkb/search"
     query <- paste0("accession:(", paste(batch, collapse = " OR "), ")")
     
-    response <- GET(
-      url,
-      query = list(
+    response <- request(url) %>%
+      req_url_query(
         query = query,
         format = "tsv",
         fields = "accession,gene_names,protein_name"
-      )
-    )
+      ) %>%
+      req_perform()
     
-    if (status_code(response) == 200) {
+    if (resp_status(response) == 200) {
       # Parse response
-      content <- content(response, "text", encoding = "UTF-8")
+      content <- resp_body_string(response)
       if(nchar(content) > 0) {
         batch_results <- read.delim(text = content, sep = "\t", stringsAsFactors = FALSE)
         all_results <- rbind(all_results, batch_results)
       }
     } else {
-      warning(paste("Failed to retrieve batch", i, ". Status code:", status_code(response)))
+      warning(paste("Failed to retrieve batch", i, ". Status code:", resp_status(response)))
     }
     
     # Be nice to the API
@@ -201,7 +201,12 @@ existing_cols <- intersect(data_dictionary_small$variable_name, names(dat))
 
 # Select only those
 dat_omics <- dat %>% 
-  dplyr::select(record_id, group, sex, age, all_of(qx_var), all_of(existing_cols))
+  dplyr::select(record_id, group, study, sex, age, all_of(qx_var), all_of(existing_cols))
+
+dat_omics <- dat_omics %>% filter(!is.na(ab42_avg_conc))
+
+dat_omics <- dat_omics %>% filter(study != 'CROCODILE') %>%
+  dplyr::select(-study)
 
 # Check how many were found vs missing
 cat("Found:", length(existing_cols), "out of", length(data_dictionary_small$variable_name), "\n")

@@ -1204,6 +1204,15 @@ cat("Statistical test: Welch's t-test (two-sample t-test)\n")
 
 
 
+
+
+
+
+
+
+
+
+
 #Clinical characteristics (eGFR, UACR, HBA1C, Clamp, PET, DEXA, glycemia, insulin sensitivity)
 
 
@@ -1273,6 +1282,83 @@ data_varying <- data_varying %>%
 
 
 data_dictionary_small <- data_dictionary %>% filter(variable_name %in% names(data_varying))
+
+
+#demographics (only all data) 
+
+desc_table1_fixed <- data_complete %>%
+  select(age, sex, group, race_ethnicity, bmi, hba1c, study) %>%
+  tbl_summary(
+    by = group,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      sex ~ 'categorical',
+      hba1c ~ "continuous",
+ #     diabetes_duration ~ 'continuous',
+      race_ethnicity ~ "categorical",
+      study ~ "categorical"
+      
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      race_ethnicity ~ "Race/Ethnicity",
+      sex ~ 'Sex', 
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+ #     diabetes_duration ~ 'Diabetes Duration, years',
+      race_ethnicity ~ 'Race/Ethnicity', 
+      study ~ "Study"
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "t.test"
+    # Skip categorical p-values if they cause issues
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Group**") %>%
+  modify_footnote(all_stat_cols() ~ "Mean (SD) for continuous variables; n (%) for categorical variables")
+
+# Save version with epic
+desc_table1_fixed %>%
+  as_gt() %>%
+  tab_options(
+    table.font.size = 11,
+    heading.title.font.size = 14,
+    column_labels.font.size = 12
+  ) %>%
+  gtsave(paste0("/Users/netio/Documents/UofW/Projects/Maninder_Data/CROCODILE_demographics_noNA.png"), 
+         vwidth = 1200, vheight = 800)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
