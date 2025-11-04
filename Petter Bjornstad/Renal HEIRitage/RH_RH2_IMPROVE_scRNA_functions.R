@@ -9,18 +9,7 @@ library(purrr)
 library(aws.s3)
 library(jsonlite)
 
-# Set up environment for Kopah
-keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
-
-Sys.setenv(
-  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
-  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
-  "AWS_DEFAULT_REGION" = "",
-  "AWS_REGION" = "",
-  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
-)
-
-pb90_subset_clean <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset.rds", bucket = "scrna", region = "")
+# pb90_subset_clean <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset.rds", bucket = "scrna", region = "")
 
 # Set up environment for Kopah
 user <- Sys.info()[["user"]]
@@ -51,7 +40,6 @@ Sys.setenv(
   "AWS_REGION" = "",
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
-
 
 # ===========================================================================
 # Function: run_nebula_parallel
@@ -232,4 +220,290 @@ process_nebula_results <- function(nebula_list,
     results         = summary_df,
     overdispersion  = overdisp_df
   ))
+}
+
+# ===========================================================================
+# Function: plot_volcano (for transcripts)
+# ===========================================================================
+plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suffix, p_thresh = 0.05,
+                         positive_text = "Positive with DKD", 
+                         negative_text = "Negative with DKD",
+                         formula = "group", legend_position = c(0.8, 0.9),
+                         full_formula = F,
+                         text_size = 20, caption_size = 8.5,
+                         cell_type = "",
+                         output_base_path = file.path(root_path, "Renal HERITAGE/Results/Figures/Volcano Plots/"),
+                         geom_text_size = 4,
+                         arrow_padding = 0.13,
+                         arrow_text_padding = 0.18,
+                         legend_text_size = 10,
+                         caption_padding = 15,
+                         x_title_padding_t = 32,
+                         genes_to_label= NULL,
+                         volcano_force = 6,
+                         volcano_box_padding = 0,
+                         off_chart_threshold = 0.95,  # New parameter: proportion of y_max to consider "off chart"
+                         off_chart_y_position = 0.85,  # New parameter: where to place off-chart labels
+                         off_chart_arrow_length = 0.02) {  # New parameter: length of off-chart arrows
+  
+  set.seed(1)
+  
+  # Add epsilon for log transformation
+  epsilon <- 1e-300
+  
+  # Calculate -log10(p) with epsilon
+  data <- data %>%
+    mutate(neg_log_p = -log10(!!sym(p_col) + epsilon))
+  
+  # Get y-axis max for dynamic scaling
+  y_max <- max(data$neg_log_p, na.rm = TRUE) * 1.1
+  y_cutoff <- y_max * off_chart_threshold  # Points above this are "off chart"
+  
+  top_pos <- data %>%
+    dplyr::filter(!!sym(fc) > 0 & !!sym(p_col) < p_thresh) %>%
+    dplyr::arrange(!!sym(p_col))
+  
+  n_pos <- nrow(top_pos)
+  
+  top_pos_n <- top_pos %>%
+    filter(if (!is.null(genes_to_label)) Gene %in% genes_to_label else TRUE) %>%
+    slice_head(n=20)
+  
+  top_neg <- data %>%
+    dplyr::filter(!!sym(fc) < 0 & !!sym(p_col) < p_thresh) %>%
+    dplyr::arrange(!!sym(p_col))
+  
+  n_neg <- nrow(top_neg)
+  
+  top_neg_n <- top_neg %>%
+    filter(if (!is.null(genes_to_label)) Gene %in% genes_to_label else TRUE) %>%
+    slice_head(n=20)
+  
+  # Identify off-chart genes
+  off_chart_genes <- data %>%
+    filter(Gene %in% c(top_pos_n$Gene, top_neg_n$Gene) & neg_log_p > y_cutoff) %>%
+    mutate(
+      is_positive = !!sym(fc) > 0,
+      # Spread out x positions for off-chart labels
+      x_position = if_else(is_positive,
+                           !!sym(fc) + seq(from = 0.1, by = 0.2, length.out = n()),
+                           !!sym(fc) - seq(from = 0.1, by = 0.2, length.out = n())),
+      y_position = y_max * off_chart_y_position
+    )
+  
+  # Separate on-chart and off-chart genes for labeling
+  on_chart_genes <- c(top_pos_n$Gene, top_neg_n$Gene)[!c(top_pos_n$Gene, top_neg_n$Gene) %in% off_chart_genes$Gene]
+  
+  data <- data %>%
+    dplyr::mutate(
+      top_color = case_when(
+        Gene %in% top_pos$Gene ~ "#f28482",
+        Gene %in% top_neg$Gene ~ "#457b9d",
+        TRUE ~ "#ced4da"
+      ),
+      top_size = if_else(Gene %in% c(top_pos$Gene, top_neg$Gene), 1.3, 1),
+      # Only label on-chart genes normally
+      top_lab  = if_else(Gene %in% on_chart_genes, Gene, ""),
+      # Cap display values at y_cutoff for plotting
+      display_neg_log_p = pmin(neg_log_p, y_cutoff)
+    ) %>%
+    filter(abs(!!sym(fc)) < 10)
+  
+  # Max and min for annotation arrows
+  max_fc <- max(data[[fc]], na.rm = TRUE)
+  min_fc <- min(data[[fc]], na.rm = TRUE)
+  
+  p <- ggplot(data, aes(x = !!sym(fc), y = display_neg_log_p)) +
+    geom_hline(yintercept = -log10(p_thresh), linetype = "dashed", color = "darkgrey") +
+    geom_point(alpha = 0.5, aes(color = top_color), size = 3) +
+    # Regular labels for on-chart genes
+    geom_label_repel(seed = 1, 
+                     data = filter(data, top_lab != ""),
+                     aes(label = top_lab, color = top_color),
+                     fontface = "bold",
+                     size = geom_text_size, max.overlaps = Inf,
+                     force = volcano_force, segment.alpha = 0.3, segment.size = 0.3,
+                     box.padding = volcano_box_padding,
+                     fill = fill_alpha("white", 0.7),     # background color of the label box
+                     label.size = 0
+                     # bg.color = "black",
+                     # bg.r = .15
+    ) +
+    # Add arrows for off-chart genes
+    {if(nrow(off_chart_genes) > 0) {
+      list(
+        geom_segment(
+          data = off_chart_genes,
+          aes(x = !!sym(fc), y = y_cutoff * 0.98,
+              xend = !!sym(fc), yend = y_cutoff - (y_max * off_chart_arrow_length)),
+          arrow = arrow(length = unit(0.15, "cm"), type = "closed"),
+          color = "black",
+          size = 0.6
+        ),
+        geom_text(
+          data = off_chart_genes,
+          aes(x = x_position, y = y_position, label = Gene),
+          size = geom_text_size * 0.9,
+          hjust = if_else(off_chart_genes$is_positive, 0, 1),
+          color = "black",
+          fontface = "italic"
+        ),
+        # Add p-value annotation for off-chart genes
+        geom_text(
+          data = off_chart_genes,
+          aes(x = x_position, y = y_position - (y_max * 0.03), 
+              label = paste0("p=", format(!!sym(p_col), scientific = TRUE, digits = 2))),
+          size = geom_text_size * 0.7,
+          hjust = if_else(off_chart_genes$is_positive, 0, 1),
+          color = "darkgrey"
+        )
+      )
+    }} +
+    labs(title = paste(title),
+         x = paste(x_axis),
+         y = paste(y_axis),
+         caption = if (!is.null(cell_type) & !full_formula & !is.null(formula)) {
+           paste0("Formula: ~ ", formula, " + (1|subject)", 
+                  "\n\nCell type: ", 
+                  cell_type, if(cell_type != "") " | " else "", 
+                  "Positive n = ", n_pos, " | Negative n = ", n_neg,
+                  if(nrow(off_chart_genes) > 0) paste0("\n", nrow(off_chart_genes), " gene(s) with p-values near zero (arrows indicate off-scale values)") else "")
+         } else if(!is.null(cell_type) & full_formula) {
+           bquote(
+             atop(
+               Expression[ij] == (beta[0] + b[0*i]) +
+                 beta[1]*visit[ij] +
+                 beta[2]*treatment[i] +
+                 beta[3]*(visit[ij]*treatment[i]) +
+                 epsilon[ij],
+               "Cell type:" ~ .(cell_type) ~ "|" ~ 
+                 "Negative n =" ~ .(n_neg) ~ "|" ~ 
+                 "Positive n =" ~ .(n_pos) ~
+                 .(if(nrow(off_chart_genes) > 0) paste0(" | ", nrow(off_chart_genes), " off-scale") else "")
+             )
+           )
+         } else {
+           paste0("\nCell type: ", 
+                  cell_type, if(cell_type != "") " | " else "", 
+                  "Positive n = ", n_pos, " | Negative n = ", n_neg,
+                  if(nrow(off_chart_genes) > 0) paste0("\n", nrow(off_chart_genes), " gene(s) with p-values near zero (arrows indicate off-scale values)") else "")
+         }) +
+    scale_size_continuous(range = c(1, 1.3)) + 
+    scale_color_manual(values = c("#457b9d"="#457b9d", "#ced4da"="#ced4da", "#f28482"="#f28482")) +
+    # theme_minimal() +
+    guides(color = "none", size = "none")  +
+    annotate("segment", 
+             x=max_fc/8, 
+             xend=(max_fc*7)/8, 
+             y=-y_max * arrow_padding,
+             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
+    annotate("text", 
+             x=mean(c(max_fc/8, (max_fc*7)/8)), 
+             y=-y_max * arrow_text_padding, 
+             label=positive_text,
+             size=geom_text_size, color="#343a40") +
+    annotate("segment", 
+             x=min_fc/8, 
+             xend=(min_fc*7)/8, 
+             y=-y_max * arrow_padding,
+             col="darkgrey", arrow=arrow(length=unit(0.2, "cm"))) +
+    annotate("text", 
+             x=mean(c(min_fc/8, (min_fc*7)/8)), 
+             y=-y_max * arrow_text_padding, 
+             label=negative_text,
+             size=geom_text_size, color="#343a40") +
+    scale_y_continuous(expand=c(0,0)) +
+    coord_cartesian(ylim = c(0, y_max), clip="off") +
+    theme(legend.title = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = text_size, family = "Arial"),
+          title = element_text(size = legend_text_size, family = "Arial"),
+          legend.position = legend_position,
+          legend.justification = if(is.character(legend_position) && legend_position == "bottom") c(0.5, 0) else c(1, 1),
+          legend.direction = "horizontal",
+          legend.spacing.x = unit(0.05, 'cm'),
+          plot.margin = margin(t = 10, r = 20, b = 25, l = 20),
+          axis.title.x = element_text(margin = margin(t = x_title_padding_t)),
+          plot.caption = element_text(size = caption_size, hjust = 0.5, margin = margin(t = caption_padding)),
+          legend.margin = margin(t = 5, b = 5),
+          panel.background = element_blank(),
+          legend.background = element_blank())
+  
+  if (!is.null(output_base_path)) {
+    ggsave(paste0(output_base_path, file_suffix, ".png"), bg = "transparent", plot = p, width = 7, height = 5)
+  }
+  return(p)
+}
+
+make_overlap_table <- function(
+    modA, modB, modC, modD, modE,
+    sig = c("fdr", "p"), alpha = 0.05
+) {
+  sig <- match.arg(sig)
+  
+  # map each model to its code + label; allow NULL (e.g., no C)
+  model_map <- list(
+    A = list(df = modA, label = "DKDn_HC"),
+    B = list(df = modB, label = "DKD_HC"),
+    C = list(df = modC, label = "DKDy_DKDn"),
+    D = list(df = modD, label = "GLPn_HC"),
+    E = list(df = modE, label = "GLPy_GLPn")
+  )
+  
+  # bind to long format with code + label so we can control wide names
+  long <- imap_dfr(model_map, function(m, code) {
+    if (is.null(m$df)) return(NULL)
+    m$df %>%
+      dplyr::select(Gene, logFC, p.value, fdr) %>%
+      # keep the best row per Gene within each model (ties: lowest FDR, then largest |logFC|)
+      group_by(Gene) %>%
+      arrange(fdr, desc(abs(logFC)), p.value, .by_group = TRUE) %>%
+      slice(1) %>%
+      ungroup() %>%
+      mutate(code = code, label = m$label)
+  })
+  
+  # apply significance filter
+  long_filt <- long %>%
+    filter(if (sig == "fdr") fdr < alpha else p.value < alpha)
+  
+  # pivot to wide with desired name pattern: A_logFC_DKDn_HC, A_p_DKDn_HC, A_fdr_DKDn_HC
+  wide <- long_filt %>%
+    pivot_wider(
+      id_cols = Gene,
+      names_from = c(code, label),
+      values_from = c(logFC, p.value, fdr),
+      names_glue = "{code}_{.value}_{label}",
+      values_fill = NA
+    )
+  
+  # figure out which logFC columns exist (some models may be absent)
+  logfc_cols <- grep("^[A-E]_logFC_", names(wide), value = TRUE)
+  # count how many models each gene shows up in (non-missing logFC)
+  wide <- wide %>%
+    mutate(
+      n_overlap = if (length(logfc_cols)) rowSums(!is.na(pick(all_of(logfc_cols)))) else 0
+    )
+  
+  # build overlaps string like "A+B-D-..." in A→E order, skipping missing columns
+  # helper to get sign tag per code if present
+  code_order <- c("A","B","C","D","E")
+  tag_df <- map_dfc(code_order, function(code) {
+    col <- grep(paste0("^", code, "_logFC_"), names(wide), value = TRUE)
+    if (length(col) == 0) {
+      rep("", nrow(wide)) |> as.data.frame() |> setNames(code)
+    } else {
+      x <- wide[[col]]
+      tag <- ifelse(is.na(x), "", ifelse(x > 0, paste0(code, "+"), paste0(code, "-")))
+      as.data.frame(tag) |> setNames(code)
+    }
+  })
+  
+  overlaps_chr <- do.call(paste0, as.list(tag_df))
+  wide$overlaps <- overlaps_chr
+  
+  # optional: put overlaps & n_overlap up front
+  cols_front <- c("Gene", "n_overlap", "overlaps")
+  wide %>%
+    relocate(any_of(cols_front))
 }
