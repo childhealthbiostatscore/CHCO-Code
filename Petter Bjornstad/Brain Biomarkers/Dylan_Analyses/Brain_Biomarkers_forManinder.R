@@ -2740,7 +2740,6 @@ dev.off()
 
 
 #### PCA Analysis instead 
-
 set.seed(123)
 
 setwd('C:/Users/netio/Documents/UofW/Projects/Maninder_Data/PCA_Analysis/')
@@ -2782,11 +2781,10 @@ for(group_name in names(analysis_groups)) {
   cat("\n### ANALYSIS GROUP:", group_name)
   cat("\n##########################################################\n\n")
   
-
   # Get data for this group
   current_data <- analysis_groups[[group_name]]
   
-  # RENAME 'weight' TO AVOID CONFLICT WITH prcomp() - ADD THIS HERE
+  # RENAME 'weight' TO AVOID CONFLICT WITH prcomp()
   if ("weight" %in% names(current_data)) {
     current_data <- current_data %>%
       rename(body_weight = weight)
@@ -2899,6 +2897,12 @@ for(group_name in names(analysis_groups)) {
   # Save loadings
   write.csv(loadings, paste0("PCA_loadings_", group_name, ".csv"), row.names = TRUE)
   
+  # Scale biomarkers for comparability
+  cat("\n=== SCALING BIOMARKERS ===\n")
+  Y_complete_scaled <- as.data.frame(scale(Y_complete))
+  colnames(Y_complete_scaled) <- qx_var
+  cat("Biomarkers scaled to mean=0, sd=1 for comparability\n")
+  
   # Step 3: Linear Regression for each biomarker
   cat("\n\n=== LINEAR REGRESSION (", group_name, ") ===\n")
   
@@ -2911,8 +2915,8 @@ for(group_name in names(analysis_groups)) {
     cat("\nBiomarker:", biomarker, "(", group_name, ")")
     cat("\n----------------------------------------\n")
     
-    # Prepare data
-    y <- Y_complete[[biomarker]]
+    # Prepare data - USE SCALED VERSION
+    y <- Y_complete_scaled[[biomarker]]
     
     # Create data frame for regression
     reg_data <- cbind(PC_scores, outcome = y)
@@ -3281,8 +3285,8 @@ p_rmse <- ggplot(all_performance, aes(x = Biomarker, y = RMSE, fill = Group)) +
   geom_bar(stat = "identity", position = "dodge") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "Model Performance: RMSE by Biomarker and Group",
-       y = "Root Mean Squared Error", x = "Biomarker") +
+  labs(title = "Model Performance: RMSE by Biomarker and Group (Standardized)",
+       y = "Root Mean Squared Error (Standardized Units)", x = "Biomarker") +
   scale_fill_brewer(palette = "Set1")
 
 print(p_rmse)
@@ -3329,38 +3333,4 @@ for(biomarker in qx_var) {
 # Save all results
 save(all_results, all_performance, all_variable_importance,
      file = "complete_analysis_results.RData")
-
-cat("\n\n=== ANALYSIS COMPLETE ===")
-cat("\n\nFiles saved:")
-cat("\n\nPNG files (300 DPI, publication quality):")
-cat("\n- scree_plot_All.png")
-cat("\n- scree_plot_T1D.png")
-cat("\n- heatmap_top15_All.png")
-cat("\n- heatmap_mid_All.png")
-cat("\n- heatmap_all_log_All.png")
-cat("\n- heatmap_top15_T1D.png")
-cat("\n- heatmap_mid_T1D.png")
-cat("\n- heatmap_all_log_T1D.png")
-cat("\n- R2_comparison.png")
-cat("\n- Adj_R2_comparison.png")
-cat("\n- RMSE_comparison.png")
-cat("\n- biomarker_heatmaps_All/ (barplots and heatmaps for each biomarker)")
-cat("\n- biomarker_heatmaps_T1D/ (barplots and heatmaps for each biomarker)")
-cat("\n\nPDF files (also saved):")
-cat("\n- All above plots also saved as PDFs")
-cat("\n\nCSV files:")
-cat("\n- PCA_loadings_All.csv")
-cat("\n- PCA_loadings_T1D.csv")
-cat("\n- variable_importance_All.csv")
-cat("\n- variable_importance_T1D.csv")
-cat("\n- performance_summary_all_groups.csv")
-cat("\n- importance_comparison_[biomarker].csv (for each biomarker)")
-cat("\n\nR data:")
-cat("\n- complete_analysis_results.RData\n\n")
-
-
-
-
-
-
 
