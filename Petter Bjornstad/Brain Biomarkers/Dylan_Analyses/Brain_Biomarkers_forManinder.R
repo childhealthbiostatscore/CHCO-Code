@@ -1239,6 +1239,26 @@ dat_clean <- dat_analysis[complete.cases(dat_analysis), ]
 
 library(corrplot)
 
+# Calculate correlation matrix
+corr_dat_clean <- cor(dat_clean %>% dplyr::select(-record_id, -group))
+
+# Calculate p-values for significance testing
+p_mat <- cor.mtest(dat_clean %>% dplyr::select(-record_id, -group), conf.level = 0.95)$p
+
+# Create the corrplot with the same formatting as before
+corrplot(corr_dat_clean, 
+         method = "color",
+         type = "full",
+         tl.col = "black",        # Black text for labels
+         tl.cex = 0.8,            # Text size for labels
+         tl.srt = 45,             # 45 degree angle for labels
+         cl.cex = 0.8,            # Color legend text size
+         p.mat = p_mat,           # Add p-value matrix
+         sig.level = 0.05,        # Significance level
+         pch = "*",               # Use asterisk for significant correlations
+         pch.cex = 1.5,           # Size of asterisk
+         pch.col = "white")       # White asterisks on colored background
+
 dat_filtered <- dat %>% filter(record_id %in% dat_clean$record_id)
 
 # Identify columns with NO missing values
@@ -1279,6 +1299,11 @@ data_varying <- data_varying %>%
   dplyr::select(-hx_met_positive___1, -insulin_injections_timepoint, -insulin_med_timepoint, -insulin_pump_timepoint, 
                 -u24_labs, -insulin_minus_10, -insulin_minus_20, -glucose_minus_10, -glucose_minus_20, -ffa_minus_10, -ffa_minus_20, -group_risk, 
                 -record_id, -sex, -race, -ethnicity)
+
+data_varying <- data_varying %>% 
+  dplyr::select(-length_left, -length_right, 
+                -depth_left, -depth_right, 
+                -width_left, -width_right)
 
 
 data_dictionary_small <- data_dictionary %>% filter(variable_name %in% names(data_varying))
