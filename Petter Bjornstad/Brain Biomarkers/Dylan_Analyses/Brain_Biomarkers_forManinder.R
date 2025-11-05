@@ -1242,23 +1242,18 @@ library(corrplot)
 # Calculate correlation matrix
 corr_dat_clean <- cor(dat_clean %>% dplyr::select(-record_id, -group))
 
-# Calculate p-values for significance testing
-p_mat <- cor.mtest(dat_clean %>% dplyr::select(-record_id, -group), conf.level = 0.95)$p
-
-# Create the corrplot with the same formatting as before
+# Create the corrplot with hierarchical clustering
 corrplot(corr_dat_clean, 
          method = "color",
          type = "full",
-         tl.col = "black",        # Black text for labels
-         tl.cex = 0.8,            # Text size for labels
-         tl.srt = 45,             # 45 degree angle for labels
-         cl.cex = 0.8,            # Color legend text size
-         p.mat = p_mat,           # Add p-value matrix
-         sig.level = 0.05,        # Significance level
-         pch = "*",               # Use asterisk for significant correlations
-         pch.cex = 1.5,           # Size of asterisk
-         pch.col = "white")       # White asterisks on colored background
-
+         order = "hclust",                  
+         rect.col = "black",                  # Black rectangle color
+         rect.lwd = 2,                        # Rectangle line width
+         tl.col = "black",                    # Black text for labels
+         tl.cex = 0.6,                        # Text size for labels
+         tl.srt = 45,                         # 45 degree angle for labels
+         cl.cex = 0.8,                        # Color legend text size
+         col = colorRampPalette(c("#4575B4", "white", "#D73027"))(200))  # Blue-white-red
 dat_filtered <- dat %>% filter(record_id %in% dat_clean$record_id)
 
 # Identify columns with NO missing values
@@ -2655,6 +2650,28 @@ for (model_spec in special_models) {
 ##### Correlation matrix 
 library(corrplot)
 
+
+# Rename 'weight' to avoid conflict with hclust - ADD THIS HERE
+if ("weight" %in% names(dat_transformed)) {
+  dat_transformed <- dat_transformed %>%
+    rename(body_weight = weight)
+  
+  # Also update predictor_vars list
+  predictor_vars[predictor_vars == "weight"] <- "body_weight"
+  
+  cat("Renamed 'weight' to 'body_weight' to avoid hclust conflict\n")
+}
+
+# Prepare data for correlation - include biomarkers and predictors
+cor_data <- dat_transformed %>%
+  select(all_of(c(biomarkers, predictor_vars))) %>%
+  select(where(is.numeric))
+
+# Calculate correlation matrix with pairwise complete observations
+cor_matrix <- cor(cor_data, use = "pairwise.complete.obs")
+
+# ... rest of your correlation code continues here
+
 # Prepare data for correlation - include biomarkers and predictors
 cor_data <- dat_transformed %>%
   select(all_of(c(biomarkers, predictor_vars))) %>%
@@ -2738,6 +2755,8 @@ library(RColorBrewer)
 qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
             "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
 
+
+names(data_varying)[which(names(data_varying) == 'weight')] <- 'body_weight'
 # Define analysis groups
 analysis_groups <- list(
   All = data_varying,  # All participants
@@ -2763,8 +2782,16 @@ for(group_name in names(analysis_groups)) {
   cat("\n### ANALYSIS GROUP:", group_name)
   cat("\n##########################################################\n\n")
   
+
   # Get data for this group
   current_data <- analysis_groups[[group_name]]
+  
+  # RENAME 'weight' TO AVOID CONFLICT WITH prcomp() - ADD THIS HERE
+  if ("weight" %in% names(current_data)) {
+    current_data <- current_data %>%
+      rename(body_weight = weight)
+    cat("Renamed 'weight' to 'body_weight' to avoid prcomp conflict\n\n")
+  }
   
   # Step 1: Identify predictor variables (everything except biomarkers and group)
   potential_predictors <- setdiff(names(current_data), c(qx_var, "group"))
@@ -2805,7 +2832,11 @@ for(group_name in names(analysis_groups)) {
   }
   
   # Remove any columns with zero variance
-  col_vars <- apply(X_complete, 2, var, na.rm = TRUE)
+  col_vars <- sapply(names(X_complete), function(col_name) {
+    var(X_complete[[col_name]], na.rm = TRUE)
+  })
+  names(col_vars) <- names(X_complete)
+  
   zero_var_cols <- names(col_vars[col_vars == 0 | is.na(col_vars)])
   
   if(length(zero_var_cols) > 0) {
