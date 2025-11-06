@@ -1159,58 +1159,103 @@ ggsave("summary_figure_for_grant.png", summary_figure, width = 14, height = 12, 
 
 cat("\nSummary figure saved: summary_figure_for_grant.pdf and .png\n")
 
+
+
 # =============================================================================
-# 9. SUMMARY STATISTICS FOR GRANT TEXT
+# 8. SUMMARY FIGURE: MULTI-PANEL FOR GRANT (UPDATED)
 # =============================================================================
 
-cat("\n=============================================================================\n")
-cat("SUMMARY FOR GRANT APPLICATION\n")
-cat("=============================================================================\n")
+cat("\n=== 8. CREATING SUMMARY FIGURE ===\n")
 
-cat("\n1. GENE SET ENRICHMENT:\n")
-cat("   - GSEA NES:", round(gsea_results$NES, 2), "\n")
-cat("   - GSEA p-value:", format.pval(gsea_results$pval, digits = 3), "\n")
+library(patchwork)
 
-cat("\n2. CORRELATION ANALYSIS:\n")
-cat("   - Pearson r:", round(cor_test$estimate, 3), 
-    "(p =", format.pval(cor_test$p.value, digits = 3), ")\n")
-cat("   - Direction concordance:", round(100*mean(concordance$same_direction), 1), "%\n")
+# Panel A: SIND Score by Cell Type (REPLACES correlation plot)
+# Improved Panel A with side-by-side facets
+p_score_celltype_improved <- ggplot(score_comparison, 
+                                    aes(x = KPMP_celltype, y = SIND_Score, fill = patient_group)) +
+  geom_boxplot(outlier.size = 0.8, linewidth = 0.6, alpha = 0.8) +
+  facet_grid(. ~ immune_category, scales = "free_x", space = "free_x") +  # Changed to side-by-side
+  labs(title = "SIND Signature Score by Cell Type",
+       x = "Cell Type",
+       y = "SIND Signature Score",
+       fill = "Patient Group") +
+  scale_fill_manual(values = c("SIND" = "#E41A1C", "MIND" = "#377EB8")) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        axis.text.y = element_text(size = 11),
+        axis.title = element_text(size = 13, face = "bold"),
+        strip.text = element_text(size = 12, face = "bold", color = "white"),
+        strip.background = element_rect(fill = c("Lymphoid" = "#4DAF4A", "Myeloid" = "#E41A1C")),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        legend.position = "right",
+        legend.title = element_text(size = 11, face = "bold"),
+        legend.text = element_text(size = 10),
+        panel.grid.minor = element_blank(),
+        panel.spacing = unit(1, "lines"))
 
-cat("\n3. MODULE SCORE COMPARISON (SIND vs MIND):\n")
-cat("   - All 141 genes p-value:", format.pval(wilcox_overall$p.value, digits = 3), "\n")
-cat("   - Top 30 genes p-value:", format.pval(wilcox_top30$p.value, digits = 3), "\n")
+panel_a <- p_score_celltype_improved + 
+  labs(tag = "A") +
+  theme(plot.tag = element_text(face = "bold", size = 16))
 
-cat("\n4. EXPRESSION IN KIDNEY:\n")
-cat("   - Genes expressed in >10% cells:", sum(genes_expressed_df$pct_cells_expressed > 10),
-    "/", length(genes_present), 
-    "(", round(100*sum(genes_expressed_df$pct_cells_expressed > 10)/length(genes_present), 1), "%)\n")
+# Panel B: Module score overall
+panel_b <- p_score_overall + 
+  labs(tag = "B") +
+  theme(plot.tag = element_text(face = "bold", size = 16),
+        text = element_text(size = 12),
+        axis.text = element_text(size = 11),
+        axis.title = element_text(size = 13),
+        plot.title = element_text(size = 14, face = "bold"))
 
-cat("\n5. INDIVIDUAL GENE OVERLAP:\n")
-cat("   - Nominally significant (p<0.05):", nrow(overlap_nominal_all), "/", length(genes_present), "\n")
-cat("   - After multiple testing correction:", 
-    sum(overall_degs$gene %in% genes_present & overall_degs$p_val_adj < 0.05), "\n")
+# Panel C: Cell type specificity
+panel_c <- p_celltype_expr + 
+  labs(tag = "C") +
+  theme(plot.tag = element_text(face = "bold", size = 16),
+        text = element_text(size = 12),
+        axis.text = element_text(size = 11),
+        axis.title = element_text(size = 13),
+        plot.title = element_text(size = 14, face = "bold"),
+        legend.title = element_text(size = 11),
+        legend.text = element_text(size = 10))
 
-cat("\n=============================================================================\n")
-cat("ANALYSIS COMPLETE!\n")
-cat("\nGenerated files:\n")
-cat("1. gsea_sind_signature_kidney.pdf\n")
-cat("2. blood_tissue_comparison_heatmap.pdf\n")
-cat("3. blood_tissue_correlation.pdf\n")
-cat("4. sind_signature_by_celltype.pdf\n")
-cat("5. sind_score_overall.pdf\n")
-cat("6. sind_score_by_celltype.pdf\n")
-cat("7. top30_blood_genes_kidney.pdf\n")
-cat("8. signature_gene_expression_distribution.pdf\n")
-cat("9. summary_figure_for_grant.pdf (and .png)\n")
-cat("\nCSV files:\n")
-cat("- blood_tissue_concordance.csv\n")
-cat("- sind_score_by_celltype_summary.csv\n")
-cat("- sind_signature_expression_summary.csv\n")
-cat("=============================================================================\n")
+# Panel D: Expression distribution
+panel_d <- p_expression_dist +
+  labs(tag = "D") +
+  theme(plot.tag = element_text(face = "bold", size = 16),
+        text = element_text(size = 12),
+        axis.text = element_text(size = 11),
+        axis.title = element_text(size = 13),
+        plot.title = element_text(size = 14, face = "bold"))
 
+# Combine with better layout
+summary_figure <- (panel_a | panel_b) / (panel_c | panel_d)
 
+# Save high quality versions
+ggsave("summary_figure_for_grant.pdf", 
+       summary_figure, 
+       width = 16, 
+       height = 14,
+       dpi = 300,
+       device = cairo_pdf)  # Better quality PDF
 
+ggsave("summary_figure_for_grant.png", 
+       summary_figure, 
+       width = 16, 
+       height = 14, 
+       dpi = 600,  # High resolution for publication
+       bg = "white")
 
+ggsave("summary_figure_for_grant.tiff", 
+       summary_figure, 
+       width = 16, 
+       height = 14, 
+       dpi = 600,  # TIFF format often required for journals
+       compression = "lzw",
+       bg = "white")
+
+cat("\nHigh-quality summary figure saved in multiple formats:\n")
+cat("- summary_figure_for_grant.pdf (300 dpi, vector)\n")
+cat("- summary_figure_for_grant.png (600 dpi, raster)\n")
+cat("- summary_figure_for_grant.tiff (600 dpi, publication quality)\n")
 
 
 
