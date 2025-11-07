@@ -92,6 +92,19 @@ dbs <- c("GO_Biological_Process_2023",
          # "MSigDB_Oncogenic_Signatures",
          # "MSigDB_Computational",
          "MSigDB_Hallmark_2020")
+dbs_celltype <- c(
+  "GO_Biological_Process_2023",
+  "KEGG_2021_Human",
+  "Reactome_Pathways_2024",
+  "MSigDB_Hallmark_2020",
+  # Cell type specific databases
+  "CellMarker_2024",  # Cell type marker genes
+  "Azimuth_Cell_Types_2021",  # Cell type signatures
+  "PanglaoDB_Augmented_2021",  # Single-cell markers
+  "Descartes_Cell_Types_and_Tissue_2021",  # Developmental cell types
+  "Human_Gene_Atlas",  # Tissue/cell expression
+  "ARCHS4_Tissues"  # Tissue expression
+)
 # BiocManager::install("edgeR",force=T)
 library(edgeR)
 library(devtools)
@@ -106,13 +119,13 @@ library(future)
 # BiocManager::install("scran")
 library(scran)
 library(BiocParallel)
-library(DESeq2)
+# library(DESeq2)
 
 # #Mac laptop
-# dir.dat <- c("//Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
-# dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA")
-# dir.code <- c("/Users/hhampson/Documents/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
-# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
+dir.dat <- c("//Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
+dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA")
+dir.code <- c("/Users/hhampson/Documents/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
+dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
 
 # #Mac Studio File Path
 # dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
@@ -569,10 +582,11 @@ colnames(sc_org)
 # s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
 # harm_meta_data <- read.csv(temp_file)
 
+rm(sc_org_old,sc_org_renamed)
 # harm_meta_data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",na="")
 harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
 harm_meta_data <- harm_meta_data %>%   
-  arrange(screen_date) %>%
+  arrange(date) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(record_id, visit))
@@ -593,7 +607,7 @@ meta_kidney_sc <- meta_kidney_sc %>%
 rownames(meta_kidney_sc) <- rownames(sc_org@meta.data)
 
 #Pull ids from 83 participants at baseline to filter seurat object to these participants only 
-ids <- meta$kit_id
+# ids <- meta$kit_id
 
 #Merge metadata back into seurat object
 sc_org <- AddMetaData(sc_org, meta_kidney_sc)
