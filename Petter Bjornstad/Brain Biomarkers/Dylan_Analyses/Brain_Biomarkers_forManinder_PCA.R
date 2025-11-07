@@ -855,18 +855,31 @@ if(length(common_vars) == 0) {
   
   # Scatter plot: Lean vs T1D importance
   top_100_scatter <- head(overall_comparison, 100)
+  # After creating top_100_scatter, add this:
+  # Create a priority score that captures both combined importance AND difference
+  top_100_scatter <- top_100_scatter %>%
+    mutate(
+      # Normalize both metrics to 0-1 scale
+      Norm_Combined = (Combined_Importance - min(Combined_Importance)) / 
+        (max(Combined_Importance) - min(Combined_Importance)),
+      Norm_Difference = (Abs_Difference - min(Abs_Difference)) / 
+        (max(Abs_Difference) - min(Abs_Difference)),
+      # Prioritize high combined importance OR high difference
+      Label_Priority = pmax(Norm_Combined, Norm_Difference * 1.2)  # Slight boost to differences
+    ) %>%
+    arrange(desc(Label_Priority))
   
   p_scatter <- ggplot(top_100_scatter, aes(x = Lean_Avg_Importance, y = T1D_Avg_Importance)) +
     geom_point(aes(color = Abs_Difference, size = Combined_Importance), alpha = 0.7) +
     geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50") +
-    geom_text(data = top_100_scatter[1:30, ], 
+    geom_text(data = top_100_scatter[1:35, ], 
               aes(label = Variable), 
-              size = 2.8, hjust = -0.1, vjust = 0.5, check_overlap = T) +
+              size = 2.8, hjust = -0.1, vjust = 0.5, check_overlap = TRUE) +
     scale_color_gradient(low = "lightblue", high = "darkred", name = "Abs(Difference)") +
     scale_size_continuous(name = "Combined\nImportance", range = c(2, 8)) +
     theme_bw() +
     labs(title = "Overall Variable Importance: Lean Control vs T1D",
-         subtitle = "Top 100 variables (Top 15 labeled). Points above diagonal line = higher in T1D",
+         subtitle = "Top 35 variables labeled (prioritizing combined importance and large differences)",
          x = "Average Importance in Lean Control",
          y = "Average Importance in T1D") +
     coord_fixed()
@@ -1000,13 +1013,116 @@ ggsave("Adj_R2_comparison_lean_vs_t1d.pdf", p_adj_r2, width = 10, height = 6)
 save(all_results, all_performance, all_variable_importance,
      file = "complete_analysis_results_lean_vs_t1d.RData")
 
+
+
+
+
+
+
+
+
+#### Focused on Significant Traits 
+# ============================================================
+# FOCUSED VISUALIZATIONS: TAU, AB42, NFL ONLY
+# ============================================================
+
 cat("\n\n##########################################################")
-cat("\n### ANALYSIS COMPLETE!")
-cat("\n##########################################################\n")
-cat("\nKey outputs generated:\n")
-cat("1. Side-by-side comparison heatmaps (top 20 and top 50)\n")
-cat("2. Difference heatmap (Lean - T1D)\n")
-cat("3. Individual biomarker comparison plots\n")
-cat("4. Performance comparison plots (R², Adjusted R²)\n")
-cat("5. CSV files with variable importance and differences\n")
-cat("6. Complete analysis results saved in RData file\n")
+cat("\n### FOCUSED VISUALIZATIONS: TAU, AB42, NFL")
+cat("\n### (Using existing importance from high-performing biomarkers)")
+cat("\n##########################################################\n\n")
+
+# Define focused biomarker set
+qx_var_focused <- c("tau_avg_conc", "ab42_avg_conc", "nfl_avg_conc")
+
+# Extract only these biomarkers from existing variable importance
+lean_importance_focused <- lean_subset[, qx_var_focused]
+t1d_importance_focused <- t1d_subset[, qx_var_focused]
+
+# Calculate overall importance (average across the 3 biomarkers)
+lean_overall_importance_focused <- rowMeans(abs(lean_importance_focused))
+t1d_overall_importance_focused <- rowMeans(abs(t1d_importance_focused))
+
+# Overall importance comparison for focused biomarkers
+overall_comparison_focused <- data.frame(
+  Variable = names(lean_overall_importance_focused),
+  Lean_Avg_Importance = lean_overall_importance_focused,
+  T1D_Avg_Importance = t1d_overall_importance_focused,
+  Difference = t1d_overall_importance_focused - lean_overall_importance_focused,
+  Abs_Difference = abs(t1d_overall_importance_focused - lean_overall_importance_focused)
+) %>%
+  mutate(Combined_Importance = (Lean_Avg_Importance + T1D_Avg_Importance) / 2) %>%
+  arrange(desc(Combined_Importance))
+
+write.csv(overall_comparison_focused, "overall_importance_comparison_focused_3biomarkers.csv", row.names = FALSE)
+
+# Scatter plot for focused analysis
+top_100_scatter_focused <- head(overall_comparison_focused, 100)
+
+# Create priority score
+top_100_scatter_focused <- top_100_scatter_focused %>%
+  mutate(
+    Norm_Combined = (Combined_Importance - min(Combined_Importance)) / 
+      (max(Combined_Importance) - min(Combined_Importance)),
+    Norm_Difference = (Abs_Difference - min(Abs_Difference)) / 
+      (max(Abs_Difference) - min(Abs_Difference)),
+    Label_Priority = pmax(Norm_Combined, Norm_Difference * 1.2)
+  ) %>%
+  arrange(desc(Label_Priority))
+
+p_scatter_focused <- ggplot(top_100_scatter_focused, 
+                            aes(x = Lean_Avg_Importance, y = T1D_Avg_Importance)) +
+  geom_point(aes(color = Abs_Difference, size = Combined_Importance), alpha = 0.7) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50") +
+  geom_text(data = top_100_scatter_focused[1:55, ], 
+            aes(label = Variable), 
+            size = 2.8, hjust = -0.1, vjust = 0.5, check_overlap = TRUE) +
+  scale_color_gradient(low = "lightblue", high = "darkred", name = "Abs(Difference)") +
+  scale_size_continuous(name = "Combined\nImportance", range = c(2, 8)) +
+  theme_bw() +
+  labs(title = "Variable Importance: Tau, Aβ42, NFL (Lean Control vs T1D)",
+       subtitle = "Top 35 variables labeled (high importance or large differences)",
+       x = "Average Importance in Lean Control",
+       y = "Average Importance in T1D") +
+  coord_fixed()
+
+ggsave("overall_importance_scatter_focused_3biomarkers.png", p_scatter_focused, 
+       width = 12, height = 10, dpi = 300, bg = "white")
+ggsave("overall_importance_scatter_focused_3biomarkers.pdf", p_scatter_focused, 
+       width = 12, height = 10)
+
+cat("Created: overall_importance_scatter_focused_3biomarkers.png/.pdf\n")
+
+# Bar plot showing variables most different between groups (focused)
+top_30_different_focused <- overall_comparison_focused %>%
+  arrange(desc(Abs_Difference)) %>%
+  head(30)
+
+top_30_different_long_focused <- top_30_different_focused %>%
+  dplyr::select(Variable, Lean_Avg_Importance, T1D_Avg_Importance) %>%
+  pivot_longer(cols = c(Lean_Avg_Importance, T1D_Avg_Importance),
+               names_to = "Group",
+               values_to = "Importance") %>%
+  mutate(Group = recode(Group, 
+                        "Lean_Avg_Importance" = "Lean Control",
+                        "T1D_Avg_Importance" = "T1D"))
+
+p_different_focused <- ggplot(top_30_different_long_focused, 
+                              aes(x = Importance, y = reorder(Variable, Importance), fill = Group)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.85) +
+  scale_fill_manual(values = c("Lean Control" = "#4DAF4A", "T1D" = "#E41A1C")) +
+  theme_bw() +
+  theme(axis.text.y = element_text(size = 9),
+        legend.position = "top",
+        panel.grid.major.y = element_line(color = "gray90", size = 0.3),
+        panel.grid.minor.y = element_blank()) +
+  labs(title = "Top 30 Variables with Largest Difference in Importance",
+       subtitle = "Based on Tau, Aβ42, NFL: Lean Control vs T1D",
+       y = "Variable",
+       x = "Average Importance",
+       fill = "Group")
+
+ggsave("overall_most_different_variables_focused_3biomarkers.png", p_different_focused, 
+       width = 12, height = 10, dpi = 300, bg = "white")
+ggsave("overall_most_different_variables_focused_3biomarkers.pdf", p_different_focused, 
+       width = 12, height = 10)
+
