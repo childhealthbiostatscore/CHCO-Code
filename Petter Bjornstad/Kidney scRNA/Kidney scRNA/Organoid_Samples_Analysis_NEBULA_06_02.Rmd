@@ -122,10 +122,10 @@ library(BiocParallel)
 # library(DESeq2)
 
 # #Mac laptop
-dir.dat <- c("//Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
-dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA")
-dir.code <- c("/Users/hhampson/Documents/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
-dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
+# dir.dat <- c("//Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
+# dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA")
+# dir.code <- c("/Users/hhampson/Documents/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
+# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
 
 # #Mac Studio File Path
 # dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
@@ -138,7 +138,7 @@ source("Rename_Seurat_Function.R")
 source("Celltype_Annotation_Function.R")
 ```
 
-## a. Hyak Data Load
+## a. Lambda Data Load
 ```{r, Cyberduck setup}
 install.packages("reticulate")
 library(reticulate)
@@ -190,6 +190,30 @@ temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
 s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
 harm_meta_data <- read.csv(temp_file)
 
+
+# Filter out the gmt files for KEGG, Reactome and GOBP
+# list.files(bg_path)
+# gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+# gmt_files
+# kegg_legacy <- prepare_gmt(gmt_files[1], unique(full_results$Gene), savefile = FALSE)
+# reactome <- prepare_gmt(gmt_files[3], unique(full_results$Gene), savefile = FALSE)
+# go <- prepare_gmt(gmt_files[4], unique(full_results$Gene), savefile = FALSE)
+# 
+# 
+# temp_file <- tempfile(fileext = ".gmt")
+# s3$download_file("gsea", "gmt_files/c2.cp.kegg_legacy.v2024.1.Hs.symbols.gmt", temp_file)
+# kegg <- GSA.read.gmt(temp_file)
+
+temp_file <- tempfile(fileext = ".gmt")
+s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
+c8 <- GSA.read.gmt(temp_file)
+
+#Load formatted organoid data
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "Kidney organoids/organoids_processed_matrix.rds", temp_file)
+sc_org <- readRDS(temp_file)
 
 ```
 
@@ -512,7 +536,7 @@ ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
 # sc_org <- readRDS(temp_file)
 
 
-sc_org <- readRDS(fs::path(dir.dat,"scRNA","data_raw","organoids_processed_matrix.rds"))
+# sc_org <- readRDS(fs::path(dir.dat,"scRNA","data_raw","organoids_processed_matrix.rds"))
 
 #Rename rwonames of sc_org with gene names
 # Make sure the gene names are aligned in the same order
@@ -543,9 +567,10 @@ print(paste("Original dimensions:", paste(dim(sc_org), collapse = " x ")))
 print(paste("New dimensions:", paste(dim(sc_org_renamed), collapse = " x ")))
 
 #Save old seurat to sc_or_old
-sc_org_old <- sc_org
+# sc_org_old <- sc_org
 sc_org <- sc_org_renamed
-
+# rm(sc_org_old)
+rm(sc_org_renamed)
 meta <- sc_org@meta.data
 
 diab_ids <- c("sample_50_15","sample_50_30","sample_72_15","sample_72_30","sample_42_15","sample_42_30","ITD19_15","ITD19_30")
@@ -582,9 +607,9 @@ colnames(sc_org)
 # s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
 # harm_meta_data <- read.csv(temp_file)
 
-rm(sc_org_old,sc_org_renamed)
+# rm(sc_org_old,sc_org_renamed)
 # harm_meta_data <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv",na="")
-harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
+# harm_meta_data <- read.csv(fs::path(dir.dat,"Data Harmonization","Data Clean/harmonized_dataset.csv",na=""))
 harm_meta_data <- harm_meta_data %>%   
   arrange(date) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, first(na.omit(.x)))),
@@ -614,7 +639,7 @@ sc_org <- AddMetaData(sc_org, meta_kidney_sc)
 
 #Check number of unique ids
 length(unique(sc_org$kit_id)) #should be 7
-
+length(unique(sc_org$record_id)) #should be 7
 #Remove metadatasets
 rm(meta_kidney_sc,meta)
 
@@ -1397,6 +1422,7 @@ so_30 <- subset(sc_org,treatment=="30")
 so_combined <- sc_org
 ```
 ###ii. 15 Gluc Conc.
+####I. Beno Markers
 ```{r}
 #Define marker genes for each kidney cell type
 #Beno Paper Markers
@@ -1418,27 +1444,31 @@ so_15_annotated <- RunPCA(so_15_annotated, features = VariableFeatures(object = 
 # ElbowPlot(so_15_annotated)
 
 # # Find neighbors and clusters (again using integrated data)
-so_15_annotated <- FindNeighbors(so_15_annotated, assay = "RNA", dims = 1:20)
+so_15_annotated <- FindNeighbors(so_15_annotated, assay = "RNA", dims = 1:15)
 so_15_annotated <- FindClusters(so_15_annotated, resolution = 0.5)
 
 # Perform UMAP and tSNE
 #so_15_annotated <- RunTSNE(so_15_annotated, dims = 1:20)
+so_15_annotated <- RunUMAP(so_15_annotated, dims = 1:15) #20 to 50 
 so_15_annotated@reductions
 p <- DimPlot(so_15_annotated, reduction = "umap", raster = F)
-png(fs::path(dir.results,"Unlabeled_UMAP_Organoid_15.png"),width=3000,height=3000,res=300)
+# png(fs::path(dir.results,"Unlabeled_UMAP_Organoid_15.png"),width=3000,height=3000,res=300)
 plot(p,asp = 1)
-dev.off()
+# dev.off()
 
 p <- DimPlot(so_15_annotated, reduction = "umap", group.by = "celltype_annotation", label = T,raster = T)+
   ggtitle(label="Organoid Markers (15 Glucose Conc.)")
-png(fs::path(dir.results,"Beno_UMAP_Organoid_15.png"),width=3000,height=3000,res=300)
+# png(fs::path(dir.results,"Beno_UMAP_Organoid_15.png"),width=3000,height=3000,res=300)
+# png("Beno_UMAP_Organoid_15.png",width=3000,height=3000,res=300)
 plot(p,asp = 1)
-dev.off()
+# dev.off()
 
 # DimPlot(so_15_annotated, reduction = "pca", group.by = "celltype_annotation", label = T,raster = T)+
 #   ggtitle(label="Low-Resolution KPMP Celltypes (15 Glucose Conc.)")
+```
 
-
+####II. Low Res from Raji
+```{r}
 #1. Low res from Raji
 marker_genes <- list(
   "PT" = c("CUBN", "LRP2"),                    # Proximal Tubule
@@ -3955,13 +3985,13 @@ so_15 <- RunPCA(so_15, features = VariableFeatures(object = so_15),assay="RNA")
 # ElbowPlot(so_15)
 
 # # Find neighbors and clusters (again using integrated data)
-so_15 <- FindNeighbors(so_15, assay = "RNA", dims = 1:20)
+so_15 <- FindNeighbors(so_15, assay = "RNA", dims = 1:50)
 so_15 <- FindClusters(so_15, resolution = 0.5)
 
 # Perform UMAP and tSNE
-# so_liver_sc <- RunUMAP(so_liver_sc, dims = 1:15)
+so_15 <- RunUMAP(so_15, dims = 1:50) #20 to 50 
 so_15@reductions
-DimPlot(so_15, reduction = "umap", raster = F)
+DimPlot(so_15, reduction = "umap", raster = T)
 
 so_15$ScType_Kidney_human <- so_15$`ScType-Kidney-human`
 
