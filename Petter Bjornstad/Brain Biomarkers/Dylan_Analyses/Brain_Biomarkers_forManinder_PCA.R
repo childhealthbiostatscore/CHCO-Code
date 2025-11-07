@@ -859,11 +859,11 @@ if(length(common_vars) == 0) {
   p_scatter <- ggplot(top_100_scatter, aes(x = Lean_Avg_Importance, y = T1D_Avg_Importance)) +
     geom_point(aes(color = Abs_Difference, size = Combined_Importance), alpha = 0.7) +
     geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50") +
-    geom_text(data = top_100_scatter[1:15, ], 
+    geom_text(data = top_100_scatter[1:30, ], 
               aes(label = Variable), 
-              size = 2.5, hjust = -0.1, vjust = -0.1) +
+              size = 2.8, hjust = -0.1, vjust = 0.5, check_overlap = T) +
     scale_color_gradient(low = "lightblue", high = "darkred", name = "Abs(Difference)") +
-    scale_size_continuous(name = "Combined\nImportance") +
+    scale_size_continuous(name = "Combined\nImportance", range = c(2, 8)) +
     theme_bw() +
     labs(title = "Overall Variable Importance: Lean Control vs T1D",
          subtitle = "Top 100 variables (Top 15 labeled). Points above diagonal line = higher in T1D",
