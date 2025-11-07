@@ -1252,13 +1252,6 @@ ggsave("summary_figure_for_grant.tiff",
        compression = "lzw",
        bg = "white")
 
-cat("\nHigh-quality summary figure saved in multiple formats:\n")
-cat("- summary_figure_for_grant.pdf (300 dpi, vector)\n")
-cat("- summary_figure_for_grant.png (600 dpi, raster)\n")
-cat("- summary_figure_for_grant.tiff (600 dpi, publication quality)\n")
-
-
-
 
 
 
