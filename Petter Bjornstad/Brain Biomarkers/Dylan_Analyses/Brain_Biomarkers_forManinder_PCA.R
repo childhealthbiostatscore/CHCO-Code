@@ -730,6 +730,42 @@ if(length(common_vars) == 0) {
     
     ggsave(paste0("biomarker_comparisons/barplot_", biomarker, ".pdf"),
            p, width = 12, height = 10)
+    
+    # Create side-by-side horizontal bar plot (like the overall plot)
+    comparison_horizontal <- data.frame(
+      Variable = factor(top_30_bio, levels = top_30_bio),  # Keep order from top to bottom
+      Lean_Control = lean_bio[top_30_bio],
+      T1D = t1d_bio[top_30_bio]
+    )
+    
+    comparison_horizontal_long <- comparison_horizontal %>%
+      pivot_longer(cols = c(Lean_Control, T1D), 
+                   names_to = "Group", 
+                   values_to = "Importance") %>%
+      mutate(Group = recode(Group, 
+                            "Lean_Control" = "Lean Control",
+                            "T1D" = "T1D"))
+    
+    p_horizontal <- ggplot(comparison_horizontal_long, 
+                           aes(x = Importance, y = Variable, fill = Group)) +
+      geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.85) +
+      scale_fill_manual(values = c("Lean Control" = "#4DAF4A", "T1D" = "#E41A1C")) +
+      theme_bw() +
+      theme(axis.text.y = element_text(size = 9),
+            legend.position = "top",
+            panel.grid.major.y = element_line(color = "gray90", size = 0.3),
+            panel.grid.minor.y = element_blank()) +
+      labs(title = paste("Top 30 Variables with Largest Difference in Importance for", biomarker),
+           subtitle = "Between Lean Control and T1D",
+           y = "Variable",
+           x = "Importance",
+           fill = "Group")
+    
+    ggsave(paste0("biomarker_comparisons/horizontal_", biomarker, ".png"),
+           p_horizontal, width = 12, height = 10, dpi = 300, bg = "white")
+    
+    ggsave(paste0("biomarker_comparisons/horizontal_", biomarker, ".pdf"),
+           p_horizontal, width = 12, height = 10)
   }
   
   cat("Individual biomarker comparison heatmaps saved in: biomarker_comparisons/\n")
@@ -854,17 +890,18 @@ if(length(common_vars) == 0) {
                           "Lean_Avg_Importance" = "Lean Control",
                           "T1D_Avg_Importance" = "T1D"))
   
-  p_different <- ggplot(top_30_different_long, aes(x = reorder(Variable, Importance), y = Importance, fill = Group)) +
-    geom_bar(stat = "identity", position = "dodge") +
+  p_different <- ggplot(top_30_different_long, aes(x = Importance, y = reorder(Variable, Importance), fill = Group)) +
+    geom_bar(stat = "identity", position = position_dodge(width = 0.9), width = 0.85) +
     scale_fill_manual(values = c("Lean Control" = "#4DAF4A", "T1D" = "#E41A1C")) +
-    coord_flip() +
     theme_bw() +
-    theme(axis.text.y = element_text(size = 8),
-          legend.position = "top") +
+    theme(axis.text.y = element_text(size = 9),
+          legend.position = "top",
+          panel.grid.major.y = element_line(color = "gray90", size = 0.3),
+          panel.grid.minor.y = element_blank()) +
     labs(title = "Top 30 Variables with Largest Difference in Importance",
          subtitle = "Between Lean Control and T1D (averaged across all biomarkers)",
-         x = "Variable",
-         y = "Average Importance",
+         y = "Variable",
+         x = "Average Importance",
          fill = "Group")
   
   ggsave("overall_most_different_variables.png", p_different, width = 12, height = 10, dpi = 300, bg = "white")
@@ -963,4 +1000,13 @@ ggsave("Adj_R2_comparison_lean_vs_t1d.pdf", p_adj_r2, width = 10, height = 6)
 save(all_results, all_performance, all_variable_importance,
      file = "complete_analysis_results_lean_vs_t1d.RData")
 
-
+cat("\n\n##########################################################")
+cat("\n### ANALYSIS COMPLETE!")
+cat("\n##########################################################\n")
+cat("\nKey outputs generated:\n")
+cat("1. Side-by-side comparison heatmaps (top 20 and top 50)\n")
+cat("2. Difference heatmap (Lean - T1D)\n")
+cat("3. Individual biomarker comparison plots\n")
+cat("4. Performance comparison plots (R², Adjusted R²)\n")
+cat("5. CSV files with variable importance and differences\n")
+cat("6. Complete analysis results saved in RData file\n")
