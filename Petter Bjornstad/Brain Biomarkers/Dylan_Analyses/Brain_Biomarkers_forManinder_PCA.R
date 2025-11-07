@@ -153,13 +153,10 @@ data_dictionary_small <- data_dictionary %>% filter(variable_name %in% names(dat
 
 
 
+##### Differences in Differences 
 
 
-
-
-
-
-#### PCA Analysis instead 
+#### PCA Analysis - Lean Control vs T1D Comparison
 set.seed(123)
 
 setwd('C:/Users/netio/Documents/UofW/Projects/Maninder_Data/PCA_Analysis/')
@@ -174,17 +171,17 @@ library(RColorBrewer)
 qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
             "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
 
-
 names(data_varying)[which(names(data_varying) == 'weight')] <- 'body_weight'
-# Define analysis groups
+
+# Define analysis groups - MODIFIED FOR LEAN CONTROL AND T1D
 analysis_groups <- list(
-  All = data_varying,  # All participants
-  T1D = data_varying %>% filter(group == "Type 1 Diabetes")  # Only T1D
+  Lean_Control = data_varying %>% filter(group == "Lean Control"),  # Lean controls only
+  T1D = data_varying %>% filter(group == "Type 1 Diabetes")  # T1D only
 )
 
 cat("Sample sizes:\n")
-cat("All participants:", nrow(analysis_groups$All), "\n")
-cat("Type 1 Diabetes only:", nrow(analysis_groups$T1D), "\n\n")
+cat("Lean Control:", nrow(analysis_groups$Lean_Control), "\n")
+cat("Type 1 Diabetes:", nrow(analysis_groups$T1D), "\n\n")
 
 # Initialize storage for all results
 all_results <- list()
@@ -458,300 +455,512 @@ for(group_name in names(analysis_groups)) {
   write.csv(importance_matrix, 
             paste0("variable_importance_", group_name, ".csv"), 
             row.names = TRUE)
+}
+
+# ============================================================
+# SIDE-BY-SIDE COMPARISON HEATMAPS (LEAN CONTROL VS T1D)
+# ============================================================
+
+cat("\n\n##########################################################")
+cat("\n### CREATING SIDE-BY-SIDE COMPARISON HEATMAPS")
+cat("\n##########################################################\n\n")
+
+# Get importance matrices for both groups
+lean_importance <- do.call(cbind, all_variable_importance$Lean_Control)
+t1d_importance <- do.call(cbind, all_variable_importance$T1D)
+
+colnames(lean_importance) <- qx_var
+colnames(t1d_importance) <- qx_var
+
+# Find common variables between both groups
+common_vars <- intersect(rownames(lean_importance), rownames(t1d_importance))
+cat("Common variables between groups:", length(common_vars), "\n")
+
+if(length(common_vars) == 0) {
+  cat("ERROR: No common variables between groups!\n")
+} else {
+  
+  # Create combined matrix for comparison
+  lean_subset <- lean_importance[common_vars, ]
+  t1d_subset <- t1d_importance[common_vars, ]
+  
+  # Calculate overall importance for ranking
+  overall_importance_lean <- rowMeans(abs(lean_subset))
+  overall_importance_t1d <- rowMeans(abs(t1d_subset))
+  overall_importance_combined <- (overall_importance_lean + overall_importance_t1d) / 2
   
   # ============================================================
-  # OPTION 3: Multiple heatmaps by magnitude
+  # 1. TOP 20 VARIABLES - SIDE BY SIDE COMPARISON
   # ============================================================
   
-  overall_importance <- rowMeans(abs(importance_matrix))
+  top_20_vars <- names(sort(overall_importance_combined, decreasing = TRUE)[1:min(20, length(overall_importance_combined))])
   
-  # Heatmap 1: Top 15 highest importance (raw scale with values) - PNG
-  top_15_vars <- names(sort(overall_importance, decreasing = TRUE)[1:min(15, length(overall_importance))])
-  pheatmap(importance_matrix[top_15_vars, ], 
+  # Create combined matrix with group labels
+  combined_top20 <- cbind(lean_subset[top_20_vars, ], t1d_subset[top_20_vars, ])
+  colnames(combined_top20) <- c(paste0("Lean_", qx_var), paste0("T1D_", qx_var))
+  
+  # Create annotation for columns
+  annotation_col <- data.frame(
+    Group = c(rep("Lean Control", length(qx_var)), rep("T1D", length(qx_var)))
+  )
+  rownames(annotation_col) <- colnames(combined_top20)
+  
+  # Color scheme for groups
+  ann_colors <- list(
+    Group = c("Lean Control" = "#4DAF4A", "T1D" = "#E41A1C")
+  )
+  
+  pheatmap(combined_top20,
            scale = "none",
-           main = paste("Top 15 Highest Importance:", group_name),
-           fontsize_row = 10,
-           fontsize_number = 8,
+           cluster_cols = FALSE,
+           main = "Top 20 Variables: Lean Control vs T1D",
+           fontsize_row = 9,
+           fontsize_col = 8,
            angle_col = 45,
            color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
-           display_numbers = matrix(sprintf("%.2f", importance_matrix[top_15_vars, ]), 
-                                    nrow = length(top_15_vars)),
+           annotation_col = annotation_col,
+           annotation_colors = ann_colors,
+           display_numbers = matrix(sprintf("%.2f", combined_top20), nrow = nrow(combined_top20)),
            number_color = "black",
-           filename = paste0("heatmap_top15_", group_name, ".png"),
-           width = 10,
-           height = 7)
+           fontsize_number = 6,
+           filename = "comparison_top20_lean_vs_t1d.png",
+           width = 14,
+           height = 8)
   
-  # Also save as PDF
-  pheatmap(importance_matrix[top_15_vars, ], 
+  pheatmap(combined_top20,
            scale = "none",
-           main = paste("Top 15 Highest Importance:", group_name),
-           fontsize_row = 10,
-           fontsize_number = 8,
+           cluster_cols = FALSE,
+           main = "Top 20 Variables: Lean Control vs T1D",
+           fontsize_row = 9,
+           fontsize_col = 8,
            angle_col = 45,
            color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
-           display_numbers = matrix(sprintf("%.2f", importance_matrix[top_15_vars, ]), 
-                                    nrow = length(top_15_vars)),
+           annotation_col = annotation_col,
+           annotation_colors = ann_colors,
+           display_numbers = matrix(sprintf("%.2f", combined_top20), nrow = nrow(combined_top20)),
            number_color = "black",
-           filename = paste0("heatmap_top15_", group_name, ".pdf"),
-           width = 10,
-           height = 7)
+           fontsize_number = 6,
+           filename = "comparison_top20_lean_vs_t1d.pdf",
+           width = 14,
+           height = 8)
   
-  # Heatmap 2: Variables ranked 16-50 (better visible without extreme values)
-  if(length(overall_importance) >= 50) {
-    mid_vars <- names(sort(overall_importance, decreasing = TRUE)[16:50])
-    pheatmap(importance_matrix[mid_vars, ], 
-             scale = "none",
-             main = paste("Variables Ranked 16-50:", group_name),
-             fontsize_row = 7,
-             angle_col = 45,
-             color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
-             filename = paste0("heatmap_mid_", group_name, ".png"),
-             width = 10,
-             height = 12)
+  cat("Created: comparison_top20_lean_vs_t1d.png/.pdf\n")
+  
+  # ============================================================
+  # 2. TOP 50 VARIABLES - SIDE BY SIDE
+  # ============================================================
+  
+  if(length(common_vars) >= 50) {
+    top_50_vars <- names(sort(overall_importance_combined, decreasing = TRUE)[1:50])
+    combined_top50 <- cbind(lean_subset[top_50_vars, ], t1d_subset[top_50_vars, ])
+    colnames(combined_top50) <- c(paste0("Lean_", qx_var), paste0("T1D_", qx_var))
     
-    pheatmap(importance_matrix[mid_vars, ], 
+    pheatmap(combined_top50,
              scale = "none",
-             main = paste("Variables Ranked 16-50:", group_name),
-             fontsize_row = 7,
+             cluster_cols = FALSE,
+             main = "Top 50 Variables: Lean Control vs T1D",
+             fontsize_row = 6,
+             fontsize_col = 7,
              angle_col = 45,
              color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
-             filename = paste0("heatmap_mid_", group_name, ".pdf"),
-             width = 10,
-             height = 12)
-  } else if(length(overall_importance) > 15) {
-    # If less than 50 variables total, show 16 to end
-    mid_vars <- names(sort(overall_importance, decreasing = TRUE)[16:length(overall_importance)])
-    pheatmap(importance_matrix[mid_vars, ], 
-             scale = "none",
-             main = paste("Variables Ranked 16+:", group_name),
-             fontsize_row = 8,
-             angle_col = 45,
-             color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
-             filename = paste0("heatmap_mid_", group_name, ".png"),
-             width = 10,
-             height = 10)
+             annotation_col = annotation_col,
+             annotation_colors = ann_colors,
+             filename = "comparison_top50_lean_vs_t1d.png",
+             width = 14,
+             height = 14)
     
-    pheatmap(importance_matrix[mid_vars, ], 
+    pheatmap(combined_top50,
              scale = "none",
-             main = paste("Variables Ranked 16+:", group_name),
-             fontsize_row = 8,
+             cluster_cols = FALSE,
+             main = "Top 50 Variables: Lean Control vs T1D",
+             fontsize_row = 6,
+             fontsize_col = 7,
              angle_col = 45,
              color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
-             filename = paste0("heatmap_mid_", group_name, ".pdf"),
-             width = 10,
-             height = 10)
+             annotation_col = annotation_col,
+             annotation_colors = ann_colors,
+             filename = "comparison_top50_lean_vs_t1d.pdf",
+             width = 14,
+             height = 14)
+    
+    cat("Created: comparison_top50_lean_vs_t1d.png/.pdf\n")
   }
   
-  # Heatmap 3: All variables with log scale
-  all_vars <- rownames(importance_matrix)
-  plot_data_log <- sign(importance_matrix) * log10(abs(importance_matrix) + 1)
-  pheatmap(plot_data_log[all_vars, ], 
-           scale = "none",
-           main = paste("All Variables (log10 scale):", group_name),
-           fontsize_row = 6,
-           angle_col = 45,
-           color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
-           filename = paste0("heatmap_all_log_", group_name, ".png"),
-           width = 10,
-           height = 16)
-  
-  pheatmap(plot_data_log[all_vars, ], 
-           scale = "none",
-           main = paste("All Variables (log10 scale):", group_name),
-           fontsize_row = 6,
-           angle_col = 45,
-           color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
-           filename = paste0("heatmap_all_log_", group_name, ".pdf"),
-           width = 10,
-           height = 16)
-  
-  cat("\nMultiple heatmaps saved for", group_name, ":\n")
-  cat("  - heatmap_top15_", group_name, ".png/.pdf (with values)\n", sep = "")
-  if(length(overall_importance) > 15) {
-    cat("  - heatmap_mid_", group_name, ".png/.pdf\n", sep = "")
-  }
-  cat("  - heatmap_all_log_", group_name, ".png/.pdf\n", sep = "")
-  
   # ============================================================
-  # INDIVIDUAL BIOMARKER HEATMAPS
+  # 3. DIFFERENCE HEATMAP (T1D - Lean)
   # ============================================================
   
-  cat("\nCreating individual biomarker heatmaps for", group_name, "...\n")
+  difference_matrix <- t1d_subset - lean_subset
+  top_20_diff_vars <- names(sort(rowMeans(abs(difference_matrix)), decreasing = TRUE)[1:min(20, nrow(difference_matrix))])
   
-  # Create a directory for individual biomarker heatmaps
-  dir.create(paste0("biomarker_heatmaps_", group_name), showWarnings = FALSE)
+  pheatmap(difference_matrix[top_20_diff_vars, ],
+           scale = "none",
+           main = "Top 20 Largest Differences (T1D - Lean Control)",
+           fontsize_row = 9,
+           angle_col = 45,
+           color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
+           display_numbers = matrix(sprintf("%.2f", difference_matrix[top_20_diff_vars, ]), 
+                                    nrow = length(top_20_diff_vars)),
+           number_color = "black",
+           fontsize_number = 7,
+           filename = "comparison_difference_top20.png",
+           width = 10,
+           height = 8)
+  
+  pheatmap(difference_matrix[top_20_diff_vars, ],
+           scale = "none",
+           main = "Top 20 Largest Differences (T1D - Lean Control)",
+           fontsize_row = 9,
+           angle_col = 45,
+           color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
+           display_numbers = matrix(sprintf("%.2f", difference_matrix[top_20_diff_vars, ]), 
+                                    nrow = length(top_20_diff_vars)),
+           number_color = "black",
+           fontsize_number = 7,
+           filename = "comparison_difference_top20.pdf",
+           width = 10,
+           height = 8)
+  
+  cat("Created: comparison_difference_top20.png/.pdf\n")
+  
+  # Save difference matrix
+  write.csv(difference_matrix, "importance_difference_t1d_minus_lean.csv", row.names = TRUE)
+  
+  # ============================================================
+  # 4. INDIVIDUAL BIOMARKER COMPARISONS (3-PANEL HEATMAPS)
+  # ============================================================
+  
+  cat("\nCreating individual biomarker comparison heatmaps (LC | T1D | Difference)...\n")
+  dir.create("biomarker_comparisons", showWarnings = FALSE)
   
   for(biomarker in qx_var) {
     cat("  Processing", biomarker, "...\n")
     
-    # Get importance for this biomarker
-    biomarker_importance <- importance_matrix[, biomarker, drop = FALSE]
+    # Get top 30 variables for this biomarker across both groups
+    lean_bio <- lean_subset[, biomarker]
+    t1d_bio <- t1d_subset[, biomarker]
+    combined_abs <- (abs(lean_bio) + abs(t1d_bio)) / 2
     
-    # Sort by absolute importance
-    biomarker_importance_sorted <- biomarker_importance[order(abs(biomarker_importance[, 1]), decreasing = TRUE), , drop = FALSE]
+    top_30_bio <- names(sort(combined_abs, decreasing = TRUE)[1:min(30, length(combined_abs))])
     
-    # Top 30 variables for this biomarker
-    n_top <- min(30, nrow(biomarker_importance_sorted))
-    top_vars <- rownames(biomarker_importance_sorted)[1:n_top]
-    
-    # Create data frame for plotting
-    plot_df <- data.frame(
-      Variable = factor(top_vars, levels = rev(top_vars)),  # Reverse for plotting
-      Importance = biomarker_importance_sorted[top_vars, 1],
-      Abs_Importance = abs(biomarker_importance_sorted[top_vars, 1])
+    # Create three-column matrix: Lean Control | T1D | Difference
+    comparison_matrix <- cbind(
+      Lean_Control = lean_bio[top_30_bio],
+      T1D = t1d_bio[top_30_bio],
+      Difference = t1d_bio[top_30_bio] - lean_bio[top_30_bio]
     )
     
-    # Bar plot - PNG
-    p <- ggplot(plot_df, aes(x = Variable, y = Importance, fill = Importance)) +
-      geom_bar(stat = "identity") +
-      scale_fill_gradient2(low = "blue", mid = "white", high = "red", 
-                           midpoint = 0,
-                           name = "Importance") +
-      coord_flip() +
-      theme_bw() +
-      theme(axis.text.y = element_text(size = 9)) +
-      labs(title = paste("Top 30 Variables for", biomarker, "-", group_name),
-           subtitle = paste("Based on PCA-regression variable importance"),
-           x = "Variable",
-           y = "Variable Importance") +
-      geom_hline(yintercept = 0, linetype = "dashed", color = "gray50")
+    # Create annotation for columns
+    annotation_col_bio <- data.frame(
+      Type = c("Lean Control", "T1D", "T1D - Lean")
+    )
+    rownames(annotation_col_bio) <- colnames(comparison_matrix)
     
-    ggsave(paste0("biomarker_heatmaps_", group_name, "/barplot_", biomarker, "_", group_name, ".png"),
-           p, width = 10, height = 8, dpi = 300, bg = "white")
+    # Color scheme
+    ann_colors_bio <- list(
+      Type = c("Lean Control" = "#4DAF4A", "T1D" = "#E41A1C", "T1D - Lean" = "#984EA3")
+    )
     
-    ggsave(paste0("biomarker_heatmaps_", group_name, "/barplot_", biomarker, "_", group_name, ".pdf"),
-           p, width = 10, height = 8)
-    
-    # Also create a mini heatmap for just this biomarker (top 50)
-    n_heatmap <- min(50, nrow(biomarker_importance_sorted))
-    heatmap_vars <- rownames(biomarker_importance_sorted)[1:n_heatmap]
-    
-    pheatmap(biomarker_importance_sorted[heatmap_vars, , drop = FALSE],
-             cluster_rows = FALSE,  # Keep sorted by importance
-             cluster_cols = FALSE,
+    # Create heatmap - PNG
+    pheatmap(comparison_matrix,
              scale = "none",
-             main = paste("Top", n_heatmap, "Variables for", biomarker, "-", group_name),
-             fontsize_row = 7,
-             color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
-             display_numbers = matrix(sprintf("%.3f", biomarker_importance_sorted[heatmap_vars, 1]), 
-                                      ncol = 1),
-             number_color = "black",
-             fontsize_number = 6,
-             filename = paste0("biomarker_heatmaps_", group_name, "/heatmap_", biomarker, "_", group_name, ".png"),
-             width = 6,
-             height = 12)
-    
-    pheatmap(biomarker_importance_sorted[heatmap_vars, , drop = FALSE],
              cluster_rows = FALSE,
              cluster_cols = FALSE,
-             scale = "none",
-             main = paste("Top", n_heatmap, "Variables for", biomarker, "-", group_name),
-             fontsize_row = 7,
+             main = paste(biomarker, ": Lean Control | T1D | Difference"),
+             fontsize_row = 8,
+             fontsize_col = 10,
+             angle_col = 45,
              color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
-             display_numbers = matrix(sprintf("%.3f", biomarker_importance_sorted[heatmap_vars, 1]), 
-                                      ncol = 1),
+             annotation_col = annotation_col_bio,
+             annotation_colors = ann_colors_bio,
+             display_numbers = matrix(sprintf("%.2f", comparison_matrix), nrow = nrow(comparison_matrix)),
              number_color = "black",
-             fontsize_number = 6,
-             filename = paste0("biomarker_heatmaps_", group_name, "/heatmap_", biomarker, "_", group_name, ".pdf"),
-             width = 6,
+             fontsize_number = 7,
+             filename = paste0("biomarker_comparisons/heatmap_", biomarker, ".png"),
+             width = 10,
              height = 12)
+    
+    # Create heatmap - PDF
+    pheatmap(comparison_matrix,
+             scale = "none",
+             cluster_rows = FALSE,
+             cluster_cols = FALSE,
+             main = paste(biomarker, ": Lean Control | T1D | Difference"),
+             fontsize_row = 8,
+             fontsize_col = 10,
+             angle_col = 45,
+             color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
+             annotation_col = annotation_col_bio,
+             annotation_colors = ann_colors_bio,
+             display_numbers = matrix(sprintf("%.2f", comparison_matrix), nrow = nrow(comparison_matrix)),
+             number_color = "black",
+             fontsize_number = 7,
+             filename = paste0("biomarker_comparisons/heatmap_", biomarker, ".pdf"),
+             width = 10,
+             height = 12)
+    
+    # Also create a grouped bar plot for alternative visualization
+    comparison_df <- data.frame(
+      Variable = factor(top_30_bio, levels = rev(top_30_bio)),
+      Lean_Control = lean_bio[top_30_bio],
+      T1D = t1d_bio[top_30_bio]
+    )
+    
+    comparison_long <- comparison_df %>%
+      pivot_longer(cols = c(Lean_Control, T1D), 
+                   names_to = "Group", 
+                   values_to = "Importance")
+    
+    p <- ggplot(comparison_long, aes(x = Variable, y = Importance, fill = Group)) +
+      geom_bar(stat = "identity", position = "dodge") +
+      scale_fill_manual(values = c("Lean_Control" = "#4DAF4A", "T1D" = "#E41A1C"),
+                        labels = c("Lean Control", "T1D")) +
+      coord_flip() +
+      theme_bw() +
+      theme(axis.text.y = element_text(size = 8),
+            legend.position = "top") +
+      labs(title = paste("Top 30 Variables for", biomarker, ": Lean Control vs T1D"),
+           x = "Variable",
+           y = "Variable Importance",
+           fill = "Group") +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "gray50")
+    
+    ggsave(paste0("biomarker_comparisons/barplot_", biomarker, ".png"),
+           p, width = 12, height = 10, dpi = 300, bg = "white")
+    
+    ggsave(paste0("biomarker_comparisons/barplot_", biomarker, ".pdf"),
+           p, width = 12, height = 10)
   }
   
-  cat("Individual biomarker heatmaps saved in:", paste0("biomarker_heatmaps_", group_name, "/\n"))
+  cat("Individual biomarker comparison heatmaps saved in: biomarker_comparisons/\n")
+  cat("  - heatmap_[biomarker].png/.pdf (3-column: LC | T1D | Difference)\n")
+  cat("  - barplot_[biomarker].png/.pdf (side-by-side bars)\n")
+  
+  # ============================================================
+  # 5. OVERALL IMPORTANCE COMPARISON ACROSS ALL BIOMARKERS
+  # ============================================================
+  
+  cat("\n\n=== CREATING OVERALL IMPORTANCE COMPARISONS ===\n")
+  
+  # Calculate average importance across all biomarkers for each variable
+  lean_overall_importance <- rowMeans(abs(lean_subset))
+  t1d_overall_importance <- rowMeans(abs(t1d_subset))
+  
+  # Create overall comparison data frame
+  overall_comparison <- data.frame(
+    Variable = common_vars,
+    Lean_Avg_Importance = lean_overall_importance,
+    T1D_Avg_Importance = t1d_overall_importance,
+    Difference = t1d_overall_importance - lean_overall_importance,
+    Abs_Difference = abs(t1d_overall_importance - lean_overall_importance)
+  )
+  
+  # Sort by combined importance
+  overall_comparison <- overall_comparison %>%
+    mutate(Combined_Importance = (Lean_Avg_Importance + T1D_Avg_Importance) / 2) %>%
+    arrange(desc(Combined_Importance))
+  
+  # Save full comparison
+  write.csv(overall_comparison, "overall_importance_comparison.csv", row.names = FALSE)
+  
+  # Top 50 overall comparison heatmap
+  top_50_overall <- head(overall_comparison, 50)
+  
+  overall_matrix <- as.matrix(top_50_overall[, c("Lean_Avg_Importance", "T1D_Avg_Importance", "Difference")])
+  rownames(overall_matrix) <- top_50_overall$Variable
+  colnames(overall_matrix) <- c("Lean Control", "T1D", "T1D - Lean")
+  
+  annotation_col_overall <- data.frame(
+    Type = c("Lean Control", "T1D", "Difference")
+  )
+  rownames(annotation_col_overall) <- colnames(overall_matrix)
+  
+  ann_colors_overall <- list(
+    Type = c("Lean Control" = "#4DAF4A", "T1D" = "#E41A1C", "Difference" = "#984EA3")
+  )
+  
+  pheatmap(overall_matrix,
+           scale = "none",
+           cluster_rows = FALSE,
+           cluster_cols = FALSE,
+           main = "Top 50 Variables: Overall Importance (Averaged Across All Biomarkers)",
+           fontsize_row = 7,
+           fontsize_col = 10,
+           angle_col = 45,
+           color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
+           annotation_col = annotation_col_overall,
+           annotation_colors = ann_colors_overall,
+           display_numbers = matrix(sprintf("%.3f", overall_matrix), nrow = nrow(overall_matrix)),
+           number_color = "black",
+           fontsize_number = 6,
+           filename = "overall_importance_top50_heatmap.png",
+           width = 10,
+           height = 14)
+  
+  pheatmap(overall_matrix,
+           scale = "none",
+           cluster_rows = FALSE,
+           cluster_cols = FALSE,
+           main = "Top 50 Variables: Overall Importance (Averaged Across All Biomarkers)",
+           fontsize_row = 7,
+           fontsize_col = 10,
+           angle_col = 45,
+           color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
+           annotation_col = annotation_col_overall,
+           annotation_colors = ann_colors_overall,
+           display_numbers = matrix(sprintf("%.3f", overall_matrix), nrow = nrow(overall_matrix)),
+           number_color = "black",
+           fontsize_number = 6,
+           filename = "overall_importance_top50_heatmap.pdf",
+           width = 10,
+           height = 14)
+  
+  cat("Created: overall_importance_top50_heatmap.png/.pdf\n")
+  
+  # Scatter plot: Lean vs T1D importance
+  top_100_scatter <- head(overall_comparison, 100)
+  
+  p_scatter <- ggplot(top_100_scatter, aes(x = Lean_Avg_Importance, y = T1D_Avg_Importance)) +
+    geom_point(aes(color = Abs_Difference, size = Combined_Importance), alpha = 0.7) +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50") +
+    geom_text(data = top_100_scatter[1:15, ], 
+              aes(label = Variable), 
+              size = 2.5, hjust = -0.1, vjust = -0.1) +
+    scale_color_gradient(low = "lightblue", high = "darkred", name = "Abs(Difference)") +
+    scale_size_continuous(name = "Combined\nImportance") +
+    theme_bw() +
+    labs(title = "Overall Variable Importance: Lean Control vs T1D",
+         subtitle = "Top 100 variables (Top 15 labeled). Points above diagonal line = higher in T1D",
+         x = "Average Importance in Lean Control",
+         y = "Average Importance in T1D") +
+    coord_fixed()
+  
+  ggsave("overall_importance_scatter.png", p_scatter, width = 12, height = 10, dpi = 300, bg = "white")
+  ggsave("overall_importance_scatter.pdf", p_scatter, width = 12, height = 10)
+  
+  cat("Created: overall_importance_scatter.png/.pdf\n")
+  
+  # Bar plot showing variables most different between groups
+  top_30_different <- overall_comparison %>%
+    arrange(desc(Abs_Difference)) %>%
+    head(30)
+  
+  top_30_different_long <- top_30_different %>%
+    dplyr::select(Variable, Lean_Avg_Importance, T1D_Avg_Importance) %>%
+    pivot_longer(cols = c(Lean_Avg_Importance, T1D_Avg_Importance),
+                 names_to = "Group",
+                 values_to = "Importance") %>%
+    mutate(Group = recode(Group, 
+                          "Lean_Avg_Importance" = "Lean Control",
+                          "T1D_Avg_Importance" = "T1D"))
+  
+  p_different <- ggplot(top_30_different_long, aes(x = reorder(Variable, Importance), y = Importance, fill = Group)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    scale_fill_manual(values = c("Lean Control" = "#4DAF4A", "T1D" = "#E41A1C")) +
+    coord_flip() +
+    theme_bw() +
+    theme(axis.text.y = element_text(size = 8),
+          legend.position = "top") +
+    labs(title = "Top 30 Variables with Largest Difference in Importance",
+         subtitle = "Between Lean Control and T1D (averaged across all biomarkers)",
+         x = "Variable",
+         y = "Average Importance",
+         fill = "Group")
+  
+  ggsave("overall_most_different_variables.png", p_different, width = 12, height = 10, dpi = 300, bg = "white")
+  ggsave("overall_most_different_variables.pdf", p_different, width = 12, height = 10)
+  
+  cat("Created: overall_most_different_variables.png/.pdf\n")
+  
+  # Ranking comparison table
+  lean_ranks <- data.frame(
+    Variable = names(sort(lean_overall_importance, decreasing = TRUE)),
+    Lean_Rank = 1:length(lean_overall_importance)
+  )
+  
+  t1d_ranks <- data.frame(
+    Variable = names(sort(t1d_overall_importance, decreasing = TRUE)),
+    T1D_Rank = 1:length(t1d_overall_importance)
+  )
+  
+  rank_comparison <- merge(lean_ranks, t1d_ranks, by = "Variable")
+  rank_comparison$Rank_Change <- rank_comparison$Lean_Rank - rank_comparison$T1D_Rank
+  rank_comparison$Abs_Rank_Change <- abs(rank_comparison$Rank_Change)
+  
+  # Show top 20 biggest rank changes
+  cat("\n=== TOP 20 VARIABLES WITH LARGEST RANK CHANGES ===\n")
+  cat("Positive Rank_Change = variable more important in T1D (moved up in ranking)\n")
+  cat("Negative Rank_Change = variable more important in Lean Control (moved down in ranking)\n\n")
+  
+  top_rank_changes <- rank_comparison %>%
+    arrange(desc(Abs_Rank_Change)) %>%
+    head(20)
+  
+  print(top_rank_changes)
+  
+  write.csv(rank_comparison, "overall_rank_comparison.csv", row.names = FALSE)
+  cat("\nFull ranking comparison saved to: overall_rank_comparison.csv\n")
+  
+  # Summary statistics
+  cat("\n=== OVERALL IMPORTANCE SUMMARY STATISTICS ===\n")
+  cat("Lean Control:\n")
+  cat("  Mean importance:", round(mean(lean_overall_importance), 4), "\n")
+  cat("  Median importance:", round(median(lean_overall_importance), 4), "\n")
+  cat("  SD importance:", round(sd(lean_overall_importance), 4), "\n\n")
+  
+  cat("T1D:\n")
+  cat("  Mean importance:", round(mean(t1d_overall_importance), 4), "\n")
+  cat("  Median importance:", round(median(t1d_overall_importance), 4), "\n")
+  cat("  SD importance:", round(sd(t1d_overall_importance), 4), "\n\n")
+  
+  cat("Correlation between Lean and T1D importance rankings:\n")
+  cat("  Spearman correlation:", round(cor(lean_overall_importance, t1d_overall_importance, method = "spearman"), 3), "\n")
+  cat("  Pearson correlation:", round(cor(lean_overall_importance, t1d_overall_importance, method = "pearson"), 3), "\n")
 }
 
 # ============================================================
-# COMPARE RESULTS ACROSS GROUPS
+# PERFORMANCE COMPARISON
 # ============================================================
 
 cat("\n\n##########################################################")
-cat("\n### COMPARISON ACROSS GROUPS")
+cat("\n### PERFORMANCE COMPARISON: LEAN CONTROL VS T1D")
 cat("\n##########################################################\n\n")
 
 # Performance comparison
 cat("=== PERFORMANCE SUMMARY ===\n")
 print(all_performance)
 
-write.csv(all_performance, "performance_summary_all_groups.csv", row.names = FALSE)
+write.csv(all_performance, "performance_summary_lean_vs_t1d.csv", row.names = FALSE)
 
 # Performance comparison plots
-library(ggplot2)
-
 p_r2 <- ggplot(all_performance, aes(x = Biomarker, y = R2, fill = Group)) +
   geom_bar(stat = "identity", position = "dodge") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "Model Performance: R² by Biomarker and Group",
+  labs(title = "Model Performance: R² by Biomarker (Lean Control vs T1D)",
        y = "R-squared", x = "Biomarker") +
-  scale_fill_brewer(palette = "Set1")
+  scale_fill_manual(values = c("Lean_Control" = "#4DAF4A", "T1D" = "#E41A1C"),
+                    labels = c("Lean Control", "T1D"))
 
 print(p_r2)
-ggsave("R2_comparison.png", p_r2, width = 10, height = 6, dpi = 300, bg = "white")
-ggsave("R2_comparison.pdf", p_r2, width = 10, height = 6)
+ggsave("R2_comparison_lean_vs_t1d.png", p_r2, width = 10, height = 6, dpi = 300, bg = "white")
+ggsave("R2_comparison_lean_vs_t1d.pdf", p_r2, width = 10, height = 6)
 
 p_adj_r2 <- ggplot(all_performance, aes(x = Biomarker, y = Adj_R2, fill = Group)) +
   geom_bar(stat = "identity", position = "dodge") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "Model Performance: Adjusted R² by Biomarker and Group",
+  labs(title = "Model Performance: Adjusted R² by Biomarker (Lean Control vs T1D)",
        y = "Adjusted R-squared", x = "Biomarker") +
-  scale_fill_brewer(palette = "Set1")
+  scale_fill_manual(values = c("Lean_Control" = "#4DAF4A", "T1D" = "#E41A1C"),
+                    labels = c("Lean Control", "T1D"))
 
 print(p_adj_r2)
-ggsave("Adj_R2_comparison.png", p_adj_r2, width = 10, height = 6, dpi = 300, bg = "white")
-ggsave("Adj_R2_comparison.pdf", p_adj_r2, width = 10, height = 6)
-
-p_rmse <- ggplot(all_performance, aes(x = Biomarker, y = RMSE, fill = Group)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  labs(title = "Model Performance: RMSE by Biomarker and Group (Standardized)",
-       y = "Root Mean Squared Error (Standardized Units)", x = "Biomarker") +
-  scale_fill_brewer(palette = "Set1")
-
-print(p_rmse)
-ggsave("RMSE_comparison.png", p_rmse, width = 10, height = 6, dpi = 300, bg = "white")
-ggsave("RMSE_comparison.pdf", p_rmse, width = 10, height = 6)
-
-# Compare variable importance between groups
-cat("\n=== COMPARING VARIABLE IMPORTANCE BETWEEN GROUPS ===\n")
-
-for(biomarker in qx_var) {
-  cat("\n--- ", biomarker, " ---\n")
-  
-  all_imp <- all_variable_importance$All[[biomarker]]
-  t1d_imp <- all_variable_importance$T1D[[biomarker]]
-  
-  # Find common variables
-  common_vars <- intersect(rownames(all_imp), rownames(t1d_imp))
-  
-  if(length(common_vars) == 0) {
-    cat("WARNING: No common variables between groups for", biomarker, "\n")
-    next
-  }
-  
-  # Combine and compare
-  comparison_df <- data.frame(
-    Variable = common_vars,
-    All_Group = all_imp[common_vars, ],
-    T1D_Group = t1d_imp[common_vars, ],
-    Difference = all_imp[common_vars, ] - t1d_imp[common_vars, ],
-    Abs_Difference = abs(all_imp[common_vars, ] - t1d_imp[common_vars, ])
-  )
-  
-  # Show top differences
-  comparison_df <- comparison_df[order(-comparison_df$Abs_Difference), ]
-  
-  cat("\nTop 15 variables with largest importance differences:\n")
-  print(head(comparison_df, 15))
-  
-  write.csv(comparison_df, 
-            paste0("importance_comparison_", biomarker, ".csv"),
-            row.names = FALSE)
-}
+ggsave("Adj_R2_comparison_lean_vs_t1d.png", p_adj_r2, width = 10, height = 6, dpi = 300, bg = "white")
+ggsave("Adj_R2_comparison_lean_vs_t1d.pdf", p_adj_r2, width = 10, height = 6)
 
 # Save all results
 save(all_results, all_performance, all_variable_importance,
-     file = "complete_analysis_results.RData")
+     file = "complete_analysis_results_lean_vs_t1d.RData")
 
 
