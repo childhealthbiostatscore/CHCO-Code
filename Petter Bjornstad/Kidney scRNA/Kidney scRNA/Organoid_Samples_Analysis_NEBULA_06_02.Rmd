@@ -204,9 +204,9 @@ harm_meta_data <- read.csv(temp_file)
 # s3$download_file("gsea", "gmt_files/c2.cp.kegg_legacy.v2024.1.Hs.symbols.gmt", temp_file)
 # kegg <- GSA.read.gmt(temp_file)
 
-temp_file <- tempfile(fileext = ".gmt")
-s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
-c8 <- GSA.read.gmt(temp_file)
+# temp_file <- tempfile(fileext = ".gmt")
+# s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
+# c8 <- GSA.read.gmt(temp_file)
 
 #Load formatted organoid data
 gc()
@@ -1583,8 +1583,9 @@ DimPlot(so_15_annotated, reduction = "umap", raster = F)
 p <- DimPlot(so_15_annotated, reduction = "umap", group.by = "celltype_annotation", label=T,raster=T)+
   ggtitle(label="Low Resolution KPMP Celltypes (15 Glucose Conc.)")
 # png(fs::path(dir.results,"KPMP_LR_UMAP_Organoid_15.png"),width=3000,height=3000,res=300)
+png("/home/hhampson/Results/KPMP_LR_UMAP_Organoid_15.png",res=300,width=3000,height=3000)
 plot(p,asp = 1)
-# dev.off()
+dev.off()
 
 
 
@@ -1642,6 +1643,7 @@ so_15_annotated <- FindClusters(so_15_annotated, resolution = 0.5)
 
 # Perform UMAP and tSNE
 # so_liver_sc <- RunTSNE(so_15_annotated, dims = 1:20)
+so_15_annotated <- RunUMAP(so_15_annotated, dims = 1:30) #20 to 50 
 so_15_annotated@reductions
 DimPlot(so_15_annotated, reduction = "umap", raster = T)
 
@@ -3196,6 +3198,65 @@ all_viz$marker_plots$heatmap
 all_viz$summary_stats
 ```
 
+####III. Low resolution from KPMP Atlas
+```{r}
+###############################################################################################################
+#2. Low resolution from KPMP Atlas - https://www.nature.com/articles/s41586-023-05769-3
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "KPMP_Celltype_Markers_Low_Res.csv", temp_file)
+marker_df <- read.csv(temp_file)
+marker_df <- marker_df[-15,]
+# marker_df <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Data/KPMP_Celltype_Markers_Low_Res.csv")
+# marker_df <- marker_df[-15,]
+
+# Step 1: Validate markers (optional but recommended)
+validation_results <- validate_markers(so_30, marker_df)
+
+# Step 2: Annotate your Seurat object
+annotation_results <- annotate_from_dataframe(
+  seurat_obj = so_30,
+  marker_df = marker_df,
+  celltype_col = "Celltype",
+  marker_col = "Pos_Marker_Genes",
+  min_score_diff = 0.1
+)
+
+# Step 3: Extract results
+so_30_annotated <- annotation_results$seurat_object
+marker_genes_used <- annotation_results$marker_genes
+annotation_summary <- annotation_results$annotation_summary
+
+so_30_annotated <- NormalizeData(so_30_annotated)
+so_30_annotated <- ScaleData(so_30_annotated, features = VariableFeatures(so_30_annotated))
+so_30_annotated <- FindVariableFeatures(object = so_30_annotated)
+so_30_annotated <- RunPCA(so_30_annotated, features = VariableFeatures(object = so_30_annotated),assay="RNA")
+ElbowPlot(so_30_annotated)
+
+# # Find neighbors and clusters (again using integrated data)
+so_30_annotated <- FindNeighbors(so_30_annotated, assay = "RNA", dims = 1:20)
+so_30_annotated <- FindClusters(so_30_annotated, resolution = 0.5)
+
+# Perform UMAP and tSNE
+# so_liver_sc <- RunTSNE(so_30_annotated, dims = 1:20)
+# so_30_annotated <- RunUMAP(so_30_annotated, dims = 1:50) #20 to 50
+so_30_annotated <- RunUMAP(so_30_annotated, 
+                           dims = 1:30,           # or 1:30
+                           n.neighbors = 30,
+                           min.dist = 0.1,
+                           seed.use = 42)
+so_30_annotated@reductions
+DimPlot(so_30_annotated, reduction = "umap", raster = T)
+
+p <- DimPlot(so_30_annotated, reduction = "umap", group.by = "celltype_annotation", label=T,raster=T)+
+  ggtitle(label="Low Resolution KPMP Celltypes (30 Glucose Conc.)")
+# png(fs::path(dir.results,"KPMP_LR_UMAP_Organoid_30.png"),width=3000,height=3000,res=300)
+png("/home/hhampson/Results/KPMP_LR_UMAP_Organoid_30.png",res=300,width=3000,height=3000)
+plot(p,asp = 1)
+dev.off()
+```
+
 ##d. Annotate Organoid Data - Bottom Up
 ###i. 15 Glucose
 ```{r}
@@ -3214,7 +3275,7 @@ so_15 <- FindNeighbors(so_15, assay = "RNA", dims = 1:20)
 so_15 <- FindClusters(so_15, resolution = 0.5)
 
 # Perform UMAP and tSNE
-so_liver_sc <- RunUMAP(so_liver_sc, dims = 1:50)
+so_15 <- RunUMAP(so_15, dims = 1:30)
 so_15@reductions
 DimPlot(so_15, reduction = "umap", raster = F)
 
@@ -3237,37 +3298,50 @@ print(marker_summary)
 
 # Get top 20 markers per cluster
 top_20_markers <- get_top_markers(all_markers, top_n = 20)
+# write.csv(top_20_markers,"/home/hhampson/Results/top_20_markers_15.csv")
 
-# # Get top 10 markers per cluster
-# top_10_markers <- get_top_markers(all_markers, top_n = 10)
-# 
-# # Get top 5 markers per cluster for cleaner visualization
-# top_5_markers <- get_top_markers(all_markers, top_n = 5)
-# 
-# # Print top 5 markers for each cluster
-# for (cluster_id in unique(top_5_markers$cluster)) {
-#   cluster_markers <- top_5_markers %>% filter(cluster == cluster_id)
-#   cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
-# }
-# 
-# 
-# # Create dot plot with top 5 markers
-# dotplot_5 <- create_marker_dotplot(so_15, all_markers, top_n = 5, 
+
+# Get top 10 markers per cluster
+top_10_markers <- get_top_markers(all_markers, top_n = 10)
+
+# Get top 5 markers per cluster for cleaner visualization
+top_5_markers <- get_top_markers(all_markers, top_n = 1)
+
+# Print top 5 markers for each cluster
+for (cluster_id in unique(top_5_markers$cluster)) {
+  cluster_markers <- top_5_markers %>% filter(cluster == cluster_id)
+  cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
+}
+
+# Print top 20 markers for each cluster
+for (cluster_id in unique(top_20_markers$cluster)) {
+  cluster_markers <- top_20_markers %>% filter(cluster == cluster_id)
+  cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
+}
+
+
+
+# # Create dot plot with top 20 markers
+# dotplot_5 <- create_marker_dotplot(so_15, all_markers, top_n = 5,
 #                                    title = "Top 5 Marker Genes by Cluster")
 # print(dotplot_5)
-# 
-# # Create dot plot with top 10 markers (might be crowded)
-# dotplot_10 <- create_marker_dotplot(so_15, all_markers, top_n = 10, 
-#                                     title = "Top 10 Marker Genes by Cluster")
-# print(dotplot_10)
-# png(fs::path(dir.results,"dotplot_avg_expression.png"), 
-#     width = 10, 
-#     height = 10, 
-#     units = "in",
-#     res = 300,
-#     bg = "white")
-# print(dotplot_10)
+
+# Create dot plot with top 10 markers (might be crowded)
+dotplot_20 <- create_marker_dotplot(so_15, all_markers, top_n = 20,
+                                    title = "Top 20 Marker Genes by Cluster")
+print(dotplot_20)
+# png(fs::path(dir.results,"dotplot_avg_expression.png"),
+    # width = 10,
+    # height = 10,
+    # units = "in",
+    # res = 300,
+    # bg = "white")
+# print(dotplot_20)
 # dev.off()
+png("/home/hhampson/Results/dotplot_avg_exp_top20_15.png",res=300,width=5000,height=2500)
+print(dotplot_20)
+dev.off()
+
 
 # Create heatmap
 # This scales all genes to ensure marker genes are included
@@ -3285,7 +3359,106 @@ png("/Home/hhampson/Results/heatmap_avg_exp_top20.png",res=300,width=2500,height
 print(heatmap_plot_fixed)
 dev.off()
 ```
+###ii. 30 Glucose
+```{r}
+#Select 30 conc. only
+so_30 <- subset(sc_org,treatment=="30")
 
+# PCA
+so_30 <- NormalizeData(so_30)
+so_30 <- ScaleData(so_30, features = VariableFeatures(so_30))
+so_30 <- FindVariableFeatures(object = so_30)
+so_30 <- RunPCA(so_30, features = VariableFeatures(object = so_30),assay="RNA")
+# ElbowPlot(so_30)
+
+# # Find neighbors and clusters (again using integrated data)
+so_30 <- FindNeighbors(so_30, assay = "RNA", dims = 1:20)
+so_30 <- FindClusters(so_30, resolution = 0.5)
+
+# Perform UMAP 
+so_30 <- RunUMAP(so_30, dims = 1:30)
+so_30@reductions
+DimPlot(so_30, reduction = "umap", raster = T)
+
+
+# Find markers for all clusters
+all_markers <- FindAllMarkers(so_30, 
+                              only.pos = TRUE,     # Only positive markers
+                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
+                              logfc.threshold = 0.25,  # Minimum log fold change
+                              test.use = "wilcox")  # Wilcoxon test
+marker_summary <- all_markers %>%
+  group_by(cluster) %>%
+  summarise(
+    n_markers = n(),
+    avg_logfc = mean(avg_log2FC),
+    top_marker = gene[which.max(avg_log2FC)],
+    .groups = 'drop'
+  )
+print(marker_summary)
+
+# Get top 20 markers per cluster
+top_20_markers <- get_top_markers(all_markers, top_n = 20)
+
+# Get top 10 markers per cluster
+top_10_markers <- get_top_markers(all_markers, top_n = 10)
+
+# Get top 5 markers per cluster for cleaner visualization
+top_5_markers <- get_top_markers(all_markers, top_n = 5)
+
+# Print top 5 markers for each cluster
+for (cluster_id in unique(top_5_markers$cluster)) {
+  cluster_markers <- top_5_markers %>% filter(cluster == cluster_id)
+  cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
+}
+
+# Print top 20 markers for each cluster
+for (cluster_id in unique(top_20_markers$cluster)) {
+  cluster_markers <- top_20_markers %>% filter(cluster == cluster_id)
+  cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
+}
+
+
+
+# Create dot plot with top 20 markers
+dotplot_5 <- create_marker_dotplot(so_30, all_markers, top_n = 5,
+                                   title = "Top 5 Marker Genes by Cluster")
+print(dotplot_5)
+
+# Create dot plot with top 10 markers (might be crowded)
+dotplot_20 <- create_marker_dotplot(so_30, all_markers, top_n = 20,
+                                    title = "Top 20 Marker Genes by Cluster")
+print(dotplot_20)
+# png(fs::path(dir.results,"dotplot_avg_expression.png"),
+    # width = 10,
+    # height = 10,
+    # units = "in",
+    # res = 300,
+    # bg = "white")
+# print(dotplot_20)
+# dev.off()
+png("/home/hhampson/Results/dotplot_avg_exp_top20_30.png",res=300,width=6000,height=3000)
+print(dotplot_20)
+dev.off()
+
+# write.csv(top_20_markers,"/home/hhampson/Results/top_20_markers_30.csv")
+
+# Create heatmap
+# This scales all genes to ensure marker genes are included
+heatmap_result <- fix_scaling_and_create_heatmap(so_30, all_markers, top_n = 20)
+# so_30 <- heatmap_result$so_30  # Update with properly scaled data
+heatmap_plot_fixed <- heatmap_result$heatmap
+print(heatmap_plot_fixed)
+# png(fs::path(dir.results,"heatmap_avg_expression.png"), 
+#     width = 30, 
+#     height = 10, 
+#     units = "in",
+#     res = 300,
+#     bg = "white")
+png("/Home/hhampson/Results/heatmap_avg_exp_top20.png",res=300,width=2500,height=2500)
+print(heatmap_plot_fixed)
+dev.off()
+```
 
 ```{r}
 literature_annotations <- data.frame(
@@ -4013,9 +4186,14 @@ so_15 <- FindNeighbors(so_15, assay = "RNA", dims = 1:20)
 so_15 <- FindClusters(so_15, resolution = 0.5)
 
 # Perform UMAP and tSNE
-so_15 <- RunUMAP(so_15, dims = 1:25) #20 to 50 
+so_15 <- RunUMAP(so_15, dims = 1:30) #20 to 50 
 so_15@reductions
 DimPlot(so_15, reduction = "umap", raster = T)
+
+#Save umap 15
+png("/home/hhampson/Results/UMAP_15.png",width = 3000, height = 3000, res=300)
+DimPlot(so_15, reduction = "umap", raster = T)
+dev.off()
 
 so_15$ScType_Kidney_human <- so_15$`ScType-Kidney-human`
 
@@ -4210,9 +4388,15 @@ so_30 <- FindNeighbors(so_30, assay = "RNA", dims = 1:20)
 so_30 <- FindClusters(so_30, resolution = 0.5)
 
 # Perform UMAP and tSNE
-# so_liver_sc <- RunUMAP(so_liver_sc, dims = 1:15)
+so_30 <- RunUMAP(so_30, dims = 1:30) #20 to 50 
 so_30@reductions
 DimPlot(so_30, reduction = "umap", raster = F)
+
+#Save umap 30
+png("/home/hhampson/Results/UMAP_30.png",width = 3000, height = 3000, res=300)
+DimPlot(so_30, reduction = "umap", raster = T)
+dev.off()
+
 
 so_30$ScType_Kidney_human <- so_30$`ScType-Kidney-human`
 

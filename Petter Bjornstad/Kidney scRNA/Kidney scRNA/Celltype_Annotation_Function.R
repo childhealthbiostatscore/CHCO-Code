@@ -1753,7 +1753,7 @@ create_marker_heatmap <- function(seurat_obj, markers_df, top_n = 5) {
   return(p)
 }
 
-fix_scaling_and_create_heatmap <- function(seurat_obj, markers_df, top_n = 5) {
+fix_scaling_and_create_heatmap <- function(seurat_obj, markers_df, top_n = 20) {
   
   cat("Fixing scaling issues and creating heatmap...\n")
   
