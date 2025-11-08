@@ -215,6 +215,26 @@ temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
 s3$download_file(bucket, "Kidney organoids/organoids_processed_matrix.rds", temp_file)
 sc_org <- readRDS(temp_file)
 
+
+#Load kidney cell type annotations
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "Kidney organoids/top_20_markers_15.csv", temp_file)
+annot_15 <- read.csv(temp_file)
+annot_15 <- annot_15 %>% 
+  dplyr::select(c("cluster","Celltype")) %>% 
+  distinct()
+  
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "Kidney organoids/top_20_markers_30.csv", temp_file)
+annot_30 <- read.csv(temp_file)
+annot_30 <- annot_30 %>% 
+  dplyr::select(c("cluster","Celltype")) %>% 
+  distinct()
+
 ```
 
 ##b. Local Data Load
@@ -3259,6 +3279,7 @@ dev.off()
 
 ##d. Annotate Organoid Data - Bottom Up
 ###i. 15 Glucose
+####I. Find Markers
 ```{r}
 #Select 15 conc. only
 so_15 <- subset(sc_org,treatment=="15")
@@ -3359,6 +3380,36 @@ png("/Home/hhampson/Results/heatmap_avg_exp_top20.png",res=300,width=2500,height
 print(heatmap_plot_fixed)
 dev.off()
 ```
+####II. Annotate
+```{r}
+# Add cell type annotations to metadata
+# Mapping clusters 0-16 to cell types
+cell_type_annotations <- c(
+  "Cluster 0" = "proliferative nephron progenitor",
+  "Cluster 1" = "Stromal/Interstitial Cells",
+  "Cluster 2" = "podocytes",
+  "Cluster 3" = "Earlier/immature Proximal Tubule",
+  "Cluster 4" = "Collecting Duct Principal Cells",
+  "Cluster 5" = "thick ascending limb (TAL)",
+  "Cluster 6" = "Distal convoluted tubule (DCT)",
+  "Cluster 7" = "Type A intercalated cells",
+  "Cluster 8" = "endothelial cells",
+  "Cluster 9" = "off-target neural/neuronal cells",
+  "Cluster 10" = "More mature/differentiated Proximal Tubule",
+  "Cluster 11" = "Parietal Epithelial Cells (PECs)",
+  "Cluster 12" = "Mesangial Cells/Pericytes",
+  "Cluster 13" = "Stromal/Interstitial Progenitor Cells",
+  "Cluster 14" = "Nephron Progenitor Cells (Cap Mesenchyme)",
+  "Cluster 15" = "Proximal Tubule Progenitor/Precursor Cells",
+  "Cluster 16" = "Off-target Melanocyte/Neural Crest-like Cells"
+)
+
+# Add cell type annotations to metadata
+so_15$celltype <- cell_type_annotations[as.character(Idents(so_15))]
+
+```
+
+
 ###ii. 30 Glucose
 ```{r}
 #Select 30 conc. only
