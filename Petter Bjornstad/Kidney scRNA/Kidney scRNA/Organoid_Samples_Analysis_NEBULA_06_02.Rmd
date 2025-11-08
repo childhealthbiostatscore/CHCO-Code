@@ -1493,19 +1493,20 @@ so_15_annotated <- RunPCA(so_15_annotated, features = VariableFeatures(object = 
 # ElbowPlot(so_15_annotated)
 
 # # Find neighbors and clusters (again using integrated data)
-so_15_annotated <- FindNeighbors(so_15_annotated, assay = "RNA", dims = 1:20)
+so_15_annotated <- FindNeighbors(so_15_annotated, assay = "RNA", dims = 1:50)
 so_15_annotated <- FindClusters(so_15_annotated, resolution = 0.5)
 
 # Perform UMAP and tSNE
 #so_15_annotated <- RunTSNE(so_15_annotated, dims = 1:20)
+so_15_annotated <- RunUMAP(so_15_annotated, dims = 1:50) #20 to 50
 so_15_annotated@reductions
 DimPlot(so_15_annotated, reduction = "umap", raster = T)
 
 p <- DimPlot(so_15_annotated, reduction = "umap", group.by = "celltype_annotation", label = T,raster = T)+
   ggtitle(label="Low-Resolution KPMP Celltypes (15 Glucose Conc.)")
-png(fs::path(dir.results,"Raji_UMAP_Organoid_15.png"),width=3000,height=3000,res=300)
+# png(fs::path(dir.results,"Raji_UMAP_Organoid_15.png"),width=3000,height=3000,res=300)
 plot(p,asp = 1)
-dev.off()
+# dev.off()
 
 
 # DimPlot(so_15_annotated, reduction = "pca", group.by = "celltype_annotation", label = T,raster = T)+
@@ -1526,17 +1527,20 @@ dev.off()
 # }
 # print(plots$confidence_plot)
 
+```
 
+####III. Low resolution from KPMP Atlas
+```{r}
 ###############################################################################################################
 #2. Low resolution from KPMP Atlas - https://www.nature.com/articles/s41586-023-05769-3
-# gc()
-# bucket <- "harmonized.dataset" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-# s3$download_file(bucket, "KPMP_Celltype_Markers_Low_Res.csv", temp_file)
-# marker_df <- read.csv(temp_file)
-# marker_df <- marker_df[-15,]
-marker_df <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Data/KPMP_Celltype_Markers_Low_Res.csv")
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "KPMP_Celltype_Markers_Low_Res.csv", temp_file)
+marker_df <- read.csv(temp_file)
 marker_df <- marker_df[-15,]
+# marker_df <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Data/KPMP_Celltype_Markers_Low_Res.csv")
+# marker_df <- marker_df[-15,]
 
 # Step 1: Validate markers (optional but recommended)
 validation_results <- validate_markers(so_15, marker_df)
@@ -1567,34 +1571,43 @@ so_15_annotated <- FindClusters(so_15_annotated, resolution = 0.5)
 
 # Perform UMAP and tSNE
 # so_liver_sc <- RunTSNE(so_15_annotated, dims = 1:20)
+# so_15_annotated <- RunUMAP(so_15_annotated, dims = 1:50) #20 to 50
+so_15_annotated <- RunUMAP(so_15_annotated, 
+                           dims = 1:50,           # or 1:30
+                           n.neighbors = 15,
+                           min.dist = 0.1,
+                           seed.use = 42)
 so_15_annotated@reductions
 DimPlot(so_15_annotated, reduction = "umap", raster = F)
 
 p <- DimPlot(so_15_annotated, reduction = "umap", group.by = "celltype_annotation", label=T,raster=T)+
   ggtitle(label="Low Resolution KPMP Celltypes (15 Glucose Conc.)")
-png(fs::path(dir.results,"KPMP_LR_UMAP_Organoid_15.png"),width=3000,height=3000,res=300)
+# png(fs::path(dir.results,"KPMP_LR_UMAP_Organoid_15.png"),width=3000,height=3000,res=300)
 plot(p,asp = 1)
-dev.off()
+# dev.off()
 
 
 
-DimPlot(so_15_annotated, reduction = "pca", group.by = "celltype_annotation", label=T,raster=T)+
-  ggtitle(label="Low Resolution KPMP Celltypes (15 Glucose Conc.)")
+# DimPlot(so_15_annotated, reduction = "pca", group.by = "celltype_annotation", label=T,raster=T)+
+#   ggtitle(label="Low Resolution KPMP Celltypes (15 Glucose Conc.)")
 # DimPlot(so_15_annotated, reduction = "harmony", group.by = "celltype_annotation", raster = FALSE)+
 #   ggtitle(label="Low Resolution KPMP Celltypes")
 # DimPlot(so_15_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation", raster = FALSE)+
 #   ggtitle(label="Low Resolution KPMP Celltypes")
 # DimPlot(so_15_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation", raster = FALSE)+
 #   ggtitle(label="Low Resolution KPMP Celltypes")
+```
 
+####IV. High resolution from KPMP Atlas
+```{r}
 ###############################################################################
 #3. High resolution from KPMP Atlas - https://www.nature.com/articles/s41586-023-05769-3
-# gc()
-# bucket <- "harmonized.dataset" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-# s3$download_file(bucket, "KPMP_Celltype_Markers_High_Res.csv", temp_file)
-# marker_df <- read.csv(temp_file)
-marker_df <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Data/KPMP_Celltype_Markers_High_Res.csv")
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "KPMP_Celltype_Markers_High_Res.csv", temp_file)
+marker_df <- read.csv(temp_file)
+# marker_df <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Data/KPMP_Celltype_Markers_High_Res.csv")
 # marker_df <- marker_df[-15,]
 
 # Step 1: Validate markers (optional but recommended)
@@ -1634,9 +1647,9 @@ DimPlot(so_15_annotated, reduction = "umap", raster = T)
 
 p <- DimPlot(so_15_annotated, reduction = "umap", group.by = "celltype_annotation_dual", label=T,raster = T)+
   ggtitle(label="High-Resolution KPMP Celltypes (15 Glucose Conc.)")
-png(fs::path(dir.results,"KPMP_HR_UMAP_Organoid_15.png"),width=3000,height=3000,res=300)
+# png(fs::path(dir.results,"KPMP_HR_UMAP_Organoid_15.png"),width=3000,height=3000,res=300)
 plot(p,asp = 1)
-dev.off()
+# dev.off()
 
 # DimPlot(so_15_annotated, reduction = "pca", group.by = "celltype_annotation", label=T,raster = T)+
 #   ggtitle(label="High-Resolution KPMP Celltypes (15 Glucose Conc.)")
@@ -1648,6 +1661,10 @@ dev.off()
 #   ggtitle(label="High-Resolution KPMP Celltypes")
 # DimPlot(so_15_annotated, reduction = "pca_for_harmony", group.by = "celltype_annotation_dual", raster = T)+
 #   ggtitle(label="High-Resolution KPMP Celltypes")
+```
+
+
+```{r}
 ###############################################################################
 #4. Low Resolution D29 Kidney Organoid Markers: https://www.nature.com/articles/s41467-019-13382-0#MOESM1
 organoid_markers_simple <- list(
@@ -3197,7 +3214,7 @@ so_15 <- FindNeighbors(so_15, assay = "RNA", dims = 1:20)
 so_15 <- FindClusters(so_15, resolution = 0.5)
 
 # Perform UMAP and tSNE
-# so_liver_sc <- RunUMAP(so_liver_sc, dims = 1:15)
+so_liver_sc <- RunUMAP(so_liver_sc, dims = 1:50)
 so_15@reductions
 DimPlot(so_15, reduction = "umap", raster = F)
 
@@ -3218,52 +3235,59 @@ marker_summary <- all_markers %>%
   )
 print(marker_summary)
 
-# Get top 10 markers per cluster
-top_10_markers <- get_top_markers(all_markers, top_n = 10)
+# Get top 20 markers per cluster
+top_20_markers <- get_top_markers(all_markers, top_n = 20)
 
-# Get top 5 markers per cluster for cleaner visualization
-top_5_markers <- get_top_markers(all_markers, top_n = 5)
-
-# Print top 5 markers for each cluster
-for (cluster_id in unique(top_5_markers$cluster)) {
-  cluster_markers <- top_5_markers %>% filter(cluster == cluster_id)
-  cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
-}
-
-
-# Create dot plot with top 5 markers
-dotplot_5 <- create_marker_dotplot(so_15, all_markers, top_n = 5, 
-                                   title = "Top 5 Marker Genes by Cluster")
-print(dotplot_5)
-
-# Create dot plot with top 10 markers (might be crowded)
-dotplot_10 <- create_marker_dotplot(so_15, all_markers, top_n = 10, 
-                                    title = "Top 10 Marker Genes by Cluster")
-print(dotplot_10)
-png(fs::path(dir.results,"dotplot_avg_expression.png"), 
-    width = 10, 
-    height = 10, 
-    units = "in",
-    res = 300,
-    bg = "white")
-print(dotplot_10)
-dev.off()
+# # Get top 10 markers per cluster
+# top_10_markers <- get_top_markers(all_markers, top_n = 10)
+# 
+# # Get top 5 markers per cluster for cleaner visualization
+# top_5_markers <- get_top_markers(all_markers, top_n = 5)
+# 
+# # Print top 5 markers for each cluster
+# for (cluster_id in unique(top_5_markers$cluster)) {
+#   cluster_markers <- top_5_markers %>% filter(cluster == cluster_id)
+#   cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
+# }
+# 
+# 
+# # Create dot plot with top 5 markers
+# dotplot_5 <- create_marker_dotplot(so_15, all_markers, top_n = 5, 
+#                                    title = "Top 5 Marker Genes by Cluster")
+# print(dotplot_5)
+# 
+# # Create dot plot with top 10 markers (might be crowded)
+# dotplot_10 <- create_marker_dotplot(so_15, all_markers, top_n = 10, 
+#                                     title = "Top 10 Marker Genes by Cluster")
+# print(dotplot_10)
+# png(fs::path(dir.results,"dotplot_avg_expression.png"), 
+#     width = 10, 
+#     height = 10, 
+#     units = "in",
+#     res = 300,
+#     bg = "white")
+# print(dotplot_10)
+# dev.off()
 
 # Create heatmap
 # This scales all genes to ensure marker genes are included
-heatmap_result <- fix_scaling_and_create_heatmap(so_15, all_markers, top_n = 5)
+heatmap_result <- fix_scaling_and_create_heatmap(so_15, all_markers, top_n = 20)
 # so_15 <- heatmap_result$so_15  # Update with properly scaled data
 heatmap_plot_fixed <- heatmap_result$heatmap
 print(heatmap_plot_fixed)
-png(fs::path(dir.results,"heatmap_avg_expression.png"), 
-    width = 15, 
-    height = 10, 
-    units = "in",
-    res = 300,
-    bg = "white")
+# png(fs::path(dir.results,"heatmap_avg_expression.png"), 
+#     width = 15, 
+#     height = 10, 
+#     units = "in",
+#     res = 300,
+#     bg = "white")
+png("/Home/hhampson/Results/heatmap_avg_exp_top20.png",res=300,width=2500,height=2500)
 print(heatmap_plot_fixed)
 dev.off()
+```
 
+
+```{r}
 literature_annotations <- data.frame(
   cluster = 0:16,
   celltype = c(
@@ -3985,11 +4009,11 @@ so_15 <- RunPCA(so_15, features = VariableFeatures(object = so_15),assay="RNA")
 # ElbowPlot(so_15)
 
 # # Find neighbors and clusters (again using integrated data)
-so_15 <- FindNeighbors(so_15, assay = "RNA", dims = 1:50)
+so_15 <- FindNeighbors(so_15, assay = "RNA", dims = 1:20)
 so_15 <- FindClusters(so_15, resolution = 0.5)
 
 # Perform UMAP and tSNE
-so_15 <- RunUMAP(so_15, dims = 1:50) #20 to 50 
+so_15 <- RunUMAP(so_15, dims = 1:25) #20 to 50 
 so_15@reductions
 DimPlot(so_15, reduction = "umap", raster = T)
 
