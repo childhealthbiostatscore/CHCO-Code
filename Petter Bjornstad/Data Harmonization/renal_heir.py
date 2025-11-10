@@ -136,6 +136,14 @@ def clean_renal_heir():
     # Replace 0/1 values with yes/no
     epic_med.iloc[:, 1:] = epic_med.iloc[:, 1:].replace(
         {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    epic_med['epic_glp1ra_1'] = epic_med['epic_glp1ra_1'].replace(
+                {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    epic_med['epic_glp1ra_2'] = epic_med['epic_glp1ra_2'].replace(
+                {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    epic_med['epic_ever_glp1ra_1'] = epic_med['epic_ever_glp1ra_1'].replace(
+                {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    epic_med['epic_ever_glp1ra_2'] = epic_med['epic_ever_glp1ra_2'].replace(
+                {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
     epic_med["procedure"] = "epic_medications"
     epic_med["visit"] = "baseline"    
     
@@ -173,6 +181,7 @@ def clean_renal_heir():
     screen.rename({"serum_creatinine": "creatinine_s", "urine_acr": "acr_u",
                    "urine_mab": "microalbumin_u", "urine_cre": "creatinine_u"},
                   axis=1, inplace=True)
+    print("Number of acr_u values:", screen['acr_u'].notna().sum())
     screen["procedure"] = "screening"
     screen["visit"] = "baseline"
 
@@ -465,6 +474,8 @@ def clean_renal_heir():
     # --------------------------------------------------------------------------
     # Reorganize
     # --------------------------------------------------------------------------
+    print("Number of acr_u values:", df['acr_u'].notna().sum())
+
 
     df["study"] = "RENAL-HEIR"
     id_cols = ["subject_id", "co_enroll_id", "study"] + \

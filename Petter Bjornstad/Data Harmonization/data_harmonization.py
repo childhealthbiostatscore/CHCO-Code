@@ -477,6 +477,11 @@ def harmonize_data():
 
     # Step 6: Drop pi_copeptin column (all handled)
     harmonized.drop(columns=['pi_copeptin'], inplace=True)
+
+    #aer_24 = (u24_mab * u24_vl) / 1440
+    #bsa_dubois = 0.007184 × W^0.425 × H^0.725
+    harmonized["aer_24"] = (pd.to_numeric(harmonized["u24_mab"], errors="coerce") * pd.to_numeric(harmonized["u24_vl"], errors="coerce")) / 1440
+    harmonized["bsa_dubois"] = 0.007184 * (pd.to_numeric(harmonized["weight"], errors="coerce")**0.425) * (pd.to_numeric(harmonized["height"], errors="coerce")**0.725)
    
     dictionary.loc[dictionary['variable_name'] == 'copeptin', 'form_name'] = 'copeptin'
     dictionary.loc[dictionary['variable_name'] == 'ace_inhibitor', 'form_name'] = 'medical_history'
