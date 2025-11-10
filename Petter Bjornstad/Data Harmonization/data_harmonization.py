@@ -95,7 +95,7 @@ def harmonize_data():
     dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
 
     
-  
+
                            
     # Fix levels of categorical variables
     harmonized["visit"] = \
@@ -213,6 +213,7 @@ def harmonize_data():
     # ----------------------
     # Calculated variables
     # ----------------------
+
 
     # Age
     print("\nStudies with dob:")
@@ -487,6 +488,7 @@ def harmonize_data():
     dictionary.loc[dictionary['variable_name'] == 'ace_inhibitor', 'form_name'] = 'medical_history'
     dictionary.loc[dictionary['variable_name'] == 'acprg', 'form_name'] = 'clamp'
     dictionary.loc[dictionary['variable_name'] == 'acr_u_pm', 'form_name'] = 'clamp'
+
 
     harmonized = biopsy_merge(harmonized)
 

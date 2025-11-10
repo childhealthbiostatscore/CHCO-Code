@@ -219,22 +219,31 @@ def biopsy_merge(harmonized):
     
     # Remove nulls from biopsy lookup
     biopsy_lookup = biopsy_lookup.dropna(subset=['record_id', 'date', 'kit_id_biopsy'])
+    print("#1 Number of kit_id in CASPER data:", harmonized[harmonized['study'] == 'CASPER']['kit_id'].nunique())
+
     
     # STEP 1: Filter to ONLY kidney biopsy rows
     kidney_biopsy_rows = harmonized['procedure'] == 'kidney_biopsy'
     kb_subset = harmonized[kidney_biopsy_rows].copy()
-    
+    print("#2 Number of kit_id in CASPER data:", harmonized[harmonized['study'] == 'CASPER']['kit_id'].nunique())
+
     # STEP 2: Merge on record_id AND date (so only matching rows get kit_id_biopsy)
     merged = kb_subset.merge(
-        biopsy_lookup[['record_id', 'date', 'kit_id_biopsy']],
-        on=['record_id', 'date'],  # <-- Both must match
-        how='left'  # <-- Keeps all kb rows, fills kit_id_biopsy only where match exists
+        biopsy_lookup,
+        on=['record_id', 'date'],
+        how='left'
     )
+    print("#3 Number of kit_id in CASPER data:", harmonized[harmonized['study'] == 'CASPER']['kit_id'].nunique())
+
     
     # STEP 3: Update ONLY the rows that:
     #   - Are kidney biopsies (already filtered in kb_subset)
     #   - Have matching record_id AND date (from the merge)
     #   - Actually have a kit_id_biopsy value (merge put NaN for non-matches)
-    harmonized.loc[merged.index, 'kit_id'] = merged['kit_id_biopsy']
-    
+    harmonized.loc[kidney_biopsy_rows, 'kit_id'] = harmonized.loc[kidney_biopsy_rows, 'kit_id'].combine_first(
+        merged['kit_id_biopsy']
+    )
+
+    print("#4 Number of kit_id in CASPER data:", harmonized[harmonized['study'] == 'CASPER']['kit_id'].nunique())
+
     return harmonized
