@@ -1,0 +1,1153 @@
+---
+title: "Organoid Samples Analysis"
+author: "Hailey Hampson"
+date: "2025-04-16"
+output: html_document
+---
+
+#1.Set Up 
+```{r,include=FALSE}
+library(reprex)
+library(tidyverse)
+library(BiocManager)        
+library(arsenal)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(Seurat)
+library(future)
+library(colorspace)
+library(patchwork)
+library(ggdendro)
+library(cowplot)
+library(ggpubr)
+library(venn)
+library(rstatix)
+library(table1)
+library(Biobase)
+library(ReactomeGSA)
+library(GSEABase)
+library(msigdbr)
+library(kableExtra)
+library(knitr)
+library(SingleCellExperiment)
+library(fgsea)
+library(EnhancedVolcano)
+library(openxlsx)
+library(BiocManager)
+# library(MAST)
+library(ggrepel)
+# library(qpcR)
+library(ggpubr)
+library(openxlsx)
+library(ggplot2)
+library(GGally)
+library(GSEABase)
+library(limma)
+library(reshape2)
+library(data.table)
+library(knitr)
+# library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+library(stringr)
+#library(NMF)
+library(rsvd)
+library(RColorBrewer)
+# library(MAST)
+library(devtools)
+# install_github("Sun-lab/ideas",force=T)
+#library(ideas)
+library(foreach)
+library(parallel)
+library(doRNG)
+library(doParallel)
+library(fs)
+# registerDoParallel(cores = 6)
+library(VennDiagram)
+library(janitor)
+# devtools::install_github('immunogenomics/presto')
+# library(presto)
+library(knitr)
+library(lme4)
+library(lmerTest)
+#install.packages("glmmTMB")
+# Reinstall glmmTMB from source
+# install.packages("glmmTMB", type = "source")
+library(glmmTMB)
+# Install DoubletFinder (if not already installed)
+# devtools::install_github("chris-mcginnis-ucsf/DoubletFinder",force=T)
+# Load the package
+# Install DoubletFinder from GitHub (use devtools to install)
+# if (!requireNamespace("devtools", quietly = TRUE)) install.packages("devtools")
+# devtools::install_github("chris-mcginnis-ucsf/DoubletFinder",force=T)
+# library(DoubletFinder)
+# install.packages("emmeans")
+library(emmeans)
+library(pheatmap)
+library(enrichplot)
+library(enrichR)
+dbs <- c("GO_Biological_Process_2023", 
+         "KEGG_2021_Human",
+         # "Reactome_2022", 
+         "Reactome_Pathways_2024",
+         # "MSigDB_Oncogenic_Signatures",
+         # "MSigDB_Computational",
+         "MSigDB_Hallmark_2020")
+dbs_celltype <- c(
+  "GO_Biological_Process_2023",
+  "KEGG_2021_Human",
+  "Reactome_Pathways_2024",
+  "MSigDB_Hallmark_2020",
+  # Cell type specific databases
+  "CellMarker_2024",  # Cell type marker genes
+  "Azimuth_Cell_Types_2021",  # Cell type signatures
+  "PanglaoDB_Augmented_2021",  # Single-cell markers
+  "Descartes_Cell_Types_and_Tissue_2021",  # Developmental cell types
+  "Human_Gene_Atlas",  # Tissue/cell expression
+  "ARCHS4_Tissues"  # Tissue expression
+)
+# BiocManager::install("edgeR",force=T)
+library(edgeR)
+library(devtools)
+# install_github("lhe17/nebula")
+# library(nebula)
+
+# remove.packages("boot")  # Remove broken version
+# install.packages("boot", type = "source")  # Reinstall from source
+library(boot)
+library(furrr)
+library(future)
+# BiocManager::install("scran")
+library(scran)
+library(BiocParallel)
+# library(DESeq2)
+if (!require("GSA", quietly = TRUE)) {
+  install.packages("GSA")
+}
+library(GSA)
+
+# #Mac laptop
+# dir.dat <- c("//Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
+# dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/scRNA")
+# dir.code <- c("/Users/hhampson/Documents/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
+# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
+
+# #Mac Studio File Path
+# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+# dir.dat2 <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/scRNA")
+# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Kidney scRNAseq Project/Organoid Results/NEBULA")
+
+##c. Load functions ----
+source("Kidney_functions_sc.R")
+source("Rename_Seurat_Function.R")
+source("Celltype_Annotation_Function.R")
+```
+
+## a. Lambda Data Load
+```{r, Cyberduck setup,include=F,echo=F}
+install.packages("reticulate")
+library(reticulate)
+reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
+
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+# install.packages("jsonlite")  # Install if not already installed
+library(jsonlite)  # Load the package
+
+keys <- fromJSON("/home/hhampson/keys.json") # replace with your Lambda username
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+
+#Load kidney scRNAseq PB90
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
+so_kpmp_sc <- readRDS(temp_file)
+
+#Load harmonized data for biopsy
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
+harm_meta_data <- read.csv(temp_file)
+
+#Load celltype annotation database
+temp_file <- tempfile(fileext = ".gmt")
+s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
+c8 <- GSA.read.gmt(temp_file)
+
+#Load formatted organoid data
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "Kidney organoids/organoids_processed_matrix.rds", temp_file)
+sc_org <- readRDS(temp_file)
+
+#Load kidney cell type annotations
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "Kidney organoids/top_20_markers_15.csv", temp_file)
+annot_15 <- read.csv(temp_file)
+annot_15 <- annot_15 %>% 
+  dplyr::select(c("cluster","Celltype")) %>% 
+  distinct()
+  
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "Kidney organoids/top_20_markers_30.csv", temp_file)
+annot_30 <- read.csv(temp_file)
+annot_30 <- annot_30 %>% 
+  dplyr::select(c("cluster","Celltype")) %>% 
+  distinct()
+
+#Load metadata for organoids
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
+harm_meta_data2 <- read.csv(temp_file)
+```
+
+# 2. Pre-Processing & Qualtiy Control
+## a. Load Data
+### i. Biopsy Data
+```{r,include=T,echo=T}
+#Human Biopsy samples in PB90 origional number of cells
+cells_all <-  ncol(so_kpmp_sc) #211218 cells before processing
+genes_all <- nrow(so_kpmp_sc) # 31332 genes before processing
+print(paste0(cells_all," cells and ",genes_all," genes before processing in PB90"))
+
+#Set ids for organoid samples
+ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
+
+#Filter to organoid samples only
+so_kpmp_sc <- subset(so_kpmp_sc,record_id %in% ids)
+cells_org <-  ncol(so_kpmp_sc) #14348 cells before processing
+genes_org <- nrow(so_kpmp_sc) #31332 genes before processing
+print(paste0(cells_org," cells and ",genes_org," genes after filtering to 7 participants with organoid data"))
+
+#Format meta data
+harm_meta_data <- harm_meta_data %>%   
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>% 
+    dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                                     race == "Black or African American" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                                     T ~ "Not Hispanic or Latino Other"))
+
+#Filter to 7 organoid samples 
+meta <- harm_meta_data %>% 
+  filter(visit=="baseline") %>%
+  filter(record_id %in% ids)
+rm(harm_meta_data)
+
+#Select metadata from seurat object to facilitate merge of new metadata into seurat object
+meta_kidney_sc <-  so_kpmp_sc@meta.data
+rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
+
+#Merge metadata from 7 participants at baseline into seurat object metadata
+meta_kidney_sc <- meta_kidney_sc %>%
+  left_join(meta,by="kit_id")
+rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
+
+#Merge metadata back into seurat object
+so_kpmp_sc <- AddMetaData(so_kpmp_sc, meta_kidney_sc)
+
+#Check number of unique ids
+length(unique(so_kpmp_sc$kit_id)) #should be 7, "KL-0014631" "KL-0014639" "KL-0014642" "KL-0019100" "KL-0019103" "KL-0022163" "KL-0027475"
+
+#Remove metadatasets
+rm(meta_kidney_sc,meta)
+
+#Create medication & disease status groups of interest
+so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
+  mutate(glp1_sglt2=ifelse(epic_glp1ra_1=="Yes" & epic_sglti2_1=="Yes","Yes","No")) %>%
+  mutate(sglt2=ifelse(epic_sglti2_1=="Yes" & epic_glp1ra_1=="No","Yes","No")) %>%
+  mutate(glp1=ifelse(epic_sglti2_1=="No" & epic_glp1ra_1=="Yes","Yes","No")) %>%
+  mutate(no_med=ifelse(epic_sglti2_1=="No" & epic_glp1ra_1=="No","Yes","No"))
+
+#Define 4 exposure groups:
+#SGLT2i(+)/GLP1RA(+), SGLT2i(+)/GLP1RA(-), SGLT2i(-)/GLPRA(+), SGLT2i(-)/GLP1RA(-)
+invisible(gc())
+so_kpmp_sc@meta.data <- so_kpmp_sc@meta.data %>%
+  mutate(medication = case_when(glp1_sglt2 == "Yes" ~ "glp1_sglt2",
+                                sglt2 == "Yes" ~ "sglt2",
+                                glp1 == "Yes" ~ "glp1",
+                                no_med == "Yes" ~ "no_med"))
+# so_kpmp_sc@meta.data$medication <- factor(so_kpmp_sc@meta.data$medication, levels = c("no_med", "sglt2", "glp1","glp1_sglt2"))
+
+#Ensure default assay in seurat object to RNA
+DefaultAssay(so_kpmp_sc) <- "RNA"
+invisible(gc())
+
+#Perform Quality Control & Preprocessing Steps
+ncol(so_kpmp_sc) #11386 cells
+nrow(so_kpmp_sc) #31332 genes
+
+#YE JI's filtering code for percent expression
+expr_matrix <- as.matrix(GetAssayData(so_kpmp_sc, assay = "RNA", layer = "counts"))
+
+# Calculate the proportion of cells expressing each gene
+num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
+total_cells <- ncol(expr_matrix)  # Total number of cells
+gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
+remove(expr_matrix)
+
+# Keep genes expressed in at least "5%" of cells
+genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
+so_kpmp_sc <- subset(so_kpmp_sc, features = genes_to_keep)
+ncol(so_kpmp_sc) #14348 Cells
+nrow(so_kpmp_sc) #9249 genes
+
+#Remove mitochondrial genes (those starting with "MT-")
+mito_genes <- grep("^MT-", rownames(so_kpmp_sc), value = TRUE)
+so_kpmp_sc <- subset(so_kpmp_sc, features = setdiff(rownames(so_kpmp_sc), mito_genes))
+sum(grepl("^MT-", rownames(so_kpmp_sc))) #should be 0
+ncol(so_kpmp_sc) #14348 cells
+nrow(so_kpmp_sc) #9236 genes
+
+#Remove ribosomal Genes
+# Identify ribosomal genes
+ribo_genes <- c(
+  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
+  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
+  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
+  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
+  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
+  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
+  "RPL10", "RPS4Y1"
+)
+so_kpmp_sc <- subset(so_kpmp_sc, features = setdiff(rownames(so_kpmp_sc), ribo_genes))
+length(which(rownames(so_kpmp_sc) %in% ribo_genes)) #should be 0
+ncol(so_kpmp_sc) #14348 cells
+nrow(so_kpmp_sc) #9160 genes
+
+#Renormalize & Scale after filtering
+so_kpmp_sc <- NormalizeData(so_kpmp_sc)
+so_kpmp_sc <- ScaleData(so_kpmp_sc, features = VariableFeatures(so_kpmp_sc))
+
+# Calculate cell library size for offset in NEBULA 
+counts_layer <- round(GetAssayData(so_kpmp_sc, layer = "counts"))
+library_size <- Matrix::colSums(counts_layer)
+so_kpmp_sc$library_size <- library_size
+hist(so_kpmp_sc$library_size)
+
+# Pooled offset
+bp <- MulticoreParam(workers = 9)
+sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce, BPPARAM = bp)
+pooled_offset <- sizeFactors(sce)
+so_kpmp_sc$pooled_offset <- pooled_offset
+hist(so_kpmp_sc$pooled_offset)
+
+#Create pseudobulk cell type variable
+so_kpmp_sc$celltype1 <- case_when(grepl("PT-",so_kpmp_sc$celltype_rpca)~"PT",
+                                  grepl("TAL-",so_kpmp_sc$celltype_rpca)~"TAL",
+                                  grepl("EC-",so_kpmp_sc$celltype_rpca)~"EC",
+                                  grepl("POD",so_kpmp_sc$celltype_rpca)~"POD",
+                                  grepl("MAC",so_kpmp_sc$celltype_rpca)~"MAC",
+                                  grepl("MON",so_kpmp_sc$celltype_rpca)~"MON",
+                                  grepl("PC-",so_kpmp_sc$celltype_rpca)~"PC",
+                                  grepl("FIB",so_kpmp_sc$celltype_rpca)~"FIB_MC_VSMC",
+                                  grepl("DTL",so_kpmp_sc$celltype_rpca)~"DTL",
+                                  so_kpmp_sc$celltype_rpca=="DCT"~"DCT",
+                                  so_kpmp_sc$celltype_rpca=="ATL"~"ATL",
+                                  so_kpmp_sc$celltype_rpca=="B"~"B",
+                                  so_kpmp_sc$celltype_rpca=="T"~"T")
+so_kpmp_sc$celltype1 <- as.character(so_kpmp_sc$celltype1)
+
+so_kpmp_sc$KPMP_celltype2 <- as.character(so_kpmp_sc$KPMP_celltype)
+so_kpmp_sc$celltype2 <- ifelse(so_kpmp_sc$KPMP_celltype=="aPT" | 
+                                 so_kpmp_sc$KPMP_celltype=="PT-S1/S2" | 
+                                 so_kpmp_sc$KPMP_celltype == "PT-S3","PT",
+                               ifelse(grepl("TAL",so_kpmp_sc$KPMP_celltype),"TAL",
+                                      ifelse(grepl("EC-",so_kpmp_sc$KPMP_celltype),"EC",so_kpmp_sc$KPMP_celltype2)))
+
+#High level celltypes
+# Comprehensive cell type annotation for kidney single-cell data
+so_kpmp_sc$celltype_LR <- case_when(
+  # PROXIMAL TUBULE (PT) - All proximal tubule segments
+  so_kpmp_sc$KPMP_celltype %in% c("aPT", "PT-S1/S2", "PT-S3") ~ "PT",
+  # THICK ASCENDING LIMB (TAL) - All TAL variants
+  grepl("TAL", so_kpmp_sc$KPMP_celltype) ~ "TAL",
+  # THIN LIMBS - Descending and ascending thin limbs
+  so_kpmp_sc$KPMP_celltype %in% c("DTL", "aDTL", "ATL") ~ "TL",
+  # DISTAL CONVOLUTED TUBULE (DCT)
+  grepl("DCT", so_kpmp_sc$KPMP_celltype) ~ "DCT",
+  # CONNECTING TUBULE (CNT) - Including CNT and principal cells
+  so_kpmp_sc$KPMP_celltype %in% c("CNT", "CNT-PC") ~ "CNT",
+  # COLLECTING DUCT PRINCIPAL CELLS (PC)
+  so_kpmp_sc$KPMP_celltype %in% c("CCD-PC", "dCCD-PC", "M-PC") ~ "PC",
+  # INTERCALATED CELLS (IC) - All IC subtypes
+  grepl("IC", so_kpmp_sc$KPMP_celltype) | so_kpmp_sc$KPMP_celltype == "aIC" ~ "IC",
+  # ENDOTHELIAL CELLS (EC) - All endothelial subtypes
+  grepl("EC-", so_kpmp_sc$KPMP_celltype) | so_kpmp_sc$KPMP_celltype == "EC/VSMC" ~ "EC",
+  # PODOCYTES
+  so_kpmp_sc$KPMP_celltype == "POD" ~ "POD",
+  # PARIETAL EPITHELIAL CELLS
+  so_kpmp_sc$KPMP_celltype == "PEC" ~ "PEC",
+  # IMMUNE CELLS - All immune cell types
+  so_kpmp_sc$KPMP_celltype %in% c("MON", "cDC", "pDC", "MAC", "CD4+ T", "CD8+ T", 
+                                  "cycT", "B", "NK", "MC") ~ "Immune",
+  # FIBROBLASTS
+  so_kpmp_sc$KPMP_celltype == "FIB" ~ "Fibroblast",
+  # VASCULAR SMOOTH MUSCLE CELLS/PERICYTES
+  so_kpmp_sc$KPMP_celltype == "VSMC/P" ~ "VSMC_Pericyte",
+  # SCHWANN CELLS
+  so_kpmp_sc$KPMP_celltype == "SchwannCells" ~ "Schwann",
+  # NON-SPECIFIC/UNKNOWN
+  so_kpmp_sc$KPMP_celltype == "non-specific" ~ "Nonspecific",
+  # DEFAULT - anything not captured above
+  TRUE ~ "Other"
+)
+
+final_counts <- table(so_kpmp_sc$celltype_LR)
+print(final_counts)
+print(prop.table(final_counts) * 100)
+rm(counts_layer)
+```
+
+### ii. Organoid Data
+```{r}
+ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
+# unique(sc_org$samples) #"sample_50_15"   "sample_42_15"   "sample_50_30"   "sample_41_1_15" "sample_11_30"   "ITD19_30" #"sample_10_15"   "sample_72_15"   "sample_10_30"   "ITD19_15"       "sample_41_1_30" "sample_72_30"  
+#  "41_G_15"        "sample_42_30"   "41_G_30"        "sample_11_15"  
+# DKD ids were 42, 50 and 72 and the controls were 10, 11 and 41 
+
+# The 10 and 11 have iCRC, the 50 and 72 have RH, and the remaining ones _ 41, 42, and ITD19 _ don’t have any letters.
+#CRC10 -sample_10_15, "sample_10_30
+# CRC11 - sample_11_15, sample_11_30
+# CRC03 (aka ‘line 41) - "41_G_15", "41_G_30" , sample_41_1_15, sample_41_1_30
+
+# RH50T -  "sample_50_30", sample_50_15
+# RH72T -  "sample_72_15" ,sample_72_30
+# RH62T (aka ‘line 42’) - "sample_42_15",  "sample_42_30"
+# IT2D19 - ITD19_30, ITD19_15
+
+#Rename seurat object rownames as the gene names not ENSG
+#Extract ids
+gene_ids <- rownames(sc_org)
+new_gene_names <- sc_org@misc$gene_annotations$name
+
+# Rename the Seurat object
+sc_org_renamed <- rename_seurat_genes(sc_org, new_gene_names)
+
+# Verify the rename worked
+print(paste("Original rownames (first 10):", paste(head(gene_ids, 10), collapse = ", ")))
+print(paste("New rownames (first 10):", paste(head(rownames(sc_org_renamed), 10), collapse = ", ")))
+
+# Check that dimensions are preserved
+print(paste("Original dimensions:", paste(dim(sc_org), collapse = " x ")))
+print(paste("New dimensions:", paste(dim(sc_org_renamed), collapse = " x ")))
+
+#Save new sc_org
+sc_org <- sc_org_renamed
+rm(sc_org_renamed)
+
+#Format metadata
+meta <- sc_org@meta.data
+
+diab_ids <- c("sample_50_15","sample_50_30","sample_72_15","sample_72_30","sample_42_15","sample_42_30","ITD19_15","ITD19_30")
+control_ids <- c("sample_10_15","sample_10_30","sample_11_15","sample_11_30","41_G_15","41_G_30","sample_41_1_15","sample_41_1_30")
+
+sc_org$diabetes <- ifelse(sc_org$samples %in% diab_ids,"Diabetes","Control")
+sc_org$diabetes <- factor(sc_org$diabetes)
+
+# biopsy_ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
+sc_org@meta.data <- sc_org@meta.data %>% 
+  mutate(record_id = case_when(sc_org$samples=="sample_10_15" | sc_org$samples=="sample_10_30" ~ "CRC-10",
+                               sc_org$samples=="sample_11_15" | sc_org$samples=="sample_11_30" ~ "CRC-11",
+                               sc_org$samples=="41_G_15" | sc_org$samples=="41_G_30" | 
+                                 sc_org$samples=="sample_41_1_15" | sc_org$samples=="sample_41_1_30" ~"CRC-03",
+                               sc_org$samples=="sample_50_15" | sc_org$samples=="sample_50_30" ~ "RH-50-T",
+                               sc_org$samples=="sample_72_15" | sc_org$samples=="sample_72_30" ~ "RH-72-T",
+                               sc_org$samples=="sample_42_15" | sc_org$samples=="sample_42_30" ~ "RH-62-T",
+                               sc_org$samples=="ITD19_15" | sc_org$samples=="ITD19_30" ~ "IT_19"))
+
+#Get gene annotations & rename rows
+# gene_annotations <- data.frame(sc_org@misc$gene_annotations)
+org_genes_all <- nrow(sc_org) #62,754 genes
+org_cells_all <- ncol(sc_org) #194063 cells
+rownames(sc_org)
+colnames(sc_org)
+
+#Format metadata
+harm_meta_data <- harm_meta_data2 %>%   
+    dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>% 
+    dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                                     race == "Black or African American" &
+                                                       ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                                     ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                                     T ~ "Not Hispanic or Latino Other"))
+
+##e. Filter to 7 organoid samples ----
+meta <- harm_meta_data %>% 
+  filter(visit=="baseline") %>%
+  filter(record_id %in% ids)
+rm(harm_meta_data,harm_meta_data2)
+
+#Select metadata from seurat object to facilitate merge of new metadata into seurat object
+meta_kidney_sc <-  sc_org@meta.data
+rownames(meta_kidney_sc) <- rownames(sc_org@meta.data)
+
+#Merge metadata from 83 participants at baseline into seurat object metadata
+meta_kidney_sc <- meta_kidney_sc %>%
+  left_join(meta,by="record_id")
+rownames(meta_kidney_sc) <- rownames(sc_org@meta.data)
+
+#Merge metadata back into seurat object
+sc_org <- AddMetaData(sc_org, meta_kidney_sc)
+
+#Check number of unique ids
+length(unique(sc_org$record_id)) #should be 7
+#Remove metadatasets
+rm(meta_kidney_sc,meta)
+
+#Create medication & disease status groups of interest
+sc_org@meta.data <- sc_org@meta.data %>%
+  mutate(glp1_sglt2=ifelse(epic_glp1ra_1=="Yes" & epic_sglti2_1=="Yes","Yes","No")) %>%
+  mutate(sglt2=ifelse(epic_sglti2_1=="Yes" & epic_glp1ra_1=="No","Yes","No")) %>%
+  mutate(glp1=ifelse(epic_sglti2_1=="No" & epic_glp1ra_1=="Yes","Yes","No")) %>%
+  mutate(no_med=ifelse(epic_sglti2_1=="No" & epic_glp1ra_1=="No","Yes","No"))
+
+#Define 4 exposure groups:
+#SGLT2i(+)/GLP1RA(+), SGLT2i(+)/GLP1RA(-), SGLT2i(-)/GLPRA(+), SGLT2i(-)/GLP1RA(-)
+invisible(gc())
+sc_org@meta.data <- sc_org@meta.data %>%
+  mutate(medication = case_when(glp1_sglt2 == "Yes" ~ "glp1_sglt2",
+                                sglt2 == "Yes" ~ "sglt2",
+                                glp1 == "Yes" ~ "glp1",
+                                no_med == "Yes" ~ "no_med"))
+sc_org@meta.data$medication <- factor(sc_org@meta.data$medication, levels = c("no_med", "sglt2", "glp1","glp1_sglt2"))
+
+# #Ensure default assay in seurat object to RNA
+DefaultAssay(sc_org) <- "RNA"
+# invisible(gc())
+
+nrow(sc_org) #62,754 genes before filtering
+ncol(sc_org) #194,063 cells before filtering
+
+#Filter out cells that express less than 500 genes or more than 5000 genes and cells that have more than 50% of gene expression coming from mitochondrial genes
+sc_org <- subset(sc_org,
+                 subset = nFeature_RNA > 500 &
+                   nFeature_RNA < 5000 &
+                   percent.mt < 50)
+
+nrow(sc_org) #62,754 genes after filtering
+ncol(sc_org) #156387 cells after filltering
+expr_matrix <- GetAssayData(sc_org, assay = "RNA", layer = "counts")
+
+# Calculate the proportion of cells expressing each gene
+num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
+total_cells <- ncol(expr_matrix)  # Total number of cells
+gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
+remove(expr_matrix)
+# Keep genes expressed in at least "gene_pct" of cells
+genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
+sc_org <- subset(sc_org, features = genes_to_keep)
+ncol(sc_org) #156387 Cells
+nrow(sc_org) # 7472 genes
+
+#Remove mitochondrial genes (those starting with "MT-")
+mito_genes <- grep("^MT-", rownames(sc_org), value = TRUE)
+sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), mito_genes))
+sum(grepl("^MT-", rownames(sc_org))) #0
+ncol(sc_org) #156387 cells
+nrow(sc_org) #7457 genes
+
+#Remove ribosomal Genes
+# Identify ribosomal genes
+ribo_genes <- c(
+  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
+  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
+  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
+  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
+  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
+  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
+  "RPL10", "RPS4Y1"
+)
+sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), ribo_genes))
+length(which(rownames(sc_org) %in% ribo_genes)) #0
+ncol(sc_org) #156387 cells
+nrow(sc_org) #7383 genes
+
+#Renormalize & Scale after filtering
+sc_org <- NormalizeData(sc_org)
+sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
+
+# Calculate cell library size for offset in NEBULA 
+counts_layer <- round(GetAssayData(sc_org, layer = "counts"))
+library_size <- Matrix::colSums(counts_layer)
+sc_org$library_size <- library_size
+# hist(sc_org$library_size)
+
+# Pooled offset
+bp <- MulticoreParam(workers = 9)
+sce <- SingleCellExperiment(assays = list(counts = counts_layer))
+sce <- computeSumFactors(sce, BPPARAM = bp)
+pooled_offset <- sizeFactors(sce)
+sc_org$pooled_offset <- pooled_offset
+# hist(sc_org$pooled_offset)
+
+#Create treatment variable
+sc_org$treatment <- ifelse(grepl("15$",sc_org$samples),"15","30")
+rm(sce,counts_layer)
+
+# #Merge gene names
+# sc_org <- NormalizeData(sc_org)
+# sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
+```
+
+## b. Annotate Organoid Data - Bottom Up
+###i. Separate 15 and 30 glucose conc.
+```{r}
+so_15 <- subset(sc_org,treatment=="15")
+so_30 <- subset(sc_org,treatment=="30")
+# so_combined <- sc_org
+```
+
+###i. 15 Glucose
+####I. Find Markers
+```{r}
+#Select 15 conc. only
+so_15 <- subset(sc_org,treatment=="15")
+
+# PCA
+so_15 <- NormalizeData(so_15)
+so_15 <- ScaleData(so_15, features = VariableFeatures(so_15))
+so_15 <- FindVariableFeatures(object = so_15)
+so_15 <- RunPCA(so_15, features = VariableFeatures(object = so_15),assay="RNA")
+# ElbowPlot(so_15)
+
+# # Find neighbors and clusters 
+so_15 <- FindNeighbors(so_15, assay = "RNA", dims = 1:20) #20 based on elbow plot
+# so_15 <- FindClusters(so_15, resolution = 0.5)
+# so_15 <- FindClusters(so_15, resolution = 1)
+so_15 <- FindClusters(so_15, resolution = 0.2)
+
+# Perform UMAP
+so_15 <- RunUMAP(so_15, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
+so_15@reductions
+DimPlot(so_15, reduction = "umap", raster = F)
+Idents(so_15) <- "seurat_clusters"  # or whatever the column is named
+
+
+# Verify you have 25 clusters
+print(paste("Number of clusters:", length(unique(Idents(so_15)))))
+print(table(Idents(so_15)))  # Show distribution of cells per cluster
+
+# Find markers for all clusters
+all_markers <- FindAllMarkers(so_15, 
+                              only.pos = TRUE,     # Only positive markers
+                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
+                              logfc.threshold = 0.25,  # Minimum log fold change
+                              test.use = "wilcox")  # Wilcoxon test
+
+# Verify all 25 clusters are included
+print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
+print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
+
+marker_summary <- all_markers %>%
+  group_by(cluster) %>%
+  summarise(
+    n_markers = n(),
+    avg_logfc = mean(avg_log2FC),
+    top_marker = gene[which.max(avg_log2FC)],
+    .groups = 'drop'
+  )
+print(marker_summary)
+
+# Get top 20 markers per cluster
+top_20_markers <- get_top_markers(all_markers, top_n = 20)
+# write.csv(top_20_markers,"/home/hhampson/Results/top_20_markers_15_11_10.csv")
+
+# # Get top 10 markers per cluster
+# top_10_markers <- get_top_markers(all_markers, top_n = 10)
+# 
+# # Get top 5 markers per cluster for cleaner visualization
+# top_5_markers <- get_top_markers(all_markers, top_n = 1)
+
+# # Print top 5 markers for each cluster
+# for (cluster_id in unique(top_5_markers$cluster)) {
+#   cluster_markers <- top_5_markers %>% filter(cluster == cluster_id)
+#   cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
+# }
+
+# # Print top 20 markers for each cluster
+# for (cluster_id in unique(top_20_markers$cluster)) {
+#   cluster_markers <- top_20_markers %>% filter(cluster == cluster_id)
+#   cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
+# }
+
+
+# # Create dot plot with top 20 markers
+# dotplot_5 <- create_marker_dotplot(so_15, all_markers, top_n = 5,
+#                                    title = "Top 5 Marker Genes by Cluster")
+# print(dotplot_5)
+
+# Create dot plot with top 10 markers (might be crowded)
+dotplot_20 <- create_marker_dotplot(so_15, all_markers, top_n = 20,
+                                    title = "Top 20 Marker Genes by Cluster")
+print(dotplot_20)
+# png(fs::path(dir.results,"dotplot_avg_expression.png"),
+    # width = 10,
+    # height = 10,
+    # units = "in",
+    # res = 300,
+    # bg = "white")
+# print(dotplot_20)
+# dev.off()
+png("/home/hhampson/Results/dotplot_avg_exp_top20_15_Nov10.png",res=300,width=10000,height=2500)
+print(dotplot_20)
+dev.off()
+
+#Unlabeled cluster UMAP
+png("/home/hhampson/Results/UMAP_15_unlabeled.png",res=300,width=2000,height=2000)
+DimPlot(so_15, reduction = "umap", raster = T)
+dev.off()
+```
+####II. Annotate
+```{r}
+# Add cell type annotations to metadata
+# Mapping clusters 0-16 to cell types
+cell_type_annotations <- c(
+  "Cluster 0" = "proliferative nephron progenitor",
+  "Cluster 1" = "Stromal/Interstitial Cells",
+  "Cluster 2" = "podocytes",
+  "Cluster 3" = "Earlier/immature Proximal Tubule",
+  "Cluster 4" = "Collecting Duct Principal Cells",
+  "Cluster 5" = "thick ascending limb (TAL)",
+  "Cluster 6" = "Distal convoluted tubule (DCT)",
+  "Cluster 7" = "Type A intercalated cells",
+  "Cluster 8" = "endothelial cells",
+  "Cluster 9" = "off-target neural/neuronal cells",
+  "Cluster 10" = "More mature/differentiated Proximal Tubule",
+  "Cluster 11" = "Parietal Epithelial Cells (PECs)",
+  "Cluster 12" = "Mesangial Cells/Pericytes",
+  "Cluster 13" = "Stromal/Interstitial Progenitor Cells",
+  "Cluster 14" = "Nephron Progenitor Cells (Cap Mesenchyme)",
+  "Cluster 15" = "Proximal Tubule Progenitor/Precursor Cells",
+  "Cluster 16" = "Off-target Melanocyte/Neural Crest-like Cells"
+)
+
+# Add cell type annotations to metadata
+so_15$celltype <- cell_type_annotations[as.character(Idents(so_15))]
+
+```
+
+###ii. 30 Glucose
+####I. Find Markers
+```{r}
+#Select 30 conc. only
+so_30 <- subset(sc_org,treatment=="30")
+
+# PCA
+so_30 <- NormalizeData(so_30)
+so_30 <- ScaleData(so_30, features = VariableFeatures(so_30))
+so_30 <- FindVariableFeatures(object = so_30)
+so_30 <- RunPCA(so_30, features = VariableFeatures(object = so_30),assay="RNA")
+# ElbowPlot(so_30)
+
+# # Find neighbors and clusters 
+so_30 <- FindNeighbors(so_30, assay = "RNA", dims = 1:20) #20 based on elbow plot
+so_30 <- FindClusters(so_30, resolution = 0.5)
+# so_30 <- FindClusters(so_30, resolution = 1)
+
+# Perform UMAP
+so_30 <- RunUMAP(so_30, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
+so_30@reductions
+DimPlot(so_30, reduction = "umap", raster = F)
+Idents(so_30) <- "seurat_clusters"  # or whatever the column is named
+
+
+# Verify you have 25 clusters
+print(paste("Number of clusters:", length(unique(Idents(so_30)))))
+print(table(Idents(so_30)))  # Show distribution of cells per cluster
+
+# Find markers for all clusters
+all_markers <- FindAllMarkers(so_30, 
+                              only.pos = TRUE,     # Only positive markers
+                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
+                              logfc.threshold = 0.25,  # Minimum log fold change
+                              test.use = "wilcox")  # Wilcoxon test
+
+# Verify all 25 clusters are included
+print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
+print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
+
+marker_summary <- all_markers %>%
+  group_by(cluster) %>%
+  summarise(
+    n_markers = n(),
+    avg_logfc = mean(avg_log2FC),
+    top_marker = gene[which.max(avg_log2FC)],
+    .groups = 'drop'
+  )
+print(marker_summary)
+
+# Get top 20 markers per cluster
+top_20_markers <- get_top_markers(all_markers, top_n = 20)
+# write.csv(top_20_markers,"/home/hhampson/Results/top_20_markers_30_11_10.csv")
+
+# # Get top 10 markers per cluster
+# top_10_markers <- get_top_markers(all_markers, top_n = 10)
+# 
+# # Get top 5 markers per cluster for cleaner visualization
+# top_5_markers <- get_top_markers(all_markers, top_n = 1)
+
+# # Print top 5 markers for each cluster
+# for (cluster_id in unique(top_5_markers$cluster)) {
+#   cluster_markers <- top_5_markers %>% filter(cluster == cluster_id)
+#   cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
+# }
+
+# # Print top 20 markers for each cluster
+# for (cluster_id in unique(top_20_markers$cluster)) {
+#   cluster_markers <- top_20_markers %>% filter(cluster == cluster_id)
+#   cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
+# }
+
+
+# # Create dot plot with top 20 markers
+# dotplot_5 <- create_marker_dotplot(so_30, all_markers, top_n = 5,
+#                                    title = "Top 5 Marker Genes by Cluster")
+# print(dotplot_5)
+
+# Create dot plot with top 10 markers (might be crowded)
+dotplot_20 <- create_marker_dotplot(so_30, all_markers, top_n = 20,
+                                    title = "Top 20 Marker Genes by Cluster")
+print(dotplot_20)
+# png(fs::path(dir.results,"dotplot_avg_expression.png"),
+    # width = 10,
+    # height = 10,
+    # units = "in",
+    # res = 300,
+    # bg = "white")
+# print(dotplot_20)
+# dev.off()
+png("/home/hhampson/Results/dotplot_avg_exp_top20_30_Nov10.png",res=300,width=10000,height=2500)
+print(dotplot_20)
+dev.off()
+```
+
+
+```{r}
+#Select 30 conc. only
+so_30 <- subset(sc_org,treatment=="30")
+
+# PCA
+so_30 <- NormalizeData(so_30)
+so_30 <- ScaleData(so_30, features = VariableFeatures(so_30))
+so_30 <- FindVariableFeatures(object = so_30)
+so_30 <- RunPCA(so_30, features = VariableFeatures(object = so_30),assay="RNA")
+# ElbowPlot(so_30)
+
+# # Find neighbors and clusters (again using integrated data)
+so_30 <- FindNeighbors(so_30, assay = "RNA", dims = 1:20)
+so_30 <- FindClusters(so_30, resolution = 0.5)
+
+# Perform UMAP 
+so_30 <- RunUMAP(so_30, dims = 1:30)
+so_30@reductions
+DimPlot(so_30, reduction = "umap", raster = T)
+
+
+# Find markers for all clusters
+all_markers <- FindAllMarkers(so_30, 
+                              only.pos = TRUE,     # Only positive markers
+                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
+                              logfc.threshold = 0.25,  # Minimum log fold change
+                              test.use = "wilcox")  # Wilcoxon test
+marker_summary <- all_markers %>%
+  group_by(cluster) %>%
+  summarise(
+    n_markers = n(),
+    avg_logfc = mean(avg_log2FC),
+    top_marker = gene[which.max(avg_log2FC)],
+    .groups = 'drop'
+  )
+print(marker_summary)
+
+# Get top 20 markers per cluster
+top_20_markers <- get_top_markers(all_markers, top_n = 20)
+
+# Get top 10 markers per cluster
+top_10_markers <- get_top_markers(all_markers, top_n = 10)
+
+# Get top 5 markers per cluster for cleaner visualization
+top_5_markers <- get_top_markers(all_markers, top_n = 5)
+
+# Print top 5 markers for each cluster
+for (cluster_id in unique(top_5_markers$cluster)) {
+  cluster_markers <- top_5_markers %>% filter(cluster == cluster_id)
+  cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
+}
+
+# Print top 20 markers for each cluster
+for (cluster_id in unique(top_20_markers$cluster)) {
+  cluster_markers <- top_20_markers %>% filter(cluster == cluster_id)
+  cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
+}
+
+
+
+# Create dot plot with top 20 markers
+dotplot_5 <- create_marker_dotplot(so_30, all_markers, top_n = 5,
+                                   title = "Top 5 Marker Genes by Cluster")
+print(dotplot_5)
+
+# Create dot plot with top 10 markers (might be crowded)
+dotplot_20 <- create_marker_dotplot(so_30, all_markers, top_n = 20,
+                                    title = "Top 20 Marker Genes by Cluster")
+print(dotplot_20)
+# png(fs::path(dir.results,"dotplot_avg_expression.png"),
+    # width = 10,
+    # height = 10,
+    # units = "in",
+    # res = 300,
+    # bg = "white")
+# print(dotplot_20)
+# dev.off()
+png("/home/hhampson/Results/dotplot_avg_exp_top20_30.png",res=300,width=6000,height=3000)
+print(dotplot_20)
+dev.off()
+
+# write.csv(top_20_markers,"/home/hhampson/Results/top_20_markers_30.csv")
+
+# Create heatmap
+# This scales all genes to ensure marker genes are included
+heatmap_result <- fix_scaling_and_create_heatmap(so_30, all_markers, top_n = 20)
+# so_30 <- heatmap_result$so_30  # Update with properly scaled data
+heatmap_plot_fixed <- heatmap_result$heatmap
+print(heatmap_plot_fixed)
+# png(fs::path(dir.results,"heatmap_avg_expression.png"), 
+#     width = 30, 
+#     height = 10, 
+#     units = "in",
+#     res = 300,
+#     bg = "white")
+png("/Home/hhampson/Results/heatmap_avg_exp_top20.png",res=300,width=2500,height=2500)
+print(heatmap_plot_fixed)
+dev.off()
+```
+
+```{r}
+literature_annotations <- data.frame(
+  cluster = 0:16,
+  celltype = c(
+    "Podocyte",              # Cluster 0 - PODXL, NPHS markers
+    "Podocyte",              # Cluster 1 - PODXL, NPHS markers  
+    "Proximal_Tubule",       # Cluster 2 - LRP2-like, tubular markers
+    "Thin_Limb",             # Cluster 3 - thin limb/loop markers
+    "Mature_Podocyte",       # Cluster 4 - PODXL, ACTN1
+    "Mesenchymal",           # Cluster 5 - SFRP2, stromal markers
+    "Proliferating",         # Cluster 6 - MKI67, cell cycle
+    "Stromal",               # Cluster 7 - FREM1, COL1A1
+    "Fibroblast",            # Cluster 8 - COL1A1, stromal
+    "Endothelial",           # Cluster 9 - endothelial markers
+    "Early_Tubule",          # Cluster 10 - early tubular epithelial
+    "Distal_Tubule",         # Cluster 11 - distal tubular markers
+    "Collecting_Duct",       # Cluster 12 - collecting duct
+    "Off_Target_Neural",     # Cluster 13 - neuronal markers
+    "Off_Target_Muscle",     # Cluster 14 - muscle-like
+    "Nephron_Progenitor",    # Cluster 15 - progenitor cells
+    "Unknown"                # Cluster 16 - unclear identity
+  ),
+  stringsAsFactors = FALSE
+)
+
+# Add simplified categories for easier visualization
+literature_annotations$broad_category <- case_when(
+  literature_annotations$celltype %in% c("Podocyte", "Mature_Podocyte") ~ "Podocyte",
+  literature_annotations$celltype %in% c("Proximal_Tubule", "Thin_Limb", "Early_Tubule", "Distal_Tubule") ~ "Tubular_Epithelial",
+  literature_annotations$celltype == "Collecting_Duct" ~ "Collecting_Duct",
+  literature_annotations$celltype == "Nephron_Progenitor" ~ "Nephron_Progenitor", 
+  literature_annotations$celltype %in% c("Mesenchymal", "Stromal", "Fibroblast") ~ "Mesenchymal_Stromal",
+  literature_annotations$celltype == "Proliferating" ~ "Proliferating",
+  literature_annotations$celltype == "Endothelial" ~ "Endothelial",
+  grepl("Off_Target", literature_annotations$celltype) ~ "Off_Target",
+  TRUE ~ "Unknown"
+)
+
+# Display the annotations
+cat("REVISED Literature-based cell type annotations (includes tubular cells!):\n")
+print(literature_annotations)
+
+cat("\n=== REVISION NOTES ===\n")
+cat("Updated annotations to properly identify TUBULAR CELLS:\n")
+cat("- Cluster 2: Proximal_Tubule (likely PT-like cells)\n")
+cat("- Cluster 3: Thin_Limb (thin limb of Henle)\n") 
+cat("- Cluster 10: Early_Tubule (early tubular epithelial)\n")
+cat("- Cluster 11: Distal_Tubule (distal tubular cells)\n")
+cat("- Cluster 12: Collecting_Duct (collecting duct)\n")
+cat("This creates a 'Tubular_Epithelial' category with multiple tubular cell types!\n")
+
+# Add annotations to Seurat object
+so_15@meta.data$literature_celltype <- literature_annotations$celltype[match(so_15@meta.data$seurat_clusters, literature_annotations$cluster)]
+so_15@meta.data$broad_category <- literature_annotations$broad_category[match(so_15@meta.data$seurat_clusters, literature_annotations$broad_category)]
+
+# Create UMAP visualizations
+create_literature_umap_plots <- function(seurat_obj) {
+  
+  plots <- list()
+  
+  # 1. Original clusters
+  plots$original <- DimPlot(seurat_obj, 
+                            group.by = "seurat_clusters",
+                            label = TRUE,
+                            label.size = 4,
+                            reduction = "umap") +
+    ggtitle("Original Seurat Clusters") +
+    theme_minimal()
+  
+  # 2. Literature-based detailed cell types
+  plots$detailed <- DimPlot(seurat_obj, 
+                            group.by = "literature_celltype",
+                            label = TRUE,
+                            label.size = 2.5,
+                            reduction = "umap") +
+    ggtitle("Literature-Based Cell Types (Detailed)") +
+    theme_minimal() +
+    theme(legend.position = "bottom",
+          legend.text = element_text(size = 8))
+  
+  # 3. Broad categories (cleaner view)
+  plots$broad <- DimPlot(seurat_obj, 
+                         group.by = "broad_category",
+                         label = TRUE,
+                         label.size = 3,
+                         reduction = "umap") +
+    ggtitle("Literature-Based Cell Types (Broad Categories)") +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+  
+  # 4. Split by broad category
+  plots$split <- DimPlot(seurat_obj, 
+                         group.by = "broad_category",
+                         split.by = "broad_category",
+                         ncol = 3,
+                         reduction = "umap") +
+    ggtitle("Cell Types (Split View)") +
+    theme_minimal() +
+    theme(legend.position = "none")
+  
+  return(plots)
+}
+
+# Create the plots
+umap_plots <- create_literature_umap_plots(so_15)
+
+# Display the plots
+cat("\n=== LITERATURE-BASED CELL TYPE MAPPING ===\n")
+
+print(umap_plots$original)
+print(umap_plots$detailed) 
+print(umap_plots$broad)
+print(umap_plots$split)
+
+print(umap_plots$original)
+print(umap_plots$detailed) 
+png(fs::path(dir.results,"Annotated_UMAP.png"), 
+    width = 10, 
+    height = 10, 
+    units = "in",
+    res = 300,
+    bg = "white")
+print(umap_plots$detailed) 
+dev.off()
+
+print(umap_plots$broad)
+print(umap_plots$split)
+
+# Create summary statistics
+cat("\n=== CELL TYPE SUMMARY ===\n")
+
+# Detailed cell types
+detailed_summary <- so_15@meta.data %>%
+  group_by(literature_celltype) %>%
+  summarise(n_cells = n(), .groups = 'drop') %>%
+  mutate(percentage = round(n_cells / sum(n_cells) * 100, 1)) %>%
+  arrange(desc(n_cells))
+
+cat("Detailed cell types:\n")
+print(detailed_summary)
+
+# Broad categories
+broad_summary <- so_15@meta.data %>%
+  group_by(broad_category) %>%
+  summarise(n_cells = n(), .groups = 'drop') %>%
+  mutate(percentage = round(n_cells / sum(n_cells) * 100, 1)) %>%
+  arrange(desc(n_cells))
+
+cat("\nBroad categories:\n")
+print(broad_summary)
+
+# Create a mapping reference table
+mapping_reference <- literature_annotations %>%
+  left_join(
+    so_15@meta.data %>% 
+      group_by(seurat_clusters) %>% 
+      summarise(n_cells = n(), .groups = 'drop') %>%
+      rename(cluster = seurat_clusters),
+    by = "cluster"
+  ) %>%
+  mutate(percentage = round(n_cells / sum(n_cells) * 100, 1)) %>%
+  arrange(cluster)
+
+cat("\n=== CLUSTER TO CELL TYPE MAPPING ===\n")
+print(mapping_reference)
+
+# Create a publication-ready combined plot
+combined_plot <- umap_plots$original + umap_plots$broad + 
+  plot_layout(ncol = 2) +
+  plot_annotation(title = "Cluster Identification: Original vs Literature-Based Cell Types")
+
+print(combined_plot)
+
+# Save the plots
+ggsave("literature_celltype_umap_detailed.png", umap_plots$detailed, width = 12, height = 8, dpi = 300)
+ggsave("literature_celltype_umap_broad.png", umap_plots$broad, width = 10, height = 8, dpi = 300)
+ggsave("literature_celltype_combined.png", combined_plot, width = 16, height = 8, dpi = 300)
+
+# Save the mapping table
+write.csv(mapping_reference, "literature_celltype_mapping.csv", row.names = FALSE)
+
+cat("\n=== RESULTS SAVED ===\n")
+cat("- UMAP plots saved as PNG files\n")
+cat("- Mapping table saved as CSV\n")
+cat("- Cell type annotations stored in so_15@meta.data$literature_celltype\n")
+cat("- Broad categories stored in so_15@meta.data$broad_category\n")
+
+# Show key findings
+cat("\n=== KEY FINDINGS ===\n")
+cat("Major cell types identified in organoid:\n")
+for(i in 1:nrow(broad_summary)) {
+  cat(paste0("- ", broad_summary$broad_category[i], ": ", 
+             broad_summary$n_cells[i], " cells (", 
+             broad_summary$percentage[i], "%)\n"))
+}
+
+cat("\nThis organoid contains:\n")
+if("Podocyte" %in% broad_summary$broad_category) cat("✓ Glomerular development (Podocytes)\n")
+if("Nephron_Progenitor" %in% broad_summary$broad_category) cat("✓ Nephron progenitor cells\n")
+if("Mesenchymal_Stromal" %in% broad_summary$broad_category) cat("✓ Stromal/mesenchymal support cells\n")
+if("Epithelial" %in% broad_summary$broad_category) cat("✓ Epithelial differentiation\n")
+if("Off_Target" %in% broad_summary$broad_category) cat("! Off-target cell types (common in organoids)\n")
+if("Proliferating" %in% broad_summary$broad_category) cat("✓ Actively dividing cells\n")
+```
