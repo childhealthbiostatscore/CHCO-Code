@@ -21,3 +21,27 @@ IP: 10.158.40.243
 - **Symptoms:** SSH disconnected until physical wake. Looked like NetworkManager was asleep based on log.
 - **Logs:**  YC added this line `sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target` to mask suspend/hibernate targets in the Network Manager. To re-enable later, run `sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target`.
 - **Notes/Resolution:** HH noticed the ssh and remote desktop won't connect and noted in data-science Slack channel. YC physically woke the lambda and everything was working and connected again. YC investigated ways to install caffeine, but the app was unavailable for linux systems. "Sleep" was masked in NetworkManager instead in efforts to resolve. YC also created this .md log and set up automated logs for system booting events, suspend events, and resume events. These logs can be accessed `cat /var/log/custom_boots.log`. Team plans on rebooting lambda every Friday for maintenance.
+
+### 2025-11-07 13:00 PDT
+- **Event:** Team mostly at ASN. HH noticed lambda server was down and asked for reset.
+- **Detection:** Physical examination by TV.
+- **Symptoms:** Lost connection to symptoms.
+- **Logs:**  
+- **Notes/Resolution:** Matteo noticed that the system reboots randomly. 
+shutdown system down  6.14.0-33-generi Sun Nov  2 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Tue Oct 28 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Mon Oct 27 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Sun Oct 26 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Sat Oct 25 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Fri Oct 24 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Thu Oct 23 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Wed Oct 22 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Sun Oct 19 23:30 - 23:33  (00:03)
+shutdown system down  6.14.0-33-generi Tue Oct 14 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Mon Oct 13 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Sun Oct 12 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Sat Oct 11 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Fri Oct 10 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Thu Oct  9 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-33-generi Wed Oct  8 23:30 - 23:31  (00:01)
+shutdown system down  6.14.0-32-generi Sun Oct  5 23:30 - 23:31  (00:01)
