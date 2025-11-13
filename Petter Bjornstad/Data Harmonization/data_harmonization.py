@@ -481,13 +481,24 @@ def harmonize_data():
 
     #aer_24 = (u24_mab * u24_vl) / 1440
     #bsa_dubois = 0.007184 × W^0.425 × H^0.725
+    # aer_4_coltime = (urine_mab_250 * urine_vol) / 250
     harmonized["aer_24"] = (pd.to_numeric(harmonized["u24_mab"], errors="coerce") * pd.to_numeric(harmonized["u24_vl"], errors="coerce")) / 1440
+    harmonized["aer_4_coltime"] = (pd.to_numeric(harmonized["urine_mab_250"], errors="coerce") * pd.to_numeric(harmonized["urine_vol"], errors="coerce")) / 250
     harmonized["bsa_dubois"] = 0.007184 * (pd.to_numeric(harmonized["weight"], errors="coerce")**0.425) * (pd.to_numeric(harmonized["height"], errors="coerce")**0.725)
    
-    dictionary.loc[dictionary['variable_name'] == 'copeptin', 'form_name'] = 'copeptin'
+    dictionary.loc[dictionary['variable_name'] == 'aer_24', 'units'] = 'mcg * mL / min'
+    dictionary.loc[dictionary['variable_name'] == 'aer_4_coltime', 'units'] = 'mcg * mL / min'
+    dictionary.loc[dictionary['variable_name'] == 'bsa_dubois', 'units'] = 'm^2'
+    dictionary.loc[dictionary['variable_name'] == 'aer_24', 'label'] = 'AER over 24 hrs, mcg * mL / min'
+    dictionary.loc[dictionary['variable_name'] == 'aer_4_coltime', 'label'] = 'AER over 250 mins, mcg * mL / min'
+    dictionary.loc[dictionary['variable_name'] == 'bsa_dubois', 'label'] = 'BSA Calculated with Dubois formula, m^2'
+
+
     dictionary.loc[dictionary['variable_name'] == 'ace_inhibitor', 'form_name'] = 'medical_history'
     dictionary.loc[dictionary['variable_name'] == 'acprg', 'form_name'] = 'clamp'
     dictionary.loc[dictionary['variable_name'] == 'acr_u_pm', 'form_name'] = 'clamp'
+    dictionary.loc[dictionary['variable_name'] == 'copeptin', 'form_name'] = 'copeptin'
+
 
 
     harmonized = biopsy_merge(harmonized)

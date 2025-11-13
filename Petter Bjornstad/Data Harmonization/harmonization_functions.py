@@ -240,6 +240,10 @@ def biopsy_merge(harmonized):
     #   - Are kidney biopsies (already filtered in kb_subset)
     #   - Have matching record_id AND date (from the merge)
     #   - Actually have a kit_id_biopsy value (merge put NaN for non-matches)
+    # Ensure indices match exactly
+    # kb_index = harmonized.index[kidney_biopsy_rows]
+    # harmonized.loc[kb_index, 'kit_id'] = merged['kit_id_biopsy'].reindex(kb_index)
+
     harmonized.loc[kidney_biopsy_rows, 'kit_id'] = harmonized.loc[kidney_biopsy_rows, 'kit_id'].combine_first(
         merged['kit_id_biopsy']
     )
