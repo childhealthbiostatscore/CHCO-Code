@@ -1,0 +1,85 @@
+---
+title: "Podometric work list"
+format: html
+---
+
+```{r}
+mrn_map <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data clean/mrn_uuid_map.csv")
+biopsy_master <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/Biopsy master tracker.xlsx", skip = 2) 
+colnames(biopsy_master) <- gsub(" ", "_", colnames(biopsy_master))  # Replace spaces with underscores
+colnames(biopsy_master) <- gsub("/", "_", colnames(biopsy_master))  # Replace slashes with underscores
+colnames(biopsy_master) <- gsub("\\(", "_", colnames(biopsy_master))  # Replace opening parentheses with underscores
+colnames(biopsy_master) <- gsub("\\)", "", colnames(biopsy_master))  # Remove closing parentheses
+
+biopsy_master <- biopsy_master %>%
+  dplyr::rename(record_id=Study_ID,
+                visit=Visit_ID) %>%
+  mutate(visit = case_when(Study == "ATTEMPT" ~ visit,
+                           Study == "REMODEL" ~ visit, 
+                           Study == "IMPROVE" & visit == "4M" ~ "3_months_post_surgery",
+                           visit == "12M" ~ "12_months_post_surgery",
+                           visit == "Follow-up" ~ "follow-up",
+                           T ~ "baseline"),
+         record_id = case_when(startsWith(record_id, "RPC") & !is.na(Coenroll_ID__Same_visit_only) ~ Coenroll_ID__Same_visit_only,
+                               T ~ record_id)) # RH2-60-T and RH2-48-T coenrolled into RPC2 as of 02/03/25 data pull
+
+harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "") %>%
+  dplyr::select(
+    -starts_with("seq."),
+    any_of(c("seq.10000.28_urine_cradj", "seq.10000.28"))
+  )
+
+harm_dat <- harm_dat %>% 
+  mutate(bx_date = case_when(procedure == "kidney_biopsy" ~ date),
+         visit = case_when(kit_id == "KL-0024005" ~ "12_months_post_surgery", T ~ visit),
+         visit = case_when(visit == "screening" ~ "baseline", T ~ visit)) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  mutate(urine_soma = case_when(!is.na(seq.10000.28_urine_cradj) ~ 1, T ~ 0),
+         blood_soma = case_when(!is.na(seq.10000.28) ~ 1, T ~ 0),
+         clamp = case_when(!is.na(p2_raw_m) ~ 1, T ~ 0),
+         pet = case_when((!is.na(avg_c_f) | !is.na(avg_m_f)) ~ 1, T ~ 0),
+         mri = case_when((!is.na(avg_c_r2) | !is.na(avg_k_r2) | !is.na(avg_m_r2)) ~ 1, T ~ 0),
+         mgfr = case_when(!is.na(gfr_bsa_plasma) ~ 1, T ~ 0),
+         erpf = case_when(!is.na(erpf_bsa_plasma) ~ 1, T ~ 0),
+         egfr = case_when(!is.na(eGFR_CKD_epi) ~ 1, T ~ 0)) %>%
+  arrange(mrn)
+
+harm_biopsy <- biopsy_master %>% left_join(harm_dat)
+attempt_mrn <- harm_dat %>%
+  filter(study == "ATTEMPT") %>%
+  select(record_id, mrn) %>%
+  filter(!is.na(mrn))
+harm_biopsy <- harm_biopsy %>%
+  mutate(mrn = coalesce(mrn, attempt_mrn$mrn[match(record_id, attempt_mrn$record_id)]))
+```
+
+Additionally, and separately, I want you to send another list to Jeff that will help us prioritize samples for podometric work with Charlie Alpers (the animated guy who stopped by your poster). For this spreadsheet we want to limit the analyses to those with paired/sequential biopsies, so:
+ATTEMPT
+IMPROVE
+RH/RH2
+The 7-10 CROCODILE people who had a follow-up biopsy in PANDA
+
+```{r}
+podometric_dat <- harm_biopsy %>%
+  left_join(mrn_map) %>%
+  mutate(study = coalesce(study, Study),
+         bx_date = coalesce(bx_date, as.character(Biopsy_date)),
+         kit_id = coalesce(kit_id, Kit_ID)) %>%
+  filter(study != "ATTEMPT" & !is.na(bx_date) | study == "ATTEMPT") %>%
+  filter(study %in% c("ATTEMPT", "IMPROVE", "RENAL-HEIR", "RENAL-HEIRitage", "CROCODILE", "PANDA")) %>%
+  distinct(kit_id, .keep_all = T) %>%
+  arrange(uuid, bx_date) %>%
+  group_by(uuid) %>%
+  mutate(uuid_n = row_number(),
+         uuid_count = n(),
+         visit = case_when(visit == "baseline" & uuid_n == 2 ~ "follow_up",
+                           T ~ visit),
+         group = case_when(study == "ATTEMPT" ~ "Type 1 Diabetes", T ~ group)) %>%
+  filter(uuid_count == 2) %>%
+  dplyr::select(uuid, record_id, study, visit, bx_date, group, kit_id)
+
+
+write.csv(podometric_dat, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Podometrics/podometric_paired_data_list.csv", na = "", row.names = F)
+```

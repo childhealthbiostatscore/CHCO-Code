@@ -23,7 +23,8 @@ if (user == "choiyej") { # local version
   stop("Unknown user: please specify root path for this user.")
 }
 
-# source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
 
 # Pull in nebula results
 folders <- c("DKD_vs_nonDKD_100" = "dkd100",
@@ -33,7 +34,11 @@ folders <- c("DKD_vs_nonDKD_100" = "dkd100",
              "DKD_30_vs_hc" = "dkd30_hc",
              "nonDKD_30_vs_hc" = "nondkd30_hc",
              "GLP_N_vs_HC" = "glpn_hc",
-             "GLP_Y_vs_GLP_N" = "glpy_glpn"
+             "GLP_Y_vs_GLP_N" = "glpy_glpn",
+             "nonDKD_100_GLP_N_vs_HC" = "nondkd100_glpn_hc",
+             "nonDKD_100_GLP_Y_vs_HC" = "nondkd100_glpy_hc",
+             "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc",
+             "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc"
 )
 
 # Define common parameters

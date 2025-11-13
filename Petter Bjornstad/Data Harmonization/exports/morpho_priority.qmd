@@ -1,0 +1,90 @@
+---
+title: "Morphometrics priority list"
+format: html
+---
+
+```{r}
+mrn_map <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data clean/mrn_uuid_map.csv")
+biopsy_master <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/Biopsy master tracker.xlsx", skip = 2) 
+colnames(biopsy_master) <- gsub(" ", "_", colnames(biopsy_master))  # Replace spaces with underscores
+colnames(biopsy_master) <- gsub("/", "_", colnames(biopsy_master))  # Replace slashes with underscores
+colnames(biopsy_master) <- gsub("\\(", "_", colnames(biopsy_master))  # Replace opening parentheses with underscores
+colnames(biopsy_master) <- gsub("\\)", "", colnames(biopsy_master))  # Remove closing parentheses
+
+biopsy_master <- biopsy_master %>%
+  dplyr::rename(record_id=Study_ID,
+                visit=Visit_ID) %>%
+  mutate(visit = case_when(Study == "ATTEMPT" ~ visit,
+                           Study == "REMODEL" ~ visit, 
+                           Study == "IMPROVE" & visit == "4M" ~ "3_months_post_surgery",
+                           visit == "12M" ~ "12_months_post_surgery",
+                           visit == "Follow-up" ~ "follow_up",
+                           T ~ "baseline"),
+         record_id = case_when(startsWith(record_id, "RPC") & !is.na(Coenroll_ID__Same_visit_only) ~ Coenroll_ID__Same_visit_only,
+                               T ~ record_id)) # RH2-60-T and RH2-48-T coenrolled into RPC2 as of 02/03/25 data pull
+
+harm_dat <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "") %>%
+  dplyr::select(
+    -starts_with("seq."),
+    any_of(c("seq.10000.28_urine_cradj", "seq.10000.28"))
+  )
+
+harm_dat <- harm_dat %>% 
+  mutate(bx_date = case_when(procedure == "kidney_biopsy" ~ date),
+         visit = case_when(kit_id == "KL-0024005" ~ "12_months_post_surgery", T ~ visit)) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  mutate(urine_soma = case_when(!is.na(seq.10000.28_urine_cradj) ~ 1, T ~ 0),
+         blood_soma = case_when(!is.na(seq.10000.28) ~ 1, T ~ 0),
+         clamp = case_when(!is.na(p2_raw_m) ~ 1, T ~ 0),
+         pet = case_when((!is.na(avg_c_f) | !is.na(avg_m_f)) ~ 1, T ~ 0),
+         mri = case_when((!is.na(avg_c_r2) | !is.na(avg_k_r2) | !is.na(avg_m_r2)) ~ 1, T ~ 0),
+         mgfr = case_when(!is.na(gfr_bsa_plasma) ~ 1, T ~ 0),
+         erpf = case_when(!is.na(erpf_bsa_plasma) ~ 1, T ~ 0),
+         egfr = case_when(!is.na(eGFR_CKD_epi) ~ 1, T ~ 0)) %>%
+  arrange(mrn)
+
+harm_biopsy <- harm_dat %>% left_join(biopsy_master)
+```
+
+For surgical pathology reports = PANDA, RH2, RPC2
+For quantitative morphometry = ALL (except REMODEL and RPC2), prioritize T2D/OB
+
+* Need to state that we need GBM thickness from EM
+
+```{r}
+pathology_reports <- harm_biopsy %>%
+  filter(!is.na(Biopsy_date)|!is.na(kit_id)) %>%
+  filter(Shipped_Y_N == "Yes") %>%
+  filter(study %in% c("PANDA", "RENAL-HEIRitage", "RPC2")) %>%
+  filter(is.na(Pathology_report_ID)) %>%
+  mutate(group = coalesce(group, Group),
+         kit_id = coalesce(kit_id, Kit_ID),
+         bx_date = coalesce(bx_date, as.character(Biopsy_date))) %>%
+  arrange(factor(group, levels = c("Type 2 Diabetes", "Obese Control", "Type 1 Diabetes", "Lean Control"))) %>%
+  dplyr::select(record_id, visit, kit_id, bx_date, group)
+write.csv(pathology_reports, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Kidney Morphometrics/Data_Cleaned/surgical_pathology_missing_111225.csv", na = "")
+
+glom_quant_mopho <- harm_biopsy %>%
+  filter(!is.na(Biopsy_date)|!is.na(kit_id)) %>%
+  filter(Shipped_Y_N == "Yes") %>%
+  filter(study %nin% c("REMODEL", "RPC2")) %>%
+  filter(is.na(Glomerular_quant_data)) %>%
+  mutate(group = coalesce(group, Group),
+         kit_id = coalesce(kit_id, Kit_ID)) %>%
+  arrange(factor(group, levels = c("Type 2 Diabetes", "Obese Control", "Type 1 Diabetes", "Lean Control"))) %>%
+  dplyr::select(record_id, visit, kit_id, bx_date, group, Glutaraldehyde_ID)
+write.csv(glom_quant_mopho, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Kidney Morphometrics/Data_Cleaned/glom_quant_morpho_missing_111225.csv", na = "")
+
+tub_quant_mopho <- harm_biopsy %>%
+  filter(!is.na(Biopsy_date)|!is.na(kit_id)) %>%
+  filter(Shipped_Y_N == "Yes") %>%
+  filter(study %nin% c("REMODEL", "RPC2")) %>%
+  filter(is.na(Tubular_quant_data)) %>%
+  mutate(group = coalesce(group, Group),
+         kit_id = coalesce(kit_id, Kit_ID)) %>%
+  arrange(factor(group, levels = c("Type 2 Diabetes", "Obese Control", "Type 1 Diabetes", "Lean Control"))) %>%
+  dplyr::select(record_id, visit, kit_id, bx_date, group, Glutaraldehyde_ID)
+write.csv(tub_quant_mopho, "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/Kidney Morphometrics/Data_Cleaned/tub_quant_mopho_missing_111225.csv", na = "")
+```
