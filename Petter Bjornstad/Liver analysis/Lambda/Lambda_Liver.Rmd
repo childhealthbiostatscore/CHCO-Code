@@ -10421,6 +10421,7 @@ for (cell_name2 in HR_celltypes){
 
 ##II. Analyze
 ## a. HEP Cells 
+###i. TCA
 ```{r}
 #Filter to Hep Cells
 so_Hep <- subset(so_liver_sn,celltype2=="Hep")
@@ -10438,106 +10439,111 @@ meta <- so_Hep@meta.data
 oro_vars <- colnames(meta)[85:114]
 
 # for (cell_name in HR_celltypes){
-  # oro <- "carbp_m"
-  for (oro in oro_vars) {
-    # so_Hep <- subset(so_oro,celltype==cell_name)
-    so_TCA <- subset(so_Hep, features = tca)
-    # DefaultAssay(so_Hep) <- "RNA" 
-    StartGenes <- nrow(so_TCA) #28964 genes, now 28 TCA genes only
-    Nuclei <- ncol(so_TCA) #130124 nuclei, now 81388 nuclei
-    
-    # cells_to_keep <- !is.na(so_Hep@meta.data[[oro]])
-    # so_Hep <- subset(so_Hep, cells = colnames(so_Hep)[cells_to_keep])
-    
-    # so_Hep <- FindVariableFeatures(so_Hep, selection.method = "vst", nfeatures = 2000)
-    # hvgs <- VariableFeatures(so_Hep)
-    counts_tca <- round(GetAssayData(so_TCA, layer = "counts"))
-    genes_list <- tca
-    
-    cl <- makeCluster(10)
-    registerDoParallel(cl)
-    
-    start_time <- Sys.time()
-    
-    nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-      tryCatch({
-        count_gene <- counts_tca[g, , drop = FALSE]
-        meta_gene <- subset(so_TCA,features=g)@meta.data
-        formula <- as.formula(paste("~", oro))
-        pred_gene <- model.matrix(formula, data = meta_gene)
-        # pred_gene <- model.matrix(~oro, data = meta_gene)
-        # library <- meta_gene$pooled_offset
-        library <- meta_gene$pooled_offset
-        data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
-        
-        if (is.null(data_g_gene)) {
-          data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
-        }
-        
-        #With offset
-        result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
-        
-        list(gene = g, result = result)  # return both gene name and result
-        
-      }, error = function(e) {
-        NULL
-      })
-    }
-    
-    stopCluster(cl)
-    end_time <- Sys.time()
-    print(end_time - start_time)
-    
-    # set the names of results based on gene names
-    nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
-    names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
-    nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
-    
-    hep_nebula_converged <- map_dfr(
-      names(nebula_results_list),
-      function(gene_name) {
-        converged <- nebula_results_list[[gene_name]]$convergence
-        df <- data.frame(Gene = gene_name,
-                         Convergence_Code = converged)
-        return(df)
-      }
-    )
-    
-    nebula_summaries <- map_dfr(
-      names(nebula_results_list),
-      function(gene_name) {
-        df <- nebula_results_list[[gene_name]]$summary
-        df <- df %>% mutate(Gene = gene_name)
-        return(df)
-      }
-    )
-    nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40 | hep_nebula_converged$Convergence_Code==-50 | hep_nebula_converged$Convergence_Code==-60)]
-    ) 
-    
-    full_results <- as.data.frame(nebula_summaries)
-    colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept","p_value","gene_id","gene","Gene")
-    full_results$Variable <- oro
-    full_results$Celltype <- "Hepatocytes"
-    
-    #Calculate number of genes filtered out for low expression 
-    full_results$low_exp <- length(genes_list)-length(full_results$gene)
-    #Filter out non-converging genes
-    full_results <- full_results %>% 
-      filter(!gene %in%  nonconverge_genes)
-    #Calculate nonconvergence rate
-    full_results$nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
-    full_results$Nuceli <- Nuclei
-    full_results$Genes <- length(full_results$Gene)
-    # nebula_nonconverged_percent <- (length(rownames(counts_tca))-length(unique(full_results$gene)))/length(rownames(counts_tca))
-    # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
-    full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
-    # mutate(fdr3=p.adjust(PValue3,method="fdr"))
-    full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
-    # results_total <- rbind(results_total,full_results)
-    # cell_name2 <- str_replace_all(cell_name,"/","_")
-    # cell_name2 <- str_replace_all(cell_name2,"-","_")
-    write.csv(full_results,paste0("/home/hhampson/Results/NEBULA_",oro,"_Hepatocytes_tca.csv"))
+# oro <- "carbp_m"
+for (oro in oro_vars) {
+  # Clear any existing objects from previous iterations
+  if (exists("nebula_results_list")) rm(nebula_results_list)
+  if (exists("hep_nebula_converged")) rm(hep_nebula_converged)
+  if (exists("nebula_summaries")) rm(nebula_summaries)
+  if (exists("full_results")) rm(full_results)
+  if (exists("cl")) {
+    try(stopCluster(cl), silent = TRUE)
+    rm(cl)
   }
+  
+  # Force garbage collection
+  gc()
+  
+  print(paste("Processing:", oro))
+  
+  
+  so_TCA <- subset(so_Hep, features = tca)
+  DefaultAssay(so_TCA) <- "RNA"
+  StartGenes <- nrow(so_TCA) #28964 genes, now 28 TCA genes only
+  Nuclei <- ncol(so_TCA) #130124 nuclei, now 81388 nuclei
+  # counts_tca <- round(GetAssayData(so_TCA, layer = "counts"))
+  genes_list <- tca
+  cells_to_keep <- colnames(so_TCA)[!is.na(so_TCA@meta.data[[oro]])]
+  so_subset <- subset(so_TCA, cells = cells_to_keep)
+  DefaultAssay(so_subset) <- "RNA"
+  counts_tca <- round(GetAssayData(so_subset, layer = "counts"))
+  
+  cl <- makeCluster(10)
+  registerDoParallel(cl)
+  
+  start_time <- Sys.time()
+  
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_tca[g, , drop = FALSE]
+      meta_gene <- subset(so_subset,features=g)@meta.data
+      formula <- as.formula(paste("~", oro))
+      pred_gene <- model.matrix(formula, data = meta_gene)
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  hep_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40 | hep_nebula_converged$Convergence_Code==-50 | hep_nebula_converged$Convergence_Code==-60)]
+  ) 
+  
+  full_results <- as.data.frame(nebula_summaries)
+  colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept","p_value","gene_id","gene","Gene")
+  full_results$Variable <- oro
+  full_results$Celltype <- "Hepatocytes"
+  
+  #Calculate number of genes filtered out for low expression 
+  full_results$low_exp <- length(genes_list)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  full_results$nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+  full_results$Nuceli <- Nuclei
+  full_results$Genes <- length(full_results$Gene)
+  full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
+  full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
+  write.csv(full_results,paste0("/home/hhampson/Results/NEBULA_",oro,"_Hepatocytes_tca.csv"))
+}
 # }
 # "carbp_m"             "carb_adp"            "carb_g"              "carb_cytoc"          "carb_s"              "carb_omy"
 #  [7] "carbfccp"            "carbrcr_pm"          "carbrcr_pmgs"        "carbpe_pmgs"         "carb_ep"             "carbrcr_state2"
@@ -10836,6 +10842,132 @@ for (oro in oro_vars) {
 #     width = 1500, height = 2000, res = 300)
 # print(heat_map_p)
 # dev.off()
+
+```
+
+###ii. Ox Phos
+```{r}
+#Filter to Hep Cells
+so_Hep <- subset(so_liver_sn,celltype2=="Hep")
+DefaultAssay(so_Hep) <- "RNA" 
+
+#Filter out the Biobank participants with missing oroboros data
+biobank_ids <- c("BSA_026","BSA_034")
+so_Hep <- subset(so_Hep,!StudyID %in% biobank_ids)
+unique(so_Hep$StudyID) #"MANGO-06" "MANGO-18" "MANGO-05" "MANGO-07" "IT2D-19"  "IT2D-14"  "IT2D-15"  "MANGO-04"
+table(so_Hep$steatosis_cat,so_Hep$carbp_m)
+
+nrow(so_Hep) #28964 genes before, now 11224 genes
+ncol(so_Hep) #130124 nuclei before, now 81388 nuclei
+meta <- so_Hep@meta.data
+oro_vars <- colnames(meta)[85:114]
+
+# for (cell_name in HR_celltypes){
+# oro <- "carbp_m"
+for (oro in oro_vars) {
+  # Clear any existing objects from previous iterations
+  if (exists("nebula_results_list")) rm(nebula_results_list)
+  if (exists("hep_nebula_converged")) rm(hep_nebula_converged)
+  if (exists("nebula_summaries")) rm(nebula_summaries)
+  if (exists("full_results")) rm(full_results)
+  if (exists("cl")) {
+    try(stopCluster(cl), silent = TRUE)
+    rm(cl)
+  }
+  
+  # Force garbage collection
+  gc()
+  
+  print(paste("Processing:", oro))
+  
+  
+  so_OX_PHOS <- subset(so_Hep, features = ox_phos)
+  DefaultAssay(so_OX_PHOS) <- "RNA"
+  StartGenes <- nrow(so_OX_PHOS) #28964 genes, now 28 OX_PHOS genes only
+  Nuclei <- ncol(so_OX_PHOS) #130124 nuclei, now 81388 nuclei
+  # counts_ox_phos <- round(GetAssayData(so_ox_phos, layer = "counts"))
+  genes_list <- ox_phos
+  cells_to_keep <- colnames(so_OX_PHOS)[!is.na(so_OX_PHOS@meta.data[[oro]])]
+  so_subset <- subset(so_OX_PHOS, cells = cells_to_keep)
+  DefaultAssay(so_subset) <- "RNA"
+  counts_ox_phos <- round(GetAssayData(so_subset, layer = "counts"))
+  
+  cl <- makeCluster(10)
+  registerDoParallel(cl)
+  
+  start_time <- Sys.time()
+  
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_ox_phos[g, , drop = FALSE]
+      meta_gene <- subset(so_subset,features=g)@meta.data
+      formula <- as.formula(paste("~", oro))
+      pred_gene <- model.matrix(formula, data = meta_gene)
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  hep_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40 | hep_nebula_converged$Convergence_Code==-50 | hep_nebula_converged$Convergence_Code==-60)]
+  ) 
+  
+  full_results <- as.data.frame(nebula_summaries)
+  colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept","p_value","gene_id","gene","Gene")
+  full_results$Variable <- oro
+  full_results$Celltype <- "Hepatocytes"
+  
+  #Calculate number of genes filtered out for low expression 
+  full_results$low_exp <- length(genes_list)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  full_results$nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+  full_results$Nuceli <- Nuclei
+  full_results$Genes <- length(full_results$Gene)
+  full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
+  full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
+  write.csv(full_results,paste0("/home/hhampson/Results/NEBULA_",oro,"_Hepatocytes_ox_phos.csv"))
+}
 
 ```
 
