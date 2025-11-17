@@ -7,6 +7,8 @@ date: "2025-04-23"
 # 1. Set up Libraries & Directores
 ```{r libraries, echo=F, include = F}
 #Load Libraries
+library(reticulate)
+use_python("/home/hhampson/miniconda3/bin/python", required = TRUE)
 source("Lambda_Libraries.R")
 
 #Local file path
@@ -40,9 +42,9 @@ source("Lambda_Liver_Functions.R")
 # 2. Load Data, Pre-Processing & Qualtiy Control
 ```{r, Cyberduck setup}
 # install.packages("reticulate")
+# library(reticulate)
+# reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
 
-library(reticulate)
-reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
 ## Load boto3 and pandas
 boto3 <- reticulate::import("boto3")
 pd <- reticulate::import("pandas")
@@ -1564,7 +1566,7 @@ label(dat$hepatocyte_ballooning_score) <- "Hepatocyte Ballooning Score"
 #Table 1. 
 table1(~ age_surgery + nih_sex + nih_race + nih_ethnicity + bmi + tg + a1c+
          diagnosis_of_diabetes + diagnosis_of_MASLD+
-         sglt2 + glp1agonist  | study, data=dat)
+         sglt2 + glp1agonist| study, data=dat)
 
 table1(~ age_surgery + nih_sex + nih_race + nih_ethnicity + bmi + tg +a1c+
          diagnosis_of_MASLD+
@@ -1593,27 +1595,308 @@ write(t1, file = "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics
 t1_df <- as.data.frame(t1)
 write.csv(t1_df, "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Liver snRNA/Manuscript/table1_liver_manuscript.csv", row.names = FALSE)
 
-t1 <- table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
-             +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+both+glp1_exclusive+sglt2_exclusive+neither | steatosis_catß, data=dat)
-
-# Save as HTML
-write(t1, file = "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Liver snRNA/Manuscript/table1_liver_manuscript.html")
-
-# Convert to data frame first
-t1_df <- as.data.frame(t1)
-write.csv(t1_df, "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Liver snRNA/Manuscript/table1_liver_manuscript.csv", row.names = FALSE)
-
 table1(~ alt+ast+ggt+bmi+a1c+hepatocyte_ballooning_score+lobular_inflammation_grade+steatosis_grade+fibrosis_stage| steatosis_cat, data=dat)
 
+
+
+dat$hepatocyte_ballooning_score <- as.numeric(dat$hepatocyte_ballooning_score)
+dat$steatosis_grade <- as.numeric(dat$steatosis_grade)
+summary(dat$steatosis_grade)
+summary(dat$hepatocyte_ballooning_score)
+
+# Check for correlation
+cor.test(dat$steatosis_grade, dat$hepatocyte_ballooning_score, 
+         method = "spearman")
+cor.test(dat$steatosis_grade, dat$hepatocyte_ballooning_score, 
+         method = "pearson")
+dat$steatosis_grade <- dat$steatosis_grade-1
+p1 <- ggplot(dat, aes(x = steatosis_grade, y = hepatocyte_ballooning_score)) +
+  geom_point(alpha = 0.3, size = 0.5) +
+  geom_smooth(method = "lm", color = "red",se=F) +
+  theme_classic() +
+  labs(title = "Steatosis vs Hepatocyte Ballooning",
+       x = "Steatosis Score",
+       y = "Hepatocyte Ballooning Score")
+
+print(p1)
 
 # which(is.na(so_celltype$carbfccp))
 meta <- so_liver_sn@meta.data
 oro_vars <- colnames(meta)[85:114]
-oro_variables <- paste0("~",paste(oro_vars,collapse="+"))
+# oro_variables <- paste0("~",paste(oro_vars,collapse="+"))
+# table1(oro_variables|steatosis_cat, data=dat)
+dat <- dat %>% 
+  filter(study!="BIOBANK")
 table1(~carbp_m+carb_adp+carb_g+carb_cytoc+carb_s+carb_omy+carbfccp+carbrcr_pm+carbrcr_pmgs+carbpe_pmgs+carb_ep+carbrcr_state2+carbrcr_state4_c1+carbrcr_state4_c12+carb_le| steatosis_cat, data=dat)
-table1(~carbp_m+carb_adp+carb_g+carb_cytoc+carb_s+carb_omy+carbfccp+carbrcr_pm+carbrcr_pmgs+carbpe_pmgs+carb_ep+carbrcr_state2+carbrcr_state4_c1+carbrcr_state4_c12+carb_le| StudyID, data=dat)    
+
+table1(~carbp_m+carb_adp+carb_g+carb_cytoc+carb_s+carb_omy+carbfccp+carbrcr_pm+carbrcr_pmgs+carbpe_pmgs+carb_ep+carbrcr_state2+carbrcr_state4_c1+carbrcr_state4_c12+carb_le| StudyID, data=dat)
+
+table1(~StudyID| steatosis_cat, data=dat)
+dat$StudyID
+
 table1(~lipidpc_m+lipid_adp+lipid_cytoc+lipid_g+lipid_s+lipid_omy+lipidfccp+lipidrcr_pcm+lipidrcr_pcmgs+lipidpe_pcmgs+lipid_ep+lipidrcr_state2+lipidrcr_state4_c1+lipidrcr_state4_c12+lipid_le| steatosis_cat, data=dat)
-table1(~lipidpc_m+lipid_adp+lipid_cytoc+lipid_g+lipid_s+lipid_omy+lipidfccp+lipidrcr_pcm+lipidrcr_pcmgs+lipidpe_pcmgs+lipid_ep+lipidrcr_state2+lipidrcr_state4_c1+lipidrcr_state4_c12+lipid_le| StudyID, data=dat)
+
+
+carb_vars <- oro_vars[1:15]
+# Run simple t-tests
+results <- data.frame()
+for(var in carb_vars) {
+  formula <- as.formula(paste(var, "~ steatosis_cat"))
+  test <- t.test(formula, data = dat)
+  
+  results <- rbind(results, 
+                   data.frame(variable = var,
+                              p_value = test$p.value))
+}
+
+# Reshape data to long format
+#Carb variables
+# carb_vars <- oro_vars[c(1,2,4:7,9,10,15)]
+carb_vars <- oro_vars[c(1,2,5:7,9,10,15)]
+dat_long_carb <- dat %>%
+  filter(StudyID!="BSA_026") %>% 
+  filter(StudyID!="BSA_034") %>% 
+  # dplyr::select(c(StudyID,steatosis_cat, all_of(carb_vars)))
+  dplyr::select(c(steatosis_cat, all_of(carb_vars))) %>% 
+  # dat_long_carb <- dat_long_carb %>% 
+  # tibble::column_to_rownames("StudyID") %>% 
+  pivot_longer(cols = -steatosis_cat, 
+               names_to = "variable", 
+               values_to = "value") 
+dat_long_carb <- dat_long_carb %>% 
+  mutate(name = case_when(variable=="carbp_m" ~ "State 2 PM",
+                          variable=="carb_adp" ~ "State 3 PM",
+                          variable=="carb_s" ~ "State 3 PMGS",
+                          variable=="carb_omy" ~ "State 4 PMGS",
+                          variable=="carbfccp" ~ "ETS PMGS",
+                          variable=="carbrcr_pmgs" ~ "RCR PMGS",
+                          variable=="carbpe_pmgs" ~ "PE PMGS",
+                          variable=="carb_le" ~ "L/E PMGS")) %>% 
+  dplyr::rename(Parameter=value)
+dat_long_carb$name <- factor(dat_long_carb$name, 
+                             levels = c("State 2 PM", "State 3 PM", "State 3 PMGS", 
+                                        "State 4 PMGS", "ETS PMGS", 
+                                        "RCR PMGS", "PE PMGS", "L/E PMGS"))
+
+# "carbp_m"    "carb_adp"   "carb_g"     "carb_cytoc" "carb_s"     "carb_omy" 
+# "State 2 PM","State 3 PM", "State 3 PMG", "State 3 PMG (Cyt C)","State 3 PMGS","State 4 PMGS (Olyg.)"
+
+# Create faceted boxplots
+g <- ggplot(dat_long_carb, aes(x = steatosis_cat, y = Parameter, fill = steatosis_cat)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.2, alpha = 0.5) +  # Show individual points
+  facet_wrap(~ name, scales = "free_y", ncol = 4) +
+  scale_fill_manual(values = c("#e76f51", "#264653")) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#e76f51","darkred"))+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        text = element_text(face = "bold", family = "arial"),
+        strip.text = element_text(size = 12, face = "bold"),  # Facet labels
+        plot.title = element_text(hjust = 0.5,size=14), 
+        legend.position = "none") +
+  labs(title = "Respiratory Parameters (Run 1 - Absense of Lipid) by Steatosis Category",
+       x = "Steatosis Category",
+       y = "Respiratory Parameters",
+       fill = "Steatosis Category")
+
+# # Display all plots together (adjust ncol/nrow as needed)
+# wrap_plots(plot_list, ncol = 4 )
+# # Create the combined plot object
+# combined_plot <- wrap_plots(plot_list, ncol = 4)
+
+# Save using png() device
+# png(fs::path(dir.results,"Carb_Oroboros_Boxplots_Parameters.png"), 
+#     width = 3000, 
+#     height = 3000, 
+#     res = 300)
+# print(g)
+# dev.off()
+png(fs::path("/home/hhampson/Results/Carb_Oroboros_Boxplots_Parameters.png"), 
+    width = 4000, 
+    height = 2500, 
+    res = 300)
+print(g)
+dev.off()
+
+# #carb ratios
+# carb_vars <- oro_vars[7:15]
+# dat_long_carb <- dat %>%
+#   dplyr::select(steatosis_cat, all_of(carb_vars)) %>%
+#   pivot_longer(cols = -steatosis_cat, 
+#                names_to = "variable", 
+#                values_to = "value") %>% 
+#   mutate(variable = factor(variable, levels = carb_vars))
+# # dat_long_carb <- dat_long_carb %>% 
+# #   mutate(name = case_when(variable=="carbp_m" ~ "State 2 PM",
+# #                    variable=="carb_adp" ~ "State 3 PM",
+# #                    variable=="carb_g" ~ "State 3 PMG",
+# #                    variable=="carb_cytoc" ~ "State 3 PMG (Cyt C)",
+# #                    variable=="carb_s" ~ "State 3 PMGS",
+# #                    variable=="carb_omy" ~ "State 4 PMGS (Olyg.)")) %>% 
+# #   dplyr::rename(Parameter=value)
+# # "carbp_m"    "carb_adp"   "carb_g"     "carb_cytoc" "carb_s"     "carb_omy" 
+# # "State 2 PM","State 3 PM", "State 3 PMG", "State 3 PMG (Cyt C)","State 3 PMGS","State 4 PMGS (Olyg.)"
+# 
+# # Create faceted boxplots
+# g <- ggplot(dat_long_carb, aes(x = steatosis_cat, y = value, fill = steatosis_cat)) +
+#   geom_boxplot(alpha = 0.7) +
+#   geom_jitter(width = 0.2, alpha = 0.5) +  # Show individual points
+#   facet_wrap(~ variable, scales = "free_y", ncol = 3) +
+#   scale_fill_manual(values = c("#e76f51", "#264653")) +
+#   # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#e76f51","darkred"))+
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+#         text = element_text(face = "bold", family = "arial"),
+#         strip.text = element_text(size = 12, face = "bold"),  # Facet labels
+#         plot.title = element_text(hjust = 0.5,size=14), 
+#         legend.position = "none") +
+#   labs(title = "Respiratory Ratios (Run 1 - Absense of Lipid) by Steatosis Category",
+#        x = "Steatosis Category",
+#        y = "Respiratory Ratios",
+#        fill = "Steatosis Category")
+# 
+# # # Display all plots together (adjust ncol/nrow as needed)
+# # wrap_plots(plot_list, ncol = 4 )
+# # # Create the combined plot object
+# # combined_plot <- wrap_plots(plot_list, ncol = 4)
+# 
+# # Save using png() device
+# png(fs::path(dir.results,"Carb_Oroboros_Boxplots_Ratios.png"), 
+#     width = 3000, 
+#     height =2500, 
+#     res = 300)
+# print(g)
+# dev.off()
+
+
+
+# Get list of variables
+lipid_vars <- c("lipidpc_m", "lipid_adp", "lipid_cytoc", "lipid_g", 
+                "lipid_s", "lipid_omy", "lipidfccp", "lipidrcr_pcm", 
+                "lipidrcr_pcmgs", "lipidpe_pcmgs", "lipid_ep", 
+                "lipidrcr_state2", "lipidrcr_state4_c1", 
+                "lipidrcr_state4_c12", "lipid_le")
+
+# Run simple t-tests
+results <- data.frame()
+
+for(var in lipid_vars) {
+  formula <- as.formula(paste(var, "~ steatosis_cat"))
+  test <- t.test(formula, data = dat)
+  
+  results <- rbind(results, 
+                   data.frame(variable = var,
+                              p_value = test$p.value))
+}
+
+#Lipid variables
+lipid_vars <- oro_vars[c(16,17,20:22,24,25,30)]
+dat_long_lipid <- dat %>%
+  filter(StudyID!="BSA_026") %>% 
+  filter(StudyID!="BSA_034") %>% 
+  dplyr::select(steatosis_cat, all_of(lipid_vars)) %>%
+  pivot_longer(cols = -steatosis_cat, 
+               names_to = "variable", 
+               values_to = "value") 
+dat_long_lipid <- dat_long_lipid %>% 
+  mutate(name = case_when(variable=="lipidpc_m" ~ "State 2 FAM",
+                          variable=="lipid_adp" ~ "State 3 FAM",
+                          variable=="lipid_s" ~ "State 3 FAMGS",
+                          variable=="lipid_omy" ~ "State 4 FAMGS",
+                          variable=="lipidfccp" ~ "ETS FAMGS",
+                          variable=="lipidrcr_pcmgs" ~ "RCR FAMGS",
+                          variable=="lipidpe_pcmgs" ~ "PE FAMGS",
+                          variable=="lipid_le" ~ "L/E FAMGS")) %>% 
+  dplyr::rename(Parameter=value)
+#"lipidpc_m"   "lipid_adp"   "lipid_cytoc" "lipid_g"     "lipid_s"     "lipid_omy" 
+# Set factor levels to maintain the order of lipid_vars
+dat_long_lipid$name <- factor(dat_long_lipid$name, 
+                              levels = c("State 2 FAM", "State 3 FAM", 
+                                         "State 3 FAMGS", "State 4 FAMGS", "ETS FAMGS", 
+                                         "RCR FAMGS", "PE FAMGS", "L/E FAMGS"))
+
+# Create faceted boxplots
+g <- ggplot(dat_long_lipid, aes(x = steatosis_cat, y = Parameter, fill = steatosis_cat)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.2, alpha = 0.5) +  # Show individual points
+  facet_wrap(~ name, scales = "free_y", ncol = 4) +
+  scale_fill_manual(values = c("#e76f51", "#264653")) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#e76f51","darkred"))+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        text = element_text(face = "bold", family = "arial"),
+        strip.text = element_text(size = 12, face = "bold"),  # Facet labels
+        plot.title = element_text(hjust = 0.5,size=14), 
+        legend.position = "none") +
+  labs(title = "Respiratory Parameters (Run 2 - Presence of Lipid) by Steatosis Category",
+       x = "Steatosis Category",
+       y = "Respiratory Parameters",
+       fill = "Steatosis Category")
+
+# # Display all plots together (adjust ncol/nrow as needed)
+# wrap_plots(plot_list, ncol = 4 )
+# # Create the combined plot object
+# combined_plot <- wrap_plots(plot_list, ncol = 4)
+
+# Save using png() device
+png("/home/hhampson/Results/Lipid_Oroboros_Boxplots_Parameters.png", 
+    width = 4000, 
+    height = 2500, 
+    res = 300)
+print(g)
+dev.off()
+
+
+#Lipid variables
+lipid_vars <- oro_vars[22:30]
+dat_long_lipid <- dat %>%
+  dplyr::select(steatosis_cat, all_of(lipid_vars)) %>%
+  pivot_longer(cols = -steatosis_cat, 
+               names_to = "variable", 
+               values_to = "value") 
+dat_long_lipid <- dat_long_lipid %>%
+  #   mutate(name = case_when(variable=="lipidpc_m" ~ "State 2 FAM",
+  #                    variable=="lipid_adp" ~ "State 3 FAM (ADP)",
+  #                    variable=="lipid_cytoc" ~ "State 3 FAM (Cytochrome C)",
+  #                    variable=="lipid_g" ~ "State 3 FAM (G)",
+  #                    variable=="lipid_s" ~ "State 3 FAMG (S)",
+  #                    variable=="lipid_omy" ~ "State 4 FAMGS (Olygomycin)")) %>% 
+  dplyr::rename(Parameter=value)
+#"lipidpc_m"   "lipid_adp"   "lipid_cytoc" "lipid_g"     "lipid_s"     "lipid_omy" 
+
+# Create faceted boxplots
+g <- ggplot(dat_long_lipid, aes(x = steatosis_cat, y = Parameter, fill = steatosis_cat)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.2, alpha = 0.5) +  # Show individual points
+  facet_wrap(~ variable, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = c("#e76f51", "#264653")) +
+  # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#e76f51","darkred"))+
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        text = element_text(face = "bold", family = "arial"),
+        strip.text = element_text(size = 12, face = "bold"),  # Facet labels
+        plot.title = element_text(hjust = 0.5,size=14), 
+        legend.position = "none") +
+  labs(title = "Respiratory Ratios (Run 2 - Presence of Lipid) by Steatosis Category",
+       x = "Steatosis Category",
+       y = "Respiratory Ratios",
+       fill = "Steatosis Category")
+
+# # Display all plots together (adjust ncol/nrow as needed)
+# wrap_plots(plot_list, ncol = 4 )
+# # Create the combined plot object
+# combined_plot <- wrap_plots(plot_list, ncol = 4)
+
+# Save using png() device
+png(fs::path(dir.results,"Lipid_Oroboros_Boxplots_Ratios.png"), 
+    width = 3000, 
+    height = 2500, 
+    res = 300)
+print(g)
+dev.off()
+
+
+# table1(~lipidpc_m+lipid_adp+lipid_cytoc+lipid_g+lipid_s+lipid_omy+lipidfccp+lipidrcr_pcm+lipidrcr_pcmgs+lipidpe_pcmgs+lipid_ep+lipidrcr_state2+lipidrcr_state4_c1+lipidrcr_state4_c12+lipid_le| StudyID, data=dat)
 # Save the first table
 # Convert to data frame and save as CSV
 library(table1)
@@ -8844,7 +9127,6 @@ dev.off()
 # 4. Oroboros Analysis 
 ## Load Gene Sets
 ```{r}
-
 # #Local
 # tca1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/tca_cycle_genes.csv")$genesymbol
 gc()
@@ -10147,13 +10429,116 @@ DefaultAssay(so_Hep) <- "RNA"
 #Filter out the Biobank participants with missing oroboros data
 biobank_ids <- c("BSA_026","BSA_034")
 so_Hep <- subset(so_Hep,!StudyID %in% biobank_ids)
-unique(so_celltype$StudyID) #"MANGO-06" "MANGO-18" "MANGO-05" "MANGO-07" "IT2D-19"  "IT2D-14"  "IT2D-15"  "MANGO-04"
-table(so_celltype$steatosis_cat,so_celltype$carbp_m)
+unique(so_Hep$StudyID) #"MANGO-06" "MANGO-18" "MANGO-05" "MANGO-07" "IT2D-19"  "IT2D-14"  "IT2D-15"  "MANGO-04"
+table(so_Hep$steatosis_cat,so_Hep$carbp_m)
 
-nrow(so_Hep) #28964 genes
-ncol(so_Hep) #130124 nuclei
+nrow(so_Hep) #28964 genes before, now 11224 genes
+ncol(so_Hep) #130124 nuclei before, now 81388 nuclei
 meta <- so_Hep@meta.data
 oro_vars <- colnames(meta)[85:114]
+
+# for (cell_name in HR_celltypes){
+  # oro <- "carbp_m"
+  for (oro in oro_vars) {
+    # so_Hep <- subset(so_oro,celltype==cell_name)
+    so_TCA <- subset(so_Hep, features = tca)
+    # DefaultAssay(so_Hep) <- "RNA" 
+    StartGenes <- nrow(so_TCA) #28964 genes, now 28 TCA genes only
+    Nuclei <- ncol(so_TCA) #130124 nuclei, now 81388 nuclei
+    
+    # cells_to_keep <- !is.na(so_Hep@meta.data[[oro]])
+    # so_Hep <- subset(so_Hep, cells = colnames(so_Hep)[cells_to_keep])
+    
+    # so_Hep <- FindVariableFeatures(so_Hep, selection.method = "vst", nfeatures = 2000)
+    # hvgs <- VariableFeatures(so_Hep)
+    counts_tca <- round(GetAssayData(so_TCA, layer = "counts"))
+    genes_list <- tca
+    
+    cl <- makeCluster(10)
+    registerDoParallel(cl)
+    
+    start_time <- Sys.time()
+    
+    nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+      tryCatch({
+        count_gene <- counts_tca[g, , drop = FALSE]
+        meta_gene <- subset(so_TCA,features=g)@meta.data
+        formula <- as.formula(paste("~", oro))
+        pred_gene <- model.matrix(formula, data = meta_gene)
+        # pred_gene <- model.matrix(~oro, data = meta_gene)
+        # library <- meta_gene$pooled_offset
+        library <- meta_gene$pooled_offset
+        data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
+        
+        if (is.null(data_g_gene)) {
+          data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+        }
+        
+        #With offset
+        result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+        
+        list(gene = g, result = result)  # return both gene name and result
+        
+      }, error = function(e) {
+        NULL
+      })
+    }
+    
+    stopCluster(cl)
+    end_time <- Sys.time()
+    print(end_time - start_time)
+    
+    # set the names of results based on gene names
+    nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+    names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+    nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+    
+    hep_nebula_converged <- map_dfr(
+      names(nebula_results_list),
+      function(gene_name) {
+        converged <- nebula_results_list[[gene_name]]$convergence
+        df <- data.frame(Gene = gene_name,
+                         Convergence_Code = converged)
+        return(df)
+      }
+    )
+    
+    nebula_summaries <- map_dfr(
+      names(nebula_results_list),
+      function(gene_name) {
+        df <- nebula_results_list[[gene_name]]$summary
+        df <- df %>% mutate(Gene = gene_name)
+        return(df)
+      }
+    )
+    nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40 | hep_nebula_converged$Convergence_Code==-50 | hep_nebula_converged$Convergence_Code==-60)]
+    ) 
+    
+    full_results <- as.data.frame(nebula_summaries)
+    colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept","p_value","gene_id","gene","Gene")
+    full_results$Variable <- oro
+    full_results$Celltype <- "Hepatocytes"
+    
+    #Calculate number of genes filtered out for low expression 
+    full_results$low_exp <- length(genes_list)-length(full_results$gene)
+    #Filter out non-converging genes
+    full_results <- full_results %>% 
+      filter(!gene %in%  nonconverge_genes)
+    #Calculate nonconvergence rate
+    full_results$nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+    full_results$Nuceli <- Nuclei
+    full_results$Genes <- length(full_results$Gene)
+    # nebula_nonconverged_percent <- (length(rownames(counts_tca))-length(unique(full_results$gene)))/length(rownames(counts_tca))
+    # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+    full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
+    # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+    full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
+    # results_total <- rbind(results_total,full_results)
+    # cell_name2 <- str_replace_all(cell_name,"/","_")
+    # cell_name2 <- str_replace_all(cell_name2,"-","_")
+    write.csv(full_results,paste0("/home/hhampson/Results/NEBULA_",oro,"_Hepatocytes_tca.csv"))
+  }
+# }
 # "carbp_m"             "carb_adp"            "carb_g"              "carb_cytoc"          "carb_s"              "carb_omy"
 #  [7] "carbfccp"            "carbrcr_pm"          "carbrcr_pmgs"        "carbpe_pmgs"         "carb_ep"             "carbrcr_state2"
 # [13] "carbrcr_state4_c1"   "carbrcr_state4_c12"  "carb_le"             "lipidpc_m"           "lipid_adp"           "lipid_cytoc"
@@ -10162,51 +10547,52 @@ oro_vars <- colnames(meta)[85:114]
 
 ## Select Highly Variable Genes (HVGs)
 # results_total <- data.frame()
-# for (oro in oro_vars) {
-so_Hep$steatosis_cat <- factor(so_Hep$steatosis_cat)
-
-oro <- "carb_cytoc"
-cells_to_keep <- !is.na(so_Hep@meta.data[[oro]])
-so_celltype <- subset(so_Hep, cells = colnames(so_Hep)[cells_to_keep])
-
-so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
-hvgs <- VariableFeatures(so_celltype)
-counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ])
-genes_list <- hvgs
-
-cl <- makeCluster(10)
-registerDoParallel(cl)
-
-start_time <- Sys.time()
-
-nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
-  tryCatch({
-    count_gene <- counts_hvg[g, , drop = FALSE]
-    meta_gene <- subset(so_celltype,features=g)@meta.data
-    formula <- as.formula(paste("~", oro,"+ast"))
-    pred_gene <- model.matrix(formula, data = meta_gene)
-    # pred_gene <- model.matrix(~oro, data = meta_gene)
-    # library <- meta_gene$pooled_offset
-    library <- meta_gene$pooled_offset
-    data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
-    
-    if (is.null(data_g_gene)) {
-      data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
-    }
-    
-    #With offset
-    result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
-    
-    list(gene = g, result = result)  # return both gene name and result
-    
-  }, error = function(e) {
-    NULL
-  })
-}
-
-stopCluster(cl)
-end_time <- Sys.time()
-print(end_time - start_time)
+# # for (oro in oro_vars) {
+# so_Hep$steatosis_cat <- factor(so_Hep$steatosis_cat)
+# so_Hep$steatosis_cat <- relevel(so_Hep$steatosis_cat,ref = "Low Steatosis (0+1)")
+# 
+# oro <- "carbp_m"
+# cells_to_keep <- !is.na(so_Hep@meta.data[[oro]])
+# so_celltype <- subset(so_Hep, cells = colnames(so_Hep)[cells_to_keep])
+# 
+# # so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+# # hvgs <- VariableFeatures(so_celltype)
+# counts_hvg <- round(GetAssayData(so_celltype, layer = "counts")[hvgs, ])
+# genes_list <- hvgs
+# 
+# cl <- makeCluster(10)
+# registerDoParallel(cl)
+# 
+# start_time <- Sys.time()
+# 
+# nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+#   tryCatch({
+#     count_gene <- counts_hvg[g, , drop = FALSE]
+#     meta_gene <- subset(so_celltype,features=g)@meta.data
+#     formula <- as.formula(paste("~", oro,"+ast"))
+#     pred_gene <- model.matrix(formula, data = meta_gene)
+#     # pred_gene <- model.matrix(~oro, data = meta_gene)
+#     # library <- meta_gene$pooled_offset
+#     library <- meta_gene$pooled_offset
+#     data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
+#     
+#     if (is.null(data_g_gene)) {
+#       data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+#     }
+#     
+#     #With offset
+#     result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+#     
+#     list(gene = g, result = result)  # return both gene name and result
+#     
+#   }, error = function(e) {
+#     NULL
+#   })
+# }
+# 
+# stopCluster(cl)
+# end_time <- Sys.time()
+# print(end_time - start_time)
 
 # set the names of results based on gene names
 nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
