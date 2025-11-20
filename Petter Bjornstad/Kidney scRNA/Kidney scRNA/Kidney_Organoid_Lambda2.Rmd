@@ -7,6 +7,8 @@ output: html_document
 
 #1.Set Up 
 ```{r,include=FALSE}
+library(reticulate)
+use_python("/home/hhampson/miniconda3/bin/python", required = TRUE)
 library(reprex)
 library(tidyverse)
 library(BiocManager)        
@@ -144,9 +146,9 @@ source("Celltype_Annotation_Function.R")
 
 ## a. Lambda Data Load
 ```{r, Cyberduck setup,include=F,echo=F}
-install.packages("reticulate")
-library(reticulate)
-reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
+# install.packages("reticulate")
+# library(reticulate)
+# reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
 
 ## Load boto3 and pandas
 boto3 <- reticulate::import("boto3")
@@ -799,7 +801,6 @@ so_combined@reductions
 DimPlot(so_combined, reduction = "umap", raster = F)
 Idents(so_combined) <- "seurat_clusters"  # or whatever the column is named
 
-
 # Verify you have 25 clusters
 print(paste("Number of clusters:", length(unique(Idents(so_combined)))))
 print(table(Idents(so_combined)))  # Show distribution of cells per cluster
@@ -924,30 +925,47 @@ dev.off()
 
 #####II. Annotate
 ```{r}
-# Add cell type annotations to metadata
-# Mapping clusters 0-16 to cell types
-cell_type_annotations <- c(
-  "Cluster 0" = "proliferative nephron progenitor",
-  "Cluster 1" = "Stromal/Interstitial Cells",
-  "Cluster 2" = "podocytes",
-  "Cluster 3" = "Earlier/immature Proximal Tubule",
-  "Cluster 4" = "Collecting Duct Principal Cells",
-  "Cluster 5" = "thick ascending limb (TAL)",
-  "Cluster 6" = "Distal convoluted tubule (DCT)",
-  "Cluster 7" = "Type A intercalated cells",
-  "Cluster 8" = "endothelial cells",
-  "Cluster 9" = "off-target neural/neuronal cells",
-  "Cluster 10" = "More mature/differentiated Proximal Tubule",
-  "Cluster 11" = "Parietal Epithelial Cells (PECs)",
-  "Cluster 12" = "Mesangial Cells/Pericytes",
-  "Cluster 13" = "Stromal/Interstitial Progenitor Cells",
-  "Cluster 14" = "Nephron Progenitor Cells (Cap Mesenchyme)",
-  "Cluster 15" = "Proximal Tubule Progenitor/Precursor Cells",
-  "Cluster 16" = "Off-target Melanocyte/Neural Crest-like Cells"
+cell_type_annotations_res02 <- c(
+  "0" = "Nephron Progenitors/Early Epithelial",
+  "1" = "Neuronal Cells (off-target)",
+  "2" = "Mature Proximal Tubule",
+  "3" = "Podocytes + Stromal (mixed)",
+  "4" = "Neural Crest/Melanocyte-like (off-target)",
+  "5" = "Muscle/Myogenic Cells (off-target)",
+  "6" = "Proliferating Progenitor Cells",
+  "7" = "Thick Ascending Limb (TAL)",
+  "8" = "Collecting Duct Principal Cells"
 )
 
 # Add cell type annotations to metadata
-so_15$celltype <- cell_type_annotations[as.character(Idents(so_15))]
+so_15@meta.data$celltype <- cell_type_annotations_res02[as.character(Idents(so_15))]
+
+
+# Create UMAP with cell type labels
+DimPlot(so_15, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("15 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.2, Clusters = 8")
+
+#Save annotated UMAP
+png("/home/hhampson/Results/Annotated_UMAP_15_res_02_clusters8.png",res=300,width=3700,height=3000)
+DimPlot(so_15, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+  theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("15 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.2, Clusters = 8")
+dev.off()
 
 ```
 
@@ -1019,32 +1037,58 @@ DimPlot(so_15, reduction = "umap", group.by = "group", raster = T)+
           subtitle = "Res = 0.35, Clusters = 11")
 dev.off()
 ```
-####II. Annotate
+#####II. Annotate
 ```{r}
 # Add cell type annotations to metadata
-# Mapping clusters 0-16 to cell types
-cell_type_annotations <- c(
-  "Cluster 0" = "proliferative nephron progenitor",
-  "Cluster 1" = "Stromal/Interstitial Cells",
-  "Cluster 2" = "podocytes",
-  "Cluster 3" = "Earlier/immature Proximal Tubule",
-  "Cluster 4" = "Collecting Duct Principal Cells",
-  "Cluster 5" = "thick ascending limb (TAL)",
-  "Cluster 6" = "Distal convoluted tubule (DCT)",
-  "Cluster 7" = "Type A intercalated cells",
-  "Cluster 8" = "endothelial cells",
-  "Cluster 9" = "off-target neural/neuronal cells",
-  "Cluster 10" = "More mature/differentiated Proximal Tubule",
-  "Cluster 11" = "Parietal Epithelial Cells (PECs)",
-  "Cluster 12" = "Mesangial Cells/Pericytes",
-  "Cluster 13" = "Stromal/Interstitial Progenitor Cells",
-  "Cluster 14" = "Nephron Progenitor Cells (Cap Mesenchyme)",
-  "Cluster 15" = "Proximal Tubule Progenitor/Precursor Cells",
-  "Cluster 16" = "Off-target Melanocyte/Neural Crest-like Cells"
+cell_type_annotations_res035 <- c(
+  "0" = "Stromal/Interstitial Cells",
+  "1" = "Mature Proximal Tubule",
+  "2" = "Developing Proximal Tubule",
+  "3" = "Podocytes",
+  "4" = "Muscle/Myogenic Cells (off-target)",
+  "5" = "Differentiating Neurons (off-target)",
+  "6" = "Neural Progenitors (off-target)",
+  "7" = "Neural Crest/Melanocyte (off-target)",
+  "8" = "Proliferating Nephron Progenitors",
+  "9" = "Thick Ascending Limb (TAL)",
+  "10" = "Proliferating Cells",
+  "11" = "Collecting Duct Principal Cells"
 )
 
 # Add cell type annotations to metadata
-so_15$celltype <- cell_type_annotations[as.character(Idents(so_15))]
+# so_15 <- AddMetaData(
+#   object = so_15,
+#   metadata = cell_type_annotations[as.character(Idents(so_15))],
+#   col.name = "celltype"
+# )
+so_15@meta.data$celltype <- cell_type_annotations_res035[as.character(Idents(so_15))]
+
+
+# Create UMAP with cell type labels
+DimPlot(so_15, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("15 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.35, Clusters = 11")
+
+#Save annotated UMAP
+png("/home/hhampson/Results/Annotated_UMAP_15_res_035_clusters11.png",res=300,width=3700,height=3000)
+DimPlot(so_15, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+  theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("15 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.35, Clusters = 11")
+dev.off()
 
 ```
 ####c. High Res
@@ -1115,6 +1159,60 @@ DimPlot(so_15, reduction = "umap", group.by = "group", raster = T)+
           subtitle = "Res = 0.5, Clusters = 16")
 dev.off()
 ```
+#### II. Annotate
+```{r}
+cell_type_annotations_res05 <- c(
+  "0" = "Developing Proximal Tubule",
+  "1" = "Mature Proximal Tubule",
+  "2" = "Stromal/Interstitial Cells",
+  "3" = "Podocytes",
+  "4" = "Neural Crest/Melanocyte-like (off-target)",
+  "5" = "Neural Progenitors (off-target)",
+  "6" = "Proliferating Nephron Progenitors",
+  "7" = "Neural Progenitors/Neuroblasts (off-target)",
+  "8" = "Muscle/Myogenic Cells (off-target)",
+  "9" = "Thick Ascending Limb (TAL)",
+  "10" = "Distal Convoluted Tubule (DCT)",
+  "11" = "Collecting Duct Principal Cells",
+  "12" = "Proliferating Epithelial/Nephron",
+  "13" = "Proliferating Stromal/Mesenchymal",
+  "14" = "Endothelial Cells",
+  "15" = "Specialized Stromal Subtype",
+  "16" = "Mesangial/Vascular Smooth Muscle"
+)
+
+# Add cell type annotations to metadata
+# so_15$celltype <- cell_type_annotations[as.character(Idents(so_15))]
+so_15@meta.data$celltype <- cell_type_annotations_res05[as.character(Idents(so_15))]
+
+# Create UMAP with cell type labels
+DimPlot(so_15, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("15 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.5, Clusters = 16")
+
+
+#Save annotated UMAP
+png("/home/hhampson/Results/Annotated_UMAP_15_res_05_clusters16.png",res=300,width=3700,height=3000)
+DimPlot(so_15, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("15 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.5, Clusters = 16")
+dev.off()
+```
+
 
 ###iii. 30 Glucose
 #####I. Find Markers
@@ -1189,30 +1287,47 @@ dev.off()
 ######II. Annotate
 ```{r}
 # Add cell type annotations to metadata
-# Mapping clusters 0-16 to cell types
-cell_type_annotations <- c(
-  "Cluster 0" = "proliferative nephron progenitor",
-  "Cluster 1" = "Stromal/Interstitial Cells",
-  "Cluster 2" = "podocytes",
-  "Cluster 3" = "Earlier/immature Proximal Tubule",
-  "Cluster 4" = "Collecting Duct Principal Cells",
-  "Cluster 5" = "thick ascending limb (TAL)",
-  "Cluster 6" = "Distal convoluted tubule (DCT)",
-  "Cluster 7" = "Type A intercalated cells",
-  "Cluster 8" = "endothelial cells",
-  "Cluster 9" = "off-target neural/neuronal cells",
-  "Cluster 10" = "More mature/differentiated Proximal Tubule",
-  "Cluster 11" = "Parietal Epithelial Cells (PECs)",
-  "Cluster 12" = "Mesangial Cells/Pericytes",
-  "Cluster 13" = "Stromal/Interstitial Progenitor Cells",
-  "Cluster 14" = "Nephron Progenitor Cells (Cap Mesenchyme)",
-  "Cluster 15" = "Proximal Tubule Progenitor/Precursor Cells",
-  "Cluster 16" = "Off-target Melanocyte/Neural Crest-like Cells"
+cell_type_annotations_res02 <- c(
+  "0" = "Podocytes + Stromal (mixed)",
+  "1" = "Neuronal Cells (off-target)",
+  "2" = "Muscle/Myogenic Cells (off-target)",
+  "3" = "Proliferating Nephron Progenitors",
+  "4" = "Stromal/Interstitial Cells",
+  "5" = "Mature Proximal Tubule",
+  "6" = "Neural Crest/Melanocyte-like (off-target)",
+  "7" = "Thick Ascending Limb (TAL)",
+  "8" = "Collecting Duct Principal Cells"
 )
 
 # Add cell type annotations to metadata
-so_15$celltype <- cell_type_annotations[as.character(Idents(so_15))]
+so_30@meta.data$celltype <- cell_type_annotations_res02[as.character(Idents(so_30))]
 
+
+# Create UMAP with cell type labels
+DimPlot(so_30, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("30 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.2, Clusters = 8")
+
+#Save annotated UMAP
+png("/home/hhampson/Results/Annotated_UMAP_30_res_02_clusters8.png",res=300,width=3700,height=3000)
+DimPlot(so_30, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+  theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("30 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.2, Clusters = 8")
+dev.off()
 ```
 ####b. Mod Res
 ```{r}
@@ -1289,6 +1404,59 @@ DimPlot(so_30, reduction = "umap", group.by = "group", raster = T)+
           subtitle = "Res = 0.35, Clusters = 13")
 dev.off()
 ```
+
+##### I. Annotate
+```{r}
+# Add cell type annotations to metadata
+cell_type_annotations_res035 <- c(
+  "0" = "Neuronal Cells - Mature (off-target)",
+  "1" = "Stromal/Interstitial Cells",
+  "2" = "Proliferating Nephron Progenitors",
+  "3" = "Podocytes - Activated/Contractile",
+  "4" = "Podocytes - Classic",
+  "5" = "Mature Proximal Tubule",
+  "6" = "Neural Crest/Melanocyte-like (off-target)",
+  "7" = "Distal Convoluted Tubule (DCT)",
+  "8" = "Muscle/Myogenic Cells - Mature (off-target)",
+  "9" = "Thick Ascending Limb (TAL)",
+  "10" = "Proliferating Cells",
+  "11" = "Collecting Duct Principal Cells",
+  "12" = "Neuronal Cells - Highly Differentiated (off-target)",
+  "13" = "Specialized Proximal Tubule/Epithelial"
+)
+
+# Add cell type annotations to metadata
+so_30@meta.data$celltype <- cell_type_annotations_res035[as.character(Idents(so_30))]
+
+
+# Create UMAP with cell type labels
+DimPlot(so_30, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("30 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.35, Clusters = 11")
+
+#Save annotated UMAP
+png("/home/hhampson/Results/Annotated_UMAP_30_res_035_clusters11.png",res=300,width=3700,height=3000)
+DimPlot(so_30, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+  theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("30 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.35, Clusters = 11")
+dev.off()
+```
+
+
 ####c. High Res
 ```{r}
 #Select 30 conc. only
@@ -1357,6 +1525,61 @@ DimPlot(so_30, reduction = "umap", group.by = "group", raster = T)+
           subtitle = "Res = 0.5, Clusters = 16")
 dev.off()
 ```
+
+#####I. Annotate
+```{r}
+cell_type_annotations_res05 <- c(
+  "0" = "Stromal/Interstitial Cells",
+  "1" = "Podocytes - Classic",
+  "2" = "Mature Proximal Tubule",
+  "3" = "Neural Crest/Melanocyte-like (off-target)",
+  "4" = "Podocytes - Mesenchymal-like",
+  "5" = "Endothelial Cells",
+  "6" = "Muscle/Myogenic Cells - Mature (off-target)",
+  "7" = "Distal Convoluted Tubule (DCT)",
+  "8" = "Proliferating Nephron Progenitors",
+  "9" = "Thick Ascending Limb (TAL)",
+  "10" = "Neural Progenitors (off-target)",
+  "11" = "Podocytes - Activated/Contractile",
+  "12" = "Neuronal Cells - Mature (off-target)",
+  "13" = "Proliferating Cells",
+  "14" = "Collecting Duct Principal Cells",
+  "15" = "Neuronal Cells - Highly Differentiated (off-target)",
+  "16" = "Specialized Proximal Tubule/Epithelial"
+)
+
+# Add cell type annotations to metadata
+so_30@meta.data$celltype <- cell_type_annotations_res05[as.character(Idents(so_30))]
+
+
+# Create UMAP with cell type labels
+DimPlot(so_30, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("30 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.5, Clusters = 16")
+
+#Save annotated UMAP
+png("/home/hhampson/Results/Annotated_UMAP_30_res_05_clusters16.png",res=300,width=3700,height=3000)
+DimPlot(so_30, 
+        reduction = "umap", 
+        group.by = "celltype",
+        label = TRUE,
+        label.size = 3,
+        repel = TRUE) + 
+  theme(legend.position = "right",
+        legend.text = element_text(size = 10))+
+  ggtitle("30 mM Glucose Treatment - Cell Types",
+          subtitle = "Res = 0.5, Clusters = 16")
+dev.off()
+
+```
+
 
 ```{r}
 #Select 30 conc. only
