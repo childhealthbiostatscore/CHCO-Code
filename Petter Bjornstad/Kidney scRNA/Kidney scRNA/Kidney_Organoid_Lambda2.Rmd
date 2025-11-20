@@ -1405,7 +1405,7 @@ DimPlot(so_30, reduction = "umap", group.by = "group", raster = T)+
 dev.off()
 ```
 
-##### I. Annotate
+###### I. Annotate
 ```{r}
 # Add cell type annotations to metadata
 cell_type_annotations_res035 <- c(
@@ -1884,4 +1884,244 @@ if("Mesenchymal_Stromal" %in% broad_summary$broad_category) cat("✓ Stromal/mes
 if("Epithelial" %in% broad_summary$broad_category) cat("✓ Epithelial differentiation\n")
 if("Off_Target" %in% broad_summary$broad_category) cat("! Off-target cell types (common in organoids)\n")
 if("Proliferating" %in% broad_summary$broad_category) cat("✓ Actively dividing cells\n")
+```
+
+
+#3. Analysis
+##15 Glucose
+```{r}
+#Run analysis - Differentially Expressed Genes by Diabetes Status
+nrow(so_15) #7383 genes
+ncol(so_15) #69215 cells
+
+# Define the mapping
+celltype_mapping <- c(
+  "Muscle/Myogenic Cells (off-target)" = "Muscle_OT",
+  "Proliferating Cells" = "Prolif",
+  "Proliferating Nephron Progenitors" = "PNP",
+  "Neural Crest/Melanocyte (off-target)" = "NC_Mel_OT",
+  "Podocytes" = "Podo",
+  "Stromal/Interstitial Cells" = "Stroma",
+  "Developing Proximal Tubule" = "dPT",
+  "Collecting Duct Principal Cells" = "CDPC",
+  "Differentiating Neurons (off-target)" = "Diff_Neuron_OT",
+  "Neural Progenitors (off-target)" = "NP_OT",
+  "Thick Ascending Limb (TAL)" = "TAL",
+  "Mature Proximal Tubule" = "mPT"
+)
+# Create celltype2 as a factor with abbreviated names
+so_15$celltype2 <- factor(so_15$celltype,
+                          levels = names(celltype_mapping),
+                          labels = celltype_mapping)
+# Verify the recoding
+unique(so_15$celltype2)
+# Check that all cells were mapped correctly
+table(so_15$celltype2)
+meta <- so_15@meta.data
+# unique(meta$group)
+
+# Prepare data for plotting
+celltype_counts <- so_15@meta.data %>%
+  group_by(group, celltype2) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(group) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ungroup()
+
+# Create the stacked barchart
+png("/home/hhampson/Results/Barchart_Celltypes_by_Diabetes_15_Glucose.png",res=300,width=2000,height=2000)
+ggplot(celltype_counts, aes(x = group, y = proportion, fill = celltype2)) +
+  geom_col(width = 0.6) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  theme_minimal() +
+  labs(
+    title = "Cell Type Distribution by Treatment Group",
+    x = "Group",
+    y = "Proportion of Cells",
+    fill = "Cell Type"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+dev.off()
+
+
+HR_celltypes <- unique(so_15$celltype2)
+for (cell_name in HR_celltypes){
+  # oro <- "carbp_m"
+  # for (oro in oro_vars) {
+    so_celltype <- subset(so_15,celltype2==cell_name)
+    DefaultAssay(so_celltype) <- "RNA" 
+    StartGenes <- nrow(so_celltype) 
+    Nuclei <- ncol(so_celltype) 
+    
+    # cells_to_keep <- !is.na(so_celltype@meta.data[[oro]])
+    # so_celltype <- subset(so_celltype, cells = colnames(so_celltype)[cells_to_keep])
+    # 
+    so_celltype <- FindVariableFeatures(so_celltype, selection.method = "vst", nfeatures = 2000)
+    hvgs <- VariableFeatures(so_celltype)
+    counts_hvg <- round(GetAssayData(so_celltype, layer = "counts"))
+    genes_list <- hvgs
+    cl <- makeCluster(10)
+    registerDoParallel(cl)
+    
+    start_time <- Sys.time()
+    
+    nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+      tryCatch({
+        count_gene <- counts_hvg[g, , drop = FALSE]
+        meta_gene <- subset(so_celltype,features=g)@meta.data
+        formula <- as.formula(paste("~ group"))
+        pred_gene <- model.matrix(formula, data = meta_gene)
+        # pred_gene <- model.matrix(~oro, data = meta_gene)
+        # library <- meta_gene$pooled_offset
+        library <- meta_gene$pooled_offset
+        data_g_gene <- group_cell(count = count_gene, id = meta_gene$record_id, pred = pred_gene,offset=library)
+        
+        if (is.null(data_g_gene)) {
+          data_g_gene <- list(count = count_gene, id = meta_gene$record_id, pred = pred_gene, offset = library)
+        }
+        
+        #With offset
+        result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+        
+        list(gene = g, result = result)  # return both gene name and result
+        
+      }, error = function(e) {
+        NULL
+      })
+    }
+    
+    stopCluster(cl)
+    end_time <- Sys.time()
+    print(end_time - start_time)
+    
+    # set the names of results based on gene names
+    nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+    names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+    nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+    
+    hep_nebula_converged <- map_dfr(
+      names(nebula_results_list),
+      function(gene_name) {
+        converged <- nebula_results_list[[gene_name]]$convergence
+        df <- data.frame(Gene = gene_name,
+                         Convergence_Code = converged)
+        return(df)
+      }
+    )
+    
+    nebula_summaries <- map_dfr(
+      names(nebula_results_list),
+      function(gene_name) {
+        df <- nebula_results_list[[gene_name]]$summary
+        df <- df %>% mutate(Gene = gene_name)
+        return(df)
+      }
+    )
+    nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40 | hep_nebula_converged$Convergence_Code==-50 | hep_nebula_converged$Convergence_Code==-60)]
+    ) 
+    
+    full_results <- as.data.frame(nebula_summaries)
+    colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept","p_value","gene_id","gene","Gene")
+    full_results$Variable <- oro
+    full_results$Celltype <- cell_name
+    
+    #Calculate number of genes filtered out for low expression 
+    full_results$low_exp <- length(genes_list)-length(full_results$gene)
+    #Filter out non-converging genes
+    full_results <- full_results %>% 
+      filter(!gene %in%  nonconverge_genes)
+    #Calculate nonconvergence rate
+    full_results$nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+    full_results$Nuceli <- Nuclei
+    full_results$Genes <- length(full_results$Gene)
+    # nebula_nonconverged_percent <- (length(rownames(counts_tca))-length(unique(full_results$gene)))/length(rownames(counts_tca))
+    # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+    full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
+    # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+    full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
+    # results_total <- rbind(results_total,full_results)
+    cell_name2 <- str_replace_all(cell_name,"/","_")
+    cell_name2 <- str_replace_all(cell_name2,"-","_")
+    write.csv(full_results,fs::path(dir.results,paste0("NEBULA_",oro,"_",cell_name2,"_unadjusted_2000_tca.csv")))
+  }
+# }
+```
+
+##30 Glucose
+```{r}
+#Run analysis - Differentially Expressed Genes by Diabetes Status
+nrow(so_30) #7383 genes
+ncol(so_30) #87172 cells
+
+# Define the mapping
+celltype_mapping <- c(
+  "Stromal/Interstitial Cells" = "Stroma",
+  "Distal Convoluted Tubule (DCT)" = "DCT",
+  "Podocytes - Activated/Contractile" = "Podo (Act)",
+  "Proliferating Nephron Progenitors" = "PNP",
+  "Neural Crest/Melanocyte-like (off-target)" = "NC/Mel (OT)",
+  "Mature Proximal Tubule" = "mPT",
+  "Specialized Proximal Tubule/Epithelial" = "sPT",
+  "Proliferating Cells" = "Prolif",
+  "Neuronal Cells - Mature (off-target)" = "Neuron (OT)",
+  "Collecting Duct Principal Cells" = "CDPC",
+  "Podocytes - Classic" = "Podo (Class)",
+  "Muscle/Myogenic Cells - Mature (off-target)" = "Muscle (OT)",
+  "Neuronal Cells - Highly Differentiated (off-target)" = "Neuron Diff (OT)",
+  "Thick Ascending Limb (TAL)" = "TAL"
+)
+
+# Create celltype2 as a factor with abbreviated names
+so_30$celltype2 <- factor(so_30$celltype,
+                          levels = names(celltype_mapping),
+                          labels = celltype_mapping)
+
+# Verify the recoding
+unique(so_30$celltype2)
+
+# Check that all cells were mapped correctly
+table(so_30$celltype2)
+
+# Verify the recoding
+unique(so_30$celltype2)
+# Check that all cells were mapped correctly
+table(so_30$celltype2)
+meta <- so_30@meta.data
+# unique(meta$group)
+
+# Prepare data for plotting
+celltype_counts <- so_30@meta.data %>%
+  group_by(group, celltype2) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(group) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ungroup()
+
+# Create the stacked barchart
+png("/home/hhampson/Results/Barchart_Celltypes_by_Diabetes_30_Glucose.png",res=300,width=2000,height=2000)
+ggplot(celltype_counts, aes(x = group, y = proportion, fill = celltype2)) +
+  geom_col(width = 0.6) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  theme_minimal() +
+  labs(
+    title = "Cell Type Distribution by Treatment Group",
+    x = "Group",
+    y = "Proportion of Cells",
+    fill = "Cell Type"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+dev.off()
+
 ```
