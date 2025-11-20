@@ -22,13 +22,17 @@ library(tableone)
 library(EnhancedVolcano)
 library(knitr)
 library(ggpubr)
+library(readxl)
+library(stringr)
 
 # specify user for paths
 user <- Sys.info()[["user"]]
 if (user == "laurapyle") {
   data_path <- '/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/AstraZeneca'
+  vsg_path <- '/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG'
 } else if (user == "lpyle") {
   data_path <- '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/AstraZeneca'
+  vsg_path <- '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG'
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -39,18 +43,33 @@ knitr::opts_chunk$set(echo = FALSE)
 ```
 
 ```{r, include=FALSE}
-filename <- "RPC2 targeted normalised data combined PN.csv"
+filename <- "RPC2 targeted normalised data combined PN.xlsx"
 full_path <- file.path(data_path, filename)
-data <- read.csv(full_path)
+data <- read_xlsx(full_path, sheet = "Targeted data")
+creat <- read_xlsx(full_path, sheet = "Creatinine quant")
+creat$time <- creat$baseline
+creat$baseline <- NULL
 
-'/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/AstraZeneca/RPC2 targeted normalised data combined PN.xlsx'
+data <- left_join(data, creat, by = c("record_id", "time"))
 
+# just testing out who in Long's data has urine proteomics
+filename <- "patient_cohort_prepost_table.xlsx"
+full_path <- file.path(vsg_path, filename)
+vsg_smt_patients <- read_xlsx(full_path, sheet = "patient_cohort_prepost_table")
+vsg_smt_patients$record_id <- ifelse(vsg_smt_patients$cohort == "IMPROVE", str_replace(vsg_smt_patients$record_id, "_", "-"), vsg_smt_patients$record_id)
+vsg_smt_patients <- vsg_smt_patients %>% mutate(time = case_when(
+  cohort == "IMPROVE" & updated_pre_post == "pre" ~ "baseline",
+  cohort == "IMPROVE" & updated_pre_post == "post" ~ "12_months_post_surgery",
+  cohort != "IMPROVE" ~ "baseline"
+  )
+)
+test <- vsg_smt_patients %>% select(record_id, time)
+test$in_vsg_smt <- 1
+test <- left_join(test, creat, by = c("record_id", "time"))
+# there are quite a significant number of people who have urinary metabolomics
+
+# I have no idea where this "Dose" variable came from
 data <- data %>% filter(!Dose == "QC")
-data$Peak.Area <- as.numeric(data$Peak.Area)
-
-# remove 1 year samples 
-data <- data %>% filter(!Matrix == "12M")
-data_keep <- data %>% select(ID, Dose, Metabolite, Peak.Area)
 
 # long to wide
 data_wide <- reshape(data_keep, direction = "wide", idvar = c("ID", "Dose"),
@@ -63,7 +82,7 @@ data_wide_OC_T1D <- data_wide %>% filter(Dose %in% c("Obese_Control", "Type_1_Di
 data_wide_OC_T2D <- data_wide %>% filter(Dose %in% c("Obese_Control", "Type_2_Diabetes"))
 data_wide_T1D_T2D <- data_wide %>% filter(Dose %in% c("Type_1_Diabetes", "Type_2_Diabetes"))
 
-# identify columns corresponding to proteins
+# identify columns corresponding to metabolites
 is_seq <- function(.x) grepl("Peak", .x)
 
 ```
