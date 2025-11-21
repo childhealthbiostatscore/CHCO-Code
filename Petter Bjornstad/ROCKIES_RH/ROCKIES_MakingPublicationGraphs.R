@@ -2322,3 +2322,390 @@ print(p_values)
 
 
 
+
+
+
+
+
+
+
+
+######Consort Diagrams
+################################################################################
+# ROCKIES Study CONSORT Diagram with Participant Counts
+################################################################################
+
+library(DiagrammeR)
+library(dplyr)
+library(stringr)
+
+################################################################################
+# Fix Demographics - Handle Co-enrollment by MRN Priority
+################################################################################
+
+# Read harmonized data
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+# First, aggregate by visit/record_id as in your original code
+dat <- harmonized_data %>% 
+  dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(
+    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+    .by = c(record_id, visit)
+  )
+
+# Calculate PET averages
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+  
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  avg_m_k2_f <- avg_m_k2 / avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                      'avg_c_k2_f', 'avg_m_k2_f')
+  return(results)
+}
+
+tmp_results <- PET_avg(dat)
+dat_results <- dat %>% bind_cols(tmp_results)
+
+# Filter to those with PET data and correct groups
+dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
+dat_results <- dat_results %>% filter(group %in% c('Lean Control', 'Type 2 Diabetes'))
+
+# Get SGLT2i information (using your original logic)
+RH <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RENALHEIR-SGLT2.csv')
+names(RH) <- c('Subject', 'rep_instr', 'rep_inst', 'SGLT2')
+RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-SGLT2Use.csv')
+names(RH2) <- c('Subject', 'event', 'rep_instr', 'rep_inst', 'mrn', 'SGLT2', 'SGLT2_ever')
+RH2 <- RH2 %>% filter(!is.na(mrn))
+improve <- data.table::fread('C:/Users/netio/Downloads/IMPROVET2D-SGLT2i_DATA_LABELS_2025-08-25_0938.csv')
+names(improve)[5] <- 'SGLT2'
+names(improve)[1] <- 'record_id'
+improve <- improve %>% filter(!is.na(SGLT2)) %>% filter(SGLT2 != '')
+
+dat2 <- dat_results
+dat2$group2 <- NA
+need_med_info <- dat2 %>% filter(is.na(group2))
+
+improve_small <- improve %>% filter(record_id %in% need_med_info$record_id)
+RH_small <- RH %>% filter(Subject %in% need_med_info$record_id)
+RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
+
+# Apply SGLT2i information
+for(i in c(1:nrow(RH_small))){
+  if(nrow(RH_small) == 0) next
+  if(RH_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'No'
+  }else if(RH_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$record_id == RH_small$Subject[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == RH_small$Subject[i])] <- 'Yes'
+  }
+}
+
+for(i in c(1:nrow(RH2_small))){
+  if(nrow(RH2_small) == 0) next
+  if(RH2_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'No'
+  }else if(RH2_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$mrn == RH2_small$mrn[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$mrn == RH2_small$mrn[i])] <- 'Yes'
+  }
+}
+
+for(i in c(1:nrow(improve_small))){
+  if(nrow(improve_small) == 0) next
+  if(improve_small$SGLT2[i] == 'No'){
+    dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-No SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'No'
+  }else if(improve_small$SGLT2[i] == 'Yes'){
+    dat2$group2[which(dat2$record_id == improve_small$record_id[i])] <- 'T2D-SGLTi2'
+    dat2$epic_sglti2_1[which(dat2$record_id == improve_small$record_id[i])] <- 'Yes'
+  }
+}
+
+dat2$epic_sglti2_1[which(dat2$group == 'Lean Control')] <- 'No'
+
+################################################################################
+# Calculate Participant Counts for CONSORT
+################################################################################
+
+# 1. Total enrolled (unique by MRN from full harmonized data)
+n_total <- harmonized_data %>% 
+  filter(!is.na(mrn)) %>%
+  distinct(mrn) %>%
+  nrow()
+
+# 2. By group (from full harmonized data)
+n_by_group <- harmonized_data %>%
+  filter(!is.na(group)) %>%
+  group_by(mrn) %>%
+  slice(1) %>%
+  ungroup() %>%
+  count(group)
+
+n_lean <- n_by_group %>% filter(group == "Lean Control") %>% pull(n)
+n_obese <- n_by_group %>% filter(group == "Obese Control") %>% pull(n)
+n_t2d <- n_by_group %>% filter(group == "Type 2 Diabetes") %>% pull(n)
+
+# Handle missing values
+if(length(n_lean) == 0) n_lean <- 0
+if(length(n_obese) == 0) n_obese <- 0
+if(length(n_t2d) == 0) n_t2d <- 0
+
+# 3. SGLT2i status in T2D (from dat2 which has PET data)
+n_t2d_sglt2i_yes <- dat2 %>%
+  filter(group == "Type 2 Diabetes", epic_sglti2_1 == "Yes") %>%
+  distinct(mrn) %>%
+  nrow()
+
+n_t2d_sglt2i_no <- dat2 %>%
+  filter(group == "Type 2 Diabetes", (epic_sglti2_1 == "No" | is.na(epic_sglti2_1))) %>%
+  distinct(mrn) %>%
+  nrow()
+
+# 4. PET Analysis participants (from dat2)
+n_pet_lean <- dat2 %>%
+  filter(group == "Lean Control") %>%
+  distinct(mrn) %>%
+  nrow()
+
+n_pet_t2d <- dat2 %>%
+  filter(group == "Type 2 Diabetes", (epic_sglti2_1 == "No" | is.na(epic_sglti2_1))) %>%
+  distinct(mrn) %>%
+  nrow()
+
+n_pet_total <- n_pet_lean + n_pet_t2d
+
+# Final analysis pool (Lean + T2D no SGLT2i)
+n_analysis_pool <- n_pet_lean + n_pet_t2d
+
+# 5. scRNA-seq participants (if so_subset exists)
+if(exists("so_subset")) {
+  n_scrna_total <- so_subset@meta.data %>%
+    filter(epic_sglti2_1 == "No" | is.na(epic_sglti2_1)) %>%
+    distinct(mrn) %>%
+    nrow()
+  
+  n_scrna_pt <- so_subset@meta.data %>%
+    filter((epic_sglti2_1 == "No" | is.na(epic_sglti2_1)), celltype2 == "PT") %>%
+    distinct(mrn) %>%
+    nrow()
+} else {
+  n_scrna_total <- "N/A"
+  n_scrna_pt <- "N/A"
+}
+
+# 6. Clinical characteristics participants
+# Read the UACR data
+if(file.exists("C:/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")) {
+  dat_clinical <- data.table::fread("C:/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")
+  dat_clinical <- dat_clinical[-str_which(dat_clinical$record_id, '-O')]
+  
+  n_clinical_total <- dat_clinical %>%
+    filter(!is.na(arteriosclerosis) | !is.na(`GBM thickness`)) %>%
+    distinct(record_id) %>%
+    nrow()
+  
+  n_clinical_gbm <- dat_clinical %>%
+    filter(!is.na(`GBM thickness`), `GBM thickness` != "") %>%
+    distinct(record_id) %>%
+    nrow()
+  
+  n_clinical_arterio <- dat_clinical %>%
+    filter(!is.na(arteriosclerosis), arteriosclerosis != "") %>%
+    distinct(record_id) %>%
+    nrow()
+} else {
+  n_clinical_total <- "N/A"
+  n_clinical_gbm <- "N/A"
+  n_clinical_arterio <- "N/A"
+}
+
+################################################################################
+# Create CONSORT Diagram
+################################################################################
+
+consort_diagram <- grViz(paste0("
+digraph CONSORT {
+  
+  # Graph attributes
+  graph [layout = dot, rankdir = TB, fontsize = 12, splines=ortho, nodesep=0.5, ranksep=0.8]
+  
+  # Node attributes
+  node [shape = box, style = filled, fontname = 'Arial', margin=0.2]
+  
+  # Define nodes
+  enrolled [label = 'Participants Enrolled\\n(Unique by MRN)\\nn = ", n_total, "', 
+            fillcolor = '#E8F4F8', width = 3.5, height = 0.8]
+  
+  grouped [label = 'Grouped by Diagnosis', fillcolor = '#D4E9F7', width = 3, height = 0.6]
+  
+  lean [label = 'Lean Control\\nn = ", n_lean, "', fillcolor = '#C1E1EC', width = 2.2, height = 0.7]
+  obese [label = 'Obese Control\\nn = ", n_obese, "', fillcolor = '#FFE5CC', width = 2.2, height = 0.7]
+  t2d [label = 'Type 2 Diabetes\\nn = ", n_t2d, "', fillcolor = '#FFD4D4', width = 2.2, height = 0.7]
+  
+  exclude_sglt2i [label = 'Excluded:\\nT2D on SGLT2i\\nn = ", n_t2d_sglt2i_yes, "', 
+                  fillcolor = '#FFB3B3', style = 'filled,dashed', width = 2.2, height = 0.8]
+  
+  exclude_obese [label = 'Excluded:\\nObese Control\\nn = ", n_obese, "', 
+                 fillcolor = '#FFB3B3', style = 'filled,dashed', width = 2.2, height = 0.8]
+  
+  analysis_pool [label = 'Available for Analysis\\nLean Control + T2D (no SGLT2i)\\nn = ", 
+                                n_analysis_pool, "', fillcolor = '#C8E6C9', width = 4, height = 0.8]
+  
+  # Analysis branches
+  pet_analysis [label = 'PET Imaging Analysis\\n(with PET data)\\nn = ", n_pet_total, 
+                                "\\n\\nLean: ", n_pet_lean, " | T2D: ", n_pet_t2d, "', 
+                fillcolor = '#E1BEE7', width = 3.2, height = 1.2]
+  
+  scrna_analysis [label = 'scRNA-seq Analysis\\n(PT cells)\\nn = ", n_scrna_pt, "', 
+                  fillcolor = '#BBDEFB', width = 3.2, height = 1]
+  
+  clinical_analysis [label = 'Clinical Characteristics\\n(Histology + UACR)\\nn = ", 
+                                n_clinical_total, 
+                                "\\n\\nGBM: ", n_clinical_gbm,
+                                " | Arterio: ", n_clinical_arterio, "', 
+                     fillcolor = '#FFE082', width = 3.2, height = 1.2]
+  
+  # Outputs
+  fig1 [label = 'Figure 1:\\nGlobal PET Metrics', fillcolor = '#F3E5F5', width = 2.5, height = 0.7]
+  fig2 [label = 'Figure 2:\\nTCA/OxPhos Expression', fillcolor = '#E3F2FD', width = 2.5, height = 0.7]
+  fig3 [label = 'Figure 3:\\nPseudotime Analysis', fillcolor = '#E3F2FD', width = 2.5, height = 0.7]
+  fig4 [label = 'Figure 4:\\nClinical Correlations', fillcolor = '#FFF9C4', width = 2.5, height = 0.7]
+  
+  # Edges
+  enrolled -> grouped
+  grouped -> lean
+  grouped -> obese
+  grouped -> t2d
+  
+  t2d -> exclude_sglt2i [label = '  SGLT2i = Yes  ', fontsize = 10, style=dashed]
+  obese -> exclude_obese [style = dashed]
+  
+  lean -> analysis_pool
+  t2d -> analysis_pool [label = '  SGLT2i = No  ', fontsize = 10]
+  
+  analysis_pool -> pet_analysis [label = '  Has PET data  ', fontsize = 10]
+  analysis_pool -> scrna_analysis [label = '  Has scRNA-seq  ', fontsize = 10]
+  analysis_pool -> clinical_analysis [label = '  Has histology  ', fontsize = 10]
+  
+  pet_analysis -> fig1
+  scrna_analysis -> fig2
+  scrna_analysis -> fig3
+  clinical_analysis -> fig4
+  
+  # Rank same level nodes together
+  { rank = same; lean; obese; t2d }
+  { rank = same; exclude_sglt2i; exclude_obese }
+  { rank = same; pet_analysis; scrna_analysis; clinical_analysis }
+  { rank = same; fig1; fig2; fig3; fig4 }
+}
+"))
+
+# Display the diagram
+print(consort_diagram)
+
+# Save as PDF
+consort_diagram %>%
+  export_svg() %>%
+  charToRaw() %>%
+  rsvg::rsvg_pdf(paste0(dir.results, "CONSORT_Diagram.pdf"))
+
+# Save as PNG
+consort_diagram %>%
+  export_svg() %>%
+  charToRaw() %>%
+  rsvg::rsvg_png(paste0(dir.results, "CONSORT_Diagram.png"), width = 2400, height = 3000)
+
+################################################################################
+# Create Summary Table
+################################################################################
+
+consort_summary <- data.frame(
+  Stage = c(
+    "Total Enrolled (unique MRN)",
+    "Lean Control",
+    "Obese Control", 
+    "Type 2 Diabetes",
+    "  - T2D on SGLT2i (excluded)",
+    "  - T2D not on SGLT2i",
+    "Available for Analysis",
+    "PET Imaging Analysis",
+    "  - Lean Control",
+    "  - Type 2 Diabetes",
+    "scRNA-seq Analysis (PT cells)",
+    "Clinical Characteristics Analysis"
+  ),
+  N = c(
+    n_total,
+    n_lean,
+    n_obese,
+    n_t2d,
+    n_t2d_sglt2i_yes,
+    n_t2d_sglt2i_no,
+    n_analysis_pool,
+    n_pet_total,
+    n_pet_lean,
+    n_pet_t2d,
+    n_scrna_pt,
+    n_clinical_total
+  )
+)
+
+print(consort_summary)
+
+# Save summary table
+write.csv(consort_summary, 
+          paste0(dir.results, "CONSORT_Summary_Table.csv"),
+          row.names = FALSE)
+
+################################################################################
+# Print summary to console
+################################################################################
+
+cat("\n========================================\n")
+cat("ROCKIES STUDY - PARTICIPANT FLOW SUMMARY\n")
+cat("========================================\n\n")
+cat("Total Enrolled (unique MRN):", n_total, "\n")
+cat("  Lean Control:", n_lean, "\n")
+cat("  Obese Control:", n_obese, "(excluded from most analyses)\n")
+cat("  Type 2 Diabetes:", n_t2d, "\n")
+cat("    - On SGLT2i (excluded):", n_t2d_sglt2i_yes, "\n")
+cat("    - Not on SGLT2i:", n_t2d_sglt2i_no, "\n\n")
+cat("Available for Analysis:", n_analysis_pool, "\n\n")
+cat("ANALYSIS-SPECIFIC COUNTS:\n")
+cat("  PET Imaging:", n_pet_total, "(Lean:", n_pet_lean, "| T2D:", n_pet_t2d, ")\n")
+cat("  scRNA-seq (PT cells):", n_scrna_pt, "\n")
+cat("  Clinical Characteristics:", n_clinical_total, "\n")
+cat("    - GBM thickness:", n_clinical_gbm, "\n")
+cat("    - Arteriosclerosis:", n_clinical_arterio, "\n")
+cat("========================================\n\n")
+
+
+
+
+
+
+
+
+
+
