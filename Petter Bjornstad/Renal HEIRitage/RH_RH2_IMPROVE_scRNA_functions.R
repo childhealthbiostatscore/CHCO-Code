@@ -267,7 +267,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   
   top_pos_n <- top_pos %>%
     filter(if (!is.null(genes_to_label)) Gene %in% genes_to_label else TRUE) %>%
-    slice_head(n=20)
+    dplyr::slice_head(n=20)
   
   top_neg <- data %>%
     dplyr::filter(!!sym(fc) < 0 & !!sym(p_col) < p_thresh) %>%
@@ -277,7 +277,7 @@ plot_volcano <- function(data, fc, p_col, title = NULL, x_axis, y_axis, file_suf
   
   top_neg_n <- top_neg %>%
     filter(if (!is.null(genes_to_label)) Gene %in% genes_to_label else TRUE) %>%
-    slice_head(n=20)
+    dplyr::slice_head(n=20)
   
   # Identify off-chart genes
   off_chart_genes <- data %>%
@@ -458,7 +458,7 @@ make_overlap_table <- function(
       # keep the best row per Gene within each model (ties: lowest FDR, then largest |logFC|)
       group_by(Gene) %>%
       arrange(fdr, desc(abs(logFC)), p.value, .by_group = TRUE) %>%
-      slice(1) %>%
+      dplyr::slice(1) %>%
       ungroup() %>%
       mutate(code = code, label = m$label)
   })

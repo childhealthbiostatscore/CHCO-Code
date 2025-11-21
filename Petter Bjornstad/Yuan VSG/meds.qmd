@@ -18,6 +18,7 @@ editor: source
 library(tidyverse)
 library(arsenal)
 library(knitr)
+library(Seurat)
 
 # specify user for paths
 user <- Sys.info()[["user"]]
@@ -39,7 +40,7 @@ collapsed_data <- df	%>%
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, first(na.omit(.x)))),
                    .by = c(record_id, visit))
 
-meds <- collapsed_data %>% select(record_id, mrn, visit, rh_id, rh2_id, study,
+meds <- collapsed_data %>% select(record_id, mrn, visit, rh_id, rh2_id, improve_id, study,
     ends_with("_timepoint"),
     ends_with("_ever"),
     starts_with("epic_")
@@ -49,9 +50,13 @@ ids_keep <- c("RH-68-T",  "RH-49-T",  "RH-63-T",  "RH-23-T",  "RH-71-T",  "RH-62
               "RH-72-T",  "RH-76-T",  "RH-77-T",  "RH-75-T",  "RH-67-T",  "RH2-51-T", "RH2-53-T", "RH2-07-O",
               "RH-93-T",  "RH-91-T",  "RH-23-T",  "RH2-11-O", "RH2-23-T", "RH2-22-T", "RH2-38-T", "RH2-21-T",
               "RH-67-T",  "RH2-55-T", "RH2-36-O", "RH2-43-T", "RH2-42-T")
+ids_keep <- unique(ids_keep)
 
 meds <- meds %>% filter(rh_id %in% ids_keep | rh2_id %in% ids_keep)
 meds <- meds %>% filter(study %in% c("RENAL-HEIR", "RENAL-HEIRitage"))
+
+# remove anyone who participated in IMPROVE
+meds <- meds %>% filter(is.na(improve_id))
 
 # count who has 2 visits
 count <- as.data.frame(table(meds$mrn))
@@ -66,6 +71,18 @@ meds_new <- meds %>% mutate(visit_new = case_when(
   visits == 2 & study == "RENAL-HEIR" ~ "baseline",
   visits == 2 & study == "RENAL-HEIRitage" ~ "follow-up"
 ))
+
+my_ids <- c(meds_new$rh_id, meds_new$rh2_id)
+my_ids <- unique(my_ids)
+my_ids <- my_ids[!is.na(my_ids)]
+longs_ids <- c("RH-68-T", "RH-49-T", "RH-63-T", "RH-23-T", "RH-71-T", "RH-62-T", "RH-50-T", "RH-74-T", "RH-72-T", "RH-76-T", "RH-77-T", "RH-75-T", "RH-67-T", "RH2-51-T", "RH2-53-T", "RH2-07-O", "RH-93-T", "RH-91-T", "RH2-11-O", "RH2-23-T", "RH2-22-T", "RH2-38-T", "RH2-21-T", "RH2-55-T", "RH2-36-O", "RH2-43-T", "RH2-42-T")
+discrepancy <- my_ids[!(my_ids %in% longs_ids)]
+discrepancy_data <- meds_new %>% filter(record_id %in% discrepancy)
+
+my_visits <- meds_new %>% select(record_id, rh_id, rh2_id, visit_new)
+my_visits$pre_post <- ifelse(my_visits$visit_new == "baseline", "pre", "post")
+my_visits$visit_new <- NULL
+my_visits$in_lauras <- 1
 ```
 
 ```{r include=F}
@@ -83,4 +100,69 @@ t <- tableby(visit_new ~ fibrates_timepoint + glp1_agonist_timepoint +  insulin_
 
 ```{r results='asis'}
 summary(t)
+```
+
+```{r include=F}
+# compare to Long's IDs
+scrna <- readRDS("/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/scRNA/data_raw/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds")
+scrna <- subset(scrna, subset = percent.mt < 50 & nFeature_RNA < 5000 & nFeature_RNA > 500) 
+
+clin <- read_csv('/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/scRNA/data_clean/pb90_rhrh2improve_clinical_subset.csv', show_col_types = FALSE) %>%
+  dplyr::select(record_id, visit, bmi) %>%
+  dplyr::mutate(visit = dplyr::recode(visit,"baseline" = "pre","12_months_post_surgery" = "post"))
+
+rh <- subset(
+  scrna,
+  subset = cohort %in% c('RENAL HEIR', 'RENAL HEIRITAGE') 
+)
+rh$pre_post <- "pre"
+rh@meta.data <- rh@meta.data %>%
+  tibble::rownames_to_column("cell") %>%   
+  left_join(clin, by = c("record_id" = "record_id", "pre_post" = "visit")) %>%
+  tibble::column_to_rownames("cell") 
+#
+post_ids <- c("RH2-14-T", "RH2-19-T", "RH2-07-O", "RH2-11-O", "RH2-23-T")
+rh$pre_post[rh$record_id %in% post_ids] <- "post"
+rh@meta.data[rh@meta.data$record_id == "RH2-14-T", ]$record_id <- 'RH-23-T'
+rh@meta.data[rh@meta.data$record_id == "RH2-19-T", ]$record_id <- 'RH-67-T'
+unique_metadata <- unique(rh@meta.data[,c("record_id", "pre_post")])
+unique_metadata$in_longs <- 1
+
+summary <- full_join(my_visits, unique_metadata, by = c("record_id", "pre_post"))
+
+# LP notes on discrepancies
+
+# For co-enrolled people, pre vs post should be determined regardless of whether they had biopsies at each visit because we are interested in how long they have been on therapy
+# RH-19-O is coenrolled as RH2-11-O, the RH-19-O visit is coded as pre in my data but missing from Long's  NO BIOPSY
+# However we both called RH2-11-O the post visit, so the question is whether we are including any clinical data from the pre visit?
+
+# For co-enrolled people who have a biopsy during RH but not RH2, would we include the RH2 clinical data?
+# RH2-08-T is coenrolled as RH-68-T, is coded as post in my data but missing from Long's NO BIOPSY
+# RH2-09-T is coenrolled as RH-93-T, is coded as post in my data but missing from Long's NO BIOPSY
+
+# RH ID used for both pre and post in Long's dataset
+# RH-23-T is coenrolled as RH2-14-T, the RH-23-T visit is coded as pre in my data and both pre and post in Long's
+# RH2-14-T is coenrolled as RH-23-T, RH2-14-T is coded as post in my data but missing from Long's
+
+# RH ID used for both pre and post in Long's dataset
+# RH-67-T is coenrolled as RH2-19-T, RH-67-T is showing up as both pre and post in Long's data
+# RH2-19-T is coenrolled as RH-67-T, RH2-19-T is coded as post in my data but is missing from Long's 
+
+# Long has RH2-07-O coded as post, but not in my data? This person was in IMPROVE, so should be excluded?
+
+
+# metabolomics files
+# are these all blood or are some urine?
+# '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Renal HEIR/Data_Raw/omics/Copy of Flynn-Bjiornstad final reports and AQ 10022023-FG-DJS.xlsx'
+# '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Renal HEIR/Data_Raw/Updated_F3-077_FIC_100923.xlsx'
+
+# also found these files - is this just a combination of the above?
+# '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Renal HEIR/Data_Cleaned/RH_RH2_IT_omics_cleaned.xlsx'
+# '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Renal HERITAGE/Data_Cleaned/RH2_omics_import.csv'
+
+# '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/IMPROVE T2D/Data_Raw/100923 Blood metabolomics IMPROVE.xlsx'
+# '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/IMPROVE T2D/Data_Raw/Adenine and Other Significant Metabolites Quantified Data_20230703_New.csv'
+# '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/AstraZeneca/ACA_UM_COLORADO_URINE_TargetedMetabolomicsResultstoRPC2_240809.csv'
+# 
+
 ```

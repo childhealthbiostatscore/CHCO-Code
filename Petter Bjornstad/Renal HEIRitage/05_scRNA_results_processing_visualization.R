@@ -24,6 +24,7 @@ if (user == "choiyej") { # local version
 }
 
 source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
 
 # Pull in nebula results
 folders <- c("DKD_vs_nonDKD_100" = "dkd100",
@@ -33,7 +34,11 @@ folders <- c("DKD_vs_nonDKD_100" = "dkd100",
              "DKD_30_vs_hc" = "dkd30_hc",
              "nonDKD_30_vs_hc" = "nondkd30_hc",
              "GLP_N_vs_HC" = "glpn_hc",
-             "GLP_Y_vs_GLP_N" = "glpy_glpn"
+             "GLP_Y_vs_GLP_N" = "glpy_glpn",
+             "nonDKD_100_GLP_N_vs_HC" = "nondkd100_glpn_hc",
+             "nonDKD_100_GLP_Y_vs_HC" = "nondkd100_glpy_hc",
+             "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc",
+             "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc"
 )
 
 # Define common parameters
@@ -60,6 +65,12 @@ for (folder in names(folders)) {
                               bucket = "scrna", region = "")
     var_name <- paste0(tolower(cell), "_", folders[folder])
     assign(var_name, processed_df, envir = .GlobalEnv)
+    
+    write.csv(processed_df, file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")), row.names = F, fileEncoding = "UTF-8")
+    
+    write.csv(subset(processed_df, processed_df[[6]] < 0.05), file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/pval/", var_name, "_kpmp_pval.csv")), row.names = F, fileEncoding = "UTF-8")
+    
+    write.csv(subset(processed_df, fdr < 0.05), file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/fdr/", var_name, "_kpmp_fdr.csv")), row.names = F, fileEncoding = "UTF-8")
   }
 }
 
