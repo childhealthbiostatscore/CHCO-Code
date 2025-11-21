@@ -113,10 +113,11 @@ CO_clean <- read.csv('./IHD/Clean Data/collapsed_CO_clean_8.30.24.csv')
 
 
 ```{r CO additional data cleaning, include = FALSE}
-# create updated rbf variable where if rbf is not missing it is retained but if missing, manually calculated
 CO_clean <- CO_clean %>% mutate(
-  rbf = ifelse(is.na(rbf), erpf_raw_plasma/(1-(hematocrit/100)), rbf)
-)
+  # create updated rbf variable where if rbf is not missing it is retained but if missing, manually calculated
+  rbf = ifelse(is.na(rbf), erpf_raw_plasma/(1-(hematocrit/100)), rbf),
+  # divide fasting NEFA by 1000 to align with mmol/L units of Netherlands
+  fasting_ffa = fasting_ffa/1000) 
 ```
 
 
@@ -152,8 +153,9 @@ Neth_clean <- Neth_clean %>%
          'cholesterol'='Lab_2_1_Blood_Cholesterol', 'raasi_timepoint'='Med_RASi', 'statin'='Med_statin',
          'steady_state_insulin'='L_2_AVG_6_7_Blood_Insulin.c', 'eGFR_fas_cr_cysc'='Lab_2_1_Blood_eGFR',
          'gir'='Euclamp_V2_Mvalue_corr_minusglycosuria', 'di'='DI_V2_secondphase', 'rvr'='Renal_ERVR_V2_Eu',
-         'diabetes_duration'='G_history_DM_duration', 'bsa'='Anthro_V2_BSA', 'steady_state_ffa' = 'NEFA_V2.7_Eu',
-         'urine_microalb_quant_24hr'='L_2_0_24u_urine_mircoalb_quant.u', 'rbf' = 'Renal_ERBF_V2_Eu')
+         'diabetes_duration'='G_history_DM_duration', 'bsa'='Anthro_V2_BSA', 'steady_state_ffa'='NEFA_V2.7_Eu',
+         'urine_microalb_quant_24hr'='L_2_0_24u_urine_mircoalb_quant.u', 'rbf'='Renal_ERBF_V2_Eu',
+         'fasting_ffa' = 'NEFA_V2.1_Fasting')
   
 # clean Netherlands variables as needed to match Colorado variables and units
 Neth_clean <- Neth_clean %>% 
@@ -168,7 +170,7 @@ Neth_clean <- Neth_clean %>%
          ldl = Lab_2_1_Blood_LDL.c*38.67, # mmol/L to mg/dL https://www.ncbi.nlm.nih.gov/books/NBK83505/
          hdl = Lab_2_1_Blood_HDL*38.67, # mmol/L to mg/dL
          cholesterol = cholesterol*38.67, # mmol/L to mg/dL
-         ffa_suppression = (NEFA_delta/NEFA_V2.1_Fasting)*100,
+         ffa_suppression = (NEFA_delta/fasting_ffa)*100,
          gfr_bsa_plasma = (gfr_raw_plasma/bsa)*1.73,
          erpf_bsa_plasma = (erpf_raw_plasma/bsa)*1.73,
          ff = ff/100,
@@ -206,7 +208,8 @@ combined_dat <- full_join(CO_clean, Neth_clean, by=c('record_id', 'site', 'study
                                                      'raasi_timepoint', 'statin', 'steady_state_insulin', 'eGFR_fas_cr_cysc',
                                                      'gir_190', 'gir_200', 'rvr', 'diabetes_duration', 
                                                      'bsa', 'metformin_timepoint', 'creatinine_s', 'ldl', 'hdl',
-                                                     'ffa_suppression', 'gfr_bsa_plasma', 'erpf_bsa_plasma', 'steady_state_ffa', 'rbf'))
+                                                     'ffa_suppression', 'gfr_bsa_plasma', 'erpf_bsa_plasma', 'steady_state_ffa', 
+                                                     'rbf', 'fasting_ffa'))
 ```
 
 
@@ -218,7 +221,7 @@ combined_dat <- combined_dat %>%
            'erpf_raw_plasma', 'erpf_bsa_plasma', 'rbf', 'ff', 'rvr', 'ra', 're', 'glomerular_pressure', 'sbp', 'dbp',
            'map', 'creatinine_s', 'cholesterol', 'hdl', 'ldl',  'acprg', 'acr_u', 'AER_sex_adjusted',
            'AER_covariate_adjusted', 'urine_microalb_quant_24hr', 'gir_190', 'gir_200', 'steady_state_ffa',
-           'ffa_suppression', 'steady_state_insulin', 'NEFA_V2.1_Fasting', 'NEFA_delta', 'INUorIOH',
+           'ffa_suppression', 'steady_state_insulin', 'fasting_ffa', 'NEFA_delta', 'INUorIOH',
            'metformin_timepoint', 'raasi_timepoint', 'statin', 'Med_betablocker', 'Med_calciumantagonist',
            'Med_anticoagulant', 'Medication')) %>% 
   rename('Body_Fat_Percentage'='dexa_body_fat') # dexa variable renamed to be more accurate (Netherlands not dexa)
