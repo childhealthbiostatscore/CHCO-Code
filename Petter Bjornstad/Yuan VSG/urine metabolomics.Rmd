@@ -24,6 +24,8 @@ library(knitr)
 library(ggpubr)
 library(readxl)
 library(stringr)
+library(tidyr)
+library(dplyr)
 
 # specify user for paths
 user <- Sys.info()[["user"]]
@@ -43,16 +45,42 @@ knitr::opts_chunk$set(echo = FALSE)
 ```
 
 ```{r, include=FALSE}
-filename <- "RPC2 targeted normalised data combined PN.xlsx"
+# QUESTIONS
+# In the RPC2 analysis, we did not normalize by creatinine - I think this is because the metabolites are semi-quantitative
+
+# based on emails with Filippos Michopoulos, I believe this is the correct version of the data to use
+# metabolites are log-2 transformed
+# time has been merged with ID
+filename <- "RPC2 targeted normalised data combined PN with dose.xlsx"
 full_path <- file.path(data_path, filename)
 data <- read_xlsx(full_path, sheet = "Targeted data")
-creat <- read_xlsx(full_path, sheet = "Creatinine quant")
-creat$time <- creat$baseline
-creat$baseline <- NULL
+#creat <- read_xlsx(full_path, sheet = "Creatinine quant")
+#data <- left_join(data, creat, by = "ID")
+data <- data %>% filter(!Dose == "QC")
+data$Peak.Area <- data$`Peak Area`
+data$`Peak Area` <- NULL
+data$Peak.Area <- as.numeric(data$Peak.Area)
+data_keep <- data %>% select(ID, Dose, Metabolite, Peak.Area)
 
-data <- left_join(data, creat, by = c("record_id", "time"))
+data_wide <- data_keep %>%
+  pivot_wider(
+    id_cols = c(ID, Dose),
+    names_from = Metabolite,
+    values_from = Peak.Area
+  )
+data_wide <- data_wide %>% mutate(visit = case_when(
+  str_detect(ID, "12M") ~ "12 months",
+  str_detect(ID, "BL") ~ "Baseline",
+  .default = "Baseline"
+))
+data_wide <- data_wide %>% mutate(ID = str_remove(ID, "_BL"))
+data_wide <- data_wide %>% mutate(ID = str_remove(ID, "_12M"))
+data_wide$ID <- str_replace(data_wide$ID, "IT2D", "IT")
+data_wide$ID <- str_replace(data_wide$ID, "_", "-")
+data_wide$record_id <- data_wide$ID
+data_wide$ID <- NULL
 
-# just testing out who in Long's data has urine proteomics
+# read in Long's data
 filename <- "patient_cohort_prepost_table.xlsx"
 full_path <- file.path(vsg_path, filename)
 vsg_smt_patients <- read_xlsx(full_path, sheet = "patient_cohort_prepost_table")
@@ -63,17 +91,30 @@ vsg_smt_patients <- vsg_smt_patients %>% mutate(time = case_when(
   cohort != "IMPROVE" ~ "baseline"
   )
 )
-test <- vsg_smt_patients %>% select(record_id, time)
-test$in_vsg_smt <- 1
-test <- left_join(test, creat, by = c("record_id", "time"))
-# there are quite a significant number of people who have urinary metabolomics
 
-# I have no idea where this "Dose" variable came from
-data <- data %>% filter(!Dose == "QC")
 
-# long to wide
-data_wide <- reshape(data_keep, direction = "wide", idvar = c("ID", "Dose"),
-                                                              timevar = "Metabolite")
+
+# below is incorrect....need to make sure IDs and pre/post match across datasets
+# or would it be better to merge RH/RH2 and IMPROVE separately, since RH/RH2 can be merged by record_id and IMPROVE merged by record_id and visit (but Long's data has pre/post for visit)
+# keep only needed variables from Long's data
+vsg_smt_patients_keep <- vsg_smt_patients %>% select(record_id, updated_record_id)
+# merge in metabolomics, only keep those in Long's data
+final <- left_join(vsg_smt_patients_keep, data_wide, by = "rec")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 data_wide_OC_LC <- data_wide %>% filter(Dose %in% c("Lean_Control", "Obese_Control"))
 data_wide_LC_T1D <- data_wide %>% filter(Dose %in% c("Lean_Control", "Type_1_Diabetes"))
