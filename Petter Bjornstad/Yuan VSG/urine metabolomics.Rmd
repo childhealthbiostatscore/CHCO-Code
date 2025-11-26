@@ -76,9 +76,15 @@ data_wide <- data_wide %>% mutate(visit = case_when(
 data_wide <- data_wide %>% mutate(ID = str_remove(ID, "_BL"))
 data_wide <- data_wide %>% mutate(ID = str_remove(ID, "_12M"))
 data_wide$ID <- str_replace(data_wide$ID, "IT2D", "IT")
-data_wide$ID <- str_replace(data_wide$ID, "_", "-")
+data_wide$ID <- str_replace_all(data_wide$ID, "_", "-")
 data_wide$record_id <- data_wide$ID
 data_wide$ID <- NULL
+
+# create separate dfs for IMPROVE and RH/RH2 since they will be merged slightly differently
+data_wide_improve <- data_wide %>% filter(grepl("IT", record_id))
+data_wide_improve$updated_pre_post <- ifelse(data_wide_improve$visit == "Baseline", "pre", "post")
+data_wide_improve$updated_record_id <- data_wide_improve$record_id
+data_wide_rh <- data_wide %>% filter(grepl("RH", record_id))
 
 # read in Long's data
 filename <- "patient_cohort_prepost_table.xlsx"
@@ -91,41 +97,16 @@ vsg_smt_patients <- vsg_smt_patients %>% mutate(time = case_when(
   cohort != "IMPROVE" ~ "baseline"
   )
 )
+vsg_smt_patients$updated_record_id <- str_replace(vsg_smt_patients$updated_record_id, "_", "-")
+vsg_smt_patients_improve <- vsg_smt_patients %>% filter(updated_cohort == "IMPROVE")
+vsg_smt_patients_improve_keep <- vsg_smt_patients_improve %>% select(updated_record_id, updated_pre_post)
+vsg_smt_patients_rh <- vsg_smt_patients %>% filter(updated_cohort %in% c("RENAL HEIR", "RENAL HEIRITAGE"))
 
+final_improve <- left_join(vsg_smt_patients_improve_keep, data_wide_improve, by = c("updated_record_id", "updated_pre_post"))
+final_rh <- left_join(vsg_smt_patients_rh, data_wide_rh, by = "record_id")
+final_rh <- final_rh %>% select(-c(cohort, pre_post, updated_cohort, comment, time))
 
-
-# below is incorrect....need to make sure IDs and pre/post match across datasets
-# or would it be better to merge RH/RH2 and IMPROVE separately, since RH/RH2 can be merged by record_id and IMPROVE merged by record_id and visit (but Long's data has pre/post for visit)
-# keep only needed variables from Long's data
-vsg_smt_patients_keep <- vsg_smt_patients %>% select(record_id, updated_record_id)
-# merge in metabolomics, only keep those in Long's data
-final <- left_join(vsg_smt_patients_keep, data_wide, by = "rec")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-data_wide_OC_LC <- data_wide %>% filter(Dose %in% c("Lean_Control", "Obese_Control"))
-data_wide_LC_T1D <- data_wide %>% filter(Dose %in% c("Lean_Control", "Type_1_Diabetes"))
-data_wide_LC_T2D <- data_wide %>% filter(Dose %in% c("Lean_Control", "Type_2_Diabetes"))
-data_wide_OC_T1D <- data_wide %>% filter(Dose %in% c("Obese_Control", "Type_1_Diabetes"))
-data_wide_OC_T2D <- data_wide %>% filter(Dose %in% c("Obese_Control", "Type_2_Diabetes"))
-data_wide_T1D_T2D <- data_wide %>% filter(Dose %in% c("Type_1_Diabetes", "Type_2_Diabetes"))
-
-# identify columns corresponding to metabolites
-is_seq <- function(.x) grepl("Peak", .x)
-
+final <- rbind(final_improve, final_rh)
 ```
 
 ```{r, include=FALSE}
@@ -146,13 +127,6 @@ l_compare <- function(data, group1, group2) {
  # results$non_reference_group <- paste0(group1)
  # results$reference_group <- paste0(group2)
 }
-
-results_OC_LC <- l_compare(data_wide_OC_LC, "Obese_Control", "Lean_Control")
-results_LC_T1D <- l_compare(data_wide_LC_T1D, "Lean_Control", "Type_1_Diabetes")
-results_LC_T2D <- l_compare(data_wide_LC_T2D, "Lean_Control", "Type_2_Diabetes")
-results_OC_T1D <- l_compare(data_wide_OC_T1D, "Obese_Control", "Type_1_Diabetes")
-results_OC_T2D <- l_compare(data_wide_OC_T2D, "Obese_Control", "Type_2_Diabetes")
-results_T1D_T2D <- l_compare(data_wide_T1D_T2D, "Type_1_Diabetes", "Type_2_Diabetes")
 
 # write all results to file
 wb <- createWorkbook()
