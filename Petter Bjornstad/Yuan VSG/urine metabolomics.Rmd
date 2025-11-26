@@ -26,6 +26,7 @@ library(readxl)
 library(stringr)
 library(tidyr)
 library(dplyr)
+library(parallel)
 
 # specify user for paths
 user <- Sys.info()[["user"]]
@@ -107,26 +108,14 @@ final_rh <- left_join(vsg_smt_patients_rh, data_wide_rh, by = "record_id")
 final_rh <- final_rh %>% select(-c(cohort, pre_post, updated_cohort, comment, time))
 
 final <- rbind(final_improve, final_rh)
+final$vis_num <- ifelse(final$updated_pre_post == "pre", 1, 2)
 ```
 
 ```{r, include=FALSE}
-# function
-l_compare <- function(data, group1, group2) {
-  results <- NULL
-  data <- as.data.frame(data)
-  seq <- is_seq(names(data))
-  contrast <- ifelse(data$Dose==paste0(group1),1,0)
-  contrast <- cbind(rep(1,nrow(data)),contrast)
-  # moderated t-tests with and without FDR adjustment
-  ymat <- t(data[,seq])
-  fit <- lmFit(ymat,contrast)
-  fit <- eBayes(fit)
-  results <- topTable(fit,coef = 2,number = nrow(ymat))
-  results <- results[order(results$P.Value),] 
-  results <- as.data.frame(results)
- # results$non_reference_group <- paste0(group1)
- # results$reference_group <- paste0(group2)
-}
+seqs <- unique(data$Metabolite)
+
+# Teen LABS is not correct template
+# want a mixed model with group by time interaction
 
 # write all results to file
 wb <- createWorkbook()
