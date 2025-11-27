@@ -27,6 +27,7 @@ library(stringr)
 library(tidyr)
 library(dplyr)
 library(parallel)
+library(lmerTest)
 
 # specify user for paths
 user <- Sys.info()[["user"]]
@@ -36,13 +37,43 @@ if (user == "laurapyle") {
 } else if (user == "lpyle") {
   data_path <- '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/AstraZeneca'
   vsg_path <- '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG'
-} else {
+} else if (user == "pylell") {
+  data_path <- '/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/AstraZeneca'
+  vsg_path <- '/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG'
+}else {
   stop("Unknown user: please specify root path for this user.")
 }
 
 knitr::opts_chunk$set(echo = FALSE,warning = FALSE)
 
 knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r functions, include=FALSE}
+clean_variable_names <- function(data) {
+  # Get current names
+  old_names <- names(data)
+  
+  # Create new names
+  new_names <- gsub(" ", "", old_names)           # Remove spaces
+  new_names <- gsub("-", "_", new_names)          # Replace hyphens with underscores
+  new_names <- gsub("[()]", "", new_names)        # Remove parentheses
+  new_names <- sub("^_", "", new_names)
+  
+  # Apply new names
+  names(data) <- new_names
+  
+  # Optional: Print what changed for verification
+  changed <- old_names != new_names
+  if (any(changed)) {
+    cat("Changed variable names:\n")
+    for (i in which(changed)) {
+      cat(sprintf("  '%s' -> '%s'\n", old_names[i], new_names[i]))
+    }
+  }
+  
+  return(data)
+}
 ```
 
 ```{r, include=FALSE}
@@ -60,7 +91,8 @@ data <- read_xlsx(full_path, sheet = "Targeted data")
 data <- data %>% filter(!Dose == "QC")
 data$Peak.Area <- data$`Peak Area`
 data$`Peak Area` <- NULL
-data$Peak.Area <- as.numeric(data$Peak.Area)
+# NAs introduced by coercion but this is OK because those peak areas were missing
+data$temp <- as.numeric(data$Peak.Area)
 data_keep <- data %>% select(ID, Dose, Metabolite, Peak.Area)
 
 data_wide <- data_keep %>%
@@ -104,18 +136,39 @@ vsg_smt_patients_improve_keep <- vsg_smt_patients_improve %>% select(updated_rec
 vsg_smt_patients_rh <- vsg_smt_patients %>% filter(updated_cohort %in% c("RENAL HEIR", "RENAL HEIRITAGE"))
 
 final_improve <- left_join(vsg_smt_patients_improve_keep, data_wide_improve, by = c("updated_record_id", "updated_pre_post"))
+final_improve$record_id <- final_improve$updated_record_id
+final_improve$cohort <- "VSG"
 final_rh <- left_join(vsg_smt_patients_rh, data_wide_rh, by = "record_id")
 final_rh <- final_rh %>% select(-c(cohort, pre_post, updated_cohort, comment, time))
+final_rh$cohort <- "SMT"
 
 final <- rbind(final_improve, final_rh)
 final$vis_num <- ifelse(final$updated_pre_post == "pre", 1, 2)
+final$visit <- NULL
+final <- clean_variable_names(final)
 ```
 
 ```{r, include=FALSE}
-seqs <- unique(data$Metabolite)
+forseqs <- final %>% select(-c(updated_record_id, updated_pre_post, Dose, record_id, cohort, vis_num))
+seqs <- colnames(forseqs)
+final[seqs] <- apply(final[seqs], 2, as.numeric) 
+# not sure why this is now coercing to NAs
 
-# Teen LABS is not correct template
-# want a mixed model with group by time interaction
+# Parallel processing
+cl <- makeForkCluster(8)
+rows <- parLapply(cl, seqs, function(y) {
+  f <- as.formula(paste0(y, "~ cohort*vis_num + (1|updated_record_id)"))
+  m <- lmer(f, data = final)
+  # Contrast not necessary with current parameterization, but nice to have written
+  #c <- contrast(emm,
+  #  method =
+  #    list("Year 1 - Month 1" = c(0, 0, 1, 0, 0, 0, 0) - c(1, 0, 0, 0, 0, 0, 0))
+  #)
+  #c <- as.data.frame(c)
+  #c$AptName <- y
+  #return(c)
+})
+stopCluster(cl)
 
 # write all results to file
 wb <- createWorkbook()
