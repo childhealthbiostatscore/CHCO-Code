@@ -28,6 +28,7 @@ library(tidyr)
 library(dplyr)
 library(parallel)
 library(lmerTest)
+library(stringr)
 
 # specify user for paths
 user <- Sys.info()[["user"]]
@@ -58,7 +59,8 @@ clean_variable_names <- function(data) {
   new_names <- gsub(" ", "", old_names)           # Remove spaces
   new_names <- gsub("-", "_", new_names)          # Replace hyphens with underscores
   new_names <- gsub("[()]", "", new_names)        # Remove parentheses
-  new_names <- sub("^_", "", new_names)
+  new_names <- gsub("_", "", new_names)
+  new_names <- str_remove_all(new_names, "_")
   
   # Apply new names
   names(data) <- new_names
@@ -145,19 +147,24 @@ final_rh$cohort <- "SMT"
 final <- rbind(final_improve, final_rh)
 final$vis_num <- ifelse(final$updated_pre_post == "pre", 1, 2)
 final$visit <- NULL
-final <- clean_variable_names(final)
+
+# rename columns
+#final <- clean_variable_names(final)
+
+forseqs <- final %>% select(-c(updated_record_id, updated_pre_post, Dose, record_id, cohort, vis_num,
+                               `_Flavin_adenine_dinucleotide_N`))
+seqs <- colnames(forseqs)
+final[seqs] <- apply(final[seqs], 2, as.numeric) 
 ```
 
 ```{r, include=FALSE}
-forseqs <- final %>% select(-c(updated_record_id, updated_pre_post, Dose, record_id, cohort, vis_num))
-seqs <- colnames(forseqs)
-final[seqs] <- apply(final[seqs], 2, as.numeric) 
-# not sure why this is now coercing to NAs
+# this works now but need to figure out how to pull out the interaction 
+# coefficient and p-value and format for a volcano plot
 
 # Parallel processing
 cl <- makeForkCluster(8)
 rows <- parLapply(cl, seqs, function(y) {
-  f <- as.formula(paste0(y, "~ cohort*vis_num + (1|updated_record_id)"))
+  f <- as.formula(paste0("`", y, "` ~ cohort*vis_num + (1|updated_record_id)"))
   m <- lmer(f, data = final)
   # Contrast not necessary with current parameterization, but nice to have written
   #c <- contrast(emm,
@@ -169,6 +176,18 @@ rows <- parLapply(cl, seqs, function(y) {
   #return(c)
 })
 stopCluster(cl)
+
+# Save results
+lmm_res <- data.frame(do.call(rbind, rows)) %>%
+  dplyr::select(protein, term, estimate, p.value) %>%
+  filter(term != "(Intercept)")
+lmm_res$AptName <- analyte_info$AptName[match(lmm_res$protein, analyte_info$AptName)]
+lmm_res$protein <- analyte_info$UniProt[match(lmm_res$AptName, analyte_info$AptName)]
+lmm_res$Target <- analyte_info$Target[match(lmm_res$AptName, analyte_info$AptName)]
+lmm_res$TargetFullName <- analyte_info$TargetFullName[match(lmm_res$AptName, analyte_info$AptName)]
+lmm_res$Uniprot <- analyte_info$UniProt[match(lmm_res$AptName, analyte_info$AptName)]
+lmm_res <- split.data.frame(lmm_res, lmm_res$term)
+
 
 # write all results to file
 wb <- createWorkbook()
