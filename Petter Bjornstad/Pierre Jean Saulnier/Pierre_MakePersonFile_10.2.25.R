@@ -220,7 +220,7 @@ sind_141_genes <- bulk_141_genes
 # CORRECT - what you actually have:
 
 lymphoid_cells <- c("pDC", "cDC", "CD4+ T", "CD8+ T", "cycT", "NK", "B")
-myeloid_cells <- c("MON", "MAC", "MC")
+myeloid_cells <- c("MON", "MAC")
 immune_cells_all <- c(lymphoid_cells, myeloid_cells) 
 
 # =============================================================================
