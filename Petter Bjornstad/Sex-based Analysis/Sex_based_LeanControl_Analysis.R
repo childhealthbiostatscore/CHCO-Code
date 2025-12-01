@@ -4285,513 +4285,516 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  
  library(slingshot)
-library(scran)
-library(future)
-library(future.apply)
-library(tidyverse)
-library(colorspace)
-library(patchwork)
-library(ggdendro)
-library(cowplot)
-library(ggpubr)
-library(rstatix)
-library(arsenal)
-library(Biobase)
-library(msigdbr)
-library(kableExtra)
-library(knitr)
-library(REDCapR)
-library(data.table)
-library(emmeans)
-library(NMF)
-library(pheatmap)
-library(UpSetR)
-library(enrichR)
-library(WriteXLS)
-library(SAVER)
-library(readxl)
-library(limma)
-library(edgeR)
-library(BiocGenerics)
-library(GSEABase)
-library(slingshot)
-library(SingleCellExperiment)
-library(MAST)
-library(muscat)
-library(scater)
-library(Seurat)
-library(jsonlite)
-library(dplyr)
-library(glmmTMB)
-library(reshape2)
-library(broom.mixed)
-library(nebula)
-library(clusterProfiler)
-library('org.Hs.eg.db')
-library(ggplot2)
-library(viridis)
-library(scales)
-library(ggridges)
-
-# Load data (adjust path as needed)
-load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
-so_subset <- so_kpmp_sc
-remove(so_kpmp_sc)
-
-dir.results <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/pseudotime/'
-
-# Filter data
-so_subset <- subset(so_subset, subset = record_id != 'CRC-55')
-so_subset <- subset(so_subset, subset = group == 'Lean_Control')
-so_subset <- subset(so_subset, subset = celltype2 == 'PT')
-so_subset <- RunUMAP(so_subset, dims = 1:30)
-
-# Run slingshot
-sling_res <- slingshot(as.SingleCellExperiment(so_subset), 
-                       clusterLabels = 'KPMP_celltype', 
-                       start.clus = 'PT-S1', end.clus = 'aPT', 
-                       reducedDim = 'UMAP')
-so_subset$pseudotime <- slingPseudotime(sling_res)[,1]
-
-# ============================================================================
-# RECODE SEX VARIABLE: Female -> Women, Male -> Men
-# ============================================================================
-so_subset$sex <- factor(so_subset$sex, 
-                        levels = c("Female", "Male"),
-                        labels = c("Women", "Men"))
-
-# Extract UMAP coordinates
-umap_coords <- Embeddings(so_subset, reduction = "umap")
-
-# Extract slingshot curves
-sling_curves <- slingCurves(sling_res)
-
-# Create data frame for plotting
-plot_df <- data.frame(
-  UMAP_1 = umap_coords[, 1],
-  UMAP_2 = umap_coords[, 2],
-  pseudotime = so_subset$pseudotime,
-  celltype = so_subset$KPMP_celltype,
-  sex = so_subset$sex
-)
-
-# Remove cells with NA pseudotime
-plot_df_clean <- plot_df %>% filter(!is.na(pseudotime))
-
-# ============================================================================
-# DEFINE COLOR SCHEMES
-# ============================================================================
-
-# Cell type colors (matching UMAP plasma viridis colors)
-celltype_colors <- c("PT-S1/S2" = "#8B5CF6",  # Purple (early pseudotime)
-                     "PT-S3" = "#DC143C",      # Burgundy/Crimson (mid pseudotime)
-                     "aPT" = "#FFA500")        # Orange/Yellow (late pseudotime)
-
-# Sex colors - Women: Orange, Men: Purple
-sex_colors <- c("Women" = "#FF8C42",  # Orange
-                "Men" = "#8B5CF6")     # Purple
-
-# ============================================================================
-# PANEL A: UMAP with pseudotime and cell type labels
-# ============================================================================
-
-p1 <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = pseudotime)) +
-  geom_point(size = 0.5, alpha = 0.6) +
-  scale_color_viridis(option = "plasma", na.value = "grey80") +
-  theme_classic() +
-  labs(title = "Slingshot Pseudotime on UMAP",
-       color = "Pseudotime") +
-  theme(legend.position = "right",
-        plot.title = element_text(hjust = 0.5, face = "bold"))
-
-# Add slingshot curves
-for(i in seq_along(sling_curves)) {
-  curve_coords <- sling_curves[[i]]$s[sling_curves[[i]]$ord, ]
-  p1 <- p1 + geom_path(data = data.frame(UMAP_1 = curve_coords[, 1], 
-                                         UMAP_2 = curve_coords[, 2]),
-                       aes(x = UMAP_1, y = UMAP_2),
-                       color = "black", size = 2, inherit.aes = FALSE)
-}
-
-# Add cell type labels at centroids
-celltype_centroids <- plot_df %>%
-  group_by(celltype) %>%
-  summarise(
-    UMAP_1 = median(UMAP_1, na.rm = TRUE),
-    UMAP_2 = median(UMAP_2, na.rm = TRUE)
-  )
-
-p1 <- p1 + 
-  geom_label(data = celltype_centroids, 
-             aes(x = UMAP_1, y = UMAP_2, label = celltype),
-             color = "black", fill = "white", alpha = 0.8,
-             size = 4, fontface = "bold", inherit.aes = FALSE)
-
-# ============================================================================
-# PANEL B: Stacked bar plot of PT cell subtypes by sex WITH FISHER'S TEST
-# ============================================================================
-
-# Set cell type order
-celltype_order <- c("PT-S1/S2", "PT-S3", "aPT")
-
-# Calculate cell type composition by sex
-celltype_composition <- plot_df_clean %>%
-  count(sex, celltype) %>%
-  group_by(sex) %>%
-  mutate(percentage = (n / sum(n)) * 100) %>%
-  mutate(celltype = factor(celltype, levels = celltype_order))
-
-# Perform Fisher's exact test for each cell type
-cat("\n=== Fisher's Exact Test Results ===\n")
-cat("Comparing cell type proportions between Women and Men\n\n")
-
-fisher_results <- list()
-
-for(ct in celltype_order) {
-  # Create 2x2 contingency table for this cell type
-  contingency_table <- plot_df_clean %>%
-    mutate(is_celltype = ifelse(celltype == ct, "Yes", "No")) %>%
-    count(sex, is_celltype) %>%
-    pivot_wider(names_from = is_celltype, values_from = n, values_fill = 0) %>%
-    column_to_rownames("sex") %>%
-    as.matrix()
-  
-  # Perform Fisher's exact test
-  fisher_test <- fisher.test(contingency_table)
-  
-  # Store results
-  fisher_results[[ct]] <- list(
-    p_value = fisher_test$p.value,
-    odds_ratio = fisher_test$estimate
-  )
-  
-  # Format p-value
-  if (fisher_test$p.value < 0.001) {
-    p_label <- "p < 0.001"
-    sig_label <- "***"
-  } else if (fisher_test$p.value < 0.01) {
-    p_label <- paste0("p = ", format(round(fisher_test$p.value, 3), nsmall = 3))
-    sig_label <- "**"
-  } else if (fisher_test$p.value < 0.05) {
-    p_label <- paste0("p = ", format(round(fisher_test$p.value, 3), nsmall = 3))
-    sig_label <- "*"
-  } else {
-    p_label <- paste0("p = ", format(round(fisher_test$p.value, 3), nsmall = 3))
-    sig_label <- "ns"
-  }
-  
-  # Print results
-  cat(ct, ":\n")
-  cat("  Contingency table:\n")
-  print(contingency_table)
-  cat("  P-value:", fisher_test$p.value, "\n")
-  cat("  Odds Ratio:", fisher_test$estimate, "\n")
-  cat("  Significance:", sig_label, "\n\n")
-  
-  # Add significance label to composition data
-  celltype_composition <- celltype_composition %>%
-    mutate(sig = ifelse(celltype == ct, sig_label, sig))
-}
-
-# Create labels with percentages and significance
-celltype_composition <- celltype_composition %>%
-  mutate(label_text = ifelse(sig == "ns", 
-                             paste0(round(percentage, 1), "%"),
-                             paste0(round(percentage, 1), "%", sig)))
-
-# Create stacked bar plot using celltype colors with significance asterisks
-p2 <- ggplot(celltype_composition, aes(x = sex, y = percentage, fill = celltype)) +
-  geom_bar(stat = "identity", color = "black", size = 0.3) +
-  scale_fill_manual(values = celltype_colors) +
-  geom_text(aes(label = label_text),
-            position = position_stack(vjust = 0.5),
-            size = 3.5, fontface = "bold", color = "white") +
-  theme_classic() +
-  labs(title = "PT Cell Subtype Composition by Sex",
-       x = "Sex",
-       y = "Percentage of Cells",
-       fill = "Cell Type",
-       caption = "* p<0.05, ** p<0.01, *** p<0.001 (Fisher's exact test)") +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
-        axis.text.x = element_text(size = 11, face = "bold"),
-        legend.position = "right",
-        plot.caption = element_text(hjust = 0.5, size = 9, face = "italic"))
-
-# Save Fisher's test results
-fisher_summary <- data.frame(
-  celltype = names(fisher_results),
-  p_value = sapply(fisher_results, function(x) x$p_value),
-  odds_ratio = sapply(fisher_results, function(x) x$odds_ratio),
-  significant = sapply(fisher_results, function(x) {
-    if(x$p_value < 0.001) return("***")
-    else if(x$p_value < 0.01) return("**")
-    else if(x$p_value < 0.05) return("*")
-    else return("ns")
-  })
-)
-
-write.csv(fisher_summary, 
-          paste0(dir.results, "Fisher_Test_Results_Celltype_Proportions.csv"), 
-          row.names = FALSE)
-
-cat("Fisher's exact test results saved to: Fisher_Test_Results_Celltype_Proportions.csv\n")
-
-# ============================================================================
-# PANEL C: Density plot by sex with Mann-Whitney U test
-# ============================================================================
-
-# Perform Mann-Whitney U test (Wilcoxon rank-sum test)
-mann_whitney_test <- wilcox.test(pseudotime ~ sex, data = plot_df_clean)
-p_value <- mann_whitney_test$p.value
-
-# Format p-value for display
-if (p_value < 0.001) {
-  p_label <- "p < 0.001"
-} else if (p_value < 0.01) {
-  p_label <- paste0("p = ", format(round(p_value, 3), nsmall = 3))
-} else {
-  p_label <- paste0("p = ", format(round(p_value, 2), nsmall = 2))
-}
-
-# Print the test results to console
-cat("\n=== Mann-Whitney U Test Results ===\n")
-cat("Comparing pseudotime distributions between Women and Men\n")
-cat("Test statistic (W):", mann_whitney_test$statistic, "\n")
-cat("P-value:", p_value, "\n")
-cat("Formatted p-value:", p_label, "\n")
-
-# Calculate median pseudotime for each sex (for additional context)
-median_summary <- plot_df_clean %>%
-  group_by(sex) %>%
-  summarise(
-    median_pseudotime = median(pseudotime, na.rm = TRUE),
-    mean_pseudotime = mean(pseudotime, na.rm = TRUE),
-    n = n()
-  )
-
-cat("\nMedian pseudotime by sex:\n")
-print(median_summary)
-
-# Save Mann-Whitney test results
-mann_whitney_summary <- data.frame(
-  test = "Mann-Whitney U",
-  statistic = mann_whitney_test$statistic,
-  p_value = p_value,
-  formatted_p = p_label
-)
-
-write.csv(mann_whitney_summary, 
-          paste0(dir.results, "Mann_Whitney_Test_Results_Pseudotime.csv"), 
-          row.names = FALSE)
-
-# Create density plot with p-value annotation
-p3 <- ggplot(plot_df_clean, aes(x = pseudotime, fill = sex, color = sex)) +
-  geom_density(alpha = 0.3, size = 1) +
-  scale_fill_manual(values = sex_colors) +   
-  scale_color_manual(values = sex_colors) +
-  theme_classic() +
-  labs(title = "Cell Density Along Pseudotime Trajectory by Sex",
-       x = "Pseudotime",
-       y = "Density",
-       fill = "Sex",
-       color = "Sex") +
-  theme(plot.title = element_text(hjust = 0.5, face = "bold"),
-        legend.position = "right") +
-  # Add p-value annotation in the upper right corner
-  annotate("text", 
-           x = Inf, 
-           y = Inf, 
-           label = paste0("Mann-Whitney U\n", p_label),
-           hjust = 1.1, 
-           vjust = 1.5,
-           size = 4,
-           fontface = "bold")
-
-# ============================================================================
-# PANELS D, E, F: Regional bar charts
-# ============================================================================
-
-# Split pseudotime evenly into 3 regions
-min_pseudotime <- min(plot_df_clean$pseudotime, na.rm = TRUE)
-max_pseudotime <- max(plot_df_clean$pseudotime, na.rm = TRUE)
-pseudotime_range <- max_pseudotime - min_pseudotime
-
-# Define the three regions
-region_breaks <- seq(min_pseudotime, max_pseudotime, length.out = 4)
-region1_start <- region_breaks[1]
-region1_end <- region_breaks[2]
-region2_start <- region_breaks[2]
-region2_end <- region_breaks[3]
-region3_start <- region_breaks[3]
-region3_end <- region_breaks[4]
-
-cat("\n=== Pseudotime Regions ===\n")
-cat("Region 1 (Early):", round(region1_start, 2), "to", round(region1_end, 2), "\n")
-cat("Region 2 (Middle):", round(region2_start, 2), "to", round(region2_end, 2), "\n")
-cat("Region 3 (Late):", round(region3_start, 2), "to", round(region3_end, 2), "\n")
-
-# Calculate total cell counts per cell type AND SEX
-total_counts_per_celltype_sex <- plot_df_clean %>%
-  count(celltype, sex, name = "total_cells")
-
-# Create data for all regions and calculate percentages BY SEX
-all_region_data <- data.frame()
-
-regions <- list(
-  list(name = "Early", start = region1_start, end = region1_end, number = 1),
-  list(name = "Middle", start = region2_start, end = region2_end, number = 2),
-  list(name = "Late", start = region3_start, end = region3_end, number = 3)
-)
-
-for(region in regions) {
-  # Extract cells in this region
-  region_cells <- plot_df_clean %>%
-    filter(pseudotime >= region$start & pseudotime <= region$end)
-  
-  # Calculate counts in this region BY SEX
-  region_counts <- region_cells %>%
-    count(celltype, sex, name = "cells_in_region") %>%
-    left_join(total_counts_per_celltype_sex, by = c("celltype", "sex")) %>%
-    mutate(
-      percent_of_celltype = (cells_in_region / total_cells) * 100,
-      region_number = region$number,
-      region_name = region$name,
-      region_start = region$start,
-      region_end = region$end
-    )
-  
-  # Add any missing cell type/sex combinations with 0%
-  all_combinations <- expand.grid(
-    celltype = unique(plot_df_clean$celltype),
-    sex = unique(plot_df_clean$sex),
-    stringsAsFactors = FALSE
-  )
-  
-  existing_combinations <- region_counts %>% 
-    select(celltype, sex) %>%
-    distinct()
-  
-  missing_combinations <- all_combinations %>%
-    anti_join(existing_combinations, by = c("celltype", "sex"))
-  
-  if(nrow(missing_combinations) > 0) {
-    missing_data <- missing_combinations %>%
-      left_join(total_counts_per_celltype_sex, by = c("celltype", "sex")) %>%
-      mutate(
-        cells_in_region = 0,
-        percent_of_celltype = 0,
-        region_number = region$number,
-        region_name = region$name,
-        region_start = region$start,
-        region_end = region$end
-      )
-    region_counts <- bind_rows(region_counts, missing_data)
-  }
-  
-  all_region_data <- bind_rows(all_region_data, region_counts)
-}
-
-# Print detailed summary
-cat("\n=== Percentage of Each Cell Type (by Sex) in Each Region ===\n")
-for(i in 1:3) {
-  region_data <- all_region_data %>% filter(region_number == i)
-  cat("\n", unique(region_data$region_name), "Region (Pseudotime", 
-      round(unique(region_data$region_start), 2), "to", 
-      round(unique(region_data$region_end), 2), "):\n")
-  print(region_data %>% 
-          select(celltype, sex, cells_in_region, total_cells, percent_of_celltype) %>%
-          arrange(celltype, sex))
-}
-
-# Save the detailed composition data
-write.csv(all_region_data, 
-          paste0(dir.results, "Pseudotime_Regions_Celltype_Sex_Percentage.csv"), 
-          row.names = FALSE)
-
-# Create bar plots showing percentage of each cell type in each region, SPLIT BY SEX
-bar_charts <- list()
-
-for(i in 1:3) {
-  region_data <- all_region_data %>% 
-    filter(region_number == i) %>%
-    mutate(celltype = factor(celltype, levels = celltype_order))  # Apply order
-  
-  region_name <- unique(region_data$region_name)
-  region_start <- unique(region_data$region_start)
-  region_end <- unique(region_data$region_end)
-  
-  bar_charts[[i]] <- ggplot(region_data, aes(x = celltype, y = percent_of_celltype, fill = sex)) +
-    geom_bar(stat = "identity", position = "dodge", color = "black", size = 0.3) +
-    scale_fill_manual(values = sex_colors) +
-    geom_text(aes(label = paste0(round(percent_of_celltype, 1), "%")),
-              position = position_dodge(width = 0.9),
-              vjust = -0.5, size = 3, fontface = "bold") +
-    theme_classic() +
-    labs(title = paste0(region_name, " Region\n(", round(region_start, 1), " - ", round(region_end, 1), ")"),
-         x = "Cell Type",
-         y = "% of Cell Type in Region",
-         fill = "Sex") +
-    theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
-          axis.text.x = element_text(angle = 45, hjust = 1, size = 9, face = "bold"),
-          axis.title = element_text(size = 9),
-          legend.position = "right",
-          legend.text = element_text(size = 8)) +
-    ylim(0, max(all_region_data$percent_of_celltype) * 1.15)  # Add space for labels
-}
-
-# ============================================================================
-# ADD PANEL LABELS AND COMBINE
-# ============================================================================
-
-# Add panel labels
-p1_labeled <- p1 + 
-  labs(tag = "A") +
-  theme(plot.tag = element_text(size = 16, face = "bold"))
-
-p2_labeled <- p2 + 
-  labs(tag = "B") +
-  theme(plot.tag = element_text(size = 16, face = "bold"))
-
-p3_labeled <- p3 + 
-  labs(tag = "C") +
-  theme(plot.tag = element_text(size = 16, face = "bold"))
-
-# Label bar charts
-for(i in 1:length(bar_charts)) {
-  bar_charts[[i]] <- bar_charts[[i]] + 
-    labs(tag = LETTERS[3 + i]) +
-    theme(plot.tag = element_text(size = 16, face = "bold"))
-}
-
-# Combine all plots
-combined_plot <- (p1_labeled | p2_labeled) / 
-  (p3_labeled) / 
-  (bar_charts[[1]] | bar_charts[[2]] | bar_charts[[3]])
-
-combined_plot <- combined_plot + 
-  plot_layout(heights = c(1, 0.8, 0.8))
-
-print(combined_plot)
-ggsave(paste0(dir.results, "Complete_Pseudotime_Analysis_Modified.pdf"), 
-       plot = combined_plot, width = 16, height = 12)
-ggsave(paste0(dir.results, "Complete_Pseudotime_Analysis_Modified.png"), 
-       plot = combined_plot, width = 16, height = 12, dpi = 300)
-
-# Create a summary table showing key differences
-summary_table <- all_region_data %>%
-  select(region_name, celltype, sex, percent_of_celltype) %>%
-  pivot_wider(names_from = sex, values_from = percent_of_celltype, values_fill = 0) %>%
-  mutate(Difference = Women - Men) %>%
-  arrange(region_name, celltype)
-
-cat("\n=== Summary: Women vs Men Differences by Region ===\n")
-print(summary_table)
-
-write.csv(summary_table, 
-          paste0(dir.results, "Sex_Differences_Summary.csv"), 
-          row.names = FALSE)
+ library(scran)
+ library(future)
+ library(future.apply)
+ library(tidyverse)
+ library(colorspace)
+ library(patchwork)
+ library(ggdendro)
+ library(cowplot)
+ library(ggpubr)
+ library(rstatix)
+ library(arsenal)
+ library(Biobase)
+ library(msigdbr)
+ library(kableExtra)
+ library(knitr)
+ library(REDCapR)
+ library(data.table)
+ library(emmeans)
+ library(NMF)
+ library(pheatmap)
+ library(UpSetR)
+ library(enrichR)
+ library(WriteXLS)
+ library(SAVER)
+ library(readxl)
+ library(limma)
+ library(edgeR)
+ library(BiocGenerics)
+ library(GSEABase)
+ library(slingshot)
+ library(SingleCellExperiment)
+ library(MAST)
+ library(muscat)
+ library(scater)
+ library(Seurat)
+ library(jsonlite)
+ library(dplyr)
+ library(glmmTMB)
+ library(reshape2)
+ library(broom.mixed)
+ library(nebula)
+ library(clusterProfiler)
+ library('org.Hs.eg.db')
+ library(ggplot2)
+ library(viridis)
+ library(scales)
+ library(ggridges)
  
+ # Load data (adjust path as needed)
+ load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
+ so_subset <- so_kpmp_sc
+ remove(so_kpmp_sc)
  
+ dir.results <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/pseudotime/'
+ 
+ # Filter data
+ so_subset <- subset(so_subset, subset = record_id != 'CRC-55')
+ so_subset <- subset(so_subset, subset = group == 'Lean_Control')
+ so_subset <- subset(so_subset, subset = celltype2 == 'PT')
+ so_subset <- RunUMAP(so_subset, dims = 1:30)
+ 
+ # Run slingshot
+ sling_res <- slingshot(as.SingleCellExperiment(so_subset), 
+                        clusterLabels = 'KPMP_celltype', 
+                        start.clus = 'PT-S1', end.clus = 'aPT', 
+                        reducedDim = 'UMAP')
+ so_subset$pseudotime <- slingPseudotime(sling_res)[,1]
+ 
+ # ============================================================================
+ # RECODE SEX VARIABLE: Female -> Women, Male -> Men
+ # ============================================================================
+ so_subset$sex <- factor(so_subset$sex, 
+                         levels = c("Female", "Male"),
+                         labels = c("Women", "Men"))
+ 
+ # Extract UMAP coordinates
+ umap_coords <- Embeddings(so_subset, reduction = "umap")
+ 
+ # Extract slingshot curves
+ sling_curves <- slingCurves(sling_res)
+ 
+ # Create data frame for plotting
+ plot_df <- data.frame(
+   UMAP_1 = umap_coords[, 1],
+   UMAP_2 = umap_coords[, 2],
+   pseudotime = so_subset$pseudotime,
+   celltype = so_subset$KPMP_celltype,
+   sex = so_subset$sex
+ )
+ 
+ # Remove cells with NA pseudotime
+ plot_df_clean <- plot_df %>% filter(!is.na(pseudotime))
+ 
+ # ============================================================================
+ # DEFINE COLOR SCHEMES
+ # ============================================================================
+ 
+ # Cell type colors (matching UMAP plasma viridis colors)
+ celltype_colors <- c("PT-S1/S2" = "#8B5CF6",  # Purple (early pseudotime)
+                      "PT-S3" = "#DC143C",      # Burgundy/Crimson (mid pseudotime)
+                      "aPT" = "#FFA500")        # Orange/Yellow (late pseudotime)
+ 
+ # Sex colors - Women: Orange, Men: Purple
+ sex_colors <- c("Women" = "#FF8C42",  # Orange
+                 "Men" = "#8B5CF6")     # Purple
+ 
+ # ============================================================================
+ # PANEL A: UMAP with pseudotime and cell type labels
+ # ============================================================================
+ 
+ p1 <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = pseudotime)) +
+   geom_point(size = 0.5, alpha = 0.6) +
+   scale_color_viridis(option = "plasma", na.value = "grey80") +
+   theme_classic() +
+   labs(title = "Slingshot Pseudotime on UMAP",
+        color = "Pseudotime") +
+   theme(legend.position = "right",
+         plot.title = element_text(hjust = 0.5, face = "bold"))
+ 
+ # Add slingshot curves
+ for(i in seq_along(sling_curves)) {
+   curve_coords <- sling_curves[[i]]$s[sling_curves[[i]]$ord, ]
+   p1 <- p1 + geom_path(data = data.frame(UMAP_1 = curve_coords[, 1], 
+                                          UMAP_2 = curve_coords[, 2]),
+                        aes(x = UMAP_1, y = UMAP_2),
+                        color = "black", size = 2, inherit.aes = FALSE)
+ }
+ 
+ # Add cell type labels at centroids
+ celltype_centroids <- plot_df %>%
+   group_by(celltype) %>%
+   summarise(
+     UMAP_1 = median(UMAP_1, na.rm = TRUE),
+     UMAP_2 = median(UMAP_2, na.rm = TRUE)
+   )
+ 
+ p1 <- p1 + 
+   geom_label(data = celltype_centroids, 
+              aes(x = UMAP_1, y = UMAP_2, label = celltype),
+              color = "black", fill = "white", alpha = 0.8,
+              size = 4, fontface = "bold", inherit.aes = FALSE)
+ 
+ # ============================================================================
+ # PANEL B: Stacked bar plot of PT cell subtypes by sex WITH FISHER'S TEST
+ # ============================================================================
+ 
+ # Set cell type order
+ celltype_order <- c("PT-S1/S2", "PT-S3", "aPT")
+ 
+ # Calculate cell type composition by sex
+ celltype_composition <- plot_df_clean %>%
+   count(sex, celltype) %>%
+   group_by(sex) %>%
+   mutate(percentage = (n / sum(n)) * 100) %>%
+   mutate(celltype = factor(celltype, levels = celltype_order)) %>%
+   mutate(sig = NA_character_)  # Initialize sig column
+ 
+ # Perform Fisher's exact test for each cell type
+ cat("\n=== Fisher's Exact Test Results ===\n")
+ cat("Comparing cell type proportions between Women and Men\n\n")
+ 
+ fisher_results <- list()
+ 
+ for(ct in celltype_order) {
+   # Create 2x2 contingency table for this cell type
+   contingency_table <- plot_df_clean %>%
+     mutate(is_celltype = ifelse(celltype == ct, "Yes", "No")) %>%
+     count(sex, is_celltype) %>%
+     pivot_wider(names_from = is_celltype, values_from = n, values_fill = 0) %>%
+     column_to_rownames("sex") %>%
+     as.matrix()
+   
+   # Perform Fisher's exact test
+   fisher_test <- fisher.test(contingency_table)
+   
+   # Store results
+   fisher_results[[ct]] <- list(
+     p_value = fisher_test$p.value,
+     odds_ratio = fisher_test$estimate
+   )
+   
+   # Format p-value
+   if (fisher_test$p.value < 0.001) {
+     p_label <- "p < 0.001"
+     sig_label <- "***"
+   } else if (fisher_test$p.value < 0.01) {
+     p_label <- paste0("p = ", format(round(fisher_test$p.value, 3), nsmall = 3))
+     sig_label <- "**"
+   } else if (fisher_test$p.value < 0.05) {
+     p_label <- paste0("p = ", format(round(fisher_test$p.value, 3), nsmall = 3))
+     sig_label <- "*"
+   } else {
+     p_label <- paste0("p = ", format(round(fisher_test$p.value, 3), nsmall = 3))
+     sig_label <- "ns"
+   }
+   
+   # Print results
+   cat(ct, ":\n")
+   cat("  Contingency table:\n")
+   print(contingency_table)
+   cat("  P-value:", fisher_test$p.value, "\n")
+   cat("  Odds Ratio:", fisher_test$estimate, "\n")
+   cat("  Significance:", sig_label, "\n\n")
+   
+   # Add significance label to composition data for this cell type
+   celltype_composition <- celltype_composition %>%
+     mutate(sig = ifelse(celltype == ct, sig_label, sig))
+ }
+ 
+ # Replace any remaining NA values with empty string
+ celltype_composition <- celltype_composition %>%
+   mutate(sig = ifelse(is.na(sig), "", sig))
+ 
+ # Create labels with percentages and significance
+ celltype_composition <- celltype_composition %>%
+   mutate(label_text = ifelse(sig == "ns" | sig == "", 
+                              paste0(round(percentage, 1), "%"),
+                              paste0(round(percentage, 1), "%", sig)))
+ 
+ # Create stacked bar plot using celltype colors with significance asterisks
+ p2 <- ggplot(celltype_composition, aes(x = sex, y = percentage, fill = celltype)) +
+   geom_bar(stat = "identity", color = "black", size = 0.3) +
+   scale_fill_manual(values = celltype_colors) +
+   geom_text(aes(label = label_text),
+             position = position_stack(vjust = 0.5),
+             size = 3.5, fontface = "bold", color = "white") +
+   theme_classic() +
+   labs(title = "PT Cell Subtype Composition by Sex",
+        x = "Sex",
+        y = "Percentage of Cells",
+        fill = "Cell Type",
+        caption = "* p<0.05, ** p<0.01, *** p<0.001 (Fisher's exact test)") +
+   theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+         axis.text.x = element_text(size = 11, face = "bold"),
+         legend.position = "right",
+         plot.caption = element_text(hjust = 0.5, size = 9, face = "italic"))
+ 
+ # Save Fisher's test results
+ fisher_summary <- data.frame(
+   celltype = names(fisher_results),
+   p_value = sapply(fisher_results, function(x) x$p_value),
+   odds_ratio = sapply(fisher_results, function(x) x$odds_ratio),
+   significant = sapply(fisher_results, function(x) {
+     if(x$p_value < 0.001) return("***")
+     else if(x$p_value < 0.01) return("**")
+     else if(x$p_value < 0.05) return("*")
+     else return("ns")
+   })
+ )
+ 
+ write.csv(fisher_summary, 
+           paste0(dir.results, "Fisher_Test_Results_Celltype_Proportions.csv"), 
+           row.names = FALSE)
+ 
+ cat("Fisher's exact test results saved to: Fisher_Test_Results_Celltype_Proportions.csv\n")
+ 
+ # ============================================================================
+ # PANEL C: Density plot by sex with Mann-Whitney U test
+ # ============================================================================
+ 
+ # Perform Mann-Whitney U test (Wilcoxon rank-sum test)
+ mann_whitney_test <- wilcox.test(pseudotime ~ sex, data = plot_df_clean)
+ p_value <- mann_whitney_test$p.value
+ 
+ # Format p-value for display
+ if (p_value < 0.001) {
+   p_label <- "p < 0.001"
+ } else if (p_value < 0.01) {
+   p_label <- paste0("p = ", format(round(p_value, 3), nsmall = 3))
+ } else {
+   p_label <- paste0("p = ", format(round(p_value, 2), nsmall = 2))
+ }
+ 
+ # Print the test results to console
+ cat("\n=== Mann-Whitney U Test Results ===\n")
+ cat("Comparing pseudotime distributions between Women and Men\n")
+ cat("Test statistic (W):", mann_whitney_test$statistic, "\n")
+ cat("P-value:", p_value, "\n")
+ cat("Formatted p-value:", p_label, "\n")
+ 
+ # Calculate median pseudotime for each sex (for additional context)
+ median_summary <- plot_df_clean %>%
+   group_by(sex) %>%
+   summarise(
+     median_pseudotime = median(pseudotime, na.rm = TRUE),
+     mean_pseudotime = mean(pseudotime, na.rm = TRUE),
+     n = n()
+   )
+ 
+ cat("\nMedian pseudotime by sex:\n")
+ print(median_summary)
+ 
+ # Save Mann-Whitney test results
+ mann_whitney_summary <- data.frame(
+   test = "Mann-Whitney U",
+   statistic = mann_whitney_test$statistic,
+   p_value = p_value,
+   formatted_p = p_label
+ )
+ 
+ write.csv(mann_whitney_summary, 
+           paste0(dir.results, "Mann_Whitney_Test_Results_Pseudotime.csv"), 
+           row.names = FALSE)
+ 
+ # Create density plot with p-value annotation
+ p3 <- ggplot(plot_df_clean, aes(x = pseudotime, fill = sex, color = sex)) +
+   geom_density(alpha = 0.3, size = 1) +
+   scale_fill_manual(values = sex_colors) +   
+   scale_color_manual(values = sex_colors) +
+   theme_classic() +
+   labs(title = "Cell Density Along Pseudotime Trajectory by Sex",
+        x = "Pseudotime",
+        y = "Density",
+        fill = "Sex",
+        color = "Sex") +
+   theme(plot.title = element_text(hjust = 0.5, face = "bold"),
+         legend.position = "right") +
+   # Add p-value annotation in the upper right corner
+   annotate("text", 
+            x = Inf, 
+            y = Inf, 
+            label = paste0("Mann-Whitney U\n", p_label),
+            hjust = 1.1, 
+            vjust = 1.5,
+            size = 4,
+            fontface = "bold")
+ 
+ # ============================================================================
+ # PANELS D, E, F: Regional bar charts
+ # ============================================================================
+ 
+ # Split pseudotime evenly into 3 regions
+ min_pseudotime <- min(plot_df_clean$pseudotime, na.rm = TRUE)
+ max_pseudotime <- max(plot_df_clean$pseudotime, na.rm = TRUE)
+ pseudotime_range <- max_pseudotime - min_pseudotime
+ 
+ # Define the three regions
+ region_breaks <- seq(min_pseudotime, max_pseudotime, length.out = 4)
+ region1_start <- region_breaks[1]
+ region1_end <- region_breaks[2]
+ region2_start <- region_breaks[2]
+ region2_end <- region_breaks[3]
+ region3_start <- region_breaks[3]
+ region3_end <- region_breaks[4]
+ 
+ cat("\n=== Pseudotime Regions ===\n")
+ cat("Region 1 (Early):", round(region1_start, 2), "to", round(region1_end, 2), "\n")
+ cat("Region 2 (Middle):", round(region2_start, 2), "to", round(region2_end, 2), "\n")
+ cat("Region 3 (Late):", round(region3_start, 2), "to", round(region3_end, 2), "\n")
+ 
+ # Calculate total cell counts per cell type AND SEX
+ total_counts_per_celltype_sex <- plot_df_clean %>%
+   count(celltype, sex, name = "total_cells")
+ 
+ # Create data for all regions and calculate percentages BY SEX
+ all_region_data <- data.frame()
+ 
+ regions <- list(
+   list(name = "Early", start = region1_start, end = region1_end, number = 1),
+   list(name = "Middle", start = region2_start, end = region2_end, number = 2),
+   list(name = "Late", start = region3_start, end = region3_end, number = 3)
+ )
+ 
+ for(region in regions) {
+   # Extract cells in this region
+   region_cells <- plot_df_clean %>%
+     filter(pseudotime >= region$start & pseudotime <= region$end)
+   
+   # Calculate counts in this region BY SEX
+   region_counts <- region_cells %>%
+     count(celltype, sex, name = "cells_in_region") %>%
+     left_join(total_counts_per_celltype_sex, by = c("celltype", "sex")) %>%
+     mutate(
+       percent_of_celltype = (cells_in_region / total_cells) * 100,
+       region_number = region$number,
+       region_name = region$name,
+       region_start = region$start,
+       region_end = region$end
+     )
+   
+   # Add any missing cell type/sex combinations with 0%
+   all_combinations <- expand.grid(
+     celltype = unique(plot_df_clean$celltype),
+     sex = unique(plot_df_clean$sex),
+     stringsAsFactors = FALSE
+   )
+   
+   existing_combinations <- region_counts %>% 
+     select(celltype, sex) %>%
+     distinct()
+   
+   missing_combinations <- all_combinations %>%
+     anti_join(existing_combinations, by = c("celltype", "sex"))
+   
+   if(nrow(missing_combinations) > 0) {
+     missing_data <- missing_combinations %>%
+       left_join(total_counts_per_celltype_sex, by = c("celltype", "sex")) %>%
+       mutate(
+         cells_in_region = 0,
+         percent_of_celltype = 0,
+         region_number = region$number,
+         region_name = region$name,
+         region_start = region$start,
+         region_end = region$end
+       )
+     region_counts <- bind_rows(region_counts, missing_data)
+   }
+   
+   all_region_data <- bind_rows(all_region_data, region_counts)
+ }
+ 
+ # Print detailed summary
+ cat("\n=== Percentage of Each Cell Type (by Sex) in Each Region ===\n")
+ for(i in 1:3) {
+   region_data <- all_region_data %>% filter(region_number == i)
+   cat("\n", unique(region_data$region_name), "Region (Pseudotime", 
+       round(unique(region_data$region_start), 2), "to", 
+       round(unique(region_data$region_end), 2), "):\n")
+   print(region_data %>% 
+           select(celltype, sex, cells_in_region, total_cells, percent_of_celltype) %>%
+           arrange(celltype, sex))
+ }
+ 
+ # Save the detailed composition data
+ write.csv(all_region_data, 
+           paste0(dir.results, "Pseudotime_Regions_Celltype_Sex_Percentage.csv"), 
+           row.names = FALSE)
+ 
+ # Create bar plots showing percentage of each cell type in each region, SPLIT BY SEX
+ bar_charts <- list()
+ 
+ for(i in 1:3) {
+   region_data <- all_region_data %>% 
+     filter(region_number == i) %>%
+     mutate(celltype = factor(celltype, levels = celltype_order))  # Apply order
+   
+   region_name <- unique(region_data$region_name)
+   region_start <- unique(region_data$region_start)
+   region_end <- unique(region_data$region_end)
+   
+   bar_charts[[i]] <- ggplot(region_data, aes(x = celltype, y = percent_of_celltype, fill = sex)) +
+     geom_bar(stat = "identity", position = "dodge", color = "black", size = 0.3) +
+     scale_fill_manual(values = sex_colors) +
+     geom_text(aes(label = paste0(round(percent_of_celltype, 1), "%")),
+               position = position_dodge(width = 0.9),
+               vjust = -0.5, size = 3, fontface = "bold") +
+     theme_classic() +
+     labs(title = paste0(region_name, " Region\n(", round(region_start, 1), " - ", round(region_end, 1), ")"),
+          x = "Cell Type",
+          y = "% of Cell Type in Region",
+          fill = "Sex") +
+     theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 10),
+           axis.text.x = element_text(angle = 45, hjust = 1, size = 9, face = "bold"),
+           axis.title = element_text(size = 9),
+           legend.position = "right",
+           legend.text = element_text(size = 8)) +
+     ylim(0, max(all_region_data$percent_of_celltype) * 1.15)  # Add space for labels
+ }
+ 
+ # ============================================================================
+ # ADD PANEL LABELS AND COMBINE
+ # ============================================================================
+ 
+ # Add panel labels
+ p1_labeled <- p1 + 
+   labs(tag = "A") +
+   theme(plot.tag = element_text(size = 16, face = "bold"))
+ 
+ p2_labeled <- p2 + 
+   labs(tag = "B") +
+   theme(plot.tag = element_text(size = 16, face = "bold"))
+ 
+ p3_labeled <- p3 + 
+   labs(tag = "C") +
+   theme(plot.tag = element_text(size = 16, face = "bold"))
+ 
+ # Label bar charts
+ for(i in 1:length(bar_charts)) {
+   bar_charts[[i]] <- bar_charts[[i]] + 
+     labs(tag = LETTERS[3 + i]) +
+     theme(plot.tag = element_text(size = 16, face = "bold"))
+ }
+ 
+ # Combine all plots
+ combined_plot <- (p1_labeled | p2_labeled) / 
+   (p3_labeled) / 
+   (bar_charts[[1]] | bar_charts[[2]] | bar_charts[[3]])
+ 
+ combined_plot <- combined_plot + 
+   plot_layout(heights = c(1, 0.8, 0.8))
+ 
+ print(combined_plot)
+ ggsave(paste0(dir.results, "Complete_Pseudotime_Analysis_Modified.pdf"), 
+        plot = combined_plot, width = 16, height = 12)
+ ggsave(paste0(dir.results, "Complete_Pseudotime_Analysis_Modified.png"), 
+        plot = combined_plot, width = 16, height = 12, dpi = 300)
+ 
+ # Create a summary table showing key differences
+ summary_table <- all_region_data %>%
+   select(region_name, celltype, sex, percent_of_celltype) %>%
+   pivot_wider(names_from = sex, values_from = percent_of_celltype, values_fill = 0) %>%
+   mutate(Difference = Women - Men) %>%
+   arrange(region_name, celltype)
+ 
+ cat("\n=== Summary: Women vs Men Differences by Region ===\n")
+ print(summary_table)
+ 
+ write.csv(summary_table, 
+           paste0(dir.results, "Sex_Differences_Summary.csv"), 
+           row.names = FALSE)
 ########## Side-by-Side UMAP: Sex and Cell Type
 
 library(Seurat)
