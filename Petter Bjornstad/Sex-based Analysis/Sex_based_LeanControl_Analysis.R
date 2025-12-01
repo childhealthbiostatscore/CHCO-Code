@@ -1023,9 +1023,141 @@ for(i in c(1:length(variable_names))){
 
 
 
+########### Combined Volcano plots for 4 cell types
 
+library(ggplot2)
+library(ggbreak)
+library(dplyr)
+library(patchwork)
 
+# Define the 4 cell types we want
+variable_names <- c('All', 'PT', 'TAL', 'EC')
 
+# Store plots in a list
+plot_list <- list()
+
+# First pass: collect all data to determine common axis limits
+all_logfc <- c()
+all_pval <- c()
+
+for(i in 1:length(variable_names)){
+  sig_markers <- data.table::fread(paste0('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/Full_NEBULA_', 
+                                          variable_names[i], '_cells__LC_pooledoffset.csv'))
+  
+  sig_markers <- sig_markers %>% dplyr::select(Gene = summary.gene,
+                                               LogFC = summary.logFC_sexMale, 
+                                               Pvalue = summary.p_sexMale)
+  
+  tmp_df <- sig_markers %>% filter(abs(LogFC) < 10)
+  all_logfc <- c(all_logfc, tmp_df$LogFC)
+  all_pval <- c(all_pval, -log10(tmp_df$Pvalue))
+}
+
+# Calculate common axis limits
+x_limit <- max(abs(all_logfc), na.rm = TRUE) * 1.05
+y_limit <- max(all_pval, na.rm = TRUE) * 1.05
+
+# Second pass: create plots with common limits
+for(i in 1:length(variable_names)){
+  
+  sig_markers <- data.table::fread(paste0('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/Full_NEBULA_', 
+                                          variable_names[i], '_cells__LC_pooledoffset.csv'))
+  
+  sig_markers <- sig_markers %>% dplyr::select(Gene = summary.gene,
+                                               LogFC = summary.logFC_sexMale, 
+                                               Pvalue = summary.p_sexMale)
+  
+  tmp_df <- sig_markers
+  tmp_df$diffexp <- 'No'
+  tmp_df$diffexp[tmp_df$Pvalue < 0.05 & tmp_df$LogFC > 0] <- 'Up'
+  tmp_df$diffexp[tmp_df$Pvalue < 0.05 & tmp_df$LogFC < 0] <- 'Down'
+  
+  tmp_df <- tmp_df %>% arrange(Pvalue)
+  tmp_df$label <- NA
+  tmp_df$label[1:10] <- tmp_df$Gene[1:10]
+  
+  tmp_df <- tmp_df %>% filter(abs(LogFC) < 10)
+  
+  # Making graph with updated labels and common limits
+  if(length(unique(tmp_df$diffexp)) > 1){
+    tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
+      geom_point(size = 1.5, alpha = 0.8)+
+      geom_text(size=3, vjust = 2, color='black')+
+      scale_color_manual(values = c('#FF8C42', 'grey', '#8B5CF6'),  # Orange for Down, Purple for Up
+                         labels = c('Higher Expression in\nWomen vs. Men', 
+                                    'Not significant', 
+                                    'Higher Expression in\nMen vs. Women'))+
+      geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed', linewidth = 0.5)+
+      geom_vline(xintercept = c(0), col='black', linetype ='dashed', linewidth = 0.5)+
+      theme_classic()+
+      coord_cartesian(xlim = c(-x_limit, x_limit), ylim = c(0, y_limit)) +  # Common limits
+      labs(x='LogFC (Men vs. Women)', 
+           y='-log10 P-value', 
+           col ='Differential Expression', 
+           title = paste0(variable_names[i], ' Cells'),
+           tag = LETTERS[i])+
+      theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+            plot.tag = element_text(size = 16, face = "bold"),
+            legend.title = element_text(size = 10, face = "bold"),
+            legend.text = element_text(size = 9),
+            axis.title = element_text(size = 10),
+            axis.text = element_text(size = 9),
+            aspect.ratio = 1)  # Square aspect ratio for better alignment
+    
+  } else {
+    tmp_graph <- ggplot(tmp_df, aes(x= LogFC, y=-log10(Pvalue), col = diffexp, label=label))+
+      geom_point(size = 1.5, alpha = 0.8)+
+      geom_text(size=3, vjust = 2, color='black')+
+      scale_color_manual(values = c('grey'),
+                         labels = c('Not significant'))+
+      geom_hline(yintercept = -log10(0.05), col='blue', linetype='dashed', linewidth = 0.5)+
+      geom_vline(xintercept = c(0), col='black', linetype ='dashed', linewidth = 0.5)+
+      theme_classic()+
+      coord_cartesian(xlim = c(-x_limit, x_limit), ylim = c(0, y_limit)) +  # Common limits
+      labs(x='LogFC (Men vs. Women)', 
+           y='-log10 P-value', 
+           col ='Differential Expression', 
+           title = paste0(variable_names[i], ' Cells'),
+           tag = LETTERS[i])+
+      theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 12),
+            plot.tag = element_text(size = 16, face = "bold"),
+            legend.title = element_text(size = 10, face = "bold"),
+            legend.text = element_text(size = 9),
+            axis.title = element_text(size = 10),
+            axis.text = element_text(size = 9),
+            aspect.ratio = 1)  # Square aspect ratio for better alignment
+  }
+  
+  # Store plot in list
+  plot_list[[i]] <- tmp_graph
+  
+  print(paste0('Plot created for ', variable_names[i]))
+}
+
+# ============================================================================
+# COMBINE ALL 4 PLOTS INTO ONE FIGURE (2x2 grid)
+# ============================================================================
+
+combined_volcano <- (plot_list[[1]] | plot_list[[2]]) / 
+  (plot_list[[3]] | plot_list[[4]]) +
+  plot_layout(guides = 'collect')  # Collect legends together
+
+# Save combined figure
+pdf('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/VolcanoPlots_Combined_4Panels.pdf',
+    width = 14, height = 12)
+print(combined_volcano)
+dev.off()
+
+png('/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/VolcanoPlots_Combined_4Panels.png',
+    width = 4200, height = 3600, res = 300)
+print(combined_volcano)
+dev.off()
+
+cat("\n✓ Combined 4-panel volcano plot created and saved!\n")
+cat("  Panel A: All Cells\n")
+cat("  Panel B: PT Cells\n")
+cat("  Panel C: TAL Cells\n")
+cat("  Panel D: EC Cells\n")
 
 
 
@@ -4795,115 +4927,114 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  write.csv(summary_table, 
            paste0(dir.results, "Sex_Differences_Summary.csv"), 
            row.names = FALSE)
-########## Side-by-Side UMAP: Sex and Cell Type
 
-library(Seurat)
-library(ggplot2)
-library(patchwork)
-library(dplyr)
-library(slingshot)
-
-# Load data
-load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
-so_subset <- so_kpmp_sc
-remove(so_kpmp_sc)
-
-dir.results <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/pseudotime/'
-
-# Filter data (keep all cell types, not just PT)
-so_subset <- subset(so_subset, subset = record_id != 'CRC-55')
-so_subset <- subset(so_subset, subset = group == 'Lean_Control')
-# Removed: so_subset <- subset(so_subset, subset = celltype2 == 'PT')
-
-# Run UMAP if not already present
-if (!"umap" %in% names(so_subset@reductions)) {
-  cat("Running UMAP...\n")
-  so_subset <- RunUMAP(so_subset, dims = 1:30)
-}
-
-# ============================================================================
-# RECODE SEX VARIABLE: Female -> Women, Male -> Men
-# ============================================================================
-so_subset$sex <- factor(so_subset$sex, 
-                        levels = c("Female", "Male"),
-                        labels = c("Women", "Men"))
-
-# Extract UMAP coordinates
-umap_coords <- Embeddings(so_subset, reduction = "umap")
-
-# Create data frame for plotting
-plot_df <- data.frame(
-  UMAP_1 = umap_coords[, 1],
-  UMAP_2 = umap_coords[, 2],
-  sex = so_subset$sex,
-  celltype2 = so_subset$celltype2  # Using celltype2 variable
-)
-
-# ============================================================================
-# DEFINE COLOR SCHEMES
-# ============================================================================
-
-# Sex colors - Women: Orange, Men: Purple
-sex_colors <- c("Women" = "#FF8C42",  # Orange
-                "Men" = "#8B5CF6")     # Purple
-
-# ============================================================================
-# LEFT UMAP: Colored by Sex
-# ============================================================================
-
-p_sex <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = sex)) +
-  geom_point(size = 0.8, alpha = 0.6) +
-  scale_color_manual(values = sex_colors) +
-  theme_classic() +
-  labs(title = "UMAP by Sex",
-       x = "UMAP_1",
-       y = "UMAP_2",
-       color = "Sex") +
-  theme(legend.position = "right",
-        plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
-        axis.title = element_text(size = 12),
-        axis.text = element_text(size = 10),
-        legend.title = element_text(size = 11, face = "bold"),
-        legend.text = element_text(size = 10))
-
-# ============================================================================
-# RIGHT UMAP: Colored by Cell Type (celltype2)
-# ============================================================================
-
-p_celltype <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = celltype2)) +
-  geom_point(size = 0.8, alpha = 0.6) +
-  theme_classic() +
-  labs(title = "UMAP by Cell Type",
-       x = "UMAP_1",
-       y = "UMAP_2",
-       color = "Cell Type") +
-  theme(legend.position = "right",
-        plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
-        axis.title = element_text(size = 12),
-        axis.text = element_text(size = 10),
-        legend.title = element_text(size = 11, face = "bold"),
-        legend.text = element_text(size = 10))
-
-# ============================================================================
-# COMBINE PLOTS SIDE-BY-SIDE
-# ============================================================================
-
-combined_umap <- p_sex | p_celltype
-
-print(combined_umap)
-
-# Save the figure
-ggsave(paste0(dir.results, "UMAP_Sex_and_CellType_SideBySide.pdf"), 
-       plot = combined_umap, width = 14, height = 6)
-ggsave(paste0(dir.results, "UMAP_Sex_and_CellType_SideBySide.png"), 
-       plot = combined_umap, width = 14, height = 6, dpi = 300)
-
-cat("\n✓ Side-by-side UMAP figure created and saved!\n")
-cat("  Left: Colored by Sex (Women = Orange, Men = Purple)\n")
-cat("  Right: Colored by Cell Type (celltype2) - All cell types included\n")
  
  
+ library(Seurat)
+ library(ggplot2)
+ library(patchwork)
+ library(dplyr)
+ library(slingshot)
  
+ # Load data
+ load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
+ so_subset <- so_kpmp_sc
+ remove(so_kpmp_sc)
+ 
+ dir.results <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/pseudotime/'
+ 
+ # Filter data (keep all cell types, not just PT)
+ so_subset <- subset(so_subset, subset = record_id != 'CRC-55')
+ so_subset <- subset(so_subset, subset = group == 'Lean_Control')
+ 
+ # Run UMAP if not already present
+ if (!"umap" %in% names(so_subset@reductions)) {
+   cat("Running UMAP...\n")
+   so_subset <- RunUMAP(so_subset, dims = 1:30)
+ }
+ 
+ # ============================================================================
+ # RECODE SEX VARIABLE: Female -> Women, Male -> Men
+ # ============================================================================
+ so_subset$sex <- factor(so_subset$sex, 
+                         levels = c("Female", "Male"),
+                         labels = c("Women", "Men"))
+ 
+ # Extract UMAP coordinates
+ umap_coords <- Embeddings(so_subset, reduction = "umap")
+ 
+ # Create data frame for plotting
+ plot_df <- data.frame(
+   UMAP_1 = umap_coords[, 1],
+   UMAP_2 = umap_coords[, 2],
+   sex = so_subset$sex,
+   celltype2 = so_subset$celltype2  # Using celltype2 variable
+ )
+ 
+ # ============================================================================
+ # DEFINE COLOR SCHEMES
+ # ============================================================================
+ # Sex colors - Women: Orange, Men: Purple
+ sex_colors <- c("Women" = "#FF8C42",  # Orange
+                 "Men" = "#8B5CF6")     # Purple
+ 
+ # ============================================================================
+ # LEFT UMAP: Colored by Sex (Panel A)
+ # ============================================================================
+ p_sex <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = sex)) +
+   geom_point(size = 0.3, alpha = 0.8, shape = 16, stroke = 0) +  # Smaller, more defined points
+   scale_color_manual(values = sex_colors) +
+   theme_classic() +
+   labs(title = "UMAP by Sex",
+        x = "UMAP_1",
+        y = "UMAP_2",
+        color = "Sex",
+        tag = "A") +  # Add panel label
+   theme(legend.position = "right",
+         plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+         plot.tag = element_text(size = 18, face = "bold"),  # Panel label styling
+         axis.title = element_text(size = 12),
+         axis.text = element_text(size = 10),
+         legend.title = element_text(size = 11, face = "bold"),
+         legend.text = element_text(size = 10)) +
+   guides(color = guide_legend(override.aes = list(size = 4)))  # Larger legend points
+ 
+ # ============================================================================
+ # RIGHT UMAP: Colored by Cell Type (Panel B)
+ # ============================================================================
+ p_celltype <- ggplot(plot_df, aes(x = UMAP_1, y = UMAP_2, color = celltype2)) +
+   geom_point(size = 0.3, alpha = 0.8, shape = 16, stroke = 0) +  # Smaller, more defined points
+   theme_classic() +
+   labs(title = "UMAP by Cell Type",
+        x = "UMAP_1",
+        y = "UMAP_2",
+        color = "Cell Type",
+        tag = "B") +  # Add panel label
+   theme(legend.position = "right",
+         plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+         plot.tag = element_text(size = 18, face = "bold"),  # Panel label styling
+         axis.title = element_text(size = 12),
+         axis.text = element_text(size = 10),
+         legend.title = element_text(size = 11, face = "bold"),
+         legend.text = element_text(size = 10)) +
+   guides(color = guide_legend(override.aes = list(size = 4)))  # Larger legend points
+ 
+ # ============================================================================
+ # COMBINE PLOTS SIDE-BY-SIDE
+ # ============================================================================
+ combined_umap <- p_sex | p_celltype
+ 
+ print(combined_umap)
+ 
+ # Save the figure
+ ggsave(paste0(dir.results, "UMAP_Sex_and_CellType_SideBySide.pdf"), 
+        plot = combined_umap, width = 14, height = 6)
+ ggsave(paste0(dir.results, "UMAP_Sex_and_CellType_SideBySide.png"), 
+        plot = combined_umap, width = 14, height = 6, dpi = 300)
+ 
+ cat("\n✓ Side-by-side UMAP figure created and saved!\n")
+ cat("  Panel A (Left): Colored by Sex (Women = Orange, Men = Purple)\n")
+ cat("  Panel B (Right): Colored by Cell Type (celltype2) - All cell types included\n")
  
  
  
