@@ -74,9 +74,13 @@ Sys.setenv(
 ```{r}
 # Pull data from 01_clean_dataset.R
 rh_rh2_croc_panther_unique <- read.csv(file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh_rh2_croc_panther_unique.csv"))
+rh_rh2_croc_improve_unique <- read.csv(file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh_rh2_croc_improve_unique.csv")) %>%
+  mutate(kit_id = gsub("Kl", "KL", kit_id))
 rh_rh2_unique <- read.csv(file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh_rh2_unique.csv"))
+bx_meta <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset_meta.rds", bucket = "scrna", region = "")
 
-
+bx_subset <- rh_rh2_croc_improve_unique %>%
+  filter(kit_id %in% bx_meta$kit_id)
 ```
 
 # MRI Parameters
@@ -112,6 +116,16 @@ summary(arsenal::tableby(group ~ dexa_body_fat + dexa_fat_kg + dexa_lean_mass +
 summary(arsenal::tableby(group_risk ~ dexa_body_fat + dexa_fat_kg + dexa_lean_mass + 
                            dexa_lean_kg + dexa_trunk_mass + dexa_trunk_kg + dexa_bone_mineral_density, 
                          data=subset(rh_rh2_croc_panther_unique, study == "PANTHER")), total = F)
+
+summary(arsenal::tableby(dkd_group_30_hc ~ age + sex + kwt(acr_u, "medianq1q3") + 
+                           eGFR_CKD_epi + bmi + diabetes_duration + egfr_cat + acr_u_cat3 + epic_glp1ra_1 + sglt2i_ever, 
+                         data=bx_subset),
+        total = F)
+
+# subset(bx_subset, epic_glp1ra_1 == "Yes")$record_id
+# subset(bx_subset, epic_sglti2_1 == "Yes")$record_id
+subset(bx_subset, epic_sglt == "Yes")$record_id
+bx_subset$sglt2i_ever
 ```
 
 ```{r}
