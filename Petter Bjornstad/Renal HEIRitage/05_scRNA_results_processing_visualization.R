@@ -27,18 +27,37 @@ source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
 source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
 
 # Pull in nebula results
-folders <- c("DKD_vs_nonDKD_100" = "dkd100",
-             "DKD_100_vs_hc" = "dkd100_hc",
-             "nonDKD_100_vs_hc" = "nondkd100_hc",
-             "DKD_vs_nonDKD_30" = "dkd30",
-             "DKD_30_vs_hc" = "dkd30_hc",
-             "nonDKD_30_vs_hc" = "nondkd30_hc",
-             "GLP_N_vs_HC" = "glpn_hc",
-             "GLP_Y_vs_GLP_N" = "glpy_glpn",
-             "nonDKD_100_GLP_N_vs_HC" = "nondkd100_glpn_hc",
-             "nonDKD_100_GLP_Y_vs_HC" = "nondkd100_glpy_hc",
-             "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc",
-             "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc"
+folders <- c(
+  "DKD_vs_nonDKD_100" = "dkd100",
+  "DKD_100_vs_HC" = "dkd100_hc",
+  "nonDKD_100_vs_HC" = "nondkd100_hc",
+  "DKD_vs_nonDKD_30" = "dkd30",
+  "DKD_30_vs_HC" = "dkd30_hc",
+  "nonDKD_30_vs_HC" = "nondkd30_hc",
+  "GLP_N_vs_HC" = "glpn_hc",
+  "GLP_Y_vs_GLP_N" = "glpy_glpn",
+  "nonDKD_100_GLP_N_vs_HC" = "nondkd100_glpn_hc",
+  "nonDKD_100_GLP_Y_vs_HC" = "nondkd100_glpy_hc",
+  "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc",
+  "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc",
+  "DKD_vs_nonDKD_100_t2d" = "dkd100_t2d",
+  "DKD_100_t2d_vs_HC" = "kpmp_dkd100_t2d_hc",
+  "nonDKD_100_t2d_vs_HC" = "nondkd100_t2d_hc",
+  "DKD_vs_nonDKD_30_t2d" = "dkd30_t2d",
+  "DKD_30_t2d_vs_HC" = "dkd30_t2d_hc",
+  "nonDKD_30_t2d_vs_HC" = "nondkd30_t2d_hc",
+  "SGLT2i_N_vs_HC" = "sglt2in_hc",
+  "SGLT2i_Y_vs_SGLT2i_N" = "sglt2iy_sglt2in",
+  "nonDKD_100_SGLT2i_N_vs_HC" = "nondkd100_sglt2in_hc",
+  "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc",
+  "nonDKD_30_SGLT2i_N_vs_HC" = "nondkd30_sglt2in_hc",
+  "nonDKD_30_SGLT2i_Y_vs_HC" = "nondkd30_sglt2iy_hc",
+  "Combo_N_vs_HC" = "combon_hc",
+  "Combo_Y_vs_Combo_N" = "comboy_combon",
+  "nonDKD_100_Combo_N_vs_HC" = "nondkd100_combon_hc",
+  "nonDKD_100_Combo_Y_vs_HC" = "nondkd100_comboy_hc",
+  "nonDKD_30_Combo_N_vs_HC" = "nondkd30_combon_hc",
+  "nonDKD_30_Combo_Y_vs_HC" = "nondkd30_comboy_hc"
 )
 
 # Define common parameters
@@ -47,35 +66,65 @@ celltype_groups <- list(
   TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
   PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
   IC = c("IC-A", "IC-B", "aIC"),
-  DTL_ATL = c("DTL", "aDTL", "ATL"),   
-  DCT_CNT = c("DCT", "dDCT", "CNT"),   
-  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"), 
+  DTL_ATL = c("DTL", "aDTL", "ATL"),
+  DCT_CNT = c("DCT", "dDCT", "CNT"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
   Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
   VSMC_P_FIB = c("VSMC/P", "FIB"),
   POD = "POD",
-  MC = "MC",                         
-  PEC = "PEC",                       
+  MC = "MC",
+  PEC = "PEC",
   Schwann = "SchwannCells"
 )
 
-# Load all data first
+# Load all data first and save as csv
 for (folder in names(folders)) {
-  for (cell in names(celltype_groups)){
-    processed_df <- s3readRDS(object = paste0("Projects/CKD/RH_RH2/Results/nebula/", folder, "/", cell, "/", cell, "_rh_rh2_imp_nebula_kpmp_", folders[folder], "_processed.rds"),
-                              bucket = "scrna", region = "")
+  for (cell in names(celltype_groups)) {
+    # Construct the S3 path
+    s3_path <- paste0("Projects/CKD/RH_RH2/Results/nebula/", folder, "/", cell, "/", cell, "_rh_rh2_imp_nebula_kpmp_", folders[folder], "_processed.rds")
+    
+    # Try to read the file with error handling
+    processed_df <- tryCatch({
+      s3readRDS(object = s3_path, bucket = "scrna", region = "")
+    }, error = function(e) {
+      # Print error message with specific cell and folder information
+      message(paste0("ERROR: Failed to read file for folder '", folder, "' and cell type '", cell, "'"))
+      message(paste0("  Path attempted: ", s3_path))
+      message(paste0("  Error details: ", e$message))
+      return(NULL)
+    })
+    
+    # Skip to next iteration if file reading failed
+    if (is.null(processed_df)) {
+      message(paste0("Skipping folder '", folder, "' and cell type '", cell, "'\n"))
+      next
+    }
+    
+    # If successful, continue with processing
     var_name <- paste0(tolower(cell), "_", folders[folder])
     assign(var_name, processed_df, envir = .GlobalEnv)
     
-    write.csv(processed_df, file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")), row.names = F, fileEncoding = "UTF-8")
+    # Write CSV files
+    write.csv(processed_df, 
+              file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")), 
+              row.names = F, fileEncoding = "UTF-8")
     
-    write.csv(subset(processed_df, processed_df[[6]] < 0.05), file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/pval/", var_name, "_kpmp_pval.csv")), row.names = F, fileEncoding = "UTF-8")
+    write.csv(subset(processed_df, processed_df[[6]] < 0.05), 
+              file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/pval/", var_name, "_kpmp_pval.csv")), 
+              row.names = F, fileEncoding = "UTF-8")
     
-    write.csv(subset(processed_df, fdr < 0.05), file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/fdr/", var_name, "_kpmp_fdr.csv")), row.names = F, fileEncoding = "UTF-8")
+    write.csv(subset(processed_df, fdr < 0.05), 
+              file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/fdr/", var_name, "_kpmp_fdr.csv")), 
+              row.names = F, fileEncoding = "UTF-8")
+    
+    # Optional: Print success message
+    message(paste0("Successfully processed: ", var_name))
   }
 }
 
 # Define plot parameters for each comparison
 plot_params <- list(
+  # Existing parameters
   "dkd100" = list(
     fc_col = "logFC_dkd_group_100DKD",
     p_col = "p_dkd_group_100DKD",
@@ -94,7 +143,7 @@ plot_params <- list(
   ),
   "nondkd100_hc" = list(
     fc_col = "logFC_dkd_group_100_hcnon_DKD",
-    p_col = "p_dkd_group_100_hcnonDKD",
+    p_col = "p_dkd_group_100_hcnon_DKD",
     x_label = "logFC non-DKD vs. HC\n(non-DKD: eGFR >= 90 and UACR < 100)",
     positive_text = "Positive with non-DKD",
     negative_text = "Negative with non-DKD",
@@ -139,8 +188,191 @@ plot_params <- list(
     positive_text = "Positive with GLP1-RA",
     negative_text = "Negative with GLP1-RA",
     formula = "GLP_Y"
-  )
-)
+  ),
+  "nondkd100_glpn_hc" = list(
+    fc_col = "logFC_dkd_group_100_hcnon_DKD",
+    p_col = "p_dkd_group_100_hcnon_DKD",
+    x_label = "logFC non-DKD (GLP1-RA-) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 100)",
+    positive_text = "Positive with non-DKD\n(GLP-)",
+    negative_text = "Negative with non-DKD\n(GLP-)",
+    formula = "nonDKD_GLP_N"
+  ),
+  "nondkd100_glpy_hc" = list(
+    fc_col = "logFC_dkd_group_100_glp_hcnon_DKD_GLP_Y",
+    p_col = "p_dkd_group_100_glp_hcnon_DKD_GLP_Y",
+    x_label = "logFC non-DKD (GLP1-RA+) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 100)",
+    positive_text = "Positive with non-DKD\n(GLP+)",
+    negative_text = "Negative with non-DKD\n(GLP+)",
+    formula = "nonDKD_GLP_Y"
+  ),
+  "nondkd30_glpn_hc" = list(
+    fc_col = "logFC_dkd_group_30_hcnon_DKD",
+    p_col = "p_dkd_group_30_hcnon_DKD",
+    x_label = "logFC non-DKD (GLP1-RA-) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 30)",
+    positive_text = "Positive with non-DKD\n(GLP-)",
+    negative_text = "Negative with non-DKD\n(GLP-)",
+    formula = "nonDKD_GLP_N"
+  ),
+  "nondkd30_glpy_hc" = list(
+    fc_col = "logFC_dkd_group_30_glp_hcnon_DKD_GLP_Y",
+    p_col = "p_dkd_group_30_glp_hcnon_DKD_GLP_Y",
+    x_label = "logFC non-DKD (GLP1-RA+) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 30)",
+    positive_text = "Positive with non-DKD\n(GLP+)",
+    negative_text = "Negative with non-DKD\n(GLP+)",
+    formula = "nonDKD_GLP_Y"
+  ),
+  
+  # # T2D comparisons (inferred)
+  "dkd100_t2d" = list(
+    fc_col = "logFC_dkd_group_100DKD",
+    p_col = "p_dkd_group_100DKD",
+    x_label = "logFC DKD vs. non-DKD (T2D only)\n(DKD: eGFR < 90 or UACR >= 100)",
+    positive_text = "Positive with DKD (T2D)",
+    negative_text = "Negative with DKD (T2D)",
+    formula = "DKD_T2D"
+  ),
+  "kpmp_dkd100_t2d_hc" = list(
+    fc_col = "logFC_dkd_group_100_t2d_hcDKD",
+    p_col = "p_dkd_group_100_t2d_hcDKD",
+    x_label = "logFC DKD (T2D) vs. HC\n(DKD: eGFR < 90 or UACR >= 100)",
+    positive_text = "Positive with DKD (T2D)",
+    negative_text = "Negative with DKD (T2D)",
+    formula = "DKD_T2D"
+  ),
+  "nondkd100_t2d_hc" = list(
+    fc_col = "logFC_dkd_group_100_hcnon_DKD",
+    p_col = "p_dkd_group_100_hcnon_DKD",
+    x_label = "logFC non-DKD (T2D) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 100)",
+    positive_text = "Positive with non-DKD (T2D)",
+    negative_text = "Negative with non-DKD (T2D)",
+    formula = "nonDKD_T2D"
+  ),
+  "dkd30_t2d" = list(
+    fc_col = "logFC_dkd_group_30DKD",
+    p_col = "p_dkd_group_30DKD",
+    x_label = "logFC DKD vs. non-DKD (T2D only)\n(DKD: eGFR < 90 or UACR >= 30)",
+    positive_text = "Positive with DKD (T2D)",
+    negative_text = "Negative with DKD (T2D)",
+    formula = "DKD_T2D"
+  ),
+  "dkd30_t2d_hc" = list(
+    fc_col = "logFC_dkd_group_30_t2d_hcDKD",
+    p_col = "p_dkd_group_30_t2d_hcDKD",
+    x_label = "logFC DKD (T2D) vs. HC\n(DKD: eGFR < 90 or UACR >= 30)",
+    positive_text = "Positive with DKD (T2D)",
+    negative_text = "Negative with DKD (T2D)",
+    formula = "DKD_T2D"
+  ),
+  "nondkd30_t2d_hc" = list(
+    fc_col = "logFC_dkd_group_30_hcnon_DKD",
+    p_col = "p_dkd_group_30_hcnon_DKD",
+    x_label = "logFC non-DKD (T2D) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 30)",
+    positive_text = "Positive with non-DKD (T2D)",
+    negative_text = "Negative with non-DKD (T2D)",
+    formula = "nonDKD_T2D"
+  ),
+
+  # SGLT2i comparisons (inferred)
+  "sglt2in_hc" = list(
+    fc_col = "logFC_sglt2i_t2dobSGLT2i_N",
+    p_col = "p_sglt2i_t2dobSGLT2i_N",
+    x_label = "logFC SGLT2i No vs. HC",
+    positive_text = "Positive with T2D/OB\n(SGLT2i-)",
+    negative_text = "Negative with T2D/OB\n(SGLT2i-)",
+    formula = "SGLT2i_N"
+  ),
+  "sglt2iy_sglt2in" = list(
+    fc_col = "logFC_sglt2i_t2dobSGLT2i_Y",
+    p_col = "p_sglt2i_t2dobSGLT2i_Y",
+    x_label = "logFC SGLT2i Yes vs. No",
+    positive_text = "Positive with SGLT2i\n(in T2D/OB)",
+    negative_text = "Negative with SGLT2i\n(in T2D/OB)",
+    formula = "SGLT2i_Y"
+  ),
+  "nondkd100_sglt2in_hc" = list(
+    fc_col = "logFC_dkd_group_100_hcnon_DKD",
+    p_col = "p_dkd_group_100_hcnon_DKD",
+    x_label = "logFC non-DKD (SGLT2i-) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 100)",
+    positive_text = "Positive with non-DKD\n(SGLT2i-)",
+    negative_text = "Negative with non-DKD\n(SGLT2i-)",
+    formula = "nonDKD_SGLT2i_N"
+  ),
+  "nondkd100_sglt2iy_hc" = list(
+    fc_col = "logFC_dkd_group_100_hcnon_DKD",
+    p_col = "p_dkd_group_100_hcnon_DKD",
+    x_label = "logFC non-DKD (SGLT2i+) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 100)",
+    positive_text = "Positive with non-DKD\n(SGLT2i+)",
+    negative_text = "Negative with non-DKD\n(SGLT2i+)",
+    formula = "nonDKD_SGLT2i_Y"
+  ),
+  "nondkd30_sglt2in_hc" = list(
+    fc_col = "logFC_dkd_group_30_sglt2i_hcnon_DKD",
+    p_col = "p_dkd_group_30_sglt2i_hcnon_DKD",
+    x_label = "logFC non-DKD (SGLT2i-) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 30)",
+    positive_text = "Positive with non-DKD\n(SGLT2i-)",
+    negative_text = "Negative with non-DKD\n(SGLT2i-)",
+    formula = "nonDKD_SGLT2i_N"
+  ),
+  "nondkd30_sglt2iy_hc" = list(
+    fc_col = "logFC_dkd_group_30_hcnon_DKD",
+    p_col = "p_dkd_group_30_hcnon_DKD",
+    x_label = "logFC non-DKD (SGLT2i+) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 30)",
+    positive_text = "Positive with non-DKD\n(SGLT2i+)",
+    negative_text = "Negative with non-DKD\n(SGLT2i+)",
+    formula = "nonDKD_SGLT2i_Y"
+  ),
+
+  # Combo (GLP1-RA + SGLT2i) comparisons (inferred)
+  "combon_hc" = list(
+    fc_col = "logFC_combo_t2dobCombo_N",
+    p_col = "p_combo_t2dobCombo_N",
+    x_label = "logFC Combo No vs. HC\n(No GLP1-RA and SGLT2i)",
+    positive_text = "Positive with No Combo",
+    negative_text = "Negative with No Combo",
+    formula = "Combo_N"
+  ),
+  "comboy_combon" = list(
+    fc_col = "logFC_combo_t2dobCombo_Y",
+    p_col = "p_combo_t2dobCombo_Y",
+    x_label = "logFC Combo Yes vs. No\n(GLP1-RA and SGLT2i)",
+    positive_text = "Positive with Combo",
+    negative_text = "Negative with Combo",
+    formula = "Combo_Y"
+  ),
+  "nondkd100_combon_hc" = list(
+    fc_col = "logFC_dkd_group_100_combo_hcnon_DKD_Combo_N",
+    p_col = "p_dkd_group_100_combo_hcnon_DKD_Combo_N",
+    x_label = "logFC non-DKD (Combo-) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 100)",
+    positive_text = "Positive with non-DKD\n(Combo-)",
+    negative_text = "Negative with non-DKD\n(Combo-)",
+    formula = "nonDKD_Combo_N"
+  ),
+  "nondkd100_comboy_hc" = list(
+    fc_col = "logFC_dkd_group_100_combo_hcnon_DKD_Combo_Y",
+    p_col = "p_dkd_group_100_combo_hcnon_DKD_Combo_Y",
+    x_label = "logFC non-DKD (Combo+) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 100)",
+    positive_text = "Positive with non-DKD\n(Combo+)",
+    negative_text = "Negative with non-DKD\n(Combo+)",
+    formula = "nonDKD_Combo_Y"
+  ),
+  "nondkd30_combon_hc" = list(
+    fc_col = "logFC_dkd_group_30_combo_hcnon_DKD_Combo_N",
+    p_col = "p_dkd_group_30_combo_hcnon_DKD_Combo_N",
+    x_label = "logFC non-DKD (Combo-) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 30)",
+    positive_text = "Positive with non-DKD\n(Combo-)",
+    negative_text = "Negative with non-DKD\n(Combo-)",
+    formula = "nonDKD_Combo_N"
+  ),
+  "nondkd30_comboy_hc" = list(
+    fc_col = "logFC_dkd_group_30_combo_hcnon_DKD_Combo_Y",
+    p_col = "p_dkd_group_30_combo_hcnon_DKD_Combo_Y",
+    x_label = "logFC non-DKD (Combo+) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 30)",
+    positive_text = "Positive with non-DKD\n(Combo+)",
+    negative_text = "Negative with non-DKD\n(Combo+)",
+    formula = "nonDKD_Combo_Y"
+))
+
+# nonDKD_100_SGLT2i_N_vs_HC
 
 # Loop through all combinations and create plots
 for (comparison_name in names(folders)) {
@@ -209,166 +441,159 @@ for (comparison_name in names(folders)) {
   }
 }
 
+# look for overlaps and directions of overlaps
+ec_nondkd30_glpn_hc$direction_nondkd_30_glpn_hc <- ifelse(ec_nondkd30_glpn_hc$logFC_dkd_group_30_hcnon_DKD > 0 & ec_nondkd30_glpn_hc$p_dkd_group_30_hcnon_DKD < 0.05, "+",
+                                                           ifelse(ec_nondkd30_glpn_hc$logFC_dkd_group_30_hcnon_DKD < 0 & ec_nondkd30_glpn_hc$p_dkd_group_30_hcnon_DKD < 0.05, "-",
+                                                                  "NS"))
 
-# Overlaps in models per cell type
-pt_mod1 <- pt_nondkd100_hc %>%
-  dplyr::select(Gene, 
-                logFC = logFC_dkd_group_100_hcnon_DKD, 
-                p.value = p_dkd_group_100_hcnon_DKD, 
-                fdr) %>%
-  mutate(model = "A_DKDn_HC") %>%
-  distinct(Gene, .keep_all = T)
+ec_nondkd30_glpy_hc$direction_nondkd_30_glpy_hc <- ifelse(ec_nondkd30_glpy_hc$logFC_dkd_group_30_hcnon_DKD > 0 & ec_nondkd30_glpy_hc$p_dkd_group_30_hcnon_DKD < 0.05, "+",
+                                                           ifelse(ec_nondkd30_glpy_hc$logFC_dkd_group_30_hcnon_DKD < 0 & ec_nondkd30_glpy_hc$p_dkd_group_30_hcnon_DKD < 0.05, "-",
+                                                                  "NS"))
 
-pt_mod2 <- pt_dkd100_hc %>%
-  dplyr::select(Gene, 
-                logFC = logFC_dkd_group_100_hcDKD, 
-                p.value = p_dkd_group_100_hcDKD, 
-                fdr) %>%
-  mutate(model = "B_DKD_HC")%>%
-  distinct(Gene, .keep_all = T)
+ec_nondkd30_glpn_hc_subset <- ec_nondkd30_glpn_hc %>%
+  select(Gene, direction_nondkd_30_glpn_hc)
 
-pt_mod3 <- pt_dkd100 %>%
-  dplyr::select(Gene,
-                logFC = logFC_dkd_group_100DKD,
-                p.value = p_dkd_group_100DKD, 
-                fdr) %>%
-  mutate(model = "C_DKDy_DKDn")%>%
-  distinct(Gene, .keep_all = T)
-  
-pt_mod4 <- pt_glpn_hc %>%
-  dplyr::select(Gene, 
-                logFC = logFC_glp_t2dobGLP_N,
-                p.value = p_glp_t2dobGLP_N,
-                fdr) %>%
-  mutate(model = "D_GLPn_HC")%>%
-  distinct(Gene, .keep_all = T)
+ec_nondkd30_glpy_hc_subset <- ec_nondkd30_glpy_hc %>%
+  select(Gene, direction_nondkd_30_glpy_hc)
 
-pt_mod5 <- pt_glpy_glpn %>%
-  dplyr::select(Gene,
-                logFC = logFC_glp_t2dobGLP_Y,
-                p.value = p_glp_t2dobGLP_Y,
-                fdr) %>%
-  mutate(model = "E_GLPy_GLPn")%>%
-  distinct(Gene, .keep_all = T)
+ec_genes <- unique(c(ec_nondkd30_glpn_hc_subset$Gene, ec_nondkd30_glpy_hc_subset$Gene))
 
-pt_100_pvalue <- rbind(pt_mod1, pt_mod2, pt_mod3, pt_mod4, pt_mod5) %>%
-  filter(p.value < 0.05) %>%
-  pivot_wider(
-    id_cols = Gene,
-    names_from = model,
-    values_from = c(logFC, p.value, fdr),
-    names_glue = "{model}_{.value}"
-  ) %>%
-  mutate(overlaps = paste0(
-    case_when(
-      is.na(A_DKDn_HC_logFC) ~ "",
-      A_DKDn_HC_logFC > 0 ~ "A+",
-      A_DKDn_HC_logFC < 0 ~ "A-",
-      TRUE ~ ""
-    ),
-    case_when(
-      is.na(B_DKD_HC_logFC) ~ "",
-      B_DKD_HC_logFC > 0 ~ "B+",
-      B_DKD_HC_logFC < 0 ~ "B-",
-      TRUE ~ ""
-    ),
-    case_when(
-      is.na(C_DKDy_DKDn_logFC) ~ "",
-      C_DKDy_DKDn_logFC > 0 ~ "C+",
-      C_DKDy_DKDn_logFC < 0 ~ "C-",
-      TRUE ~ ""
-    ),
-    case_when(
-      is.na(D_GLPn_HC_logFC) ~ "",
-      D_GLPn_HC_logFC > 0 ~ "D+",
-      D_GLPn_HC_logFC < 0 ~ "D-",
-      TRUE ~ ""
-    ),
-    case_when(
-      is.na(E_GLPy_GLPn_logFC) ~ "",
-      E_GLPy_GLPn_logFC > 0 ~ "E+",
-      E_GLPy_GLPn_logFC < 0 ~ "E-",
-      TRUE ~ ""
-    )
-  ),
-  n_overlap = rowSums(
-    !is.na(dplyr::select(cur_data(),
-                         A_DKDn_HC_logFC, B_DKD_HC_logFC,
-                         C_DKDy_DKDn_logFC,
-                         D_GLPn_HC_logFC, E_GLPy_GLPn_logFC
-    ))
-  )
-  )
+ec_overlap <- data.frame(Gene = ec_genes) %>% 
+  left_join(ec_nondkd30_glpn_hc_subset) %>%
+  left_join(ec_nondkd30_glpy_hc_subset) %>%
+  mutate(category = case_when(direction_nondkd_30_glpn_hc == "+" & direction_nondkd_30_glpy_hc == "-" ~ "Reversed",
+                              direction_nondkd_30_glpn_hc == "-" & direction_nondkd_30_glpy_hc == "+" ~ "Reversed",
+                              direction_nondkd_30_glpn_hc != "NS" & direction_nondkd_30_glpy_hc == "NS" ~ "Normalized",
+                              direction_nondkd_30_glpn_hc == "NS" & direction_nondkd_30_glpy_hc != "NS" ~ "Treatment specific",
+                              direction_nondkd_30_glpn_hc == "+" & direction_nondkd_30_glpy_hc == "+" ~ "Persistent",
+                              direction_nondkd_30_glpn_hc == "-" & direction_nondkd_30_glpy_hc == "-" ~ "Persistent")) %>%
+  filter(!is.na(category))
 
-pt_100_fdr <- rbind(pt_mod1, pt_mod2, pt_mod3, pt_mod4, pt_mod5) %>%
-  filter(fdr < 0.05) %>%
-  pivot_wider(
-    id_cols = Gene,
-    names_from = model,
-    values_from = c(logFC, p.value, fdr),
-    names_glue = "{model}_{.value}"
-  ) %>%
-  mutate(overlaps = paste0(
-    case_when(
-      is.na(A_DKDn_HC_logFC) ~ "",
-      A_DKDn_HC_logFC > 0 ~ "A+",
-      A_DKDn_HC_logFC < 0 ~ "A-",
-      TRUE ~ ""
-    ),
-    case_when(
-      is.na(B_DKD_HC_logFC) ~ "",
-      B_DKD_HC_logFC > 0 ~ "B+",
-      B_DKD_HC_logFC < 0 ~ "B-",
-      TRUE ~ ""
-    ),
-    # case_when(
-    #   is.na(C_DKDy_DKDn_logFC) ~ "",
-    #   C_DKDy_DKDn_logFC > 0 ~ "C+",
-    #   C_DKDy_DKDn_logFC < 0 ~ "C-",
-    #   TRUE ~ ""
-    # ),
+ec_overlap %>%
+  dplyr::count(category) %>%
+  ggplot(aes(x = factor(category, levels = c("Treatment specific", "Normalized", "Persistent", "Reversed")), y = n, fill = category)) +
+  geom_col() + 
+  geom_text(aes(label = n), vjust = 0) + 
+  labs(x = NULL, y = "Count") +
+  theme(panel.background = element_blank(),
+        text = element_text(size = 15),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        legend.position = "none") +
+  scale_fill_manual(values = c("#52796f", "#89c2d9",
+                               "#e26d5c", "#3d5a80"))
+# ggsave()
 
-    case_when(
-      is.na(D_GLPn_HC_logFC) ~ "",
-      D_GLPn_HC_logFC > 0 ~ "D+",
-      D_GLPn_HC_logFC < 0 ~ "D-",
-      TRUE ~ ""
-    ),
-    case_when(
-      is.na(E_GLPy_GLPn_logFC) ~ "",
-      E_GLPy_GLPn_logFC > 0 ~ "E+",
-      E_GLPy_GLPn_logFC < 0 ~ "E-",
-      TRUE ~ ""
-    )
-  ),
-  n_overlap = rowSums(
-    !is.na(dplyr::select(cur_data(),
-                  A_DKDn_HC_logFC, B_DKD_HC_logFC,
-                  D_GLPn_HC_logFC, E_GLPy_GLPn_logFC
-    ))
-  )
-  )
+ec_combined_df <- data.frame(Gene = ec_genes) %>% 
+  left_join(ec_nondkd30_glpn_hc, by = join_by(Gene)) %>%
+  left_join(ec_nondkd30_glpy_hc, by = join_by(Gene)) %>%
+  left_join(ec_overlap) %>%
+  filter(!is.na(category))
+
+ec_combined_df %>%
+  filter(category %in% c("Reversed", "Persistent")) %>%
+  ggplot(aes(x = logFC_dkd_group_30_hcnon_DKD.x, y = logFC_dkd_group_30_hcnon_DKD.y, color = category)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray") +
+  theme(panel.background = element_blank()) +
+  labs(x = "logFC (non-DKD/GLP-)",
+       y = "logFC (non-DKD/GLP+)",
+       color = NULL) +
+  scale_color_manual(values = c("#89c2d9",
+                                "#e26d5c"))
+
+ec_combined_df %>%
+  filter(category %nin% c("Reversed", "Persistent")) %>%
+  ggplot(aes(x = logFC_dkd_group_30_hcnon_DKD.x, y = logFC_dkd_group_30_hcnon_DKD.y, color = category)) +
+  geom_point(alpha = 0.3) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray") +
+  theme(panel.background = element_blank()) +
+  labs(x = "logFC (non-DKD/GLP-)",
+       y = "logFC (non-DKD/GLP+)",
+       color = NULL) +
+  scale_color_manual(values = c("#52796f",
+                                "#3d5a80"))
+
+## volcano plots with these highlights
+# - **VEGFA** (master angiogenic regulator): Downregulated in GLP+ (log2FC=-0.61, p=0.0028) - Treatment-specific effect suggesting reduced angiogenic signaling
+# - **ICAM1** (adhesion molecule): Downregulated in GLP+ (log2FC=-0.38) - Suggests reduced inflammatory adhesion
+# - **COL4A1** (basement membrane collagen): Upregulated in GLP- (log2FC=0.32) but **normalized in GLP+** - Suggests prevention of early fibrotic changes
+# - **SLC2A4/GLUT4** (insulin-responsive glucose transporter): Downregulated in GLP+ (log2FC=-1.23) - Unexpected finding, may reflect reduced metabolic stress or altered insulin signaling
+# - **NOX4** (NADPH oxidase): Upregulated in GLP+ (log2FC=0.96) - **CONCERNING** - increased oxidative stress marker
+# - **CAT** (Catalase): Upregulated in GLP- but normalized in GLP+ - Suggests reduced oxidative stress response need
+
+# c("VEGFA", "ICAM1", "COL4A1", "SLC2A4", "GLUT4", "NOX4", "CAT")
+
+# Pathways using Hallmark
+
+for (folder in folders) {
+  for (cell in names(celltype_groups)) {
+    # Create the variable name
+    var_name <- paste0(tolower(cell), "_", folder)
+    
+    # Try to process with error handling
+    tryCatch({
+      # Check if the variable exists
+      if (!exists(var_name)) {
+        message(paste0("WARNING: Variable '", var_name, "' does not exist. Skipping..."))
+        next
+      }
+      
+      # Get the dataframe
+      df <- get(var_name)
+      
+      # Run GSEA analysis
+      gsea_list <- run_fgsea_analysis(results_annotated = df,
+                                      stat_col = 2,
+                                      gene_col = "Gene",
+                                      nPermSimple = 100000,
+                                      references = c("hallmark"))
+      
+      # Save the results
+      output_path <- file.path(root_path, paste0("Renal HERITAGE/Results/GSEA/hallmark_", folder, "_", tolower(cell), "_gsea.RDS"))
+      saveRDS(gsea_list, output_path)
+      
+      message(paste0("Successfully processed: ", folder, " - ", cell))
+      
+    }, error = function(e) {
+      message(paste0("ERROR: Failed to process folder '", folder, "' and cell type '", cell, "'"))
+      message(paste0("  Variable name: ", var_name))
+      message(paste0("  Error details: ", e$message))
+      message("  Skipping to next combination...\n")
+    })
+  }
+}
+
+# Pathway visualization
+# Initialize a list to store all results
+gsea_results <- list()
+
+for (folder in folders) {
+    for (cell in names(celltype_groups)) {
+    file_path <- file.path(root_path, paste0("Renal HERITAGE/Results/GSEA/hallmark_", folder, "_", tolower(cell), "_gsea.RDS"))
+    
+    # Check if file exists and read it
+    if (file.exists(file_path)) {
+      # Create a unique name for this combination
+      result_name <- paste0(folder, "_", tolower(cell))
+      
+      # Read the RDS file
+      gsea_results[[result_name]] <- readRDS(file_path)
+      message(paste0("Successfully loaded: ", result_name))
+    } else {
+      message(paste0("File not found: ", file_path))
+    }
+  }
+}
+
+for (folder in folders) {
+  for (cell in names(celltype_groups)) {
+    gsea_res_sub <- gsea_results[[paste0(folder, "_", tolower(cell))]]
+    plot_gsea_results(gsea_res_sub, 
+                      cell_name = cell)
+    ggsave(file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")))
+  }
+}
 
 
-pt_100_fdr <- make_overlap_table(
-  modA = pt_nondkd100_hc %>% dplyr::select(Gene,
-                                    logFC   = logFC_dkd_group_100_hcnon_DKD,
-                                    p.value = p_dkd_group_100_hcnon_DKD,
-                                    fdr),
-  modB = pt_dkd100_hc %>% dplyr::select(Gene,
-                                 logFC   = logFC_dkd_group_100_hcDKD,
-                                 p.value = p_dkd_group_100_hcDKD,
-                                 fdr),
-  modC = pt_dkd100 %>% dplyr::select(Gene,
-                              logFC   = logFC_dkd_group_100DKD,
-                              p.value = p_dkd_group_100DKD,
-                              fdr),
-  modD = pt_glpn_hc %>% dplyr::select(Gene,
-                               logFC   = logFC_glp_t2dobGLP_N,
-                               p.value = p_glp_t2dobGLP_N,
-                               fdr),
-  modE = pt_glpy_glpn %>% dplyr::select(Gene,
-                                 logFC   = logFC_glp_t2dobGLP_Y,
-                                 p.value = p_glp_t2dobGLP_Y,
-                                 fdr),
-  sig = "fdr", alpha = 0.05)

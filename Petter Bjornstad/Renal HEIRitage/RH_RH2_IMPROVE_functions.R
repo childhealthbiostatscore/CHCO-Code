@@ -32,7 +32,6 @@ library(readxl)
 library(REDCapR)
 library(reshape2)
 library(rstatix)
-library(SAVER)
 library(slingshot)
 library(tidyverse)
 library(UpSetR)
@@ -1025,6 +1024,303 @@ plot_emms_with_brackets <- function(
       bracket.size = bracket_size,
       size = label_size
     )
+  }
+  
+  return(p)
+}
+
+run_fgsea_analysis <- function(bg_path = file.path(root_path, "GSEA/"),
+                               results_annotated,
+                               stat_col = "t",
+                               gene_col = "EntrezGeneSymbol",
+                               minSize_kegg = 3,
+                               maxSize_kegg = 500,
+                               minSize_reactome = 3,
+                               maxSize_reactome = 500,
+                               minSize_go = 5,
+                               maxSize_go = 500,
+                               minSize_full = 5,
+                               maxSize_full = 500,
+                               minSize_hallmark = 5,
+                               maxSize_hallmark = 500,
+                               nPermSimple = 10000,
+                               nproc = 1,
+                               seed = 1234,
+                               references = c("kegg_legacy", "reactome", "go", "full", "hallmark")) {
+  
+  # --- Prepare GMT files ---
+  gmt_files <- list.files(path = bg_path, pattern = '.gmt', full.names = TRUE)
+  
+  # Initialize pathway variables
+  kegg_legacy <- NULL
+  reactome <- NULL
+  go <- NULL
+  full <- NULL
+  hallmark <- NULL
+  
+  # Only prepare GMT files that are in references
+  if ("kegg_legacy" %in% references) {
+    kegg_legacy <- prepare_gmt(gmt_files[1], unique(results_annotated[[gene_col]]), savefile = FALSE)
+  }
+  
+  if ("reactome" %in% references) {
+    reactome <- prepare_gmt(gmt_files[3], unique(results_annotated[[gene_col]]), savefile = FALSE)
+  }
+  
+  if ("go" %in% references) {
+    go <- prepare_gmt(gmt_files[4], unique(results_annotated[[gene_col]]), savefile = FALSE)
+  }
+  
+  if ("full" %in% references) {
+    full <- prepare_gmt(gmt_files[5], unique(results_annotated[[gene_col]]), savefile = FALSE)
+  }
+  
+  if ("hallmark" %in% references) {
+    hallmark <- prepare_gmt(gmt_files[6], unique(results_annotated[[gene_col]]), savefile = FALSE)
+  }
+  
+  
+  # --- Rank genes by specified statistic ---
+  if (is.numeric(stat_col)) {
+    stat_col = colnames(results_annotated)[stat_col]
+  }
+  
+  if (!stat_col %in% names(results_annotated)) {
+    stop(paste("Column", stat_col, "not found in results_annotated"))
+  }
+  
+  print(stat_col)
+  rankings <- results_annotated[[stat_col]]
+  names(rankings) <- results_annotated[[gene_col]]
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  # --- Run FGSEA ---
+  set.seed(seed)
+  
+  # Initialize result variables as NULL
+  kegg_res <- NULL
+  reactome_res <- NULL
+  go_res <- NULL
+  full_res <- NULL
+  hallmark_res <- NULL
+  
+  if ("kegg_legacy" %in% references) {
+    kegg_res <- fgsea(pathways = kegg_legacy,
+                      stats = rankings,
+                      scoreType = 'std', 
+                      minSize = minSize_kegg,
+                      maxSize = maxSize_kegg,
+                      nproc = nproc,
+                      nPermSimple = nPermSimple)
+  }
+  
+  if ("reactome" %in% references) {
+    reactome_res <- fgsea(pathways = reactome,
+                          stats = rankings,
+                          scoreType = 'std', 
+                          minSize = minSize_reactome,
+                          maxSize = maxSize_reactome,
+                          nproc = nproc,
+                          nPermSimple = nPermSimple)
+  }
+  
+  if ("go" %in% references) {
+    go_res <- fgsea(pathways = go,
+                    stats = rankings,
+                    scoreType = "std",
+                    minSize = minSize_go,
+                    maxSize = maxSize_go,
+                    nPermSimple = nPermSimple,
+                    nproc = nproc)
+  }
+  
+  if ("full" %in% references) {
+    full_res <- fgsea(pathways = full,
+                      stats = rankings,
+                      scoreType = "std",
+                      minSize = minSize_full,
+                      maxSize = maxSize_full,
+                      nPermSimple = nPermSimple,
+                      nproc = nproc)
+  }
+  
+  if ("hallmark" %in% references) {
+    hallmark_res <- fgsea(pathways = hallmark,
+                          stats = rankings,
+                          scoreType = "std",
+                          minSize = minSize_hallmark,
+                          maxSize = maxSize_hallmark,
+                          nPermSimple = nPermSimple,
+                          nproc = nproc)
+  }
+  
+  # --- Build summary dataframe dynamically ---
+  summary_list <- list()
+  
+  if ("kegg_legacy" %in% references && !is.null(kegg_res)) {
+    summary_list[["KEGG Legacy"]] <- c(
+      sum(kegg_res$padj < 0.05, na.rm = TRUE),
+      sum(kegg_res$pval < 0.05, na.rm = TRUE)
+    )
+  }
+  
+  if ("reactome" %in% references && !is.null(reactome_res)) {
+    summary_list[["REACTOME"]] <- c(
+      sum(reactome_res$padj < 0.05, na.rm = TRUE),
+      sum(reactome_res$pval < 0.05, na.rm = TRUE)
+    )
+  }
+  
+  if ("go" %in% references && !is.null(go_res)) {
+    summary_list[["GO"]] <- c(
+      sum(go_res$padj < 0.05, na.rm = TRUE),
+      sum(go_res$pval < 0.05, na.rm = TRUE)
+    )
+  }
+  
+  if ("full" %in% references && !is.null(full_res)) {
+    summary_list[["FULL"]] <- c(
+      sum(full_res$padj < 0.05, na.rm = TRUE),
+      sum(full_res$pval < 0.05, na.rm = TRUE)
+    )
+  }
+  
+  if ("hallmark" %in% references && !is.null(hallmark_res)) {
+    summary_list[["HALLMARK"]] <- c(
+      sum(hallmark_res$padj < 0.05, na.rm = TRUE),
+      sum(hallmark_res$pval < 0.05, na.rm = TRUE)
+    )
+  }
+  
+  # Convert list to dataframe
+  if (length(summary_list) > 0) {
+    summary_df <- as.data.frame(summary_list)
+    rownames(summary_df) <- c("adj.pval", "p.val")
+  } else {
+    summary_df <- data.frame()
+  }
+  
+  # --- Return results ---
+  return(list(
+    summary = summary_df,
+    kegg = if("kegg_legacy" %in% references) kegg_res else NULL,
+    reactome = if("reactome" %in% references) reactome_res else NULL,
+    go = if("go" %in% references) go_res else NULL,
+    full = if("full" %in% references) full_res else NULL,
+    hallmark = if("hallmark" %in% references) hallmark_res else NULL
+  ))
+}
+
+plot_gsea_results <- function(gsea_list, 
+                              cell_name,
+                              reference = "hallmark",
+                              top_n = 20,
+                              max_pathway_length = 45,
+                              caption_width = 70,
+                              p_threshold = 0.05,
+                              min_x_limit = 5,
+                              low_color = "#89c2d9",
+                              mid_color = "white", 
+                              high_color = "#ee7674",
+                              show_truncated_in_caption = TRUE) {
+  
+  # Extract the specified reference results
+  if (!reference %in% names(gsea_list)) {
+    stop(paste0("Reference '", reference, "' not found in gsea_list. ",
+                "Available references: ", paste(names(gsea_list), collapse = ", ")))
+  }
+  
+  if (reference == "go") {
+    gsea_list[[reference]] <- gsea_list[[reference]] %>%
+      filter(grepl("^GOBP_", pathway))
+  }
+  # Extract and prepare top pathways from the specified reference
+  top_pathways <- gsea_list[[reference]] %>%
+    arrange(pval) %>%
+    head(top_n)
+  
+  # Shorten pathway names
+  shorten_result <- shorten_pathway_names(top_pathways$pathway, max_length = max_pathway_length)
+  
+  top_pathways <- top_pathways %>%
+    mutate(
+      was_step6_truncated = shorten_result$step6_truncated,
+      shortened_pathway = shorten_result$shortened,
+      clean_pathway = clean_pathway_names(shortened_pathway),
+      neg_log_p = -log10(pval)
+    )
+  
+  # Create caption
+  base_caption <- paste0("Cell type: ", gsub("_", " ", cell_name), 
+                         " | Reference: ", toupper(reference))
+  
+  if (show_truncated_in_caption) {
+    # Get truncated pathways for caption
+    truncated_pathways <- top_pathways %>%
+      filter(was_step6_truncated) %>%
+      dplyr::mutate(
+        full_clean = clean_pathway_names(pathway),
+        full_clean_wrapped = str_wrap(full_clean, width = caption_width, indent = 0, exdent = 4)
+      ) %>%
+      dplyr::select(clean_pathway, full_clean_wrapped)
+    
+    if (nrow(truncated_pathways) > 0) {
+      truncated_text <- paste(
+        apply(truncated_pathways, 1, function(x) {
+          paste0(x["full_clean_wrapped"])
+        }), 
+        collapse = "\n"
+      )
+      full_caption <- paste0(base_caption, "\n\nTruncated pathways:\n", truncated_text)
+    } else {
+      full_caption <- base_caption
+    }
+  } else {
+    full_caption <- base_caption
+  }
+  
+  # Set factor levels for plotting order
+  top_pathways$clean_pathway <- factor(top_pathways$clean_pathway, 
+                                       levels = rev(top_pathways$clean_pathway))
+  
+  # Determine x-axis limits
+  if (!is.null(min_x_limit)) {
+    actual_max <- max(top_pathways$neg_log_p, na.rm = TRUE)
+    x_upper_limit <- max(actual_max, min_x_limit)
+  } else {
+    x_upper_limit <- NULL  # Let ggplot2 determine automatically
+  }
+  
+  # Create plot
+  p <- top_pathways %>%
+    ggplot(aes(y = clean_pathway, x = neg_log_p, fill = NES)) +
+    geom_col(width = 0.9) + 
+    geom_vline(xintercept = -log10(p_threshold), linetype = "dashed", color = "#aaaaaa") +
+    geom_text(aes(label = clean_pathway), 
+              x = -log10(p_threshold) + 0.1, hjust = 0, 
+              fontface = "bold", family = "Arial",
+              color = "#2b2b2b") +
+    scale_fill_gradient2(low = low_color, mid = mid_color, high = high_color, 
+                         midpoint = 0,
+                         guide = guide_colorbar(barheight = 0.4, barwidth = 8)) +
+    theme_minimal() +
+    theme(panel.grid = element_blank(), 
+          plot.title = element_text(hjust = 0.5, face = "bold"),
+          legend.position = "top",
+          axis.text.y = element_blank(),
+          legend.title = element_text(vjust = 0.8),
+          plot.caption = element_text(hjust = 0, size = 8, lineheight = 1.2)) +
+    labs(y = NULL, 
+         x = "-log(p-value)", 
+         fill = "NES",
+         caption = full_caption,
+         title = cell_name)
+  
+  # Apply x-axis limits
+  if (!is.null(min_x_limit)) {
+    p <- p + scale_x_continuous(limits = c(0, x_upper_limit), expand = c(0, 0))
+  } else {
+    p <- p + scale_x_continuous(expand = expansion(mult = c(0, 0)))
   }
   
   return(p)

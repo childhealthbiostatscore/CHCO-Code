@@ -1802,3 +1802,57 @@ create_marker_summary_table <- function(markers_df, top_n = 5) {
   
   return(summary_table)
 }
+
+#Split marker plot
+create_marker_dotplot_split <- function(seurat_obj, markers_df, top_n = 5, 
+                                        title = "Top Marker Genes by Cluster",
+                                        clusters_per_plot = 5) {
+  
+  # Get top markers
+  top_markers <- get_top_markers(markers_df, top_n = top_n)
+  
+  # Get unique marker genes
+  marker_genes <- unique(top_markers$gene)
+  
+  # Get all cluster levels
+  all_clusters <- levels(seurat_obj$seurat_clusters)
+  if (is.null(all_clusters)) {
+    all_clusters <- sort(unique(seurat_obj$seurat_clusters))
+  }
+  
+  # Split clusters into groups
+  n_clusters <- length(all_clusters)
+  cluster_groups <- split(all_clusters, ceiling(seq_along(all_clusters) / clusters_per_plot))
+  
+  # Create a plot for each group
+  plot_list <- lapply(seq_along(cluster_groups), function(i) {
+    
+    # Subset to cells in these clusters
+    cells_subset <- WhichCells(seurat_obj, 
+                               expression = seurat_clusters %in% cluster_groups[[i]])
+    so_subset <- subset(seurat_obj, cells = cells_subset)
+    
+    # Create dot plot
+    p <- DotPlot(so_subset, 
+                 features = marker_genes,
+                 group.by = "seurat_clusters") +
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+        axis.text.y = element_text(size = 12),
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+      ) +
+      labs(
+        title = paste0(title, " (Part ", i, " of ", length(cluster_groups), ")"),
+        x = "Marker Genes",
+        y = "Clusters"
+      ) +
+      scale_color_gradient(low = "lightgrey", high = "red", name = "Avg Expression") +
+      guides(size = guide_legend(title = "Pct Expressed"))
+    
+    return(p)
+  })
+  
+  names(plot_list) <- paste0("plot_", seq_along(plot_list))
+  return(plot_list)
+}

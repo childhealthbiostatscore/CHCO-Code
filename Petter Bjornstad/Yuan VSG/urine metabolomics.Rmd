@@ -24,6 +24,11 @@ library(knitr)
 library(ggpubr)
 library(readxl)
 library(stringr)
+library(tidyr)
+library(dplyr)
+library(parallel)
+library(lmerTest)
+library(stringr)
 
 # specify user for paths
 user <- Sys.info()[["user"]]
@@ -33,7 +38,10 @@ if (user == "laurapyle") {
 } else if (user == "lpyle") {
   data_path <- '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/AstraZeneca'
   vsg_path <- '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG'
-} else {
+} else if (user == "pylell") {
+  data_path <- '/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/AstraZeneca'
+  vsg_path <- '/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG'
+}else {
   stop("Unknown user: please specify root path for this user.")
 }
 
@@ -42,17 +50,78 @@ knitr::opts_chunk$set(echo = FALSE,warning = FALSE)
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
+```{r functions, include=FALSE}
+clean_variable_names <- function(data) {
+  # Get current names
+  old_names <- names(data)
+  
+  # Create new names
+  new_names <- gsub(" ", "", old_names)           # Remove spaces
+  new_names <- gsub("-", "_", new_names)          # Replace hyphens with underscores
+  new_names <- gsub("[()]", "", new_names)        # Remove parentheses
+  new_names <- gsub("_", "", new_names)
+  new_names <- str_remove_all(new_names, "_")
+  
+  # Apply new names
+  names(data) <- new_names
+  
+  # Optional: Print what changed for verification
+  changed <- old_names != new_names
+  if (any(changed)) {
+    cat("Changed variable names:\n")
+    for (i in which(changed)) {
+      cat(sprintf("  '%s' -> '%s'\n", old_names[i], new_names[i]))
+    }
+  }
+  
+  return(data)
+}
+```
+
 ```{r, include=FALSE}
-filename <- "RPC2 targeted normalised data combined PN.xlsx"
+# QUESTIONS
+# In the RPC2 analysis, we did not normalize by creatinine - I think this is because the metabolites are semi-quantitative
+
+# based on emails with Filippos Michopoulos, I believe this is the correct version of the data to use
+# metabolites are log-2 transformed
+# time has been merged with ID
+filename <- "RPC2 targeted normalised data combined PN with dose.xlsx"
 full_path <- file.path(data_path, filename)
 data <- read_xlsx(full_path, sheet = "Targeted data")
-creat <- read_xlsx(full_path, sheet = "Creatinine quant")
-creat$time <- creat$baseline
-creat$baseline <- NULL
+#creat <- read_xlsx(full_path, sheet = "Creatinine quant")
+#data <- left_join(data, creat, by = "ID")
+data <- data %>% filter(!Dose == "QC")
+data$Peak.Area <- data$`Peak Area`
+data$`Peak Area` <- NULL
+# NAs introduced by coercion but this is OK because those peak areas were missing
+data$temp <- as.numeric(data$Peak.Area)
+data_keep <- data %>% select(ID, Dose, Metabolite, Peak.Area)
 
-data <- left_join(data, creat, by = c("record_id", "time"))
+data_wide <- data_keep %>%
+  pivot_wider(
+    id_cols = c(ID, Dose),
+    names_from = Metabolite,
+    values_from = Peak.Area
+  )
+data_wide <- data_wide %>% mutate(visit = case_when(
+  str_detect(ID, "12M") ~ "12 months",
+  str_detect(ID, "BL") ~ "Baseline",
+  .default = "Baseline"
+))
+data_wide <- data_wide %>% mutate(ID = str_remove(ID, "_BL"))
+data_wide <- data_wide %>% mutate(ID = str_remove(ID, "_12M"))
+data_wide$ID <- str_replace(data_wide$ID, "IT2D", "IT")
+data_wide$ID <- str_replace_all(data_wide$ID, "_", "-")
+data_wide$record_id <- data_wide$ID
+data_wide$ID <- NULL
 
-# just testing out who in Long's data has urine proteomics
+# create separate dfs for IMPROVE and RH/RH2 since they will be merged slightly differently
+data_wide_improve <- data_wide %>% filter(grepl("IT", record_id))
+data_wide_improve$updated_pre_post <- ifelse(data_wide_improve$visit == "Baseline", "pre", "post")
+data_wide_improve$updated_record_id <- data_wide_improve$record_id
+data_wide_rh <- data_wide %>% filter(grepl("RH", record_id))
+
+# read in Long's data
 filename <- "patient_cohort_prepost_table.xlsx"
 full_path <- file.path(vsg_path, filename)
 vsg_smt_patients <- read_xlsx(full_path, sheet = "patient_cohort_prepost_table")
@@ -63,55 +132,62 @@ vsg_smt_patients <- vsg_smt_patients %>% mutate(time = case_when(
   cohort != "IMPROVE" ~ "baseline"
   )
 )
-test <- vsg_smt_patients %>% select(record_id, time)
-test$in_vsg_smt <- 1
-test <- left_join(test, creat, by = c("record_id", "time"))
-# there are quite a significant number of people who have urinary metabolomics
+vsg_smt_patients$updated_record_id <- str_replace(vsg_smt_patients$updated_record_id, "_", "-")
+vsg_smt_patients_improve <- vsg_smt_patients %>% filter(updated_cohort == "IMPROVE")
+vsg_smt_patients_improve_keep <- vsg_smt_patients_improve %>% select(updated_record_id, updated_pre_post)
+vsg_smt_patients_rh <- vsg_smt_patients %>% filter(updated_cohort %in% c("RENAL HEIR", "RENAL HEIRITAGE"))
 
-# I have no idea where this "Dose" variable came from
-data <- data %>% filter(!Dose == "QC")
+final_improve <- left_join(vsg_smt_patients_improve_keep, data_wide_improve, by = c("updated_record_id", "updated_pre_post"))
+final_improve$record_id <- final_improve$updated_record_id
+final_improve$cohort <- "VSG"
+final_rh <- left_join(vsg_smt_patients_rh, data_wide_rh, by = "record_id")
+final_rh <- final_rh %>% select(-c(cohort, pre_post, updated_cohort, comment, time))
+final_rh$cohort <- "SMT"
 
-# long to wide
-data_wide <- reshape(data_keep, direction = "wide", idvar = c("ID", "Dose"),
-                                                              timevar = "Metabolite")
+final <- rbind(final_improve, final_rh)
+final$vis_num <- ifelse(final$updated_pre_post == "pre", 1, 2)
+final$visit <- NULL
 
-data_wide_OC_LC <- data_wide %>% filter(Dose %in% c("Lean_Control", "Obese_Control"))
-data_wide_LC_T1D <- data_wide %>% filter(Dose %in% c("Lean_Control", "Type_1_Diabetes"))
-data_wide_LC_T2D <- data_wide %>% filter(Dose %in% c("Lean_Control", "Type_2_Diabetes"))
-data_wide_OC_T1D <- data_wide %>% filter(Dose %in% c("Obese_Control", "Type_1_Diabetes"))
-data_wide_OC_T2D <- data_wide %>% filter(Dose %in% c("Obese_Control", "Type_2_Diabetes"))
-data_wide_T1D_T2D <- data_wide %>% filter(Dose %in% c("Type_1_Diabetes", "Type_2_Diabetes"))
+# rename columns
+#final <- clean_variable_names(final)
 
-# identify columns corresponding to metabolites
-is_seq <- function(.x) grepl("Peak", .x)
-
+forseqs <- final %>% select(-c(updated_record_id, updated_pre_post, Dose, record_id, cohort, vis_num,
+                               `_Flavin_adenine_dinucleotide_N`))
+seqs <- colnames(forseqs)
+final[seqs] <- apply(final[seqs], 2, as.numeric) 
 ```
 
 ```{r, include=FALSE}
-# function
-l_compare <- function(data, group1, group2) {
-  results <- NULL
-  data <- as.data.frame(data)
-  seq <- is_seq(names(data))
-  contrast <- ifelse(data$Dose==paste0(group1),1,0)
-  contrast <- cbind(rep(1,nrow(data)),contrast)
-  # moderated t-tests with and without FDR adjustment
-  ymat <- t(data[,seq])
-  fit <- lmFit(ymat,contrast)
-  fit <- eBayes(fit)
-  results <- topTable(fit,coef = 2,number = nrow(ymat))
-  results <- results[order(results$P.Value),] 
-  results <- as.data.frame(results)
- # results$non_reference_group <- paste0(group1)
- # results$reference_group <- paste0(group2)
-}
+# this works now but need to figure out how to pull out the interaction 
+# coefficient and p-value and format for a volcano plot
 
-results_OC_LC <- l_compare(data_wide_OC_LC, "Obese_Control", "Lean_Control")
-results_LC_T1D <- l_compare(data_wide_LC_T1D, "Lean_Control", "Type_1_Diabetes")
-results_LC_T2D <- l_compare(data_wide_LC_T2D, "Lean_Control", "Type_2_Diabetes")
-results_OC_T1D <- l_compare(data_wide_OC_T1D, "Obese_Control", "Type_1_Diabetes")
-results_OC_T2D <- l_compare(data_wide_OC_T2D, "Obese_Control", "Type_2_Diabetes")
-results_T1D_T2D <- l_compare(data_wide_T1D_T2D, "Type_1_Diabetes", "Type_2_Diabetes")
+# Parallel processing
+cl <- makeForkCluster(8)
+rows <- parLapply(cl, seqs, function(y) {
+  f <- as.formula(paste0("`", y, "` ~ cohort*vis_num + (1|updated_record_id)"))
+  m <- lmer(f, data = final)
+  # Contrast not necessary with current parameterization, but nice to have written
+  #c <- contrast(emm,
+  #  method =
+  #    list("Year 1 - Month 1" = c(0, 0, 1, 0, 0, 0, 0) - c(1, 0, 0, 0, 0, 0, 0))
+  #)
+  #c <- as.data.frame(c)
+  #c$AptName <- y
+  #return(c)
+})
+stopCluster(cl)
+
+# Save results
+lmm_res <- data.frame(do.call(rbind, rows)) %>%
+  dplyr::select(protein, term, estimate, p.value) %>%
+  filter(term != "(Intercept)")
+lmm_res$AptName <- analyte_info$AptName[match(lmm_res$protein, analyte_info$AptName)]
+lmm_res$protein <- analyte_info$UniProt[match(lmm_res$AptName, analyte_info$AptName)]
+lmm_res$Target <- analyte_info$Target[match(lmm_res$AptName, analyte_info$AptName)]
+lmm_res$TargetFullName <- analyte_info$TargetFullName[match(lmm_res$AptName, analyte_info$AptName)]
+lmm_res$Uniprot <- analyte_info$UniProt[match(lmm_res$AptName, analyte_info$AptName)]
+lmm_res <- split.data.frame(lmm_res, lmm_res$term)
+
 
 # write all results to file
 wb <- createWorkbook()
