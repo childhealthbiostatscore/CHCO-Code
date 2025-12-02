@@ -132,6 +132,8 @@ group_combined <- group_combined %>% left_join(dat_small, by='mrn') %>%
 group_mapping <- group_combined
 
 
+meta.data <- so_subset@meta.data
+
 # Calculate total cells per person
 total_cells_per_person <- meta.data %>%
   group_by(record_id) %>%
@@ -775,6 +777,9 @@ library(tibble)
 # =============================================================================
 # 1. GENE SET ENRICHMENT ANALYSIS (GSEA)
 # =============================================================================
+
+setwd('C:/Users/netio/Documents/UofW/Projects/Pierre_Work/Pierre_newanalysis/')
+
 
 cat("\n=== 1. GENE SET ENRICHMENT ANALYSIS ===\n")
 
