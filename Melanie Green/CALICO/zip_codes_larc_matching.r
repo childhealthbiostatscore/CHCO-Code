@@ -21,6 +21,7 @@ write.csv(
 )
 # LARC matching
 library(tidyverse)
+library(MatchIt)
 # Load data
 load("./Data_Clean/analysis_data.RData")
 # Get ever LARC/EC and age at first LARC/EC
