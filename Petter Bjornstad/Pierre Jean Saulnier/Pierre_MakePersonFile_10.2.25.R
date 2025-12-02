@@ -132,6 +132,8 @@ group_combined <- group_combined %>% left_join(dat_small, by='mrn') %>%
 group_mapping <- group_combined
 
 
+meta.data <- so_subset@meta.data
+
 # Calculate total cells per person
 total_cells_per_person <- meta.data %>%
   group_by(record_id) %>%
@@ -220,7 +222,7 @@ sind_141_genes <- bulk_141_genes
 # CORRECT - what you actually have:
 
 lymphoid_cells <- c("pDC", "cDC", "CD4+ T", "CD8+ T", "cycT", "NK", "B")
-myeloid_cells <- c("MON", "MAC", "MC")
+myeloid_cells <- c("MON", "MAC")
 immune_cells_all <- c(lymphoid_cells, myeloid_cells) 
 
 # =============================================================================
@@ -775,6 +777,9 @@ library(tibble)
 # =============================================================================
 # 1. GENE SET ENRICHMENT ANALYSIS (GSEA)
 # =============================================================================
+
+setwd('C:/Users/netio/Documents/UofW/Projects/Pierre_Work/Pierre_newanalysis/')
+
 
 cat("\n=== 1. GENE SET ENRICHMENT ANALYSIS ===\n")
 
