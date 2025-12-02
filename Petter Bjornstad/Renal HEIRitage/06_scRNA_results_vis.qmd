@@ -9,7 +9,7 @@ format:
     controls-layout: bottom-right
     menu: true
     toc: true
-    toc-depth: 1
+    toc-depth: 3
     fontsize: 15
     number-sections: true
 ---
@@ -74,12 +74,20 @@ source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
 ```{r echo = F}
 celltype_groups <- list(
   PT = c("PT-S1/S2", "PT-S3", "aPT"),
-  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
+  aPT = "aPT",
+  `PT-S1/S2` = "PT-S1/S2",
+  `PT-S3` = "PT-S3",
+  `PT-1` = "PT-1",
+  `PT-2` = "PT-2",
+  `PT-3` = "PT-3",
+  `PT-4` = "PT-4",
+  `PT-5` = "PT-5",
   TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
-  IC = c("IC-A", "IC-B", "aIC"),
   PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  IC = c("IC-A", "IC-B", "aIC"),
   DTL_ATL = c("DTL", "aDTL", "ATL"),
   DCT_CNT = c("DCT", "dDCT", "CNT"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
   Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
   VSMC_P_FIB = c("VSMC/P", "FIB"),
   POD = "POD",
@@ -87,6 +95,7 @@ celltype_groups <- list(
   PEC = "PEC",
   Schwann = "SchwannCells"
 )
+
 ```
 
 # Descriptive
@@ -122,27 +131,751 @@ summary(arsenal::tableby(dkd_group_100_hc ~ group + age + sex + kwt(acr_u, "medi
         total = F, digits = 1)
 ```
 
-# DKD Disease Impact
+## Analysis summary
+
+### Disease characterization
+
+| Comparison                                     | Scientific Question                                            | What It Tells Us                                                                 | Why It's Needed                                                                                      |
+|-----------------------------------------------|----------------------------------------------------------------|----------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------|
+| [DKD vs HC](#dkd-vs-hc)                       | What are the transcriptomic signatures of diabetic kidney disease? | Identifies disease-specific DEGs, dysregulated pathways, and cell-type-specific changes in DKD | Establishes the “disease signature” that drugs might reverse or compensate for                      |
+| [T2D vs HC](#t2d-vs-hc)                       | What are the transcriptomic changes in T2D kidneys without overt DKD? | Identifies early T2D-associated changes before clinical DKD manifestation        | Differentiates early metabolic effects from advanced kidney disease; identifies potential targets    |
+| [DKD vs T2D](#dkd-vs-t2d)                     | What additional transcriptomic changes occur during DKD progression? | Isolates DKD-specific pathology beyond T2D metabolic effects                     | Identifies progression signatures and therapeutic targets specific to kidney disease advancement     |
+
+### GLP-1RA drug effects
+
+| Comparison                                            | Scientific Question                                         | What It Tells Us                                                              | Why It's Needed                                                                                   |
+|------------------------------------------------------|-------------------------------------------------------------|-------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| [DKD+ GLP1RA+ vs DKD+ GLP1RA-](#dkdyglp1rayvsdkdyglp1ran)           | What is the direct effect of GLP-1RA treatment in DKD?      | Identifies GLP-1RA-responsive genes and pathways in diseased kidney          | Primary outcome: demonstrates drug mechanism of action in the disease state                       |
+| [T2D + GLP-1RA vs T2D](#dkdnglp1rayvsdkdnglp1ran)           | What is the effect of GLP-1RA in T2D without DKD?           | Identifies early protective or metabolic effects before DKD onset            | Reveals preventive mechanisms; separates metabolic from kidney-specific effects                   |
+
+### SGLT2i drug effects
+
+| Comparison                                            | Scientific Question                                         | What It Tells Us                                                              | Why It's Needed                                                                                   |
+|------------------------------------------------------|-------------------------------------------------------------|-------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
+| [DKD + SGLT2i vs DKD](#dkdysglt2iyvsdkdysglt2in)            | What is the direct effect of SGLT2i treatment in DKD?       | Identifies SGLT2i-responsive genes and pathways in diseased kidney           | Primary outcome: demonstrates drug mechanism of action in the disease state                       |
+| [T2D + SGLT2i vs T2D](#dkdnsglt2iyvsdkdnsglt2in)            | What is the effect of SGLT2i in T2D without DKD?            | Identifies early protective or metabolic effects before DKD onset            | Reveals preventive mechanisms; separates metabolic from kidney-specific effects                   |
+
+### Reversion/normalization analysis
+
+| Comparison                                                             | Scientific Question                                           | What It Tells Us                                                                                      | Why It's Needed                                                                                                     |
+|------------------------------------------------------------------------|---------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| [DKD+ GLP1RA+ vs HC](#dkdy-glpy-vs-hc)                | Does GLP-1RA treatment normalize DKD transcriptome to healthy state?          | Identifies which disease genes are reversed vs. remain dysregulated vs. show compensatory changes | Distinguishes true disease reversal from compensatory protection; identifies residual pathology |
+| [DKD- GLP1RA+ vs HC](#dkdn-glpy-vs-hc)                | Does GLP-1RA normalize early T2D changes?          | Determines if metabolic normalization occurs with treatment                                                     | Assesses preventive vs. compensatory mechanisms |
+| [DKD+ SGLT2i+ vs HC](#dkdy-sglt2iy-vs-hc)                | Does SGLT2i treatment normalize DKD transcriptome to healthy state?          | Identifies which disease genes are reversed vs. remain dysregulated vs. show compensatory changes | Distinguishes true disease reversal from compensatory protection; identifies residual pathology |
+| [DKD- SGLT2i+ vs HC](#dkdn-sglt2iy-vs-hc)                | Does SGLT2i normalize early T2D changes?          | Determines if metabolic normalization occurs with treatment                                                     | Assesses preventive vs. compensatory mechanisms
+
+### Reversion quantification
+
+| Comparison                                                             | Scientific Question                                           | What It Tells Us                                                                                      | Why It's Needed                                                                                                     |
+|------------------------------------------------------------------------|---------------------------------------------------------------|-------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
+| [(DKD+GLP1RA - HC) vs (DKD - HC)](#dkdy-glpy-hc-vs-dkdy-glpn-hc)                | What proportion of DKD DEGs are reversed by GLP-1RA?          | Quantifies degree of transcriptomic normalization; categorizes genes as: fully reversed, partially reversed, unchanged, or overcorrected | Provides mechanistic classification: true reversal vs. compensation vs. drug-specific effects independent of disease |
+| [(DKD+SGLT2i - HC) vs (DKD - HC)](#dkdy-sglt2iy-hc-vs-dkdy-sglt2in-hc)                | What proportion of DKD DEGs are reversed by SGLT2i?          | Quantifies degree of transcriptomic normalization                                                     | Same as above for SGLT2i
+
+
+### Drug comparison
+
+| Comparison                                            | Scientific Question                                           | What It Tells Us                                                                | Why It's Needed                                                                                     |
+|------------------------------------------------------|---------------------------------------------------------------|---------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
+| [DKD + GLP-1RA vs DKD + SGLT2i](#dkd-glp1ra-vs-dkd-sglt2i) | What are the differential effects of GLP-1RA vs SGLT2i?      | Identifies drug-specific vs shared mechanisms of protection                     | Reveals whether drugs work through similar or complementary pathways; informs combination rationale |
+| [T2D + GLP-1RA vs T2D + SGLT2i](#t2d-glp1ra-vs-t2d-sglt2i) | Early-stage drug mechanism comparison                         | Differentiates metabolic vs hemodynamic vs other early protective mechanisms    | Identifies stage-specific drug effects                                                              |
+
+### Synergy / combination (if available)
+
+| Comparison                                            | Scientific Question                                                | What It Tells Us                                          | Why It's Needed                                                                                 |
+|------------------------------------------------------|--------------------------------------------------------------------|-----------------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| [DKD + Combo vs DKD + GLP-1RA](#dkd-combo-vs-dkd-glp1ra) | Does combination therapy provide additional benefit beyond GLP-1RA? | Identifies additive or synergistic effects                | Tests combination therapy hypothesis                                                            |
+| [DKD + Combo vs DKD + SGLT2i](#dkd-combo-vs-dkd-sglt2i) | Does combination therapy provide additional benefit beyond SGLT2i?  | Identifies additive or synergistic effects                | Tests combination therapy hypothesis                                                            |
+| [DKD + Combo vs HC](#dkd-combo-vs-hc)               | Does combination therapy achieve better normalization?             | Comprehensive assessment of maximal therapeutic potential | Determines if combination achieves superior transcriptomic normalization                        |
+
+
+
+```{r echo = F}
+folders <- c(
+  
+  # --- Base DKD vs nonDKD ---
+  "DKD_vs_nonDKD_30" = "dkd30",
+  "DKD_vs_nonDKD_100" = "dkd100",
+  
+  # --- DKD vs nonDKD with T2D ---
+  "DKD_vs_nonDKD_30_t2d" = "dkd30_t2d",
+  "DKD_vs_nonDKD_100_t2d" = "dkd100_t2d",
+  
+  # --- DKD vs HC (30 / 100) ---
+  "DKD_30_vs_HC" = "dkd30_hc",
+  "DKD_100_vs_HC" = "dkd100_hc",
+  
+  # --- DKD vs HC with T2D ---
+  "DKD_30_t2d_vs_HC" = "dkd30_t2d_hc",
+  "DKD_100_t2d_vs_HC" = "dkd100_t2d_hc",
+  
+  # --- nonDKD vs HC (30 / 100) ---
+  "nonDKD_30_vs_HC" = "nondkd30_hc",
+  "nonDKD_100_vs_HC" = "nondkd100_hc",
+  
+  # --- nonDKD vs HC with T2D ---
+  "nonDKD_30_t2d_vs_HC" = "nondkd30_t2d_hc",
+  "nonDKD_100_t2d_vs_HC" = "nondkd100_t2d_hc",
+  
+  # --- GLP (within DKD) ---
+  "DKD_30_GLP_Y_vs_DKD_30_GLP_N" = "dkd_30_glpy_glpn",
+  "DKD_100_GLP_Y_vs_DKD_100_GLP_N" = "dkd_100_glpy_glpn",
+  
+  # --- GLP (within nonDKD) ---
+  "nonDKD_30_GLP_Y_vs_nonDKD_30_GLP_N" = "nondkd_30_glpy_glpn",
+  "nonDKD_100_GLP_Y_vs_nonDKD_100_GLP_N" = "nondkd_100_glpy_glpn",
+  
+  # --- GLP N/Y vs HC (nonDKD) ---
+  "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc",
+  "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc",
+  "nonDKD_100_GLP_N_vs_HC" = "nondkd100_glpn_hc",
+  "nonDKD_100_GLP_Y_vs_HC" = "nondkd100_glpy_hc",
+  
+  # --- GLP N/Y vs HC (DKD) ---
+  "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc",
+  "DKD_30_GLP_Y_vs_HC" = "dkd30_glpy_hc",
+  "DKD_100_GLP_N_vs_HC" = "dkd100_glpn_hc",
+  "DKD_100_GLP_Y_vs_HC" = "dkd100_glpy_hc",
+  
+  # --- SGLT2i (within DKD) ---
+  # "DKD_30_SGLT2i_Y_vs_DKD_30_SGLT2i_N" = "dkd30_sglt2iy_sglt2in",
+  # "DKD_100_SGLT2i_Y_vs_DKD_100_SGLT2i_N" = "dkd100_sglt2iy_sglt2in",
+  
+  # --- SGLT2i (within nonDKD) ---
+  # "nonDKD_30_SGLT2i_Y_vs_nonDKD_30_SGLT2i_N" = "nondkd30_sglt2iy_sglt2in",
+  # "nonDKD_100_SGLT2i_Y_vs_nonDKD_100_SGLT2i_N" = "nondkd100_sglt2iy_sglt2in",
+  
+  # --- SGLT2i N/Y vs HC (nonDKD) ---
+  "nonDKD_30_SGLT2i_N_vs_HC" = "nondkd30_sglt2in_hc",
+  "nonDKD_30_SGLT2i_Y_vs_HC" = "nondkd30_sglt2iy_hc",
+  "nonDKD_100_SGLT2i_N_vs_HC" = "nondkd100_sglt2in_hc",
+  "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc"
+  
+  # --- SGLT2i N/Y vs HC (DKD) ---
+  # "DKD_30_SGLT2i_N_vs_HC" = "dkd30_sglt2in_hc",
+  # "DKD_30_SGLT2i_Y_vs_HC" = "dkd30_sglt2iy_hc",
+  # "DKD_100_SGLT2i_N_vs_HC" = "dkd100_sglt2in_hc",
+  # "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc"
+)
+
+reverse_folders <- setNames(names(folders), folders)
+
+meta_df_compiled <- read.csv(file.path(root_path, paste0("Renal HERITAGE/Results/nebula/csv/run_metadata_compiled.csv")))
+```
+
+# Disease characterization
+
+## DKD vs HC {#dkd-vs-hc}
+
+### DKD (30)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "dkd30_hc"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+### DKD (100)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "dkd100_hc"
+
+for (cell in names(celltype_groups)) {
+  meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & meta_df_compiled$celltype == cell,]
+  
+  cat("::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+
+## T2D vs HC {#t2d-vs-hc}
+
+### T2D nonDKD (30)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "nondkd30_t2d_hc"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+### T2D nonDKD (30)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "nondkd100_t2d_hc"
+
+for (cell in names(celltype_groups)) {
+  meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & meta_df_compiled$celltype == cell,]
+  
+  cat("::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+## DKD vs T2D {#dkd-vs-t2d}
+
+### DKD (30)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "dkd30_t2d"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+### DKD (100)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "dkd100_t2d"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+# GLP-1RA drug effects
+
+## DKD+ GLP1RA+ vs DKD+ GLP1RA- {#dkdyglp1rayvsdkdyglp1ran}
+
+### DKD (30)
+```{r echo = F, results = 'asis', eval = T}
+folder = "dkd_30_glpy_glpn"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+### DKD (100)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "dkd_100_glpy_glpn"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+## DKD- GLP1RA+ vs DKD- GLP1RA- {#dkdnglp1rayvsdkdnglp1ran}
+
+### nonDKD (30)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "nondkd_30_glpy_glpn"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+### nonDKD (100)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "nondkd_100_glpy_glpn"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+# SGLT2i drug effects
+
+## DKD+ SGLT2i+ vs DKD+ SGLT2i- {#dkdysglt2iyvsdkdysglt2in}
+
+### DKD (30)
+
+```{r echo = F, results = 'asis', eval = F}
+folder = "dkd30_sglt2iy_sglt2in"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+### DKD (100)
+
+```{r echo = F, results = 'asis', eval = F}
+folder = "dkd_100_sglt2iy_sglt2in"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+
+## DKD- SGLT2i+ vs DKD- SGLT2i- {#dkdnsglt2iyvsdkdnsglt2in}
+
+### nonDKD (30)
+
+```{r echo = F, results = 'asis', eval = F}
+folder = "nondkd30_sglt2iy_sglt2in"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+### nonDKD (100)
+
+```{r echo = F, results = 'asis', eval = F}
+folder = "nondkd_100_sglt2iy_sglt2in"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+# Reversion/normalization analysis
+
+## DKD+ GLP1RA+ vs HC {#dkdy-glpy-vs-hc}
+
+### DKD (30)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "dkd30_glpy_hc"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+### DKD (100)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "dkd100_glpy_hc"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+
+## DKD- GLP1RA+ vs HC {#dkdn-glpy-vs-hc}
+
+### nonDKD (30)
+
+```{r echo = F, results = 'asis', eval = T}
+folder = "nondkd30_glpy_hc"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+### nonDKD (100)
+
+```{r echo = F, results = 'asis', eval = F}
+folder = "nondkd100_glpy_hc"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+## DKD+ SGLT2i+ vs HC {#dkdy-sglt2iy-vs-hc}
+
+### DKD (30)
+
+```{r echo = F, results = 'asis', eval = F}
+folder = "dkd30_sglt2iy_hc"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+### DKD (100)
+
+```{r echo = F, results = 'asis', eval = F}
+folder = "dkd100_sglt2iy_hc"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+## DKD- SGLT2i+ vs HC {#dkdn-sglt2iy-vs-hc}
+
+### nonDKD (30)
+
+```{r echo = F, results = 'asis', eval = F}
+folder = "nondkd30_sglt2iy_hc"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+### nonDKD (100)
+
+```{r echo = F, results = 'asis', eval = F}
+folder = "nondkd100_sglt2iy_hc"
+
+for (cell in names(celltype_groups)) {
+  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
+                                 meta_df_compiled$celltype == cell,]))
+  
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  cat(paste0("![p-value < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+
+  cat(paste0("![FDR < 0.05](", file.path(root_path, 
+                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  cat(":::\n\n")
+  
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
+             ")\n\n"))
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ## DKD vs. non-DKD within T2D only (30)
 
-### DEGs & Pathways
-
-```{r echo = F, results = 'asis', eval = T}
+```{r echo = F, results = 'asis', eval = F}
 folder = "dkd30_t2d"
 for (cell in names(celltype_groups)) {
   cat("::: {layout-ncol=2}\n\n")
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -151,7 +884,7 @@ for (cell in names(celltype_groups)) {
 
 ### DEGs & Pathways
 
-```{r echo = F, results = 'asis', eval = T}
+```{r echo = F, results = 'asis', eval = F}
 folder = "dkd30"
 
 for (cell in names(celltype_groups)) {
@@ -159,14 +892,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -175,7 +908,7 @@ for (cell in names(celltype_groups)) {
 
 ### DEGs & Pathways
 
-```{r echo = F, results = 'asis', eval = T}
+```{r echo = F, results = 'asis', eval = F}
 folder = "dkd100_t2d"
 
 for (cell in names(celltype_groups)) {
@@ -183,14 +916,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -199,7 +932,7 @@ for (cell in names(celltype_groups)) {
 
 ### DEGs & Pathways
 
-```{r echo = F, results = 'asis', eval = T}
+```{r echo = F, results = 'asis', eval = F}
 folder = "dkd100"
 
 for (cell in names(celltype_groups)) {
@@ -207,14 +940,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -223,21 +956,21 @@ for (cell in names(celltype_groups)) {
 
 ### DEGs & Pathways
 
-```{r echo = F, results = 'asis', eval = T}
+```{r echo = F, results = 'asis', eval = F}
 folder = "nondkd30_t2d_hc"
 for (cell in names(celltype_groups)) {
   cat("::: {layout-ncol=2}\n\n")
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -246,7 +979,7 @@ for (cell in names(celltype_groups)) {
 
 ### DEGs & Pathways
 
-```{r echo = F, results = 'asis', eval = T}
+```{r echo = F, results = 'asis', eval = F}
 folder = "nondkd30_hc"
 
 for (cell in names(celltype_groups)) {
@@ -254,14 +987,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -270,7 +1003,7 @@ for (cell in names(celltype_groups)) {
 
 ### DEGs & Pathways
 
-```{r echo = F, results = 'asis', eval = T}
+```{r echo = F, results = 'asis', eval = F}
 folder = "nondkd100_t2d_hc"
 
 for (cell in names(celltype_groups)) {
@@ -278,14 +1011,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -294,7 +1027,7 @@ for (cell in names(celltype_groups)) {
 
 ### DEGs & Pathways
 
-```{r echo = F, results = 'asis', eval = T}
+```{r echo = F, results = 'asis', eval = F}
 folder = "nondkd100_hc"
 
 for (cell in names(celltype_groups)) {
@@ -302,14 +1035,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -326,14 +1059,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -348,14 +1081,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -370,14 +1103,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -392,14 +1125,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -414,14 +1147,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -436,14 +1169,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -458,14 +1191,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```
@@ -480,14 +1213,14 @@ for (cell in names(celltype_groups)) {
   
   cat(paste0("![p-value < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(cell), ".png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
 
   cat(paste0("![FDR < 0.05](", file.path(root_path, 
                                paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(cell), "_fdr.png")), ")\n\n"))
+                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
   cat(":::\n\n")
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(cell), "_gsea.png")),
+  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
              ")\n\n"))
 }
 ```

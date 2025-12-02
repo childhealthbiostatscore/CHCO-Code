@@ -1226,8 +1226,11 @@ plot_gsea_results <- function(gsea_list,
   
   # Extract the specified reference results
   if (!reference %in% names(gsea_list)) {
-    stop(paste0("Reference '", reference, "' not found in gsea_list. ",
-                "Available references: ", paste(names(gsea_list), collapse = ", ")))
+    message(paste0(
+      "Skipping: reference '", reference, "' not found for cell: ", cell_name, 
+      ". Available references = {", paste(names(gsea_list), collapse = ", "), "}"
+    ))
+    return(NULL)
   }
   
   if (reference == "go") {
@@ -1326,3 +1329,36 @@ plot_gsea_results <- function(gsea_list,
   return(p)
 }
 
+s3read_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
+  if (missing(bucket)) {
+    bucket <- get_bucketname(object)
+  }
+  object <- get_objectkey(object)
+  
+  tmp <- if (is.character(filename)) {
+    file.path(tempdir(TRUE), filename)
+  } else {
+    tempfile(fileext = paste0(".", tools::file_ext(object)))
+  }
+  
+  on.exit(unlink(tmp))
+  
+  # Add region to opts if provided
+  if (!is.null(region)) {
+    if (is.null(opts)) {
+      opts <- list(region = region)
+    } else {
+      opts$region <- region
+    }
+  }
+  
+  if (is.null(opts)) {
+    r <- save_object(bucket = bucket, object = object, file = tmp)
+  } else {
+    r <- do.call("save_object", c(list(bucket = bucket, 
+                                       object = object, 
+                                       file = tmp), opts))
+  }
+  
+  return(FUN(tmp, ...))
+}
