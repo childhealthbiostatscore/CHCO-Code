@@ -6750,3 +6750,168 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  
  
+ 
+ 
+ ### GSEA plotting 
+ 
+ # Load required libraries
+ library(ggplot2)
+ library(dplyr)
+ library(gridExtra)
+ 
+ # Define the base path and cell types
+ base_path <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/GSEA/"
+ cell_types <- c("All", "PT", "TAL", "EC", "DCTall", "intercalated", "POD")
+ 
+ # File names for different GSEA categories
+ gsea_files <- c(
+   "MF" = "gsea_results_GO_MF.csv",
+   "BP" = "gsea_results_GO_BP.csv",
+   "CC" = "gsea_results_GO_CC.csv",
+   "Hallmark" = "gsea_results_Hallmark.csv"
+ )
+ 
+ # Function to create a single GSEA bar plot
+ create_gsea_plot <- function(data, title, top_n = 10) {
+   
+   # Filter for significant pathways (adjust p-value threshold as needed)
+   # Assuming columns: pathway, NES, pval or padj
+   data_sig <- data %>%
+     filter(!is.na(NES)) %>%
+     arrange(pval) %>%
+     head(top_n * 2)  # Get more to ensure we have enough up and down
+   
+   # Separate upregulated and downregulated
+   data_up <- data_sig %>%
+     filter(NES > 0) %>%
+     arrange(desc(NES)) %>%
+     head(top_n)
+   
+   data_down <- data_sig %>%
+     filter(NES < 0) %>%
+     arrange(NES) %>%
+     head(top_n)
+   
+   # Combine
+   plot_data <- rbind(data_up, data_down)
+   
+   if (nrow(plot_data) == 0) {
+     # Return empty plot if no data
+     return(ggplot() + 
+              annotate("text", x = 0, y = 0, label = "No significant pathways") +
+              ggtitle(title) +
+              theme_void())
+   }
+   
+   # Add regulation direction
+   plot_data$direction <- ifelse(plot_data$NES > 0, "Higher in Men", "Higher in Women vs. Men")
+   
+   # Create ordered factor for pathway names
+   plot_data$pathway <- factor(plot_data$pathway, levels = plot_data$pathway[order(plot_data$NES)])
+   
+   # Create the plot
+   p <- ggplot(plot_data, aes(x = NES, y = pathway, fill = direction)) +
+     geom_bar(stat = "identity") +
+     scale_fill_manual(values = c("Higher in Men" = "#FF8C00", "Higher in Women vs. Men" = "#9370DB")) +
+     theme_minimal() +
+     theme(
+       axis.text.y = element_text(size = 9),
+       axis.text.x = element_text(size = 9),
+       axis.title = element_text(size = 10, face = "bold"),
+       plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+       legend.position = "bottom",
+       legend.title = element_blank(),
+       panel.grid.major.y = element_blank(),
+       panel.grid.minor = element_blank()
+     ) +
+     labs(x = "NES", y = "", title = title) +
+     geom_vline(xintercept = 0, linetype = "solid", color = "black", size = 0.5)
+   
+   return(p)
+ }
+ 
+ # Loop through each cell type
+ for (cell_type in cell_types) {
+   
+   cat(paste("\nProcessing", cell_type, "...\n"))
+   
+   # List to store plots
+   plot_list <- list()
+   panel_labels <- c("A", "B", "C", "D")
+   
+   # Loop through each GSEA category
+   for (i in 1:length(gsea_files)) {
+     
+     category <- names(gsea_files)[i]
+     file_name <- gsea_files[i]
+     file_path <- paste0(base_path, file_name)
+     
+     # Check if file exists
+     if (!file.exists(file_path)) {
+       warning(paste("File not found:", file_path))
+       next
+     }
+     
+     # Read the CSV file
+     gsea_data <- read.csv(file_path)
+     
+     # Filter for specific cell type
+     if (!"celltype" %in% colnames(gsea_data)) {
+       warning(paste("Column 'celltype' not found in", file_name))
+       next
+     }
+     
+     cell_data <- gsea_data %>%
+       filter(celltype == cell_type)
+     
+     if (nrow(cell_data) == 0) {
+       warning(paste("No data found for", cell_type, "in", category))
+       next
+     }
+     
+     # Create plot for this category
+     plot_title <- paste(panel_labels[i], category)
+     p <- create_gsea_plot(cell_data, plot_title, top_n = 8)
+     plot_list[[i]] <- p
+   }
+   
+   # Skip if no plots were created
+   if (length(plot_list) == 0) {
+     warning(paste("No plots created for", cell_type))
+     next
+   }
+   
+   # Combine plots into a 2x2 grid
+   combined_plot <- grid.arrange(grobs = plot_list, ncol = 2, nrow = 2,
+                                 top = paste("GSEA of", cell_type, "markers"))
+   
+   # Save as PDF
+   output_pdf <- paste0(base_path, "GSEA_", cell_type, "_LC.pdf")
+   ggsave(output_pdf, combined_plot, width = 14, height = 12, units = "in")
+   
+   # Save as PNG
+   output_png <- paste0(base_path, "GSEA_", cell_type, "_LC.png")
+   ggsave(output_png, combined_plot, width = 14, height = 12, units = "in", dpi = 300)
+   
+   cat(paste("Saved plots for", cell_type, "\n"))
+ }
+ 
+ cat("\nAll cell types processed!\n")
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
