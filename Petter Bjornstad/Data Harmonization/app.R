@@ -31,6 +31,9 @@ if (user == "choiyej") {
 } else if (user == "pylell") {
   base_data_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "lpyle") {
+  base_data_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
 } else if (user == "shivaniramesh") {
   base_data_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
