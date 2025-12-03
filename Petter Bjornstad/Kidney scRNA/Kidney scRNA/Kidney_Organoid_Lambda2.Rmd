@@ -555,16 +555,17 @@ nrow(sc_org) #62,754 genes after filtering
 ncol(sc_org) #156387 cells after filltering
 expr_matrix <- GetAssayData(sc_org, assay = "RNA", layer = "counts")
 
-# Calculate the proportion of cells expressing each gene
-num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
-total_cells <- ncol(expr_matrix)  # Total number of cells
-gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
-remove(expr_matrix)
-# Keep genes expressed in at least "gene_pct" of cells
-genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
-sc_org <- subset(sc_org, features = genes_to_keep)
-ncol(sc_org) #156387 Cells
-nrow(sc_org) # 7472 genes
+# # Calculate the proportion of cells expressing each gene
+# num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
+# total_cells <- ncol(expr_matrix)  # Total number of cells
+# gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
+# remove(expr_matrix)
+# 
+# # Keep genes expressed in at least "gene_pct" of cells
+# genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
+# sc_org <- subset(sc_org, features = genes_to_keep)
+# ncol(sc_org) #156387 Cells
+# nrow(sc_org) # 7472 genes
 
 #Remove mitochondrial genes (those starting with "MT-")
 mito_genes <- grep("^MT-", rownames(sc_org), value = TRUE)
@@ -958,6 +959,47 @@ DimPlot(so_combined, reduction = "umap", raster = T,label = T)+
   ggtitle("Combined Diabetes Status + Combined Treatment Group",
           subtitle = "Res = 0.5, Clusters = 18")
 dev.off()
+```
+
+####d. NOX5 Expression
+```{r}
+#Select combined conc. only
+so_combined <- sc_org
+
+#Remove ID IT_19
+so_combined <- subset(so_combined,record_id!="IT_19")
+
+# PCA
+so_combined <- NormalizeData(so_combined)
+so_combined <- ScaleData(so_combined, features = VariableFeatures(so_combined))
+so_combined <- FindVariableFeatures(object = so_combined)
+so_combined <- RunPCA(so_combined, features = VariableFeatures(object = so_combined),assay="RNA")
+# ElbowPlot(so_combined)
+
+# # Find neighbors and clusters 
+so_combined <- FindNeighbors(so_combined, assay = "RNA", dims = 1:20) #20 based on elbow plot
+so_combined <- FindClusters(so_combined, resolution = 0.5)
+# so_combined <- FindClusters(so_combined, resolution = 1)
+# so_combined <- FindClusters(so_combined, resolution = 0.35)
+
+# Perform UMAP
+so_combined <- RunUMAP(so_combined, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
+so_combined@reductions
+DimPlot(so_combined, reduction = "umap", raster = F)
+Idents(so_combined) <- "seurat_clusters"  # or whatever the column is named
+
+# Verify you have 25 clusters
+print(paste("Number of clusters:", length(unique(Idents(so_combined)))))
+print(table(Idents(so_combined)))  # Show distribution of cells per cluster
+DimPlot(so_combined, reduction = "umap", raster = T)
+
+DimPlot(so_combined, reduction = "umap", raster = T, group.by = "record_id")
+
+FeaturePlot(so_combined, 
+            features = "NOX5") +
+  scale_color_viridis_c() +
+  ggtitle("NOX5 Expression")
+
 ```
 
 ###ii. 15 Glucose
