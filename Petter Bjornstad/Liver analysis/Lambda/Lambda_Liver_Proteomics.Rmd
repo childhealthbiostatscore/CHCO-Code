@@ -41,26 +41,26 @@ session <- boto3$session$Session(
 
 ## Create an S3 client with the session
 s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+# 
+# # read file
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket,"Liver transcriptomics/Single nucleus RNA seq/NoRef_PetterLiver_ClinData_Labels_Char_041924.rds", temp_file)
+# so_liver_sn <- readRDS(temp_file)
+# 
+# DefaultAssay(so_liver_sn) <- "RNA"
+# dim(so_liver_sn)#36601 130124
+# nrow(so_liver_sn) #36,601 genes
+# ncol(so_liver_sn) # 130,124 nuceli
+# invisible(gc())
 
-# read file
-bucket <- "scrna" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-s3$download_file(bucket,"Liver transcriptomics/Single nucleus RNA seq/NoRef_PetterLiver_ClinData_Labels_Char_041924.rds", temp_file)
-so_liver_sn <- readRDS(temp_file)
-
-DefaultAssay(so_liver_sn) <- "RNA"
-dim(so_liver_sn)#36601 130124
-nrow(so_liver_sn) #36,601 genes
-ncol(so_liver_sn) # 130,124 nuceli
-invisible(gc())
-
-#Load metadata
-gc()
-bucket <- "scrna" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
-meta_liver_raw <- read.csv(temp_file)
-gc()
+# #Load metadata
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+# s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
+# meta_liver_raw <- read.csv(temp_file)
+# gc()
 ```
 
 ## c. Load MetaData, Clean and Merge
@@ -255,7 +255,57 @@ so_oro$celltype_LR <- ifelse(grepl("Hep-",so_oro$celltype) | grepl("dHep",so_oro
 unique(so_oro$celltype_LR)
 ```
 
-## a. TODAY 
+## a. TODAY
+```{r}
+#Load in AST and ALT in today 
+# today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL.csv"))
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "CBL.csv", temp_file)
+today <- read.csv(temp_file)
+gc()
+length(unique(today$releaseid)) # 699 ids
+today <- today %>%
+  filter(mvisit!="R")
+
+#Load in Proteomics in Today
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket, "today_proteomics_log2.rds", temp_file)
+prot <- readRDS(temp_file)
+gc()
+
+which(colnames(prot)=="AGEBASE") #7406
+which(colnames(prot)=="releaseid") #7326
+which(colnames(prot)=="sex") #7399
+which(colnames(prot)=="time")  
+prot <- prot[c(7326,7406,7399,which(grepl("seq.",colnames(prot))))] #length(unique(prot$releaseid)) - 376 unique ids
+proteins <- colnames(prot)[which(grepl("seq.",colnames(prot)))]
+
+#Load gene protein key
+# key <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/gene_prot.RDS")
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".RDS") # need to create a temporary file
+s3$download_file(bucket, "gene_prot.RDS", temp_file)
+key <- readRDS(temp_file)
+gc()
+
+# genes <- rownames(so_liver_sn)
+gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)]
+prot <- prot[c("releaseid","AGEBASE","sex",gene_proteins)]
+prot_id <- unique(prot$releaseid)
+
+#Filter to IDs that have proteomics 
+today_sub <- today %>% 
+  filter(releaseid %in% prot_id)
+
+#Create a dataset for longitudinal proteomics
+
+```
+
 ```{r}
 #Load in AST and ALT in today 
 # today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL.csv"))
@@ -297,8 +347,12 @@ gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)]
 prot <- prot[c("releaseid","AGEBASE","sex",gene_proteins)]
 prot_id <- unique(prot$releaseid)
 
+#Filter to IDs that have proteomics 
 today_sub <- today %>% 
   filter(releaseid %in% prot_id)
+
+#Create a dataset for longitudinal proteomics
+
 
 # Basic spaghetti plot
 ggplot(today_sub, aes(x = mvisit, y = ALT, group = releaseid)) +
@@ -396,25 +450,25 @@ missing_counts <- today_sub %>%
 
 print(missing_counts)
 
-# Calculate percentages for ALT
-ALT_stats <- missing_counts %>%
-  summarise(
-    total_participants = n(),
-    participants_missing_at_least_one_ALT = sum(missing_ALT >= 1),
-    participants_missing_more_than_5_ALT = sum(missing_ALT > 5),
-    percent_missing_at_least_one_ALT = round(100 * participants_missing_at_least_one_ALT / total_participants, 2),
-    percent_missing_more_than_5_ALT = round(100 * participants_missing_more_than_5_ALT / total_participants, 2)
-  )
-
-# Calculate percentages for AST
-AST_stats <- missing_counts %>%
-  summarise(
-    total_participants = n(),
-    participants_missing_at_least_one_AST = sum(missing_AST >= 1),
-    participants_missing_more_than_5_AST = sum(missing_AST > 5),
-    percent_missing_at_least_one_AST = round(100 * participants_missing_at_least_one_AST / total_participants, 2),
-    percent_missing_more_than_5_AST = round(100 * participants_missing_more_than_5_AST / total_participants, 2)
-  )
+# # Calculate percentages for ALT
+# ALT_stats <- missing_counts %>%
+#   summarise(
+#     total_participants = n(),
+#     participants_missing_at_least_one_ALT = sum(missing_ALT >= 1),
+#     participants_missing_more_than_5_ALT = sum(missing_ALT > 5),
+#     percent_missing_at_least_one_ALT = round(100 * participants_missing_at_least_one_ALT / total_participants, 2),
+#     percent_missing_more_than_5_ALT = round(100 * participants_missing_more_than_5_ALT / total_participants, 2)
+#   )
+# 
+# # Calculate percentages for AST
+# AST_stats <- missing_counts %>%
+#   summarise(
+#     total_participants = n(),
+#     participants_missing_at_least_one_AST = sum(missing_AST >= 1),
+#     participants_missing_more_than_5_AST = sum(missing_AST > 5),
+#     percent_missing_at_least_one_AST = round(100 * participants_missing_at_least_one_AST / total_participants, 2),
+#     percent_missing_more_than_5_AST = round(100 * participants_missing_more_than_5_AST / total_participants, 2)
+#   )
 
 #Calculate sensoring and time to event
 baseline <- today %>% 
@@ -451,16 +505,16 @@ dat_ast <- dat %>%
     )) %>% 
   ungroup()
 
-dat_ratio <- dat %>% 
-  group_by(releaseid) %>%
-  summarize(
-    event_status_ratio = ifelse(any(event_ratio == 1, na.rm = TRUE), 1, 0), # 1 if event occurred, 0 if censored
-    time_to_event_ratio = ifelse(
-      any(event_ratio == 1, na.rm = TRUE), 
-      min(days[event_ratio == 1], na.rm = TRUE), # Time of first event
-      max(days, na.rm = TRUE)                 # Time of last observation (censoring)
-    )) %>% 
-  ungroup()
+# dat_ratio <- dat %>% 
+#   group_by(releaseid) %>%
+#   summarize(
+#     event_status_ratio = ifelse(any(event_ratio == 1, na.rm = TRUE), 1, 0), # 1 if event occurred, 0 if censored
+#     time_to_event_ratio = ifelse(
+#       any(event_ratio == 1, na.rm = TRUE), 
+#       min(days[event_ratio == 1], na.rm = TRUE), # Time of first event
+#       max(days, na.rm = TRUE)                 # Time of last observation (censoring)
+#     )) %>% 
+#   ungroup()
 
 dat_covs <- today %>%
   filter(mvisit=="M00") %>%
@@ -469,7 +523,7 @@ dat_covs <- today %>%
 dat <- tidylog::right_join(dat_covs,prot,by="releaseid")
 dat <- tidylog::right_join(dat_alt,dat,by="releaseid")
 dat <- tidylog::right_join(dat_ast,dat,by="releaseid")
-dat <- tidylog::right_join(dat_ratio,dat,by="releaseid")
+# dat <- tidylog::right_join(dat_ratio,dat,by="releaseid")
 rm(baseline,dat_alt,dat_ast,dat_covs,prot,today)
 
 # length(colnames(dat))
@@ -507,7 +561,8 @@ label(dat$obese)      <- "Obesity (BMI > 30: Yes vs. No)"
 dat$obese <- factor(dat$obese)
 dat$event_status_alt <- factor(dat$event_status_alt)
 dat$event_status_ast <- factor(dat$event_status_ast)
-table1(~sex+HbA1c+AGEBASE+obese+time_to_event_alt+event_status_alt+time_to_event_ast+event_status_ast+time_to_event_ratio+event_status_ratio,data=dat)
+# table1(~sex+HbA1c+AGEBASE+obese+time_to_event_alt+event_status_alt+time_to_event_ast+event_status_ast+time_to_event_ratio+event_status_ratio,data=dat)
+table1(~sex+HbA1c+AGEBASE+obese+time_to_event_alt+event_status_alt+time_to_event_ast+event_status_ast,data=dat)
 dat$obese <- factor(dat$obese)
 table1(~sex+HbA1c+AGEBASE+obese,data=dat)
 
@@ -2445,11 +2500,13 @@ length(gene_proteins) #3770
 # prot <- tidylog::left_join(prot_baseline,prot_followup,by="ID")
 # prot_id <- unique(prot$ID) #64 unique participants with multiple timepoints of data
 
+# #Merge alt and protein data togeth
+# df <- df %>% 
+#   dplyr::select(c("ID","visit","age","SEX","ETHN","bmi","HBA1C","NAFLD0","NAFLD1",
+#                   "NAFLD2","NAFLD3","NAFLD4","NAFLD5","NAFLD6","ALT","AST",all_of(gene_proteins)))
 #Merge alt and protein data togeth
 df <- df %>% 
-  dplyr::select(c("ID","visit","age","SEX","ETHN","bmi","HBA1C","NAFLD0","NAFLD1",
-                  "NAFLD2","NAFLD3","NAFLD4","NAFLD5","NAFLD6","ALT","AST",all_of(gene_proteins)))
-
+  dplyr::select(c("ID","visit","age","SEX","ETHN","bmi","HBA1C","ALT","AST",all_of(gene_proteins)))
 
 # # Scatter plot with individual trajectories
 # p3 <- ggplot(df, aes(x = seq.10001.7, y = ALT)) +
