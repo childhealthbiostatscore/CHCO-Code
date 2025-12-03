@@ -6758,6 +6758,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  library(ggplot2)
  library(dplyr)
  library(gridExtra)
+ library(stringr)
+ library(grid)
  
  # Define the base path and cell types
  base_path <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/GSEA/"
@@ -6765,17 +6767,43 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  # File names for different GSEA categories
  gsea_files <- c(
-   "MF" = "gsea_results_GO_MF.csv",
-   "BP" = "gsea_results_GO_BP.csv",
-   "CC" = "gsea_results_GO_CC.csv",
-   "Hallmark" = "gsea_results_Hallmark.csv"
+   "Molecular Function" = "gsea_results_GO_MF.csv",
+   "Biological Processes" = "gsea_results_GO_BP.csv",
+   "Cellular Components" = "gsea_results_GO_CC.csv",
+   "HALLMARK" = "gsea_results_Hallmark.csv"
  )
  
- # Function to create a single GSEA bar plot
- create_gsea_plot <- function(data, title, top_n = 10) {
+ # Function to shorten and format pathway names
+ format_pathway_name <- function(pathway, go_id = NULL, max_length = 40) {
+   # Remove common prefixes
+   pathway <- gsub("^GOBP_", "", pathway)
+   pathway <- gsub("^GOCC_", "", pathway)
+   pathway <- gsub("^GOMF_", "", pathway)
+   pathway <- gsub("^HALLMARK_", "", pathway)
+   
+   # Convert underscores to spaces and title case
+   pathway <- gsub("_", " ", pathway)
+   pathway <- tolower(pathway)
+   pathway <- tools::toTitleCase(pathway)
+   
+   # Truncate if too long
+   if (nchar(pathway) > max_length) {
+     pathway <- paste0(substr(pathway, 1, max_length - 3), "...")
+   }
+   
+   # Add GO ID if available
+   if (!is.null(go_id) && !is.na(go_id) && go_id != "") {
+     pathway <- paste0(pathway, " (", go_id, ")")
+   }
+   
+   return(pathway)
+ }
+ 
+ # Function to create a single GSEA bar plot with panel label
+ create_gsea_plot <- function(data, title, panel_label, top_n = 10) {
    
    # Filter for significant pathways (adjust p-value threshold as needed)
-   # Assuming columns: pathway, NES, pval or padj
+   # Assuming columns: pathway, NES, pval or padj, and potentially ID or GO_ID
    data_sig <- data %>%
      filter(!is.na(NES)) %>%
      arrange(pval) %>%
@@ -6803,29 +6831,61 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
               theme_void())
    }
    
+   # Format pathway names (check if ID column exists)
+   if ("ID" %in% colnames(plot_data)) {
+     plot_data$pathway_formatted <- mapply(format_pathway_name, 
+                                           plot_data$pathway, 
+                                           plot_data$ID, 
+                                           max_length = 35)
+   } else if ("GO_ID" %in% colnames(plot_data)) {
+     plot_data$pathway_formatted <- mapply(format_pathway_name, 
+                                           plot_data$pathway, 
+                                           plot_data$GO_ID, 
+                                           max_length = 35)
+   } else {
+     plot_data$pathway_formatted <- sapply(plot_data$pathway, 
+                                           format_pathway_name, 
+                                           go_id = NULL, 
+                                           max_length = 35)
+   }
+   
    # Add regulation direction
    plot_data$direction <- ifelse(plot_data$NES > 0, "Higher in Men", "Higher in Women vs. Men")
    
    # Create ordered factor for pathway names
-   plot_data$pathway <- factor(plot_data$pathway, levels = plot_data$pathway[order(plot_data$NES)])
+   plot_data$pathway_formatted <- factor(plot_data$pathway_formatted, 
+                                         levels = plot_data$pathway_formatted[order(plot_data$NES)])
+   
+   # Determine x-axis limits for symmetry
+   max_abs_nes <- max(abs(plot_data$NES), na.rm = TRUE)
+   x_limits <- c(-max_abs_nes * 1.1, max_abs_nes * 1.1)
    
    # Create the plot
-   p <- ggplot(plot_data, aes(x = NES, y = pathway, fill = direction)) +
+   p <- ggplot(plot_data, aes(x = NES, y = pathway_formatted, fill = direction)) +
      geom_bar(stat = "identity") +
-     scale_fill_manual(values = c("Higher in Men" = "#FF8C00", "Higher in Women vs. Men" = "#9370DB")) +
+     scale_fill_manual(values = c("Higher in Men" = "#9370DB", "Higher in Women vs. Men" = "#FF8C00")) +
+     scale_x_continuous(limits = x_limits, expand = c(0, 0)) +
      theme_minimal() +
      theme(
-       axis.text.y = element_text(size = 9),
+       axis.text.y = element_text(size = 8),
        axis.text.x = element_text(size = 9),
        axis.title = element_text(size = 10, face = "bold"),
        plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
        legend.position = "bottom",
        legend.title = element_blank(),
+       legend.text = element_text(size = 9),
        panel.grid.major.y = element_blank(),
-       panel.grid.minor = element_blank()
+       panel.grid.minor = element_blank(),
+       plot.margin = unit(c(0.5, 0.5, 0.5, 0.5), "cm")
      ) +
      labs(x = "NES", y = "", title = title) +
-     geom_vline(xintercept = 0, linetype = "solid", color = "black", size = 0.5)
+     geom_vline(xintercept = 0, linetype = "solid", color = "black", size = 0.5) +
+     # Add panel label in top-left corner
+     annotation_custom(
+       grob = textGrob(panel_label, x = 0.02, y = 0.98, 
+                       just = c("left", "top"),
+                       gp = gpar(fontsize = 14, fontface = "bold"))
+     )
    
    return(p)
  }
@@ -6869,9 +6929,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
        next
      }
      
-     # Create plot for this category
-     plot_title <- paste(panel_labels[i], category)
-     p <- create_gsea_plot(cell_data, plot_title, top_n = 8)
+     # Create plot for this category with panel label
+     p <- create_gsea_plot(cell_data, category, panel_labels[i], top_n = 8)
      plot_list[[i]] <- p
    }
    
@@ -6881,24 +6940,25 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
      next
    }
    
-   # Combine plots into a 2x2 grid
+   # Combine plots into a 2x2 grid with better alignment
    combined_plot <- grid.arrange(grobs = plot_list, ncol = 2, nrow = 2,
-                                 top = paste("GSEA of", cell_type, "markers"))
+                                 top = textGrob(paste("GSEA of", cell_type, "markers"),
+                                                gp = gpar(fontsize = 16, fontface = "bold")),
+                                 heights = c(1, 1),
+                                 widths = c(1, 1))
    
    # Save as PDF
    output_pdf <- paste0(base_path, "GSEA_", cell_type, "_LC.pdf")
-   ggsave(output_pdf, combined_plot, width = 14, height = 12, units = "in")
+   ggsave(output_pdf, combined_plot, width = 16, height = 12, units = "in")
    
    # Save as PNG
    output_png <- paste0(base_path, "GSEA_", cell_type, "_LC.png")
-   ggsave(output_png, combined_plot, width = 14, height = 12, units = "in", dpi = 300)
+   ggsave(output_png, combined_plot, width = 16, height = 12, units = "in", dpi = 300)
    
    cat(paste("Saved plots for", cell_type, "\n"))
  }
  
  cat("\nAll cell types processed!\n")
- 
- 
  
  
  
