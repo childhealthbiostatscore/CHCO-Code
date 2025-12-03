@@ -6863,7 +6863,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
    # Create the plot
    p <- ggplot(plot_data, aes(x = NES, y = pathway_formatted, fill = direction)) +
      geom_bar(stat = "identity") +
-     scale_fill_manual(values = c("Higher in Men" = "#9370DB", "Higher in Women vs. Men" = "#FF8C00")) +
+     scale_fill_manual(values = c("Higher in Men vs. Women" = "#9370DB", "Higher in Women vs. Men" = "#FF8C00")) +
      scale_x_continuous(limits = x_limits, expand = c(0, 0)) +
      theme_minimal() +
      theme(
