@@ -6676,3 +6676,77 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  
  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ### Creating top 20 DEG Excels for each celltype 
+ 
+
+ # Define the base path and cell types
+ base_path <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/"
+ cell_types <- c("All", "PT", "TAL", "EC", "DCTall", "intercalated", "POD")
+ 
+ # Loop through each cell type
+ for (cell_type in cell_types) {
+   
+   # Construct the file path
+   if (cell_type == "All") {
+     file_path <- paste0(base_path, "Full_NEBULA_All_cells__LC_pooledoffset.csv")
+   } else {
+     file_path <- paste0(base_path, "Full_NEBULA_", cell_type, "_cells__LC_pooledoffset.csv")
+   }
+   
+   # Check if file exists
+   if (!file.exists(file_path)) {
+     warning(paste("File not found:", file_path))
+     next
+   }
+   
+   # Read the CSV file
+   data <- read.csv(file_path)
+   
+   # Sort by summary.p_sexMale (ascending - smallest p-values first)
+   if ("summary.p_sexMale" %in% colnames(data)) {
+     data_sorted <- data[order(data$summary.p_sexMale), ]
+   } else {
+     warning(paste("Column 'summary.p_sexMale' not found for", cell_type))
+     print(paste("Available columns:", paste(colnames(data), collapse=", ")))
+     next
+   }
+   
+   # Get top 20
+   top_20 <- head(data_sorted, 20)
+   
+   # Select and rename columns
+   top_20_simplified <- data.frame(
+     gene = top_20$summary.gene,
+     pvalue = top_20$summary.p_sexMale,
+     logFC = top_20$summary.logFC_sexMale,
+     cell_number = top_20$num_cells
+   )
+   
+   # Save the simplified top 20 table
+   output_file <- paste0(base_path, "Top20_", cell_type, "_LC.csv")
+   write.csv(top_20_simplified, output_file, row.names = FALSE)
+   
+   # Print confirmation
+   cat(paste("Processed", cell_type, "- Top 20 saved to:", output_file, "\n"))
+ }
+ 
+ cat("\nAll cell types processed!\n")
+ 
+ 
+ 
+ 
+ 
+ 
+ 
