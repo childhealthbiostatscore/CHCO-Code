@@ -642,7 +642,7 @@ category_summary <- all_results %>%
   group_by(Predictor_Category, Group, Model_Type) %>%
   summarise(
     N_Significant = n(),
-    Mean_Abs_Beta = mean(abs(Beta)),
+    Mean_Abs_Beta_Std = mean(abs(Beta_Std)),
     Mean_R_squared = mean(R_squared),
     .groups = "drop"
   ) %>%
@@ -674,46 +674,132 @@ combo_counts <- adjusted_results %>%
 cat("Found", nrow(combo_counts), "predictor-outcome pairs tested in multiple groups\n\n")
 
 # Calculate which associations are significant in T1D or T2D but not in controls
-disease_specific <- adjusted_results %>%
+disease_specific_prep <- adjusted_results %>%
   filter(Group %in% c("Type_1_Diabetes", "Type_2_Diabetes", "Lean_Control")) %>%
-  dplyr::select(Group, Predictor, Outcome, Beta_Std, p_value, SE_Std) %>%
-  pivot_wider(
-    names_from = Group,
-    values_from = c(Beta_Std, p_value, SE_Std),
-    names_sep = "_"
-  ) %>%
-  mutate(
-    # Significant in T1D but not LC
-    T1D_specific = (p_value_Type_1_Diabetes < 0.05) & 
-      (is.na(p_value_Lean_Control) | p_value_Lean_Control >= 0.05),
-    # Significant in T2D but not LC
-    T2D_specific = (p_value_Type_2_Diabetes < 0.05) & 
-      (is.na(p_value_Lean_Control) | p_value_Lean_Control >= 0.05),
-    # Significant in both T1D and T2D
-    Both_diabetes = (p_value_Type_1_Diabetes < 0.05) & 
-      (p_value_Type_2_Diabetes < 0.05),
-    # Different direction of effect (using standardized betas)
-    Opposite_direction = sign(Beta_Std_Type_1_Diabetes) != sign(Beta_Std_Lean_Control) |
-      sign(Beta_Std_Type_2_Diabetes) != sign(Beta_Std_Lean_Control),
-    # Large difference in effect size (>50% difference in standardized betas)
-    Large_diff_T1D_vs_LC = abs(Beta_Std_Type_1_Diabetes - 
-                                 coalesce(Beta_Std_Lean_Control, 0)) > 0.5 * abs(Beta_Std_Type_1_Diabetes),
-    Large_diff_T2D_vs_LC = abs(Beta_Std_Type_2_Diabetes - 
-                                 coalesce(Beta_Std_Lean_Control, 0)) > 0.5 * abs(Beta_Std_Type_2_Diabetes)
-  )
+  dplyr::select(Group, Predictor, Outcome, Beta_Std, p_value, SE_Std)
 
-# Identify disease-specific associations
-t1d_specific_assoc <- disease_specific %>%
-  filter(T1D_specific) %>%
-  arrange(p_value_Type_1_Diabetes)
-
-t2d_specific_assoc <- disease_specific %>%
-  filter(T2D_specific) %>%
-  arrange(p_value_Type_2_Diabetes)
-
-both_diabetes_assoc <- disease_specific %>%
-  filter(Both_diabetes) %>%
-  arrange(pmin(p_value_Type_1_Diabetes, p_value_Type_2_Diabetes))
+# Check if we have data
+if(nrow(disease_specific_prep) == 0) {
+  cat("No data available for disease-specific comparison\n")
+  t1d_specific_assoc <- data.frame()
+  t2d_specific_assoc <- data.frame()
+  both_diabetes_assoc <- data.frame()
+} else {
+  
+  # Check which groups are actually present
+  groups_present <- unique(disease_specific_prep$Group)
+  cat("\nGroups present in adjusted results:\n")
+  print(groups_present)
+  cat("\n")
+  
+  disease_specific <- disease_specific_prep %>%
+    pivot_wider(
+      names_from = Group,
+      values_from = c(Beta_Std, p_value, SE_Std)
+    )
+  
+  # Print column names to debug
+  cat("Column names after pivot_wider:\n")
+  print(names(disease_specific))
+  cat("\n")
+  
+  # Get actual column names dynamically
+  beta_t1d_col <- grep("Beta_Std.*Type.*1.*Diabetes", names(disease_specific), value = TRUE)[1]
+  beta_t2d_col <- grep("Beta_Std.*Type.*2.*Diabetes", names(disease_specific), value = TRUE)[1]
+  beta_lc_col <- grep("Beta_Std.*Lean.*Control", names(disease_specific), value = TRUE)[1]
+  
+  pval_t1d_col <- grep("p_value.*Type.*1.*Diabetes", names(disease_specific), value = TRUE)[1]
+  pval_t2d_col <- grep("p_value.*Type.*2.*Diabetes", names(disease_specific), value = TRUE)[1]
+  pval_lc_col <- grep("p_value.*Lean.*Control", names(disease_specific), value = TRUE)[1]
+  
+  # Check which columns exist
+  has_t1d <- !is.na(beta_t1d_col) && !is.na(pval_t1d_col)
+  has_t2d <- !is.na(beta_t2d_col) && !is.na(pval_t2d_col)
+  has_lc <- !is.na(beta_lc_col) && !is.na(pval_lc_col)
+  
+  cat("Groups available:\n")
+  cat("  T1D:", has_t1d, "\n")
+  cat("  T2D:", has_t2d, "\n")
+  cat("  Lean Control:", has_lc, "\n\n")
+  
+  # Only proceed if we have at least one diabetes group and lean control
+  if(has_lc && (has_t1d || has_t2d)) {
+    
+    # Build mutate expression based on available columns
+    if(has_t1d && has_lc) {
+      disease_specific <- disease_specific %>%
+        mutate(
+          T1D_specific = (.data[[pval_t1d_col]] < 0.05) & 
+            (is.na(.data[[pval_lc_col]]) | .data[[pval_lc_col]] >= 0.05),
+          Large_diff_T1D_vs_LC = abs(.data[[beta_t1d_col]] - 
+                                       coalesce(.data[[beta_lc_col]], 0)) > 0.5 * abs(.data[[beta_t1d_col]])
+        )
+    }
+    
+    if(has_t2d && has_lc) {
+      disease_specific <- disease_specific %>%
+        mutate(
+          T2D_specific = (.data[[pval_t2d_col]] < 0.05) & 
+            (is.na(.data[[pval_lc_col]]) | .data[[pval_lc_col]] >= 0.05),
+          Large_diff_T2D_vs_LC = abs(.data[[beta_t2d_col]] - 
+                                       coalesce(.data[[beta_lc_col]], 0)) > 0.5 * abs(.data[[beta_t2d_col]])
+        )
+    }
+    
+    if(has_t1d && has_t2d) {
+      disease_specific <- disease_specific %>%
+        mutate(
+          Both_diabetes = (.data[[pval_t1d_col]] < 0.05) & 
+            (.data[[pval_t2d_col]] < 0.05)
+        )
+    }
+    
+    if(has_t1d && has_lc) {
+      disease_specific <- disease_specific %>%
+        mutate(
+          Opposite_direction_T1D = sign(.data[[beta_t1d_col]]) != sign(.data[[beta_lc_col]])
+        )
+    }
+    
+    if(has_t2d && has_lc) {
+      disease_specific <- disease_specific %>%
+        mutate(
+          Opposite_direction_T2D = sign(.data[[beta_t2d_col]]) != sign(.data[[beta_lc_col]])
+        )
+    }
+    
+    # Identify disease-specific associations
+    if(has_t1d && "T1D_specific" %in% names(disease_specific)) {
+      t1d_specific_assoc <- disease_specific %>%
+        filter(T1D_specific) %>%
+        arrange(.data[[pval_t1d_col]])
+    } else {
+      t1d_specific_assoc <- data.frame()
+    }
+    
+    if(has_t2d && "T2D_specific" %in% names(disease_specific)) {
+      t2d_specific_assoc <- disease_specific %>%
+        filter(T2D_specific) %>%
+        arrange(.data[[pval_t2d_col]])
+    } else {
+      t2d_specific_assoc <- data.frame()
+    }
+    
+    if(has_t1d && has_t2d && "Both_diabetes" %in% names(disease_specific)) {
+      both_diabetes_assoc <- disease_specific %>%
+        filter(Both_diabetes) %>%
+        arrange(pmin(.data[[pval_t1d_col]], .data[[pval_t2d_col]]))
+    } else {
+      both_diabetes_assoc <- data.frame()
+    }
+    
+  } else {
+    cat("Insufficient groups for comparison (need at least one diabetes group + Lean Control)\n")
+    t1d_specific_assoc <- data.frame()
+    t2d_specific_assoc <- data.frame()
+    both_diabetes_assoc <- data.frame()
+  }
+}
 
 cat("Disease-specific associations found:\n")
 cat("  T1D-specific (sig in T1D, not LC):", nrow(t1d_specific_assoc), "\n")
@@ -979,7 +1065,7 @@ top_20_pairs <- adjusted_results %>%
   group_by(Predictor, Outcome) %>%
   summarise(
     Min_p = min(p_value, na.rm = TRUE),
-    Max_abs_beta = max(abs(Beta), na.rm = TRUE),
+    Max_abs_beta = max(abs(Beta_Std), na.rm = TRUE),
     N_Groups = n(),
     .groups = "drop"
   ) %>%
@@ -1068,13 +1154,6 @@ cat("  Sample type used:", primary_sample_type, "\n\n")
 # Save workspace
 save.image("clinical_biomarker_analysis.RData")
 cat("Workspace saved: clinical_biomarker_analysis.RData\n")
-
-
-
-
-
-
-
 
 
 
