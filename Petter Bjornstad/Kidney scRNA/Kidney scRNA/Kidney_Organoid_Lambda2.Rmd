@@ -555,17 +555,18 @@ nrow(sc_org) #62,754 genes after filtering
 ncol(sc_org) #156387 cells after filltering
 expr_matrix <- GetAssayData(sc_org, assay = "RNA", layer = "counts")
 
-# # Calculate the proportion of cells expressing each gene
-# num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
-# total_cells <- ncol(expr_matrix)  # Total number of cells
-# gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
-# remove(expr_matrix)
-# 
-# # Keep genes expressed in at least "gene_pct" of cells
-# genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
-# sc_org <- subset(sc_org, features = genes_to_keep)
-# ncol(sc_org) #156387 Cells
-# nrow(sc_org) # 7472 genes
+# Calculate the proportion of cells expressing each gene
+num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
+total_cells <- ncol(expr_matrix)  # Total number of cells
+gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
+remove(expr_matrix)
+
+# Keep genes expressed in at least "gene_pct" of cells
+genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
+# genes_to_keep <- names(gene_proportion)
+sc_org <- subset(sc_org, features = genes_to_keep)
+ncol(sc_org) #156387 Cells
+nrow(sc_org) # 7472 genes
 
 #Remove mitochondrial genes (those starting with "MT-")
 mito_genes <- grep("^MT-", rownames(sc_org), value = TRUE)
@@ -969,6 +970,32 @@ so_combined <- sc_org
 #Remove ID IT_19
 so_combined <- subset(so_combined,record_id!="IT_19")
 
+# Get current feature names
+current_names <- rownames(so_combined)
+
+# Option A: Keep just gene symbols, make unique if needed
+gene_symbols <- str_extract(current_names, "^[^-]+") %>% str_trim()
+new_names <- make.unique(gene_symbols, sep = "-")
+
+# Option B: Keep full name but fix formatting (replace problematic characters)
+# new_names <- str_replace_all(current_names, " - ", "_") %>%
+#              str_replace_all("_", "-")  # preemptively do what Seurat would do
+
+# Check for duplicates that would be created
+if (any(duplicated(new_names))) {
+  message(paste("Making", sum(duplicated(new_names)), "duplicate names unique"))
+}
+
+# Rebuild the assay with clean names
+counts <- GetAssayData(so_combined, slot = "counts")
+rownames(counts) <- new_names
+
+# Create fresh assay and replace
+so_combined[["RNA"]] <- CreateAssayObject(counts = counts)
+
+# Now normalize - should work without warnings
+so_combined <- NormalizeData(so_combined)
+
 # PCA
 so_combined <- NormalizeData(so_combined)
 so_combined <- ScaleData(so_combined, features = VariableFeatures(so_combined))
@@ -996,9 +1023,33 @@ DimPlot(so_combined, reduction = "umap", raster = T)
 DimPlot(so_combined, reduction = "umap", raster = T, group.by = "record_id")
 
 FeaturePlot(so_combined, 
-            features = "NOX5") +
-  scale_color_viridis_c() +
+            features = "NOX5",raster=T) +
+  # scale_color_viridis_c() +
   ggtitle("NOX5 Expression")
+
+FeaturePlot(so_combined, 
+            features = "NOX5-1",raster=T) +
+  # scale_color_viridis_c() +
+  ggtitle("NOX5 Expression")
+
+# Check the exact feature name after cleaning
+grep("NOX5", rownames(so_combined), value = TRUE)
+
+# Basic dotplot
+DotPlot(so_combined, features = "NOX5") + 
+  RotatedAxis()
+
+# If you have multiple NOX5 entries (NOX5, NOX5-1, etc.)
+nox5_features <- grep("^NOX5", rownames(so_combined), value = TRUE)
+DotPlot(so_combined, features = nox5_features) + 
+  RotatedAxis()
+
+# Prettier version
+DotPlot(so_combined, features = "NOX5") + 
+  RotatedAxis() +
+  theme(axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10)) +
+  ggtitle("NOX5 Expression Across Clusters")
 
 ```
 
