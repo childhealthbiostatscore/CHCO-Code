@@ -46,10 +46,38 @@ library('org.Hs.eg.db')
 
 
 
-load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
+load('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_T2D_SGLT2_DylanEdits_Line728.RData')
 
 so_subset <- so_kpmp_sc
 remove(so_kpmp_sc)
+
+
+so_subset$celltype1 <- case_when(grepl("PT-",so_subset$celltype_rpca)~"PT",
+                                 grepl("TAL-",so_subset$celltype_rpca)~"TAL",
+                                 grepl("EC-",so_subset$celltype_rpca)~"EC",
+                                 grepl("POD",so_subset$celltype_rpca)~"POD",
+                                 grepl("MAC",so_subset$celltype_rpca)~"MAC",
+                                 grepl("MON",so_subset$celltype_rpca)~"MON",
+                                 grepl("PC-",so_subset$celltype_rpca)~"PC",
+                                 grepl("FIB",so_subset$celltype_rpca)~"FIB_MC_VSMC",
+                                 grepl("DTL",so_subset$celltype_rpca)~"DTL",
+                                 so_subset$celltype_rpca=="DCT"~"DCT",
+                                 so_subset$celltype_rpca=="ATL"~"ATL",
+                                 so_subset$celltype_rpca=="B"~"B",
+                                 so_subset$celltype_rpca=="T"~"T")
+so_subset$celltype1 <- as.character(so_subset$celltype1)
+
+so_subset$KPMP_celltype2 <- as.character(so_subset$KPMP_celltype)
+so_subset$celltype2 <- ifelse(so_subset$KPMP_celltype=="aPT" | 
+                                so_subset$KPMP_celltype=="PT-S1/S2" | 
+                                so_subset$KPMP_celltype == "PT-S3","PT",
+                              ifelse(grepl("TAL",so_subset$KPMP_celltype),"TAL",
+                                     ifelse(grepl("EC-",so_subset$KPMP_celltype),"EC",so_subset$KPMP_celltype2)))
+
+
+so_subset$DCT_celltype <- ifelse((so_subset$KPMP_celltype=="DCT" | 
+                                    so_subset$KPMP_celltype=="dDCT"), "DCT","Non-DCT")
+
 
 test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
 
@@ -2046,10 +2074,39 @@ library(nebula)
 library(clusterProfiler)
 library('org.Hs.eg.db')
 
-load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
+load('C:/Users/netio/Documents/UofW/Rockies/ROCKIES_T2D_SGLT2_DylanEdits_Line728.RData')
+
 
 so_subset <- so_kpmp_sc
 remove(so_kpmp_sc)
+
+
+so_subset$celltype1 <- case_when(grepl("PT-",so_subset$celltype_rpca)~"PT",
+                                 grepl("TAL-",so_subset$celltype_rpca)~"TAL",
+                                 grepl("EC-",so_subset$celltype_rpca)~"EC",
+                                 grepl("POD",so_subset$celltype_rpca)~"POD",
+                                 grepl("MAC",so_subset$celltype_rpca)~"MAC",
+                                 grepl("MON",so_subset$celltype_rpca)~"MON",
+                                 grepl("PC-",so_subset$celltype_rpca)~"PC",
+                                 grepl("FIB",so_subset$celltype_rpca)~"FIB_MC_VSMC",
+                                 grepl("DTL",so_subset$celltype_rpca)~"DTL",
+                                 so_subset$celltype_rpca=="DCT"~"DCT",
+                                 so_subset$celltype_rpca=="ATL"~"ATL",
+                                 so_subset$celltype_rpca=="B"~"B",
+                                 so_subset$celltype_rpca=="T"~"T")
+so_subset$celltype1 <- as.character(so_subset$celltype1)
+
+so_subset$KPMP_celltype2 <- as.character(so_subset$KPMP_celltype)
+so_subset$celltype2 <- ifelse(so_subset$KPMP_celltype=="aPT" | 
+                                so_subset$KPMP_celltype=="PT-S1/S2" | 
+                                so_subset$KPMP_celltype == "PT-S3","PT",
+                              ifelse(grepl("TAL",so_subset$KPMP_celltype),"TAL",
+                                     ifelse(grepl("EC-",so_subset$KPMP_celltype),"EC",so_subset$KPMP_celltype2)))
+
+
+so_subset$DCT_celltype <- ifelse((so_subset$KPMP_celltype=="DCT" | 
+                                    so_subset$KPMP_celltype=="dDCT"), "DCT","Non-DCT")
+
 
 test <- so_subset@meta.data %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
 
