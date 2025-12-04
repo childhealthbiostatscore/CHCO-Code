@@ -43,6 +43,9 @@ library(nebula)
 library(clusterProfiler)
 library('org.Hs.eg.db')
 
+
+
+
 load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
 
 so_subset <- so_kpmp_sc
