@@ -9160,6 +9160,19 @@ ox_phos2 <- c(
   "UQCRC1", "UQCRC2", "COX4I1", "COX4I2", "ATP5PF") #47 genes
 ox_phos <- unique(c(ox_phos1,ox_phos2))
 
+#Lambda
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "Liver transcriptomics/beta_oxidation_genes.csv", temp_file)
+beta_ox1 <-  read.csv(temp_file)
+gc()
+beta_ox1 <- beta_ox1$genesymbol
+#Local
+# beta_ox1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/beta_oxidation_genes.csv")$genesymbol
+beta_ox2 <- c("ACOT8","ACAA2","ECI2","SLC25A17","SLC27A2","CPT1A","CPT1B","CPT2","CRAT","ALDH1L2","ECI1","DECR1","ECH1","ECHS1","EHHADH","MTLN","AKT1","AKT2","ETFA","ETFB","ETFDH","ABCD1","TYSND1","ABCD2","MLYCD","AMACR","ETFBKMT","DECR2","GCDH","MCAT","ACAA1","HSD17B10","HADHA","HADHB","HADH","ACACB","HSD17B4","ACADL","ACADM","ACADS","IRS1","ACADVL","IVD","ACAT1","LEP","PLIN5","ACOX1","PEX7","PPARA","PPARD","CROT","AUH","ECHDC2","ACOXL","ECHDC1","BDH2","ABCD3","ABCD4","PEX2","PEX5","SCP2","TWIST1","ACAD10","ACOX2","ACOX3","SESN2","LONP2","ACAD11","MFSD2A","ABCB11","IRS2","ADIPOQ") #47 genes
+beta_ox <- unique(c(beta_ox1,beta_ox2))
+
 ```
 
 ##a. HR Celltypes
@@ -11236,6 +11249,364 @@ results_total2 <- results_total2 %>%
 all_results <- rbind(results_total,results_total2)
 write.csv(all_results,"/home/hhampson/Results/Hepatocytes_oroboros_results_ox_phos.csv")
 ```
+
+###iii. Beta Ox
+```{r}
+#Filter to Hep Cells
+so_Hep <- subset(so_liver_sn,celltype2=="Hep")
+DefaultAssay(so_Hep) <- "RNA" 
+
+#Filter out the Biobank participants with missing oroboros data
+biobank_ids <- c("BSA_026","BSA_034")
+so_Hep <- subset(so_Hep,!StudyID %in% biobank_ids)
+unique(so_Hep$StudyID) #"MANGO-06" "MANGO-18" "MANGO-05" "MANGO-07" "IT2D-19"  "IT2D-14"  "IT2D-15"  "MANGO-04"
+table(so_Hep$steatosis_cat,so_Hep$carbp_m)
+
+nrow(so_Hep) #28964 genes before, now 11224 genes
+ncol(so_Hep) #130124 nuclei before, now 81388 nuclei
+meta <- so_Hep@meta.data
+oro_vars <- colnames(meta)[85:114]
+
+# for (cell_name in HR_celltypes){
+# oro <- "carbp_m"
+for (oro in oro_vars) {
+  # Clear any existing objects from previous iterations
+  if (exists("nebula_results_list")) rm(nebula_results_list)
+  if (exists("hep_nebula_converged")) rm(hep_nebula_converged)
+  if (exists("nebula_summaries")) rm(nebula_summaries)
+  if (exists("full_results")) rm(full_results)
+  if (exists("cl")) {
+    try(stopCluster(cl), silent = TRUE)
+    rm(cl)
+  }
+  
+  # Force garbage collection
+  gc()
+  
+  print(paste("Processing:", oro))
+  
+  
+  so_beta_ox <- subset(so_Hep, features = beta_ox)
+  DefaultAssay(so_beta_ox) <- "RNA"
+  StartGenes <- nrow(so_beta_ox) #28964 genes, now 28 beta_ox genes only
+  Nuclei <- ncol(so_beta_ox) #130124 nuclei, now 81388 nuclei
+  # counts_beta_ox <- round(GetAssayData(so_beta_ox, layer = "counts"))
+  genes_list <- beta_ox
+  cells_to_keep <- colnames(so_beta_ox)[!is.na(so_beta_ox@meta.data[[oro]])]
+  so_subset <- subset(so_beta_ox, cells = cells_to_keep)
+  DefaultAssay(so_subset) <- "RNA"
+  counts_beta_ox <- round(GetAssayData(so_subset, layer = "counts"))
+  
+  cl <- makeCluster(10)
+  registerDoParallel(cl)
+  
+  start_time <- Sys.time()
+  
+  nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_beta_ox[g, , drop = FALSE]
+      meta_gene <- subset(so_subset,features=g)@meta.data
+      formula <- as.formula(paste("~", oro))
+      pred_gene <- model.matrix(formula, data = meta_gene)
+      library <- meta_gene$pooled_offset
+      data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+      }
+      
+      #With offset
+      result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+      
+      list(gene = g, result = result)  # return both gene name and result
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  print(end_time - start_time)
+  
+  # set the names of results based on gene names
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+  
+  hep_nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      df <- data.frame(Gene = gene_name,
+                       Convergence_Code = converged)
+      return(df)
+    }
+  )
+  
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40 | hep_nebula_converged$Convergence_Code==-50 | hep_nebula_converged$Convergence_Code==-60)]
+  ) 
+  
+  full_results <- as.data.frame(nebula_summaries)
+  colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept","p_value","gene_id","gene","Gene")
+  full_results$Variable <- oro
+  full_results$Celltype <- "Hepatocytes"
+  
+  #Calculate number of genes filtered out for low expression 
+  full_results$low_exp <- length(genes_list)-length(full_results$gene)
+  #Filter out non-converging genes
+  full_results <- full_results %>% 
+    filter(!gene %in%  nonconverge_genes)
+  #Calculate nonconvergence rate
+  full_results$nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+  full_results$Nuceli <- Nuclei
+  full_results$Genes <- length(full_results$Gene)
+  full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
+  full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
+  write.csv(full_results,paste0("/home/hhampson/Results/NEBULA_",oro,"_Hepatocytes_beta_ox.csv"))
+}
+
+
+carb_vars <- oro_vars[c(1,2,5:7)]
+total_results <- data.frame()
+# for (cell_name2 in HR_celltypes){
+  for (oro in carb_vars) {
+    full_results <- read.csv(paste0("/home/hhampson/Results/NEBULA_",oro,"_Hepatocytes_beta_ox.csv"))
+    full_results <- full_results %>% 
+      clean_names() %>% 
+      dplyr::rename(logFC=log_fc) %>% 
+      dplyr::rename(Gene=gene)
+    full_results <- full_results[,-1]
+    full_results$Celltype <- "Hepatocytes"
+    total_results <- rbind(total_results,full_results)
+  }
+# }
+
+sig_carb <- total_results %>% 
+  mutate(sig = ifelse(fdr<0.05,"*","")) %>% 
+  filter(sig=="*")
+
+sig_carb <- sig_carb %>% 
+  mutate(Parameter = case_when(variable=="carbp_m" ~ "State 2 PM",
+                               variable=="carb_adp" ~ "State 3 PM",
+                               variable=="carb_s" ~ "State 3 PMGS",
+                               variable=="carb_omy" ~ "State 4 PMGS",
+                               variable=="carbfccp" ~ "ETS PMGS"))
+# variable=="carbrcr_pmgs" ~ "RCR PMGS",
+# variable=="carbpe_pmgs" ~ "PE PMGS",
+# variable=="carb_le" ~ "L/E PMGS")) %>% 
+# dplyr::rename(Parameter=value)
+# dat_long_carb$name <- factor(dat_long_carb$name, 
+#                              levels = c("State 2 PM", "State 3 PM", "State 3 PMGS", 
+#                                         "State 4 PMGS", "ETS PMGS", 
+#                                         "RCR PMGS", "PE PMGS", "L/E PMGS"))
+
+# Respiratory States & Substrates	beta_ox Cycle Genes	LogFC	FDR	Subtype	Cell Type	Direction of #Association
+sig_carb <- sig_carb %>% 
+  dplyr::select(c("Parameter","Gene","logFC","fdr","Celltype")) %>% 
+  dplyr::rename(LogFC=logFC) %>% 
+  dplyr::rename(FDR=fdr) %>% 
+  mutate(Direction=ifelse(LogFC>0,"(+)","(-)")) %>% 
+  mutate(Parameter = factor(Parameter, levels = c("State 2 PM", 
+                                                  "State 3 PM", 
+                                                  "State 3 PMGS", 
+                                                  "State 4 PMGS", 
+                                                  "ETS PMGS"))) %>% 
+  arrange(Parameter)
+
+write.csv(sig_carb,"/home/hhampson/Results/Carb_Oro_Hepatocytes_DEGs_Sig_beta_ox.csv")
+
+lipid_vars <- oro_vars[c(16,17,20:22)]
+total_results <- data.frame()
+# for (cell_name2 in HR_celltypes){
+  for (oro in lipid_vars) {
+    full_results <- read.csv(paste0("/home/hhampson/Results/NEBULA_",oro,"_Hepatocytes_beta_ox.csv"))
+    full_results <- full_results %>% 
+      clean_names() %>% 
+      dplyr::rename(logFC=log_fc) %>% 
+      dplyr::rename(Gene=gene)
+    full_results <- full_results[,-1]
+    full_results$Celltype <- "Hepatocytes"
+    total_results <- rbind(total_results,full_results)
+  }
+# }
+
+sig_lipid <- total_results %>% 
+  mutate(sig = ifelse(fdr<0.05,"*","")) %>% 
+  filter(sig=="*")
+
+sig_lipid <- sig_lipid %>% 
+  mutate(Parameter = case_when(variable=="lipidpc_m" ~ "State 2 FAM",
+                               variable=="lipid_adp" ~ "State 3 FAM",
+                               variable=="lipid_s" ~ "State 3 FAMGS",
+                               variable=="lipid_omy" ~ "State 4 FAMGS",
+                               variable=="lipidfccp" ~ "ETS FAMGS")) %>% 
+  mutate(Parameter=factor(Parameter, 
+                          levels = c("State 2 FAM", "State 3 FAM", 
+                                     "State 3 FAMGS", "State 4 FAMGS", "ETS FAMGS"))) %>% 
+    dplyr::select(c("Parameter","Gene","logFC","fdr","Celltype")) %>% 
+  dplyr::rename(LogFC=logFC) %>% 
+  dplyr::rename(FDR=fdr) %>% 
+  mutate(Direction=ifelse(LogFC>0,"(+)","(-)")) %>% 
+  arrange(Parameter)
+write.csv(sig_lipid,"/home/hhampson/Results/Lipid_Oro_Hepatocytes_DEGs_Sig_beta_ox.csv")
+
+
+
+
+#Plots
+carb_vars <- oro_vars[c(1,2,5:7,9,10,15)]
+# results_total <- data.frame()
+for (oro in carb_vars) {
+  # oro <- c("carb_cytoc")
+  # full_results <- read.csv(fs::path(dir.results,paste0("NEBULA_Hepatocytes_",oro,"_ast_adj_2000_hvg.csv")))
+  full_results <- read.csv(paste0("/home/hhampson/Results/NEBULA_",oro,"_Hepatocytes_beta_ox.csv"))
+  full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$logFC > 0, "#990000",
+                               ifelse(full_results$fdr < 0.05 & full_results$logFC < 0, "#003366", "lightgray"))
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Nuclei <- unique(full_results$Nuceli)
+  # genes_list <- unique(full_results$Gene)
+  # nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+  # Nonconvergence_Rate <- nebula_nonconverged_percent
+  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$logFC3 > 0, "lightcoral",
+  #                               ifelse(full_results$fdr3 < 0.2 & full_results$logFC3 < 0, "lightblue", "gray"))
+  # 
+  # # Identify significant points (fdr < 0.05)
+  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+  
+  max <- max(full_results$logFC)
+  # max <- 3.1
+  min <- min(full_results$logFC)
+  # Create the volcano plot using ggplot
+  volcano_plot <- ggplot(full_results, aes(x = logFC, y = PValue10, color = color)) +
+    geom_point(alpha = 0.7) +  # Plot points with transparency
+    scale_color_identity() +  # Use the color column directly
+    theme_minimal() +  # Minimal theme
+    labs(
+      title = "Beta Ox Genes in Hepatocytes",
+      subtitle = paste0(str_to_title(str_replace_all(oro,"_"," "))),
+      x = "FC",
+      y = "-log10(P-Value)",
+      color = "FC Direction Direction",
+      # caption = paste0("FDR < 0.05, Genes = ",Genes,", Nuclei = ",Nuclei,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
+      caption = paste0("FDR < 0.05, Genes = ",Genes,", Nuclei = ",Nuclei)
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    )+
+    xlim(min,max)+
+    # xlim(-3,3)+
+    # # Add labels for significant points
+    geom_text(data = significant_df, aes(label = gene),
+              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+  # Add labels for significant points with ggrepel
+  # geom_text_repel(data = significant_df, aes(label = Gene),
+  #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+  
+  volcano_plot
+  png(paste0("/home/hhampson/Results/Plot_NEBULA_Hepatocytes_",oro,"_beta_ox.png"),
+      width = 2500, height = 2100, res = 300)
+  print(volcano_plot)
+  dev.off()
+}
+#Sig results
+carb_vars <- oro_vars[c(1,2,5:7,9,10,15)]
+results_total <- data.frame()
+for (oro in carb_vars) {
+  full_results <- read.csv(paste0("/home/hhampson/Results/NEBULA_",oro,"_Hepatocytes_beta_ox.csv"))
+  full_results <- full_results %>% 
+    dplyr::select(-X)
+  results_total <- rbind(full_results,results_total)
+}
+results_total <- results_total %>% 
+  mutate(sig = ifelse(fdr < 0.05,"*",""))
+
+lipid_vars <- oro_vars[c(16,17,20:22,24,25,30)]
+for (oro in lipid_vars) {
+  full_results <- read.csv(paste0("/home/hhampson/Results/NEBULA_",oro,"_Hepatocytes_beta_ox.csv"))
+  full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$logFC > 0, "#990000",
+                               ifelse(full_results$fdr < 0.05 & full_results$logFC < 0, "#003366", "lightgray"))
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Nuclei <- unique(full_results$Nuceli)
+  # genes_list <- unique(full_results$Gene)
+  # nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+  # Nonconvergence_Rate <- nebula_nonconverged_percent
+  # full_results$color3 <- ifelse(full_results$fdr3 < 0.2 & full_results$logFC3 > 0, "lightcoral",
+  #                               ifelse(full_results$fdr3 < 0.2 & full_results$logFC3 < 0, "lightblue", "gray"))
+  # 
+  # # Identify significant points (fdr < 0.05)
+  # significant_df3 <- full_results[full_results$fdr3 < 0.2, ]
+  
+  max <- max(full_results$logFC)
+  # max <- 3.1
+  min <- min(full_results$logFC)
+  # Create the volcano plot using ggplot
+  volcano_plot <- ggplot(full_results, aes(x = logFC, y = PValue10, color = color)) +
+    geom_point(alpha = 0.7) +  # Plot points with transparency
+    scale_color_identity() +  # Use the color column directly
+    theme_minimal() +  # Minimal theme
+    labs(
+      title = "Beta Ox Genes in Hepatocytes",
+      subtitle = paste0(str_to_title(str_replace_all(oro,"_"," "))),
+      x = "FC",
+      y = "-log10(P-Value)",
+      color = "FC Direction Direction",
+      # caption = paste0("FDR < 0.05, Genes = ",Genes,", Nuclei = ",Nuclei,", Non-Convergence Rate: ",Nonconvergence_Rate,", Genes Filtered out for Low Expression: ",low_exp)
+      caption = paste0("FDR < 0.05, Genes = ",Genes,", Nuclei = ",Nuclei)
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    )+
+    xlim(min,max)+
+    # xlim(-3,3)+
+    # # Add labels for significant points
+    geom_text(data = significant_df, aes(label = gene),
+              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+  # Add labels for significant points with ggrepel
+  # geom_text_repel(data = significant_df, aes(label = Gene),
+  #                 size = 3, color = "black", box.padding = 0.5, max.overlaps = 20)
+  
+  volcano_plot
+  png(paste0("/home/hhampson/Results/Plot_NEBULA_Hepatocytes_",oro,"_beta_ox.png"),
+      width = 2500, height = 2100, res = 300)
+  print(volcano_plot)
+  dev.off()
+}
+
+#Sig results
+lipid_vars <- oro_vars[c(16,17,20:22,24,25,30)]
+results_total2 <- data.frame()
+for (oro in lipid_vars) {
+  full_results <- read.csv(paste0("/home/hhampson/Results/NEBULA_",oro,"_Hepatocytes_beta_ox.csv"))
+  full_results <- full_results %>% 
+    dplyr::select(-X)
+  results_total2 <- rbind(full_results,results_total2)
+}
+results_total2 <- results_total2 %>% 
+  mutate(sig = ifelse(fdr < 0.05,"*",""))
+
+all_results <- rbind(results_total,results_total2)
+write.csv(all_results,"/home/hhampson/Results/Hepatocytes_oroboros_results_beta_ox.csv")
+```
+
 ## b. Hep subtypes
 ###i. TCA
 ```{r}
@@ -11970,6 +12341,239 @@ write.csv(sig_lipid,"/home/hhampson/Results/Lipid_Oro_Hep_DEGs_Sig_OX_PHOS.csv")
 
 ```
 
+###iii. Beta Ox
+```{r}
+# #Filter to celltype 
+# HR_celltypes <- unique(so_oro$celltype)
+# #  [1] Hep-2        Hep-5        Hep-4        EC-2         Stellate-2   Hep-3        Cholang     
+# #  [8] Hep-1        NKC/NKT      Kup/MON      dHep         Kup/MAC      EC-1         Stellate-1  
+# # [15] B/Plasma     Hep/Immune   cFIB/cImmune
+# meta <- so_oro@meta.data
+# # oro_vars <- colnames(meta)[85:114]
+# oro_vars <- c("carb_cytoc","carb_s","carb_omy","carbfccp",
+#               "lipid_g","lipid_s","lipid_omy","lipidfccp","lipidrcr_pcm")
+# # cell_name <- "Hep/Immune"
+
+#Filter to Hep Cells
+so_Hep <- subset(so_liver_sn,celltype2=="Hep")
+DefaultAssay(so_Hep) <- "RNA" 
+
+#Filter out the Biobank participants with missing oroboros data
+biobank_ids <- c("BSA_026","BSA_034")
+so_Hep <- subset(so_Hep,!StudyID %in% biobank_ids)
+unique(so_Hep$StudyID) #"MANGO-06" "MANGO-18" "MANGO-05" "MANGO-07" "IT2D-19"  "IT2D-14"  "IT2D-15"  "MANGO-04"
+table(so_Hep$steatosis_cat,so_Hep$carbp_m)
+
+nrow(so_Hep) #28964 genes before, now 11224 genes
+ncol(so_Hep) #130124 nuclei before, now 81388 nuclei
+meta <- so_Hep@meta.data
+oro_vars <- colnames(meta)[85:114]
+
+# HR_celltypes <- unique(so_Hep$celltype)
+HR_celltypes <- unique(so_Hep$celltype)
+
+for (cell_name in HR_celltypes){
+  for (oro in oro_vars) {
+    # Clear any existing objects from previous iterations
+    if (exists("nebula_results_list")) rm(nebula_results_list)
+    if (exists("hep_nebula_converged")) rm(hep_nebula_converged)
+    if (exists("nebula_summaries")) rm(nebula_summaries)
+    if (exists("full_results")) rm(full_results)
+    if (exists("cl")) {
+      try(stopCluster(cl), silent = TRUE)
+      rm(cl)
+    }
+    so_celltype <- subset(so_Hep,celltype==cell_name)
+    DefaultAssay(so_celltype) <- "RNA" 
+    StartGenes <- nrow(so_celltype) #28964 genes
+    Nuclei <- ncol(so_celltype) #    Nuclei nuclei
+    
+    cells_to_keep <- !is.na(so_celltype@meta.data[[oro]])
+    so_celltype <- subset(so_celltype, cells = colnames(so_celltype)[cells_to_keep])
+    DefaultAssay(so_celltype) <- "RNA"
+    counts_beta_ox <- round(GetAssayData(so_celltype, layer = "counts"))
+    genes_list <- beta_ox
+    cl <- makeCluster(10)
+    registerDoParallel(cl)
+    
+    start_time <- Sys.time()
+    
+    nebula_results_list <- foreach(g = genes_list, .packages = c("nebula", "Matrix")) %dopar% {
+      tryCatch({
+        count_gene <- counts_beta_ox[g, , drop = FALSE]
+        meta_gene <- subset(so_celltype,features=g)@meta.data
+        formula <- as.formula(paste("~", oro))
+        pred_gene <- model.matrix(formula, data = meta_gene)
+        # pred_gene <- model.matrix(~oro, data = meta_gene)
+        # library <- meta_gene$pooled_offset
+        library <- meta_gene$pooled_offset
+        data_g_gene <- group_cell(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene,offset=library)
+        
+        if (is.null(data_g_gene)) {
+          data_g_gene <- list(count = count_gene, id = meta_gene$Kit_Lot, pred = pred_gene, offset = library)
+        }
+        
+        #With offset
+        result <- nebula(count = data_g_gene$count, id = data_g_gene$id, pred = data_g_gene$pred, ncore = 1, reml=T,model="NBLMM",output_re = T,covariance=T,offset = data_g_gene$offset)
+        
+        list(gene = g, result = result)  # return both gene name and result
+        
+      }, error = function(e) {
+        NULL
+      })
+    }
+    
+    stopCluster(cl)
+    end_time <- Sys.time()
+    print(end_time - start_time)
+    
+    # set the names of results based on gene names
+    nebula_results_list <- Filter(Negate(is.null), nebula_results_list)  # remove NULLs first
+    names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)  # set names
+    nebula_results_list <- lapply(nebula_results_list, function(x) x$result)  # clean list back to just results
+    
+    hep_nebula_converged <- map_dfr(
+      names(nebula_results_list),
+      function(gene_name) {
+        converged <- nebula_results_list[[gene_name]]$convergence
+        df <- data.frame(Gene = gene_name,
+                         Convergence_Code = converged)
+        return(df)
+      }
+    )
+    
+    nebula_summaries <- map_dfr(
+      names(nebula_results_list),
+      function(gene_name) {
+        df <- nebula_results_list[[gene_name]]$summary
+        df <- df %>% mutate(Gene = gene_name)
+        return(df)
+      }
+    )
+    nonconverge_genes <- unique(hep_nebula_converged$Gene[which(hep_nebula_converged$Convergence_Code==-40 | hep_nebula_converged$Convergence_Code==-50 | hep_nebula_converged$Convergence_Code==-60)]
+    ) 
+    
+    full_results <- as.data.frame(nebula_summaries)
+    colnames(full_results) <- c("logFC_Intercept","logFC","se_Intercept","se","p_Intercept","p_value","gene_id","gene","Gene")
+    full_results$Variable <- oro
+    full_results$Celltype <- cell_name
+    
+    #Calculate number of genes filtered out for low expression 
+    full_results$low_exp <- length(genes_list)-length(full_results$gene)
+    #Filter out non-converging genes
+    full_results <- full_results %>% 
+      filter(!gene %in%  nonconverge_genes)
+    #Calculate nonconvergence rate
+    full_results$nebula_nonconverged_percent <- paste0(round((1-(length(genes_list)-length(nonconverge_genes))/length(genes_list))*100,3),"%")
+    full_results$Nuceli <- Nuclei
+    full_results$Genes <- length(full_results$Gene)
+    # nebula_nonconverged_percent <- (length(rownames(counts_beta_ox))-length(unique(full_results$gene)))/length(rownames(counts_beta_ox))
+    # print(paste0(nebula_nonconverged_percent*100, "% failed to converge"))
+    full_results$fdr <- p.adjust(full_results[,6],method="fdr")  
+    # mutate(fdr3=p.adjust(PValue3,method="fdr"))
+    full_results$PValue10 <- -log10(pmax(full_results[,6], 1e-10))
+    # results_total <- rbind(results_total,full_results)
+    cell_name2 <- str_replace_all(cell_name,"/","_")
+    cell_name2 <- str_replace_all(cell_name2,"-","_")
+    write.csv(full_results,paste0("/home/hhampson/Results/NEBULA_",oro,"_",cell_name2,"_beta_ox.csv"))
+  }
+}
+
+HR_celltypes <- str_replace_all(unique(so_Hep$celltype),"/","_")
+HR_celltypes <- str_replace_all(HR_celltypes,"-","_")
+# cell_name2 <- "B_Plasma"
+# cell_name2
+
+# carb_vars <- oro_vars[c(1,2,5:7,9,10,15)]
+carb_vars <- oro_vars[c(1,2,5:7)]
+
+total_results <- data.frame()
+for (cell_name2 in HR_celltypes){
+  for (oro in carb_vars) {
+    full_results <- read.csv(paste0("/home/hhampson/Results/NEBULA_",oro,"_",cell_name2,"_beta_ox.csv"))
+    full_results <- full_results %>% 
+      clean_names() %>% 
+      dplyr::rename(logFC=log_fc) %>% 
+      dplyr::rename(Gene=gene)
+    full_results <- full_results[,-1]
+    full_results$Celltype <- cell_name2
+    total_results <- rbind(total_results,full_results)
+  }
+}
+
+sig_carb <- total_results %>% 
+  mutate(sig = ifelse(fdr<0.05,"*","")) %>% 
+  filter(sig=="*")
+
+sig_carb <- sig_carb %>% 
+  mutate(Parameter = case_when(variable=="carbp_m" ~ "State 2 PM",
+                               variable=="carb_adp" ~ "State 3 PM",
+                               variable=="carb_s" ~ "State 3 PMGS",
+                               variable=="carb_omy" ~ "State 4 PMGS",
+                               variable=="carbfccp" ~ "ETS PMGS"))
+# variable=="carbrcr_pmgs" ~ "RCR PMGS",
+# variable=="carbpe_pmgs" ~ "PE PMGS",
+# variable=="carb_le" ~ "L/E PMGS")) %>% 
+# dplyr::rename(Parameter=value)
+# dat_long_carb$name <- factor(dat_long_carb$name, 
+#                              levels = c("State 2 PM", "State 3 PM", "State 3 PMGS", 
+#                                         "State 4 PMGS", "ETS PMGS", 
+#                                         "RCR PMGS", "PE PMGS", "L/E PMGS"))
+
+# Respiratory States & Substrates	beta_ox Cycle Genes	LogFC	FDR	Subtype	Cell Type	Direction of #Association
+sig_carb <- sig_carb %>% 
+  dplyr::select(c("Parameter","Gene","logFC","fdr","Celltype")) %>% 
+  dplyr::rename(LogFC=logFC) %>% 
+  dplyr::rename(FDR=fdr) %>% 
+  mutate(Direction=ifelse(LogFC>0,"(+)","(-)")) %>% 
+  mutate(Parameter = factor(Parameter, levels = c("State 2 PM", 
+                                                  "State 3 PM", 
+                                                  "State 3 PMGS", 
+                                                  "State 4 PMGS", 
+                                                  "ETS PMGS"))) %>% 
+  arrange(Parameter)
+
+write.csv(sig_carb,"/home/hhampson/Results/Carb_Oro_Hep_DEGs_Sig_beta_ox.csv")
+
+
+# lipid_vars <- oro_vars[c(16,17,20:22,24,25,30)]
+lipid_vars <- oro_vars[c(16,17,20:22)]
+total_results <- data.frame()
+for (cell_name2 in HR_celltypes){
+  for (oro in lipid_vars) {
+    full_results <- read.csv(paste0("/home/hhampson/Results/NEBULA_",oro,"_",cell_name2,"_beta_ox.csv"))
+    full_results <- full_results %>% 
+      clean_names() %>% 
+      dplyr::rename(logFC=log_fc) %>% 
+      dplyr::rename(Gene=gene)
+    full_results <- full_results[,-1]
+    full_results$Celltype <- cell_name2
+    total_results <- rbind(total_results,full_results)
+  }
+}
+
+sig_lipid <- total_results %>% 
+  mutate(sig = ifelse(fdr<0.05,"*","")) %>% 
+  filter(sig=="*")
+
+sig_lipid <- sig_lipid %>% 
+  mutate(Parameter = case_when(variable=="lipidpc_m" ~ "State 2 FAM",
+                               variable=="lipid_adp" ~ "State 3 FAM",
+                               variable=="lipid_s" ~ "State 3 FAMGS",
+                               variable=="lipid_omy" ~ "State 4 FAMGS",
+                               variable=="lipidfccp" ~ "ETS FAMGS")) %>% 
+  mutate(Parameter=factor(Parameter, 
+                          levels = c("State 2 FAM", "State 3 FAM", 
+                                     "State 3 FAMGS", "State 4 FAMGS", "ETS FAMGS"))) %>% 
+    dplyr::select(c("Parameter","Gene","logFC","fdr","Celltype")) %>% 
+  dplyr::rename(LogFC=logFC) %>% 
+  dplyr::rename(FDR=fdr) %>% 
+  mutate(Direction=ifelse(LogFC>0,"(+)","(-)")) %>% 
+  arrange(Parameter)
+write.csv(sig_lipid,"/home/hhampson/Results/Lipid_Oro_Hep_DEGs_Sig_beta_ox.csv")
+
+
+```
 
 ### iv. Targeted Genes
 ```{r}
