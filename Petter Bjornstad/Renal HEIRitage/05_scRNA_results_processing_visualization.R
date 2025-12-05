@@ -74,30 +74,30 @@ folders <- c(
   "DKD_100_GLP_Y_vs_HC" = "dkd100_glpy_hc",
   
   # --- SGLT2i (within DKD) ---
-  # "DKD_30_SGLT2i_Y_vs_DKD_30_SGLT2i_N" = "dkd30_sglt2iy_sglt2in",
-  # "DKD_100_SGLT2i_Y_vs_DKD_100_SGLT2i_N" = "dkd100_sglt2iy_sglt2in",
+  "DKD_30_SGLT2i_Y_vs_DKD_30_SGLT2i_N" = "dkd30_sglt2iy_sglt2in",
+  "DKD_100_SGLT2i_Y_vs_DKD_100_SGLT2i_N" = "dkd100_sglt2iy_sglt2in",
   
   # --- SGLT2i (within nonDKD) ---
-  # "nonDKD_30_SGLT2i_Y_vs_nonDKD_30_SGLT2i_N" = "nondkd30_sglt2iy_sglt2in",
-  # "nonDKD_100_SGLT2i_Y_vs_nonDKD_100_SGLT2i_N" = "nondkd100_sglt2iy_sglt2in",
+  "nonDKD_30_SGLT2i_Y_vs_nonDKD_30_SGLT2i_N" = "nondkd30_sglt2iy_sglt2in",
+  "nonDKD_100_SGLT2i_Y_vs_nonDKD_100_SGLT2i_N" = "nondkd100_sglt2iy_sglt2in",
   
   # --- SGLT2i N/Y vs HC (nonDKD) ---
   "nonDKD_30_SGLT2i_N_vs_HC" = "nondkd30_sglt2in_hc",
   "nonDKD_30_SGLT2i_Y_vs_HC" = "nondkd30_sglt2iy_hc",
   "nonDKD_100_SGLT2i_N_vs_HC" = "nondkd100_sglt2in_hc",
-  "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc"
+  "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc",
   
   # --- SGLT2i N/Y vs HC (DKD) ---
-  # "DKD_30_SGLT2i_N_vs_HC" = "dkd30_sglt2in_hc",
-  # "DKD_30_SGLT2i_Y_vs_HC" = "dkd30_sglt2iy_hc",
-  # "DKD_100_SGLT2i_N_vs_HC" = "dkd100_sglt2in_hc",
-  # "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc"
+  "DKD_30_SGLT2i_N_vs_HC" = "dkd30_sglt2in_hc",
+  "DKD_30_SGLT2i_Y_vs_HC" = "dkd30_sglt2iy_hc",
+  "DKD_100_SGLT2i_N_vs_HC" = "dkd100_sglt2in_hc",
+  "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc"
 )
 
 # Pull in nebula results
-folders <- c(
-  "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc"
-)
+# folders <- c(
+#   "nonDKD_100_GLP_Y_vs_HC" = "nondkd100_glpy_hc"
+# )
 
 # Define common parameters
 celltype_groups <- list(
@@ -111,12 +111,24 @@ celltype_groups <- list(
   `PT-4` = "PT-4",
   `PT-5` = "PT-5",
   TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  `C-TAL-1` = "C-TAL-1",
+  `C-TAL-2` = "C-TAL-2",
+  aTAL = "aTAL",
+  dTAL = "dTAL",
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
+  `EC-AVR` = "EC-AVR",
+  `EC-GC`  = "EC-GC",
+  `EC-PTC` = "EC-PTC",
+  `EC-AEA` = "EC-AEA",
+  `EC-LYM` = "EC-LYM",
+  `EC/VSMC` = "EC/VSMC",
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
   PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
   IC = c("IC-A", "IC-B", "aIC"),
   DTL_ATL = c("DTL", "aDTL", "ATL"),
   DCT_CNT = c("DCT", "dDCT", "CNT"),
-  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
-  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
   VSMC_P_FIB = c("VSMC/P", "FIB"),
   POD = "POD",
   MC = "MC",
@@ -212,9 +224,6 @@ for (folder in names(folders)) {
   }
 }
 
-
-
-
 # Define plot parameters for each comparison
 plot_params <- list(
   # Existing parameters
@@ -291,8 +300,8 @@ plot_params <- list(
     formula = "nonDKD_GLP_N"
   ),
   "nondkd100_glpy_hc" = list(
-    fc_col = "logFC_dkd_group_100_glp_hcnon_DKD_GLP_Y",
-    p_col = "p_dkd_group_100_glp_hcnon_DKD_GLP_Y",
+    fc_col = "logFC_dkd_group_100_hcnon_DKD",
+    p_col = "p_dkd_group_100_hcnon_DKD",
     x_label = "logFC non-DKD (GLP1-RA+) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 100)",
     positive_text = "Positive with non-DKD\n(GLP+)",
     negative_text = "Negative with non-DKD\n(GLP+)",
@@ -324,9 +333,9 @@ plot_params <- list(
     negative_text = "Negative with DKD (T2D)",
     formula = "DKD_T2D"
   ),
-  "kpmp_dkd100_t2d_hc" = list(
-    fc_col = "logFC_dkd_group_100_t2d_hcDKD",
-    p_col = "p_dkd_group_100_t2d_hcDKD",
+  "dkd100_t2d_hc" = list(
+    fc_col = "logFC_dkd_group_100_hcDKD",
+    p_col = "p_dkd_group_100_hcDKD",
     x_label = "logFC DKD (T2D) vs. HC\n(DKD: eGFR < 90 or UACR >= 100)",
     positive_text = "Positive with DKD (T2D)",
     negative_text = "Negative with DKD (T2D)",
@@ -349,8 +358,8 @@ plot_params <- list(
     formula = "DKD_T2D"
   ),
   "dkd30_t2d_hc" = list(
-    fc_col = "logFC_dkd_group_30_t2d_hcDKD",
-    p_col = "p_dkd_group_30_t2d_hcDKD",
+    fc_col = "logFC_dkd_group_30_hcDKD",
+    p_col = "p_dkd_group_30_hcDKD",
     x_label = "logFC DKD (T2D) vs. HC\n(DKD: eGFR < 90 or UACR >= 30)",
     positive_text = "Positive with DKD (T2D)",
     negative_text = "Negative with DKD (T2D)",
@@ -399,8 +408,8 @@ plot_params <- list(
     formula = "nonDKD_SGLT2i_Y"
   ),
   "nondkd30_sglt2in_hc" = list(
-    fc_col = "logFC_dkd_group_30_sglt2i_hcnon_DKD",
-    p_col = "p_dkd_group_30_sglt2i_hcnon_DKD",
+    fc_col = "logFC_dkd_group_30_hcnon_DKD",
+    p_col = "p_dkd_group_30_hcnon_DKD",
     x_label = "logFC non-DKD (SGLT2i-) vs. HC\n(non-DKD: eGFR >= 90 and UACR < 30)",
     positive_text = "Positive with non-DKD\n(SGLT2i-)",
     negative_text = "Negative with non-DKD\n(SGLT2i-)",
@@ -841,8 +850,13 @@ for (comparison_name in names(folders)) {
   }
 }
 
-# Pathways using Hallmark
+# DF does not exist:
+# mc_dkd100_sglt2iy_sglt2in
+# schwann_dkd100_sglt2iy_sglt2in
+# mc_dkd100_sglt2iy_hc
+# schwann_dkd100_sglt2iy_hc
 
+# Pathways using Hallmark
 for (folder in folders) {
   for (cell in names(celltype_groups)) {
     # Create the variable name
@@ -913,6 +927,90 @@ for (folder in folders) {
   }
 }
 
+# Underlying genes in top 20 pathways (only significant at p<0.05)
+for (folder in folders) {
+  for (cell in names(celltype_groups)) {
+    message(paste0(cell, ": ", folder))
+    gsea_res_sub <- gsea_results[[paste0(folder, "_", tolower(gsub("/", "_", cell)))]]
+    gsea_res_hallmark <- data.frame(gsea_res_sub$hallmark)
+    if(nrow(gsea_res_hallmark) > 0) {
+      gsea_res_hallmark_top <- gsea_res_hallmark %>%
+        arrange(pval) %>%
+        head(20)
+      
+      df_name <- paste0(tolower(gsub("/", "_", cell)), "_", folder)
+      
+      # Check if data frame exists
+      if (!exists(df_name)) {
+        message(paste0("Data frame ", df_name, " not found, skipping"))
+        next
+      }
+      
+      df <- get(df_name)
+      
+      global_min <- min(df[[2]], na.rm = TRUE)
+      global_max <- max(df[[2]], na.rm = TRUE)
+      
+      pathway_plots <- list()
+      
+      for (i in seq_len(nrow(gsea_res_hallmark_top))) {
+        
+        pathways <- gsea_res_hallmark_top$pathway[i]
+        
+        gsea_res_hallmark_top_pathway <- gsea_res_hallmark_top %>%
+          filter(pathway == pathways)
+        
+        df_pathway <- df %>% 
+          filter(Gene %in% unlist(gsea_res_hallmark_top_pathway$leadingEdge)) %>%
+          arrange(across(2)) %>%
+          mutate(Gene = factor(Gene, levels = Gene),
+                 text_style = ifelse(.[[6]] < 0.05, "bold", "plain"),
+                 text_color = ifelse(.[[6]] < 0.05, "#212529", "#343a40"))
+        
+        p <- df_pathway %>%
+          ggplot(aes(x = 1, y = Gene, fill = .[[2]])) +
+          geom_tile() +
+          labs(x = NULL, y = NULL, fill = "logFC",
+               title = str_to_title(str_remove(str_replace_all(tolower(pathways), "_", " "), "^hallmark "))) +
+          geom_text(data = df_pathway %>% filter(fdr < 0.05),
+                    aes(x = 1, y = Gene, 
+                        label = Gene, color = text_color),
+                    fontface = "bold", size = 3, inherit.aes = F) +
+          geom_text(data = df_pathway %>% filter(fdr >= 0.05),
+                    aes(x = 1, y = Gene, 
+                        label = Gene, color = text_color),
+                    fontface = "plain", size = 3, inherit.aes = F) +
+          scale_y_discrete(drop = FALSE) +
+          scale_fill_gradient2(
+            low  = "#89c2d9",
+            mid  = "white",
+            high = "#ee7674",
+            midpoint = 0,
+            limits = c(global_min, global_max)
+          ) +
+          scale_color_identity() +
+          theme(panel.background = element_blank(),
+                title = element_text(hjust = 0.5),
+                plot.title = element_text(hjust = 0.5),
+                axis.ticks = element_blank(),
+                axis.text.x = element_blank(),
+                axis.text.y = element_blank()) 
+        # ggsave(file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/hallmark_", 
+        #                                    folder, "_", tolower(gsub("/", "_", cell)), "_", pathways, ".png")),
+        #        p)
+        
+        pathway_plots[[i]] <- p
+      }
+      combined_fig <- ggarrange(plotlist = pathway_plots, 
+                                ncol = 10, nrow = 2,
+                                common.legend = TRUE, legend = "right")
+      
+      ggsave(file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", 
+                                            folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
+             width = 20, height = 20)
+    }
+  }
+}
 
 
 ########################################################################################################################################################################################################################

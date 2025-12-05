@@ -1214,6 +1214,7 @@ run_fgsea_analysis <- function(bg_path = file.path(root_path, "GSEA/"),
 plot_gsea_results <- function(gsea_list, 
                               cell_name,
                               reference = "hallmark",
+                              size_ind = T,
                               top_n = 20,
                               max_pathway_length = 45,
                               caption_width = 70,
@@ -1240,11 +1241,16 @@ plot_gsea_results <- function(gsea_list,
   # Extract and prepare top pathways from the specified reference
   top_pathways <- gsea_list[[reference]] %>%
     arrange(pval) %>%
-    head(top_n)
+    head(top_n) %>%
+    mutate(leadingEdge_size = lengths(leadingEdge),
+           leadingEdge_fraction = leadingEdge_size / size)
   
   # Shorten pathway names
   shorten_result <- shorten_pathway_names(top_pathways$pathway, max_length = max_pathway_length)
   
+  if (size_ind) {
+    shorten_result$shortened <- paste0(shorten_result$shortened, " (", round(top_pathways$leadingEdge_fraction*100), "%)")
+  }
   top_pathways <- top_pathways %>%
     mutate(
       was_step6_truncated = shorten_result$step6_truncated,
@@ -1361,4 +1367,10 @@ s3read_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = 
   }
   
   return(FUN(tmp, ...))
+}
+
+simpleCap <- function(x) {
+  s <- strsplit(x, " ")[[1]]
+  paste(toupper(substring(s, 1, 1)), substring(s, 2),
+        sep = "", collapse = " ")
 }
