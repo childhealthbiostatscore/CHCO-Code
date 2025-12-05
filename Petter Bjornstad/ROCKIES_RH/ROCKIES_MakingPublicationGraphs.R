@@ -400,7 +400,7 @@ p <- ggplot(aim1_long, aes(x = metric, y = value)) +
   labs(x = "PET Metrics",
        y = "Value",
        fill = "Group",
-       title = "Figure 1.",
+       title = "Figure 2.",
        subtitle = "Global PET Imaging Metrics by Group") +
   theme_classic(base_size = 16) +  # Increased from 11
   theme(
@@ -448,7 +448,7 @@ p_broken <- p_with_stats +
 print(p_broken)
 
 # Save publication-quality figures with consistent dimensions
-ggsave(paste0(base_path, 'Aim1_GlobalPET.pdf'),
+ggsave(paste0(base_path, 'Figure2_GlobalPET.pdf'),
        plot = p_broken,
        width = 18,  # Increased to match other figures
        height = 20,  # Increased to match other figures
@@ -456,7 +456,7 @@ ggsave(paste0(base_path, 'Aim1_GlobalPET.pdf'),
        device = cairo_pdf,
        dpi = 300)
 
-ggsave(paste0(base_path, 'Aim1_GlobalPET.tiff'),
+ggsave(paste0(base_path, 'Figure2_GlobalPET.tiff'),
        plot = p_broken,
        width = 18,
        height = 20,
@@ -464,7 +464,7 @@ ggsave(paste0(base_path, 'Aim1_GlobalPET.tiff'),
        dpi = 300,
        compression = "lzw")
 
-ggsave(paste0(base_path, 'Aim1_GlobalPET.png'),
+ggsave(paste0(base_path, 'Figure2_GlobalPET.png'),
        plot = p_broken,
        width = 18,
        height = 20,
