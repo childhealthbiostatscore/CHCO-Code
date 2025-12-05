@@ -35,12 +35,15 @@ user <- Sys.info()[["user"]]
 if (user == "laurapyle") {
   data_path <- '/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/AstraZeneca'
   vsg_path <- '/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG'
+  results_path <- '/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG/Results'
 } else if (user == "lpyle") {
   data_path <- '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/AstraZeneca'
   vsg_path <- '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG'
+  results_path <- '/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG/Results'
 } else if (user == "pylell") {
   data_path <- '/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/AstraZeneca'
   vsg_path <- '/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG'
+  results_path <- '/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/VSG/Results'
 }else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -76,6 +79,46 @@ clean_variable_names <- function(data) {
   
   return(data)
 }
+
+
+scaleFUN <- function(x) sprintf("%.2f", x)
+
+# Volcano plot
+volcano <- function(data, lab = "metabolite", xcol = "Estimate", ycol = "Pr...t..",
+                    top = 15,
+                    xlimit = c(-1, 1), ylimit = c(0, -log10(10e-7)),
+                    xlabel = "logFC cohort:visit", pCutoff = 0.05, overlaps = 20,
+                    log_t = T) {
+  data <- as.data.frame(data)
+  t <- data[data[, "Pr...t.."] <= pCutoff, ]
+  if (log_t) {
+    t <- t[order(abs(log(t[, ycol])), decreasing = F), ]
+  } else {
+    t <- t[order(abs(t[, ycol]), decreasing = F), ]
+  }
+  data$top <- data[, "metabolite"] %in% t[1:top, "metabolite"]
+  data$logp <- -log10(data[, ycol])
+  data$fc <- data[, xcol]
+  data$sig <- data[, ycol] <= pCutoff
+  p <- ggplot(data = data, aes(x = fc, y = logp, color = sig)) +
+    geom_hline(yintercept = -log10(pCutoff), linetype = "dashed") +
+    geom_point(size = 2.5) +
+    geom_label_repel(
+      data = data[data$top, ], aes(label = metabolite), color = "black",
+      max.overlaps = overlaps, nudge_x = 0.6, nudge_y = 0.5
+    ) +
+    scale_color_manual(values = c("grey", "#3e6dbf")) +
+    xlab(xlabel) + scale_x_continuous(labels = scaleFUN) +
+    ylab(bquote(~ -Log[10] ~ italic(P))) +
+    theme_bw() +
+    theme(legend.position = "none")
+  return(p)
+}
+
+capitalize_first_letter <- function(metabolite) {
+  sub("([a-zA-Z])", "\\U\\1", metabolite, perl = TRUE)
+}
+
 ```
 
 ```{r, include=FALSE}
@@ -158,270 +201,45 @@ final[seqs] <- apply(final[seqs], 2, as.numeric)
 ```
 
 ```{r, include=FALSE}
-# this works now but need to figure out how to pull out the interaction 
-# coefficient and p-value and format for a volcano plot
-
 # Parallel processing
 cl <- makeForkCluster(8)
 rows <- parLapply(cl, seqs, function(y) {
   f <- as.formula(paste0("`", y, "` ~ cohort*vis_num + (1|updated_record_id)"))
   m <- lmer(f, data = final)
-  # Contrast not necessary with current parameterization, but nice to have written
-  #c <- contrast(emm,
-  #  method =
-  #    list("Year 1 - Month 1" = c(0, 0, 1, 0, 0, 0, 0) - c(1, 0, 0, 0, 0, 0, 0))
-  #)
-  #c <- as.data.frame(c)
-  #c$AptName <- y
-  #return(c)
+  row <- c(summary(m)$coef[4,], y)
+  row <- t(row)
+  row <- as.data.frame(row)
+  row[1:5] <- apply(row[1:5], 2, as.numeric)
+  return(row)
 })
 stopCluster(cl)
 
 # Save results
-lmm_res <- data.frame(do.call(rbind, rows)) %>%
-  dplyr::select(protein, term, estimate, p.value) %>%
-  filter(term != "(Intercept)")
-lmm_res$AptName <- analyte_info$AptName[match(lmm_res$protein, analyte_info$AptName)]
-lmm_res$protein <- analyte_info$UniProt[match(lmm_res$AptName, analyte_info$AptName)]
-lmm_res$Target <- analyte_info$Target[match(lmm_res$AptName, analyte_info$AptName)]
-lmm_res$TargetFullName <- analyte_info$TargetFullName[match(lmm_res$AptName, analyte_info$AptName)]
-lmm_res$Uniprot <- analyte_info$UniProt[match(lmm_res$AptName, analyte_info$AptName)]
-lmm_res <- split.data.frame(lmm_res, lmm_res$term)
-
+lmm_res <- data.frame(do.call(rbind, rows))
+colnames(lmm_res) <- c(colnames(lmm_res)[1:5], "metabolite")
+lmm_res$metabolite <- str_remove_all(lmm_res$metabolite, "_")
+lmm_res$metabolite <- capitalize_first_letter(lmm_res$metabolite)
 
 # write all results to file
-wb <- createWorkbook()
-
-addWorksheet(wb,"OC_LC")
-writeData(wb,"OC_LC",results_OC_LC,rowNames = T)
-
-addWorksheet(wb,"LC_T1D")
-writeData(wb,"LC_T1D",results_LC_T1D,rowNames = T)
-
-addWorksheet(wb,"LC_T2D")
-writeData(wb,"LC_T2D",results_LC_T2D,rowNames = T)
-
-addWorksheet(wb,"OC_T1D")
-writeData(wb,"OC_T1D",results_OC_T1D,rowNames = T)
-
-addWorksheet(wb,"OC_T2D")
-writeData(wb,"OC_T2D",results_OC_T2D,rowNames = T)
-
-addWorksheet(wb,"T1D_T2D")
-writeData(wb,"T1D_T2D",results_T1D_T2D,rowNames = T)
-
-saveWorkbook(wb,"/Users/pylell/Documents/Downtime/RPC2/RPC2_AZ_urine_metabolomics.xlsx",overwrite = TRUE)
-
-# now look for overlap of metabolites among groups
-results_LC_T1D_sig <- results_LC_T1D[results_LC_T1D$adj.P.Val < 0.05,]
-results_LC_T1D_sig <- results_LC_T1D_sig %>% filter(!is.na(logFC))
-results_LC_T1D_sig$Metabolites <- row.names(results_LC_T1D_sig)
-results_LC_T1D_sig <- results_LC_T1D_sig %>% rename(logFC_LC_T1D = logFC, P.Value_LC_T1D = P.Value,
-                                                    adj.P.Val_LC_T1D = adj.P.Val)
-results_LC_T1D_sig <- results_LC_T1D_sig %>% select(Metabolites, logFC_LC_T1D, P.Value_LC_T1D, adj.P.Val_LC_T1D)
-
-results_LC_T2D_sig <- results_LC_T2D[results_LC_T2D$adj.P.Val < 0.05,]
-results_LC_T2D_sig <- results_LC_T2D_sig %>% filter(!is.na(logFC))
-results_LC_T2D_sig$Metabolites <- row.names(results_LC_T2D_sig)
-results_LC_T2D_sig <- results_LC_T2D_sig %>% rename(logFC_LC_T2D = logFC, P.Value_LC_T2D = P.Value,
-                                                    adj.P.Val_LC_T2D = adj.P.Val )
-results_LC_T2D_sig <- results_LC_T2D_sig %>% select(Metabolites, logFC_LC_T2D, P.Value_LC_T2D, adj.P.Val_LC_T2D)
-
-
-results_T1D_T2D_sig <- results_T1D_T2D[results_T1D_T2D$adj.P.Val < 0.05,]
-results_T1D_T2D_sig <- results_T1D_T2D_sig %>% filter(!is.na(logFC))
-results_T1D_T2D_sig$Metabolites <- row.names(results_T1D_T2D_sig)
-results_T1D_T2D_sig <- results_T1D_T2D_sig %>% rename(logFC_T1D_T2D = logFC, P.Value_T1D_T2D = P.Value,
-                                                     adj.P.Val_T1D_T2D = adj.P.Val )
-results_T1D_T2D_sig <- results_T1D_T2D_sig %>% select(Metabolites, logFC_T1D_T2D, P.Value_T1D_T2D, adj.P.Val_T1D_T2D)
-
-results_sig <- full_join(results_LC_T1D_sig, results_LC_T2D_sig, by = "Metabolites")
-results_sig <- full_join(results_sig, results_T1D_T2D_sig, by = "Metabolites")
-
-results_sig$count <- results_sig %>% group_by(Metabolites) %>% 
-   summarise(count = sum(!is.na(logFC_LC_T1D), !is.na(logFC_LC_T2D), !is.na(logFC_T1D_T2D)))
-results_sig_overlap <- results_sig %>% filter(count$count >= 2)
-write.csv(results_sig_overlap,"/Users/pylell/Documents/Downtime/RPC2/RPC2_AZ_urine_metabolomics_overlap.csv")
-
+filename <- "VSG vs SMT urine metabolomics.csv"
+full_path <- file.path(vsg_path, filename)
+write.csv(lmm_res, full_path, row.names = FALSE)
 ```
 
 ```{r, include=FALSE}
-# write a function to make each panel of the plot
-panel_in_boxplot <- function(data, seq) {
-  p <- ggplot(data,
-       aes(x = Dose,
-                     y = .data[[seq]],
-                     fill = Dose))  +
-  geom_boxplot(show.legend = FALSE) +  
-  labs(x = NULL,
-       y = NULL) +
-       #,
-       #fill = "Group") 
-  theme(axis.title.x = element_text(size = 16),
-        axis.title.y = element_text(size = 14),
-        axis.text.x = element_text(size = 14),
-        panel.background = element_rect(fill = "#f2e9e4",
-                                        color = "grey")) + 
-  scale_fill_manual(values = c("#c2dfe3", "#fff9ec",
-                                "#fcb1a6", "#fb6376")) +
-  geom_jitter() +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) 
-  p <- p + scale_x_discrete(labels=c("LC", "OC", "T1D","T2D"))
-  p <- p + theme(legend.position = "none")
-}
+# volcano plot
+v <- volcano(lmm_res, log_t = FALSE)
+v <- v  +
+  theme(plot.title = element_text(hjust = 0.5))
+```
 
-# function call for above template
-p_Betaine <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Betaine_P")
-p_Betaine <- p_Betaine + labs(title = "Betaine (+)")
+Volcano plot of the differences in differences for 
 
-p_thymine <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._thymine_N")
-p_thymine <- p_thymine + labs(title = "Thymine (-)")
-
-p_glucose6 <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Glucose_6_Phosphate_N")
-p_glucose6 <- p_glucose6 + labs(title = "Glucose 6-phosphate (-)")
-
-p_galactose <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Galactose_1_Phosphate_N")
-p_galactose <- p_galactose + labs(title = "Galactose 1-phosphate (-)")
-
-p_oxalic <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Oxalic_acid_N")
-p_oxalic <- p_oxalic + labs(title = "Oxalic acid (-)")
-
-p_hp <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Hydroxy_proline_N")
-p_hp <- p_hp + labs(title = "Hydroxyproline (-)")
-
-p_uracil <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._uracil_N")
-p_uracil <- p_uracil + labs(title = "Uracil (-)")
-
-p_mannose6 <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Mannose_6_phosphate_N")
-p_mannose6 <- p_mannose6 + labs(title = "Mannose 6-phosphate (-)")
-
-p_f1 <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Fructose__1_Phosphate_N")
-p_f1 <- p_f1 + labs(title = "Fructose 1-phosphate (-)")
-
-p_f6 <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Fructose_6_Phosphate_N")
-p_f6 <- p_f6 + labs(title = "Fructose 6-phosphate (-)")
-
-p_a8 <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._acyl_carnitine_8_0_P")
-p_a8 <- p_a8 + labs(title = "Acylcarnitine 8:0 (+)")
-
-p_dpa <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._dihydroxy_phenyl_acetic_acid_N")
-p_dpa <- p_dpa + labs(title = "Dihydroxyphenylacetic acid (-)")
-
-p_p5p <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Pyridoxal_5_Phosphate_N")
-p_p5p <- p_p5p + labs(title = "Pyridoxal 5-phosphate (-)")
-
-p_m <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._malate_N")
-p_m <- p_m + labs(title = "Malate (-)")
-
-p_sm <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._sorbitol_mannitol_N")
-p_sm <- p_sm + labs(title = "Sorbitol mannitol (-)")
-
-p_hpp <- panel_in_boxplot(data = data_wide, seq = "Peak.Area.Hydroxy_phenyl_propionic_acid_N")
-p_hpp <- p_hpp + labs(title = "Hydroxyphenylpropionic acid (-)")
-
-p_a <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Alanine_P")
-p_a <- p_a + labs(title = "Alanine (+)")
-
-p_sarc <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Sarcosine_P")
-p_sarc <- p_sarc + labs(title = "Sarcosine (+)")
-
-p_a10 <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._acyl_carnitine_10_0_P")
-p_a10 <- p_a10 + labs(title = "Acylcarnitine (10:0)")
-
-p_ps <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Phospho_serine_N")
-p_ps <- p_ps + labs(title = "Phosphoserine (-)")
-
-p_sdma <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._SDMA_P")
-p_sdma <- p_sdma + labs(title = "SDMA (+)")
-
-p_isoc <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._isocitrate_sp_N")
-p_isoc <- p_isoc + labs(title = "Isocitrate (-)")
-
-p_ky <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Kynurenine_P")
-p_ky <- p_ky + labs(title = "Kynurenine (+)")
-
-p_cys <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Cystine_N")
-p_cys <- p_cys + labs(title = "Cystine (-)")
-
-p_pcreat <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Pcreatine_N")
-p_pcreat <- p_pcreat + labs(title = "Pcreatine (-)")
-
-p_ha <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Hippuric_Acid_P")
-p_ha <- p_ha + labs(title = "Hippuric acid (+)")
-
-p_cyt <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._cytosine_N")
-p_cyt <- p_cyt + labs(title = "Cytosine (-)")
-
-p_hypo <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Hypoxanthine_P")
-p_hypo <- p_hypo + labs(title = "Hypoxanthine (+)")
-
-p_hpla <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Hydroxy_phenyl_lactic_acid_N")
-p_hpla <- p_hpla + labs(title = "Hydroxyphenyllactic acid (-)")
-
-p_py <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._pyruvic_acid_N")
-p_py <- p_py + labs(title = "Pyruvic acid (-)")
-
-p_q <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Quinolinic_acid_N")
-p_q <- p_q + labs(title = "Quinolinic acid (-)")
-
-p_lysine <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Lysine_P")
-p_lysine <- p_lysine + labs(title = "Lysine (+)")
-
-p_aa <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._2_Aminoadipic_acid_P")
-p_aa <- p_aa + labs(title = "Aminoadipic acid (+)")
-
-p_c <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Creatine_P")
-p_c <- p_c + labs(title = "Creatine (+)")
-
-p_pep <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Phospho_enol_pyruvic_acid_N")
-p_pep <- p_pep + labs(title = "Phosphenolpyruvic acid (-)")
-
-p_mx <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._7_Methylxanthine_P")
-p_mx <- p_mx + labs(title = "Methylxanthine (+)")
-
-p_mxn <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._methylxanthine_N")
-p_mxn <- p_mxn + labs(title = "Methylxanthine (-)")
-
-p_me <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Mesaconic_Acid_N")
-p_me <- p_me + labs(title = "Mesaconic acid (-)")
-
-p_glut <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._glutathione_ox_N")
-p_glut <- p_glut + labs(title = "Glutathione ox (-)")
-
-p_mer <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Mercapturic_acid_N")
-p_mer <- p_mer + labs(title = "Mercapturic acid (-)")
-
-p_ga <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._glutaric_acid_N")
-p_ga <- p_ga + labs(title = "Glutaric acid (-)")
-
-p_mna <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._1_MNA_P")
-p_mna <- p_mna + labs(title = "MNA (+)")
-
-p_gm <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Guanosine monophosphate_N")
-p_gm <- p_gm + labs(title = "Guanosine monophosphate (-)")
-
-p_cm <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._Cytidine_monophosphate_N")
-p_cm <- p_cm + labs(title = "Cytidine monophosphate (-)")
-
-p_mxp <- panel_in_boxplot(data = data_wide, seq = "Peak.Area._3_Methylxanthine_P")
-p_mxp <- p_mxp + labs(title = "3-methylxanthine (+)")
+cohort: effect of VSG compared to SMT
+visit: visit 2 vs. visit 1
+cohort*visit: positive if the change in VSG is greater than change in SMT
 
 
-
-
-
-
-
-
-
-# arrange
-grpbox <- ggarrange(p_seq.3343.1,p_seq.8958.51,p_seq.24957.6,
-                    p_seq.2948.58,p_seq.2999.6,p_seq.4498.62,p_seq.20161.41,
-                    p_seq.5634.39,p_seq.7735.17,p_seq.13998.26,p_seq.7957.2,p_seq.24681.2,
-                    p_seq.19563.3,p_seq.13408.23,p_seq.3235.50,
-                    nrow = 3, ncol = 5,
-                    common.legend = T)
-png(height = 3000, width = 2500, file = "/Users/pylell/Dropbox/TODAY HTN and DKD output/local_T2D_HTN_boxplot.png", res = 170)
-grpbox
-dev.off()
+```{r}
+v
 ```
