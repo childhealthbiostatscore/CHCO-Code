@@ -1,0 +1,3036 @@
+---
+title: "CKM in the TODAY study"
+author: "Laura Pyle / Jairo A Pinzon"
+date: "`r lubridate::today()`"
+format: html
+editor: visual
+echo: FALSE
+warning: FALSE
+toc: TRUE
+embed-resources: TRUE
+---
+
+```{r include = F}
+# =============================================================================
+# LIBRARIES
+# =============================================================================
+library(dplyr)
+library(arsenal)
+library(tidyr)
+library(ggplot2)
+library(ggpubr)
+library(ggalluvial)
+library(FSA)
+library(fuzzyjoin)
+library(purrr)
+library(stringr)
+library(arsenal)
+library(Hmisc)
+library(SomaDataIO)
+library(caret)
+library(survival)
+library(broom)
+library(openxlsx)
+library(readxl)
+library(knitr)
+library(limma)
+library(gtsummary)
+library(cardx)
+library(forestploter)
+library(forcats)
+library(fgsea)
+# Install from CRAN
+#install.packages("ensr")
+library(ensr)
+
+# Working directory setup
+getwd()
+#usethis::use_git()
+
+# specify user for paths
+user <- Sys.info()[["user"]]
+if (user == "laurapyle") {
+  data_path <- "/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
+  github_path <- "/Users/laurapyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  root_path <- "/Users/laurapyle/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+} else if (user == "lpyle") {
+  data_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
+  github_path <- "/Users/lpyle/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  root_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  teen_labs_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/"
+} else if (user == "pylell") {
+  data_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
+  github_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  teen_labs_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Teen Labs/"
+} else if (user == "jpcortes") {
+  # Update the data_path to your OneDrive or cloud storage location
+  data_path <- "/Users/jpcortes/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/TODAY subaward"
+  github_path <- "/Users/jpcortes/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  root_path <- "/Users/jpcortes/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive"
+  } else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+filename <- "/TODAY proteomics metabolomics/CKM/CKM functions.R"
+full_path <- file.path(github_path, filename)
+source(full_path)
+```
+
+```{r include = F}
+# =============================================================================
+# DATA LOADING AND BASIC VARIABLES
+# =============================================================================
+
+# Core datasets
+#comorb <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/COMORB.csv")
+filename <- "/Clinical data/comorb.csv"
+full_path <- file.path(data_path, filename)
+comorb <- read.csv(full_path)
+
+## Fix that path because the OneDrive is not allowing proper access to it.
+#load("/Users/jpcortes/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+#load("/Users/jpcortes/Documents/Temp_files_TODAY/clinical_data_long.Rdata")
+filename <- "/Clinical data/TODAY/clinical_data_long.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
+
+#load("/Users/jpcortes/Documents/Temp_files_TODAY/baserisk.Rdata")
+filename <- "/Clinical data/TODAY/baserisk.Rdata"
+full_path <- file.path(data_path, filename)
+load(file = full_path)
+
+#ame <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/AME.csv")
+filename <- "/Clinical data/TODAY2/AME.csv"
+full_path <- file.path(data_path, filename)
+ame <- read.csv(full_path)
+
+ame_tab <- table(ame$AMENAME, ame$AMETYPE)
+ame_pt <- ame %>% select(releaseid, AMENAME, AMETYPE) %>% unique()
+ame_pt_tab <- table(ame_pt$AMENAME, ame_pt$AMETYPE)
+ametype <- c("Heart", "Vascular", "Cerebrovascular", "GI", "Nerve", "Renal", "Eye", "Death")
+amename <- c("Arrhythmia", "CAD", "CHD", "LVSD", "MI", "PAD", "DVT", "Stroke", "TIA",
+             "Pancreatitis", "Gallbladder disease", "Peripheral neuropathy", "Autonomic neuropathy", "Diabetic mononeuropathy", "CKD", "ESKD", "NPDR", 
+             "PDR", "Macular edema", "Vitreous hemorrhage", "Blindness", "Cataracts", "Glaucoma", "Death")
+ame_tab <- as.data.frame.matrix(ame_tab)
+ame_pt_tab <- as.data.frame.matrix(ame_pt_tab)
+colnames(ame_tab) <- ametype
+rownames(ame_tab) <- amename
+colnames(ame_pt_tab) <- ametype
+rownames(ame_pt_tab) <- amename
+ame_tab <- as.data.frame(ame_tab)
+ame_pt_tab <- as.data.frame(ame_pt_tab)
+ame_tab <- ame_tab %>%  mutate(Total = rowSums(across(where(is.numeric))))
+ame_pt_tab <- ame_pt_tab %>%  mutate(Total = rowSums(across(where(is.numeric))))
+ame_tab_col_tot <- colSums(ame_tab)
+ame_tab <- rbind(ame_tab, ame_tab_col_tot)
+rownames(ame_tab)[nrow(ame_tab)] <- "Total"
+ame_pt_tab_col_tot <- colSums(ame_pt_tab)
+ame_pt_tab <- rbind(ame_pt_tab, ame_pt_tab_col_tot)
+rownames(ame_pt_tab)[nrow(ame_pt_tab)] <- "Total"
+
+#baseline <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/BASELINE.csv")
+filename <- "/Clinical data/TODAY/BASELINE.csv"
+full_path <- file.path(data_path, filename)
+baseline <- read.csv(full_path)
+
+# Echo data
+#today_echo <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ECHO_today.csv")
+filename <- "/Clinical data/TODAY/ECHO.csv"
+full_path <- file.path(data_path, filename)
+today_echo <- read.csv(full_path)
+today_echo$TIMEPOINT <- "1"
+
+#today2_echo <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ECHO_today2.csv")
+filename <- "/Clinical data/TODAY2/ECHO.csv"
+full_path <- file.path(data_path, filename)
+today2_echo <- read.csv(full_path)
+today2_echo$TIMEPOINT <- "2"
+
+# Lab data
+#cbl_1 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/CBL_TODAY1.csv")
+filename <- "/Clinical data/TODAY/CBL.csv"
+full_path <- file.path(data_path, filename)
+cbl_1 <- read.csv(full_path)
+cbl_1$TIMEPOINT <- "1"
+# remove R visits
+cbl_1 <- cbl_1 %>% filter(!mvisit == "R")
+# for any baseline visits with days < 0, recode to 0 to avoid having two baseline records later
+cbl_1$days <- ifelse(cbl_1$days < 0, 0, cbl_1$days)
+
+#cbl_2 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/CBL_TODAY2.csv")
+filename <- "/Clinical data/TODAY2/CBL.csv"
+full_path <- file.path(data_path, filename)
+cbl_2 <- read.csv(full_path)
+cbl_2$TIMEPOINT <- "2"
+# rename columns to match TODAY
+cbl_2 <- cbl_2 %>% rename(HbA1c = hba1c, LDL = ldl, Chol = chol, hsCRP = hscrp, ALT = alt, AST = ast,
+                          FFA = ffa, FIB = fib, Glucose = glucose, HOM = hom, LDLB = ldlb, LDLC = ldlc,
+                          PIN = pin, Rf = rf, Trig = trig, ApoB = apob, EstCreatClear = estcreatclear,
+                          HDL = hdl, LDLCB = ldlcb, SerumCreat = serumcreat, UAlb = ualb,
+                          UAlbCreat = ualbcreat, UCreat = ucreat, VB12 = vb12, VLDL = vldl, 
+                          IL6 = il6, PAI1 = pai1)
+
+#addcbl_1 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ADDCBL_TODAY1.csv")
+filename <- "/Clinical data/TODAY/ADDCBL.csv"
+full_path <- file.path(data_path, filename)
+addcbl_1 <- read.csv(full_path)
+addcbl_1$TIMEPOINT <- "1"
+# LP: remove R visits
+addcbl_1 <- addcbl_1 %>% filter(!mvisit == "R")
+# for any baseline visits with days < 0, recode to 0 to avoid having two baseline records later
+addcbl_1$days <- ifelse(addcbl_1$days < 0, 0, addcbl_1$days)
+
+#addcbl_2 <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/ADDCBL_TODAY2.csv")
+filename <- "/Clinical data/TODAY2/ADDCBL.csv"
+full_path <- file.path(data_path, filename)
+addcbl_2 <- read.csv(full_path)
+addcbl_2$TIMEPOINT <- "2"
+
+# Specialized datasets
+#speckle <- read.csv('/Users/jpcortes/Documents/Temp_files_TODAY/SPECKLE.csv')
+filename <- "/Clinical data/TODAY2/SPECKLE.csv"
+full_path <- file.path(data_path, filename)
+speckle <- read.csv(full_path)
+
+#pwv <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PWV.csv")
+filename <- "/Clinical data/TODAY2/PWV.csv"
+full_path <- file.path(data_path, filename)
+pwv <- read.csv(full_path)
+
+# Quality of life questionnaires
+# LP: why are TODAY data not used and merged to echo timepoint?
+# TODAY
+filename <- "/Clinical data/TODAY/PEDSQLGC.csv"
+full_path <- file.path(data_path, filename)
+pedsQL_C_today <- read.csv(full_path)
+names(pedsQL_C_today) <- toupper(names(pedsQL_C_today))
+
+filename <- "/Clinical data/TODAY/PEDSQLGT.csv"
+full_path <- file.path(data_path, filename)
+pedsQL_T_today <- read.csv(full_path)
+names(pedsQL_T_today) <- toupper(names(pedsQL_T_today))
+
+# TODAY2
+# LP: filenames don't match TODAY2 documentation - emailed Laure
+#pedsQL_A <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PEDSQLGA.csv")
+filename <- "/Clinical data/TODAY2/PEDSQLGA.csv"
+full_path <- file.path(data_path, filename)
+pedsQL_A <- read.csv(full_path)
+
+#pedsQL_Y <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PEDSQLGY.csv")
+filename <- "/Clinical data/TODAY2/PEDSQLGY.csv"
+full_path <- file.path(data_path, filename)
+pedsQL_Y <- read.csv(full_path)
+
+#pedsQL_T <- read.csv("/Users/jpcortes/Documents/Temp_files_TODAY/PEDSQLGT.csv")
+filename <- "/Clinical data/TODAY2/PEDSQLGT.csv"
+full_path <- file.path(data_path, filename)
+pedsQL_T <- read.csv(full_path)
+
+filename <- "/Clinical data/TODAY2/TME.csv"
+full_path <- file.path(data_path, filename)
+tme <- read.csv(full_path)
+
+# Alternative paths (backup)
+#comorb <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad#/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/COMORB.csv")
+#ame <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad#/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/AME.csv')
+#today_echo <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY/echo.csv")
+#today2_echo <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/echo.csv")
+#speckle <- read.csv('/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward/Clinical data/TODAY2/SPECKLE.csv')
+#pwv <- read.csv("/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/TODAY subaward//Clinical data/TODAY2/pwv.csv")
+```
+
+```{r include = F}
+# =============================================================================
+# DATA PREPARATION AND PROCESSING
+# =============================================================================
+
+# AME data processing - create individual event datasets
+arrhythmia <- ame %>% filter(AMENAME == 1) %>% select(releaseid, DAYSTOAME)
+colnames(arrhythmia) <- c("RELEASEID", "DAYSTOARRHYTHMIA")
+arrhythmia$ARRHYTHMIA <- 1
+arrhythmia <- arrhythmia %>% arrange(RELEASEID, DAYSTOARRHYTHMIA) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+cad <- ame %>% filter(AMENAME == 2) %>% select(releaseid, DAYSTOAME)
+colnames(cad) <- c("RELEASEID", "DAYSTOCAD")
+cad$CAD <- 1
+cad <- cad %>% arrange(RELEASEID, DAYSTOCAD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+chf <- ame %>% filter(AMENAME == 3) %>% select(releaseid, DAYSTOAME)
+colnames(chf) <- c("RELEASEID", "DAYSTOCHF")
+chf$CHF <- 1
+chf <- chf %>% arrange(RELEASEID, DAYSTOCHF) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+LVSD <- ame %>% filter(AMENAME == 4) %>% select(releaseid, DAYSTOAME)
+colnames(LVSD) <- c("RELEASEID", "DAYSTOLVSD")
+LVSD$LVSD <- 1
+LVSD <- LVSD %>% arrange(RELEASEID, DAYSTOLVSD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+mi <- ame %>% filter(AMENAME == 5) %>% select(releaseid, DAYSTOAME)
+colnames(mi) <- c("RELEASEID", "DAYSTOMI")
+mi$MI <- 1
+mi <- mi %>% arrange(RELEASEID, DAYSTOMI) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+pad <- ame %>% filter(AMENAME == 6) %>% select(releaseid, DAYSTOAME)
+colnames(pad) <- c("RELEASEID", "DAYSTOPAD")
+pad$PAD <- 1
+pad <- pad %>% arrange(RELEASEID, DAYSTOPAD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+dvt <- ame %>% filter(AMENAME == 8) %>% select(releaseid, DAYSTOAME)
+colnames(dvt) <- c("RELEASEID", "DAYSTODVT")
+dvt$DVT <- 1
+dvt <- dvt %>% arrange(RELEASEID, DAYSTODVT) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+stroke <- ame %>% filter(AMENAME == 9) %>% select(releaseid, DAYSTOAME)
+colnames(stroke) <- c("RELEASEID", "DAYSTOSTROKE")
+stroke$STROKE <- 1
+stroke <- stroke %>% arrange(RELEASEID, DAYSTOSTROKE) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+tia <- ame %>% filter(AMENAME == 11) %>% select(releaseid, DAYSTOAME)
+colnames(tia) <- c("RELEASEID", "DAYSTOTIA")
+tia$TIA <- 1
+tia <- tia %>% arrange(RELEASEID, DAYSTOTIA) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+ckd <- ame %>% filter(AMENAME == 17) %>% select(releaseid, DAYSTOAME)
+colnames(ckd) <- c("RELEASEID", "DAYSTOCKD")
+ckd$CKD <- 1
+ckd <- ckd %>% arrange(RELEASEID, DAYSTOCKD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+eskd <- ame %>% filter(AMENAME == 18) %>% select(releaseid, DAYSTOAME)
+colnames(eskd) <- c("RELEASEID", "DAYSTOESKD")
+eskd$ESKD <- 1
+eskd <- eskd %>% arrange(RELEASEID, DAYSTOESKD) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+death <- ame %>% filter(AMENAME == 26) %>% select(releaseid, DAYSTOAME)
+colnames(death) <- c("RELEASEID", "DAYSTODEATH")
+death$DEATH <- 1
+death <- death %>% arrange(RELEASEID, DAYSTODEATH) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+ulcer <- tme %>% filter(TMETYPE == 5) %>% select(RELEASEID, DAYSTOTME)
+colnames(ulcer) <- c("RELEASEID", "DAYSTOULCER")
+ulcer$ULCER <- 1
+ulcer <- ulcer %>% arrange(RELEASEID, DAYSTOULCER) %>% group_by(RELEASEID) %>% filter(row_number()==1)
+
+# Merge all AME events
+ame_summary <- full_join(arrhythmia, cad, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, chf, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, LVSD, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, mi, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, pad, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, dvt, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, stroke, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, tia, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, ckd, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, eskd, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, death, by = "RELEASEID")
+ame_summary <- full_join(ame_summary, ulcer, by = "RELEASEID")
+
+# Convert NAs to 0 and create factors
+ame_summary <- ame_summary %>% 
+    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "CKD", "ESKD", "DEATH", "ULCER"), ~replace_na(.,0))
+ame_summary <- ame_summary %>% 
+    mutate_at(c("ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "PAD", "DVT", "STROKE", "TIA", "CKD", "ESKD", "DEATH", "ULCER"), ~as.factor(.))
+
+# Clinical CVD composite
+ame_summary$clin_cvd <- ifelse(
+  rowSums(ame_summary[, c("ARRHYTHMIA", "CAD", "CHF", "MI", "PAD", "DVT", "STROKE", "TIA", "ULCER", "LVSD")] == 1, na.rm = TRUE) > 0,
+  1,
+  0)
+
+# Merge with comorb data
+comorb_ckm <- merge(comorb, ame_summary, by = "RELEASEID", all.x = TRUE)
+# LP NOTE: comorb_ckm has NAs, need to set events to 0 and days to event to total follow up time
+
+# Follow-up time calculation
+# CHECK THIS
+# comorb$fup_time <- ifelse(comorb$HTN == 0, comorb$DAYSTOHTN, 
+#                           ifelse(comorb$LDLDLP == 0, comorb$DAYSTOLDL,
+#                                  ifelse(comorb$NEURO == 0, comorb$DAYSTONEURO, 
+#                                         ifelse(comorb$DNE == 0, comorb$DAYSTODNE, 
+#                                                ifelse(comorb$FILAM == 0, comorb$DAYSTOFILAM, 
+#                                                      ifelse(comorb$RETINO == 0, comorb$DAYSTORETINO, 
+#                                                             ifelse(comorb$TGDLP == 0, comorb$DAYSTOTG, 
+#                                                                    ifelse(comorb$NEPHRO == 0, comorb$DAYSTONEPHRO, 
+#                                                                           ifelse(comorb$HYP ==0, comorb$DAYSTOHYP, NA)))))))))
+
+for (i in 1:nrow(comorb_ckm)) {
+  comorb_ckm$fup_time[i] <- max(comorb_ckm$DAYSTOHTN[i], comorb_ckm$DAYSTOLDL[i], comorb_ckm$DAYSTOLDL[i],
+                                comorb_ckm$DAYSTOTG[i], comorb_ckm$DAYSTOTG[i], comorb_ckm$DAYSTOMIC[i],
+                                comorb_ckm$DAYSTOMAC[i], comorb_ckm$DAYSTONEPHRO[i], comorb_ckm$DAYSTOHYP[i],
+                                comorb_ckm$DAYSTORAPID[i], comorb_ckm$DAYSTODNE[i], comorb_ckm$DAYSTOFILAM[i],
+                                comorb_ckm$DAYSTONEURO[i], comorb_ckm$DAYSTORETINO[i], comorb_ckm$DAYSTOMVD[i],
+                                comorb_ckm$DAYSTOGLYC[i], comorb_ckm$DAYSTOARRHYTHMIA[i], comorb_ckm$DAYSTOCAD[i],
+                                comorb_ckm$DAYSTOCHF[i], comorb_ckm$DAYSTOLVSD[i], comorb_ckm$DAYSTOMI[i],
+                                comorb_ckm$DAYSTOPAD[i], comorb_ckm$DAYSTODVT[i], comorb_ckm$DAYSTOSTROKE[i],
+                                comorb_ckm$DAYSTOTIA[i], comorb_ckm$DAYSTOCKD[i], comorb_ckm$DAYSTOESKD[i],
+                                comorb_ckm$DAYSTODEATH[i], comorb_ckm$DAYSTOULCER[i], na.rm = T)
+}
+
+# need to update this to process all events
+comorb_ckm <- replace_missing_events(comorb_ckm)
+
+# now make a long dataset with number of days and flag 0/1 for event having occurred
+# we only have the first event of each so can't look at repeat events
+# first comorb events which have a baseline and follow up variable
+HTN0 <- comorb_ckm %>% select(RELEASEID, HTN0)
+HTN0 <- HTN0 %>% rename(HTN = HTN0)
+HTN0$days <- 0
+HTN <- comorb_ckm %>% select(RELEASEID, DAYSTOHTN, HTN)
+colnames(HTN) <- c("RELEASEID", "days", "HTN")
+HTN <- rbind(HTN0, HTN)
+HTN <- HTN %>% filter(HTN == 1)
+HTN <- unique(HTN)
+TGDLP0 <- comorb_ckm %>% select(RELEASEID, TGDLP0)
+TGDLP0 <- TGDLP0 %>% rename(TGDLP = TGDLP0)
+TGDLP0$days <- 0
+TGDLP <- comorb_ckm %>% select(RELEASEID, DAYSTOTG, TGDLP)
+colnames(TGDLP) <- c("RELEASEID", "days", "TGDLP")
+TGDLP <- rbind(TGDLP0, TGDLP)
+TGDLP <- TGDLP %>% filter(TGDLP == 1)
+TGDLP <- unique(TGDLP)
+temp <- full_join(HTN, TGDLP, by = c("RELEASEID", "days"))
+arrhythmia <- arrhythmia %>% rename("days" = "DAYSTOARRHYTHMIA")
+comorb_long <- full_join(temp, arrhythmia, by = c("RELEASEID", "days"))
+cad <- cad %>% rename("days" = "DAYSTOCAD")
+comorb_long <- full_join(comorb_long, cad, by = c("RELEASEID", "days"))
+chf <- chf %>% rename("days" = "DAYSTOCHF")
+comorb_long <- full_join(comorb_long, chf, by = c("RELEASEID", "days"))
+LVSD <- LVSD %>% rename("days" = "DAYSTOLVSD")
+comorb_long <- full_join(comorb_long, LVSD, by = c("RELEASEID", "days"))
+mi <- mi %>% rename("days" = "DAYSTOMI")
+comorb_long <- full_join(comorb_long, mi, by = c("RELEASEID", "days"))
+dvt <- dvt %>% rename("days" = "DAYSTODVT")
+comorb_long <- full_join(comorb_long, dvt, by = c("RELEASEID", "days"))
+pad <- pad %>% rename("days" = "DAYSTOPAD")
+comorb_long <- full_join(comorb_long, pad, by = c("RELEASEID", "days"))
+stroke <- stroke %>% rename("days" = "DAYSTOSTROKE")
+comorb_long <- full_join(comorb_long, stroke, by = c("RELEASEID", "days"))
+tia <- tia %>% rename("days" = "DAYSTOTIA")
+comorb_long <- full_join(comorb_long, tia, by = c("RELEASEID", "days"))
+ulcer <- ulcer %>% rename("days" = "DAYSTOULCER")
+comorb_long <- full_join(comorb_long, ulcer, by = c("RELEASEID", "days"))
+fup <- comorb_ckm %>% select(RELEASEID, fup_time)
+
+# Biomarker extraction for various markers
+bnp_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "bnp")
+troponin_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "troponin")
+adiponectin_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "adiponectin")
+hmwa_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "hmwa")
+edol_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "edol")
+shbg_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "shbg")
+test_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "testosterone")
+gfr_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "ckd_gfr")
+fas_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "eGFR_FAS")
+codi_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "codi")
+insinv_vals <- extract_biomarker_values_long(list(addcbl_1, addcbl_2), "insinv")
+
+# More biomarker extractions
+uacr_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "UAlbCreat")
+il6_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "IL6")
+il1_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "il1")
+hscrp_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "hsCRP")
+apob_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "ApoB")
+mcp1_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "mcp1")
+tnfa_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "tnfa")
+tnfr1_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "tnfr1")
+tnfr2_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "tnfr2")
+icam1_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "icam1")
+vcam1_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "vcam1")
+eselectin_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "eselectin")
+vegf_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "vegf")
+fgf23_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "fgf23")
+a1c_vals <- extract_biomarker_values_long(list(cbl_1, cbl_2), "HbA1c")
+
+# Clean infinite values
+clean_infinite <- function(df) {
+  df %>% mutate(across(everything(), ~ifelse(. == -Inf, NA_real_, .)))
+}
+
+# Apply cleaning to all biomarker datasets
+biomarker_list <- list(bnp_vals, troponin_vals, adiponectin_vals, hmwa_vals, edol_vals, 
+                      shbg_vals, test_vals, gfr_vals, fas_vals, uacr_vals, 
+                      il6_vals, il1_vals, hscrp_vals, apob_vals, mcp1_vals, tnfa_vals,
+                      tnfr1_vals, tnfr2_vals, icam1_vals, vcam1_vals, eselectin_vals,
+                      vegf_vals, fgf23_vals, a1c_vals, insinv_vals, codi_vals)
+
+biomarker_list <- lapply(biomarker_list, clean_infinite)
+
+# Standardize RELEASEID to uppercase for all biomarker datasets
+biomarker_list <- lapply(biomarker_list, function(df) {
+  df %>% rename(RELEASEID = releaseid) 
+})
+
+# Create consolidated biomarker dataset
+biom_ckm <- list(biomarker_list[[1]], biomarker_list[[2]], biomarker_list[[3]],
+                 biomarker_list[[8]], biomarker_list[[9]], biomarker_list[[10]],
+                 biomarker_list[[11]], biomarker_list[[12]], biomarker_list[[13]], biomarker_list[[14]],
+                 biomarker_list[[16]]) %>%
+  reduce(full_join, by = c("RELEASEID", "days")) %>%
+  distinct(RELEASEID, days, .keep_all = TRUE)
+
+# Filter out rows where all biomarker columns are NA
+cols_to_check <- setdiff(names(biom_ckm), c("RELEASEID"))
+biom_ckm <- biom_ckm %>%
+  filter(!if_all(all_of(cols_to_check), is.na))
+
+# Create high troponin indicators
+biom_ckm <- biom_ckm %>%
+  mutate(
+    high_trop = ifelse(is.na(troponin), NA, 
+                       ifelse(troponin > 0, 1, 0))
+  )
+
+# Create high BNP indicators
+biom_ckm <- biom_ckm %>%
+  mutate(
+    high_bnp = ifelse(is.na(bnp), NA, 
+                       ifelse(bnp > 80, 1, 0))
+  )
+
+# convert UAlbCreat
+biom_ckm$UAlbCreat <- biom_ckm$UAlbCreat*1000
+
+# create dataframe of UACR and eGFR values for classifying KDIGO criteria
+gfr1 <- addcbl_1 %>% select(releaseid, days, ckd_gfr) 
+#gfr2 <- addcbl_2 %>% select(releaseid, days, ckd_gfr)
+#all_gfr <- rbind(gfr1, gfr2)
+all_gfr <- gfr1
+uacr1 <- cbl_1 %>% select(releaseid, days, UAlbCreat)
+uacr2 <- cbl_2 %>% select(releaseid, days, UAlbCreat)
+all_uacr <- rbind(uacr1, uacr2)
+kdigo <- full_join(all_gfr, all_uacr, by = c("releaseid", "days"))
+kdigo <- kdigo %>% arrange(releaseid, days)
+kdigo$UAlbCreat_mg_g <- kdigo$UAlbCreat*1000
+kdigo <- classify_ckd_batch(kdigo, gfr_col = "ckd_gfr", albumin_mg_g_col = "UAlbCreat_mg_g")
+kdigo <- kdigo %>% rename(RELEASEID = releaseid)
+kdigo <- kdigo %>% group_by(RELEASEID) %>% fill(risk_level, .direction = "down") %>%
+  fill(recommendation, .direction = "down") %>% ungroup() %>% select(RELEASEID, days, gfr_category, gfr_description, albumin_category, albumin_description, risk_level, recommendation)
+
+# create data frame with mean value of labs
+a1c_means <- a1c_vals %>% group_by(releaseid) %>% summarise(mean_a1c = mean(HbA1c, na.rm = T))
+adipo_means <- adiponectin_vals %>% group_by(releaseid) %>% summarise(mean_adipo = mean(adiponectin, na.rm = T))
+il6_means <-  il6_vals %>% group_by(releaseid) %>% summarise(mean_il6 = mean(IL6, na.rm = T))
+il1_means <- il1_vals %>% group_by(releaseid) %>% summarise(mean_il1 = mean(il1, na.rm = T))
+hscrp_means <- hscrp_vals %>% group_by(releaseid) %>% summarise(mean_hscrp = mean(hsCRP, na.rm = T))
+apob_means <- apob_vals %>% group_by(releaseid) %>% summarise(mean_apob = mean(ApoB, na.rm = T))
+tnfa_means <- tnfa_vals %>% group_by(releaseid) %>% summarise(mean_tnfa = mean(tnfa, na.rm = T))
+insinv_means <- insinv_vals %>% group_by(releaseid) %>% summarise(mean_insinv = mean(insinv, na.rm = T))
+codi_means <- codi_vals %>% group_by(releaseid) %>% summarise(mean_codi = mean(codi, na.rm = T))
+
+lab_means <- a1c_means %>% full_join(adipo_means, by = "releaseid") %>%
+  full_join(il6_means, by = "releaseid") %>%
+  full_join(il1_means, by = "releaseid") %>%
+  full_join(hscrp_means, by = "releaseid") %>%
+  full_join(apob_means, by = "releaseid") %>%
+  full_join(tnfa_means, by = "releaseid") %>%
+  full_join(insinv_means, by = "releaseid") %>%
+  full_join(codi_means, by = "releaseid") 
+lab_means <- lab_means %>% rename(RELEASEID = releaseid)
+```
+
+```{r include = F}
+# =============================================================================
+# ECHO AND PWV DATA PROCESSING
+# =============================================================================
+
+# Process echo data
+drop_cols <- c("dopplerqc","mmodeqc","overallqc","plaxqc","saxqc","apicalqc","mmodeqc")
+today2_echo <- today2_echo %>% select(-one_of(drop_cols))
+
+# Combine echo datasets
+echo <- bind_rows(today2_echo, today_echo)
+echo$TIMEPOINT <- as.factor(echo$TIMEPOINT)
+echo$RELEASEID <- echo$releaseid
+echo$releaseid <- NULL
+
+# Keep only needed echo variables
+echo_keep <- echo %>% select(RELEASEID, TIMEPOINT, lvsepem, lvem, lvsepratio, lvratio, 
+                            peakvelo, laarea2d, lvmass, walthick, ivsdias, ivssyst, 
+                            walldias, wallsyst)
+echo_keep$average_E_Em <- (echo_keep$lvsepratio + echo_keep$lvratio) / 2
+
+# Process speckle tracking
+speckle_keep <- speckle %>% select(RELEASEID, TIMEPOINT, GLS_4CH, GLS_2CH, GLS_3CH)
+speckle_keep$TIMEPOINT <- gsub("SPECKLE", "", speckle_keep$TIMEPOINT)
+
+# Merge echo and speckle
+echo_keep <- merge(echo_keep, speckle_keep, by = c("RELEASEID", "TIMEPOINT"), all.x = TRUE)
+
+# Process PWV data
+pwv_keep <- pwv %>% select(RELEASEID, DAYS, PWVF)
+pwv_keep$high_pwv <- ifelse(is.na(pwv_keep$PWVF), NA, 
+                               ifelse(pwv_keep$PWVF > 10, 1, 0))
+pwv_keep <- pwv_keep %>% rename(days = DAYS)
+
+# Add height and weight data for BSA calculation
+long_clean <- long %>%
+  mutate(
+    RELEASEID = toupper(releaseid),
+    visit_type = substr(visit, 1, 1),
+    visit_num = as.numeric(str_extract(visit, "\\d+"))
+  )
+
+# Get heights by visit type
+# LP: This is taking the last height - is that what we want?
+height_M <- long_clean %>%
+  filter(visit_type == "M", !is.na(height)) %>%
+  group_by(RELEASEID) %>%
+  slice_max(order_by = visit_num, n = 1, with_ties = FALSE) %>%
+  select(RELEASEID, height) %>%
+  rename(height_M = height)
+
+# LP: This is taking the last height - is that what we want?
+height_P <- long_clean %>%
+  filter(visit_type == "P", !is.na(height)) %>%
+  group_by(RELEASEID) %>%
+  slice_max(order_by = visit_num, n = 1, with_ties = FALSE) %>%
+  select(RELEASEID, height) %>%
+  rename(height_P = height)
+
+# Add heights to echo data
+echo_keep <- echo_keep %>%
+  mutate(RELEASEID = toupper(RELEASEID)) %>%
+  left_join(height_M, by = "RELEASEID") %>%
+  left_join(height_P, by = "RELEASEID") %>%
+  mutate(
+    height_final = case_when(
+      TIMEPOINT == 1 ~ height_M,
+      TIMEPOINT == 2 ~ height_P,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  select(-height_M, -height_P)
+
+# Add weight data through visit matching
+long_clean <- long %>%
+  mutate(RELEASEID = toupper(releaseid)) %>%
+  select(RELEASEID, visit, visit_days, weight, height) %>%
+  filter(!is.na(visit))
+
+# Match closest visits for missing weight data
+echo_keep <- echo_keep %>%
+  left_join(echo %>% select(RELEASEID, TIMEPOINT, days), by = c("RELEASEID", "TIMEPOINT"))
+
+# weight addition based on closest day before echo
+echo_keep <- echo_keep %>%
+  rowwise() %>%
+  mutate(
+    weight = {
+      current_id <- RELEASEID
+      weights <- long_clean %>% 
+        filter(RELEASEID == current_id, 
+               !is.na(weight),
+               visit_days < days)  # Filter here
+      
+      if(nrow(weights) > 0) {
+        # Since all weights are before 'days', get the one with max visit_days (closest)
+        weights$weight[which.max(weights$visit_days)]
+      } else {
+        NA_real_
+      }
+    }
+  ) %>%
+  ungroup()
+
+# Calculate BSA using Du Bois and Mosteller formulas
+echo_keep <- echo_keep %>%
+  mutate(
+    BSA_dubois = ifelse(!is.na(height_final) & !is.na(weight),
+                        0.007184 * (height_final ^ 0.725) * (weight ^ 0.425),
+                        NA_real_),
+    BSA_mosteller = ifelse(!is.na(height_final) & !is.na(weight),
+                           sqrt((height_final * weight) / 3600),
+                           NA_real_)
+  )
+
+# Add sex information for LVMI calculation
+echo_keep <- echo_keep %>%
+  mutate(releaseid = tolower(RELEASEID)) %>%
+  left_join(baserisk %>% select(releaseid, sex), by = "releaseid") %>%
+  select(-releaseid)
+
+# Calculate LVMI and related scores
+# LP: I think this logic is incorrect
+# echo_keep <- echo_keep %>%
+#   mutate(
+#     lvmi = ifelse(!is.na(lvmass) & !is.na(BSA_dubois), lvmass / BSA_dubois, NA_real_),
+#     lvmi_score = case_when(
+#       sex == 2 & lvmi >= 149 ~ 2,
+#       sex == 2 & lvmi >= 122 ~ 1,
+#       sex == 2 ~ 0,
+#       sex == 1 & lvmi >= 115 ~ 2,
+#       sex == 1 & lvmi >= 95  ~ 1,
+#       sex == 1 ~ 0,
+#       TRUE ~ NA_real_
+#     )
+#   )
+echo_keep <- echo_keep %>%
+  mutate(
+    lvmi = ifelse(!is.na(lvmass) & !is.na(BSA_dubois), lvmass / BSA_dubois, NA_real_),
+    lvmi_score = case_when(
+      sex == 2 & lvmi >= 149 ~ 2,  # Male severe
+      sex == 2 & lvmi >= 116 ~ 1,  # Male mild (using 116 as threshold for abnormal)
+      sex == 2 ~ 0,                 # Male normal
+      sex == 1 & lvmi >= 122 ~ 2,  # Female severe  
+      sex == 1 & lvmi >= 96  ~ 1,  # Female mild (using 96 as threshold for abnormal)
+      sex == 1 ~ 0,                 # Female normal
+      TRUE ~ NA_real_
+    )
+  )
+
+# LP: doesn't this need to take timepoint into account?
+# echo_keep <- echo_keep %>%
+#   left_join(
+#     echo %>% select(RELEASEID, ladimen),
+#     by = "RELEASEID"
+#   )
+echo_keep <- echo_keep %>%
+  left_join(
+    echo %>% select(RELEASEID, TIMEPOINT, ladimen),
+    by = c("RELEASEID", "TIMEPOINT")
+  )
+
+# Calculate LAVI estimation
+echo_keep <- echo_keep %>%
+  mutate(
+    LA_volume_est = ifelse(!is.na(laarea2d) & !is.na(ladimen),
+                           (8 / (3 * pi)) * (laarea2d^2 / ladimen),
+                           NA_real_),
+    LAVI_est = ifelse(!is.na(LA_volume_est) & !is.na(BSA_dubois),
+                      LA_volume_est / BSA_dubois,
+                      NA_real_)
+  )
+```
+
+```{r include = F}
+# =============================================================================
+# HFpEF SCORING SYSTEM
+# =============================================================================
+
+# Initialize HFpEF points
+echo_keep$HFpEF_points <- 0
+
+# Get maximum BNP per participant
+# LP: this gets the max BNP and merges it to both echo time points 
+# would we want to use only BNP data up to the point of each echo?
+# max_bnp_by_id <- aggregate(addcbl_1$bnp ~ addcbl_1$releaseid, data = addcbl_1, FUN = function(x) {
+#   if(all(is.na(x))) return(NA)
+#   return(max(x, na.rm = TRUE))
+# })
+# colnames(max_bnp_by_id) <- c("RELEASEID", "bnp")
+
+# Get maximum BNP up to each echo time point
+# This ensures we're not using future BNP data
+echo_keep_with_bnp <- echo_keep  # Create a copy to preserve original
+# Initialize BNP column
+echo_keep_with_bnp$bnp <- NA
+# Loop through each row in echo_keep to find max BNP up to that time point
+for(i in 1:nrow(echo_keep_with_bnp)) {
+  current_id <- echo_keep_with_bnp$RELEASEID[i]
+  current_days <- echo_keep_with_bnp$days[i]
+  # Get all BNP values for this participant up to current echo time
+  bnp_subset <- addcbl_1$bnp[addcbl_1$releaseid == current_id & 
+                              addcbl_1$days <= current_days]
+  # Calculate max BNP if there are any non-NA values
+  if(length(bnp_subset) > 0 && !all(is.na(bnp_subset))) {
+    echo_keep_with_bnp$bnp[i] <- max(bnp_subset, na.rm = TRUE)
+  }
+}
+# Replace original echo_keep with the updated version
+echo_keep <- echo_keep_with_bnp
+
+# HFpEF scoring algorithm
+for (i in 1:nrow(echo_keep)) {
+  scored_2pts <- FALSE
+  
+  # 2-point functional scoring
+  if (!is.na(echo_keep$lvsepem[i]) && echo_keep$lvsepem[i] < 7) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+    scored_2pts <- TRUE
+  } else if (!is.na(echo_keep$lvem[i]) && echo_keep$lvem[i] < 10) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+    scored_2pts <- TRUE
+  } else if (!is.na(echo_keep$average_E_Em[i]) && echo_keep$average_E_Em[i] >= 15) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+    scored_2pts <- TRUE
+  } else if (!is.na(echo_keep$peakvelo[i]) && echo_keep$peakvelo[i] > 280) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+    scored_2pts <- TRUE
+  }
+  
+  # 1-point functional scoring (only if no 2-point condition was met)
+  if (!scored_2pts) {
+    if (
+      (!is.na(echo_keep$GLS_4CH[i]) && echo_keep$GLS_4CH[i] > -16) ||
+      (!is.na(echo_keep$GLS_3CH[i]) && echo_keep$GLS_3CH[i] > -16) ||
+      (!is.na(echo_keep$GLS_2CH[i]) && echo_keep$GLS_2CH[i] > -16) ||
+      (!is.na(echo_keep$average_E_Em[i]) && echo_keep$average_E_Em[i] >= 9 && echo_keep$average_E_Em[i] < 15)
+    ) {
+      echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 1
+    }
+  }
+  
+  # BNP scoring
+  if(!is.na(echo_keep$bnp[i])) {
+    if(echo_keep$bnp[i] >= 80) {
+      echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 2
+    } else if(echo_keep$bnp[i] >= 35 && echo_keep$bnp[i] < 80) {
+      echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 1
+    }
+  }
+  
+  # Morphological scoring
+  if(!is.na(echo_keep$lvmi_score[i])) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + echo_keep$lvmi_score[i]
+  }
+  
+  # Wall thickness scoring
+  if (
+    (!is.na(echo_keep$ivsdias[i]) && echo_keep$ivsdias[i] > 1.2) ||
+    (!is.na(echo_keep$walldias[i]) && echo_keep$walldias[i] > 1.2) ||
+    (!is.na(echo_keep$walthick[i]) && echo_keep$walthick[i] > 0.42)
+  ) {
+    echo_keep$HFpEF_points[i] <- echo_keep$HFpEF_points[i] + 1
+  }
+}
+
+# Create HFpEF diagnosis variable
+echo_keep$hfpef <- ifelse(echo_keep$HFpEF_points >= 5, 1, 0)
+echo_keep <- echo_keep %>% select(-bnp)
+
+```
+
+```{r include = F}
+# =============================================================================
+# QUALITY OF LIFE (PedsQL) PROCESSING
+# =============================================================================
+
+# Define columns to keep from PedsQL
+cols_to_keep <- c("RELEASEID", "DAYS", "G01WALK", "G02RUN", "G03SPORT",
+                  "G04LIFT", "G05BATH", "G06CHORE", "G07HURT", "G08ENERG")
+
+# Combine all PedsQL datasets
+pedsQL_all <- bind_rows(
+  pedsQL_Y %>% select(all_of(cols_to_keep)),
+  pedsQL_T %>% select(all_of(cols_to_keep)),
+  pedsQL_A %>% select(all_of(cols_to_keep)),
+  pedsQL_C_today %>% select(all_of(cols_to_keep)),
+  pedsQL_T_today %>% select(all_of(cols_to_keep))
+)
+
+# Define PedsQL items
+pedsQL_items <- c("G01WALK", "G02RUN", "G03SPORT", "G04LIFT", 
+                  "G05BATH", "G06CHORE", "G07HURT", "G08ENERG")
+
+# Calculate physical activity total
+pedsQL_all <- pedsQL_all %>%
+  rowwise() %>%
+  mutate(physical_total = sum(c_across(all_of(pedsQL_items)), na.rm = TRUE)) %>%
+  ungroup()
+
+# Ensure DAYS is numeric
+pedsQL_all <- pedsQL_all %>%
+  mutate(days = as.numeric(DAYS)) %>% select(-DAYS)
+
+# Get baseline, latest, lowest and highest scores per participant
+pedsQL_summary <- pedsQL_all %>%
+  group_by(RELEASEID) %>%
+  summarise(
+    pedsql_baseline = physical_total[which.min(days)],
+    days_baseline = days[which.min(days)],
+    pedsql_last = physical_total[which.max(days)],
+    days_last = days[which.max(days)],
+    pedsql_highest = max(physical_total, na.rm = TRUE),
+    days_highest = days[which.max(physical_total)],
+    pedsql_lowest = min(physical_total, na.rm = TRUE),
+    days_lowest = days[which.min(physical_total)],
+    .groups = "drop"
+  )
+```
+
+```{r include = F}
+# =============================================================================
+# DATA INTEGRATION AND CKM STAGING
+# =============================================================================
+
+# set any days <0 to zero
+baseline$days <- 0
+baserisk$days <- 0
+biom_ckm$days <- ifelse(biom_ckm$days <0, 0, biom_ckm$days)
+
+# Fix the column name first
+#baseline <- baseline %>% 
+ #rename(RELEASEID = releaseid)  # or whatever the actual column name is
+
+#baserisk <- baserisk %>% 
+ #rename(RELEASEID = releaseid)  # or whatever the actual column name is
+
+# Create main analysis dataset
+comorb_ckm2 <- comorb_long %>%
+  full_join(pwv_keep, by = c("RELEASEID", "days")) %>%
+  full_join(echo_keep, by = c("RELEASEID", "days")) %>%
+  full_join(pedsQL_all, by = c("RELEASEID", "days")) %>%
+  full_join(baseline %>% select(RELEASEID, bmi, sbp, dbp, wastcirc, days), by = c("RELEASEID", "days")) %>%
+  full_join(baserisk %>% select(RELEASEID, AGEBASE, sex_char, HbA1c, days), by = c("RELEASEID", "days")) %>% 
+  full_join(kdigo, , by = c("RELEASEID", "days"))
+comorb_ckm2 <- comorb_ckm2 %>% arrange("RELEASEID", "days")
+comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% fill(gfr_category, .direction = "down") %>% fill(gfr_description, .direction = "down") %>%
+  fill(albumin_category, .direction = "down") %>% fill(albumin_description, .direction = "down") %>% fill(risk_level, .direction = "down") %>%
+  fill(recommendation, .direction = "down") %>% ungroup()
+# COMORB_CKM2 is a long dataset with days as the time variable, linking all event, echo, pedsql, etc data
+
+# Merge all biomarker datasets at once
+# all_biomarkers <- biomarker_list %>%
+#   reduce(full_join, by = c("RELEASEID", "days"))
+
+# convert UAlbCreat
+# all_biomarkers$UAlbCreat_baseline <- all_biomarkers$UAlbCreat_baseline*1000
+# all_biomarkers$UAlbCreat_highest <- all_biomarkers$UAlbCreat_highest*1000
+
+# Add to main dataset
+comorb_ckm2 <- comorb_ckm2 %>%
+  full_join(biom_ckm, by = c("RELEASEID", "days"))
+
+# need to fill down, and make earlier NA's into zero
+comorb_ckm2 <- comorb_ckm2 %>% arrange(RELEASEID, days)
+comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% fill(HTN, .direction = "down") %>% fill(TGDLP, .direction = "down") %>% fill(ARRHYTHMIA, .direction = "down") %>%
+  fill(CAD, .direction = "down") %>% fill(CHF, .direction = "down") %>% fill(LVSD, .direction = "down") %>% fill(MI, .direction = "down") %>% fill(DVT, .direction = "down") %>%
+  fill(PAD, .direction = "down") %>% fill(STROKE, .direction = "down") %>% fill(TIA, .direction = "down") %>% fill(ULCER, .direction = "down") %>% fill(high_pwv, .direction = "down") %>%
+  fill(hfpef, .direction = "down") %>% fill(high_bnp, .direction = "down") %>% fill(high_trop, .direction = "down")
+
+comorb_ckm2$clin_cvd <- ifelse(
+  rowSums(comorb_ckm2[, c("ARRHYTHMIA", "CAD", "CHF", "MI", "PAD", "DVT", "STROKE", "TIA", "ULCER", "LVSD")] == 1, na.rm = TRUE) > 0,
+  1,
+  0)
+# fill down clincvd
+comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% fill(clin_cvd, .direction = "down") %>% ungroup()
+
+# fill in zeroes
+comorb_ckm2 <- replace_na_tidyverse(comorb_ckm2, c("HTN", "TGDLP", "ARRHYTHMIA", "CAD", "CHF", "LVSD", "MI", "DVT", "PAD", "STROKE", "TIA", "ULCER", "high_pwv", "hfpef",
+                                            "high_trop", "high_bnp"))
+
+# drop unneeded variables
+comorb_ckm2 <- comorb_ckm2 %>% select(-TIMEPOINT, -lvsepem, -lvem, -lvsepratio, -lvratio, -peakvelo, -laarea2d, -lvmass, -walthick, -ivsdias, -ivssyst, -walldias, -wallsyst,
+                                      -average_E_Em, -GLS_4CH, -GLS_2CH, -GLS_3CH, -height_final, -weight, -BSA_mosteller, -BSA_dubois, -lvmi, -lvmi_score, -ladimen, 
+                                      -LA_volume_est, -LAVI_est, -HFpEF_points, -G01WALK, -G02RUN, -G03SPORT, -G04LIFT, -G05BATH, -G06CHORE, -G07HURT, -G08ENERG)
+
+# CKM Staging - Main classification
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    CKM_syn = case_when(
+      # Stage 4: most severe
+      clin_cvd == 1 |
+      hfpef == 1 ~ "Stage 4",
+      
+      # Stage 3: elevated biomarkers
+       (high_bnp == 1 |
+    #   high_trop == 1 |
+      high_pwv == 1 |
+       risk_level == "Very high") ~ "Stage 3",
+      
+      # Stage 2_plus: risk factors
+      # need to add KDIGO criteria
+      (HTN == 1 |
+       TGDLP == 1 |
+       risk_level %in% c("Moderate", "High")) ~ "Stage 2+",
+      
+      TRUE ~ "Stage 2"
+    )
+  )
+# comorb_ckm2 has a staging variable for every row (indexed by patient and days)
+
+# CKM Staging with BMI inclusion
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    CKM_syn2 = case_when(
+       # Stage 4: most severe
+      clin_cvd == 1 |
+      hfpef == 1 ~ "Stage 4",
+      
+      # Stage 3: elevated biomarkers
+       (high_bnp == 1 |
+#       high_trop == 1 |
+       high_pwv == 1 |
+       risk_level == "Very high") ~ "Stage 3",
+      
+      # Stage 2_plus: risk factors
+      # need to add KDIGO criteria
+      (HTN == 1 |
+       TGDLP == 1 |
+       risk_level %in% c("Moderate", "High") |
+       bmi >= 30) ~ "Stage 2+",
+      
+      TRUE ~ "Stage 2"
+    )
+  )
+
+# Set factor levels for proper ordering
+comorb_ckm2$CKM_syn <- factor(comorb_ckm2$CKM_syn, levels = c("Stage 2", "Stage 2+", "Stage 3", "Stage 4"))
+comorb_ckm2$CKM_syn2 <- factor(comorb_ckm2$CKM_syn2, levels = c("Stage 2", "Stage 2+", "Stage 3", "Stage 4"))
+
+# need to create the following variables
+# CKM_syn_base, CKM_syn_base2
+ckm_base <- comorb_ckm2 %>% filter(days == 0) 
+ckm_base <- ckm_base %>% select(RELEASEID, CKM_syn, CKM_syn2)
+colnames(ckm_base) <- c("RELEASEID", "CKM_syn_base", "CKM_syn_base2")
+comorb_ckm2 <- full_join(comorb_ckm2, ckm_base, by = "RELEASEID")
+
+# create a numeric variable for stages
+comorb_ckm2 <- comorb_ckm2 %>%
+  mutate(
+    # Convert stages to numeric (without BMI)
+    CKM_syn_num = case_when(
+      CKM_syn == "Stage 2" ~ 1,
+      CKM_syn == "Stage 2+" ~ 2,
+      CKM_syn == "Stage 3" ~ 3,
+      CKM_syn == "Stage 4" ~ 4
+    ),
+    # Convert stages to numeric (with BMI)
+    CKM_syn_num2 = case_when(
+      CKM_syn2 == "Stage 2" ~ 1,
+      CKM_syn2 == "Stage 2+" ~ 2,
+      CKM_syn2 == "Stage 3" ~ 3,
+      CKM_syn2 == "Stage 4" ~ 4
+    ))
+
+# create indicator for progression from previous visit and number of stages
+comorb_ckm2 <- comorb_ckm2 %>% arrange(RELEASEID, days)
+comorb_ckm2 <- comorb_ckm2 %>% group_by(RELEASEID) %>%
+  mutate(
+    CKM_syn_lag = ifelse(days == 0, NA, lag(CKM_syn_num)),
+    CKM_syn2_lag = ifelse(days == 0, NA, lag(CKM_syn_num2))
+  )
+comorb_ckm2$progress_CKM <- ifelse(comorb_ckm2$CKM_syn_num > comorb_ckm2$CKM_syn_lag, 1, 0)
+comorb_ckm2$progress_CKM_stages <- pmax(0, comorb_ckm2$CKM_syn_num - comorb_ckm2$CKM_syn_lag)
+comorb_ckm2 <- comorb_ckm2 %>% mutate(progress_CKM_stage3 = case_when(
+  is.na(progress_CKM) ~ NA,
+  !is.na(progress_CKM) & progress_CKM == 1 & CKM_syn == "Stage 3" ~ 1,
+  TRUE~ 0
+  )
+)
+comorb_ckm2 <- comorb_ckm2 %>% mutate(progress_CKM_stage4 = case_when(
+  is.na(progress_CKM) ~ NA,
+  !is.na(progress_CKM) & progress_CKM == 1 & CKM_syn == "Stage 4" ~ 1,
+  TRUE~ 0
+  )
+)
+comorb_ckm2$regress_CKM <- ifelse(comorb_ckm2$CKM_syn_num < comorb_ckm2$CKM_syn_lag, 1, 0)
+comorb_ckm2$regress_CKM_stages <- pmax(0, comorb_ckm2$CKM_syn_lag - comorb_ckm2$CKM_syn_num)
+comorb_ckm2$progress_CKM2 <- ifelse(comorb_ckm2$CKM_syn_num2 > comorb_ckm2$CKM_syn2_lag, 1, 0)
+comorb_ckm2$progress_CKM2_stages <- pmax(0, comorb_ckm2$CKM_syn_num2 - comorb_ckm2$CKM_syn2_lag)
+comorb_ckm2$regress_CKM2 <- ifelse(comorb_ckm2$CKM_syn_num2 < comorb_ckm2$CKM_syn2_lag, 1, 0)
+comorb_ckm2$regress_CKM2_stages <- pmax(0, comorb_ckm2$CKM_syn2_lag - comorb_ckm2$CKM_syn_num2)
+
+# max CKM_syn, max CKM_syn2
+ckm_max <- comorb_ckm2 %>% group_by(RELEASEID) %>% arrange(RELEASEID, desc(CKM_syn_num)) %>% filter(row_number() == 1) %>% select(RELEASEID, CKM_syn_num)
+colnames(ckm_max) <- c("RELEASEID", "CKM_max")
+ckm_max2 <- comorb_ckm2 %>% group_by(RELEASEID) %>% arrange(RELEASEID, desc(CKM_syn_num2)) %>% filter(row_number() == 1) %>% select(RELEASEID, CKM_syn_num2)
+colnames(ckm_max2) <- c("RELEASEID", "CKM_max2")
+ckm_max <- full_join(ckm_max, ckm_max2, by = "RELEASEID")
+comorb_ckm2 <- full_join(comorb_ckm2, ckm_max, by = "RELEASEID")
+
+# time to first progression
+# first get follow-up time
+fup <- comorb_ckm %>% select(RELEASEID, fup_time)
+comorb_ckm2 <- full_join(comorb_ckm2, fup)
+# get max days for each person
+max_days <- comorb_ckm2 %>% select(RELEASEID, days) %>% arrange(RELEASEID, desc(days)) %>% filter(row_number() == 1)
+colnames(max_days) <- c("RELEASEID", "maxdays")
+comorb_ckm2 <- left_join(comorb_ckm2, max_days, by = "RELEASEID")
+comorb_ckm2$fup_time <- ifelse(is.na(comorb_ckm2$fup_time), comorb_ckm2$maxdays, comorb_ckm2$fup_time)
+ckm_prog_time <- comorb_ckm2 %>% select(RELEASEID, days, CKM_syn, CKM_syn_num, progress_CKM, progress_CKM_stage3, progress_CKM_stage4, progress_CKM2, fup_time)
+# find time to first progression
+ckm_prog_time1 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM), days) %>% filter(row_number() == 1) %>% select(-progress_CKM2)
+ckm_prog_time1$days_to_first_ckm_prog <- ifelse(ckm_prog_time1$progress_CKM == 1, ckm_prog_time1$days, ckm_prog_time1$fup_time)
+ckm_prog_time1 <- ckm_prog_time1 %>% rename(CKM_syn_first_progression = CKM_syn, CKM_syn_num_first_progression = CKM_syn_num)
+ckm_prog_time1 <- ckm_prog_time1 %>% 
+  mutate(CKM_syn_first_progression = case_when(
+    progress_CKM == 1 ~ as.character(CKM_syn_first_progression),
+    progress_CKM == 0 ~ "No progression"
+  )
+)
+ckm_prog_time1$CKM_syn_first_progression <- as.factor(ckm_prog_time1$CKM_syn_first_progression)
+ckm_prog_time1 <- ckm_prog_time1 %>% 
+  mutate(CKM_syn_num_first_progression = case_when(
+    progress_CKM == 1 ~ CKM_syn_num_first_progression,
+    progress_CKM == 0 ~ NA
+  )
+)
+ckm_prog_time1 <- ckm_prog_time1 %>% select(RELEASEID, days_to_first_ckm_prog, CKM_syn_first_progression, CKM_syn_num_first_progression)
+comorb_ckm2 <- full_join(comorb_ckm2, ckm_prog_time1, by = "RELEASEID")
+comorb_ckm2$days_to_first_ckm_prog_nocensor <- ifelse(comorb_ckm2$progress_CKM == 1, comorb_ckm2$days_to_first_ckm_prog, NA)
+comorb_ckm2$years_to_first_ckm_prog_nocensor <- comorb_ckm2$days_to_first_ckm_prog_nocensor / 365.25
+# find time to progress to stage 3
+ckm_prog_time3 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM_stage3), days) %>% filter(row_number() == 1) %>% select(-progress_CKM, -progress_CKM2, -progress_CKM_stage4)
+ckm_prog_time3$days_to_first_ckm_stage3_prog <- ifelse(ckm_prog_time3$progress_CKM_stage3 == 1, ckm_prog_time3$days, ckm_prog_time3$fup_time)
+ckm_prog_time3 <- ckm_prog_time3 %>% select(RELEASEID, days_to_first_ckm_stage3_prog)
+comorb_ckm2 <- full_join(comorb_ckm2, ckm_prog_time3, by = "RELEASEID")
+comorb_ckm2$days_to_first_ckm_stage3_prog_nocensor <- ifelse(comorb_ckm2$progress_CKM_stage3 == 1, comorb_ckm2$days_to_first_ckm_stage3_prog, NA)
+comorb_ckm2$years_to_first_ckm_stage3_prog_nocensor <- comorb_ckm2$days_to_first_ckm_stage3_prog_nocensor / 365.25
+# find time to progress to stage 4
+ckm_prog_time4 <- ckm_prog_time %>% arrange(RELEASEID, desc(progress_CKM_stage4), days) %>% filter(row_number() == 1) %>% select(-progress_CKM, -progress_CKM2, -progress_CKM_stage3)
+ckm_prog_time4$days_to_first_ckm_stage4_prog <- ifelse(ckm_prog_time4$progress_CKM_stage4 == 1, ckm_prog_time4$days, ckm_prog_time4$fup_time)
+ckm_prog_time4 <- ckm_prog_time4 %>% select(RELEASEID, days_to_first_ckm_stage4_prog)
+comorb_ckm2 <- full_join(comorb_ckm2, ckm_prog_time4, by = "RELEASEID")
+comorb_ckm2$days_to_first_ckm_stage4_prog_nocensor <- ifelse(comorb_ckm2$progress_CKM_stage4 == 1, comorb_ckm2$days_to_first_ckm_stage4_prog, NA)
+comorb_ckm2$years_to_first_ckm_stage4_prog_nocensor <- comorb_ckm2$days_to_first_ckm_stage4_prog_nocensor / 365.25
+
+# number of progressions
+a <- comorb_ckm2 %>% filter(progress_CKM == 1) %>% select(RELEASEID, progress_CKM)
+b <- comorb_ckm2 %>% filter(progress_CKM2 == 1) %>% select(RELEASEID, progress_CKM2)
+tab_a <- as.data.frame(table(a$RELEASEID))
+colnames(tab_a) <- c("RELEASEID", "num_prog")
+tab_b <- as.data.frame(table(b$RELEASEID))
+colnames(tab_b) <- c("RELEASEID", "num_prog2")
+prog_table <- full_join(tab_a, tab_b, by = "RELEASEID")
+comorb_ckm2 <- full_join(comorb_ckm2, prog_table, by = "RELEASEID")
+comorb_ckm2$num_prog <- ifelse(is.na(comorb_ckm2$progress_CKM), NA, 
+                                     ifelse(is.na(comorb_ckm2$num_prog), 0, comorb_ckm2$num_prog))
+comorb_ckm2$num_prog2 <- ifelse(is.na(comorb_ckm2$progress_CKM2), NA, 
+                                ifelse(is.na(comorb_ckm2$num_prog2), 0, comorb_ckm2$num_prog2))
+
+# merge in death
+death_keep <- death %>% select(RELEASEID, DEATH)
+comorb_ckm2 <- left_join(comorb_ckm2, death_keep, by = "RELEASEID")
+comorb_ckm2$DEATH <- ifelse(is.na(comorb_ckm2$DEATH), 0, comorb_ckm2$DEATH)
+
+# convert to factors
+cols_to_convert <- c("HTN", "TGDLP", "high_pwv", "hfpef",
+                     "high_trop", "CKM_syn_base", "CKM_max", "CKM_syn_base2", "CKM_max2",
+                     "progress_CKM", "progress_CKM2", "progress_CKM_stage3", "progress_CKM_stage4",
+                     "regress_CKM", "regress_CKM_stages", "regress_CKM2", "regress_CKM2_stages", "DEATH", 
+                     "num_prog", "num_prog2")
+comorb_ckm2[cols_to_convert] <- lapply(comorb_ckm2[cols_to_convert], as.factor)
+
+filename <- "/Data clean/comorb_ckm2_for_hce.csv"
+full_path <- file.path(data_path, filename)
+write.csv(comorb_ckm2, full_path)
+
+# create a dataframe with the component parts of the stage definitions only, to collapse to 1 record per person
+comorb_ckm2_criteria <- comorb_ckm2 %>% select(RELEASEID, CKM_max, clin_cvd, hfpef, ARRHYTHMIA, CAD, CHF, LVSD, MI, DVT,
+                                               PAD, STROKE, TIA, ULCER, DEATH, risk_level, HTN, TGDLP, high_pwv, high_bnp) 
+comorb_ckm2_criteria$KDIGO_num <- ifelse(is.na(comorb_ckm2_criteria$risk_level), NA, 
+                                         ifelse(comorb_ckm2_criteria$risk_level == "Very high", 4, 
+                                                ifelse(comorb_ckm2_criteria$risk_level == "High", 3, 
+                                                       ifelse(comorb_ckm2_criteria$risk_level == "Moderate", 2, 1))))
+comorb_ckm2_criteria <- comorb_ckm2_criteria %>% select(-risk_level)
+comorb_ckm2_criteria[,2:ncol(comorb_ckm2_criteria)] <- apply(comorb_ckm2_criteria[,2:ncol(comorb_ckm2_criteria)], 2, as.numeric)
+# take the max across all criteria
+comorb_ckm2_criteria <- comorb_ckm2_criteria %>% group_by(RELEASEID) %>%
+  mutate(across(c(CKM_max, clin_cvd, hfpef, ARRHYTHMIA, CAD, CHF, LVSD, MI, DVT,PAD, STROKE, TIA, ULCER, DEATH, KDIGO_num,
+                  HTN, TGDLP, high_pwv, high_bnp), max, .names = "max_{.col}"))
+comorb_ckm2_criteria <- comorb_ckm2_criteria %>% select(-c(max_CKM_max, clin_cvd, hfpef, ARRHYTHMIA, CAD, CHF, LVSD, MI, DVT,PAD, STROKE, TIA, ULCER, DEATH, KDIGO_num,
+                                                           HTN, TGDLP, high_pwv, high_bnp))
+comorb_ckm2_criteria <- unique(comorb_ckm2_criteria)
+comorb_ckm2_criteria$CKM_max_char <- case_when(
+  comorb_ckm2_criteria$CKM_max == 1 ~ "Stage 2",
+  comorb_ckm2_criteria$CKM_max == 2 ~ "Stage 2+",
+  comorb_ckm2_criteria$CKM_max == 3 ~ "Stage 3",
+  comorb_ckm2_criteria$CKM_max == 4 ~ "Stage 4"
+)
+comorb_ckm2_criteria$max_KDIGO_char <- case_when(
+  comorb_ckm2_criteria$max_KDIGO_num == 1 ~ "Low",
+  comorb_ckm2_criteria$max_KDIGO_num == 2 ~ "Moderate",
+  comorb_ckm2_criteria$max_KDIGO_num == 3 ~ "High",
+  comorb_ckm2_criteria$max_KDIGO_num == 4 ~ "Very High"
+)
+comorb_ckm2_criteria$max_KDIGO_char <- factor(comorb_ckm2_criteria$max_KDIGO_char, levels = c("Low", "Moderate", "High", "Very High"))
+comorb_ckm2_criteria <- comorb_ckm2_criteria %>% 
+  mutate(across(c(max_clin_cvd, max_hfpef, max_ARRHYTHMIA, max_CAD, max_CHF, max_LVSD, max_MI, max_DVT, max_PAD, max_STROKE, max_TIA, max_ULCER,
+                  max_DEATH, max_KDIGO_num, max_HTN, max_TGDLP, max_high_pwv, max_high_bnp), as.factor))
+
+# collapse to a dataset with 1 row per person with baseline CKM, max CKM, time to progression, number of progressions?
+# this is an oversimplification because people progress, regress, progress
+prog_summary_final <- comorb_ckm2 %>% select(RELEASEID, fup_time, CKM_syn_base, CKM_max, progress_CKM, days_to_first_ckm_prog, days_to_first_ckm_prog_nocensor, years_to_first_ckm_prog_nocensor, 
+                                             days_to_first_ckm_stage3_prog, days_to_first_ckm_stage3_prog_nocensor, years_to_first_ckm_stage3_prog_nocensor,
+                                             days_to_first_ckm_stage4_prog, days_to_first_ckm_stage4_prog_nocensor, years_to_first_ckm_stage4_prog_nocensor, num_prog, 
+                                             CKM_syn_first_progression, CKM_syn_num_first_progression) %>%
+  arrange(RELEASEID, desc(progress_CKM)) %>% filter(row_number() == 1)
+# merge in variables for progression to stage 3
+prog_summary_stage3 <- comorb_ckm2 %>% select(RELEASEID, progress_CKM_stage3) %>% arrange(RELEASEID, desc(progress_CKM_stage3)) %>% filter(row_number() == 1)
+prog_summary_final <- left_join(prog_summary_final, prog_summary_stage3, by = "RELEASEID")
+# merge in variables for progression to stage 4
+prog_summary_stage4 <- comorb_ckm2 %>% select(RELEASEID, progress_CKM_stage4) %>% arrange(RELEASEID, desc(progress_CKM_stage4)) %>% filter(row_number() == 1)
+prog_summary_final <- left_join(prog_summary_final, prog_summary_stage4, by = "RELEASEID")
+# create character variable corresponding to max stages
+prog_summary_final$CKM_max_char <- case_when(
+  prog_summary_final$CKM_max == 1 ~ "Stage 2",
+  prog_summary_final$CKM_max == 2 ~ "Stage 2+",
+  prog_summary_final$CKM_max == 3 ~ "Stage 3",
+  prog_summary_final$CKM_max == 4 ~ "Stage 4"
+)
+
+# Labels
+label(prog_summary_final$progress_CKM) <- "CKM syndrome progression (0=no progression, 1=progressed)"
+label(prog_summary_final$CKM_syn_base) <- "CKM syndrome stage at baseline"
+label(prog_summary_final$CKM_max) <- "Maximum CKM stage"
+label(prog_summary_final$CKM_max_char) <- "Maximum CKM stage"
+label(prog_summary_final$num_prog) <- "Number of progression events"
+label(prog_summary_final$days_to_first_ckm_prog) <- "Days to first progression event"
+label(prog_summary_final$years_to_first_ckm_prog_nocensor) <- "Years to first progression event"
+label(comorb_ckm2_criteria$max_ARRHYTHMIA) <- "ARRHYTHMIA"
+label(comorb_ckm2_criteria$max_clin_cvd) <- "Clinical CVD"
+label(comorb_ckm2_criteria$max_hfpef) <- "HFpEF"
+label(comorb_ckm2_criteria$max_CAD) <- "CAD"
+label(comorb_ckm2_criteria$max_CHF) <- "CHF"
+label(comorb_ckm2_criteria$max_LVSD) <- "LVSD"
+label(comorb_ckm2_criteria$max_MI) <- "MI"
+label(comorb_ckm2_criteria$max_DVT) <- "DVT"
+label(comorb_ckm2_criteria$max_PAD) <- "PAD"
+label(comorb_ckm2_criteria$max_STROKE) <- "Stroke"
+label(comorb_ckm2_criteria$max_TIA) <- "TIA"
+label(comorb_ckm2_criteria$max_ULCER) <- "Ulcer"
+label(comorb_ckm2_criteria$max_DEATH) <- "Death"
+label(comorb_ckm2_criteria$max_KDIGO_char) <- "Maximum KDIGO stage"
+label(comorb_ckm2_criteria$max_HTN) <- "Hypertension"
+label(comorb_ckm2_criteria$max_TGDLP) <- "Hypertriglyceridemia"
+label(comorb_ckm2_criteria$max_high_pwv) <- "Elevated cf-PWV"
+label(comorb_ckm2_criteria$max_high_bnp) <- "Elevated BNP"
+
+# make a descriptive dataset using progression summary data and baseline/comorb info
+prog_summary_final <- left_join(prog_summary_final, comorb, by = "RELEASEID")
+prog_summary_final <- left_join(prog_summary_final, baserisk, by = "RELEASEID") 
+prog_summary_final <- prog_summary_final %>% select(-days)
+prog_summary_final <- left_join(prog_summary_final, death, by = "RELEASEID")
+prog_summary_final$DEATH <- ifelse(is.na(prog_summary_final$DEATH), 0, prog_summary_final$DEATH)
+prog_summary_final <- left_join(prog_summary_final, lab_means, by = "RELEASEID")
+prog_summary_final$visit <- NULL
+
+cols_to_convert <- c("HTN", "TGDLP", "MIC", "MAC", "GLYC", "tx", 
+                     "CKM_syn_base", "CKM_max", 
+                     "progress_CKM", "DEATH", 
+                     "num_prog")
+prog_summary_final[cols_to_convert] <- lapply(prog_summary_final[cols_to_convert], as.factor)
+
+label(prog_summary_final$AGEBASE) <- "Baseline age"
+label(prog_summary_final$sex_char) <- "Sex"
+label(prog_summary_final$racedesc) <- "Race/ethnicity"
+label(prog_summary_final$txdesc) <- "Treatment group"
+label(prog_summary_final$HbA1c) <- "Baseline HbA1c (%)"
+label(prog_summary_final$log_trig) <- "Baseline log(triglycerides) (mg/dL)"
+label(prog_summary_final$sbp) <- "Baseline SBP (mmHg)"
+label(prog_summary_final$dbp) <- "Baseline DBP (mmHg)"
+label(prog_summary_final$uacid) <- "Baseline uric acid (mg/dL)"
+label(prog_summary_final$si_1_ins0) <- "Baseline Si (1/fasting insulin [uU/mL])"
+label(prog_summary_final$UAlbCreat) <- "Baseline UACR"
+label(prog_summary_final$bmi) <- "Baseline BMI (kg/m2)"
+label(prog_summary_final$HDL) <- "Baseline HDL (mg/dL)"
+label(prog_summary_final$codi) <- "Baseline C-peptide oDI (mL/uU * ng/mL per mg/dL)"
+label(prog_summary_final$ALT) <- "Baseline ALT (U/L)"
+label(prog_summary_final$AST) <- "Baseline AST (U/L)"
+label(prog_summary_final$HTN) <- "Hypertension"
+label(prog_summary_final$TGDLP) <- "Hypertriglyceridemia"
+label(prog_summary_final$MIC) <- "Microalbuminuria"
+label(prog_summary_final$MAC) <- "Macroalbuminuria"
+label(prog_summary_final$GLYC) <- "Loss of glycemic control"
+label(prog_summary_final$DEATH) <- "Death"
+
+# write file for other analyses
+filename <- "/CKM/Results/CKM stage summary.csv"
+full_path <- file.path(data_path, filename)
+write.csv(prog_summary_final, full_path, row.names = FALSE)
+
+# merge in proteins
+# load somalogic data, with QC samples already excluded
+filename <- "/Somalogic data raw/soma.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
+# load analyte info
+filename <- "/Somalogic data raw/analytes.Rdata"
+full_path <- file.path(data_path, filename)
+load(full_path)
+# take only the baseline soma samples
+base <- soma %>% arrange(releaseid,Date.Drawn) %>% dplyr::group_by(releaseid) %>% dplyr::filter(row_number()==1)
+# these 3 release IDs have first sample after end of recruitment, so they must be missing the baseline visit
+base <- base %>% filter(!releaseid %in% c("65-85903","65-47984","65-25901"))
+# identify columns corresponding to proteins
+#is_seq <- function(.x) grepl("^seq\\.[0-9]{4}", .x) # regex for analytes
+is_seq <- function(.x) grepl("seq", .x)
+seq <- is_seq(names(base))
+# convert to numeric
+base[,seq] <- apply(base[,seq],2,as.numeric)
+# log transform
+base_log <- base %>% modify_if(is_seq(names(.)), log2)
+# scale by SD
+base_log_scale <- base_log
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  base_log_scale[,paste0(predictors[i])] <- base_log_scale[,paste0(predictors[i])]/sd(unlist(base_log[,paste0(predictors[i])]))
+}
+base_log_scale <- base_log_scale %>% rename(RELEASEID = releaseid)
+
+prog_summary_final_soma <- left_join(base_log_scale, prog_summary_final, by = "RELEASEID")
+
+# create another data frame with change in proteins
+# find follow-up samples
+fup <- soma %>% anti_join(base, soma, by=c("releaseid","Date.Drawn"))
+# identify columns corresponding to proteins and convert to numeric
+fup <- fup %>%
+       mutate(across(starts_with("seq"),
+              ~ as.numeric(as.character(.))))
+
+# calculate deltas
+base_for_deltas <- base
+base_for_deltas <- base_for_deltas %>% filter(releaseid %in% fup$releaseid)
+fup <- fup %>% filter(releaseid %in% base_for_deltas$releaseid)
+fup <- fup %>% arrange(releaseid)
+base_for_deltas <- base_for_deltas %>% arrange(releaseid)
+a <- fup %>% select(starts_with("seq"))
+b <- base_for_deltas %>% ungroup() %>% select(starts_with("seq"))
+deltas <- as.data.frame(a) - as.data.frame(b)
+# can't log transform because many delta values are negative
+# scale by SD
+deltas_scale <- deltas
+for (i in 1:length(predictors)) {
+  deltas_scale[,paste0(predictors[i])] <- deltas_scale[,paste0(predictors[i])]/sd(unlist(deltas_scale[,paste0(predictors[i])]))
+}
+# add back in releaseid and progression information
+deltas_scale <- cbind(base_for_deltas$releaseid, deltas_scale)
+colnames(deltas_scale)[1] <- "RELEASEID"
+deltas_scale <- left_join(deltas_scale, prog_summary_final, by = "RELEASEID")
+# create dataframe that is not scaled by SD
+deltas_no_scale <- cbind(base_for_deltas$releaseid, deltas)
+colnames(deltas_no_scale)[1] <- "RELEASEID"
+deltas_no_scale <- left_join(deltas_no_scale, prog_summary_final, by = "RELEASEID")
+
+# analyzing the deltas doesn't work well because they can't be log transformed
+# instead, create a long dataset with log transformed proteins and use paired limma
+temp1 <- base_for_deltas %>% rename("RELEASEID" = "releaseid")
+temp2 <- fup %>% rename("RELEASEID" = "releaseid")
+soma_long <- rbind(temp1, temp2) 
+soma_long <- left_join(soma_long, prog_summary_final, by = "RELEASEID")
+soma_long_log <- soma_long %>% modify_if(is_seq(names(.)), log)
+
+```
+
+# Results and Statistical Analysis
+
+## Descriptive statistics - adjudicated medical events
+
+### Events
+
+```{r}
+kable(ame_tab)
+```
+
+### Patients
+
+```{r}
+kable(ame_pt_tab)
+```
+
+## Criteria for CKM stages
+
+```{r include=F}
+binary_vars <- c("max_clin_cvd", "max_hfpef", "max_ARRHYTHMIA", "max_CAD",
+                 "max_CHF", "max_LVSD", "max_MI", "max_DVT", "max_PAD", "max_STROKE",
+                 "max_TIA", "max_ULCER", "max_DEATH", "max_KDIGO_char", "max_HTN", "max_TGDLP",
+                 "max_high_pwv", "max_high_bnp")
+
+my_controls <- tableby.control(
+  cat.simplify = TRUE
+)
+
+#simplify_list <- setNames(rep("1", length(binary_vars)), binary_vars)
+#my_controls <- tableby.control(cat.simplify = simplify_list)
+t2a <- tableby(CKM_max_char ~ max_clin_cvd + max_hfpef + max_ARRHYTHMIA + max_CAD + max_CHF + max_LVSD + max_MI + max_DVT + max_PAD + max_STROKE + 
+                 max_TIA + max_ULCER + max_DEATH + max_KDIGO_char + max_HTN + max_TGDLP + max_high_pwv + max_high_bnp, 
+              data = comorb_ckm2_criteria, total = FALSE, control = my_controls)
+```
+
+```{r results='asis'}
+summary(t2a,  pfootnote = F)
+```
+
+## Descriptive statistics by maximum CKM stage
+
+### Full table
+
+```{r include=F}
+# Complete table with both continuous and binary variables
+t2data <- prog_summary_final %>% dplyr::mutate(age_num = as.numeric(AGEBASE),
+                                               yrs_to_first_ckm_prog = days_to_first_ckm_prog/365.25,
+                                               progress_CKM_char = case_when(progress_CKM == 0 ~ "Did not progress",
+                                                    progress_CKM == 1 ~ "Progressed"))
+label(t2data$yrs_to_first_ckm_prog) <- "Years to first progression event"
+label(t2data$progress_CKM_char) <- "CKM progression"
+t2data$UAlbCreat_mg_g <- t2data$UAlbCreat*1000
+
+t2a <- t2data %>%
+  gtsummary::tbl_summary(
+    by = CKM_max_char,
+    missing = "no",
+    include = c(
+      AGEBASE, sex_char, racedesc, bmi, txdesc, HbA1c, log_trig, sbp, dbp, 
+      uacid, si_1_ins0, UAlbCreat_mg_g, HDL, codi, ALT, AST,
+      HTN, TGDLP, MIC, MAC, GLYC, DEATH, CKM_syn_base, progress_CKM_char, years_to_first_ckm_prog_nocensor, num_prog
+    ),
+    type = list(
+      c(AGEBASE, years_to_first_ckm_prog_nocensor, HbA1c, log_trig, sbp, dbp, 
+        uacid, si_1_ins0, UAlbCreat_mg_g, bmi, HDL, codi, ALT, AST) ~ "continuous",
+      c(HTN, TGDLP, MIC, MAC, GLYC, DEATH, progress_CKM_char) ~ "dichotomous"
+    ),
+    statistic = list(
+      gtsummary::all_continuous() ~ "{mean} ({sd})",
+      gtsummary::all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      # Continuous variables
+      AGEBASE ~ 1,
+      years_to_first_ckm_prog_nocensor ~ 1,
+      codi ~ 3,
+      c(HbA1c, log_trig, sbp, dbp, uacid, si_1_ins0, UAlbCreat_mg_g, bmi, HDL) ~ 1,
+      c(ALT, AST) ~ 0,
+      # Binary variables
+      gtsummary::all_categorical() ~ c(0, 1)
+    ),
+    value = list(  # Show only "1" level for binary variables
+      HTN ~ "1",
+      TGDLP ~ "1",
+      MIC ~ "1",
+      MAC ~ "1",
+      GLYC ~ "1",
+      DEATH ~ "1",
+      progress_CKM_char ~ "Progressed"
+    )
+  ) %>%
+  gtsummary::add_p(test = list(gtsummary::all_continuous() ~ "aov",  # or "aov" for ANOVA
+      c(sex_char, HTN, TGDLP, MIC, MAC, GLYC, DEATH) ~ "fisher.test",
+      c(racedesc, txdesc, CKM_syn_base ) ~ "chisq.test"  # Use chi-square instead of Fisher's exact
+  )) %>%
+  gtsummary::modify_header(label ~ "**Characteristic**") %>%
+  gtsummary::bold_labels()
+
+```
+
+```{r}
+t2a
+```
+
+### Brief table
+
+```{r include=F, results='hide'}
+t2b <- t2data %>%
+  gtsummary::tbl_summary(
+    by = CKM_max_char,
+    missing = "no",
+    include = c(
+      AGEBASE, sex_char, racedesc, bmi, txdesc, HbA1c, 
+      si_1_ins0, UAlbCreat_mg_g, 
+      GLYC, DEATH, num_prog
+    ),
+    type = list(
+      c(AGEBASE, HbA1c, 
+        si_1_ins0, UAlbCreat_mg_g, bmi) ~ "continuous",
+      c(GLYC, DEATH) ~ "dichotomous"
+    ),
+    statistic = list(
+      # Specify median and IQR for UAlbCreat_mg_g
+      UAlbCreat_mg_g ~ "{median} ({p25}, {p75})",
+      # Mean and SD for other continuous variables
+      c(AGEBASE, HbA1c, si_1_ins0, bmi) ~ "{mean} ({sd})",
+      # Standard format for categorical variables
+      gtsummary::all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      # Continuous variables
+      AGEBASE ~ 1,
+      c(HbA1c, UAlbCreat_mg_g, bmi) ~ 1,
+      c(si_1_ins0) ~ 3,
+      # Binary variables
+      gtsummary::all_categorical() ~ c(0, 1)
+    ),
+    value = list(  # Show only "1" level for binary variables
+      GLYC ~ "1",
+      DEATH ~ "1"
+    )
+  ) %>%
+  gtsummary::add_p(test = list(gtsummary::all_continuous() ~ "aov",  # or "aov" for ANOVA
+      c(sex_char, GLYC, DEATH, num_prog) ~ "fisher.test",
+      c(racedesc, txdesc) ~ "chisq.test"  # Use chi-square instead of Fisher's exact
+  ))   %>%
+  gtsummary::modify_header(label ~ "**Characteristic**") %>%
+  gtsummary::bold_labels() %>%
+  as_gt() %>%
+  gt::cols_width(
+    label ~ px(350),
+    stat_1 ~ px(150),  # First group column
+    stat_2 ~ px(150),  # Second group column
+    stat_3 ~ px(150)
+    #,  # Third group column (adjust based on your groups)
+    #p.value ~ px(100)
+  ) 
+```
+
+```{r include=F}
+# Sankey diagram for CKM transitions
+# save and incorporate into figures markdown
+df_alluvial <- prog_summary_final %>%
+  select(RELEASEID, CKM_syn_base, CKM_max_char) %>%
+  mutate(CKM_syn_base = as.factor(CKM_syn_base), CKM_max = as.factor(CKM_max_char))
+```
+
+```{r}
+p_sankey <- ggplot(df_alluvial, aes(axis1 = CKM_syn_base, axis2 = CKM_max_char)) +
+  geom_alluvium(aes(fill = CKM_syn_base), width = 1/12, alpha = 0.8) +
+  geom_stratum(width = 1/12, fill = "grey80", color = "black") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Baseline CKM Stage", "Follow-up CKM Stage"), expand = c(.05, .05)) +
+  labs(title = "", y = "Number of Participants") +
+  theme_minimal() + theme(legend.position = "none")
+ggsave(
+  filename = 'CKM_sankey.jpg', plot = p_sankey,
+  width = 1600, height = 900, units = "px", scale = 2
+)
+
+# First, calculate transitions
+transitions <- df_alluvial %>%
+  group_by(CKM_syn_base, CKM_max_char) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  mutate(
+    total = sum(n),
+    percent = round(100 * n / total, 1),
+    label = paste0(n, "\n(", percent, "%)")
+  )
+
+# Create the plot with flow labels
+p_sankey <- ggplot(df_alluvial, aes(axis1 = CKM_syn_base, axis2 = CKM_max_char)) +
+  geom_alluvium(aes(fill = CKM_syn_base), width = 1/12, alpha = 0.8) +
+  geom_stratum(width = 1/12, fill = "grey80", color = "black") +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  # Add flow labels
+  geom_text(stat = "flow", aes(label = after_stat(n)),
+            nudge_x = 0.0, size = 3) +
+  scale_x_discrete(limits = c("Baseline CKM Stage", "Follow-up CKM Stage"), 
+                   expand = c(.05, .05)) +
+  labs(title = "", y = "Number of Participants") +
+  theme_minimal() + 
+  theme(legend.position = "none")
+
+# Calculate flow percentages
+df_flow_labels <- df_alluvial %>%
+  count(CKM_syn_base, CKM_max_char) %>%
+  group_by(CKM_syn_base) %>%
+  mutate(
+    pct = round(100 * n / sum(n), 1),
+    label = paste0(n, "\n(", pct, "%)")
+  )
+
+# Create plot with centered flow labels
+p_sankey <- ggplot(df_alluvial, 
+                   aes(axis1 = CKM_syn_base, axis2 = CKM_max_char)) +
+  geom_alluvium(aes(fill = CKM_syn_base), 
+                width = 1/12, alpha = 0.8) +
+  geom_stratum(width = 1/12, fill = "grey80", color = "black") +
+  geom_text(stat = "stratum", 
+            aes(label = after_stat(stratum)),
+            size = 4) +
+  # Add flow labels in the middle
+  geom_text(stat = "flow",
+            aes(label = paste0(after_stat(n), "(",
+                              round(after_stat(prop) * 100, 1), "%)")),
+            nudge_x = 0.2,  # This centers labels between stages
+            size = 3,
+            color = "black",
+            fontface = "bold") +
+  scale_x_discrete(limits = c("Baseline CKM Stage", "Follow-up CKM Stage"), 
+                   expand = c(.05, .05)) +
+  labs(title = "CKM Stage Transitions", 
+       y = "Number of Participants") +
+  theme_minimal() + 
+  theme(legend.position = "none")
+
+ggsave(filename = 'CKM_sankey.jpg', plot = p_sankey,
+       width = 600, height = 900, units = "px", scale = 2)
+
+## Trying a minimal version 
+
+p_sankey <- ggplot(df_alluvial, 
+                   aes(axis1 = CKM_syn_base, axis2 = CKM_max_char)) +
+  geom_alluvium(aes(fill = CKM_syn_base), 
+                width = 1/12, alpha = 0.8) +
+  geom_stratum(width = 1/12, fill = "grey80", color = "black") +
+  # Only label the baseline (first) stages
+  geom_text(stat = "stratum", 
+            aes(label = ifelse(after_stat(x) == "CKM_syn_base", 
+                              after_stat(stratum), 
+                              "")),
+            size = 4) +
+  # Flow labels in middle
+  #geom_text(stat = "flow",
+          #  aes(label = paste0(after_stat(n), " (", 
+          #                    round(after_stat(prop) * 100, 1), "%)")),
+           # nudge_x = 0.1,
+            #size = 3,
+           # color = "black",
+        #    fontface = "bold") +
+  #scale_x_discrete(limits = c("Baseline CKM Stage", "Follow-up CKM Stage"), 
+   #                expand = c(.05, .05)) +
+  labs(title = "", 
+       y = "") +  # Remove y-axis title
+  theme_minimal() + 
+  theme(legend.position = "none",
+        axis.text.y = element_blank(),  # Remove y-axis labels
+        axis.ticks.y = element_blank(), # Remove y-axis ticks
+        panel.grid = element_blank())   # Optional: remove gridlines
+
+ggsave(filename = 'CKM_sankey.jpg', plot = p_sankey,
+       width = 300, height = 900, units = "px", scale = 2)
+
+```
+
+```{r}
+t2b
+```
+
+```{r, include=FALSE}
+# Run univariable Cox models for time to first progression without BMI
+result_noBMI <- NULL
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_noBMI <- rbind(result_noBMI,tidymod)
+}
+result_noBMI$adj.p.value <- p.adjust(result_noBMI$p.value, "fdr")
+result_noBMI$AptName <- result_noBMI$term
+result_noBMI$term <- NULL
+result_noBMI <- merge(result_noBMI,analytes,by="AptName",all.x = T, all.y = F)
+result_noBMI <- result_noBMI[order(result_noBMI$p.value),] 
+```
+
+```{r, include=FALSE}
+# Run univariable Cox models for time to progression to stage 3
+result_noBMI_3 <- NULL
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~",predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_noBMI_3 <- rbind(result_noBMI_3,tidymod)
+}
+result_noBMI_3$adj.p.value <- p.adjust(result_noBMI_3$p.value, "fdr")
+result_noBMI_3$AptName <- result_noBMI_3$term
+result_noBMI_3$term <- NULL
+result_noBMI_3 <- merge(result_noBMI_3,analytes,by="AptName",all.x = T, all.y = F)
+result_noBMI_3 <- result_noBMI_3[order(result_noBMI_3$p.value),] 
+```
+
+```{r, include=FALSE}
+# Run univariable Cox models for time to progression to stage 4
+result_noBMI_4 <- NULL
+predictors <- colnames(base_log[seq])
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(progress_CKM_stage3))~",predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_noBMI_4 <- rbind(result_noBMI_4,tidymod)
+}
+result_noBMI_4$adj.p.value <- p.adjust(result_noBMI_4$p.value, "fdr")
+result_noBMI_4$AptName <- result_noBMI_4$term
+result_noBMI_4$term <- NULL
+result_noBMI_4 <- merge(result_noBMI_4,analytes,by="AptName",all.x = T, all.y = F)
+result_noBMI_4 <- result_noBMI_4[order(result_noBMI_4$p.value),] 
+```
+
+```{r, include=FALSE}
+# Run univariable Cox models for clinical variables
+result_clinical <- NULL
+predictors <- c("AGEBASE", "sex_char", "bmi", "HbA1c", "sbp", "codi", "si_1_ins0", "GLYC", "mean_a1c", "mean_adipo", "mean_il6", "mean_il1",
+                "mean_hscrp", "mean_apob", "mean_tnfa", "mean_insinv", "mean_codi", "tx")
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate=TRUE, conf.int = TRUE)
+  #tidymod <- tidymod[1,]
+  tidymod <- cbind(tidymod, mod$concordance[[6]])
+  result_clinical <- rbind(result_clinical,tidymod)
+}
+result_clinical$adj.p.value <- p.adjust(result_clinical$p.value, "fdr")
+result_clinical$AptName <- result_clinical$term
+result_clinical$term <- NULL
+result_clinical$concordance <- result_clinical$`mod$concordance[[6]]`
+result_clinical$`mod$concordance[[6]]` <- NULL
+result_clinical <- merge(result_clinical,analytes,by="AptName",all.x = T, all.y = F)
+#result_clinical <- result_clinical[order(result_clinical$p.value),] 
+result_clinical$VarName <- result_clinical$AptName
+result_clinical <- result_clinical %>% select(VarName, estimate, std.error,	statistic,	p.value,	conf.low,	conf.high, concordance)
+```
+
+```{r, include=FALSE}
+# write all results to file
+wb <- createWorkbook()
+addWorksheet(wb,"Proteins all stages")
+writeData(wb,"Proteins all stages",result_noBMI,rowNames = F)
+addWorksheet(wb,"Proteins CKM 3")
+writeData(wb,"Proteins CKM 3",result_noBMI_3,rowNames = F)
+addWorksheet(wb,"Proteins CKM 4")
+writeData(wb,"Proteins CKM 4",result_noBMI_4,rowNames = F)
+addWorksheet(wb,"Clinical all stages")
+writeData(wb,"Clinical all stages",result_clinical,rowNames = F)
+full_path <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline unadjusted.xlsx")
+saveWorkbook(wb, full_path, overwrite = TRUE)
+```
+
+```{r, include=FALSE}
+
+## Testing the CV outcomes variables and their protein predictors
+
+# Create CV_summary with RELEASEID, all CV outcomes, time variables, and composite
+
+comorb_ckm$DAYSTOARRHYTHMIA
+
+CV_summary <- comorb_ckm %>%
+  select(
+    RELEASEID,
+    # Binary outcomes
+    ARRHYTHMIA, CAD, CHF, LVSD, MI, STROKE, TIA, PAD, ULCER, DVT,
+    # Corresponding time-to-event variables
+    DAYSTOARRHYTHMIA, DAYSTOCAD, DAYSTOCHF, DAYSTOLVSD, DAYSTOMI,
+    DAYSTOSTROKE, DAYSTOTIA, DAYSTOPAD, DAYSTOULCER, DAYSTODVT
+  ) %>%
+  mutate(
+    # Composite CV outcome: 1 if any event occurred
+    CV_COMPOSITE = as.numeric(ARRHYTHMIA == 1 | CAD == 1 | CHF == 1 | LVSD == 1 | 
+                              MI == 1 | STROKE == 1 | TIA == 1 | PAD == 1 | 
+                              ULCER == 1 | DVT == 1),
+    # Time to first CV event (minimum of all event times for those who had events)
+    DAYSTO_CV_COMPOSITE = pmin(
+      ifelse(ARRHYTHMIA == 1, DAYSTOARRHYTHMIA, NA),
+      ifelse(CAD == 1, DAYSTOCAD, NA),
+      ifelse(CHF == 1, DAYSTOCHF, NA),
+      ifelse(LVSD == 1, DAYSTOLVSD, NA),
+      ifelse(MI == 1, DAYSTOMI, NA),
+      ifelse(STROKE == 1, DAYSTOSTROKE, NA),
+      ifelse(TIA == 1, DAYSTOTIA, NA),
+      ifelse(PAD == 1, DAYSTOPAD, NA),
+      ifelse(ULCER == 1, DAYSTOULCER, NA),
+      ifelse(DVT == 1, DAYSTODVT, NA),
+      na.rm = TRUE
+    ),
+    # For non-events, use maximum follow-up time (last observation)
+    DAYSTO_CV_COMPOSITE = ifelse(
+      CV_COMPOSITE == 0,
+      pmax(DAYSTOARRHYTHMIA, DAYSTOCAD, DAYSTOCHF, DAYSTOLVSD, DAYSTOMI,
+           DAYSTOSTROKE, DAYSTOTIA, DAYSTOPAD, DAYSTOULCER, DAYSTODVT, na.rm = TRUE),
+      DAYSTO_CV_COMPOSITE
+    )
+  )
+
+# Check structure and event counts
+glimpse(CV_summary)
+
+```
+
+```{r, include=FALSE}
+# Run univariable Cox models for each of the CV outcomes and the composite
+
+# Initialize empty result objects for each CV outcome
+result_ARRHYTHMIA <- NULL
+result_CAD <- NULL
+result_CHF <- NULL
+result_LVSD <- NULL
+result_MI <- NULL
+result_STROKE <- NULL
+result_TIA <- NULL
+result_PAD <- NULL
+result_ULCER <- NULL
+result_DVT <- NULL
+result_CV_COMPOSITE <- NULL
+
+# Check RELEASEID format in both datasets
+head(prog_summary_final_soma$RELEASEID)
+head(CV_summary$RELEASEID)
+
+# Make sure both are character
+prog_summary_final_soma$RELEASEID <- as.character(prog_summary_final_soma$RELEASEID)
+CV_summary$RELEASEID <- as.character(CV_summary$RELEASEID)
+
+# Merge CV_summary into prog_summary_final_soma
+prog_summary_final_soma <- left_join(prog_summary_final_soma, CV_summary, by = "RELEASEID")
+
+# Verify the merge worked
+"DAYSTOARRHYTHMIA" %in% colnames(prog_summary_final_soma)
+"ARRHYTHMIA" %in% colnames(prog_summary_final_soma)
+
+# Check how many have CV data
+sum(!is.na(prog_summary_final_soma$DAYSTOARRHYTHMIA))
+sum(!is.na(prog_summary_final_soma$CV_COMPOSITE))
+
+# Get predictor names
+predictors <- colnames(base_log_scale)[is_seq(colnames(base_log_scale))]
+
+# ARRHYTHMIA
+result_ARRHYTHMIA <- NULL
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(DAYSTOARRHYTHMIA, as.numeric(ARRHYTHMIA))~", predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate = TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_ARRHYTHMIA <- rbind(result_ARRHYTHMIA, tidymod)
+}
+result_ARRHYTHMIA$adj.p.value <- p.adjust(result_ARRHYTHMIA$p.value, "fdr")
+result_ARRHYTHMIA$AptName <- result_ARRHYTHMIA$term
+result_ARRHYTHMIA$term <- NULL
+result_ARRHYTHMIA <- merge(result_ARRHYTHMIA, analytes, by = "AptName", all.x = T, all.y = F)
+result_ARRHYTHMIA <- result_ARRHYTHMIA[order(result_ARRHYTHMIA$p.value),]
+
+# CAD
+result_CAD <- NULL
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(DAYSTOCAD, as.numeric(CAD))~", predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate = TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_CAD <- rbind(result_CAD, tidymod)
+}
+
+## The model did not converge, perhaps due to the small sample size
+result_CAD$adj.p.value <- p.adjust(result_CAD$p.value, "fdr")
+result_CAD$AptName <- result_CAD$term
+result_CAD$term <- NULL
+result_CAD <- merge(result_CAD, analytes, by = "AptName", all.x = T, all.y = F)
+result_CAD <- result_CAD[order(result_CAD$p.value),]
+
+# CHF
+result_CHF <- NULL
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(DAYSTOCHF, as.numeric(CHF))~", predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate = TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_CHF <- rbind(result_CHF, tidymod)
+}
+result_CHF$adj.p.value <- p.adjust(result_CHF$p.value, "fdr")
+result_CHF$AptName <- result_CHF$term
+result_CHF$term <- NULL
+result_CHF <- merge(result_CHF, analytes, by = "AptName", all.x = T, all.y = F)
+result_CHF <- result_CHF[order(result_CHF$p.value),]
+
+# LVSD
+result_LVSD <- NULL
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(DAYSTOLVSD, as.numeric(LVSD))~", predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate = TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_LVSD <- rbind(result_LVSD, tidymod)
+}
+result_LVSD$adj.p.value <- p.adjust(result_LVSD$p.value, "fdr")
+result_LVSD$AptName <- result_LVSD$term
+result_LVSD$term <- NULL
+result_LVSD <- merge(result_LVSD, analytes, by = "AptName", all.x = T, all.y = F)
+result_LVSD <- result_LVSD[order(result_LVSD$p.value),]
+
+# MI
+result_MI <- NULL
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(DAYSTOMI, as.numeric(MI))~", predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate = TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_MI <- rbind(result_MI, tidymod)
+}
+### Model did not converge, small sample size
+result_MI$adj.p.value <- p.adjust(result_MI$p.value, "fdr")
+result_MI$AptName <- result_MI$term
+result_MI$term <- NULL
+result_MI <- merge(result_MI, analytes, by = "AptName", all.x = T, all.y = F)
+result_MI <- result_MI[order(result_MI$p.value),]
+
+# STROKE
+result_STROKE <- NULL
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(DAYSTOSTROKE, as.numeric(STROKE))~", predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate = TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_STROKE <- rbind(result_STROKE, tidymod)
+}
+result_STROKE$adj.p.value <- p.adjust(result_STROKE$p.value, "fdr")
+result_STROKE$AptName <- result_STROKE$term
+result_STROKE$term <- NULL
+result_STROKE <- merge(result_STROKE, analytes, by = "AptName", all.x = T, all.y = F)
+result_STROKE <- result_STROKE[order(result_STROKE$p.value),]
+
+# TIA
+result_TIA <- NULL
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(DAYSTOTIA, as.numeric(TIA))~", predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate = TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_TIA <- rbind(result_TIA, tidymod)
+}
+## Model did not converge, small sample size
+result_TIA$adj.p.value <- p.adjust(result_TIA$p.value, "fdr")
+result_TIA$AptName <- result_TIA$term
+result_TIA$term <- NULL
+result_TIA <- merge(result_TIA, analytes, by = "AptName", all.x = T, all.y = F)
+result_TIA <- result_TIA[order(result_TIA$p.value),]
+
+# PAD
+result_PAD <- NULL
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(DAYSTOPAD, as.numeric(PAD))~", predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate = TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_PAD <- rbind(result_PAD, tidymod)
+}
+## Did not converge
+result_PAD$adj.p.value <- p.adjust(result_PAD$p.value, "fdr")
+result_PAD$AptName <- result_PAD$term
+result_PAD$term <- NULL
+result_PAD <- merge(result_PAD, analytes, by = "AptName", all.x = T, all.y = F)
+result_PAD <- result_PAD[order(result_PAD$p.value),]
+
+# ULCER
+result_ULCER <- NULL
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(DAYSTOULCER, as.numeric(ULCER))~", predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate = TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_ULCER <- rbind(result_ULCER, tidymod)
+}
+result_ULCER$adj.p.value <- p.adjust(result_ULCER$p.value, "fdr")
+result_ULCER$AptName <- result_ULCER$term
+result_ULCER$term <- NULL
+result_ULCER <- merge(result_ULCER, analytes, by = "AptName", all.x = T, all.y = F)
+result_ULCER <- result_ULCER[order(result_ULCER$p.value),]
+
+# DVT
+result_DVT <- NULL
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(DAYSTODVT, as.numeric(DVT))~", predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate = TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_DVT <- rbind(result_DVT, tidymod)
+}
+result_DVT$adj.p.value <- p.adjust(result_DVT$p.value, "fdr")
+result_DVT$AptName <- result_DVT$term
+result_DVT$term <- NULL
+result_DVT <- merge(result_DVT, analytes, by = "AptName", all.x = T, all.y = F)
+result_DVT <- result_DVT[order(result_DVT$p.value),]
+
+# CV_COMPOSITE
+result_CV_COMPOSITE <- NULL
+for (i in 1:length(predictors)) {
+  form <- paste0("Surv(DAYSTO_CV_COMPOSITE, as.numeric(CV_COMPOSITE))~", predictors[i])
+  mod <- coxph(data = prog_summary_final_soma, formula = as.formula(form))
+  tidymod <- tidy(mod, exponentiate = TRUE, conf.int = TRUE)
+  tidymod <- tidymod[1,]
+  result_CV_COMPOSITE <- rbind(result_CV_COMPOSITE, tidymod)
+}
+result_CV_COMPOSITE$adj.p.value <- p.adjust(result_CV_COMPOSITE$p.value, "fdr")
+result_CV_COMPOSITE$AptName <- result_CV_COMPOSITE$term
+result_CV_COMPOSITE$term <- NULL
+result_CV_COMPOSITE <- merge(result_CV_COMPOSITE, analytes, by = "AptName", all.x = T, all.y = F)
+result_CV_COMPOSITE <- result_CV_COMPOSITE[order(result_CV_COMPOSITE$p.value),]
+
+# Write all results to Excel file
+wb <- createWorkbook()
+
+addWorksheet(wb, "Proteins ARRHYTHMIA")
+writeData(wb, "Proteins ARRHYTHMIA", result_ARRHYTHMIA, rowNames = FALSE)
+
+addWorksheet(wb, "Proteins CHF")
+writeData(wb, "Proteins CHF", result_CHF, rowNames = FALSE)
+
+addWorksheet(wb, "Proteins LVSD")
+writeData(wb, "Proteins LVSD", result_LVSD, rowNames = FALSE)
+
+addWorksheet(wb, "Proteins STROKE")
+writeData(wb, "Proteins STROKE", result_STROKE, rowNames = FALSE)
+
+addWorksheet(wb, "Proteins ULCER")
+writeData(wb, "Proteins ULCER", result_ULCER, rowNames = FALSE)
+
+addWorksheet(wb, "Proteins DVT")
+writeData(wb, "Proteins DVT", result_DVT, rowNames = FALSE)
+
+addWorksheet(wb, "Proteins CV_COMPOSITE")
+writeData(wb, "Proteins CV_COMPOSITE", result_CV_COMPOSITE, rowNames = FALSE)
+
+full_path <- file.path(data_path, "CKM/Results/TODAY CVoutcomes Cox models unadjusted.xlsx")
+saveWorkbook(wb, full_path, overwrite = TRUE)
+```
+
+```{r, include=FALSE}
+# Elastic net Cox models for CV outcomes
+# filter to top 100 proteins by effect size
+f <- file.path(data_path, "CKM/Results/TODAY CVoutcomes Cox models unadjusted.xlsx")
+
+# ARRHYTHMIA
+arrhythmia_keep = read_excel(f, sheet = "Proteins ARRHYTHMIA")
+arrhythmia_keep <- arrange(arrhythmia_keep, adj.p.value)
+arrhythmia_drop <- arrhythmia_keep[101:nrow(arrhythmia_keep), "AptName"]
+rownames(arrhythmia_drop) <- arrhythmia_drop$AptName
+arrhythmia_drop <- as.data.frame(t(arrhythmia_drop))
+arrhythmia_endata <- prog_summary_final_soma %>% select(-colnames(arrhythmia_drop))
+
+# CHF
+chf_keep = read_excel(f, sheet = "Proteins CHF")
+chf_keep <- arrange(chf_keep, adj.p.value)
+chf_drop <- chf_keep[101:nrow(chf_keep), "AptName"]
+rownames(chf_drop) <- chf_drop$AptName
+chf_drop <- as.data.frame(t(chf_drop))
+chf_endata <- prog_summary_final_soma %>% select(-colnames(chf_drop))
+
+# LVSD
+lvsd_keep = read_excel(f, sheet = "Proteins LVSD")
+lvsd_keep <- arrange(lvsd_keep, adj.p.value)
+lvsd_drop <- lvsd_keep[101:nrow(lvsd_keep), "AptName"]
+rownames(lvsd_drop) <- lvsd_drop$AptName
+lvsd_drop <- as.data.frame(t(lvsd_drop))
+lvsd_endata <- prog_summary_final_soma %>% select(-colnames(lvsd_drop))
+
+# STROKE
+stroke_keep = read_excel(f, sheet = "Proteins STROKE")
+stroke_keep <- arrange(stroke_keep, adj.p.value)
+stroke_drop <- stroke_keep[101:nrow(stroke_keep), "AptName"]
+rownames(stroke_drop) <- stroke_drop$AptName
+stroke_drop <- as.data.frame(t(stroke_drop))
+stroke_endata <- prog_summary_final_soma %>% select(-colnames(stroke_drop))
+
+# ULCER
+ulcer_keep = read_excel(f, sheet = "Proteins ULCER")
+ulcer_keep <- arrange(ulcer_keep, adj.p.value)
+ulcer_drop <- ulcer_keep[101:nrow(ulcer_keep), "AptName"]
+rownames(ulcer_drop) <- ulcer_drop$AptName
+ulcer_drop <- as.data.frame(t(ulcer_drop))
+ulcer_endata <- prog_summary_final_soma %>% select(-colnames(ulcer_drop))
+
+# DVT
+dvt_keep = read_excel(f, sheet = "Proteins DVT")
+dvt_keep <- arrange(dvt_keep, adj.p.value)
+dvt_drop <- dvt_keep[101:nrow(dvt_keep), "AptName"]
+rownames(dvt_drop) <- dvt_drop$AptName
+dvt_drop <- as.data.frame(t(dvt_drop))
+dvt_endata <- prog_summary_final_soma %>% select(-colnames(dvt_drop))
+
+# CV_COMPOSITE
+cv_composite_keep = read_excel(f, sheet = "Proteins CV_COMPOSITE")
+cv_composite_keep <- arrange(cv_composite_keep, adj.p.value)
+cv_composite_drop <- cv_composite_keep[101:nrow(cv_composite_keep), "AptName"]
+rownames(cv_composite_drop) <- cv_composite_drop$AptName
+cv_composite_drop <- as.data.frame(t(cv_composite_drop))
+cv_composite_endata <- prog_summary_final_soma %>% select(-colnames(cv_composite_drop))
+
+set.seed(3654)
+filename <- "TODAY proteomics metabolomics/Proteomics analyses/Elastic net/easy_elasticnet.R"
+full_path <- file.path(github_path, filename)
+source(full_path)
+```
+
+```{r, include=FALSE}
+# compare change in proteins in those who did and did not progress
+# using limma mixed effects model
+soma_long_log$sample_id <- paste(soma_long_log$RELEASEID, "v", soma_long_log$visit, sep = "")
+protein_cols <- grep("^seq\\.", names(soma_long_log), value = TRUE)
+protein_data <- soma_long_log[, c("sample_id", protein_cols)]
+expression_matrix <- t(protein_data[, -1]) 
+colnames(expression_matrix) <- protein_data$sample_id
+metadata <- soma_long_log[, c("sample_id", "RELEASEID", "visit", "progress_CKM")]
+metadata <- metadata[!duplicated(metadata$sample_id), ]
+rownames(metadata) <- metadata$sample_id
+metadata <- metadata[colnames(expression_matrix), ]
+metadata$visit_factor <- factor(metadata$visit)
+metadata$progress_CKM <- factor(metadata$progress_CKM, levels = c(0, 1))
+design <- model.matrix(~ progress_CKM * visit_factor, data = metadata)
+colnames(design) <- c("Intercept", "ProgressCKM", "Visit2", "ProgressCKM_Visit2")
+block <- factor(metadata$RELEASEID)
+correlation <- duplicateCorrelation(expression_matrix, design, block = block)
+fit <- lmFit(expression_matrix, design, block = block, 
+             correlation = correlation$consensus.correlation)
+fit <- eBayes(fit)
+results_interaction <- topTable(fit, coef = "ProgressCKM_Visit2", adjust.method = "BH", number = Inf)
+results_interaction$AptName <- row.names(results_interaction)
+results_interaction <- merge(results_interaction,analytes,by="AptName",all.x = T, all.y = F)
+results_interaction <- results_interaction[order(results_interaction$P.Value),] 
+```
+
+```{r, include=FALSE}
+# write DiD results to file
+wb <- createWorkbook()
+addWorksheet(wb,"DiD proteins vs CKM progression")
+writeData(wb,"DiD proteins vs CKM progression",results_interaction,rowNames = F)
+full_path <- file.path(data_path, "CKM/Results/TODAY change in proteins CKM progression.xlsx")
+saveWorkbook(wb, full_path, overwrite = TRUE)
+```
+
+```{r, include=FALSE}
+# Elastic net Cox models
+
+# filter to top 100 proteins by effect size
+f <- file.path(data_path, "CKM/Results/TODAY CKM Cox models scaled baseline unadjusted.xlsx")
+
+# CKM first progression to any stage
+ckm_without_bmi_keep = read_excel(f,sheet = "Proteins all stages")
+ckm_without_bmi_keep <- arrange(ckm_without_bmi_keep,adj.p.value)
+ckm_without_bmi_drop <- ckm_without_bmi_keep[101:nrow(ckm_without_bmi_keep),"AptName"]
+rownames(ckm_without_bmi_drop) <- ckm_without_bmi_drop$AptName
+ckm_without_bmi_drop <- as.data.frame(t(ckm_without_bmi_drop))
+ckm_without_bmi_endata <- prog_summary_final_soma %>% select(-colnames(ckm_without_bmi_drop))
+
+# CKM time to progression for those who progressed to stage 3
+ckm_stage3_keep = read_excel(f,sheet = "Proteins CKM 3")
+ckm_stage3_keep <- arrange(ckm_stage3_keep,adj.p.value)
+ckm_stage3_drop <- ckm_stage3_keep[101:nrow(ckm_stage3_keep),"AptName"]
+rownames(ckm_stage3_drop) <- ckm_stage3_drop$AptName
+ckm_stage3_drop <- as.data.frame(t(ckm_stage3_drop))
+ckm_stage3_endata <- prog_summary_final_soma %>% select(-colnames(ckm_stage3_drop))
+
+# CKM time to progression for those who progressed to stage 4
+ckm_stage4_keep = read_excel(f,sheet = "Proteins CKM 4")
+ckm_stage4_keep <- arrange(ckm_stage4_keep,adj.p.value)
+ckm_stage4_drop <- ckm_stage4_keep[101:nrow(ckm_stage4_keep),"AptName"]
+rownames(ckm_stage4_drop) <- ckm_stage4_drop$AptName
+ckm_stage4_drop <- as.data.frame(t(ckm_stage4_drop))
+ckm_stage4_endata <- prog_summary_final_soma %>% select(-colnames(ckm_stage4_drop))
+
+set.seed(3654)
+filename <- "TODAY proteomics metabolomics/Proteomics analyses/Elastic net/easy_elasticnet.R"
+full_path <- file.path(github_path, filename)
+source(full_path)
+```
+
+#Searching for target genes
+
+```{r}
+#Change gene name to check if exists in EntrexGeneSymbol column
+analytes$EntrezGeneSymbol[which(grepl("RIPK2",analytes$EntrezGeneSymbol))]
+
+#Change gene name
+"RIPK2" %in% analytes$EntrezGeneSymbol
+
+```
+
+# Elastic net models
+
+## Time to CKM progression, any stage
+
+### Proteins
+
+```{r, include=FALSE, comment=""}
+ckm_without_bmi_endata_nozero <- ckm_without_bmi_endata[!ckm_without_bmi_endata$days_to_first_ckm_prog == 0,]
+seq <- is_seq(names(ckm_without_bmi_endata_nozero))
+
+ckm_without_bmi_select = easy_elasticnet(data = ckm_without_bmi_endata_nozero,outcome = "progress_CKM",
+                           predictors = ckm_without_bmi_endata_nozero[,seq], out = "min.error",
+                           model_type = "cox",time = "days_to_first_ckm_prog", cv_method="kfold", folds = 10)
+retained_vars = analytes[analytes$AptName %in% ckm_without_bmi_select, c("Target","TargetFullName")]
+
+form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+")))
+mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df <- as.data.frame(cbind("Time to CKM progression","Proteins",mod$concordance[[6]], mod$concordance[[7]]))
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+## Time to CKM progression, any stage
+
+### Proteins using the CV predicted proteins
+
+```{r, include=TRUE, comment=""}
+# First, run elastic net for ARRHYTHMIA and CV_COMPOSITE to get selected proteins
+
+# Create dataset with all proteins, removing zero time values
+prog_summary_final_soma_nozero <- prog_summary_final_soma[!prog_summary_final_soma$days_to_first_ckm_prog == 0,]
+
+# CV_COMPOSITE elastic net
+cv_composite_endata_nozero <- cv_composite_endata[!cv_composite_endata$DAYSTO_CV_COMPOSITE == 0,]
+seq <- is_seq(names(cv_composite_endata_nozero))
+cv_composite_select = easy_elasticnet(data = cv_composite_endata_nozero, outcome = "CV_COMPOSITE",
+                           predictors = cv_composite_endata_nozero[,seq], out = "min.error",
+                           model_type = "cox", time = "DAYSTO_CV_COMPOSITE", cv_method="kfold", folds = 10)
+cv_composite_retained_vars = analytes[analytes$AptName %in% cv_composite_select, c("Target","TargetFullName")]
+
+# Model: CV_COMPOSITE proteins predicting CKM progression
+form_cvcomp_ckm = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",paste0(cv_composite_select,collapse = "+")))
+mod_cvcomp_ckm = coxph(formula = form_cvcomp_ckm, data = prog_summary_final_soma_nozero)
+kable(tidy(mod_cvcomp_ckm, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+# make a summary table
+moddf_cvcomp_ckm <- as.data.frame(tidy(mod_cvcomp_ckm, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+moddf_cvcomp_ckm$term <- analytes[analytes$AptName %in% moddf_cvcomp_ckm$term, ]$Target
+moddf_cvcomp_ckm <- cbind(moddf_cvcomp_ckm$term, round(moddf_cvcomp_ckm$estimate, digits=3), round(moddf_cvcomp_ckm$conf.low, digits=3), round(moddf_cvcomp_ckm$conf.high, digits=3), round(moddf_cvcomp_ckm$std.error, digits=3), round(moddf_cvcomp_ckm$p.value, digits=3))
+colnames(moddf_cvcomp_ckm) <- c("Variable","Hazard Ratio","CI Low","CI High","SE","P-value")
+concordance_cvcomp_ckm <- as.data.frame(cbind("Time to CKM progression","CV_COMPOSITE proteins", mod_cvcomp_ckm$concordance[[6]], mod_cvcomp_ckm$concordance[[7]]))
+
+# View summary tables
+moddf_cvcomp_ckm
+
+# View concordance results
+concordance_cvcomp_ckm
+```
+
+### Model with only age and sex
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~sex_char + AGEBASE"))
+mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression","Age, sex",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with age, sex, BMI, HbA1c, SBP
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~sex_char + AGEBASE + bmi + HbA1c + sbp"))
+mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression","Age, sex, BMI, HbA1c, SBP",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with proteins, age, and sex
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+"),paste0("+sex_char+AGEBASE")))
+mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf[1:(nrow(moddf)-2),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression","Proteins, age, sex",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with proteins, age, sex, BMI, HbA1c, SBP
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_prog, as.numeric(progress_CKM))~",paste0(ckm_without_bmi_select,collapse = "+"),paste0("+HbA1c+log_trig+sbp+si_1_ins0+sex_char+bmi+AGEBASE+racedesc")))
+mod = coxph(formula = form,data = ckm_without_bmi_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf[1:(nrow(moddf)-10),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression","Proteins + all covariates",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+```{r, include=TRUE, comment=""}
+colnames(concordance_df) <- c("Outcome","Model","Concordance","SE")
+concordance_df$Concordance <- as.numeric(concordance_df$Concordance)
+concordance_df$SE <- as.numeric(concordance_df$SE)
+concordance_df$ci_low <- concordance_df$Concordance - (1.96*concordance_df$SE)
+concordance_df$ci_high <- concordance_df$Concordance + (1.96*concordance_df$SE)
+concordance_df[,c("Concordance","SE","ci_low", "ci_high")] <- round(concordance_df[,c("Concordance","SE","ci_low", "ci_high")],2)
+colnames(concordance_df) <- c("Outcome","Model","Concordance","SE","Lower bound 95% CI","Upper bound 95% CI")
+#concordance_df <- rbind(concordance_df[5,],concordance_df[7,],
+#                            concordance_df[1,],
+#                            concordance_df[4,],concordance_df[6,])
+concordance_df <- concordance_df[,-1]
+colnames(concordance_df) <- c("Model","Concordance","SE","Lower bound 95% CI","Upper bound 95% CI")
+
+# forest plot of concordance
+concordance_df_for_plot <- concordance_df
+concordance_df_for_plot$` ` <- paste(rep(" ", 40), collapse = " ")
+concordance_df_for_plot$`Concordance (95% CI)` <- sprintf("%.2f (%.2f to %.2f)",
+                                     concordance_df_for_plot$Concordance, concordance_df_for_plot$`Lower bound 95% CI`, concordance_df_for_plot$`Upper bound 95% CI`)
+p <- forest(concordance_df_for_plot[, c(1, 6:7)], est = concordance_df_for_plot$Concordance, lower = concordance_df_for_plot$`Lower bound 95% CI`,
+       upper = concordance_df_for_plot$`Upper bound 95% CI`, ci_column = 2, xlim = c(0,1))
+#p$widths <- unit(c(1,100,50,50), "mm")
+png('forest_plot_elastic_net_concordance_any_max_stage.png', res = 300, width = 9, height = 3, units = "in")
+p
+dev.off()
+
+concordance_df <- NULL
+concordance_df_temp <- NULL
+concordance_df_for_plot <- NULL
+```
+
+## Time to CKM progression, for those who reached stage 3
+
+### Proteins
+
+```{r, include=FALSE, comment=""}
+ckm_stage3_endata_nozero <- ckm_stage3_endata[!ckm_stage3_endata$days_to_first_ckm_stage3_prog == 0,]
+seq <- is_seq(names(ckm_stage3_endata_nozero))
+
+ckm_stage3_select = easy_elasticnet(data = ckm_stage3_endata_nozero,outcome = "progress_CKM_stage3",
+                           predictors = ckm_stage3_endata_nozero[,seq], out = "min.error",
+                           model_type = "cox",time = "days_to_first_ckm_stage3_prog", cv_method="kfold", folds = 10)
+retained_vars = analytes[analytes$AptName %in% ckm_stage3_select, c("Target","TargetFullName")]
+
+form = as.formula(paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~",paste0(ckm_stage3_select,collapse = "+")))
+mod = coxph(formula = form,data = ckm_stage3_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df <- as.data.frame(cbind("Time to CKM progression, stage 3","Proteins",mod$concordance[[6]], mod$concordance[[7]]))
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Proteins using the CV outcome selected proteins for Stage 3 and Stage 4
+
+```{r, include=FALSE, comment=""}
+
+# Create dataset with all proteins, removing zero time values
+prog_summary_final_soma_nozero <- prog_summary_final_soma[!prog_summary_final_soma$days_to_first_ckm_prog == 0,]
+
+# ============================================
+# CKM STAGE 3 - CV_COMPOSITE proteins
+# ============================================
+form_cvcomp_ckm3 = as.formula(paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~",paste0(cv_composite_select,collapse = "+")))
+mod_cvcomp_ckm3 = coxph(formula = form_cvcomp_ckm3, data = prog_summary_final_soma_nozero)
+kable(tidy(mod_cvcomp_ckm3, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+# make a summary table
+moddf_cvcomp_ckm3 <- as.data.frame(tidy(mod_cvcomp_ckm3, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+moddf_cvcomp_ckm3$term <- analytes[analytes$AptName %in% moddf_cvcomp_ckm3$term, ]$Target
+moddf_cvcomp_ckm3 <- cbind(moddf_cvcomp_ckm3$term, round(moddf_cvcomp_ckm3$estimate, digits=3), round(moddf_cvcomp_ckm3$conf.low, digits=3), round(moddf_cvcomp_ckm3$conf.high, digits=3), round(moddf_cvcomp_ckm3$std.error, digits=3), round(moddf_cvcomp_ckm3$p.value, digits=3))
+colnames(moddf_cvcomp_ckm3) <- c("Variable","Hazard Ratio","CI Low","CI High","SE","P-value")
+concordance_cvcomp_ckm3 <- as.data.frame(cbind("Time to CKM progression, stage 3","CV_COMPOSITE proteins", mod_cvcomp_ckm3$concordance[[6]], mod_cvcomp_ckm3$concordance[[7]]))
+
+# ============================================
+# CKM STAGE 4 - CV_COMPOSITE proteins
+# ============================================
+form_cvcomp_ckm4 = as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(progress_CKM_stage4))~",paste0(cv_composite_select,collapse = "+")))
+mod_cvcomp_ckm4 = coxph(formula = form_cvcomp_ckm4, data = prog_summary_final_soma_nozero)
+kable(tidy(mod_cvcomp_ckm4, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+
+mod_cvcomp_ckm4 = coxph(formula = form_cvcomp_ckm4, data = prog_summary_final_soma_nozero,
+                        control = coxph.control(iter.max = 100))
+
+# make a summary table
+moddf_cvcomp_ckm4 <- as.data.frame(tidy(mod_cvcomp_ckm4, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+moddf_cvcomp_ckm4$term <- analytes[analytes$AptName %in% moddf_cvcomp_ckm4$term, ]$Target
+moddf_cvcomp_ckm4 <- cbind(moddf_cvcomp_ckm4$term, round(moddf_cvcomp_ckm4$estimate, digits=3), round(moddf_cvcomp_ckm4$conf.low, digits=3), round(moddf_cvcomp_ckm4$conf.high, digits=3), round(moddf_cvcomp_ckm4$std.error, digits=3), round(moddf_cvcomp_ckm4$p.value, digits=3))
+colnames(moddf_cvcomp_ckm4) <- c("Variable","Hazard Ratio","CI Low","CI High","SE","P-value")
+concordance_cvcomp_ckm4 <- as.data.frame(cbind("Time to CKM progression, stage 4","CV_COMPOSITE proteins", mod_cvcomp_ckm4$concordance[[6]], mod_cvcomp_ckm4$concordance[[7]]))
+
+# ============================================
+# View summary tables
+# ============================================
+moddf_cvcomp_ckm3
+moddf_cvcomp_ckm4
+
+# ============================================
+# Combine all concordance results
+# ============================================
+concordance_all <- rbind(
+  concordance_cvcomp_ckm,
+  concordance_cvcomp_ckm3,
+  concordance_cvcomp_ckm4
+)
+colnames(concordance_all) <- c("Outcome","Protein Set","C-statistic","SE")
+concordance_all
+
+# Check the class
+class(prog_summary_final_soma_nozero$progress_CKM_stage4)
+
+# Convert to numeric
+n_events <- sum(as.numeric(as.character(prog_summary_final_soma_nozero$progress_CKM_stage4)), na.rm = TRUE)
+n_predictors <- length(cv_composite_select)
+message(paste0("Events: ", n_events, ", Predictors: ", n_predictors, ", EPV: ", round(n_events/n_predictors, 2)))
+
+# Run models one protein at a time to identify problematic ones
+problem_proteins <- c()
+good_proteins <- c()
+
+for (prot in cv_composite_select) {
+  form_test <- as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(as.character(progress_CKM_stage4)))~", prot))
+  mod_test <- tryCatch({
+    coxph(formula = form_test, data = prog_summary_final_soma_nozero)
+  }, warning = function(w) {
+    message(paste0("Warning for ", prot, ": ", w$message))
+    return("problem")
+  }, error = function(e) {
+    message(paste0("Error for ", prot, ": ", e$message))
+    return("problem")
+  })
+  
+  if (is.character(mod_test) && mod_test == "problem") {
+    problem_proteins <- c(problem_proteins, prot)
+  } else {
+    good_proteins <- c(good_proteins, prot)
+  }
+}
+
+# View results
+message(paste0("Good proteins: ", length(good_proteins)))
+message(paste0("Problem proteins: ", length(problem_proteins)))
+problem_proteins
+
+# Try model with only good proteins
+if (length(good_proteins) > 0) {
+  form_cvcomp_ckm4_good = as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(as.character(progress_CKM_stage4)))~",
+                                            paste0(good_proteins, collapse = "+")))
+  mod_cvcomp_ckm4 = coxph(formula = form_cvcomp_ckm4_good, data = prog_summary_final_soma_nozero)
+  kable(tidy(mod_cvcomp_ckm4, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+  
+  # make a summary table
+  moddf_cvcomp_ckm4 <- as.data.frame(tidy(mod_cvcomp_ckm4, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+  moddf_cvcomp_ckm4$term <- analytes[analytes$AptName %in% moddf_cvcomp_ckm4$term, ]$Target
+  moddf_cvcomp_ckm4 <- cbind(moddf_cvcomp_ckm4$term, round(moddf_cvcomp_ckm4$estimate, digits=3), round(moddf_cvcomp_ckm4$conf.low, digits=3), round(moddf_cvcomp_ckm4$conf.high, digits=3), round(moddf_cvcomp_ckm4$std.error, digits=3), round(moddf_cvcomp_ckm4$p.value, digits=3))
+  colnames(moddf_cvcomp_ckm4) <- c("Variable","Hazard Ratio","CI Low","CI High","SE","P-value")
+  concordance_cvcomp_ckm4 <- as.data.frame(cbind("Time to CKM progression, stage 4","CV_COMPOSITE proteins", mod_cvcomp_ckm4$concordance[[6]], mod_cvcomp_ckm4$concordance[[7]]))
+}
+
+# Check EPV
+n_events <- sum(as.numeric(as.character(prog_summary_final_soma_nozero$progress_CKM_stage4)), na.rm = TRUE)
+n_predictors <- length(good_proteins)
+epv <- n_events / n_predictors
+message(paste0("Events: ", n_events, ", Predictors: ", n_predictors, ", EPV: ", round(epv, 2)))
+
+# EPV is likely very low - reduce to top proteins based on univariable p-values
+# First, get univariable p-values for each protein
+univar_results <- data.frame(protein = character(), pvalue = numeric(), stringsAsFactors = FALSE)
+
+for (prot in good_proteins) {
+  form_test <- as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(as.character(progress_CKM_stage4)))~", prot))
+  mod_test <- coxph(formula = form_test, data = prog_summary_final_soma_nozero)
+  pval <- summary(mod_test)$coefficients[1, "Pr(>|z|)"]
+  univar_results <- rbind(univar_results, data.frame(protein = prot, pvalue = pval))
+}
+
+# Sort by p-value
+univar_results <- univar_results[order(univar_results$pvalue), ]
+univar_results
+
+# Select top proteins to maintain EPV >= 10
+max_predictors <- floor(n_events / 10)
+message(paste0("Maximum predictors for EPV >= 10: ", max_predictors))
+
+# Use only the top proteins
+cv_composite_select_reduced <- univar_results$protein[1:max_predictors]
+cv_composite_select_reduced
+
+# Fit reduced model
+form_cvcomp_ckm4_reduced = as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(as.character(progress_CKM_stage4)))~",
+                                              paste0(cv_composite_select_reduced, collapse = "+")))
+mod_cvcomp_ckm4 = coxph(formula = form_cvcomp_ckm4_reduced, data = prog_summary_final_soma_nozero)
+kable(tidy(mod_cvcomp_ckm4, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+
+# make a summary table
+moddf_cvcomp_ckm4 <- as.data.frame(tidy(mod_cvcomp_ckm4, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+moddf_cvcomp_ckm4$term <- analytes[analytes$AptName %in% moddf_cvcomp_ckm4$term, ]$Target
+moddf_cvcomp_ckm4 <- cbind(moddf_cvcomp_ckm4$term, round(moddf_cvcomp_ckm4$estimate, digits=3), round(moddf_cvcomp_ckm4$conf.low, digits=3), round(moddf_cvcomp_ckm4$conf.high, digits=3), round(moddf_cvcomp_ckm4$std.error, digits=3), round(moddf_cvcomp_ckm4$p.value, digits=3))
+colnames(moddf_cvcomp_ckm4) <- c("Variable","Hazard Ratio","CI Low","CI High","SE","P-value")
+concordance_cvcomp_ckm4 <- as.data.frame(cbind("Time to CKM progression, stage 4","CV_COMPOSITE proteins", mod_cvcomp_ckm4$concordance[[6]], mod_cvcomp_ckm4$concordance[[7]]))
+
+# View results
+moddf_cvcomp_ckm4
+concordance_cvcomp_ckm4
+
+# Select half of the proteins
+max_predictors <- floor(length(good_proteins) / 2)
+message(paste0("Using half of proteins: ", max_predictors))
+
+# Use only the top proteins by univariable p-value
+cv_composite_select_reduced <- univar_results$protein[1:max_predictors]
+cv_composite_select_reduced
+
+# Fit reduced model
+form_cvcomp_ckm4_reduced = as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(as.character(progress_CKM_stage4)))~",
+                                              paste0(cv_composite_select_reduced, collapse = "+")))
+mod_cvcomp_ckm4 = coxph(formula = form_cvcomp_ckm4_reduced, data = prog_summary_final_soma_nozero,
+                        control = coxph.control(iter.max = 100))
+kable(tidy(mod_cvcomp_ckm4, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+
+# make a summary table
+moddf_cvcomp_ckm4 <- as.data.frame(tidy(mod_cvcomp_ckm4, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+moddf_cvcomp_ckm4$term <- analytes[analytes$AptName %in% moddf_cvcomp_ckm4$term, ]$Target
+moddf_cvcomp_ckm4 <- cbind(moddf_cvcomp_ckm4$term, round(moddf_cvcomp_ckm4$estimate, digits=3), round(moddf_cvcomp_ckm4$conf.low, digits=3), round(moddf_cvcomp_ckm4$conf.high, digits=3), round(moddf_cvcomp_ckm4$std.error, digits=3), round(moddf_cvcomp_ckm4$p.value, digits=3))
+colnames(moddf_cvcomp_ckm4) <- c("Variable","Hazard Ratio","CI Low","CI High","SE","P-value")
+concordance_cvcomp_ckm4 <- as.data.frame(cbind("Time to CKM progression, stage 4","CV_COMPOSITE proteins", mod_cvcomp_ckm4$concordance[[6]], mod_cvcomp_ckm4$concordance[[7]]))
+
+# View results
+moddf_cvcomp_ckm4
+concordance_cvcomp_ckm4
+
+# Select 3/4 of the proteins
+max_predictors <- floor(length(good_proteins) * 3 / 4)
+message(paste0("Using 3/4 of proteins: ", max_predictors))
+
+# Use only the top proteins by univariable p-value
+cv_composite_select_reduced <- univar_results$protein[1:max_predictors]
+cv_composite_select_reduced
+
+# Fit reduced model
+form_cvcomp_ckm4_reduced = as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(as.character(progress_CKM_stage4)))~",
+                                              paste0(cv_composite_select_reduced, collapse = "+")))
+mod_cvcomp_ckm4 = coxph(formula = form_cvcomp_ckm4_reduced, data = prog_summary_final_soma_nozero,
+                        control = coxph.control(iter.max = 100))
+kable(tidy(mod_cvcomp_ckm4, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+
+# make a summary table
+moddf_cvcomp_ckm4 <- as.data.frame(tidy(mod_cvcomp_ckm4, exponentiate = TRUE, conf.int = TRUE), digits = 3)
+moddf_cvcomp_ckm4$term <- analytes[analytes$AptName %in% moddf_cvcomp_ckm4$term, ]$Target
+moddf_cvcomp_ckm4 <- cbind(moddf_cvcomp_ckm4$term, round(moddf_cvcomp_ckm4$estimate, digits=3), round(moddf_cvcomp_ckm4$conf.low, digits=3), round(moddf_cvcomp_ckm4$conf.high, digits=3), round(moddf_cvcomp_ckm4$std.error, digits=3), round(moddf_cvcomp_ckm4$p.value, digits=3))
+colnames(moddf_cvcomp_ckm4) <- c("Variable","Hazard Ratio","CI Low","CI High","SE","P-value")
+concordance_cvcomp_ckm4 <- as.data.frame(cbind("Time to CKM progression, stage 4","CV_COMPOSITE proteins", mod_cvcomp_ckm4$concordance[[6]], mod_cvcomp_ckm4$concordance[[7]]))
+
+# View results
+moddf_cvcomp_ckm4
+concordance_cvcomp_ckm4
+
+```
+
+### Model with only age and sex
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~sex_char + AGEBASE"))
+mod = coxph(formula = form,data = ckm_stage3_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 3","Age, sex",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with age, sex, BMI, HbA1c, SBP
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~sex_char + AGEBASE + bmi + HbA1c + sbp"))
+mod = coxph(formula = form,data = ckm_stage3_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 3","Age, sex, BMI, HbA1c, SBP",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with proteins, age, and sex
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~",paste0(ckm_stage3_select,collapse = "+"),paste0("+sex_char+AGEBASE")))
+mod = coxph(formula = form,data = ckm_stage3_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf[1:(nrow(moddf)-2),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 3","Proteins, age, sex",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with proteins, age, sex, BMI, HbA1c, SBP
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage3_prog, as.numeric(progress_CKM_stage3))~",paste0(ckm_stage3_select,collapse = "+"),paste0("+HbA1c+log_trig+sbp+si_1_ins0+sex_char+bmi+AGEBASE+racedesc")))
+mod = coxph(formula = form,data = ckm_stage3_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf[1:(nrow(moddf)-10),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 3","Proteins + all covariates",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+```{r, include=TRUE, comment=""}
+colnames(concordance_df) <- c("Outcome","Model","Concordance","SE")
+concordance_df$Concordance <- as.numeric(concordance_df$Concordance)
+concordance_df$SE <- as.numeric(concordance_df$SE)
+concordance_df$ci_low <- concordance_df$Concordance - (1.96*concordance_df$SE)
+concordance_df$ci_high <- concordance_df$Concordance + (1.96*concordance_df$SE)
+concordance_df[,c("Concordance","SE","ci_low", "ci_high")] <- round(concordance_df[,c("Concordance","SE","ci_low", "ci_high")],2)
+colnames(concordance_df) <- c("Outcome","Model","Concordance","SE","Lower bound 95% CI","Upper bound 95% CI")
+#concordance_df <- rbind(concordance_df[5,],concordance_df[7,],
+#                            concordance_df[1,],
+#                            concordance_df[4,],concordance_df[6,])
+concordance_df <- concordance_df[,-1]
+colnames(concordance_df) <- c("Model","Concordance","SE","Lower bound 95% CI","Upper bound 95% CI")
+
+# forest plot of concordance
+concordance_df_for_plot <- concordance_df
+concordance_df_for_plot$` ` <- paste(rep(" ", 40), collapse = " ")
+concordance_df_for_plot$`Concordance (95% CI)` <- sprintf("%.2f (%.2f to %.2f)",
+                                     concordance_df_for_plot$Concordance, concordance_df_for_plot$`Lower bound 95% CI`, concordance_df_for_plot$`Upper bound 95% CI`)
+p <- forest(concordance_df_for_plot[, c(1, 6:7)], est = concordance_df_for_plot$Concordance, lower = concordance_df_for_plot$`Lower bound 95% CI`,
+       upper = concordance_df_for_plot$`Upper bound 95% CI`, ci_column = 2, xlim = c(0,1))
+#p$widths <- unit(c(1,100,50,50), "mm")
+png('forest_plot_elastic_net_concordance_stage3.png', res = 300, width = 9, height = 3, units = "in")
+p
+dev.off()
+
+concordance_df <- NULL
+concordance_df_temp <- NULL
+concordance_df_for_plot <- NULL
+```
+
+## Time to CKM progression, for those who reached stage 4
+
+### Proteins
+
+```{r, include=FALSE, comment=""}
+ckm_stage4_endata_nozero <- ckm_stage4_endata[!ckm_stage4_endata$days_to_first_ckm_stage4_prog == 0,]
+seq <- is_seq(names(ckm_stage4_endata_nozero))
+
+ckm_stage4_select = easy_elasticnet(data = ckm_stage4_endata_nozero,outcome = "progress_CKM_stage4",
+                           predictors = ckm_stage4_endata_nozero[,seq], out = "min.error",
+                           model_type = "cox",time = "days_to_first_ckm_stage4_prog", cv_method="kfold", folds = 10)
+retained_vars = analytes[analytes$AptName %in% ckm_stage4_select, c("Target","TargetFullName")]
+
+form = as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(progress_CKM_stage4))~",paste0(ckm_stage4_select,collapse = "+")))
+mod = coxph(formula = form,data = ckm_stage4_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df <- as.data.frame(cbind("Time to CKM progression, stage 4","Proteins",mod$concordance[[6]], mod$concordance[[7]]))
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with only age and sex
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(progress_CKM_stage4))~sex_char + AGEBASE"))
+mod = coxph(formula = form,data = ckm_stage4_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 4","Age, sex",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with age, sex, BMI, HbA1c, SBP
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(progress_CKM_stage4))~sex_char + AGEBASE + bmi + HbA1c + sbp"))
+mod = coxph(formula = form,data = ckm_stage4_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 4","Age, sex, BMI, HbA1c, SBP",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with proteins, age, and sex
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(progress_CKM_stage4))~",paste0(ckm_stage4_select,collapse = "+"),paste0("+sex_char+AGEBASE")))
+mod = coxph(formula = form,data = ckm_stage4_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf[1:(nrow(moddf)-2),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 4","Proteins, age, sex",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+### Model with proteins, age, sex, BMI, HbA1c, SBP
+
+```{r, include=FALSE, comment=""}
+form = as.formula(paste0("Surv(days_to_first_ckm_stage4_prog, as.numeric(progress_CKM_stage4))~",paste0(ckm_stage4_select,collapse = "+"),paste0("+HbA1c+log_trig+sbp+si_1_ins0+sex_char+bmi+AGEBASE+racedesc")))
+mod = coxph(formula = form,data = ckm_stage4_endata_nozero)
+kable(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+
+# make a summary table
+moddf <- as.data.frame(tidy(mod, exponentiate = TRUE, conf.int = TRUE),digits = 3)
+moddf[1:(nrow(moddf)-10),]$term <- analytes[analytes$AptName %in% moddf$term, ]$Target
+moddf <- cbind(moddf$term,round(moddf$estimate, digits=3),round(moddf$std.error, digits=3),round(moddf$p.value, digits=3))
+colnames(moddf) <- c("Variable","Hazard Ratio","SE","P-value")
+concordance_df_temp <- as.data.frame(cbind("Time to CKM progression, stage 4","Proteins + all covariates",mod$concordance[[6]], mod$concordance[[7]]))
+concordance_df <- rbind(concordance_df, concordance_df_temp)
+```
+
+```{r, include=TRUE, comment=""}
+kable(moddf, row.names=F)
+```
+
+There are `r nrow(moddf)` variables in the model.
+
+```{r, include=TRUE, comment=""}
+kable(round(mod$concordance,digits=3))
+```
+
+```{r, include=TRUE, comment=""}
+colnames(concordance_df) <- c("Outcome","Model","Concordance","SE")
+concordance_df$Concordance <- as.numeric(concordance_df$Concordance)
+concordance_df$SE <- as.numeric(concordance_df$SE)
+concordance_df$ci_low <- concordance_df$Concordance - (1.96*concordance_df$SE)
+concordance_df$ci_high <- concordance_df$Concordance + (1.96*concordance_df$SE)
+concordance_df[,c("Concordance","SE","ci_low", "ci_high")] <- round(concordance_df[,c("Concordance","SE","ci_low", "ci_high")],2)
+colnames(concordance_df) <- c("Outcome","Model","Concordance","SE","Lower bound 95% CI","Upper bound 95% CI")
+#concordance_df <- rbind(concordance_df[5,],concordance_df[7,],
+#                            concordance_df[1,],
+#                            concordance_df[4,],concordance_df[6,])
+concordance_df <- concordance_df[,-1]
+colnames(concordance_df) <- c("Model","Concordance","SE","Lower bound 95% CI","Upper bound 95% CI")
+
+# forest plot of concordance
+concordance_df_for_plot <- concordance_df
+concordance_df_for_plot$` ` <- paste(rep(" ", 40), collapse = " ")
+concordance_df_for_plot$`Concordance (95% CI)` <- sprintf("%.2f (%.2f to %.2f)",
+                                     concordance_df_for_plot$Concordance, concordance_df_for_plot$`Lower bound 95% CI`, concordance_df_for_plot$`Upper bound 95% CI`)
+p <- forest(concordance_df_for_plot[, c(1, 6:7)], est = concordance_df_for_plot$Concordance, lower = concordance_df_for_plot$`Lower bound 95% CI`,
+       upper = concordance_df_for_plot$`Upper bound 95% CI`, ci_column = 2, xlim = c(0,1))
+#p$widths <- unit(c(1,100,50,50), "mm")
+png('forest_plot_elastic_net_concordance_stage4.png', res = 300, width = 9, height = 3, units = "in")
+p
+dev.off()
+
+concordance_df <- NULL
+concordance_df_temp <- NULL
+concordance_df_for_plot <- NULL
+```
+
+```{r include=FALSE}
+# GSEA for any progression
+# for aptamers, latest version of fgsea throws an error
+# keep the one with the largest summary statistic
+ckm_without_bmi_keep_unique <- ckm_without_bmi_keep %>%
+  group_by(EntrezGeneSymbol) %>%
+  slice_max(abs(statistic), n = 1, with_ties = FALSE) %>%
+  ungroup()
+bg_path <- file.path(root_path, "GSEA/")
+soma_fgsea <- run_fgsea_analysis(bg_path = bg_path,
+                                     results_annotated = ckm_without_bmi_keep_unique,
+                                     stat_col = "statistic")
+soma_fgsea$summary
+```
+
+```{r echo = F}
+# KEGG
+plot_fgsea_transpose(soma_fgsea$kegg, 
+                     title = "SOMA Top 30 KEGG",
+                     xmax = 30)
+ggsave("plasma_SOMA_KEGG.png",
+       width = 27.5, height = 14, scale = 1)
+# REACTOME
+plot_fgsea_transpose(soma_fgsea$reactome, 
+                     title = "SOMA Top 30 REACTOME", 
+                     xmax = 30)
+ggsave("plasma_SOMA_REACTOME.png",
+       width = 27.5, height = 14, scale = 1)
+# GO
+plot_fgsea_transpose(soma_fgsea$go, 
+                     title = "SOMA Top 30 GO", 
+                     xmax = 30)
+ggsave("plasma_SOMA_GO.png",
+       width = 27.5, height = 14, scale = 1)
+# HALLMARK
+plot_fgsea_transpose(soma_fgsea$hallmark, 
+                     title = "SOMA Top 30 Hallmark", 
+                     xmax = 30)
+ggsave("plasma_SOMA_Hallmark.png",
+       width = 27.5, height = 14, scale = 1)
+```
+
+```{r include=FALSE}
+# GSEA for progression to stage 3
+ckm_stage3_keep_unique <- ckm_stage3_keep %>%
+  group_by(EntrezGeneSymbol) %>%
+  slice_max(abs(statistic), n = 1, with_ties = FALSE) %>%
+  ungroup()
+bg_path <- file.path(root_path, "GSEA/")
+soma_fgsea_stage3 <- run_fgsea_analysis(bg_path = bg_path,
+                                     results_annotated = ckm_stage3_keep_unique,
+                                     stat_col = "statistic")
+soma_fgsea_stage3$summary
+```
+
+```{r echo = F}
+# KEGG
+plot_fgsea_transpose(soma_fgsea_stage3$kegg, 
+                     title = "SOMA Top 30 KEGG, Stage 3",
+                     xmax = 30)
+ggsave("plasma_SOMA_KEGG_stage3.png",
+       width = 27.5, height = 14, scale = 1)
+# REACTOME
+plot_fgsea_transpose(soma_fgsea_stage3$reactome, 
+                     title = "SOMA Top 30 REACTOME, Stage 3", 
+                     xmax = 30)
+ggsave("plasma_SOMA_REACTOME_stage3.png",
+       width = 27.5, height = 14, scale = 1)
+# GO
+plot_fgsea_transpose(soma_fgsea_stage3$go, 
+                     title = "SOMA Top 30 GO, Stage 3", 
+                     xmax = 30)
+ggsave("plasma_SOMA_GO_stage3.png",
+       width = 27.5, height = 14, scale = 1)
+# HALLMARK
+plot_fgsea_transpose(soma_fgsea_stage3$hallmark, 
+                     title = "SOMA Top 30 Hallmark, stage 3", 
+                     xmax = 30)
+ggsave("plasma_SOMA_Hallmark_stage3.png",
+       width = 27.5, height = 14, scale = 1)
+```
+
+```{r include=FALSE}
+# GSEA for progression to stage 4
+ckm_stage4_keep_unique <- ckm_stage4_keep %>%
+  group_by(EntrezGeneSymbol) %>%
+  slice_max(abs(statistic), n = 1, with_ties = FALSE) %>%
+  ungroup()
+bg_path <- file.path(root_path, "GSEA/")
+soma_fgsea_stage4 <- run_fgsea_analysis(bg_path = bg_path,
+                                     results_annotated = ckm_stage4_keep_unique,
+                                     stat_col = "statistic")
+soma_fgsea_stage4$summary
+```
+
+```{r echo = F}
+# KEGG
+plot_fgsea_transpose(soma_fgsea_stage4$kegg, 
+                     title = "SOMA Top 30 KEGG, Stage 4",
+                     xmax = 30)
+ggsave("plasma_SOMA_KEGG_stage4.png",
+       width = 27.5, height = 14, scale = 1)
+# REACTOME
+plot_fgsea_transpose(soma_fgsea_stage4$reactome, 
+                     title = "SOMA Top 30 REACTOME, Stage 4", 
+                     xmax = 30)
+ggsave("plasma_SOMA_REACTOME_stage4.png",
+       width = 27.5, height = 14, scale = 1)
+# GO
+plot_fgsea_transpose(soma_fgsea_stage4$go, 
+                     title = "SOMA Top 30 GO, Stage 4", 
+                     xmax = 30)
+ggsave("plasma_SOMA_GO_stage4.png",
+       width = 27.5, height = 14, scale = 1)
+# HALLMARK
+plot_fgsea_transpose(soma_fgsea_stage4$hallmark, 
+                     title = "SOMA Top 30 Hallmark, stage 4", 
+                     xmax = 30)
+ggsave("plasma_SOMA_Hallmark_stage4.png",
+       width = 27.5, height = 14, scale = 1)
+```
+
+```{r clean data,echo=FALSE}
+# Read in Teen-LABS data
+# source("/Users/timvigers/GitHub/CHCO-Code/Petter Bjornstad/Teen-LABS/create_teen_labs_analysis_dataset.R")
+filename <- "Data_Cleaned/analysis_dataset.RData"
+full_path <- file.path(teen_labs_path, filename)
+load(full_path)
+tldata <- df
+
+# keep top proteins
+#load("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/Proteomics and DKD/Data_Cleaned/analysis_dataset.RData")
+#df <- df %>% filter(visit == "baseline")
+# select top 20 aptamers
+#top_glyc_df <- top_glyc_df %>% arrange(adj.p.value) %>% slice_head(n = 10)
+#seq_include <- top_glyc_df$AptName 
+
+seq_include <- analyte_info %>% filter(AptName %in% c("seq.9116.28","seq.18386.36","seq.4135.84","seq.6918.183", "seq.24975.3"))
+apt_keep <- seq_include$AptName
+
+# read in estimated marginal means
+filename <- "Results/Teen LABS emmeans.xlsx"
+full_path <- file.path(teen_labs_path, filename)
+emmdf <- read_xlsx(full_path)
+emmdf_keep <- emmdf %>% filter(AptName %in% apt_keep)
+emmdf_keep$uniqname <- paste0(emmdf_keep$Target,"_",emmdf_keep$AptName)  
+```
+
+```{r,echo=FALSE}
+p <- ggplot(emmdf_keep, aes(x=visit, y=emmean, colour=Target, group=uniqname)) +
+    geom_line() + 
+    geom_errorbar(aes(ymin=emmean-SE, ymax=emmean+SE), width=.1) +  
+    xlab("") +
+    ylab("Estimated marginal mean") + theme_bw() 
+png('Teen-LABS_changes_top_TODAY_CKM_proteins.png', res = 300, width = 10, height = 10, units = "in")
+p
+dev.off()
+
+p <- NULL
+# loop through top 10 proteins and make separate plot for each
+for (i in apt_keep) {
+  p[[i]] <- ggplot(emmdf_keep[emmdf_keep$AptName == i,], aes(x=visit, y=emmean, colour=Target, group=uniqname)) +
+    geom_line(size = 1.5) + 
+    geom_errorbar(aes(ymin=emmean-SE, ymax=emmean+SE), width=.2) +  
+    xlab("") +
+    ylab("Mean") + theme_bw() + theme(legend.position = "top") + scale_color_discrete(name="")
+}
+
+panel_p <- ggarrange(p[["seq.9116.28"]],p[["seq.18386.36"]],p[["seq.4135.84"]],p[["seq.6918.183"]],p[["seq.24975.3"]],
+                     ncol = 2, nrow = 5)
+png('Teen-LABS_changes_top_TODAY_CKM_proteins.png', res = 300, width = 8, height = 10, units = "in")
+panel_p
+dev.off()
+```
