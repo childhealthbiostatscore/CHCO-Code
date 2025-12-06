@@ -219,13 +219,11 @@ def biopsy_merge(harmonized):
     
     # Remove nulls from biopsy lookup
     biopsy_lookup = biopsy_lookup.dropna(subset=['record_id', 'date', 'kit_id_biopsy'])
-    print("#1 Number of kit_id in CASPER data:", harmonized[harmonized['study'] == 'CASPER']['kit_id'].nunique())
 
     
     # STEP 1: Filter to ONLY kidney biopsy rows
     kidney_biopsy_rows = harmonized['procedure'] == 'kidney_biopsy'
     kb_subset = harmonized[kidney_biopsy_rows].copy()
-    print("#2 Number of kit_id in CASPER data:", harmonized[harmonized['study'] == 'CASPER']['kit_id'].nunique())
 
     # STEP 2: Merge on record_id AND date (so only matching rows get kit_id_biopsy)
     merged = kb_subset.merge(
@@ -233,7 +231,6 @@ def biopsy_merge(harmonized):
         on=['record_id', 'date'],
         how='left'
     )
-    print("#3 Number of kit_id in CASPER data:", harmonized[harmonized['study'] == 'CASPER']['kit_id'].nunique())
 
     
     # STEP 3: Update ONLY the rows that:
@@ -248,6 +245,5 @@ def biopsy_merge(harmonized):
         merged['kit_id_biopsy']
     )
 
-    print("#4 Number of kit_id in CASPER data:", harmonized[harmonized['study'] == 'CASPER']['kit_id'].nunique())
 
     return harmonized
