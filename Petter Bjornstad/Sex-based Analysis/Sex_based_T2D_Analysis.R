@@ -848,7 +848,13 @@ library(ggplot2)
 library(dplyr)
 library(patchwork)
 
-celltypes_vec <- c('POD', 'intercalated')
+celltypes_vec <- c('All', 
+                   'PT', 
+                   'TAL', 
+                   'EC', 
+                   'POD',
+                   'DCTall', 
+                   'IC')
 
 hallmark_sets <- msigdbr(species = "Homo sapiens", category = "H")
 hallmark_list <- split(hallmark_sets$gene_symbol, hallmark_sets$gs_name)
