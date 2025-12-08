@@ -40,6 +40,8 @@ def harmonize_data():
     from sweetheart import clean_sweetheart
     from harmonization_functions import calc_egfr, create_study_id_columns, biopsy_merge
     import getpass
+    import boto3
+    import json
     user = getpass.getuser() 
     # Use individual data functions to import cleaned DFs
     casper = clean_casper()
@@ -90,11 +92,12 @@ def harmonize_data():
     elif user == "shivaniramesh":
         base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
         git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+        keys = "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/keys.json/"
+
     else:
         sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
     dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
 
-    
 
                            
     # Fix levels of categorical variables
