@@ -9125,6 +9125,82 @@ dev.off()
 
 
 # 4. Oroboros Analysis 
+##Difference Stats
+```{r}
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
+meta_liver_raw <- read.csv(temp_file)
+gc()
+
+meta_oro <- so_oro@meta.data
+oro_vars <- colnames(meta_oro)[85:114]
+carb_vars <- oro_vars[c(1,2,5:7)]
+lipid_vars <- oro_vars[c(16,17,20:22)]
+biobank_ids <- c("KL-0022172","KL-0022168")
+
+
+#Create formatted dataset of oro vars
+meta <- meta_liver_raw %>% 
+  dplyr::select(all_of(c("Kit_Lot","steatosis_grade",carb_vars,lipid_vars))) %>% 
+  filter(!Kit_Lot %in% biobank_ids)
+
+meta <- meta %>% 
+  mutate(state2_fam_pm=lipidpc_m-carbp_m,
+         state3_fam_pm=lipid_adp-carb_adp,
+         state3_famgs_pmgs=lipid_s-carb_s,
+         state4_famgs_pmgs=lipid_omy-carb_omy,
+         ets_famgs_pmgs=lipidfccp-carbfccp)
+meta <- meta %>% 
+mutate(steatosis_cat = ifelse((steatosis_grade==0 | steatosis_grade==1),"Low Steatosis (0+1)","High Steatosis (2+3)"))
+
+
+table1(~state2_fam_pm + state3_fam_pm + state3_famgs_pmgs + state4_famgs_pmgs + ets_famgs_pmgs, data=meta )
+table1(~state2_fam_pm + state3_fam_pm + state3_famgs_pmgs + state4_famgs_pmgs + ets_famgs_pmgs | steatosis_cat, data=meta )
+
+
+# Split by steatosis
+high <- meta %>% 
+  filter(steatosis_cat == "High Steatosis (2+3)")
+low <- meta %>% 
+  filter(steatosis_cat == "Low Steatosis (0+1)")
+
+diff_vars <- c("state2_fam_pm","state3_fam_pm","state3_famgs_pmgs","state4_famgs_pmgs","ets_famgs_pmgs")
+
+results <- lapply(diff_vars, function(var) {
+  data.frame(
+    variable = var,
+    high_median = median(high[[var]], na.rm = TRUE),
+    high_p_ttest = t.test(high[[var]], mu = 0)$p.value,
+    high_p_wilcox = wilcox.test(high[[var]], mu = 0)$p.value,
+    low_median = median(low[[var]], na.rm = TRUE),
+    low_p_ttest = t.test(low[[var]], mu = 0)$p.value,
+    low_p_wilcox = wilcox.test(low[[var]], mu = 0)$p.value
+  )
+}) %>% bind_rows()
+
+
+diff_vars <- c("state2_fam_pm","state3_fam_pm","state3_famgs_pmgs","state4_famgs_pmgs","ets_famgs_pmgs")
+
+between_group_results <- lapply(diff_vars, function(var) {
+  wilcox <- wilcox.test(meta[[var]] ~ meta$steatosis_cat)
+  ttest <- t.test(meta[[var]] ~ meta$steatosis_cat)
+  
+  data.frame(
+    variable = var,
+    high_median = median(meta[[var]][meta$steatosis_cat == "High Steatosis (2+3)"], na.rm = TRUE),
+    low_median = median(meta[[var]][meta$steatosis_cat == "Low Steatosis (0+1)"], na.rm = TRUE),
+    ttest_p = ttest$p.value,
+    wilcox_p = wilcox$p.value
+  )
+}) %>% bind_rows()
+
+between_group_results <- between_group_results %>%
+  mutate(median_diff = high_median - low_median)
+
+```
+
 ## Load Gene Sets
 ```{r}
 # #Local
@@ -9184,9 +9260,9 @@ HR_celltypes <- unique(so_oro$celltype)
 #  [8] Hep-1        NKC/NKT      Kup/MON      dHep         Kup/MAC      EC-1         Stellate-1  
 # [15] B/Plasma     Hep/Immune   cFIB/cImmune
 meta <- so_oro@meta.data
-# oro_vars <- colnames(meta)[85:114]
-oro_vars <- c("carb_cytoc","carb_s","carb_omy","carbfccp",
-              "lipid_g","lipid_s","lipid_omy","lipidfccp","lipidrcr_pcm")
+oro_vars <- colnames(meta)[85:114]
+# oro_vars <- c("carb_cytoc","carb_s","carb_omy","carbfccp",
+              # "lipid_g","lipid_s","lipid_omy","lipidfccp","lipidrcr_pcm")
 # cell_name <- "Hep/Immune"
 for (cell_name in HR_celltypes){
   # oro <- "carbp_m"
@@ -16141,6 +16217,384 @@ dot_plot <- ggplot(full_results, aes(x = `logFC_steatosis_catHigh Steatosis (2+3
 dot_plot
 ggsave(fs::path(dir.results, "NEBULA_Targeted_dHep_Steatosis_unadjusted_reml.jpeg"), dot_plot, width = 7, height = 6)
 
+```
+
+
+##h. Visualize Significant DEGs
+```{r}
+#TCA
+lipid1 <- read.csv("/home/hhampson/Results/Lipid_Oro_Hepatocytes_DEGs_Sig_TCA.csv") %>% 
+  mutate(Run="Run 2")
+carb1 <- read.csv("/home/hhampson/Results/Carb_Oro_Hepatocytes_DEGs_Sig_TCA.csv") %>% 
+  mutate(Run="Run 1")
+hep1 <- rbind(lipid1,carb1)
+hep1 <- hep1 %>% 
+  mutate(gene_category="TCA")
+#Ox Phos
+lipid2 <- read.csv("/home/hhampson/Results/Lipid_Oro_Hepatocytes_DEGs_Sig_OX_PHOS.csv") %>% 
+  mutate(Run="Run 2")
+carb2 <- read.csv("/home/hhampson/Results/Carb_Oro_Hepatocytes_DEGs_Sig_OX_PHOS.csv") %>% 
+  mutate(Run="Run 1")
+hep2 <- rbind(lipid2,carb2)
+hep2 <- hep2 %>% 
+  mutate(gene_category="Ox Phos")
+#BetaOX
+lipid3 <- read.csv("/home/hhampson/Results/Lipid_Oro_Hepatocytes_DEGs_Sig_beta_ox.csv") %>% 
+  mutate(Run="Run 2")
+carb3 <- read.csv("/home/hhampson/Results/Carb_Oro_Hepatocytes_DEGs_Sig_beta_ox.csv") %>% 
+  mutate(Run="Run 1")
+hep3 <- rbind(lipid3,carb3)
+hep3 <- hep3 %>% 
+  mutate(gene_category="Beta Ox")
+hep_only <- rbind(hep1,hep2)
+hep_only <- rbind(hep_only,hep3) %>% 
+  dplyr::select(-X) 
+  # mutate(Run=ifelse(Run=="Run 1","Run 1: Pyruvate-Supported Respiration","Run 2: Fatty Acid-Supported Respiration"))
+
+plot1 <- ggplot(hep_only, aes(x = Parameter, y = Gene, 
+                      size = abs(LogFC), 
+                      fill = Direction, 
+                      shape = Direction)) +
+  geom_point(alpha = 0.8, color = "black", stroke = 0.5) +  # black outline
+  scale_shape_manual(values = c("(+)" = 24, "(-)" = 25)) +
+  scale_fill_manual(values = c("(+)" = "#9b2226", "(-)" = "#001219")) +
+  scale_size_continuous(range = c(2, 8)) +
+  facet_wrap(~gene_category, scales = "free_y") +
+  theme_bw() +
+  labs(x = "Respiratory State", y = "Gene", 
+       fill = "Direction", size = "|LogFC|", shape = "Direction") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = guide_legend(override.aes = list(size = 4)))
+
+png("/home/hhampson/Results/Hepatocytes_Oro_DEGs_Sig_Plot1.png",res=300,width=4000,height=2000)
+print(plot1)
+dev.off()
+
+#Separate by Run
+plot2 <- ggplot(hep_only, aes(x = Parameter, y = Gene, 
+                      size = abs(LogFC), 
+                      fill = Direction, 
+                      shape = Direction)) +
+  geom_point(alpha = 0.8, color = "black", stroke = 0.5) +
+  scale_shape_manual(values = c("(+)" = 24, "(-)" = 25)) +
+  scale_fill_manual(values = c("(+)" = "#9b2226", "(-)" = "#001219")) +
+  scale_size_continuous(range = c(2, 8)) +
+  facet_grid(Run ~ gene_category, scales = "free_y", space = "free_y") +
+  theme_bw() +
+  labs(x = "Respiratory State", y = "Gene", 
+       fill = "Direction", size = "|LogFC|", shape = "Direction") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text.x = element_text(face = "bold"),
+        strip.text.y = element_text(face = "bold", size = 8)) +
+  guides(fill = guide_legend(override.aes = list(size = 4)))
+
+png("/home/hhampson/Results/Hepatocytes_Oro_DEGs_Sig_Plot2.png",res=300,width=3500,height=3000)
+print(plot2)
+dev.off()
+
+
+run1 <- hep_only %>% filter(Run == "Run 1")
+run2 <- hep_only %>% filter(Run == "Run 2")
+
+# unique(run1$Parameter)
+# order1 <- c("State 2 PM","State 3 PM","State 3 PMGS","State 4 PMGS","ETS PMGS")
+order1 <- c("ETS PMGS", "State 4 PMGS", "State 3 PMGS", "State 3 PM", "State 2 PM")
+# unique(run2$Parameter)
+# order2 <- c("State 2 FAM","State 3 FAM","State 3 FAMGS","State 4 FAMGS","ETS FAMGS")
+order2 <- c("ETS FAMGS", "State 4 FAMGS", "State 3 FAMGS", "State 3 FAM", "State 2 FAM")
+
+
+run1 <- run1 %>% mutate(Parameter = factor(Parameter, levels = order1))
+run2 <- run2 %>% mutate(Parameter = factor(Parameter, levels = order2))
+
+# Plot A - Run 1
+plot_a <- ggplot(run1, aes(x = Gene, y = Parameter, 
+                      size = abs(LogFC), 
+                      fill = Direction, 
+                      shape = Direction)) +
+  geom_point(alpha = 0.8, color = "black", stroke = 0.5) +
+  scale_shape_manual(values = c("(+)" = 24, "(-)" = 25)) +
+  scale_fill_manual(values = c("(+)" = "#9b2226", "(-)" = "#001219")) +
+  scale_size_continuous(range = c(2, 8)) +
+  facet_wrap(~gene_category, scales = "free_x",space = "free_x") +
+  theme_bw() +
+  labs(x = "Gene", y = "Respiratory State", 
+       fill = "Direction", size = "|LogFC|", shape = "Direction",
+       title = "Run 1: Pyruvate-Supported Respiration") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold")) +
+  guides(fill = guide_legend(override.aes = list(size = 4)))
+png("/home/hhampson/Results/Hepatocytes_Subtypes_Oro_DEGs_Sig_Run1.png", res = 300, width = 2000, height = 950)
+print(plot_a)
+dev.off()
+
+# Plot B - Run 2
+plot_b <- ggplot(run2, aes(x = Gene, y = Parameter, 
+                      size = abs(LogFC), 
+                      fill = Direction, 
+                      shape = Direction)) +
+  geom_point(alpha = 0.8, color = "black", stroke = 0.5) +
+  scale_shape_manual(values = c("(+)" = 24, "(-)" = 25)) +
+  scale_fill_manual(values = c("(+)" = "#9b2226", "(-)" = "#001219")) +
+  scale_size_continuous(range = c(2, 8)) +
+  facet_wrap(~gene_category, scales = "free_x",space = "free_x") +
+  theme_bw() +
+  labs(x = "Gene", y = "Respiratory State", 
+       fill = "Direction", size = "|LogFC|", shape = "Direction",
+       title = "Run 2: Fatty Acid-Supported Respiration") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text = element_text(face = "bold"),
+        plot.title = element_text(face = "bold")) +
+  guides(fill = guide_legend(override.aes = list(size = 4)))
+png("/home/hhampson/Results/Hepatocytes_Subtypes_Oro_DEGs_Sig_Run2.png", res = 300, width = 3300, height = 950)
+print(plot_b)
+dev.off()
+
+# Combine side by side with shared legend
+combined_plot <- plot_a + plot_b + 
+  plot_layout(guides = "collect")
+  # plot_annotation(tag_levels = "a")
+
+combined_plot 
+
+png("/home/hhampson/Results/Hepatocytes_Subtypes_Oro_DEGs_Sig_Plot3.png", res = 300, width = 5000, height = 1000)
+print(combined_plot)
+dev.off()
+
+#Visualize Subtypes
+#TCA
+lipid_subtypes1 <- read.csv("/home/hhampson/Results/Lipid_Oro_Hep_DEGs_Sig_TCA.csv") %>% 
+  mutate(Run="Run 2")
+carb_subtypes1 <- read.csv("/home/hhampson/Results/Carb_Oro_Hep_DEGs_Sig_TCA.csv") %>% 
+  mutate(Run="Run 1")
+hep_subtypes1 <- rbind(lipid_subtypes1,carb_subtypes1)
+hep_subtypes1 <- hep_subtypes1 %>% 
+  mutate(gene_category="TCA")
+#Ox Phos
+lipid_subtypes2 <- read.csv("/home/hhampson/Results/Lipid_Oro_Hep_DEGs_Sig_OX_PHOS.csv") %>% 
+  mutate(Run="Run 2")
+carb_subtypes2 <- read.csv("/home/hhampson/Results/Carb_Oro_Hep_DEGs_Sig_OX_PHOS.csv") %>% 
+  mutate(Run="Run 1")
+hep_subtypes2 <- rbind(lipid_subtypes2,carb_subtypes2)
+hep_subtypes2 <- hep_subtypes2 %>% 
+  mutate(gene_category="Ox Phos")
+#BetaOX
+lipid_subtypes3 <- read.csv("/home/hhampson/Results/Lipid_Oro_Hep_DEGs_Sig_beta_ox.csv") %>% 
+  mutate(Run="Run 2")
+carb_subtypes3 <- read.csv("/home/hhampson/Results/Carb_Oro_Hep_DEGs_Sig_beta_ox.csv") %>% 
+  mutate(Run="Run 1")
+hep_subtypes3 <- rbind(lipid_subtypes3,carb_subtypes3)
+hep_subtypes3 <- hep_subtypes3 %>% 
+  mutate(gene_category="Beta Ox")
+
+hep_subtypes <- rbind(hep_subtypes1,hep_subtypes2)
+hep_subtypes <- rbind(hep_subtypes,hep_subtypes3)
+hep_subtypes <- hep_subtypes %>% 
+  dplyr::select(-X)  
+  # mutate(Run=ifelse(Run=="Run 1","Run 1: Pyruvate-Supported Respiration","Run 2: Fatty Acid-Supported Respiration"))
+
+
+rm(hep_subtypes1,hep_subtypes2,hep_subtypes3,Lipid_Oro_Hep_DEGs_Sig_TCA,Carb_Oro_Hep_DEGs_Sig_TCA,
+   Lipid_Oro_Hep_DEGs_Sig_OX_PHOS,Carb_Oro_Hep_DEGs_Sig_OX_PHOS,Lipid_Oro_Hep_DEGs_Sig_beta_ox,Carb_Oro_Hep_DEGs_Sig_beta_ox,carb_subtypes,carb_subtypes1,carb_subtypes2,carb_subtypes3,lipid_subtypes,lipid_subtypes1,lipid_subtypes2,lipid_subtypes3)
+
+ggplot(hep_subtypes, aes(x = Parameter, y = Gene, 
+                          size = abs(LogFC), 
+                          color = Celltype, 
+                          shape = Direction)) +
+  geom_point(alpha = 0.8) +
+  scale_shape_manual(values = c("(+)" = 17, "(-)" = 25)) +  # up triangle vs down triangle
+  scale_size_continuous(range = c(2, 8)) +
+  facet_wrap(~gene_category, scales = "free_y") +
+  theme_minimal() +
+  labs(x = "Respiratory State", y = "Gene", 
+       color = "Hepatocyte Subtype", size = "|LogFC|", shape = "Direction") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Separate by Run
+plot2 <- ggplot(hep_subtypes, aes(x = Parameter, y = Gene, 
+                      size = abs(LogFC), 
+                      fill = Direction, 
+                      shape = Direction)) +
+  geom_point(alpha = 0.8, color = "black", stroke = 0.5) +
+  scale_shape_manual(values = c("(+)" = 24, "(-)" = 25)) +
+  scale_fill_manual(values = c("(+)" = "#9b2226", "(-)" = "#001219")) +
+  scale_size_continuous(range = c(2, 8)) +
+  facet_grid(Run ~ gene_category, scales = "free_y", space = "free_y") +
+  theme_bw() +
+  labs(x = "Respiratory State", y = "Gene", 
+       fill = "Direction", size = "|LogFC|", shape = "Direction") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text.x = element_text(face = "bold"),
+        strip.text.y = element_text(face = "bold", size = 8)) +
+  guides(fill = guide_legend(override.aes = list(size = 4)))
+
+png("/home/hhampson/Results/Hepatocytes_Oro_DEGs_Sig_Plot2.png",res=300,width=3500,height=3000)
+print(plot2)
+dev.off()
+
+# Clean up celltype names and set order
+library(ggh4x)
+hep_subtypes <- hep_subtypes %>%
+  mutate(Celltype = case_when(
+    Celltype == "Hep_1" ~ "Hep-1",
+    Celltype == "Hep_2" ~ "Hep-2",
+    Celltype == "Hep_3" ~ "Hep-3",
+    Celltype == "Hep_4" ~ "Hep-4",
+    Celltype == "Hep_5" ~ "Hep-5",
+    Celltype == "dHep" ~ "dHep",
+    Celltype == "Hep_Immune" ~ "Hep/Immune",
+    TRUE ~ Celltype
+  )) %>%
+  mutate(Celltype = factor(Celltype, levels = c("Hep-1", "Hep-2", "Hep-3", "Hep-4", "Hep-5", "dHep", "Hep/Immune")))
+
+plot3 <- ggplot(hep_subtypes, aes(x = Parameter, y = Gene, 
+                      size = abs(LogFC), 
+                      fill = Direction, 
+                      shape = Direction)) +
+  geom_point(alpha = 0.8, color = "black", stroke = 0.5) +
+  scale_shape_manual(values = c("(+)" = 24, "(-)" = 25)) +
+  scale_fill_manual(values = c("(+)" = "#9b2226", "(-)" = "#001219")) +
+  scale_size_continuous(range = c(2, 8)) +
+  ggh4x::facet_nested(Run + Celltype ~ gene_category, 
+                      scales = "free_y", space = "free_y",
+                      nest_line = element_line(linewidth = 0.5)) +
+  theme_bw() +
+  labs(x = "Respiratory State", y = "Gene", 
+       fill = "Direction", size = "|LogFC|", shape = "Direction") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text.x = element_text(face = "bold"),
+        strip.text.y = element_text(face = "bold", size = 7)) +
+  guides(fill = guide_legend(override.aes = list(size = 4)))
+
+png("/home/hhampson/Results/Hepatocytes_Subtypes_Oro_DEGs_Sig_Plot1.png",res=300,width=3500,height=6000)
+print(plot3)
+dev.off()
+
+
+# Split data by Run
+library(patchwork)
+run1 <- hep_subtypes %>% filter(Run == "Run 1")
+run2 <- hep_subtypes %>% filter(Run == "Run 2")
+
+# unique(run1$Parameter)
+# order1 <- c("State 2 PM","State 3 PM","State 3 PMGS","State 4 PMGS","ETS PMGS")
+order1 <- c("ETS PMGS", "State 4 PMGS", "State 3 PMGS", "State 3 PM", "State 2 PM")
+# unique(run2$Parameter)
+# order2 <- c("State 2 FAM","State 3 FAM","State 3 FAMGS","State 4 FAMGS","ETS FAMGS")
+order2 <- c("ETS FAMGS", "State 4 FAMGS", "State 3 FAMGS", "State 3 FAM", "State 2 FAM")
+
+
+run1 <- run1 %>% mutate(Parameter = factor(Parameter, levels = order1))
+run2 <- run2 %>% mutate(Parameter = factor(Parameter, levels = order2))
+
+# Plot A - Run 1
+plot_a <- ggplot(run1, aes(x = Parameter, y = Gene, 
+                      size = abs(LogFC), 
+                      fill = Direction, 
+                      shape = Direction)) +
+  geom_point(alpha = 0.8, color = "black", stroke = 0.5) +
+  scale_shape_manual(values = c("(+)" = 24, "(-)" = 25)) +
+  scale_fill_manual(values = c("(+)" = "#9b2226", "(-)" = "#001219")) +
+  scale_size_continuous(range = c(2, 8)) +
+  facet_grid(Celltype ~ gene_category, scales = "free_y", space = "free_y") +
+  theme_bw() +
+  labs(x = "Respiratory State", y = "Gene", 
+       fill = "Direction", size = "|LogFC|", shape = "Direction",
+       title = "a) Run 1: Pyruvate-Supported Respiration") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text.x = element_text(face = "bold"),
+        strip.text.y = element_text(face = "bold", size = 7),
+        plot.title = element_text(face = "bold")) +
+  guides(fill = guide_legend(override.aes = list(size = 4)))
+
+# Plot B - Run 2
+plot_b <- ggplot(run2, aes(x = Parameter, y = Gene, 
+                      size = abs(LogFC), 
+                      fill = Direction, 
+                      shape = Direction)) +
+  geom_point(alpha = 0.8, color = "black", stroke = 0.5) +
+  scale_shape_manual(values = c("(+)" = 24, "(-)" = 25)) +
+  scale_fill_manual(values = c("(+)" = "#9b2226", "(-)" = "#001219")) +
+  scale_size_continuous(range = c(2, 8)) +
+  facet_grid(Celltype ~ gene_category, scales = "free_y", space = "free_y") +
+  theme_bw() +
+  labs(x = "Respiratory State", y = "Gene", 
+       fill = "Direction", size = "|LogFC|", shape = "Direction",
+       title = "b) Run 2: Fatty Acid-Supported Respiration") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text.x = element_text(face = "bold"),
+        strip.text.y = element_text(face = "bold", size = 7),
+        plot.title = element_text(face = "bold")) +
+  guides(fill = guide_legend(override.aes = list(size = 4)))
+
+# Combine side by side with shared legend
+combined_plot <- plot_a + plot_b + 
+  plot_layout(guides = "collect") 
+  # plot_annotation(tag_levels = "a")
+
+combined_plot
+
+png("/home/hhampson/Results/Hepatocytes_Subtypes_Oro_DEGs_Sig_Plot1_Combined.png", res = 300, width = 7000, height = 7000)
+print(combined_plot)
+dev.off()
+
+# Plot A - Run 1
+plot_a <- ggplot(run1, aes(x = Gene, y = Parameter, 
+                      size = abs(LogFC), 
+                      fill = Direction, 
+                      shape = Direction)) +
+  geom_point(alpha = 0.8, color = "black", stroke = 0.5) +
+  scale_shape_manual(values = c("(+)" = 24, "(-)" = 25)) +
+  scale_fill_manual(values = c("(+)" = "#9b2226", "(-)" = "#001219")) +
+  scale_size_continuous(range = c(2, 8)) +
+  facet_grid(Celltype ~ gene_category, scales = "free_x", space = "free_x") +
+  theme_bw() +
+  labs(x = "Gene", y = "Respiratory State", 
+       fill = "Direction", size = "|LogFC|", shape = "Direction",
+       title = "Run 1: Pyruvate-Supported Respiration") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text.x = element_text(face = "bold"),
+        strip.text.y = element_text(face = "bold", size = 7),
+        plot.title = element_text(face = "bold")) +
+  guides(fill = guide_legend(override.aes = list(size = 4)))
+png("/home/hhampson/Results/Hepatocytes_Subtypes_Oro_DEGs_Sig_Plot2_Run1.png", res = 300, width = 3300, height = 3700)
+print(plot_a)
+dev.off()
+
+# Plot B - Run 2
+plot_b <- ggplot(run2, aes(x = Gene, y = Parameter, 
+                      size = abs(LogFC), 
+                      fill = Direction, 
+                      shape = Direction)) +
+  geom_point(alpha = 0.8, color = "black", stroke = 0.5) +
+  scale_shape_manual(values = c("(+)" = 24, "(-)" = 25)) +
+  scale_fill_manual(values = c("(+)" = "#9b2226", "(-)" = "#001219")) +
+  scale_size_continuous(range = c(2, 8)) +
+  facet_grid(Celltype ~ gene_category, scales = "free_x", space = "free_x") +
+  theme_bw() +
+  labs(x = "Gene", y = "Respiratory State", 
+       fill = "Direction", size = "|LogFC|", shape = "Direction",
+       title = "Run 2: Fatty Acid-Supported Respiration") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text.x = element_text(face = "bold"),
+        strip.text.y = element_text(face = "bold", size = 7),
+        plot.title = element_text(face = "bold")) +
+  guides(fill = guide_legend(override.aes = list(size = 4)))
+png("/home/hhampson/Results/Hepatocytes_Subtypes_Oro_DEGs_Sig_Plot2_Run2.png", res = 300, width = 3300, height = 3700)
+print(plot_b)
+dev.off()
+
+# Combine side by side with shared legend
+combined_plot <- plot_a + plot_b + 
+  plot_layout(guides = "collect")
+  # plot_annotation(tag_levels = "a")
+
+combined_plot 
+
+png("/home/hhampson/Results/Hepatocytes_Subtypes_Oro_DEGs_Sig_Plot2.png", res = 300, width = 7000, height = 6000)
+print(combined_plot)
+dev.off()
 ```
 
 
