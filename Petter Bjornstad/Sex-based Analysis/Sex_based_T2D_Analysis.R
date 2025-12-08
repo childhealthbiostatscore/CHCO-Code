@@ -848,6 +848,7 @@ library(ggplot2)
 library(dplyr)
 library(patchwork)
 
+dir.results <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_Only/'
 celltypes_vec <- c('All', 
                    'PT', 
                    'TAL', 
