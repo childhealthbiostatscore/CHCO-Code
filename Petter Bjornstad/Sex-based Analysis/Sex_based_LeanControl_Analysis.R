@@ -6753,6 +6753,7 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  
  ### GSEA plotting 
+ ### GSEA plotting 
  
  # Load required libraries
  library(ggplot2)
@@ -6773,8 +6774,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
    "HALLMARK" = "gsea_results_Hallmark.csv"
  )
  
- # Function to shorten and format pathway names
- format_pathway_name <- function(pathway, go_id = NULL, max_length = 40) {
+ # Function to format pathway names with line wrapping
+ format_pathway_name <- function(pathway, go_id = NULL, max_chars_per_line = 40) {
    # Remove common prefixes
    pathway <- gsub("^GOBP_", "", pathway)
    pathway <- gsub("^GOCC_", "", pathway)
@@ -6786,21 +6787,38 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
    pathway <- tolower(pathway)
    pathway <- tools::toTitleCase(pathway)
    
-   # Truncate if too long
-   if (nchar(pathway) > max_length) {
-     pathway <- paste0(substr(pathway, 1, max_length - 3), "...")
-   }
-   
    # Add GO ID if available
    if (!is.null(go_id) && !is.na(go_id) && go_id != "") {
      pathway <- paste0(pathway, " (", go_id, ")")
    }
    
-   return(pathway)
+   # Wrap text to multiple lines
+   words <- strsplit(pathway, " ")[[1]]
+   lines <- character()
+   current_line <- ""
+   
+   for (word in words) {
+     if (nchar(current_line) == 0) {
+       current_line <- word
+     } else if (nchar(paste(current_line, word)) <= max_chars_per_line) {
+       current_line <- paste(current_line, word)
+     } else {
+       lines <- c(lines, current_line)
+       current_line <- word
+     }
+   }
+   if (nchar(current_line) > 0) {
+     lines <- c(lines, current_line)
+   }
+   
+   # Join lines with newline character
+   pathway_wrapped <- paste(lines, collapse = "\n")
+   
+   return(pathway_wrapped)
  }
  
  # Function to create a single GSEA bar plot with panel label
- create_gsea_plot <- function(data, title, panel_label, top_n = 10) {
+ create_gsea_plot <- function(data, title, panel_label, top_n = 20) {
    
    # Filter for significant pathways (adjust p-value threshold as needed)
    # Assuming columns: pathway, NES, pval or padj, and potentially ID or GO_ID
@@ -6836,21 +6854,44 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
      plot_data$pathway_formatted <- mapply(format_pathway_name, 
                                            plot_data$pathway, 
                                            plot_data$ID, 
-                                           max_length = 35)
+                                           max_chars_per_line = 40)
    } else if ("GO_ID" %in% colnames(plot_data)) {
      plot_data$pathway_formatted <- mapply(format_pathway_name, 
                                            plot_data$pathway, 
                                            plot_data$GO_ID, 
-                                           max_length = 35)
+                                           max_chars_per_line = 40)
    } else {
      plot_data$pathway_formatted <- sapply(plot_data$pathway, 
                                            format_pathway_name, 
                                            go_id = NULL, 
-                                           max_length = 35)
+                                           max_chars_per_line = 40)
    }
    
+   # Make pathway names unique if there are duplicates
+   plot_data$pathway_formatted <- make.unique(as.character(plot_data$pathway_formatted), sep = " ")
+   
    # Add regulation direction
-   plot_data$direction <- ifelse(plot_data$NES > 0, "Higher in Men", "Higher in Women vs. Men")
+   plot_data$direction <- ifelse(plot_data$NES > 0, "Higher in Men", "Higher in Women")
+   
+   # Add significance stars based on p-value
+   # Use pval column (not adjusted)
+   pval_col <- if("pval" %in% colnames(plot_data)) {
+     "pval"
+   } else if("p.adjust" %in% colnames(plot_data)) {
+     "p.adjust"
+   } else if("padj" %in% colnames(plot_data)) {
+     "padj"
+   } else {
+     NULL
+   }
+   
+   if (!is.null(pval_col)) {
+     plot_data$significance <- ifelse(plot_data[[pval_col]] < 0.001, "***",
+                                      ifelse(plot_data[[pval_col]] < 0.01, "**",
+                                             ifelse(plot_data[[pval_col]] < 0.05, "*", "")))
+   } else {
+     plot_data$significance <- ""
+   }
    
    # Create ordered factor for pathway names
    plot_data$pathway_formatted <- factor(plot_data$pathway_formatted, 
@@ -6863,15 +6904,21 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
    # Create the plot
    p <- ggplot(plot_data, aes(x = NES, y = pathway_formatted, fill = direction)) +
      geom_bar(stat = "identity") +
-     scale_fill_manual(values = c("Higher in Men vs. Women" = "#9370DB", "Higher in Women vs. Men" = "#FF8C00")) +
+     # Add significance stars at the end of bars
+     geom_text(aes(label = significance, 
+                   x = NES + ifelse(NES > 0, max_abs_nes * 0.03, -max_abs_nes * 0.03)),
+               hjust = ifelse(plot_data$NES > 0, 0, 1),
+               size = 4, 
+               fontface = "bold") +
+     scale_fill_manual(values = c("Higher in Men" = "#9370DB", "Higher in Women" = "#FF8C00")) +
      scale_x_continuous(limits = x_limits, expand = c(0, 0)) +
      theme_minimal() +
      theme(
-       axis.text.y = element_text(size = 8),
+       axis.text.y = element_text(size = 7, lineheight = 0.9),
        axis.text.x = element_text(size = 9),
        axis.title = element_text(size = 10, face = "bold"),
        plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
-       legend.position = "bottom",
+       legend.position = "none",  # Hide legend on individual plots
        legend.title = element_blank(),
        legend.text = element_text(size = 9),
        panel.grid.major.y = element_blank(),
@@ -6929,8 +6976,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
        next
      }
      
-     # Create plot for this category with panel label
-     p <- create_gsea_plot(cell_data, category, panel_labels[i], top_n = 8)
+     # Create plot for this category with panel label (top_n = 20)
+     p <- create_gsea_plot(cell_data, category, panel_labels[i], top_n = 20)
      plot_list[[i]] <- p
    }
    
@@ -6940,27 +6987,59 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
      next
    }
    
-   # Combine plots into a 2x2 grid with better alignment
-   combined_plot <- grid.arrange(grobs = plot_list, ncol = 2, nrow = 2,
-                                 top = textGrob(paste("GSEA of", cell_type, "markers"),
-                                                gp = gpar(fontsize = 16, fontface = "bold")),
-                                 heights = c(1, 1),
-                                 widths = c(1, 1))
+   # Create a shared legend
+   # Extract legend from first plot (temporarily set legend.position = "bottom")
+   legend_plot <- ggplot(data.frame(x = 1, y = 1, direction = c("Higher in Men", "Higher in Women")), 
+                         aes(x = x, y = y, fill = direction)) +
+     geom_bar(stat = "identity") +
+     scale_fill_manual(values = c("Higher in Men" = "#9370DB", "Higher in Women" = "#FF8C00")) +
+     theme_minimal() +
+     theme(legend.position = "bottom",
+           legend.title = element_blank(),
+           legend.text = element_text(size = 10),
+           legend.box.margin = margin(0, 0, 0, 0))
+   
+   # Extract the legend as a grob
+   legend_grob <- ggplotGrob(legend_plot)$grobs[[which(sapply(ggplotGrob(legend_plot)$grobs, function(x) x$name) == "guide-box")]]
+   
+   # Create text grob for significance explanation with more space
+   sig_text <- textGrob("          Significance: * p < 0.05, ** p < 0.01, *** p < 0.001",
+                        gp = gpar(fontsize = 9, fontface = "italic"),
+                        just = "left")
+   
+   # Combine legend and significance text side by side with adjusted widths
+   legend_combined <- arrangeGrob(legend_grob, sig_text, ncol = 2, widths = c(0.35, 0.65))
+   
+   # Add padding around the legend
+   legend_with_padding <- arrangeGrob(
+     legend_combined,
+     padding = unit(0.5, "cm")
+   )
+   
+   # Combine plots into a 2x2 grid with shared legend at bottom
+   combined_plot <- grid.arrange(
+     grobs = plot_list, 
+     ncol = 2, 
+     nrow = 2,
+     top = textGrob(paste("GSEA of", cell_type, "markers"),
+                    gp = gpar(fontsize = 16, fontface = "bold")),
+     bottom = legend_with_padding,
+     heights = unit(c(1, 1), "null"),
+     widths = unit(c(1, 1), "null")
+   )
    
    # Save as PDF
    output_pdf <- paste0(base_path, "GSEA_", cell_type, "_LC.pdf")
-   ggsave(output_pdf, combined_plot, width = 16, height = 12, units = "in")
+   ggsave(output_pdf, combined_plot, width = 20, height = 16, units = "in")
    
    # Save as PNG
    output_png <- paste0(base_path, "GSEA_", cell_type, "_LC.png")
-   ggsave(output_png, combined_plot, width = 16, height = 12, units = "in", dpi = 300)
+   ggsave(output_png, combined_plot, width = 20, height = 16, units = "in", dpi = 300)
    
    cat(paste("Saved plots for", cell_type, "\n"))
  }
  
  cat("\nAll cell types processed!\n")
- 
- 
  
  
  
