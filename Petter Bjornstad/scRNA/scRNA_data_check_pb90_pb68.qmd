@@ -1,0 +1,512 @@
+---
+title: "scRNA data check (PB90 vs PB68)"
+author: "Ye Ji Choi"
+date: "`r lubridate::today()`"
+format: 
+  html:
+    toc: true
+    toc-depth: 5
+    toc-location: left
+    code-fold: true
+    embed-resources: true
+---
+
+```{r libraries, message = F, warning=F}
+#| include: false
+library(arsenal)
+library(Biobase)
+library(BiocGenerics)
+library(BiocParallel)
+library(broom.mixed)
+library(colorspace)
+library(cowplot)
+library(data.table)
+library(DirichletReg)
+library(dplyr)
+library(edgeR)
+library(emmeans)
+library(enrichR)
+library(foreach)
+library(future)
+library(future.apply)
+library(GSEABase)
+library(ggdendro)
+library(ggpubr)
+library(glmmTMB)
+library(harmony)
+library(jsonlite)
+library(kableExtra)
+library(limma)
+library(MAST)
+library(Matrix)
+library(msigdbr)
+library(muscat)
+library(NMF)
+library(nebula)
+library(patchwork)
+library(pheatmap)
+library(readxl)
+library(REDCapR)
+library(reshape2)
+library(rstatix)
+library(SAVER)
+library(scater)
+library(scran)
+library(Seurat)
+library(SingleCellExperiment)
+library(slingshot)
+library(tidyverse)
+library(UpSetR)
+library(WriteXLS)
+library(aws.s3)
+library(jsonlite)
+```
+
+```{r}
+# Set up environment for Kopah
+keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+s3read_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
+  if (missing(bucket)) {
+    bucket <- get_bucketname(object)
+  }
+  object <- get_objectkey(object)
+  
+  tmp <- if (is.character(filename)) {
+    file.path(tempdir(TRUE), filename)
+  } else {
+    tempfile(fileext = paste0(".", tools::file_ext(object)))
+  }
+  
+  on.exit(unlink(tmp))
+  
+  # Add region to opts if provided
+  if (!is.null(region)) {
+    if (is.null(opts)) {
+      opts <- list(region = region)
+    } else {
+      opts$region <- region
+    }
+  }
+  
+  if (is.null(opts)) {
+    r <- save_object(bucket = bucket, object = object, file = tmp)
+  } else {
+    r <- do.call("save_object", c(list(bucket = bucket, 
+                                       object = object, 
+                                       file = tmp), opts))
+  }
+  
+  return(FUN(tmp, ...))
+}
+
+plot_group_celltype_proportions <- function(
+  seu_obj,
+  celltype_col = "celltype",
+  group_col = "group",
+  fill_palette = NULL,
+  dodge_width = 0.8
+) {
+
+  library(dplyr)
+  library(ggplot2)
+  library(rlang)
+
+  # Pull metadata
+  meta <- seu_obj@meta.data
+
+  # Ensure selected columns exist
+  if (!(celltype_col %in% colnames(meta))) {
+    stop(paste("Column", celltype_col, "not found in metadata"))
+  }
+  if (!(group_col %in% colnames(meta))) {
+    stop(paste("Column", group_col, "not found in metadata"))
+  }
+
+  # Convert to symbols for tidy eval
+  ct <- sym(celltype_col)
+  grp <- sym(group_col)
+
+  # Calculate proportions
+  group_prop <- meta %>%
+    group_by(!!grp, !!ct) %>%
+    summarize(n = n(), .groups = "drop") %>%
+    group_by(!!grp) %>%
+    mutate(prop = n / sum(n))
+
+  # Plot
+  p <- ggplot(group_prop, aes(x = !!ct, y = prop, fill = !!grp)) +
+    geom_bar(stat = "identity", position = position_dodge(width = dodge_width)) +
+    labs(
+      x = "Cell Type",
+      y = "Proportion of Cells",
+      fill = group_col
+    ) +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      plot.title = element_text(hjust = 0.5)
+    )
+
+  # Optional custom palette
+  if (!is.null(fill_palette)) {
+    p <- p + scale_fill_manual(values = fill_palette)
+  }
+
+  return(p)
+}
+```
+
+```{r}
+# read in PB90
+pb90 <- s3readRDS(object = "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", bucket = "scrna", region = "")
+
+# read in PB68
+pb68 <- s3readRDS(object = "Kidney transcriptomics/Single cell RNA seq/PB_68samples_harmonyIntegration_092322_Fadhl.RDS", bucket = "scrna", region = "")
+```
+
+```{r}
+# read in clinical harmonized dataset to add as metadata
+harm_dat <- 
+  s3read_using_region(FUN = read.csv,
+                      object = "harmonized_dataset.csv", 
+                      bucket = "harmonized.dataset",
+                      region = "")
+
+harm_dat[harm_dat == ""] <- NA
+
+harm_dat <- harm_dat %>%
+  group_by(record_id, visit) %>%
+  fill(date, .direction = "updown") %>% ungroup()  %>%
+  mutate(kit_id = gsub("KI", "KL", kit_id),
+         kit_id = gsub("kl", "KL", kit_id),) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  filter(!is.na(kit_id)) %>%
+  distinct(kit_id, .keep_all = T)
+```
+
+```{r}
+# Define the 14 problematic subject IDs
+prob_ids <- c("RH2-42-T",
+              "RH2-36-O",
+              "RH2-43-T",
+              "RH2-55-T",
+              "RH2-22-T",
+              "RH2-21-T",
+              "RH2-38-T",
+              "RH2-19-T",
+              "RH2-23-T",
+              "RH2-14-T",
+              "RH-93-T",
+              "RH-91-T",
+              "RH2-11-O",
+              "RH2-07-O")
+
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  DTL_ATL = c("DTL", "aDTL", "ATL"),   # grouped thin limbs
+  DCT_CNT = c("DCT", "dDCT", "CNT"),   # grouped distal tubule/connecting tubule
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"), 
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  # Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+  # Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD",
+  MC = "MC",                         # mesangial cells
+  PEC = "PEC",                       # parietal epithelial cells
+  Schwann = "SchwannCells",
+  Other = c("non-specific")          # catchall
+)
+
+map_celltype_to_general <- function(celltype, celltype_groups) {
+  for (group_name in names(celltype_groups)) {
+    if (celltype %in% celltype_groups[[group_name]]) {
+      return(group_name)
+    }
+  }
+  return("Other")  # For any celltype not found in groups
+}
+
+# Identify ribosomal genes
+ribo_genes <- c(
+  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
+  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
+  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
+  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
+  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
+  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
+  "RPL10", "RPS4Y1"
+) # grep("^RPL|^RPS", rownames(attempt_so_raw), value = TRUE) captures some none ribosomal genes
+```
+
+```{r}
+## add metadata to pb90
+pb90 <- subset(pb90, T2D_HC_Phil != "HC_igA")
+length(unique(pb90$kit_id)) # 89 biospies (minus the HC with igAN)
+
+pb90$kit_id <- gsub("KI", "KL", pb90$kit_id)
+pb90$kit_id <- gsub("kl", "KL", pb90$kit_id)
+
+# add metadata to pb90 subset
+meta_subset <- left_join(subset(pb90@meta.data, select = c(kit_id, group)), 
+                         harm_dat,
+                         by = "kit_id")
+
+rownames(meta_subset) <- meta_subset$barcode
+pb90@meta.data <- meta_subset
+
+## add metadata to pb68
+pb68 <- subset(pb68, T2D_HC_Phil != "HC_igA")
+length(unique(pb68$orig.ident)) # 67 biospies (minus the HC with igAN)
+pb68$kit_id <- gsub("KI", "KL", pb68$KL.ID..kit.number.contains.path.sc.sample.)
+pb68$kit_id <- gsub("kl", "KL", pb68$KL.ID..kit.number.contains.path.sc.sample.)
+pb68$barcode <- rownames(pb68@meta.data)
+
+# add metadata to PB90 subset
+meta_subset <- left_join(subset(pb68@meta.data, select = -c(bmi, age, hba1c, creatinine_s, 
+                                                            cystatin_c_s, gfr_bsa, sbp, dbp, acr_u)), 
+                         harm_dat,
+                         by = "kit_id")
+
+rownames(meta_subset) <- meta_subset$barcode
+pb68@meta.data <- meta_subset
+```
+
+```{r}
+# Pre-processing of PB90
+ncol(pb90) # Number of cells before filtering (210591)
+nrow(pb90) # Number of genes before filtering (31332)
+
+# Filter out rare genes expressed in less than "gene_pct" of cells
+expr_matrix <- as.matrix(GetAssayData(pb90, assay = "RNA", layer = "counts"))
+
+# Get cell type information (adjust column name if needed)
+pb90$KPMP_celltype_general <- sapply(pb90$KPMP_celltype, 
+                                     map_celltype_to_general, 
+                                     celltype_groups = celltype_groups)
+
+cell_types <- pb90@meta.data$KPMP_celltype_general
+
+# Calculate proportion of cells expressing each gene within each cell type
+gene_pct_threshold <- 0.05  # 5% threshold
+
+# Initialize a matrix to store proportions for each gene in each cell type
+unique_cell_types <- unique(cell_types)
+gene_proportions_by_type <- matrix(0, 
+                                   nrow = nrow(expr_matrix), 
+                                   ncol = length(unique_cell_types))
+rownames(gene_proportions_by_type) <- rownames(expr_matrix)
+colnames(gene_proportions_by_type) <- unique_cell_types
+
+# Calculate proportion for each cell type
+for(ct in unique_cell_types) {
+  # Get cells of this type
+  cells_of_type <- which(cell_types == ct)
+  
+  # Calculate proportion of cells expressing each gene in this cell type
+  expr_subset <- expr_matrix[, cells_of_type]
+  num_cells_expressing <- rowSums(expr_subset > 0)
+  total_cells_in_type <- length(cells_of_type)
+  
+  gene_proportions_by_type[, ct] <- num_cells_expressing / total_cells_in_type
+}
+
+# Keep genes expressed in at least 5% of cells in AT LEAST ONE cell type
+max_proportion_per_gene <- apply(gene_proportions_by_type, 1, max)
+genes_to_keep <- names(max_proportion_per_gene[max_proportion_per_gene >= gene_pct_threshold])
+
+# Check results
+cat("Total genes:", nrow(expr_matrix), "\n") # Total genes: 31332 
+cat("Genes to keep:", length(genes_to_keep), "\n") # Genes to keep: 16039 
+cat("Proportion kept:", round(length(genes_to_keep)/nrow(expr_matrix)*100, 1), "%\n") # Proportion kept: 51.2 %
+
+# Optional: Check distribution of max proportions
+hist(max_proportion_per_gene)
+
+# Filter the Seurat object
+pb90_processed <- subset(pb90, features = genes_to_keep)
+
+#Check the number of Mitochondrial genes to start
+sum(grepl("^MT-", rownames(pb90_processed))) 
+
+# Identify mitochondrial genes (human: start with "MT-")
+mito_genes <- grep("^MT-", rownames(pb90_processed), value = TRUE)
+pb90_processed <- subset(pb90_processed, features = setdiff(rownames(pb90_processed), mito_genes))
+
+#Check the number of Mitochondrial genes after filtering to ensure filtering step was successful
+sum(grepl("^MT-", rownames(pb90_processed))) #Should be 0
+
+pb90_processed <- subset(pb90_processed, features = setdiff(rownames(pb90_processed), ribo_genes))
+```
+
+```{r}
+# Pre-processing of PB68
+ncol(pb68) # Number of cells before filtering (144475)
+nrow(pb68) # Number of genes before filtering (29772)
+
+# Filter out rare genes expressed in less than "gene_pct" of cells
+expr_matrix <- as.matrix(GetAssayData(pb68, assay = "RNA", layer = "counts"))
+
+# Get cell type information (adjust column name if needed)
+pb68$KPMP_celltype_general <- sapply(pb68$KPMP_celltype, 
+                                     map_celltype_to_general, 
+                                     celltype_groups = celltype_groups)
+
+cell_types <- pb68@meta.data$KPMP_celltype_general
+
+# Calculate proportion of cells expressing each gene within each cell type
+gene_pct_threshold <- 0.05  # 5% threshold
+
+# Initialize a matrix to store proportions for each gene in each cell type
+unique_cell_types <- unique(cell_types)
+gene_proportions_by_type <- matrix(0, 
+                                   nrow = nrow(expr_matrix), 
+                                   ncol = length(unique_cell_types))
+rownames(gene_proportions_by_type) <- rownames(expr_matrix)
+colnames(gene_proportions_by_type) <- unique_cell_types
+
+# Calculate proportion for each cell type
+for(ct in unique_cell_types) {
+  # Get cells of this type
+  cells_of_type <- which(cell_types == ct)
+  
+  # Calculate proportion of cells expressing each gene in this cell type
+  expr_subset <- expr_matrix[, cells_of_type]
+  num_cells_expressing <- rowSums(expr_subset > 0)
+  total_cells_in_type <- length(cells_of_type)
+  
+  gene_proportions_by_type[, ct] <- num_cells_expressing / total_cells_in_type
+}
+
+# Keep genes expressed in at least 5% of cells in AT LEAST ONE cell type
+max_proportion_per_gene <- apply(gene_proportions_by_type, 1, max)
+genes_to_keep <- names(max_proportion_per_gene[max_proportion_per_gene >= gene_pct_threshold])
+
+# Check results
+cat("Total genes:", nrow(expr_matrix), "\n") # Total genes: 29772 
+cat("Genes to keep:", length(genes_to_keep), "\n") # Genes to keep: 13853 
+cat("Proportion kept:", round(length(genes_to_keep)/nrow(expr_matrix)*100, 1), "%\n") # Proportion kept: 46.5 %
+
+# Optional: Check distribution of max proportions
+hist(max_proportion_per_gene)
+
+# Filter the Seurat object
+pb68_processed <- subset(pb68, features = genes_to_keep)
+
+#Check the number of Mitochondrial genes to start
+sum(grepl("^MT-", rownames(pb68_processed))) 
+
+# Identify mitochondrial genes (human: start with "MT-")
+mito_genes <- grep("^MT-", rownames(pb68_processed), value = TRUE)
+pb68_processed <- subset(pb68_processed, features = setdiff(rownames(pb68_processed), mito_genes))
+
+#Check the number of Mitochondrial genes after filtering to ensure filtering step was successful
+sum(grepl("^MT-", rownames(pb68_processed))) #Should be 0
+
+pb68_processed <- subset(pb68_processed, features = setdiff(rownames(pb68_processed), ribo_genes))
+
+# save pb90 and pb68 processed
+s3saveRDS(pb90_processed, object = "data_clean/pb90_processed.rds", bucket = "scrna", region = "", multipart = T)
+s3saveRDS(pb68_processed, object = "data_clean/pb68_processed.rds", bucket = "scrna", region = "", multipart = T)
+```
+
+```{r}
+# read in processed data
+pb90_processed <- s3readRDS(object = "data_clean/pb90_processed.rds", bucket = "scrna", region = "")
+pb68_processed <- s3readRDS(object = "data_clean/pb68_processed.rds", bucket = "scrna", region = "")
+```
+
+```{r}
+# create a variable to distinguish the problematic subjects from the rest in PB90
+pb90_processed$prob14 <- ifelse(pb90_processed$record_id %in% prob_ids, "Flagged", "OK")
+```
+
+```{r}
+# Look at the distribution of celltypes in PB90
+plot_group_celltype_proportions(
+  seu_obj = pb90_processed,
+  celltype_col = "KPMP_celltype_general",
+  group_col = "prob14"
+)
+
+plot_group_celltype_proportions(
+  seu_obj = pb90_processed,
+  celltype_col = "KPMP_celltype",
+  group_col = "prob14"
+)
+
+unique(subset(pb90_processed@meta.data, is.na(group))$kit_id)
+
+# Look at the distribution of celltypes in PB68
+
+plot_group_celltype_proportions(
+  seu_obj = pb68_processed,
+  celltype_col = "KPMP_celltype_general",
+  group_col = "prob14"
+)
+
+plot_group_celltype_proportions(
+  seu_obj = pb68_processed,
+  celltype_col = "KPMP_celltype",
+  group_col = "prob14"
+)
+```
+
+```{r}
+# Run FindMarkers() between T2D vs. HC in PB90 across each general cell type
+
+# Run FindMarkers() between T1D vs. HC in PB90 across each general cell type
+
+# Run FindMarkers() between T2D vs. HC in PB68 across each general cell type
+
+# Run FindMarkers() between T1D vs. HC in PB68 across each general cell type
+```
+
+```{r}
+# Run FindMarkers() between T2D vs. HC in PB90 across each sub-cell type
+
+# Run FindMarkers() between T1D vs. HC in PB90 across each sub-cell type
+
+# Run FindMarkers() between T2D vs. HC in PB68 across each sub-cell type
+
+# Run FindMarkers() between T1D vs. HC in PB68 across each sub-cell type
+```
+
+```{r}
+# Run pathway analyses for all 4 results
+
+```
