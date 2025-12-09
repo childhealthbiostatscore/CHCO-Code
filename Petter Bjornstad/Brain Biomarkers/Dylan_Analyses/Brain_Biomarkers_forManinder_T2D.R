@@ -1151,6 +1151,391 @@ cat("\nWorkspace saved: clinical_biomarker_analysis_T2D.RData\n")
 
 
 
+### Brain Biomarker Analysis - T2D vs Control
+### RH2 STUDY ONLY - SERUM SAMPLES
+### Simplified analysis focusing on one study with both groups
+
+library(tidyverse)
+library(broom)
+library(patchwork)
+library(ggpubr)
+library(pheatmap)
+library(RColorBrewer)
+library(readxl)
+library(knitr)
+library(kableExtra)
+library(moments)
+
+# Define Quanterix brain biomarkers
+qx_var <- c("ab40_avg_conc", "ab42_avg_conc", "tau_avg_conc",
+            "nfl_avg_conc", "gfap_avg_conc", "ptau_181_avg_conc", "ptau_217_avg_conc")
+
+# Define clinical predictors
+clinical_predictors <- list(
+  "Glycemic Control" = c("hba1c", "fbg"),
+  "Insulin Sensitivity" = c("avg_m_fsoc", "homa_ir", "adipose_ir", "search_eis"),
+  "CGM Metrics" = c("cgm_mean_glucose", "cgm_sd", "cgm_cv", "time_in_range", 
+                    "time_above_range", "time_below_range"),
+  "Blood Pressure" = c("sbp", "dbp", "map")
+)
+
+all_predictors <- unlist(clinical_predictors, use.names = FALSE)
+
+# ============================================================
+# DATA LOADING AND PREPARATION
+# ============================================================
+
+cat("\n##########################################################")
+cat("\n### LOADING DATA - RH2 SERUM ONLY")
+cat("\n##########################################################\n\n")
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+# Summarize by participant and visit
+dat <- harmonized_data %>% 
+  dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(
+    across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+    .by = c(record_id, visit)
+  )
+
+# Filter to RH2 study only (serum), baseline, with Quanterix and covariates
+dat_baseline <- dat %>% 
+  filter(study %in% c("RH2", "RENAL-HEIR", "RENAL-HEIRitage")) %>%  # All serum studies
+  filter(visit == 'baseline') %>%
+  filter(!is.na(ab40_avg_conc)) %>%
+  filter(!is.na(age) & !is.na(sex) & !is.na(bmi)) %>%
+  filter(group %in% c("Type 2 Diabetes", "Lean Control")) %>%
+  mutate(sample_type = "serum")  # All are serum
+
+cat("RH2/RENAL-HEIR Participants (serum) at baseline:\n")
+cat("  Total:", nrow(dat_baseline), "\n\n")
+
+cat("Group distribution:\n")
+print(table(dat_baseline$group))
+cat("\n")
+
+cat("Study distribution:\n")
+print(table(dat_baseline$study, dat_baseline$group))
+cat("\n")
+
+# ============================================================
+# SETUP OUTPUT DIRECTORY
+# ============================================================
+
+output_dir <- 'C:/Users/netio/Documents/UofW/Projects/Maninder_Data/Clinical_Biomarker_Associations_T2D_RH2/'
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+setwd(output_dir)
+
+# ============================================================
+# DEFINE ANALYSIS GROUPS
+# ============================================================
+
+analysis_groups <- list(
+  "All_Participants" = dat_baseline,
+  "Type_2_Diabetes" = dat_baseline %>% filter(group == "Type 2 Diabetes"),
+  "Lean_Control" = dat_baseline %>% filter(group == "Lean Control")
+)
+
+cat("Sample sizes:\n")
+for(group_name in names(analysis_groups)) {
+  cat(sprintf("  %-20s: N = %d\n", group_name, nrow(analysis_groups[[group_name]])))
+}
+cat("\n")
+
+# ============================================================
+# FUNCTIONS
+# ============================================================
+
+test_log_transformation <- function(x) {
+  if(any(x <= 0, na.rm = TRUE)) return(FALSE)
+  if(sum(!is.na(x)) < 5) return(FALSE)  # Changed from 10 to 5
+  
+  skew_raw <- moments::skewness(x, na.rm = TRUE)
+  skew_log <- moments::skewness(log(x), na.rm = TRUE)
+  
+  if(abs(skew_raw) > 1 && abs(skew_log) < abs(skew_raw)) {
+    return(TRUE)
+  }
+  return(FALSE)
+}
+
+run_regression_analysis <- function(data, predictor, outcome, covariates = NULL, group_name = "") {
+  
+  if(!predictor %in% names(data) || !outcome %in% names(data)) {
+    return(NULL)
+  }
+  
+  if(is.null(covariates)) {
+    analysis_data <- data %>% 
+      dplyr::select(all_of(c(predictor, outcome))) %>%
+      filter(complete.cases(.))
+    
+    if(nrow(analysis_data) < 5) return(NULL)  # Changed from 10 to 5
+    
+    model_type <- "Unadjusted"
+    covar_list <- NULL
+    
+  } else {
+    analysis_data <- data %>% 
+      dplyr::select(all_of(c(predictor, outcome, covariates))) %>%
+      filter(complete.cases(.))
+    
+    if(nrow(analysis_data) < 5) return(NULL)  # Changed from 10 to 5
+    
+    model_type <- "Adjusted"
+    covar_list <- covariates
+  }
+  
+  pred_needs_log <- test_log_transformation(analysis_data[[predictor]])
+  outcome_needs_log <- test_log_transformation(analysis_data[[outcome]])
+  
+  working_data <- analysis_data
+  
+  pred_var_name <- predictor
+  outcome_var_name <- outcome
+  
+  if(pred_needs_log) {
+    working_data[[predictor]] <- log(working_data[[predictor]])
+    pred_var_name <- paste0("log(", predictor, ")")
+  }
+  
+  if(outcome_needs_log) {
+    working_data[[outcome]] <- log(working_data[[outcome]])
+    outcome_var_name <- paste0("log(", outcome, ")")
+  }
+  
+  original_working_data <- working_data
+  
+  working_data[[predictor]] <- scale(working_data[[predictor]])[,1]
+  working_data[[outcome]] <- scale(working_data[[outcome]])[,1]
+  
+  if(!is.null(covar_list)) {
+    for(cov in covar_list) {
+      if(cov != "sex" && is.numeric(working_data[[cov]])) {
+        working_data[[cov]] <- scale(working_data[[cov]])[,1]
+      }
+    }
+  }
+  
+  if(is.null(covar_list)) {
+    formula_str <- paste0(outcome, " ~ ", predictor)
+  } else {
+    formula_str <- paste0(outcome, " ~ ", predictor, " + ", paste(covar_list, collapse = " + "))
+  }
+  
+  model_std <- lm(as.formula(formula_str), data = working_data)
+  model_summary_std <- summary(model_std)
+  coef_table_std <- coef(model_summary_std)
+  
+  predictor_row <- which(rownames(coef_table_std) == predictor)
+  if(length(predictor_row) == 0) return(NULL)
+  
+  model_raw <- lm(as.formula(formula_str), data = original_working_data)
+  model_summary_raw <- summary(model_raw)
+  coef_table_raw <- coef(model_summary_raw)
+  
+  results <- data.frame(
+    Group = group_name,
+    Sample_Type = "serum",
+    Predictor = predictor,
+    Outcome = outcome,
+    Predictor_Used = pred_var_name,
+    Outcome_Used = outcome_var_name,
+    Predictor_Log_Transformed = pred_needs_log,
+    Outcome_Log_Transformed = outcome_needs_log,
+    Model_Type = model_type,
+    N = nrow(analysis_data),
+    Beta_Raw = coef_table_raw[predictor_row, "Estimate"],
+    Beta_Std = coef_table_std[predictor_row, "Estimate"],
+    SE_Raw = coef_table_raw[predictor_row, "Std. Error"],
+    SE_Std = coef_table_std[predictor_row, "Std. Error"],
+    t_value = coef_table_std[predictor_row, "t value"],
+    p_value = coef_table_std[predictor_row, "Pr(>|t|)"],
+    R_squared = model_summary_std$r.squared,
+    Adj_R_squared = model_summary_std$adj.r.squared,
+    Model_p_value = pf(model_summary_std$fstatistic[1], 
+                       model_summary_std$fstatistic[2], 
+                       model_summary_std$fstatistic[3], 
+                       lower.tail = FALSE),
+    stringsAsFactors = FALSE
+  )
+  
+  return(results)
+}
+
+# ============================================================
+# RUN ALL REGRESSIONS
+# ============================================================
+
+cat("##########################################################")
+cat("\n### RUNNING REGRESSION ANALYSES")
+cat("\n##########################################################\n\n")
+
+all_results <- data.frame()
+
+for(group_name in names(analysis_groups)) {
+  
+  cat("\n=== Analyzing group:", group_name, "===\n")
+  current_data <- analysis_groups[[group_name]]
+  
+  if(nrow(current_data) < 5) {  # Changed from 10 to 5
+    cat("  Skipping - insufficient sample size\n")
+    next
+  }
+  
+  available_predictors <- intersect(all_predictors, names(current_data))
+  cat("  Available predictors:", length(available_predictors), "\n")
+  cat("  Sample size:", nrow(current_data), "\n")
+  
+  for(predictor in available_predictors) {
+    
+    n_available <- sum(!is.na(current_data[[predictor]]))
+    if(n_available < 5) next  # Changed from 10 to 5
+    
+    for(outcome in qx_var) {
+      
+      result_unadj <- run_regression_analysis(
+        data = current_data,
+        predictor = predictor,
+        outcome = outcome,
+        covariates = NULL,
+        group_name = group_name
+      )
+      
+      if(!is.null(result_unadj)) {
+        all_results <- rbind(all_results, result_unadj)
+      }
+      
+      result_adj <- run_regression_analysis(
+        data = current_data,
+        predictor = predictor,
+        outcome = outcome,
+        covariates = c("age", "sex", "bmi"),
+        group_name = group_name
+      )
+      
+      if(!is.null(result_adj)) {
+        all_results <- rbind(all_results, result_adj)
+      }
+    }
+  }
+  
+  cat("  Completed", nrow(all_results), "total regressions so far\n")
+}
+
+all_results <- all_results %>%
+  mutate(
+    Significant = case_when(
+      p_value < 0.001 ~ "***",
+      p_value < 0.01 ~ "**",
+      p_value < 0.05 ~ "*",
+      p_value < 0.10 ~ ".",
+      TRUE ~ ""
+    ),
+    Sig_Flag = p_value < 0.05,
+    Transformation = case_when(
+      Predictor_Log_Transformed & Outcome_Log_Transformed ~ "Both log",
+      Predictor_Log_Transformed ~ "Predictor log",
+      Outcome_Log_Transformed ~ "Outcome log",
+      TRUE ~ "None"
+    )
+  )
+
+cat("\n\nTotal regressions completed:", nrow(all_results), "\n")
+cat("Significant associations (p < 0.05):", sum(all_results$Sig_Flag), "\n\n")
+
+write.csv(all_results, "all_regression_results_T2D_RH2_serum.csv", row.names = FALSE)
+
+# ============================================================
+# CREATE SUMMARY TABLES
+# ============================================================
+
+significant_results <- all_results %>%
+  filter(p_value < 0.05) %>%
+  arrange(p_value)
+
+write.csv(significant_results, "significant_associations_T2D_RH2.csv", row.names = FALSE)
+
+cat("Significant associations:", nrow(significant_results), "\n\n")
+
+if(nrow(significant_results) > 0) {
+  cat("=== TOP 20 MOST SIGNIFICANT ASSOCIATIONS ===\n")
+  top_20 <- significant_results %>%
+    head(20) %>%
+    dplyr::select(Group, Model_Type, Predictor, Outcome, N, Beta_Std, p_value, R_squared)
+  
+  print(kable(top_20, digits = c(0, 0, 0, 0, 0, 3, 4, 3), format = "simple"))
+}
+
+cat("\n\n##########################################################")
+cat("\n### ANALYSIS COMPLETE - RH2 SERUM ONLY")
+cat("\n##########################################################\n\n")
+
+cat("Results saved to:\n")
+cat("  - all_regression_results_T2D_RH2_serum.csv\n")
+cat("  - significant_associations_T2D_RH2.csv\n\n")
+
+cat("Groups analyzed:\n")
+for(group_name in names(analysis_groups)) {
+  n <- nrow(analysis_groups[[group_name]])
+  n_results <- sum(all_results$Group == group_name)
+  cat(sprintf("  %-20s: N = %2d participants, %4d regressions\n", 
+              group_name, n, n_results))
+}
+
+save.image("clinical_biomarker_analysis_T2D_RH2_serum.RData")
+cat("\nWorkspace saved\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
