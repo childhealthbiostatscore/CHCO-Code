@@ -282,7 +282,7 @@ pb90$kit_id <- gsub("KI", "KL", pb90$kit_id)
 pb90$kit_id <- gsub("kl", "KL", pb90$kit_id)
 
 # add metadata to pb90 subset
-meta_subset <- left_join(subset(pb90@meta.data, select = c(kit_id, group)), 
+meta_subset <- left_join(subset(pb90@meta.data, select = -c(record_id, cryostor_id, visit, group, sex, age, sglt2i_ever, hba1c, eGFR_CKD_epi)), 
                          harm_dat,
                          by = "kit_id")
 
@@ -438,6 +438,11 @@ pb68_processed <- subset(pb68_processed, features = setdiff(rownames(pb68_proces
 sum(grepl("^MT-", rownames(pb68_processed))) #Should be 0
 
 pb68_processed <- subset(pb68_processed, features = setdiff(rownames(pb68_processed), ribo_genes))
+```
+
+```{r}
+# create a variable to distinguish the problematic subjects from the rest in PB90
+pb90_processed$prob14 <- ifelse(pb90_processed$record_id %in% prob_ids, "Flagged", "OK")
 
 # save pb90 and pb68 processed
 s3saveRDS(pb90_processed, object = "data_clean/pb90_processed.rds", bucket = "scrna", region = "", multipart = T)
@@ -448,11 +453,6 @@ s3saveRDS(pb68_processed, object = "data_clean/pb68_processed.rds", bucket = "sc
 # read in processed data
 pb90_processed <- s3readRDS(object = "data_clean/pb90_processed.rds", bucket = "scrna", region = "")
 pb68_processed <- s3readRDS(object = "data_clean/pb68_processed.rds", bucket = "scrna", region = "")
-```
-
-```{r}
-# create a variable to distinguish the problematic subjects from the rest in PB90
-pb90_processed$prob14 <- ifelse(pb90_processed$record_id %in% prob_ids, "Flagged", "OK")
 ```
 
 ```{r}
@@ -467,6 +467,12 @@ plot_group_celltype_proportions(
   seu_obj = pb90_processed,
   celltype_col = "KPMP_celltype",
   group_col = "prob14"
+)
+
+plot_group_celltype_proportions(
+  seu_obj = pb90_processed,
+  celltype_col = "KPMP_celltype_general",
+  group_col = "group"
 )
 
 unique(subset(pb90_processed@meta.data, is.na(group))$kit_id)
