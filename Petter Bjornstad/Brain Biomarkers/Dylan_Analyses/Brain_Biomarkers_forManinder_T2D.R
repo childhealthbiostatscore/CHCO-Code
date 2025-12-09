@@ -1,6 +1,3 @@
-#### T2D vs. LC for Maninder
-
-
 ### Brain Biomarker Analysis - Clinical Variable Associations
 ### TYPE 2 DIABETES VS. CONTROL ONLY
 ### Simple regressions: Clinical variables (HbA1c, M/I, CGM, BP) predicting brain biomarkers
@@ -102,8 +99,9 @@ cat("\n")
 # SETUP OUTPUT DIRECTORY
 # ============================================================
 
-setwd('C:/Users/netio/Documents/UofW/Projects/Maninder_Data/Clinical_Biomarker_Associations_T2D/')
-dir.create(getwd(), showWarnings = FALSE, recursive = TRUE)
+output_dir <- 'C:/Users/netio/Documents/UofW/Projects/Maninder_Data/Clinical_Biomarker_Associations_T2D/'
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+setwd(output_dir)
 
 # ============================================================
 # DEFINE ANALYSIS GROUPS - SEPARATE BY SAMPLE TYPE
@@ -401,24 +399,752 @@ if(nrow(significant_results) > 0) {
   print(kable(top_20, digits = c(0, 0, 0, 0, 0, 0, 3, 4, 3), format = "simple"))
 }
 
-# Continue with rest of analysis code...
-# (Heatmaps, forest plots, etc. using the same structure as original)
+# ============================================================
+# HEATMAPS OF P-VALUES
+# ============================================================
+
+cat("\n\n=== Creating heatmaps ===\n")
+
+# Define consistent predictor order
+predictor_order_all <- all_results %>%
+  mutate(
+    Predictor_Category = case_when(
+      Predictor %in% clinical_predictors$`Glycemic Control` ~ "1_Glycemic",
+      Predictor %in% clinical_predictors$`Insulin Sensitivity` ~ "2_Insulin",
+      Predictor %in% clinical_predictors$`CGM Metrics` ~ "3_CGM",
+      Predictor %in% clinical_predictors$`Blood Pressure` ~ "4_BP",
+      TRUE ~ "5_Other"
+    )
+  ) %>%
+  arrange(Predictor_Category, Predictor_Used) %>%
+  pull(Predictor_Used) %>%
+  unique()
+
+# Function to create p-value heatmap
+create_pvalue_heatmap <- function(results_subset, title, filename, predictor_order = NULL) {
+  
+  pval_matrix <- results_subset %>%
+    dplyr::select(Predictor_Used, Outcome, p_value) %>%
+    pivot_wider(names_from = Outcome, values_from = p_value) %>%
+    column_to_rownames("Predictor_Used") %>%
+    as.matrix()
+  
+  if(!is.null(predictor_order)) {
+    predictor_order <- predictor_order[predictor_order %in% rownames(pval_matrix)]
+    if(length(predictor_order) > 0) {
+      pval_matrix <- pval_matrix[predictor_order, , drop = FALSE]
+    }
+  }
+  
+  pval_transformed <- -log10(pval_matrix)
+  pval_transformed[pval_transformed > 3] <- 3
+  
+  if(nrow(pval_transformed) > 0 && ncol(pval_transformed) > 0) {
+    
+    pheatmap(pval_transformed,
+             cluster_rows = FALSE,
+             cluster_cols = FALSE,
+             color = colorRampPalette(c("white", "yellow", "orange", "red"))(100),
+             breaks = seq(0, 3, length.out = 101),
+             main = title,
+             fontsize_row = 8,
+             fontsize_col = 9,
+             angle_col = 45,
+             display_numbers = matrix(sprintf("%.3f", pval_matrix), nrow = nrow(pval_matrix)),
+             number_color = "black",
+             fontsize_number = 6,
+             legend_breaks = c(0, 0.5, 1, 1.3, 2, 3),
+             legend_labels = c("1.0", "0.32", "0.10", "0.05", "0.01", "0.001"),
+             filename = filename,
+             width = 10,
+             height = max(6, nrow(pval_transformed) * 0.3))
+    
+    return(TRUE)
+  }
+  return(FALSE)
+}
+
+# Create heatmaps for each group and model type
+for(group_name in unique(all_results$Group)) {
+  for(model_type in c("Unadjusted", "Adjusted")) {
+    
+    results_subset <- all_results %>%
+      filter(Group == group_name, Model_Type == model_type)
+    
+    if(nrow(results_subset) > 0) {
+      title <- paste0(group_name, " - ", model_type, " Models\n(-log10 p-values)")
+      filename <- paste0("heatmap_pvalues_", gsub(" ", "_", group_name), "_", model_type, ".png")
+      
+      success <- create_pvalue_heatmap(results_subset, title, filename, predictor_order = predictor_order_all)
+      if(success) {
+        cat("Created:", filename, "\n")
+      }
+    }
+  }
+}
+
+# ============================================================
+# EFFECT SIZE HEATMAPS (BETA COEFFICIENTS)
+# ============================================================
+
+cat("\n=== Creating beta coefficient heatmaps ===\n")
+
+create_beta_heatmap <- function(results_subset, title, filename, predictor_order = NULL) {
+  
+  beta_matrix <- results_subset %>%
+    dplyr::select(Predictor_Used, Outcome, Beta_Std) %>%
+    pivot_wider(names_from = Outcome, values_from = Beta_Std) %>%
+    column_to_rownames("Predictor_Used") %>%
+    as.matrix()
+  
+  pval_matrix <- results_subset %>%
+    dplyr::select(Predictor_Used, Outcome, p_value) %>%
+    pivot_wider(names_from = Outcome, values_from = p_value) %>%
+    column_to_rownames("Predictor_Used") %>%
+    as.matrix()
+  
+  if(!is.null(predictor_order)) {
+    predictor_order <- predictor_order[predictor_order %in% rownames(beta_matrix)]
+    if(length(predictor_order) > 0) {
+      beta_matrix <- beta_matrix[predictor_order, , drop = FALSE]
+      pval_matrix <- pval_matrix[predictor_order, , drop = FALSE]
+    }
+  }
+  
+  sig_matrix <- matrix("", nrow = nrow(beta_matrix), ncol = ncol(beta_matrix))
+  sig_matrix[pval_matrix < 0.001] <- "***"
+  sig_matrix[pval_matrix >= 0.001 & pval_matrix < 0.01] <- "**"
+  sig_matrix[pval_matrix >= 0.01 & pval_matrix < 0.05] <- "*"
+  
+  display_matrix <- matrix(
+    paste0(sprintf("%.3f", beta_matrix), "\n", sig_matrix),
+    nrow = nrow(beta_matrix)
+  )
+  
+  if(nrow(beta_matrix) > 0 && ncol(beta_matrix) > 0) {
+    
+    pheatmap(beta_matrix,
+             cluster_rows = FALSE,
+             cluster_cols = FALSE,
+             color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
+             main = paste0(title, "\n(Standardized Beta Coefficients)"),
+             fontsize_row = 8,
+             fontsize_col = 9,
+             angle_col = 45,
+             display_numbers = display_matrix,
+             number_color = "black",
+             fontsize_number = 5,
+             filename = filename,
+             width = 10,
+             height = max(6, nrow(beta_matrix) * 0.3))
+    
+    return(TRUE)
+  }
+  return(FALSE)
+}
+
+for(group_name in unique(all_results$Group)) {
+  for(model_type in c("Unadjusted", "Adjusted")) {
+    
+    results_subset <- all_results %>%
+      filter(Group == group_name, Model_Type == model_type)
+    
+    if(nrow(results_subset) > 0) {
+      title <- paste0(group_name, " - ", model_type, " Models")
+      filename <- paste0("heatmap_beta_", gsub(" ", "_", group_name), "_", model_type, ".png")
+      
+      success <- create_beta_heatmap(results_subset, title, filename, predictor_order = predictor_order_all)
+      if(success) {
+        cat("Created:", filename, "\n")
+      }
+    }
+  }
+}
+
+# ============================================================
+# SCATTER PLOTS FOR SIGNIFICANT ASSOCIATIONS
+# ============================================================
+
+cat("\n=== Creating scatter plots for top significant associations ===\n")
+
+top_for_plots <- significant_results %>%
+  arrange(p_value) %>%
+  head(12)
+
+if(nrow(top_for_plots) > 0) {
+  
+  plot_list <- list()
+  
+  for(i in 1:nrow(top_for_plots)) {
+    
+    row <- top_for_plots[i, ]
+    
+    # Get the correct data group
+    plot_data <- all_analysis_groups[[row$Group]] %>%
+      dplyr::select(x = all_of(row$Predictor), y = all_of(row$Outcome)) %>%
+      filter(complete.cases(.))
+    
+    if(nrow(plot_data) < 10) next
+    
+    x_label <- row$Predictor
+    y_label <- row$Outcome
+    
+    if(row$Predictor_Log_Transformed) {
+      plot_data$x <- log(plot_data$x)
+      x_label <- paste0("log(", x_label, ")")
+    }
+    
+    if(row$Outcome_Log_Transformed) {
+      plot_data$y <- log(plot_data$y)
+      y_label <- paste0("log(", y_label, ")")
+    }
+    
+    p <- ggplot(plot_data, aes(x = x, y = y)) +
+      geom_point(alpha = 0.6, size = 2) +
+      geom_smooth(method = "lm", se = TRUE, color = "blue") +
+      labs(
+        title = paste0(row$Predictor, " → ", row$Outcome),
+        subtitle = sprintf("%s | %s | β_std=%.3f, p=%s, R²=%.3f",
+                           row$Group, row$Model_Type, row$Beta_Std, 
+                           format.pval(row$p_value, digits = 2), row$R_squared),
+        x = x_label,
+        y = y_label
+      ) +
+      theme_bw() +
+      theme(plot.title = element_text(size = 10),
+            plot.subtitle = element_text(size = 8))
+    
+    plot_list[[i]] <- p
+  }
+  
+  if(length(plot_list) > 0) {
+    combined_plot <- wrap_plots(plot_list, ncol = 3)
+    ggsave("top_significant_associations_scatter_T2D.png", combined_plot,
+           width = 15, height = 12, dpi = 300, bg = "white")
+    cat("Created: top_significant_associations_scatter_T2D.png\n")
+  }
+}
+
+# ============================================================
+# SUMMARY BY PREDICTOR TYPE
+# ============================================================
+
+cat("\n\n=== Summary of associations by predictor category ===\n")
+
+all_results <- all_results %>%
+  mutate(
+    Predictor_Category = case_when(
+      Predictor %in% clinical_predictors$`Glycemic Control` ~ "Glycemic Control",
+      Predictor %in% clinical_predictors$`Insulin Sensitivity` ~ "Insulin Sensitivity",
+      Predictor %in% clinical_predictors$`CGM Metrics` ~ "CGM Metrics",
+      Predictor %in% clinical_predictors$`Blood Pressure` ~ "Blood Pressure",
+      TRUE ~ "Other"
+    )
+  )
+
+category_summary <- all_results %>%
+  filter(p_value < 0.05) %>%
+  group_by(Predictor_Category, Group, Model_Type) %>%
+  summarise(
+    N_Significant = n(),
+    Mean_Abs_Beta_Std = mean(abs(Beta_Std)),
+    Mean_R_squared = mean(R_squared),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(N_Significant))
+
+write.csv(category_summary, "summary_by_predictor_category_T2D.csv", row.names = FALSE)
+
+cat("\n")
+print(kable(category_summary, digits = 3, format = "simple"))
+
+# ============================================================
+# FOREST PLOTS
+# ============================================================
+
+cat("\n\n##########################################################")
+cat("\n### CREATING FOREST PLOTS FOR CROSS-GROUP COMPARISONS")
+cat("\n##########################################################\n\n")
+
+adjusted_results <- all_results %>%
+  filter(Model_Type == "Adjusted")
+
+# Function to create forest plot
+create_forest_plot <- function(predictor, outcome, results_data, title_suffix = "") {
+  
+  plot_data <- results_data %>%
+    filter(Predictor == predictor, Outcome == outcome, Model_Type == "Adjusted") %>%
+    mutate(
+      CI_lower = Beta_Std - 1.96 * SE_Std,
+      CI_upper = Beta_Std + 1.96 * SE_Std,
+      Significant = p_value < 0.05,
+      Group_Label = gsub("_", " ", Group)
+    ) %>%
+    arrange(Beta_Std)
+  
+  if(nrow(plot_data) == 0) return(NULL)
+  
+  p <- ggplot(plot_data, aes(x = Beta_Std, y = reorder(Group_Label, Beta_Std))) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.8) +
+    geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper, color = Significant),
+                   height = 0.2, linewidth = 1) +
+    geom_point(aes(color = Significant, size = Significant), shape = 18) +
+    scale_color_manual(values = c("TRUE" = "red", "FALSE" = "gray60"),
+                       labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05")) +
+    scale_size_manual(values = c("TRUE" = 4, "FALSE" = 3), guide = "none") +
+    labs(
+      title = paste0(predictor, " → ", outcome, title_suffix),
+      subtitle = "Standardized beta coefficients with 95% CI (adjusted for age, sex, BMI)",
+      x = "Standardized Beta Coefficient",
+      y = NULL,
+      color = "Significance"
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      plot.title = element_text(face = "bold", size = 12),
+      axis.text.y = element_text(size = 10)
+    ) +
+    geom_text(aes(label = sprintf("N=%d\np=%.3f", N, p_value)),
+              x = max(plot_data$CI_upper) * 1.1,
+              size = 3, hjust = 0)
+  
+  return(p)
+}
+
+# Create forest plots for top associations
+top_associations <- significant_results %>%
+  filter(Model_Type == "Adjusted") %>%
+  group_by(Predictor, Outcome) %>%
+  summarise(
+    Min_p = min(p_value),
+    N_Groups = n(),
+    .groups = "drop"
+  ) %>%
+  filter(N_Groups >= 2) %>%
+  arrange(Min_p) %>%
+  head(15)
+
+if(nrow(top_associations) > 0) {
+  
+  for(i in 1:nrow(top_associations)) {
+    predictor <- top_associations$Predictor[i]
+    outcome <- top_associations$Outcome[i]
+    
+    p <- create_forest_plot(predictor, outcome, all_results)
+    
+    if(!is.null(p)) {
+      filename <- paste0("forest_plot_", 
+                         gsub("[^A-Za-z0-9]", "_", predictor), "_",
+                         gsub("[^A-Za-z0-9]", "_", outcome), "_T2D.png")
+      ggsave(filename, p, width = 10, height = 6, dpi = 300, bg = "white")
+      cat("Created:", filename, "\n")
+    }
+  }
+}
+
+# ============================================================
+# T2D-SPECIFIC ASSOCIATIONS
+# ============================================================
+
+cat("\n\n=== Identifying T2D-specific associations ===\n")
+
+# Find associations significant in T2D but not in Lean Control
+t2d_lc_comparison <- adjusted_results %>%
+  filter(grepl("Type_2_Diabetes|Lean_Control", Group)) %>%
+  dplyr::select(Group, Predictor, Outcome, Beta_Std, p_value, SE_Std, Sample_Type) %>%
+  pivot_wider(
+    names_from = Group,
+    values_from = c(Beta_Std, p_value, SE_Std),
+    names_sep = "_"
+  )
+
+# Get column names dynamically
+beta_t2d_cols <- grep("Beta_Std.*Type_2", names(t2d_lc_comparison), value = TRUE)
+pval_t2d_cols <- grep("p_value.*Type_2", names(t2d_lc_comparison), value = TRUE)
+beta_lc_cols <- grep("Beta_Std.*Lean", names(t2d_lc_comparison), value = TRUE)
+pval_lc_cols <- grep("p_value.*Lean", names(t2d_lc_comparison), value = TRUE)
+
+if(length(beta_t2d_cols) > 0 && length(beta_lc_cols) > 0) {
+  
+  for(sample_type in unique(dat_baseline$sample_type)) {
+    
+    # Filter to this sample type
+    t2d_specific <- t2d_lc_comparison %>%
+      filter(Sample_Type == sample_type)
+    
+    if(nrow(t2d_specific) == 0) next
+    
+    # Find the columns for this sample type
+    beta_t2d_col <- beta_t2d_cols[grepl(sample_type, beta_t2d_cols)][1]
+    pval_t2d_col <- pval_t2d_cols[grepl(sample_type, pval_t2d_cols)][1]
+    beta_lc_col <- beta_lc_cols[grepl(sample_type, beta_lc_cols)][1]
+    pval_lc_col <- pval_lc_cols[grepl(sample_type, pval_lc_cols)][1]
+    
+    if(!is.na(beta_t2d_col) && !is.na(pval_t2d_col) && 
+       !is.na(beta_lc_col) && !is.na(pval_lc_col)) {
+      
+      t2d_specific <- t2d_specific %>%
+        mutate(
+          T2D_specific = (.data[[pval_t2d_col]] < 0.05) & 
+            (is.na(.data[[pval_lc_col]]) | .data[[pval_lc_col]] >= 0.05)
+        ) %>%
+        filter(T2D_specific) %>%
+        arrange(.data[[pval_t2d_col]])
+      
+      if(nrow(t2d_specific) > 0) {
+        filename <- paste0("T2D_specific_associations_", sample_type, ".csv")
+        write.csv(t2d_specific, filename, row.names = FALSE)
+        cat("Found", nrow(t2d_specific), "T2D-specific associations for", sample_type, "\n")
+      }
+    }
+  }
+}
+
+# ============================================================
+# EFFECT SIZE COMPARISON PLOTS
+# ============================================================
+
+cat("\n=== Creating effect size comparison plots ===\n")
+
+# Get associations significant in at least one group
+sig_in_any <- adjusted_results %>%
+  group_by(Predictor, Outcome) %>%
+  filter(any(p_value < 0.05)) %>%
+  ungroup()
+
+if(nrow(sig_in_any) > 20) {
+  
+  # Top 20 by minimum p-value
+  top_20_pairs <- sig_in_any %>%
+    group_by(Predictor, Outcome) %>%
+    summarise(
+      Min_p = min(p_value, na.rm = TRUE),
+      N_Groups = n(),
+      .groups = "drop"
+    ) %>%
+    arrange(Min_p) %>%
+    head(20)
+  
+  plot_data_dots <- adjusted_results %>%
+    inner_join(top_20_pairs %>% dplyr::select(Predictor, Outcome), 
+               by = c("Predictor", "Outcome")) %>%
+    mutate(
+      Combo = paste(Predictor, "→", Outcome),
+      Group_Label = gsub("_", " ", Group),
+      Significant = p_value < 0.05
+    )
+  
+  p_dots <- ggplot(plot_data_dots, 
+                   aes(x = Beta_Std, y = reorder(Combo, Beta_Std), color = Group_Label)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+    geom_point(aes(size = ifelse(Significant, 3, 2), 
+                   shape = ifelse(Significant, 16, 1)),
+               position = position_dodge(width = 0.5), alpha = 0.8) +
+    scale_size_identity() +
+    scale_shape_identity() +
+    labs(
+      title = "Effect Size Comparison: T2D vs Control (Top 20 Associations)",
+      subtitle = "Filled circles = p < 0.05, Open circles = p ≥ 0.05 | Standardized beta coefficients",
+      x = "Standardized Beta Coefficient (adjusted for age, sex, BMI)",
+      y = NULL,
+      color = "Group"
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      axis.text.y = element_text(size = 8),
+      plot.title = element_text(face = "bold")
+    )
+  
+  ggsave("effect_size_dot_plot_comparison_T2D.png", p_dots,
+         width = 12, height = 10, dpi = 300, bg = "white")
+  cat("Created: effect_size_dot_plot_comparison_T2D.png\n")
+}
+
+# ============================================================
+# INTERACTION ANALYSIS
+# ============================================================
+
+cat("\n\n##########################################################")
+cat("\n### INTERACTION ANALYSES - T2D vs. CONTROL")
+cat("\n##########################################################\n\n")
+
+test_interaction_two_groups <- function(data, predictor, outcome, group1, group2, covariates = c("age", "sex", "bmi")) {
+  
+  analysis_data <- data %>%
+    filter(group %in% c(group1, group2)) %>%
+    dplyr::select(all_of(c(predictor, outcome, "group", covariates))) %>%
+    filter(complete.cases(.))
+  
+  if(nrow(analysis_data) < 20) return(NULL)
+  
+  analysis_data$group <- factor(analysis_data$group, levels = c(group1, group2))
+  
+  pred_needs_log <- test_log_transformation(analysis_data[[predictor]])
+  outcome_needs_log <- test_log_transformation(analysis_data[[outcome]])
+  
+  pred_var_name <- predictor
+  outcome_var_name <- outcome
+  
+  if(pred_needs_log) {
+    analysis_data[[predictor]] <- log(analysis_data[[predictor]])
+    pred_var_name <- paste0("log(", predictor, ")")
+  }
+  
+  if(outcome_needs_log) {
+    analysis_data[[outcome]] <- log(analysis_data[[outcome]])
+    outcome_var_name <- paste0("log(", outcome, ")")
+  }
+  
+  original_working_data <- analysis_data
+  
+  analysis_data[[predictor]] <- scale(analysis_data[[predictor]])[,1]
+  analysis_data[[outcome]] <- scale(analysis_data[[outcome]])[,1]
+  
+  for(cov in covariates) {
+    if(cov != "sex" && is.numeric(analysis_data[[cov]])) {
+      analysis_data[[cov]] <- scale(analysis_data[[cov]])[,1]
+    }
+  }
+  
+  formula_main <- as.formula(paste0(outcome, " ~ ", predictor, " + group + ", 
+                                    paste(covariates, collapse = " + ")))
+  model_main <- lm(formula_main, data = analysis_data)
+  
+  formula_int <- as.formula(paste0(outcome, " ~ ", predictor, " * group + ", 
+                                   paste(covariates, collapse = " + ")))
+  model_int <- lm(formula_int, data = analysis_data)
+  
+  anova_result <- anova(model_main, model_int)
+  interaction_p <- anova_result$`Pr(>F)`[2]
+  
+  coef_summary <- summary(model_int)$coefficients
+  
+  predictor_row <- which(rownames(coef_summary) == predictor)
+  if(length(predictor_row) == 0) return(NULL)
+  
+  main_effect <- coef_summary[predictor_row, "Estimate"]
+  main_effect_p <- coef_summary[predictor_row, "Pr(>|t|)"]
+  
+  interaction_term <- paste0(predictor, ":group", group2)
+  int_row <- which(rownames(coef_summary) == interaction_term)
+  
+  if(length(int_row) == 0) return(NULL)
+  
+  interaction_beta <- coef_summary[int_row, "Estimate"]
+  interaction_se <- coef_summary[int_row, "Std. Error"]
+  interaction_t <- coef_summary[int_row, "t value"]
+  interaction_p_coef <- coef_summary[int_row, "Pr(>|t|)"]
+  
+  group2_effect <- main_effect + interaction_beta
+  
+  results <- data.frame(
+    Predictor = predictor,
+    Outcome = outcome,
+    Predictor_Used = pred_var_name,
+    Outcome_Used = outcome_var_name,
+    Predictor_Log_Transformed = pred_needs_log,
+    Outcome_Log_Transformed = outcome_needs_log,
+    Reference_Group = group1,
+    Comparison_Group = group2,
+    N_Total = nrow(analysis_data),
+    N_Group1 = sum(analysis_data$group == group1),
+    N_Group2 = sum(analysis_data$group == group2),
+    Effect_in_Group1 = main_effect,
+    Effect_in_Group1_p = main_effect_p,
+    Effect_in_Group2 = group2_effect,
+    Interaction_Beta_Std = interaction_beta,
+    Interaction_SE = interaction_se,
+    Interaction_t = interaction_t,
+    Interaction_p = interaction_p_coef,
+    Model_Interaction_p = interaction_p,
+    R_squared_main = summary(model_main)$r.squared,
+    R_squared_interaction = summary(model_int)$r.squared,
+    stringsAsFactors = FALSE
+  )
+  
+  return(results)
+}
+
+# Run interaction tests for each sample type
+interaction_results_all <- data.frame()
+
+for(sample_type in unique(dat_baseline$sample_type)) {
+  
+  cat("\n=== Testing interactions for sample type:", sample_type, "===\n")
+  
+  # Get data for this sample type
+  sample_data <- dat_baseline %>% filter(sample_type == sample_type)
+  
+  # Check if both groups exist
+  groups_present <- unique(sample_data$group)
+  
+  if(!"Type 2 Diabetes" %in% groups_present || !"Lean Control" %in% groups_present) {
+    cat("Skipping - not both groups present\n")
+    next
+  }
+  
+  # Get predictor-outcome combinations tested in both groups
+  predictors_to_test <- all_results %>%
+    filter(Model_Type == "Adjusted") %>%
+    filter(Sample_Type == sample_type) %>%
+    filter(grepl("Type_2|Lean", Group)) %>%
+    group_by(Predictor, Outcome) %>%
+    filter(n() == 2) %>%
+    ungroup() %>%
+    distinct(Predictor, Outcome)
+  
+  cat("Testing", nrow(predictors_to_test), "predictor-outcome pairs\n")
+  
+  for(i in 1:nrow(predictors_to_test)) {
+    
+    predictor <- predictors_to_test$Predictor[i]
+    outcome <- predictors_to_test$Outcome[i]
+    
+    int_result <- test_interaction_two_groups(
+      data = sample_data,
+      predictor = predictor,
+      outcome = outcome,
+      group1 = "Lean Control",
+      group2 = "Type 2 Diabetes",
+      covariates = c("age", "sex", "bmi")
+    )
+    
+    if(!is.null(int_result)) {
+      int_result$Sample_Type <- sample_type
+      interaction_results_all <- rbind(interaction_results_all, int_result)
+    }
+  }
+  
+  cat("Completed", nrow(filter(interaction_results_all, Sample_Type == sample_type)), 
+      "interaction tests for", sample_type, "\n")
+}
+
+if(nrow(interaction_results_all) > 0) {
+  
+  interaction_results_all <- interaction_results_all %>%
+    mutate(
+      Significant = Interaction_p < 0.05,
+      Direction_Change = sign(Effect_in_Group1) != sign(Effect_in_Group2)
+    )
+  
+  write.csv(interaction_results_all, "interaction_analysis_results_T2D.csv", row.names = FALSE)
+  
+  significant_interactions <- interaction_results_all %>%
+    filter(Interaction_p < 0.05) %>%
+    arrange(Interaction_p)
+  
+  write.csv(significant_interactions, "significant_interactions_T2D.csv", row.names = FALSE)
+  
+  cat("\nInteraction results:\n")
+  cat("  Total tests:", nrow(interaction_results_all), "\n")
+  cat("  Significant (p < 0.05):", nrow(significant_interactions), "\n\n")
+  
+  # Plot significant interactions
+  if(nrow(significant_interactions) > 0) {
+    
+    cat("=== Creating interaction plots ===\n")
+    
+    top_interactions <- significant_interactions %>% head(min(12, nrow(significant_interactions)))
+    
+    interaction_plots <- list()
+    
+    for(i in 1:nrow(top_interactions)) {
+      
+      row <- top_interactions[i, ]
+      
+      plot_data <- dat_baseline %>%
+        filter(sample_type == row$Sample_Type) %>%
+        dplyr::select(predictor = all_of(row$Predictor), 
+                      outcome = all_of(row$Outcome),
+                      group) %>%
+        filter(complete.cases(.)) %>%
+        filter(group %in% c("Type 2 Diabetes", "Lean Control"))
+      
+      if(nrow(plot_data) < 20) next
+      
+      x_label <- row$Predictor
+      y_label <- row$Outcome
+      
+      if(row$Predictor_Log_Transformed) {
+        plot_data$predictor <- log(plot_data$predictor)
+        x_label <- paste0("log(", x_label, ")")
+      }
+      
+      if(row$Outcome_Log_Transformed) {
+        plot_data$outcome <- log(plot_data$outcome)
+        y_label <- paste0("log(", y_label, ")")
+      }
+      
+      p <- ggplot(plot_data, aes(x = predictor, y = outcome, color = group)) +
+        geom_point(alpha = 0.5, size = 2) +
+        geom_smooth(method = "lm", se = TRUE, linewidth = 1.2) +
+        scale_color_manual(values = c("Type 2 Diabetes" = "#377EB8", 
+                                      "Lean Control" = "#4DAF4A")) +
+        labs(
+          title = paste0(row$Predictor, " → ", row$Outcome),
+          subtitle = sprintf("Interaction p = %.4f | Sample: %s", 
+                             row$Interaction_p, row$Sample_Type),
+          x = x_label,
+          y = y_label,
+          color = "Group"
+        ) +
+        theme_bw() +
+        theme(legend.position = "bottom")
+      
+      interaction_plots[[i]] <- p
+      
+      filename <- paste0("interaction_", 
+                         gsub("[^A-Za-z0-9]", "_", row$Predictor), "_",
+                         gsub("[^A-Za-z0-9]", "_", row$Outcome), "_T2D.png")
+      ggsave(filename, p, width = 8, height = 6, dpi = 300, bg = "white")
+    }
+    
+    if(length(interaction_plots) > 0) {
+      combined <- wrap_plots(interaction_plots, ncol = 3)
+      ggsave("significant_interactions_combined_T2D.png", combined,
+             width = 18, height = 12, dpi = 300, bg = "white")
+      cat("Created: significant_interactions_combined_T2D.png\n")
+    }
+  }
+}
 
 cat("\n\n##########################################################")
 cat("\n### ANALYSIS COMPLETE - T2D VS. CONTROL")
 cat("\n##########################################################\n\n")
 
-cat("Sample type distribution in analysis:\n")
-sample_summary <- all_results %>%
-  distinct(Group, Sample_Type, .keep_all = TRUE) %>%
-  dplyr::select(Group, Sample_Type, N) %>%
-  arrange(Sample_Type, Group)
+cat("Results saved:\n")
+cat("  - all_regression_results_T2D.csv\n")
+cat("  - significant_associations_T2D.csv\n")
+cat("  - summary_by_predictor_category_T2D.csv\n")
+if(nrow(interaction_results_all) > 0) {
+  cat("  - interaction_analysis_results_T2D.csv\n")
+  cat("  - significant_interactions_T2D.csv\n")
+}
+cat("  - Heatmaps (p-values and betas)\n")
+cat("  - Forest plots\n")
+cat("  - Scatter plots\n")
+cat("  - Interaction plots\n\n")
+
+cat("Summary statistics:\n")
+cat("  Total regressions:", nrow(all_results), "\n")
+cat("  Significant (p < 0.05):", sum(all_results$p_value < 0.05), "\n")
+cat("  Highly significant (p < 0.001):", sum(all_results$p_value < 0.001), "\n")
+if(nrow(interaction_results_all) > 0) {
+  cat("  Interaction tests:", nrow(interaction_results_all), "\n")
+  cat("  Significant interactions:", sum(interaction_results_all$Interaction_p < 0.05), "\n")
+}
+
+cat("\nSample type distribution:\n")
+sample_summary <- dat_baseline %>%
+  group_by(group, sample_type) %>%
+  summarise(N = n(), .groups = "drop") %>%
+  arrange(sample_type, group)
 print(sample_summary)
 
 save.image("clinical_biomarker_analysis_T2D.RData")
 cat("\nWorkspace saved: clinical_biomarker_analysis_T2D.RData\n")
-
-
 
 
 
