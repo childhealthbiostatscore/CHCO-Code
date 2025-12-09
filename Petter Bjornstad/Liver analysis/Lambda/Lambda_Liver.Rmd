@@ -1686,15 +1686,17 @@ g <- ggplot(dat_long_carb, aes(x = steatosis_cat, y = Parameter, fill = steatosi
   geom_boxplot(alpha = 0.7) +
   geom_jitter(width = 0.2, alpha = 0.5) +  # Show individual points
   facet_wrap(~ name, scales = "free_y", ncol = 4) +
-  scale_fill_manual(values = c("#e76f51", "#264653")) +
+  scale_fill_manual(values = c("darkblue", "darkred")) +
   # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#e76f51","darkred"))+
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
         text = element_text(face = "bold", family = "arial"),
         strip.text = element_text(size = 12, face = "bold"),  # Facet labels
         plot.title = element_text(hjust = 0.5,size=14), 
+        plot.subtitle = element_text(hjust = 0.5,size=12),
         legend.position = "none") +
-  labs(title = "Respiratory Parameters (Run 1 - Absense of Lipid) by Steatosis Category",
+  labs(title = "Respiratory Parameters by Steatosis Category",
+       subtitle="Run 1: Pyruvate-Supported Respiration",
        x = "Steatosis Category",
        y = "Respiratory Parameters",
        fill = "Steatosis Category")
@@ -1820,15 +1822,17 @@ g <- ggplot(dat_long_lipid, aes(x = steatosis_cat, y = Parameter, fill = steatos
   geom_boxplot(alpha = 0.7) +
   geom_jitter(width = 0.2, alpha = 0.5) +  # Show individual points
   facet_wrap(~ name, scales = "free_y", ncol = 4) +
-  scale_fill_manual(values = c("#e76f51", "#264653")) +
+  scale_fill_manual(values = c("darkblue", "darkred")) +
   # scale_fill_manual(values = c("#264653", "#2a9d8f", "#e9c46a", "#e76f51","darkred"))+
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
         text = element_text(face = "bold", family = "arial"),
         strip.text = element_text(size = 12, face = "bold"),  # Facet labels
         plot.title = element_text(hjust = 0.5,size=14), 
+        plot.subtitle = element_text(hjust = 0.5,size=12),
         legend.position = "none") +
-  labs(title = "Respiratory Parameters (Run 2 - Presence of Lipid) by Steatosis Category",
+  labs(title = "Respiratory Parameters by Steatosis Category",
+       subtitle="Run 2: Fatty Acid-Supported Respiration",
        x = "Steatosis Category",
        y = "Respiratory Parameters",
        fill = "Steatosis Category")
@@ -1905,6 +1909,39 @@ library(table1)
 t1 <- table1(~carbp_m+carb_adp+carb_g+carb_cytoc+carb_s+carb_omy+carbfccp+carbrcr_pm+carbrcr_pmgs+carbpe_pmgs+carb_ep+carbrcr_state2+carbrcr_state4_c1+carbrcr_state4_c12+carb_le| steatosis_cat, data=dat)
 write.csv(as.data.frame(t1), file = fs::path(dir.results,"carb_table.csv"), row.names = FALSE)
 
+# Custom render for median (IQR)
+render_median_iqr <- function(x) {
+  with(stats.apply.rounding(stats.default(x), digits = 2),
+       c("", "Median (IQR)" = sprintf("%s (%s, %s)", MEDIAN, Q1, Q3)))
+}
+
+t1 <- table1(~carbp_m + carb_adp + carb_g + carb_cytoc + carb_s + carb_omy + 
+               carbfccp + carbrcr_pm + carbrcr_pmgs + carbpe_pmgs + carb_ep + 
+               carbrcr_state2 + carbrcr_state4_c1 + carbrcr_state4_c12 + carb_le | steatosis_cat, 
+             data = dat,
+             render.continuous = render_median_iqr)
+write.csv(as.data.frame(t1), file = "/home/hhampson/Results/Total_carb_table.csv", row.names = FALSE)
+
+carb_vars <- oro_vars[c(1,2,5:7,9,10,15)]
+# [1] "carbp_m"      "carb_adp"     "carb_s"       "carb_omy"     "carbfccp"     "carbrcr_pmgs" "carbpe_pmgs" 
+# [8] "carb_le" 
+
+label(dat$carbp_m) <- "State 2 PM"
+label(dat$carb_adp) <- "State 3 PM"
+label(dat$carb_s) <- "State 3 PMGS"
+label(dat$carb_omy) <- "State 4 PMGS"
+label(dat$carbfccp) <- "ETS PMGS"
+label(dat$carbrcr_pmgs) <- "RCR PMGS"
+label(dat$carbpe_pmgs) <- "PE PMGS"
+label(dat$carb_le) <- "L/E PMGS"
+
+t1 <- table1(~carbp_m + carb_adp + carb_s + carb_omy + 
+               carbfccp + carbrcr_pmgs + carbpe_pmgs + carb_le | steatosis_cat, 
+             data = dat,
+             render.continuous = render_median_iqr)
+write.csv(as.data.frame(t1), file = "/home/hhampson/Results/Small_Table_carb_table.csv", row.names = FALSE)
+
+
 # For the second table
 t2 <- table1(~lipidpc_m+lipid_adp+lipid_cytoc+lipid_g+lipid_s+lipid_omy+lipidfccp+lipidrcr_pcm+lipidrcr_pcmgs+lipidpe_pcmgs+lipid_ep+lipidrcr_state2+lipidrcr_state4_c1+lipidrcr_state4_c12+lipid_le| steatosis_cat, data=dat)
 write.csv(as.data.frame(t2), file = fs::path(dir.results,"lipid_table.csv"), row.names = FALSE)
@@ -1914,6 +1951,60 @@ unique(so_celltype$lipid_adp)
 dat$lipid_adp
 length(unique(so_celltype$StudyID))
 
+lipid_vars <- oro_vars[c(16,17,20:22,24,25,30)]
+# [1] "lipidpc_m"      "lipid_adp"      "lipid_s"        "lipid_omy"      "lipidfccp"      "lipidrcr_pcmgs"
+# [7] "lipidpe_pcmgs"  "lipid_le" 
+
+label(dat$lipidpc_m) <- "State 2 FAM"
+label(dat$lipid_adp) <- "State 3 FAM"
+label(dat$lipid_s) <- "State 3 FAMGS"
+label(dat$lipid_omy) <- "State 4 FAMGS"
+label(dat$lipidfccp) <- "ETS FAMGS"
+label(dat$lipidrcr_pcmgs) <- "RCR FAMGS"
+label(dat$lipidpe_pcmgs) <- "PE FAMGS"
+label(dat$lipid_le) <- "L/E FAMGS"
+
+# Custom render for median (IQR)
+render_median_iqr <- function(x) {
+  with(stats.apply.rounding(stats.default(x), digits = 2),
+       c("", "Median (IQR)" = sprintf("%s (%s, %s)", MEDIAN, Q1, Q3)))
+}
+
+t2 <- table1(~lipidpc_m + lipid_adp + lipid_s + lipid_omy + lipidfccp + 
+               lipidrcr_pcmgs + lipidpe_pcmgs + lipid_le | steatosis_cat, 
+             data = dat,
+             render.continuous = render_median_iqr)
+
+t2
+write.csv(as.data.frame(t1), file = "/home/hhampson/Results/Small_Table_lipid_table.csv", row.names = FALSE)
+
+
+# Custom render for median (IQR)
+render_median_iqr <- function(x) {
+  with(stats.apply.rounding(stats.default(x), digits = 2),
+       c("", "Median (IQR)" = sprintf("%s (%s - %s)", MEDIAN, Q1, Q3)))
+}
+
+# Custom p-value function using Wilcoxon test
+pvalue <- function(x, ...) {
+  # Construct vectors of data y, and groups (strata) g
+  y <- unlist(x)
+  g <- factor(rep(1:length(x), times = sapply(x, length)))
+  if (is.numeric(y)) {
+    p <- wilcox.test(y ~ g)$p.value
+  } else {
+    p <- chisq.test(table(y, g))$p.value
+  }
+  c("", sub("<", "&lt;", format.pval(p, digits = 3, eps = 0.001)))
+}
+
+t2 <- table1(~lipidpc_m + lipid_adp + lipid_s + lipid_omy + lipidfccp + 
+               lipidrcr_pcmgs + lipidpe_pcmgs + lipid_le | steatosis_cat, 
+             data = dat,
+             render.continuous = render_median_iqr,
+             extra.col = list(`P-value` = pvalue))
+
+t2
 
 #Check for separation in oroboros variables
 
@@ -9159,6 +9250,8 @@ mutate(steatosis_cat = ifelse((steatosis_grade==0 | steatosis_grade==1),"Low Ste
 table1(~state2_fam_pm + state3_fam_pm + state3_famgs_pmgs + state4_famgs_pmgs + ets_famgs_pmgs, data=meta )
 table1(~state2_fam_pm + state3_fam_pm + state3_famgs_pmgs + state4_famgs_pmgs + ets_famgs_pmgs | steatosis_cat, data=meta )
 
+colnames(meta)
+head(meta)
 
 # Split by steatosis
 high <- meta %>% 
@@ -9230,6 +9323,154 @@ between_group_results <- lapply(diff_vars, function(var) {
 
 # between_group_results <- between_group_results %>%
 #   mutate(median_diff = high_median - low_median)
+
+```
+## Plots 
+```{r}
+# First, reshape data to long format for plotting
+# Pyruvate (carb) data
+carb_long <- meta %>%
+  select(Kit_Lot, steatosis_cat, carbp_m, carb_adp, carb_s, carbfccp) %>%
+  pivot_longer(cols = c(carbp_m, carb_adp, carb_s, carbfccp),
+               names_to = "state", values_to = "respiration") %>%
+  mutate(state = factor(state, 
+                        levels = c("carbp_m", "carb_adp", "carb_s", "carbfccp"),
+                        labels = c("+M", "+ADP", "+GS", "+FCCP")),
+         substrate = "Pyruvate")
+
+# Fatty acid (lipid) data
+lipid_long <- meta %>%
+  select(Kit_Lot, steatosis_cat, lipidpc_m, lipid_adp, lipid_s, lipidfccp) %>%
+  pivot_longer(cols = c(lipidpc_m, lipid_adp, lipid_s, lipidfccp),
+               names_to = "state", values_to = "respiration") %>%
+  mutate(state = factor(state, 
+                        levels = c("lipidpc_m", "lipid_adp", "lipid_s", "lipidfccp"),
+                        labels = c("+M", "+ADP", "+GS", "+FCCP")),
+         substrate = "Fatty Acid")
+
+# Combine for some plots
+all_long <- bind_rows(carb_long, lipid_long)
+
+# Custom summary function for median + IQR
+median_iqr <- function(x) {
+  data.frame(
+    y = median(x, na.rm = TRUE),
+    ymin = quantile(x, 0.25, na.rm = TRUE),
+    ymax = quantile(x, 0.75, na.rm = TRUE)
+  )
+}
+
+# ------------------------------
+# Plot A: Fatty acid-supported respiration by steatosis
+# ------------------------------
+plot_a <- ggplot(lipid_long, aes(x = state, y = respiration, 
+                                  color = steatosis_cat, group = steatosis_cat)) +
+  stat_summary(fun = median, geom = "point", size = 3) +
+  stat_summary(fun = median, geom = "line", linewidth = 1) +
+  stat_summary(fun.data = median_iqr, geom = "errorbar", width = 0.2) +
+  scale_color_manual(values = c("High Steatosis (2+3)" = "#0077b6", 
+                                 "Low Steatosis (0+1)" = "#d62828")) +
+  labs(x = "Substrate addition", y = expression("pmol O"[2]*"/(s*mg)"),
+       title = "Fatty acid-supported respiration",
+       color = "Steatosis") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+# ------------------------------
+# Plot B: Pyruvate-supported respiration by steatosis
+# ------------------------------
+plot_b <- ggplot(carb_long, aes(x = state, y = respiration, 
+                                 color = steatosis_cat, group = steatosis_cat)) +
+  stat_summary(fun = median, geom = "point", size = 3) +
+  stat_summary(fun = median, geom = "line", linewidth = 1) +
+  stat_summary(fun.data = median_iqr, geom = "errorbar", width = 0.2) +
+  scale_color_manual(values = c("High Steatosis (2+3)" = "#0077b6", 
+                                 "Low Steatosis (0+1)" = "#d62828")) +
+  labs(x = "Substrate addition", y = expression("pmol O"[2]*"/(s*mg)"),
+       title = "Pyruvate-supported respiration",
+       color = "Steatosis") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+# ------------------------------
+# Plot C: High steatosis - FA vs Pyruvate
+# ------------------------------
+high_data <- all_long %>% filter(steatosis_cat == "High Steatosis (2+3)")
+
+plot_c <- ggplot(high_data, aes(x = state, y = respiration, 
+                                 color = substrate, linetype = substrate, group = substrate)) +
+  stat_summary(fun = median, geom = "point", size = 3) +
+  stat_summary(fun = median, geom = "line", linewidth = 1) +
+  stat_summary(fun.data = median_iqr, geom = "errorbar", width = 0.2) +
+  scale_color_manual(values = c("Pyruvate" = "darkblue", "Fatty Acid" = "#0077b6")) +
+  scale_linetype_manual(values = c("Pyruvate" = "dashed", "Fatty Acid" = "solid")) +
+  labs(x = "Substrate addition", y = expression("pmol O"[2]*"/(s*mg)"),
+       title = "Hepatic mitochondrial respiration\nHigh-steatosis group",
+       color = "Substrate", linetype = "Substrate") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+# ------------------------------
+# Plot D: Low steatosis - FA vs Pyruvate
+# ------------------------------
+low_data <- all_long %>% filter(steatosis_cat == "Low Steatosis (0+1)")
+
+plot_d <- ggplot(low_data, aes(x = state, y = respiration, 
+                                color = substrate, linetype = substrate, group = substrate)) +
+  stat_summary(fun = median, geom = "point", size = 3) +
+  stat_summary(fun = median, geom = "line", linewidth = 1) +
+  stat_summary(fun.data = median_iqr, geom = "errorbar", width = 0.2) +
+  scale_color_manual(values = c("Pyruvate" = "darkred", "Fatty Acid" = "#d62828")) +
+  scale_linetype_manual(values = c("Pyruvate" = "dashed", "Fatty Acid" = "solid")) +
+  labs(x = "Substrate addition", y = expression("pmol O"[2]*"/(s*mg)"),
+       title = "Hepatic mitochondrial respiration\nLow-steatosis group",
+       color = "Substrate", linetype = "Substrate") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+# ------------------------------
+# Plot E: Respiration differences (FA minus Pyruvate)
+# ------------------------------
+# Calculate differences per subject
+diff_data <- meta %>%
+  mutate(
+    diff_m = lipidpc_m - carbp_m,
+    diff_adp = lipid_adp - carb_adp,
+    diff_s = lipid_s - carb_s,
+    diff_fccp = lipidfccp - carbfccp
+  ) %>%
+  select(Kit_Lot, steatosis_cat, diff_m, diff_adp, diff_s, diff_fccp) %>%
+  pivot_longer(cols = starts_with("diff"),
+               names_to = "state", values_to = "difference") %>%
+  mutate(state = factor(state,
+                        levels = c("diff_m", "diff_adp", "diff_s", "diff_fccp"),
+                        labels = c("+M", "+ADP", "+GS", "+FCCP")))
+
+plot_e <- ggplot(diff_data, aes(x = state, y = difference, fill = steatosis_cat)) +
+  stat_summary(fun = median, geom = "bar", position = position_dodge(width = 0.8), width = 0.7) +
+  stat_summary(fun.data = median_iqr, geom = "errorbar", 
+               position = position_dodge(width = 0.8), width = 0.2) +
+  scale_fill_manual(values = c("High Steatosis (2+3)" = "#0077b6", 
+                                "Low Steatosis (0+1)" = "#d62828")) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(x = "Substrate addition", y = expression("pmol O"[2]*"/(s*mg)"),
+       title = "Respiration differences\n(Fatty acid minus Pyruvate-supported)",
+       fill = "Steatosis") +
+  theme_bw() +
+  theme(legend.position = "top")
+
+# ------------------------------
+# Combine all plots
+# ------------------------------
+library(patchwork)
+
+combined <- (plot_a + plot_b) / (plot_c + plot_d) / plot_e +
+  plot_layout(heights = c(1, 1, 1)) +
+  plot_annotation(tag_levels = "A")
+
+# Save
+ggsave("/home/hhampson/Results/Figure5_respiration.png", combined, width = 10, height = 12, dpi = 300)
+
 
 ```
 
