@@ -1157,7 +1157,657 @@ cat("\nWorkspace saved: clinical_biomarker_analysis_T2D.RData\n")
 
 
 
+### Create Visualizations from T2D RH2 Results
+### Standalone script to generate heatmaps, forest plots, and scatter plots
 
+library(tidyverse)
+library(pheatmap)
+library(RColorBrewer)
+library(patchwork)
+
+# ============================================================
+# SETUP
+# ============================================================
+
+setwd('C:/Users/netio/Documents/UofW/Projects/Maninder_Data/Clinical_Biomarker_Associations_T2D_RH2/')
+
+cat("\n##########################################################")
+cat("\n### CREATING VISUALIZATIONS FROM RESULTS")
+cat("\n##########################################################\n\n")
+
+# Read results
+all_results <- read.csv("all_regression_results_T2D_RH2_serum.csv", stringsAsFactors = FALSE)
+
+cat("Loaded results:\n")
+cat("  Total rows:", nrow(all_results), "\n")
+cat("  Groups:", paste(unique(all_results$Group), collapse = ", "), "\n")
+cat("  Significant (p<0.05):", sum(all_results$p_value < 0.05, na.rm = TRUE), "\n\n")
+
+# Define clinical predictors for ordering
+clinical_predictors <- list(
+  "Glycemic Control" = c("hba1c", "fbg"),
+  "Insulin Sensitivity" = c("avg_m_fsoc", "homa_ir", "adipose_ir", "search_eis"),
+  "CGM Metrics" = c("cgm_mean_glucose", "cgm_sd", "cgm_cv", "time_in_range", 
+                    "time_above_range", "time_below_range"),
+  "Blood Pressure" = c("sbp", "dbp", "map")
+)
+
+# Create consistent predictor ordering
+predictor_order_all <- all_results %>%
+  mutate(
+    Predictor_Category = case_when(
+      Predictor %in% clinical_predictors$`Glycemic Control` ~ "1_Glycemic",
+      Predictor %in% clinical_predictors$`Insulin Sensitivity` ~ "2_Insulin",
+      Predictor %in% clinical_predictors$`CGM Metrics` ~ "3_CGM",
+      Predictor %in% clinical_predictors$`Blood Pressure` ~ "4_BP",
+      TRUE ~ "5_Other"
+    )
+  ) %>%
+  arrange(Predictor_Category, Predictor_Used) %>%
+  pull(Predictor_Used) %>%
+  unique()
+
+# ============================================================
+# HEATMAP FUNCTIONS
+# ============================================================
+
+create_pvalue_heatmap <- function(results_subset, title, filename, predictor_order = NULL) {
+  
+  pval_matrix <- results_subset %>%
+    dplyr::select(Predictor_Used, Outcome, p_value) %>%
+    pivot_wider(names_from = Outcome, values_from = p_value) %>%
+    column_to_rownames("Predictor_Used") %>%
+    as.matrix()
+  
+  if(!is.null(predictor_order)) {
+    predictor_order <- predictor_order[predictor_order %in% rownames(pval_matrix)]
+    if(length(predictor_order) > 0) {
+      pval_matrix <- pval_matrix[predictor_order, , drop = FALSE]
+    }
+  }
+  
+  pval_transformed <- -log10(pval_matrix)
+  pval_transformed[pval_transformed > 3] <- 3
+  
+  if(nrow(pval_transformed) > 0 && ncol(pval_transformed) > 0) {
+    
+    pheatmap(pval_transformed,
+             cluster_rows = FALSE,
+             cluster_cols = FALSE,
+             color = colorRampPalette(c("white", "yellow", "orange", "red"))(100),
+             breaks = seq(0, 3, length.out = 101),
+             main = title,
+             fontsize_row = 8,
+             fontsize_col = 9,
+             angle_col = 45,
+             display_numbers = matrix(sprintf("%.3f", pval_matrix), nrow = nrow(pval_matrix)),
+             number_color = "black",
+             fontsize_number = 6,
+             legend_breaks = c(0, 0.5, 1, 1.3, 2, 3),
+             legend_labels = c("1.0", "0.32", "0.10", "0.05", "0.01", "0.001"),
+             filename = filename,
+             width = 10,
+             height = max(6, nrow(pval_transformed) * 0.3))
+    
+    return(TRUE)
+  }
+  return(FALSE)
+}
+
+create_beta_heatmap <- function(results_subset, title, filename, predictor_order = NULL) {
+  
+  beta_matrix <- results_subset %>%
+    dplyr::select(Predictor_Used, Outcome, Beta_Std) %>%
+    pivot_wider(names_from = Outcome, values_from = Beta_Std) %>%
+    column_to_rownames("Predictor_Used") %>%
+    as.matrix()
+  
+  pval_matrix <- results_subset %>%
+    dplyr::select(Predictor_Used, Outcome, p_value) %>%
+    pivot_wider(names_from = Outcome, values_from = p_value) %>%
+    column_to_rownames("Predictor_Used") %>%
+    as.matrix()
+  
+  if(!is.null(predictor_order)) {
+    predictor_order <- predictor_order[predictor_order %in% rownames(beta_matrix)]
+    if(length(predictor_order) > 0) {
+      beta_matrix <- beta_matrix[predictor_order, , drop = FALSE]
+      pval_matrix <- pval_matrix[predictor_order, , drop = FALSE]
+    }
+  }
+  
+  sig_matrix <- matrix("", nrow = nrow(beta_matrix), ncol = ncol(beta_matrix))
+  sig_matrix[pval_matrix < 0.001] <- "***"
+  sig_matrix[pval_matrix >= 0.001 & pval_matrix < 0.01] <- "**"
+  sig_matrix[pval_matrix >= 0.01 & pval_matrix < 0.05] <- "*"
+  
+  display_matrix <- matrix(
+    paste0(sprintf("%.3f", beta_matrix), "\n", sig_matrix),
+    nrow = nrow(beta_matrix)
+  )
+  
+  if(nrow(beta_matrix) > 0 && ncol(beta_matrix) > 0) {
+    
+    pheatmap(beta_matrix,
+             cluster_rows = FALSE,
+             cluster_cols = FALSE,
+             color = colorRampPalette(rev(brewer.pal(11, "RdBu")))(100),
+             main = paste0(title, "\n(Standardized Beta Coefficients)"),
+             fontsize_row = 8,
+             fontsize_col = 9,
+             angle_col = 45,
+             display_numbers = display_matrix,
+             number_color = "black",
+             fontsize_number = 5,
+             filename = filename,
+             width = 10,
+             height = max(6, nrow(beta_matrix) * 0.3))
+    
+    return(TRUE)
+  }
+  return(FALSE)
+}
+
+# ============================================================
+# CREATE HEATMAPS
+# ============================================================
+
+cat("\n##########################################################")
+cat("\n### CREATING HEATMAPS")
+cat("\n##########################################################\n\n")
+
+for(group_name in unique(all_results$Group)) {
+  for(model_type in c("Unadjusted", "Adjusted")) {
+    
+    results_subset <- all_results %>%
+      filter(Group == group_name, Model_Type == model_type)
+    
+    if(nrow(results_subset) > 0) {
+      
+      # P-value heatmap
+      title_pval <- paste0(group_name, " - ", model_type, "\n(-log10 p-values)")
+      filename_pval <- paste0("heatmap_pvalues_", gsub(" ", "_", group_name), "_", model_type, ".png")
+      
+      success_pval <- create_pvalue_heatmap(results_subset, title_pval, filename_pval, predictor_order = predictor_order_all)
+      if(success_pval) {
+        cat("Created:", filename_pval, "\n")
+      }
+      
+      # Beta heatmap
+      title_beta <- paste0(group_name, " - ", model_type)
+      filename_beta <- paste0("heatmap_beta_", gsub(" ", "_", group_name), "_", model_type, ".png")
+      
+      success_beta <- create_beta_heatmap(results_subset, title_beta, filename_beta, predictor_order = predictor_order_all)
+      if(success_beta) {
+        cat("Created:", filename_beta, "\n")
+      }
+    }
+  }
+}
+
+# ============================================================
+# CREATE FOREST PLOTS
+# ============================================================
+
+cat("\n\n##########################################################")
+cat("\n### CREATING FOREST PLOTS")
+cat("\n##########################################################\n\n")
+
+create_forest_plot <- function(predictor, outcome, results_data, model_type = "Adjusted") {
+  
+  plot_data <- results_data %>%
+    filter(Predictor == predictor, Outcome == outcome, Model_Type == model_type) %>%
+    mutate(
+      CI_lower = Beta_Std - 1.96 * SE_Std,
+      CI_upper = Beta_Std + 1.96 * SE_Std,
+      Significant = p_value < 0.05,
+      Group_Label = case_when(
+        Group == "All_Participants" ~ "All Participants",
+        Group == "Type_2_Diabetes" ~ "Type 2 Diabetes",
+        Group == "Lean_Control" ~ "Lean Control",
+        TRUE ~ Group
+      )
+    ) %>%
+    arrange(Beta_Std)
+  
+  if(nrow(plot_data) == 0) return(NULL)
+  
+  p <- ggplot(plot_data, aes(x = Beta_Std, y = reorder(Group_Label, Beta_Std))) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", linewidth = 0.8) +
+    geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper, color = Significant),
+                   height = 0.2, linewidth = 1) +
+    geom_point(aes(color = Significant, size = Significant), shape = 18) +
+    scale_color_manual(values = c("TRUE" = "red", "FALSE" = "gray60"),
+                       labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05")) +
+    scale_size_manual(values = c("TRUE" = 4, "FALSE" = 3), guide = "none") +
+    labs(
+      title = paste0(predictor, " → ", outcome),
+      subtitle = paste0("Standardized beta coefficients with 95% CI (", model_type, " model)"),
+      x = "Standardized Beta Coefficient",
+      y = NULL,
+      color = "Significance"
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      plot.title = element_text(face = "bold", size = 11),
+      axis.text.y = element_text(size = 10)
+    ) +
+    geom_text(aes(label = sprintf("N=%d\np=%.3f", N, p_value)),
+              x = max(plot_data$CI_upper) * 1.15,
+              size = 3, hjust = 0)
+  
+  return(p)
+}
+
+# Get adjusted results
+adjusted_results <- all_results %>%
+  filter(Model_Type == "Adjusted")
+
+# Top predictor-outcome pairs (by minimum p-value across groups)
+top_pairs <- adjusted_results %>%
+  group_by(Predictor, Outcome) %>%
+  summarise(
+    Min_p = min(p_value, na.rm = TRUE),
+    Max_abs_beta = max(abs(Beta_Std), na.rm = TRUE),
+    N_Groups = n(),
+    .groups = "drop"
+  ) %>%
+  filter(N_Groups >= 2) %>%  # Must be tested in at least 2 groups
+  arrange(Min_p) %>%
+  head(15)
+
+cat("Creating forest plots for top", nrow(top_pairs), "associations...\n\n")
+
+forest_plots <- list()
+
+if(nrow(top_pairs) > 0) {
+  
+  for(i in 1:nrow(top_pairs)) {
+    
+    predictor <- top_pairs$Predictor[i]
+    outcome <- top_pairs$Outcome[i]
+    
+    p <- create_forest_plot(predictor, outcome, all_results, model_type = "Adjusted")
+    
+    if(!is.null(p)) {
+      forest_plots[[i]] <- p
+      
+      # Save individual plot
+      filename <- paste0("forest_plot_", 
+                         gsub("[^A-Za-z0-9]", "_", predictor), "_",
+                         gsub("[^A-Za-z0-9]", "_", outcome), ".png")
+      ggsave(filename, p, width = 10, height = 5, dpi = 300, bg = "white")
+      cat("Created:", filename, "\n")
+    }
+  }
+  
+  # Create combined forest plot grid
+  if(length(forest_plots) > 0) {
+    n_plots <- min(12, length(forest_plots))
+    combined_forest <- wrap_plots(forest_plots[1:n_plots], ncol = 2)
+    
+    ggsave("forest_plots_combined.png", combined_forest,
+           width = 16, height = 4 * ceiling(n_plots/2), dpi = 300, bg = "white")
+    
+    cat("\nCreated: forest_plots_combined.png\n")
+  }
+} else {
+  cat("No predictor-outcome pairs tested in multiple groups\n")
+}
+
+# ============================================================
+# CREATE COMPARISON SUMMARY TABLE
+# ============================================================
+
+cat("\n\n##########################################################")
+cat("\n### CREATING COMPARISON SUMMARY")
+cat("\n##########################################################\n\n")
+
+comparison_summary <- adjusted_results %>%
+  mutate(Group_Type = case_when(
+    Group == "Type_2_Diabetes" ~ "T2D",
+    Group == "Lean_Control" ~ "LC",
+    Group == "All_Participants" ~ "All"
+  )) %>%
+  dplyr::select(Predictor, Outcome, Group_Type, Beta_Std, p_value, N) %>%
+  pivot_wider(
+    names_from = Group_Type,
+    values_from = c(Beta_Std, p_value, N)
+  )
+
+# Add comparison flags
+if("Beta_Std_T2D" %in% names(comparison_summary) && "Beta_Std_LC" %in% names(comparison_summary)) {
+  comparison_summary <- comparison_summary %>%
+    mutate(
+      T2D_sig = !is.na(p_value_T2D) & p_value_T2D < 0.05,
+      LC_sig = !is.na(p_value_LC) & p_value_LC < 0.05,
+      T2D_specific = T2D_sig & !LC_sig,
+      Both_sig = T2D_sig & LC_sig,
+      Beta_difference = abs(Beta_Std_T2D - coalesce(Beta_Std_LC, 0))
+    ) %>%
+    arrange(p_value_T2D)
+  
+  write.csv(comparison_summary, "T2D_vs_LC_comparison.csv", row.names = FALSE)
+  
+  cat("Comparison summary:\n")
+  cat("  Total pairs compared:", nrow(comparison_summary), "\n")
+  cat("  Significant in T2D:", sum(comparison_summary$T2D_sig, na.rm = TRUE), "\n")
+  cat("  Significant in LC:", sum(comparison_summary$LC_sig, na.rm = TRUE), "\n")
+  cat("  Significant in both:", sum(comparison_summary$Both_sig, na.rm = TRUE), "\n")
+  cat("  T2D-specific:", sum(comparison_summary$T2D_specific, na.rm = TRUE), "\n\n")
+  
+  cat("Saved: T2D_vs_LC_comparison.csv\n")
+  
+  # Top T2D-specific associations
+  t2d_specific <- comparison_summary %>%
+    filter(T2D_specific) %>%
+    head(10)
+  
+  if(nrow(t2d_specific) > 0) {
+    cat("\nTop 10 T2D-specific associations:\n")
+    print(t2d_specific %>% 
+            dplyr::select(Predictor, Outcome, Beta_Std_T2D, p_value_T2D, N_T2D))
+  }
+}
+
+# ============================================================
+# EFFECT SIZE COMPARISON DOT PLOT - ADJUSTED
+# ============================================================
+
+cat("\n\n##########################################################")
+cat("\n### CREATING EFFECT SIZE COMPARISON PLOT - ADJUSTED")
+cat("\n##########################################################\n\n")
+
+if(nrow(top_pairs) > 0) {
+  
+  plot_data_dots <- adjusted_results %>%
+    inner_join(top_pairs %>% dplyr::select(Predictor, Outcome), 
+               by = c("Predictor", "Outcome")) %>%
+    mutate(
+      Combo = paste(Predictor, "→", Outcome),
+      Group_Label = case_when(
+        Group == "All_Participants" ~ "All",
+        Group == "Type_2_Diabetes" ~ "T2D",
+        Group == "Lean_Control" ~ "LC",
+        TRUE ~ Group
+      ),
+      Significant = p_value < 0.05
+    )
+  
+  p_dots <- ggplot(plot_data_dots, 
+                   aes(x = Beta_Std, y = reorder(Combo, Beta_Std), color = Group_Label)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+    geom_point(aes(size = ifelse(Significant, 3, 2), 
+                   shape = ifelse(Significant, 16, 1)),
+               position = position_dodge(width = 0.5), alpha = 0.8) +
+    scale_color_manual(values = c("All" = "black", "T2D" = "#377EB8", "LC" = "#4DAF4A")) +
+    scale_size_identity() +
+    scale_shape_identity() +
+    labs(
+      title = "Effect Size Comparison: T2D vs Control (Adjusted)",
+      subtitle = "Filled circles = p < 0.05, Open circles = p ≥ 0.05 | Adjusted for age, sex, BMI",
+      x = "Standardized Beta Coefficient",
+      y = NULL,
+      color = "Group"
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      axis.text.y = element_text(size = 8),
+      plot.title = element_text(face = "bold")
+    )
+  
+  ggsave("effect_size_comparison_adjusted.png", p_dots,
+         width = 12, height = 10, dpi = 300, bg = "white")
+  cat("Created: effect_size_comparison_adjusted.png\n")
+}
+
+# ============================================================
+# EFFECT SIZE COMPARISON DOT PLOT - UNADJUSTED
+# ============================================================
+
+cat("\n##########################################################")
+cat("\n### CREATING EFFECT SIZE COMPARISON PLOT - UNADJUSTED")
+cat("\n##########################################################\n\n")
+
+# Get unadjusted results
+unadjusted_results <- all_results %>%
+  filter(Model_Type == "Unadjusted")
+
+# Use same top pairs for consistency
+if(nrow(top_pairs) > 0) {
+  
+  plot_data_unadj <- unadjusted_results %>%
+    inner_join(top_pairs %>% dplyr::select(Predictor, Outcome), 
+               by = c("Predictor", "Outcome")) %>%
+    mutate(
+      Combo = paste(Predictor, "→", Outcome),
+      Group_Label = case_when(
+        Group == "All_Participants" ~ "All",
+        Group == "Type_2_Diabetes" ~ "T2D",
+        Group == "Lean_Control" ~ "LC",
+        TRUE ~ Group
+      ),
+      Significant = p_value < 0.05
+    )
+  
+  p_dots_unadj <- ggplot(plot_data_unadj, 
+                         aes(x = Beta_Std, y = reorder(Combo, Beta_Std), color = Group_Label)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+    geom_point(aes(size = ifelse(Significant, 3, 2), 
+                   shape = ifelse(Significant, 16, 1)),
+               position = position_dodge(width = 0.5), alpha = 0.8) +
+    scale_color_manual(values = c("All" = "black", "T2D" = "#377EB8", "LC" = "#4DAF4A")) +
+    scale_size_identity() +
+    scale_shape_identity() +
+    labs(
+      title = "Effect Size Comparison: T2D vs Control (Unadjusted)",
+      subtitle = "Filled circles = p < 0.05, Open circles = p ≥ 0.05 | Unadjusted models",
+      x = "Standardized Beta Coefficient",
+      y = NULL,
+      color = "Group"
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      axis.text.y = element_text(size = 8),
+      plot.title = element_text(face = "bold")
+    )
+  
+  ggsave("effect_size_comparison_unadjusted.png", p_dots_unadj,
+         width = 12, height = 10, dpi = 300, bg = "white")
+  cat("Created: effect_size_comparison_unadjusted.png\n")
+}
+
+# ============================================================
+# SIDE-BY-SIDE COMPARISON: ADJUSTED vs UNADJUSTED
+# ============================================================
+
+cat("\n##########################################################")
+cat("\n### CREATING SIDE-BY-SIDE COMPARISON PLOT")
+cat("\n##########################################################\n\n")
+
+if(nrow(top_pairs) > 0) {
+  
+  # Combine adjusted and unadjusted
+  plot_data_both <- all_results %>%
+    inner_join(top_pairs %>% dplyr::select(Predictor, Outcome), 
+               by = c("Predictor", "Outcome")) %>%
+    mutate(
+      Combo = paste(Predictor, "→", Outcome),
+      Group_Label = case_when(
+        Group == "All_Participants" ~ "All",
+        Group == "Type_2_Diabetes" ~ "T2D",
+        Group == "Lean_Control" ~ "LC",
+        TRUE ~ Group
+      ),
+      Significant = p_value < 0.05
+    )
+  
+  p_both <- ggplot(plot_data_both, 
+                   aes(x = Beta_Std, y = reorder(Combo, Beta_Std), color = Group_Label)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+    geom_point(aes(size = ifelse(Significant, 3, 2), 
+                   shape = ifelse(Significant, 16, 1)),
+               position = position_dodge(width = 0.5), alpha = 0.8) +
+    scale_color_manual(values = c("All" = "black", "T2D" = "#377EB8", "LC" = "#4DAF4A")) +
+    scale_size_identity() +
+    scale_shape_identity() +
+    facet_wrap(~Model_Type, ncol = 2) +
+    labs(
+      title = "Effect Size Comparison: Adjusted vs Unadjusted Models",
+      subtitle = "Filled circles = p < 0.05, Open circles = p ≥ 0.05",
+      x = "Standardized Beta Coefficient",
+      y = NULL,
+      color = "Group"
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      axis.text.y = element_text(size = 7),
+      plot.title = element_text(face = "bold"),
+      strip.background = element_rect(fill = "lightgray"),
+      strip.text = element_text(face = "bold")
+    )
+  
+  ggsave("effect_size_comparison_both_models.png", p_both,
+         width = 16, height = 10, dpi = 300, bg = "white")
+  cat("Created: effect_size_comparison_both_models.png\n")
+}
+
+cat("\n\n##########################################################")
+cat("\n### CREATING ALL SIGNIFICANT ASSOCIATIONS PLOT")
+cat("\n##########################################################\n\n")
+
+# Get ALL significant associations (in any group, any model)
+all_significant_pairs <- all_results %>%
+  filter(p_value < 0.05) %>%
+  distinct(Predictor, Outcome) %>%
+  arrange(Predictor, Outcome)
+
+cat("Found", nrow(all_significant_pairs), "unique predictor-outcome pairs with p < 0.05 in any group/model\n\n")
+
+if(nrow(all_significant_pairs) > 0) {
+  
+  # For adjusted models
+  plot_data_all_sig_adj <- adjusted_results %>%
+    inner_join(all_significant_pairs, by = c("Predictor", "Outcome")) %>%
+    mutate(
+      Combo = paste(Predictor, "→", Outcome),
+      Group_Label = case_when(
+        Group == "All_Participants" ~ "All",
+        Group == "Type_2_Diabetes" ~ "T2D",
+        Group == "Lean_Control" ~ "LC",
+        TRUE ~ Group
+      ),
+      Significant = p_value < 0.05
+    )
+  
+  # Sort by mean beta across groups
+  combo_order <- plot_data_all_sig_adj %>%
+    group_by(Combo) %>%
+    summarise(Mean_Beta = mean(Beta_Std, na.rm = TRUE), .groups = "drop") %>%
+    arrange(Mean_Beta) %>%
+    pull(Combo)
+  
+  plot_data_all_sig_adj$Combo <- factor(plot_data_all_sig_adj$Combo, levels = combo_order)
+  
+  p_all_sig_adj <- ggplot(plot_data_all_sig_adj, 
+                          aes(x = Beta_Std, y = Combo, color = Group_Label)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+    geom_point(aes(size = ifelse(Significant, 3, 2), 
+                   shape = ifelse(Significant, 16, 1)),
+               position = position_dodge(width = 0.5), alpha = 0.8) +
+    scale_color_manual(values = c("All" = "black", "T2D" = "#377EB8", "LC" = "#4DAF4A")) +
+    scale_size_identity() +
+    scale_shape_identity() +
+    labs(
+      title = "All Significant Associations (Adjusted Models)",
+      subtitle = "Filled circles = p < 0.05, Open circles = p ≥ 0.05 | Sorted by mean effect size",
+      x = "Standardized Beta Coefficient (adjusted for age, sex, BMI)",
+      y = NULL,
+      color = "Group"
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      axis.text.y = element_text(size = 6),
+      plot.title = element_text(face = "bold")
+    )
+  
+  ggsave("effect_size_all_significant_adjusted.png", p_all_sig_adj,
+         width = 12, height = max(10, nrow(all_significant_pairs) * 0.3), dpi = 300, bg = "white")
+  cat("Created: effect_size_all_significant_adjusted.png\n")
+  
+  # For unadjusted models
+  plot_data_all_sig_unadj <- unadjusted_results %>%
+    inner_join(all_significant_pairs, by = c("Predictor", "Outcome")) %>%
+    mutate(
+      Combo = paste(Predictor, "→", Outcome),
+      Group_Label = case_when(
+        Group == "All_Participants" ~ "All",
+        Group == "Type_2_Diabetes" ~ "T2D",
+        Group == "Lean_Control" ~ "LC",
+        TRUE ~ Group
+      ),
+      Significant = p_value < 0.05
+    )
+  
+  plot_data_all_sig_unadj$Combo <- factor(plot_data_all_sig_unadj$Combo, levels = combo_order)
+  
+  p_all_sig_unadj <- ggplot(plot_data_all_sig_unadj, 
+                            aes(x = Beta_Std, y = Combo, color = Group_Label)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+    geom_point(aes(size = ifelse(Significant, 3, 2), 
+                   shape = ifelse(Significant, 16, 1)),
+               position = position_dodge(width = 0.5), alpha = 0.8) +
+    scale_color_manual(values = c("All" = "black", "T2D" = "#377EB8", "LC" = "#4DAF4A")) +
+    scale_size_identity() +
+    scale_shape_identity() +
+    labs(
+      title = "All Significant Associations (Unadjusted Models)",
+      subtitle = "Filled circles = p < 0.05, Open circles = p ≥ 0.05 | Sorted by mean effect size",
+      x = "Standardized Beta Coefficient",
+      y = NULL,
+      color = "Group"
+    ) +
+    theme_bw() +
+    theme(
+      legend.position = "bottom",
+      axis.text.y = element_text(size = 6),
+      plot.title = element_text(face = "bold")
+    )
+  
+  ggsave("effect_size_all_significant_unadjusted.png", p_all_sig_unadj,
+         width = 12, height = max(10, nrow(all_significant_pairs) * 0.3), dpi = 300, bg = "white")
+  cat("Created: effect_size_all_significant_unadjusted.png\n")
+  
+  # Summary of negative vs positive associations
+  cat("\nBreakdown of significant associations by direction:\n")
+  direction_summary <- plot_data_all_sig_adj %>%
+    filter(Significant) %>%
+    mutate(Direction = ifelse(Beta_Std < 0, "Negative", "Positive")) %>%
+    group_by(Direction, Group_Label) %>%
+    summarise(N = n(), .groups = "drop")
+  
+  print(direction_summary)
+}
+
+# ============================================================
+# SUMMARY
+# ============================================================
+
+cat("\n\n##########################################################")
+cat("\n### VISUALIZATION COMPLETE")
+cat("\n##########################################################\n\n")
+
+cat("Files created:\n")
+cat("  - Heatmaps (p-values and betas) for each group and model type\n")
+cat("  - Forest plots comparing effect sizes across groups\n")
+cat("  - Combined forest plot grid\n")
+cat("  - Effect size comparison dot plot\n")
+cat("  - T2D vs LC comparison summary table\n\n")
 
 
 
