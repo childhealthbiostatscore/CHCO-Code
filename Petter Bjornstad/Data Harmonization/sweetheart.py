@@ -179,6 +179,22 @@ def clean_sweetheart():
                   axis=1, inplace=True)
     screen["procedure"] = "screening"
 
+    # --------------------------------------------------------------------------
+    # Imaging
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                               == "imaging", "field_name"]]
+    screen = pd.DataFrame(proj.export_records(fields=var))
+
+    screen.replace(rep, np.nan, inplace=True)  # Replace missing values
+    
+    screen.columns = screen.columns.str.replace(
+        r"screen_|_of_screen", "", regex=True)
+    
+    screen["procedure"] = "imaging"
+
+
 
 
     
