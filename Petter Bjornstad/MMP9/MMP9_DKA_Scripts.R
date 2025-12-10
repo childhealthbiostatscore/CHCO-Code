@@ -172,7 +172,7 @@ dat$severity[((dat$vbg_1 < 7.1) | (dat$bmp_1 < 5))] <- "Severe"
 dat$severity[dat$severity == ""] <- "Unknown"
 
 dat$t1d_status[dat$t1d_status == 1] <- "New"
-dat$t1d_status[dat$t1d_status == 2] <- "Known"
+dat$t1d_status[dat$t1d_status == 2] <- "Established"
 
 dat$a1c_er <- as.numeric(gsub(">","",dat$a1c_er))
 
@@ -319,7 +319,7 @@ dat$severity[((dat$vbg_1 < 7.1) | (dat$bmp_1 < 5))] <- "Severe"
 dat$severity[dat$severity == ""] <- "Unknown"
 
 dat$t1d_status[dat$t1d_status == 1] <- "New"
-dat$t1d_status[dat$t1d_status == 2] <- "Known"
+dat$t1d_status[dat$t1d_status == 2] <- "Established"
 
 dat$a1c_er <- as.numeric(gsub(">","",dat$a1c_er))
 
