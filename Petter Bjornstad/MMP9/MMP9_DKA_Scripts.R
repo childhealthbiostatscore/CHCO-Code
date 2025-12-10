@@ -1026,8 +1026,6 @@ dka_data <- analysis_data %>%
 model_aki_baseline <- lm(mmp9_egfr ~ scopeptin, data = dka_data)
 summary(model_aki_baseline)
 
-model_aki_baseline <- lm(mmp9_egfr ~ sua, data = dka_data)
-summary(model_aki_baseline)
 
 # Estimated marginal means
 emm2 <- emmeans(model_aki_baseline, ~ scopeptin)
@@ -1037,9 +1035,26 @@ pairs2 <- pairs(emm2)
 
 
 # Coefficients
-coef2 <- tidy(model, effects = "fixed", conf.int = TRUE)
+coef2 <- tidy(model_aki_baseline, effects = "fixed", conf.int = TRUE)
 print("\nFixed effects coefficients:")
 print(coef2)
+
+
+model_aki_baseline <- lm(mmp9_egfr ~ sua, data = dka_data)
+summary(model_aki_baseline)
+
+# Estimated marginal means
+emm2 <- emmeans(model_aki_baseline, ~ sua)
+
+# Pairwise comparisons
+pairs2 <- pairs(emm2)
+
+
+# Coefficients
+coef2 <- tidy(model_aki_baseline, effects = "fixed", conf.int = TRUE)
+print("\nFixed effects coefficients:")
+print(coef2)
+
 
 
 #3 months
@@ -1131,3 +1146,192 @@ results_aki <- get_mixed_model_pvalues(data_aki, "aki_0_24")
 data_t1d <- data_filtered %>% 
   filter(!is.na(mmp9_egfr), !is.na(t1d_status))
 results_t1d <- get_mixed_model_pvalues(data_t1d, "t1d_status")
+
+
+
+
+
+
+
+
+
+
+##Analysis from plots with FDR corrections
+
+
+
+### Analyses from plots 
+
+get_mixed_model_pvalues <- function(data, grouping_var) {
+  formula_str <- paste0("mmp9_egfr ~ time * ", grouping_var)
+  
+  model <- lme(as.formula(formula_str), 
+               random = ~1|record_id,  # Change to your subject ID variable
+               data = data,
+               na.action = na.omit)
+  
+  # Within-timepoint comparisons (compare groups at each time)
+  emm_within <- emmeans(model, specs = as.formula(paste0("~ ", grouping_var, " | time")))
+  within_time <- pairs(emm_within, adjust = "fdr")  # Changed from "tukey"
+  
+  # Across-time comparisons (compare times within each group)
+  emm_across <- emmeans(model, specs = as.formula(paste0("~ time | ", grouping_var)))
+  across_time <- pairs(emm_across, adjust = "fdr")  # Changed from "tukey"
+  
+  return(list(
+    within_time = within_time,
+    across_time = across_time,
+    model = model
+  ))
+}
+
+
+data_filtered <- data_set %>% filter(time %in% c('0-8 hours', '3 months'))
+
+# Run models with specific filtering for each variable
+# Severity - remove Unknown and NAs
+data_severity <- data_filtered %>% 
+  filter(!is.na(mmp9_egfr), !is.na(severity), severity != "Unknown")
+results_severity <- get_mixed_model_pvalues(data_severity, "severity")
+
+# IV Insulin - remove NAs only
+data_insulin <- data_filtered %>% 
+  filter(!is.na(mmp9_egfr), !is.na(ivinsdurtile))
+results_insulin <- get_mixed_model_pvalues(data_insulin, "ivinsdurtile")
+
+# AKI - remove NAs only
+data_aki <- data_filtered %>% 
+  filter(!is.na(mmp9_egfr), !is.na(aki_0_24))
+results_aki <- get_mixed_model_pvalues(data_aki, "aki_0_24")
+
+# T1D Status - remove NAs only
+data_t1d <- data_filtered %>% 
+  filter(!is.na(mmp9_egfr), !is.na(t1d_status))
+results_t1d <- get_mixed_model_pvalues(data_t1d, "t1d_status")
+
+
+
+
+
+
+
+
+
+
+
+
+
+# First, run the UNADJUSTED analysis
+get_mixed_model_pvalues_none <- function(data, grouping_var) {
+  formula_str <- paste0("mmp9_egfr ~ time * ", grouping_var)
+  
+  model <- lme(as.formula(formula_str), 
+               random = ~1|record_id,
+               data = data,
+               na.action = na.omit)
+  
+  emm_within <- emmeans(model, specs = as.formula(paste0("~ ", grouping_var, " | time")))
+  within_time <- pairs(emm_within, adjust = "none")
+  
+  emm_across <- emmeans(model, specs = as.formula(paste0("~ time | ", grouping_var)))
+  across_time <- pairs(emm_across, adjust = "none")
+  
+  return(list(
+    within_time = within_time,
+    across_time = across_time,
+    model = model
+  ))
+}
+
+# Then run the holm-ADJUSTED analysis
+get_mixed_model_pvalues_holm <- function(data, grouping_var) {
+  formula_str <- paste0("mmp9_egfr ~ time * ", grouping_var)
+  
+  model <- lme(as.formula(formula_str), 
+               random = ~1|record_id,
+               data = data,
+               na.action = na.omit)
+  
+  emm_within <- emmeans(model, specs = as.formula(paste0("~ ", grouping_var, " | time")))
+  within_time <- pairs(emm_within, adjust = "holm")
+  
+  emm_across <- emmeans(model, specs = as.formula(paste0("~ time | ", grouping_var)))
+  across_time <- pairs(emm_across, adjust = "holm")
+  
+  return(list(
+    within_time = within_time,
+    across_time = across_time,
+    model = model
+  ))
+}
+
+# Run both versions
+results_severity_none <- get_mixed_model_pvalues_none(data_severity, "severity")
+results_severity_holm <- get_mixed_model_pvalues_holm(data_severity, "severity")
+
+results_insulin_none <- get_mixed_model_pvalues_none(data_insulin, "ivinsdurtile")
+results_insulin_holm <- get_mixed_model_pvalues_holm(data_insulin, "ivinsdurtile")
+
+results_aki_none <- get_mixed_model_pvalues_none(data_aki, "aki_0_24")
+results_aki_holm <- get_mixed_model_pvalues_holm(data_aki, "aki_0_24")
+
+results_t1d_none <- get_mixed_model_pvalues_none(data_t1d, "t1d_status")
+results_t1d_holm <- get_mixed_model_pvalues_holm(data_t1d, "t1d_status")
+
+# Function to compare p-values
+compare_pvalues <- function(results_none, results_holm, name) {
+  cat("\n========================================\n")
+  cat(name, "\n")
+  cat("========================================\n")
+  
+  # Within-time comparisons
+  cat("\n--- WITHIN-TIME COMPARISONS ---\n")
+  within_none <- as.data.frame(results_none$within_time)
+  within_holm <- as.data.frame(results_holm$within_time)
+  
+  comparison_df <- data.frame(
+    Comparison = within_none$contrast,
+    P_unadjusted = round(within_none$p.value, 4),
+    P_holm = round(within_holm$p.value, 4),
+    Sig_unadjusted = ifelse(within_none$p.value < 0.001, "***",
+                            ifelse(within_none$p.value < 0.01, "**",
+                                   ifelse(within_none$p.value < 0.05, "*", "ns"))),
+    Sig_holm = ifelse(within_holm$p.value < 0.001, "***",
+                     ifelse(within_holm$p.value < 0.01, "**",
+                            ifelse(within_holm$p.value < 0.05, "*", "ns"))),
+    Changed = ifelse(within_none$p.value < 0.05 & within_holm$p.value >= 0.05, "LOST SIG", 
+                     ifelse(within_none$p.value >= 0.05 & within_holm$p.value < 0.05, "GAINED SIG",
+                            "No change"))
+  )
+  
+  print(comparison_df)
+  
+  # Across-time comparisons
+  cat("\n--- ACROSS-TIME COMPARISONS ---\n")
+  across_none <- as.data.frame(results_none$across_time)
+  across_holm <- as.data.frame(results_holm$across_time)
+  
+  comparison_df2 <- data.frame(
+    Comparison = across_none$contrast,
+    P_unadjusted = round(across_none$p.value, 4),
+    P_holm = round(across_holm$p.value, 4),
+    Sig_unadjusted = ifelse(across_none$p.value < 0.001, "***",
+                            ifelse(across_none$p.value < 0.01, "**",
+                                   ifelse(across_none$p.value < 0.05, "*", "ns"))),
+    Sig_holm = ifelse(across_holm$p.value < 0.001, "***",
+                     ifelse(across_holm$p.value < 0.01, "**",
+                            ifelse(across_holm$p.value < 0.05, "*", "ns"))),
+    Changed = ifelse(across_none$p.value < 0.05 & across_holm$p.value >= 0.05, "LOST SIG", 
+                     ifelse(across_none$p.value >= 0.05 & across_holm$p.value < 0.05, "GAINED SIG",
+                            "No change"))
+  )
+  
+  print(comparison_df2)
+}
+
+# Compare all four models
+compare_pvalues(results_severity_none, results_severity_holm, "SEVERITY")
+compare_pvalues(results_insulin_none, results_insulin_holm, "IV INSULIN")
+compare_pvalues(results_aki_none, results_aki_holm, "AKI")
+compare_pvalues(results_t1d_none, results_t1d_holm, "T1D STATUS")
+
