@@ -1,0 +1,87 @@
+---
+title: "Proteomics and HTN - descriptive statistics"
+author: "Laura Pyle, Ye Ji Choi & Tim Vigers"
+date: "today"
+date-format: long
+format:
+  html:
+    toc: true
+    toc-depth: 5
+    toc-float: true
+    code-fold: true
+    self-contained: true
+    fig-cap-location: top
+    page-layout: full
+editor: source
+knit: (function(rmdfile, ...) { rmarkdown::render(rmdfile, output_dir='/Users/pylell/Dropbox/TODAY HTN and DKD output/') })
+execute:
+  echo: false
+  message: false
+---
+
+```{r libraries}
+#| include: false
+library(psych)
+library(corrplot)
+library(pander)
+library(dplyr)
+library(gtsummary)
+# Print all pander tables
+panderOptions("knitr.auto.asis", FALSE)
+
+# specify user for paths
+user <- Sys.info()[["user"]]
+if (user == "laurapyle") {
+  data_path <- '/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Proteomics and DKD/Data_Cleaned'
+} else if (user == "lpyle") {
+  data_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Proteomics and DKD/Data_Cleaned"
+} else if (user == "pylell") {
+  data_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Proteomics and DKD/Data_Cleaned"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r data import}
+setwd(data_path)
+
+#| include: false
+# source("~/GitHub/CHCO-Code/Petter Bjornstad/Proteomics and DKD/create_today_dkd_analysis_dataset.R")
+load("./analysis_dataset.RData")
+df$diabetes_duration_mo <- df$diabetes_duration*12
+df <- df %>% filter(visit == "baseline")
+#check <- df %>% select(record_id, merged_id, visit, group, study)
+#write.csv(check, "/Users/pylell/Documents/Temp/check_proteomics_and_HTN.csv", row.names = F)
+
+# calculate insulin sensitivity
+df$eis <- 1/df$fasting_insulin
+```
+
+```{r, include=F}
+t <- df %>% mutate(
+  race_ethnicity_condensed = case_when(
+    race == "White" & startsWith(ethnicity, "Not") ~ "Non-Hispanic White",
+    race == "Black or African American" & startsWith(ethnicity, "Not") ~ "Non-Hispanic Black",
+    ethnicity == "Hispanic or Latino" ~ "Hispanic",
+    T ~ "Other"
+  )) %>% 
+  select(
+    group, age, sex, race_ethnicity_condensed, diabetes_duration_mo, hba1c, bmi, acr_u, sbp, dbp, map,
+    eGFR_fas_cr, gfr_bsa_plasma, gfr_raw_plasma, creatinine_s, cystatin_c_s, eis, fasting_glu, fasting_insulin, elevated_albuminuria, htn
+  ) %>% 
+  tbl_summary(by = group,
+              statistic = list(all_continuous() ~ "{mean} ({sd})",
+                          c(diabetes_duration_mo, acr_u) ~ "{median} [{p25}, {p75}]",
+                          missing_text = "Missing"
+                               )) %>% add_overall()
+
+```
+
+```{r}
+t
+```
+
+```{r, include=FALSE}
+#file.copy("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/Proteomics and HTN/proteomics_and_HTN_descriptive statistics.html",
+#          "/Users/pylell/Dropbox/TODAY HTN and DKD output/proteomics_and_HTN_descriptive statistics.html",overwrite = TRUE)
+```
