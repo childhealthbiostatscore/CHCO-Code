@@ -1,0 +1,189 @@
+---
+title: "SWEETHEART & ULTRA Imaging"
+author: "Ye Ji Choi"
+format:
+  revealjs:
+    embed-resources: true
+    scrollable: true
+    transition: slide
+    controls-layout: bottom-right
+    menu: true
+    toc: true
+    toc-depth: 3
+    fontsize: 15
+    number-sections: true
+---
+
+Left ventricular (LV), right ventricular (RV) global functions
+ESV: End-systolic volume	(mL)
+EDV: End-diastolic volume (mL)	
+SV: Stroke volume	(mL)
+CO: Cardiac output	 (L/min)
+EF: Ejection fraction (%)	
+HR: Heart rate (1/min)	
+thickness_diast: Global myocardial thickness at diastole (mm)	
+thickness_total: Global myocardial thickness assessed across the entire cardiac cycle, with values comparable to those measured at systole (mm)
+MyoMass_diast: Global myocardial mass at diastole
+MyoMass_syst: Global myocardial mass at systole
+
+Left ventricular global peak strain (systolic function)
+GRS: Global radial strain (%)
+GCS: Global circumferential strain (%)
+GLS: Global longitudinal strain (%)	
+
+Tissue characteristics
+T1 (ms)	
+T2* (ms)
+
+Intracardiac 4D flow
+Mitral valve inflow (diastolic function)
+E wave: Early diastolic peak inflow velocity (cm/s)
+A wave: Peak inflow velocity during atrial contraction (cm/s)
+E/A ratio: Ratio of E wave to A wave peak inflow velocity (–)
+
+Aortic 4D flow (Region of interest: thoracic aorta)
+PWV: Pulse wave velocity (central arterial stiffness) (m/s) 	
+MeanWSS: Mean wall shear stress (Pa)	
+MedianWSS: Median wall shear stress (Pa)
+High5pctWSS: Median of 5% highest wall shear stress (Pa)
+
+```{r include = F}
+library(jsonlite)
+library(aws.s3)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+library(lmerTest)
+library(emmeans)
+library(broom)
+library(ggbeeswarm)
+library(lemon)
+library(quantreg)
+library(readxl)
+library(lubridate)
+```
+
+```{r include = F}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r include = F}
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r}
+im_vars <- c("imaging_date",
+             "imaging_hr",
+             "af_high5pctwss",
+             "af_medianwss",
+             "af_meanwss",
+             "af_pwv_xcor3",
+             "mv_flow_ea",
+             "mv_flow_a",
+             "mv_flow_e",
+             "tt2",
+             "tt1",
+             "long_peak",
+             "circum_peak",
+             "radial_peak",
+             "rvef",
+             "lvef",
+             "ef_percent",
+             "rvco",
+             "lvco",
+             "cardiac_output",
+             "rvsv",
+             "lvsv",
+             "sv_ml",
+             "rvedv",
+             "lvedv",
+             "edv_ml",
+             "rvesv",
+             "lvesv",
+             "esv_ml",
+             "myo_mass_syst",
+             "myo_mass_dias",
+             "myo_thickness_total",
+             "myo_thickness_dias")
+```
+
+```{r}
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
+
+ultra_swht_coenrolled <- harm_dat %>%
+  filter(study == "ULTRA" & !is.na(swht_id)) %>%
+  pull(swht_id) %>%
+  unique()
+
+harm_dat_subset <- harm_dat %>%
+  filter(study == "ULTRA" | !is.na(swht_id)) %>%
+  mutate(imaging_visit = case_when(imaging_visit == 1 ~ "ultra_baseline", 
+                                   imaging_visit == 2 ~ "ultra_follow_up",
+                                   record_id %in% ultra_swht_coenrolled ~ "ultra_swht_follow_up",
+                                   study == "SWEETHEART" ~ "swht_cs"),
+         sex = case_when(study == "ULTRA" ~ "Male", T ~ sex),
+         age = interval(dob, imaging_date) / years(1)) %>%
+  # dplyr::select(swht_id, record_id, mrn, group, sex, age, imaging_visit, study, all_of(im_vars)) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, imaging_visit)) %>%
+  filter(!is.na(mv_flow_ea))
+```
+
+```{r}
+summary(arsenal::tableby(imaging_visit ~ group + age + sex + bmi + acr_u, data = harm_dat_subset))
+
+```
+
+```{r echo = F}
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(cowplot)
+plots <- map(names(swht_imaging_full)[8:34], function(var) {
+  ggplot(swht_imaging_full, aes(x = group, y = .data[[var]], fill = group)) +
+    geom_boxplot(size = 1) +
+    theme(panel.background = element_blank(),
+          text = element_text(size = 18),
+          axis.title.x = element_blank(),
+          axis.text.x = element_text(angle = 60, hjust = 1),
+          legend.position = "none") +
+    scale_fill_manual(values = c("#588157", "#f08080", "#98c1d9"))
+})
+  
+
+plot_grid(plotlist = plots[1:9], ncol = 3)
+plot_grid(plotlist = plots[10:18], ncol = 3)
+plot_grid(plotlist = plots[19:27], ncol = 3)
+
+table(swht_imaging_full$group)
+```

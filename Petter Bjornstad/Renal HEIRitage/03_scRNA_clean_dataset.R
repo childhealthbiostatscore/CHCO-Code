@@ -935,24 +935,27 @@ analysis_config <- list(
 )
 
 celltype_groups <- list(
-  aPT = "aPT",
-  `PT-S1/S2` = "PT-S1/S2",
-  `PT-S3` = "PT-S3",
-  `PT-1` = "PT-1",
-  `PT-2` = "PT-2",
-  `PT-3` = "PT-3",
-  `PT-4` = "PT-4",
-  `PT-5` = "PT-5",
-  `C-TAL-1` = "C-TAL-1",
-  `C-TAL-2` = "C-TAL-2",
-  aTAL = "aTAL",
-  dTAL = "dTAL",
-  `EC-AVR` = "EC-AVR",
-  `EC-GC`  = "EC-GC",
-  `EC-PTC` = "EC-PTC",
-  `EC-AEA` = "EC-AEA",
-  `EC-LYM` = "EC-LYM",
-  `EC/VSMC` = "EC/VSMC"
+  # aPT = "aPT",
+  # `PT-S1/S2` = "PT-S1/S2",
+  # `PT-S3` = "PT-S3",
+  # `PT-1` = "PT-1",
+  # `PT-2` = "PT-2",
+  # `PT-3` = "PT-3",
+  # `PT-4` = "PT-4",
+  # `PT-5` = "PT-5",
+  # `C-TAL-1` = "C-TAL-1",
+  # `C-TAL-2` = "C-TAL-2",
+  # aTAL = "aTAL",
+  # dTAL = "dTAL",
+  # `EC-AVR` = "EC-AVR",
+  # `EC-GC`  = "EC-GC",
+  # `EC-PTC` = "EC-PTC",
+  # `EC-AEA` = "EC-AEA",
+  # `EC-LYM` = "EC-LYM",
+  # `EC/VSMC` = "EC/VSMC",
+  Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT")
+  
 )
 
 mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")

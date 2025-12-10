@@ -83,19 +83,30 @@ celltype_groups <- list(
   `PT-4` = "PT-4",
   `PT-5` = "PT-5",
   TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  `C-TAL-1` = "C-TAL-1",
+  `C-TAL-2` = "C-TAL-2",
+  aTAL = "aTAL",
+  dTAL = "dTAL",
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
+  `EC-AVR` = "EC-AVR",
+  `EC-GC`  = "EC-GC",
+  `EC-PTC` = "EC-PTC",
+  `EC-AEA` = "EC-AEA",
+  `EC-LYM` = "EC-LYM",
+  `EC/VSMC` = "EC/VSMC",
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
   PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
   IC = c("IC-A", "IC-B", "aIC"),
   DTL_ATL = c("DTL", "aDTL", "ATL"),
   DCT_CNT = c("DCT", "dDCT", "CNT"),
-  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
-  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
   VSMC_P_FIB = c("VSMC/P", "FIB"),
   POD = "POD",
   MC = "MC",
   PEC = "PEC",
   Schwann = "SchwannCells"
 )
-
 ```
 
 # Descriptive
@@ -248,13 +259,13 @@ folders <- c(
   "nonDKD_30_SGLT2i_N_vs_HC" = "nondkd30_sglt2in_hc",
   "nonDKD_30_SGLT2i_Y_vs_HC" = "nondkd30_sglt2iy_hc",
   "nonDKD_100_SGLT2i_N_vs_HC" = "nondkd100_sglt2in_hc",
-  "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc"
+  "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc",
   
   # --- SGLT2i N/Y vs HC (DKD) ---
-  # "DKD_30_SGLT2i_N_vs_HC" = "dkd30_sglt2in_hc",
-  # "DKD_30_SGLT2i_Y_vs_HC" = "dkd30_sglt2iy_hc",
-  # "DKD_100_SGLT2i_N_vs_HC" = "dkd100_sglt2in_hc",
-  # "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc"
+  "DKD_30_SGLT2i_N_vs_HC" = "dkd30_sglt2in_hc",
+  "DKD_30_SGLT2i_Y_vs_HC" = "dkd30_sglt2iy_hc",
+  "DKD_100_SGLT2i_N_vs_HC" = "dkd100_sglt2in_hc",
+  "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc"
 )
 
 reverse_folders <- setNames(names(folders), folders)
@@ -272,24 +283,45 @@ meta_df_compiled <- read.csv(file.path(root_path, paste0("Renal HERITAGE/Results
 folder = "dkd30_hc"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                                             paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                                    tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                                         paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                                tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -301,23 +333,45 @@ for (cell in names(celltype_groups)) {
 folder = "dkd100_hc"
 
 for (cell in names(celltype_groups)) {
-  meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & meta_df_compiled$celltype == cell,]
   
-  cat("::: {layout-ncol=2}\n\n")
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  print(knitr::kable(meta_sub))
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
+  
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -332,24 +386,45 @@ for (cell in names(celltype_groups)) {
 folder = "nondkd30_t2d_hc"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -361,23 +436,45 @@ for (cell in names(celltype_groups)) {
 folder = "nondkd100_t2d_hc"
 
 for (cell in names(celltype_groups)) {
-  meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & meta_df_compiled$celltype == cell,]
   
-  cat("::: {layout-ncol=2}\n\n")
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
+  cat("\n::: {layout-ncol=2}\n\n")
+  
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
+  
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -391,24 +488,45 @@ for (cell in names(celltype_groups)) {
 folder = "dkd30_t2d"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -420,24 +538,45 @@ for (cell in names(celltype_groups)) {
 folder = "dkd100_t2d"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -452,24 +591,45 @@ for (cell in names(celltype_groups)) {
 folder = "dkd_30_glpy_glpn"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -481,24 +641,45 @@ for (cell in names(celltype_groups)) {
 folder = "dkd_100_glpy_glpn"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -512,24 +693,45 @@ for (cell in names(celltype_groups)) {
 folder = "nondkd_30_glpy_glpn"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -541,24 +743,45 @@ for (cell in names(celltype_groups)) {
 folder = "nondkd_100_glpy_glpn"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -574,24 +797,45 @@ for (cell in names(celltype_groups)) {
 folder = "dkd30_sglt2iy_sglt2in"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -602,25 +846,46 @@ for (cell in names(celltype_groups)) {
 ```{r echo = F, results = 'asis', eval = T}
 folder = "dkd100_sglt2iy_sglt2in"
 
-for (cell in names(celltype_groups)[names(celltype_groups) %nin% c("MC", "Schwann")]) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
+for (cell in names(celltype_groups)) {
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -635,24 +900,45 @@ for (cell in names(celltype_groups)[names(celltype_groups) %nin% c("MC", "Schwan
 folder = "nondkd30_sglt2iy_sglt2in"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -664,24 +950,45 @@ for (cell in names(celltype_groups)) {
 folder = "nondkd100_sglt2iy_sglt2in"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -697,24 +1004,45 @@ for (cell in names(celltype_groups)) {
 folder = "dkd30_glpy_hc"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -726,24 +1054,45 @@ for (cell in names(celltype_groups)) {
 folder = "dkd100_glpy_hc"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -758,24 +1107,45 @@ for (cell in names(celltype_groups)) {
 folder = "nondkd30_glpy_hc"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -787,24 +1157,45 @@ for (cell in names(celltype_groups)) {
 folder = "nondkd100_glpy_hc"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -814,28 +1205,49 @@ for (cell in names(celltype_groups)) {
 
 ### DKD (30)
 
-```{r echo = F, results = 'asis', eval = F}
+```{r echo = F, results = 'asis', eval = T}
 folder = "dkd30_sglt2iy_hc"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -843,28 +1255,49 @@ for (cell in names(celltype_groups)) {
 
 ### DKD (100)
 
-```{r echo = F, results = 'asis', eval = F}
+```{r echo = F, results = 'asis', eval = T}
 folder = "dkd100_sglt2iy_hc"
 
-for (cell in names(celltype_groups)[names(celltype_groups) %nin% c("MC", "Schwann")]) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
+for (cell in names(celltype_groups)) {
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -878,24 +1311,45 @@ for (cell in names(celltype_groups)[names(celltype_groups) %nin% c("MC", "Schwan
 folder = "nondkd30_sglt2iy_hc"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
@@ -907,472 +1361,47 @@ for (cell in names(celltype_groups)) {
 folder = "nondkd100_sglt2iy_hc"
 
 for (cell in names(celltype_groups)) {
-  print(kable(meta_df_compiled[meta_df_compiled$analysis_type == reverse_folders[[folder]] & 
-                                 meta_df_compiled$celltype == cell,]))
   
+  # Normalize the cell name once
+  cell_norm <- tolower(gsub("/", "_", cell))
+  
+  # Filter rows from meta_df_compiled for this iteration
+  meta_sub <- meta_df_compiled %>%
+    dplyr::filter(
+      analysis_type == reverse_folders[[folder]],
+      celltype == cell
+    )
+  
+  # Skip this cell if not found in meta info
+  if (nrow(meta_sub) == 0) {
+    message(paste("Skipping", cell, "- not found in meta_df_compiled"))
+    next
+  }
+  
+  print(knitr::kable(meta_sub))
   cat("\n::: {layout-ncol=2}\n\n")
   
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
+  # List of plots to check and print
+  plot_paths <- list(
+    pval      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", cell_norm, ".png")),
+    fdr       = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", cell_norm, "_fdr.png")),
+    gsea      = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", cell_norm, "_gsea.png")),
+    combined  = file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", cell_norm, "_combined.png"))
+  )
   
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## DKD vs. non-DKD within T2D only (30)
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "dkd30_t2d"
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
+  # Loop through plot files and only include if they exist
+  for (ptype in names(plot_paths)) {
+    if (file.exists(plot_paths[[ptype]])) {
+      label <- if (ptype == "pval") "p-value < 0.05" else
+               if (ptype == "fdr") "FDR < 0.05" else ""
+      
+      cat(paste0("![", label, "](", plot_paths[[ptype]], ")\n\n"))
+    } else {
+      message(paste("Missing:", plot_paths[[ptype]]))
+    }
+  }
   
   cat(":::\n\n")
 }
 ```
 
-## DKD vs. non-DKD within T2D/OB (30)
-
-### DEGs & Pathways
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "dkd30"
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## DKD vs. non-DKD within T2D only (100)
-
-### DEGs & Pathways
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "dkd100_t2d"
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## DKD vs. non-DKD within T2D/OB (100)
-
-### DEGs & Pathways
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "dkd100"
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## non-DKD (within T2D only) vs. HC (30)
-
-### DEGs & Pathways
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "nondkd30_t2d_hc"
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## non-DKD (within T2D/OB) vs. HC (30)
-
-### DEGs & Pathways
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "nondkd30_hc"
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## non-DKD (within T2D only) vs. HC (100)
-
-### DEGs & Pathways
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "nondkd100_t2d_hc"
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## non-DKD (within T2D/OB) vs. HC (100)
-
-### DEGs & Pathways
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "nondkd100_hc"
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-# Drug Impact
-
-## DKD+ GLP+ vs. DKD + GLP- (30)
-
-```{r echo = F, results = 'asis', eval = F}
-folder = specify
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
- 
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## DKD+ GLP+ vs. DKD + GLP- (100)
-
-```{r echo = F, results = 'asis', eval = F}
-folder = specify
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## DKD- GLP+ vs. DKD- GLP- (30)
-
-```{r echo = F, results = 'asis', eval = F}
-folder = specify
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## DKD- GLP+ vs. DKD- GLP- (100)
-
-```{r echo = F, results = 'asis', eval = F}
-folder = specify
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## DKD- GLP+ vs. HC (30)
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "nondkd30_glpy_hc"
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## DKD- GLP+ vs. HC (100)
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "nondkd100_glpy_hc"
-
-for (cell in names(celltype_groups)[names(celltype_groups) %nin% c("aPT")]) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## DKD+ GLP+ vs. HC (30)
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "dkd30_glpy_hc"
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```
-
-## DKD+ GLP+ vs. HC (100)
-
-```{r echo = F, results = 'asis', eval = F}
-folder = "dkd100_glpy_hc"
-
-for (cell in names(celltype_groups)) {
-  cat("::: {layout-ncol=2}\n\n")
-  
-  cat(paste0("![p-value < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/pval/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), ".png")), ")\n\n"))
-
-  cat(paste0("![FDR < 0.05](", file.path(root_path, 
-                               paste0("Renal HERITAGE/Results/Figures/Volcano Plots/fdr/", folder, "_", 
-                                      tolower(gsub("/", "_", cell)), "_fdr.png")), ")\n\n"))
-
-    cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_gsea.png")),
-             ")\n\n"))
-  
-  cat(paste0("![](", file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathways/Underlying genes/Combined/hallmark_", folder, "_", tolower(gsub("/", "_", cell)), "_combined.png")),
-             ")\n\n"))
-  
-  cat(":::\n\n")
-}
-```

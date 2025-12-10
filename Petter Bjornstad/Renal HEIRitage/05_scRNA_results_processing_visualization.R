@@ -94,11 +94,6 @@ folders <- c(
   "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc"
 )
 
-# Pull in nebula results
-# folders <- c(
-#   "nonDKD_100_GLP_Y_vs_HC" = "nondkd100_glpy_hc"
-# )
-
 # Define common parameters
 celltype_groups <- list(
   PT = c("PT-S1/S2", "PT-S3", "aPT"),
