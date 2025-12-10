@@ -149,7 +149,7 @@ def add_id_column(df, study_name):
 
 def create_study_id_columns(harmonized):
     import os
-    study_list = [('CASPER', 'casper_id'), ('COFFEE', 'coffee_id'), ('CROCODILE','croc_id'), ('IMPROVE','improve_id'), ('PENGUIN','penguin_id'), ('RENAL-HEIR','rh_id'), ('RENAL-HEIRitage','rh2_id'), ('PANTHER','panther_id'), ('PANDA','panda_id'), ('ATTEMPT','attempt_id'), ('RPC2','rpc2_id'), ('SWEETHEART', 'swth_id')]
+    study_list = [('CASPER', 'casper_id'), ('COFFEE', 'coffee_id'), ('CROCODILE','croc_id'), ('IMPROVE','improve_id'), ('PENGUIN','penguin_id'), ('RENAL-HEIR','rh_id'), ('RENAL-HEIRitage','rh2_id'), ('PANTHER','panther_id'), ('PANDA','panda_id'), ('ATTEMPT','attempt_id'), ('RPC2','rpc2_id'), ('SWEETHEART', 'swht_id')]
 
     for study, id in study_list: 
         study_mrns = harmonized.loc[harmonized['study'] == study, ['mrn', 'record_id']]

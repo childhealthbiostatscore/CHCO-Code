@@ -58,9 +58,9 @@ def clean_ultra():
     dem_cols = ["record_id", "dob", "participation_status", "mrn", "race", "ethnicity"]
     # # Export
     demo = pd.DataFrame(proj.export_records(fields=dem_cols))
-    print(type(demo))       # Should be <class 'list'> or <class 'pandas.DataFrame'> depending on your wrapper
-    print(len(demo))        # Number of records exported
-    print(demo[:3]) 
+    # print(type(demo))       # Should be <class 'list'> or <class 'pandas.DataFrame'> depending on your wrapper
+    # print(len(demo))        # Number of records exported
+    # print(demo[:3]) 
     # Replace missing values
     if demo is None:
         print("Warning: No records returned. Skipping demo processing.")
@@ -186,6 +186,8 @@ def clean_ultra():
     mri.columns = mri.columns.str.replace(
         r"mri_|visit_", "", regex=True)
     mri["procedure"] = "cardio_abdominal_mri"
+    # mri["visit"] = mri["redcap_repeat_instance"]
+    # mri["visit"] = mri["visit"].replace({0: "screening", "": "screening", 1: "baseline", "1": "baseline",2: "3_motnhs", "2": "3_months", 3: "6_months", "3": "6_months", 4:"12_months", "4": "12_months"})
 
     
     # --------------------------------------------------------------------------
@@ -207,6 +209,8 @@ def clean_ultra():
     #df = pd.concat([df, vital], join='outer', ignore_index=True)
     df = pd.concat([df, phys], join='outer', ignore_index=True)
     df = pd.concat([df, screen], join='outer', ignore_index=True)
+    df = pd.concat([df, mri], join='outer', ignore_index=True)
+
     df = pd.merge(df, demo, how="outer")
 #     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
 #     df = df.copy()
