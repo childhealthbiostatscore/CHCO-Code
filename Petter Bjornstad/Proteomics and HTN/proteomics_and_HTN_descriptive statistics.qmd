@@ -28,16 +28,33 @@ library(dplyr)
 library(gtsummary)
 # Print all pander tables
 panderOptions("knitr.auto.asis", FALSE)
+
+# specify user for paths
+user <- Sys.info()[["user"]]
+if (user == "laurapyle") {
+  data_path <- '/Users/laurapyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Proteomics and HTN/Data_Cleaned'
+} else if (user == "lpyle") {
+  data_path <- "/Users/lpyle/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Proteomics and HTN/Data_Cleaned"
+} else if (user == "pylell") {
+  data_path <- "/Users/pylell/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Proteomics and HTN/Data_Cleaned"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
 ```
 
 ```{r data import}
+setwd(data_path)
+
 #| include: false
 # source("~/GitHub/CHCO-Code/Petter Bjornstad/Proteomics and DKD/create_today_dkd_analysis_dataset.R")
-load("/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/Proteomics and HTN/Data_Cleaned/analysis_dataset.RData")
+load("./analysis_dataset.RData")
 df$diabetes_duration_mo <- df$diabetes_duration*12
 df <- df %>% filter(visit == "baseline")
-check <- df %>% select(record_id, merged_id, visit, group, study)
-write.csv(check, "/Users/pylell/Documents/Temp/check_proteomics_and_HTN.csv", row.names = F)
+#check <- df %>% select(record_id, merged_id, visit, group, study)
+#write.csv(check, "/Users/pylell/Documents/Temp/check_proteomics_and_HTN.csv", row.names = F)
+
+# calculate insulin sensitivity
+df$eis <- 1/df$fasting_insulin
 ```
 
 ```{r, include=F}
@@ -54,13 +71,13 @@ t <- df %>% mutate(
 ) %>% 
   select(
     group, age, sex, race_ethnicity_condensed, diabetes_duration_mo, hba1c, bmi, acr_u, sbp, dbp, map,
-    eGFR_fas_cr, gfr_bsa_plasma, gfr_raw_plasma, elevated_albuminuria, htn, soma, olink_plasma, olink_urine
+    eGFR_fas_cr, gfr_bsa_plasma, gfr_raw_plasma, creatinine_s, cystatin_c_s, eis, elevated_albuminuria, htn, soma, olink_plasma, olink_urine
   ) %>% 
   tbl_summary(by = group,
               statistic = list(all_continuous() ~ "{mean} ({sd})",
                           c(diabetes_duration_mo, acr_u) ~ "{median} [{p25}, {p75}]",
                           missing_text = "Missing"
-                               ))
+                               )) %>% add_overall()
 
 ```
 
@@ -69,6 +86,6 @@ t
 ```
 
 ```{r, include=FALSE}
-file.copy("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/Proteomics and HTN/proteomics_and_HTN_descriptive statistics.html",
-          "/Users/pylell/Dropbox/TODAY HTN and DKD output/proteomics_and_HTN_descriptive statistics.html",overwrite = TRUE)
+#file.copy("/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/Proteomics and HTN/proteomics_and_HTN_descriptive statistics.html",
+#          "/Users/pylell/Dropbox/TODAY HTN and DKD output/proteomics_and_HTN_descriptive statistics.html",overwrite = TRUE)
 ```
