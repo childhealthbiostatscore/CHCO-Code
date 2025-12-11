@@ -6689,8 +6689,8 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
  
  
  ### Creating top 20 DEG Excels for each celltype 
+ ### Creating top 20 DEG Excels for each celltype with FDR correction
  
-
  # Define the base path and cell types
  base_path <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only/"
  cell_types <- c("All", "PT", "TAL", "EC", "DCTall", "intercalated", "POD")
@@ -6714,22 +6714,42 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
    # Read the CSV file
    data <- read.csv(file_path)
    
-   # Sort by summary.p_sexMale (ascending - smallest p-values first)
-   if ("summary.p_sexMale" %in% colnames(data)) {
-     data_sorted <- data[order(data$summary.p_sexMale), ]
-   } else {
+   # Check if p-value column exists
+   if (!"summary.p_sexMale" %in% colnames(data)) {
      warning(paste("Column 'summary.p_sexMale' not found for", cell_type))
      print(paste("Available columns:", paste(colnames(data), collapse=", ")))
      next
    }
    
+   # Remove rows with NA p-values before FDR correction
+   data_clean <- data[!is.na(data$summary.p_sexMale), ]
+   
+   # Print diagnostics
+   cat(paste("\n--- Processing", cell_type, "---\n"))
+   cat(paste("Total genes:", nrow(data_clean), "\n"))
+   cat(paste("P-values < 0.05:", sum(data_clean$summary.p_sexMale < 0.05), "\n"))
+   cat(paste("P-values < 0.01:", sum(data_clean$summary.p_sexMale < 0.01), "\n"))
+   cat(paste("P-values < 0.001:", sum(data_clean$summary.p_sexMale < 0.001), "\n"))
+   
+   # Calculate FDR-adjusted p-values (Benjamini-Hochberg method)
+   data_clean$adjusted_pvalue <- p.adjust(data_clean$summary.p_sexMale, method = "BH")
+   
+   # Check adjusted p-values
+   cat(paste("Adjusted p-values < 0.05:", sum(data_clean$adjusted_pvalue < 0.05, na.rm=TRUE), "\n"))
+   cat(paste("Adjusted p-values < 0.1:", sum(data_clean$adjusted_pvalue < 0.1, na.rm=TRUE), "\n"))
+   cat(paste("Min adjusted p-value:", min(data_clean$adjusted_pvalue, na.rm=TRUE), "\n"))
+   
+   # Sort by original p-value (ascending - smallest p-values first)
+   data_sorted <- data_clean[order(data_clean$summary.p_sexMale), ]
+   
    # Get top 20
    top_20 <- head(data_sorted, 20)
    
-   # Select and rename columns
+   # Select and rename columns, including adjusted p-value
    top_20_simplified <- data.frame(
      gene = top_20$summary.gene,
      pvalue = top_20$summary.p_sexMale,
+     adjusted_pvalue = top_20$adjusted_pvalue,
      logFC = top_20$summary.logFC_sexMale,
      cell_number = top_20$num_cells
    )
@@ -6738,13 +6758,10 @@ folder_path <- "/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanCont
    output_file <- paste0(base_path, "Top20_", cell_type, "_LC.csv")
    write.csv(top_20_simplified, output_file, row.names = FALSE)
    
-   # Print confirmation
-   cat(paste("Processed", cell_type, "- Top 20 saved to:", output_file, "\n"))
+   cat(paste("Top 20 saved to:", output_file, "\n"))
  }
  
  cat("\nAll cell types processed!\n")
- 
- 
  
  
  
