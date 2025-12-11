@@ -38,7 +38,6 @@ source("Lambda_Liver_Functions.R")
 # knitr::opts_knit$set(root.dir = dir.results)
 ```
 
-
 # 2. Load Data, Pre-Processing & Qualtiy Control
 ```{r, Cyberduck setup}
 # install.packages("reticulate")
@@ -9286,6 +9285,12 @@ meta <- meta %>%
 meta <- meta %>% 
 mutate(steatosis_cat = ifelse((steatosis_grade==0 | steatosis_grade==1),"Low Steatosis (0+1)","High Steatosis (2+3)"))
 
+carb_vars
+lipid_vars
+
+table1(~state2_fam_pm + state3_fam_pm + state3_famgs_pmgs + state4_famgs_pmgs + ets_famgs_pmgs, data=meta )
+table1(~state2_fam_pm + state3_fam_pm + state3_famgs_pmgs + state4_famgs_pmgs + ets_famgs_pmgs | steatosis_cat, data=meta )
+
 
 table1(~state2_fam_pm + state3_fam_pm + state3_famgs_pmgs + state4_famgs_pmgs + ets_famgs_pmgs, data=meta )
 table1(~state2_fam_pm + state3_fam_pm + state3_famgs_pmgs + state4_famgs_pmgs + ets_famgs_pmgs | steatosis_cat, data=meta )
@@ -9511,7 +9516,50 @@ combined <- (plot_a + plot_b) / (plot_c + plot_d) / plot_e +
 # Save
 ggsave("/home/hhampson/Results/Figure5_respiration.png", combined, width = 10, height = 12, dpi = 300)
 
+#Difference in differences plots
+# Define the states and their corresponding variable names
+states <- list(
+  "State 2" = list(fam = "lipidpc_m", pm = "carbp_m", diff = "state2_fam_pm", label = "State 2~FAM - PM~"),
+  "State 3 (ADP)" = list(fam = "lipid_adp", pm = "carb_adp", diff = "state3_fam_pm", label = "State 3~FAM - PM~"),
+  "State 3 (S)" = list(fam = "lipid_s", pm = "carb_s", diff = "state3_famgs_pmgs", label = "State 3~FAMGS - PMGS~"),
+  "State 4" = list(fam = "lipid_omy", pm = "carb_omy", diff = "state4_famgs_pmgs", label = "State 4~FAMGS - PMGS~"),
+  "ETS" = list(fam = "lipidfccp", pm = "carbfccp", diff = "ets_famgs_pmgs", label = "ETS~FAMGS - PMGS~")
+)
 
+# Function to calculate stats for each state
+calc_stats <- function(data_high, data_low, vars, state_name) {
+  
+  # Medians for high steatosis
+  med_fam_high <- median(data_high[[vars$fam]], na.rm = TRUE)
+  med_pm_high <- median(data_high[[vars$pm]], na.rm = TRUE)
+  med_diff_high <- median(data_high[[vars$diff]], na.rm = TRUE)
+  
+  # Medians for low steatosis
+  med_fam_low <- median(data_low[[vars$fam]], na.rm = TRUE)
+  med_pm_low <- median(data_low[[vars$pm]], na.rm = TRUE)
+  med_diff_low <- median(data_low[[vars$diff]], na.rm = TRUE)
+  
+  # Wilcoxon signed-rank test: is the difference different from zero WITHIN each group?
+  wilcox_p_high <- wilcox.test(data_high[[vars$diff]], mu = 0)$p.value
+  wilcox_p_low <- wilcox.test(data_low[[vars$diff]], mu = 0)$p.value
+  
+  tibble(
+    State = vars$label,
+    `High: FAM` = round(med_fam_high, 2),
+    `High: PM` = round(med_pm_high, 2),
+    `High: Diff` = round(med_diff_high, 2),
+    `High: P-value` = round(wilcox_p_high, 2),
+    `Low: FAM` = round(med_fam_low, 2),
+    `Low: PM` = round(med_pm_low, 2),
+    `Low: Diff` = round(med_diff_low, 2),
+    `Low: P-value` = round(wilcox_p_low, 2)
+  )
+}
+
+# Build the table
+results_table <- map2_dfr(states, names(states), ~calc_stats(high, low, .x, .y))
+
+print(results_table)
 ```
 
 ## Load Gene Sets
