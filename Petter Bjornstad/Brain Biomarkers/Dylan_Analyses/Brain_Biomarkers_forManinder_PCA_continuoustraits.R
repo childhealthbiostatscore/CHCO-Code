@@ -24,7 +24,7 @@ clinical_predictors <- list(
   "Insulin Sensitivity" = c("avg_m_fsoc", "homa_ir", "adipose_ir", "search_eis"),
   "CGM Metrics" = c("cgm_mean_glucose", "cgm_sd", "cgm_cv", "time_in_range", 
                     "time_above_range", "time_below_range"),
-  "Blood Pressure" = c("sbp", "dbp", "map")  # Add actual BP variable names from your data
+  "Blood Pressure" = c("sbp", "dbp", "map") 
 )
 
 # Flatten the list for easier use
