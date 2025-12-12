@@ -1619,6 +1619,55 @@ p1 <- ggplot(dat, aes(x = steatosis_grade, y = hepatocyte_ballooning_score)) +
 
 print(p1)
 
+
+# Custom render function for continuous variables - single line Median [IQR]
+render.continuous <- function(x) {
+  med <- median(x, na.rm = TRUE)
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+  sprintf("%0.1f [%0.1f, %0.1f]", med, q1, q3)
+}
+
+# Categorical: % for specific level only
+render.categorical <- function(x) {
+  tbl <- table(x)
+  pct <- prop.table(tbl) * 100
+  
+  # Check which level to report based on what's present
+  if ("Female" %in% names(tbl)) {
+    sprintf("%0.1f%%", pct["Female"])
+  } else if ("Hispanic or Latino" %in% names(tbl)) {
+    sprintf("%0.1f%%", pct["Hispanic or Latino"])
+  } else if ("Yes" %in% names(tbl)) {
+    sprintf("%0.1f%%", pct["Yes"])
+  } else {
+    # Fallback: show all levels
+    sapply(names(tbl), function(lvl) sprintf("%d (%0.1f%%)", tbl[lvl], pct[lvl]))
+  }
+}
+
+# Apply to table1
+# table1(~ age + bmi + sex + race | group, 
+#        data = your_data,
+#        render.continuous = render.continuous,
+#        render.categorical = render.categorical)
+
+# table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
+#              +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+both+glp1_exclusive+sglt2_exclusive+neither + alt + ast + ggt + lobular_inflammation_percent + hepatocyte_ballooning_score+steatosis_grade+fibrosis_stage+fibrosis_cat| steatosis_cat, data=dat,render.continuous = render.continuous,
+#        render.categorical = render.categorical)
+table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
+             +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+glp1agonist+ sglt2+ alt + ast + ggt + lobular_inflammation_percent + hepatocyte_ballooning_score+fibrosis_stage| steatosis_cat, data=dat,render.continuous = render.continuous)
+
+
+t1 <- table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
+             +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+both+glp1_exclusive+sglt2_exclusive+neither + alt + ast + ggt + lobular_inflammation_percent + hepatocyte_ballooning_score+steatosis_grade+fibrosis_stage+fibrosis_cat| steatosis_cat, data=dat)
+t1_df <- as.data.frame(t1)
+write.csv(t1_df, "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Liver snRNA/Manuscript/table1_liver_manuscript.csv", row.names = FALSE)
+
+
+```
+### ii. Oroboros Tables
+```{r}
 # which(is.na(so_celltype$carbfccp))
 meta <- so_liver_sn@meta.data
 oro_vars <- colnames(meta)[85:114]
@@ -2186,7 +2235,7 @@ png(fs::path(dir.results,"Lipid_Oroboros_continuous_covariates_boxplots_steatosi
 print(combined_plot)
 dev.off()
 ```
-###ii. Hepatocytes
+###iii. Hepatocytes
 ```{r}
 so_celltype <- subset(so_liver_sn,celltype2=="Hep")
 DefaultAssay(so_celltype) <- "RNA"
