@@ -1685,3 +1685,50 @@ cat("Workspace saved: clinical_biomarker_analysis.RData\n")
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##T2D comparisons
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
