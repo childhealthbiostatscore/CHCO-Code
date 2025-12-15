@@ -269,13 +269,15 @@ combined_df <- dat2 %>%
     age = as.numeric(age),
     bmi = as.numeric(bmi),
     hba1c = as.numeric(hba1c),
+    acr_u = as.numeric(acr_u), 
+    egfr = as.numeric(egfr),
     
     # Ensure categorical variables are factors or characters
     sex = as.factor(sex),
     race_ethnicity = as.factor(race_ethnicity),
     study = as.factor(study),
     group = as.factor(group),
-    epic_sglti2_1 = as.factor(epic_sglti2_1)
+    epic_sglti2_1 = as.factor(epic_sglti2_1), 
   )
 
 
@@ -292,7 +294,9 @@ desc_table1_fixed <- combined_df %>%
       sex ~ "categorical",
       race_ethnicity ~ "categorical",
       study ~ "categorical",
-      epic_sglti2_1 ~ "categorical"
+      epic_sglti2_1 ~ "categorical", 
+      egfr = 'continuous', 
+      acr_u = 'continuous'
     ),
     statistic = list(
       all_continuous() ~ "{mean} ({sd})",
