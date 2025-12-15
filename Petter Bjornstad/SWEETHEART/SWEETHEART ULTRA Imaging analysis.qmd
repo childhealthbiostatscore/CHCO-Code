@@ -62,6 +62,11 @@ library(lemon)
 library(quantreg)
 library(readxl)
 library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(cowplot)
+library(ggpubr)
 ```
 
 ```{r include = F}
@@ -101,42 +106,6 @@ Sys.setenv(
 ```
 
 ```{r}
-im_vars <- c("imaging_date",
-             "imaging_hr",
-             "af_high5pctwss",
-             "af_medianwss",
-             "af_meanwss",
-             "af_pwv_xcor3",
-             "mv_flow_ea",
-             "mv_flow_a",
-             "mv_flow_e",
-             "tt2",
-             "tt1",
-             "long_peak",
-             "circum_peak",
-             "radial_peak",
-             "rvef",
-             "lvef",
-             "ef_percent",
-             "rvco",
-             "lvco",
-             "cardiac_output",
-             "rvsv",
-             "lvsv",
-             "sv_ml",
-             "rvedv",
-             "lvedv",
-             "edv_ml",
-             "rvesv",
-             "lvesv",
-             "esv_ml",
-             "myo_mass_syst",
-             "myo_mass_dias",
-             "myo_thickness_total",
-             "myo_thickness_dias")
-```
-
-```{r}
 harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
 
 ultra_swht_coenrolled <- harm_dat %>%
@@ -146,44 +115,255 @@ ultra_swht_coenrolled <- harm_dat %>%
 
 harm_dat_subset <- harm_dat %>%
   filter(study == "ULTRA" | !is.na(swht_id)) %>%
-  mutate(imaging_visit = case_when(imaging_visit == 1 ~ "ultra_baseline", 
-                                   imaging_visit == 2 ~ "ultra_follow_up",
-                                   record_id %in% ultra_swht_coenrolled ~ "ultra_swht_follow_up",
-                                   study == "SWEETHEART" ~ "swht_cs"),
+  mutate(imaging_visit_id = case_when(imaging_visit == 1 ~ "ultra_baseline", 
+                                      imaging_visit == 2 ~ "ultra_follow_up",
+                                      record_id %in% ultra_swht_coenrolled & study == "SWEETHEART" ~ "ultra_swht_follow_up",
+                                      study == "SWEETHEART" ~ "swht_cs"),
+         coenrolled_id = case_when(!is.na(swht_id) ~ "swht_coenrolled",
+                                   !is.na(ultra_id) ~ "ultra_coenrolled"),
          sex = case_when(study == "ULTRA" ~ "Male", T ~ sex),
-         age = interval(dob, imaging_date) / years(1)) %>%
-  # dplyr::select(swht_id, record_id, mrn, group, sex, age, imaging_visit, study, all_of(im_vars)) %>%
+         age = interval(dob, imaging_date) / years(1))%>%
+  # dplyr::select(swht_id, record_id, mrn, group, sex, age, imaging_visit_id, study, all_of(im_vars)) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id, imaging_visit)) %>%
-  filter(!is.na(mv_flow_ea))
+                   .by = c(record_id, imaging_visit_id)) %>%
+  filter(study != "ULTRA" | study == "ULTRA" & !is.na(imaging_visit_id)) %>%
+  group_by(mrn, coenrolled_id) %>%
+  fill(everything(), .direction = "down") %>%
+  ungroup() %>%
+  filter(!is.na(imaging_date)) %>%
+  mutate(uacr_100 = case_when(acr_u >= 100 ~ "UACR >=100 mg/g",
+                              acr_u < 100 ~ "UACR <100 mg/g"),
+         uacr_group = case_when(
+           eGFR_CKD_epi < 90 | acr_u >= 100 ~ "eGFR < 90 and/or UACR >=100 mg/g",
+           eGFR_CKD_epi >= 90 & acr_u < 100 ~ "eGFR >= 90 and UACR <100 mg/g",
+           TRUE ~ NA_character_
+         ),
+         uacr_group = factor(
+           uacr_group,
+           levels = c("eGFR >= 90 and UACR <100 mg/g",
+                      "eGFR < 90 and/or UACR >=100 mg/g")
+         ),
+         
+         dkd_group_100 = case_when(
+           eGFR_CKD_epi < 90 | acr_u >= 100 ~ "DKD",
+           eGFR_CKD_epi >= 90 & acr_u < 100 ~ "non_DKD",
+           TRUE ~ NA_character_
+         ),
+
+         dkd_group_30 = case_when(
+           eGFR_CKD_epi < 90 | acr_u >= 30 ~ "DKD",
+           eGFR_CKD_epi >= 90 & acr_u < 30 ~ "non_DKD",
+           TRUE ~ NA_character_
+         ),
+         # eGFR categories
+         egfr_cat = case_when(
+           eGFR_CKD_epi < 60                      ~ "<60",
+           eGFR_CKD_epi >= 60 & eGFR_CKD_epi < 90 ~ "60–<90",
+           eGFR_CKD_epi >= 90                     ~ "≥90",
+           TRUE ~ NA_character_
+         ),
+         egfr_cat = factor(egfr_cat, levels = c("<60", "60–<90", "≥90")),
+         # ACR categories
+         acr_u_cat3 = case_when(
+           acr_u < 30                  ~ "<30",
+           acr_u >= 30 & acr_u < 300   ~ "30–<300",
+           acr_u >= 300                ~ "≥300",
+           TRUE ~ NA_character_
+         ),
+         acr_u_cat3 = factor(acr_u_cat3, levels = c("<30", "30–<300", "≥300")),
+         long_peak   = case_when(long_peak   == 0 ~ NA_real_, TRUE ~ long_peak),
+         circum_peak = case_when(circum_peak == 0 ~ NA_real_, TRUE ~ circum_peak),
+         radial_peak = case_when(radial_peak == 0 ~ NA_real_, TRUE ~ radial_peak),
+         log_acr_u = log(acr_u))
+
+harm_dat_subset_baseline <- harm_dat_subset %>%
+  filter(imaging_visit_id != "ultra_follow_up")
+
+harm_dat_subset_obt2d <- harm_dat_subset %>%
+  filter(group != "Lean Control" & imaging_visit_id != "ultra_follow_up")
+
 ```
 
 ```{r}
-summary(arsenal::tableby(imaging_visit ~ group + age + sex + bmi + acr_u, data = harm_dat_subset))
-
+summary(arsenal::tableby(imaging_visit_id ~ group + age + sex + bmi + kwt(acr_u, "Nmiss", "medianq1q3") + hba1c +
+                           dkd_group_30 + dkd_group_100, data = harm_dat_subset))
 ```
 
-```{r echo = F}
-library(dplyr)
+```{r}
 library(ggplot2)
 library(purrr)
 library(cowplot)
-plots <- map(names(swht_imaging_full)[8:34], function(var) {
-  ggplot(swht_imaging_full, aes(x = group, y = .data[[var]], fill = group)) +
-    geom_boxplot(size = 1) +
-    theme(panel.background = element_blank(),
-          text = element_text(size = 18),
-          axis.title.x = element_blank(),
-          axis.text.x = element_text(angle = 60, hjust = 1),
-          legend.position = "none") +
-    scale_fill_manual(values = c("#588157", "#f08080", "#98c1d9"))
-})
+library(ggpubr)
+library(dplyr)
+
+plot_boxgrid <- function(df, vars = im_vars, log_vars = NULL, group_var, 
+                         ncol = 3, per_page = 9,
+                         fill_colors = c("#f08080", "#98c1d9"),
+                         save = TRUE,
+                         save_dir = paste0(root_path, "/ULTRA_SWEETHEART/Results/Figures/Box plots"),
+                         file_prefix = "plot_page",
+                         file_type = "png",
+                         width = 12, height = 12, dpi = 300) {
   
+  # Convert numeric vars/log_vars to names if needed
+  if (is.numeric(vars)) vars <- names(df)[vars]
+  if (!is.null(log_vars) && is.numeric(log_vars)) log_vars <- names(df)[log_vars]
+  
+  # ---------------------------------------------
+  # 1. Create log10 transformed columns BEFORE plotting
+  # ---------------------------------------------
+  if (!is.null(log_vars)) {
+    for (v in log_vars) {
+      log_name <- paste0(v, "_log10")
+      df[[log_name]] <- log10(df[[v]])
+    }
+  }
+  
+  # ---------------------------------------------
+  # 2. Generate plots
+  # ---------------------------------------------
+  plots <- purrr::map(vars, function(v) {
+    
+    # choose correct y-column
+    if (!is.null(log_vars) && v %in% log_vars) {
+      ycol <- paste0(v, "_log10")
+      ylab <- paste0("log10(", v, ")")
+    } else {
+      ycol <- v
+      ylab <- v
+    }
+    
+    # pairwise comparisons
+    comps <- combn(unique(df[[group_var]]), 2, simplify = FALSE)
+    
+    ggplot(df, aes(x = .data[[group_var]], y = .data[[ycol]], fill = .data[[group_var]])) +
+      geom_boxplot(size = 1) +
+      
+      stat_compare_means(
+        comparisons = comps, 
+        label = "p.signif", 
+        hide.ns = TRUE, 
+        size = 10
+      ) +
+      
+      labs(y = ylab, x = NULL) +
+      scale_fill_manual(values = fill_colors) +
+      
+      # give extra top space for stars
+      scale_y_continuous(expand = expansion(mult = c(0.05, 0.35))) +
+      
+      theme(
+        panel.background = element_blank(),
+        text = element_text(size = 18),
+        axis.text.x = element_text(angle = 60, hjust = 1),
+        legend.position = "none"
+      )
+  })
+  
+  # ---------------------------------------------
+  # 3. Save pages
+  # ---------------------------------------------
+  if (save) dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
+  
+  n_plots <- length(plots)
+  pages <- ceiling(n_plots / per_page)
+  
+  for (page in seq_len(pages)) {
+    start <- (page - 1) * per_page + 1
+    end <- min(page * per_page, n_plots)
+    
+    page_plot <- cowplot::plot_grid(plotlist = plots[start:end], ncol = ncol)
+    print(page_plot)
+    
+    if (save) {
+      outfile <- file.path(save_dir, sprintf("%s_%02d.%s", file_prefix, page, file_type))
+      ggsave(outfile, page_plot, width = width, height = height, dpi = dpi)
+    }
+  }
+  
+  invisible(plots)
+}
+```
 
-plot_grid(plotlist = plots[1:9], ncol = 3)
-plot_grid(plotlist = plots[10:18], ncol = 3)
-plot_grid(plotlist = plots[19:27], ncol = 3)
+```{r echo = F}
+im_vars_log <- c(
+  "af_pwv_xcor3",
+  "mv_flow_a",
+  "mv_flow_e",
+  "lv_myo_thickness_total",
+  "lv_myo_thickness_dias")
 
-table(swht_imaging_full$group)
+im_vars <- c(
+  "imaging_hr",
+  "af_high5pctwss",
+  "af_medianwss",
+  "af_meanwss",
+  "af_pwv_xcor3",
+  "mv_flow_ea",
+  "mv_flow_a",
+  "mv_flow_e",
+  "tt2",
+  "tt1",
+  "long_peak",
+  "circum_peak",
+  "radial_peak",
+  "rvef",
+  "lvef",
+  "rvco",
+  "lvco",
+  "rvsv",
+  "lvsv",
+  "rvedv",
+  "lvedv",
+  "rvesv",
+  "lvesv",
+  "lv_myo_mass_syst",
+  "lv_myo_mass_dias",
+  "lv_myo_thickness_total",
+  "lv_myo_thickness_dias")
+```
+
+```{r echo = F}
+plot_boxgrid(
+  df = harm_dat_subset_baseline,
+  group_var = "group",
+  log_vars = im_vars_log,
+  fill_colors = c("#588157", "#f08080", "#98c1d9"),
+  file_prefix = "baseline_group"
+)
+
+plot_boxgrid(
+  df = harm_dat_subset_obt2d,
+  group_var = "sex",
+  log_vars = im_vars_log,
+  file_prefix = "obt2d_sex"
+)
+
+table(harm_dat_subset_obt2d$group)
+
+plot_boxgrid(
+  df = subset(harm_dat_subset_obt2d, !is.na(dkd_group_30)),
+  group_var = "dkd_group_30",
+  log_vars = im_vars_log,
+  file_prefix = "obt2d_dkd30"
+)
+
+plot_boxgrid(
+  df = subset(harm_dat_subset_obt2d, !is.na(dkd_group_100)),
+  group_var = "dkd_group_100",
+  log_vars = im_vars_log,
+  file_prefix = "obt2d_dkd100"
+)
+
+
+map(im_vars, ~ hist(harm_dat_subset[[.x]],
+                    main = .x,
+                    xlab = .x))
+```
+
+# correlation with log(UACR), eGFR, BMI, and HbA1c
+```{r}
+anchor_vars <- c("log_acr_u", "eGFR_CKD_epi", "bmi", "hba1c")
+
 ```
