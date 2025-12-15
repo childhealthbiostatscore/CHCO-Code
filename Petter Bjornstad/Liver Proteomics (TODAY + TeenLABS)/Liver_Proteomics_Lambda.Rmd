@@ -1,0 +1,83 @@
+---
+title: "Liver Proteomics"
+author: "Hailey E. Hampson"
+date: "2025-12-15"
+output: html_document
+---
+# 1. Set up Libraries & Directores
+```{r libraries, echo=F, include = F}
+#Load Libraries
+library(reticulate)
+use_python("/home/hhampson/miniconda3/bin/python", required = TRUE)
+source("Lambda_Libraries.R")
+
+#Local file path
+# dir.dat <- c("/Volumes/Peds Endo/Petter Bjornstad")
+# dir.dat2 <- c("/Volumes/Peds Endo/Petter Bjornstad/scRNA/data_clean")
+# dir.code <- c("/Users/hhampson/Documents/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
+# dir.results <- c("/Users/hhampson/Documents/UW/1_Ongoing Projects/Liver scRNAseq/2_Results")
+
+#Lambda file path
+# dir.dat <- c("/run/user/1026/gvfs/smb-share:server=ucdenver.pvt,share=som/PEDS/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad")
+# dir.code <- c("/home/Github_Repo/CHCO-Code/Petter Bjornstad/Liver analysis/Liver scRNAseq")
+# dir.results <- c(fs::path(dir.dat,"Liver project/Results"))
+
+# #Mac Studio File Path
+# dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Project/NEBULA Results")
+# # # dir.ipa <- c("/Users/hhampson/Documents/IPA/Results")
+
+#Laura's Mac Studio File Path
+# dir.dat <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive")
+# dir.results <- c("/Users/haileyhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver Project/NEBULA Results")
+
+#Load functions
+source("Lambda_Liver_Functions.R")
+# source("/Users/hhampson/CHCO-Code/Petter Bjornstad/Data Processing and Analysis/Standard_Functions.R")
+
+# knitr::opts_knit$set(root.dir = dir.results)
+```
+
+# 2. Load Data, Pre-Processing & Qualtiy Control
+```{r, Cyberduck setup}
+# install.packages("reticulate")
+# library(reticulate)
+# reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
+
+## Load boto3 and pandas
+boto3 <- reticulate::import("boto3")
+pd <- reticulate::import("pandas")
+
+## Create an S3 client
+# install.packages("jsonlite")  # Install if not already installed
+library(jsonlite)  # Load the package
+
+keys <- fromJSON("/home/hhampson/keys.json") # replace with your Lambda username
+session <- boto3$session$Session(
+  aws_access_key_id = keys$MY_ACCESS_KEY,
+  aws_secret_access_key = keys$MY_SECRET_KEY
+)
+
+## Create an S3 client with the session
+s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
+
+# read file
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+s3$download_file(bucket,"Liver transcriptomics/Single nucleus RNA seq/NoRef_PetterLiver_ClinData_Labels_Char_041924.rds", temp_file)
+so_liver_sn <- readRDS(temp_file)
+
+DefaultAssay(so_liver_sn) <- "RNA"
+dim(so_liver_sn)#36601 130124
+nrow(so_liver_sn) #36,601 genes
+ncol(so_liver_sn) # 130,124 nuceli
+invisible(gc())
+
+#Load metadata
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
+meta_liver_raw <- read.csv(temp_file)
+gc()
+```
