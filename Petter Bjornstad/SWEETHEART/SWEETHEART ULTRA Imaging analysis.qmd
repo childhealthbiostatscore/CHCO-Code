@@ -364,6 +364,51 @@ map(im_vars, ~ hist(harm_dat_subset[[.x]],
 
 # correlation with log(UACR), eGFR, BMI, and HbA1c
 ```{r}
+harm_dat_subset <- harm_dat_subset %>%
+  mutate(across(
+    all_of(im_vars_log),
+    ~ ifelse(.x <= 0, NA, log10(.x)),
+    .names = "{.col}_log10"
+  ))
+
+imaging_for_cor <- c(
+  im_vars,                        # original vars
+  paste0(im_vars_log, "_log10")   # log versions
+)
+
 anchor_vars <- c("log_acr_u", "eGFR_CKD_epi", "bmi", "hba1c")
 
+cor_df <- expand.grid(
+  imaging = imaging_for_cor,
+  anchor = anchor_vars,
+  stringsAsFactors = FALSE
+)
+
+cor_df$rho <- NA
+cor_df$pval <- NA
+
+for (i in seq_len(nrow(cor_df))) {
+  x <- harm_dat_subset[[cor_df$imaging[i]]]
+  y <- harm_dat_subset[[cor_df$anchor[i]]]
+  tmp <- cor.test(x, y, method = "spearman", exact = FALSE)
+  
+  cor_df$rho[i]  <- tmp$estimate
+  cor_df$pval[i] <- tmp$p.value
+}
+
+cor_df$stars <- cut(
+  cor_df$pval,
+  breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+  labels = c("***", "**", "*", "")
+)
+
+ggplot(cor_df, aes(x = anchor, y = imaging, fill = rho)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = stars), color = "black") +
+  scale_fill_gradient2(
+    low = "#2166ac", mid = "white", high = "#b2182b",
+    midpoint = 0, limits = c(-1, 1)
+  ) +
+  theme_minimal(base_size = 14) +
+  labs(fill = "rho")
 ```
