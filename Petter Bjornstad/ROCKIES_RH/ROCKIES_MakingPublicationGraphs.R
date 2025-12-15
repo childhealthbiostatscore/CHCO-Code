@@ -284,7 +284,7 @@ combined_df <- dat2 %>%
 
 # Now create the table with proper data types
 desc_table1_fixed <- combined_df %>%
-  select(age, sex, race_ethnicity, bmi, hba1c, study, group, epic_sglti2_1) %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, group, epic_sglti2_1, acr_u, egfr) %>%
   tbl_summary(
     by = group,
     type = list(
@@ -306,6 +306,8 @@ desc_table1_fixed <- combined_df %>%
       age ~ 1,
       bmi ~ 1,
       hba1c ~ 2,
+      acr_u ~ 2, 
+      egfr ~ 2, 
       all_categorical() ~ c(0, 1)
     ),
     label = list(
@@ -474,6 +476,47 @@ ggsave(paste0(base_path, 'Figure2_GlobalPET.png'),
        height = 20,
        units = "in",
        dpi = 300)
+
+
+
+# Calculate means and standard deviations by group and metric
+summary_stats <- aim1_long %>%
+  group_by(metric, group) %>%
+  summarise(
+    mean = mean(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    n = n(),
+    .groups = 'drop'
+  )
+
+# View the results
+print(summary_stats)
+
+# Optional: Create a nicely formatted table
+summary_stats_wide <- summary_stats %>%
+  mutate(mean_sd = sprintf("%.3f ± %.3f", mean, sd)) %>%
+  select(metric, group, mean_sd, n) %>%
+  pivot_wider(names_from = group, 
+              values_from = c(mean_sd, n))
+
+print(summary_stats_wide)
+
+# Optional: Save to file
+write.table(summary_stats, 
+            paste0(base_path, 'PET_summary_statistics.txt'), 
+            row.names = FALSE, 
+            quote = FALSE, 
+            sep = '\t')
+
+write.csv(summary_stats_wide, 
+          paste0(base_path, 'PET_summary_statistics_formatted.csv'), 
+          row.names = FALSE)
+
+
+
+
+
+
 
 
 
