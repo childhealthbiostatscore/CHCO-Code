@@ -56,7 +56,7 @@ clean <- clean %>%
                                  T ~ screen_date)) %>%
   fill(screen_date, .direction = "updown") %>% ungroup() %>%
   dplyr::select(record_id, attempt_id, casper_id, coffee_id, croc_id, improve_id, penguin_id, 
-                rh_id, rh2_id, panther_id, panda_id, co_enroll_id,
+                rh_id, rh2_id, panther_id, panda_id, rpc2_id, swht_id, ultra_id, co_enroll_id,
                 mrn, date, screen_date, everything())
 
 # ---- Calculate BMI Percentiles using growthcleanr ----
