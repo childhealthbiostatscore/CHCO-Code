@@ -546,7 +546,8 @@ def harmonize_data():
 
     # Sort columns
     id_cols = ["record_id", "casper_id", "coffee_id", "croc_id", "improve_id", 
-                "penguin_id", "rh_id", "rh2_id", "panther_id", "panda_id", "attempt_id", "rpc2_id", "swht_id",
+                "penguin_id", "rh_id", "rh2_id", "panther_id", "panda_id", "attempt_id", 
+                "rpc2_id", "swht_id", "ultra_id",
                 "mrn", "co_enroll_id", "study", "dob", "diabetes_dx_date",
                "sex", "race", "ethnicity", "visit", "procedure", "date", "group"]
     other_cols = harmonized.columns.difference(id_cols, sort=False).tolist()
