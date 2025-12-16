@@ -1299,7 +1299,7 @@ cat(sprintf("  OxPhos significant: %d/%d\n",
 
 
 
-##### PSeudotime
+##### Pseudotime
 
 
 library(slingshot)
