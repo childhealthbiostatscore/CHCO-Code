@@ -1,4 +1,5 @@
 ## PET global and voxel analysis 
+## PET global and voxel analysis 
 library(scran)
 library(future)
 library(future.apply)
@@ -41,44 +42,67 @@ library(reshape2)
 library(broom.mixed)
 library(nebula)
 
-
-
+# Modified function to calculate both voxel-weighted and global averages
 PET_avg <- function(data){
-  tmp_df <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
-                                   lc_f, rc_f, lm_f, rm_f)
-  avg_c_k2 <- tmp_df %>%
+  # Voxel-weighted calculations
+  tmp_df_vw <- data %>% dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw, 
+                                      lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw,
+                                      lc_f, rc_f, lm_f, rm_f)
+  
+  avg_c_k2_vw <- tmp_df_vw %>%
     dplyr::select(lc_k2_wo_cyst_vw, rc_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
   
-  avg_m_k2 <- tmp_df %>% 
+  avg_m_k2_vw <- tmp_df_vw %>% 
     dplyr::select(lm_k2_wo_cyst_vw, rm_k2_wo_cyst_vw) %>% rowMeans(na.rm=T)
   
-  avg_c_f <- tmp_df %>% 
+  avg_c_f_vw <- tmp_df_vw %>% 
     dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
   
-  avg_m_f <- tmp_df %>% 
+  avg_m_f_vw <- tmp_df_vw %>% 
     dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
   
-  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  avg_c_k2_f_vw <- avg_c_k2_vw / avg_c_f_vw
+  avg_m_k2_f_vw <- avg_m_k2_vw / avg_m_f_vw
   
-  avg_m_k2_f <- avg_m_k2/ avg_m_f
+  # Global calculations (without _vw suffix)
+  tmp_df_global <- data %>% dplyr::select(lc_k2, rc_k2, 
+                                          lm_k2, rm_k2,
+                                          lc_f, rc_f, 
+                                          lm_f, rm_f)
   
-  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
-                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
-  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
-                      'avg_c_k2_f', 'avg_m_k2_f')
+  avg_c_k2_global <- tmp_df_global %>%
+    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+  
+  avg_m_k2_global <- tmp_df_global %>% 
+    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+  
+  avg_c_f_global <- tmp_df_global %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  
+  avg_m_f_global <- tmp_df_global %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  
+  avg_c_k2_f_global <- avg_c_k2_global / avg_c_f_global
+  avg_m_k2_f_global <- avg_m_k2_global / avg_m_f_global
+  
+  # Combine results
+  results <- bind_cols(
+    avg_c_k2_vw, avg_m_k2_vw, avg_c_f_vw, avg_m_f_vw, avg_c_k2_f_vw, avg_m_k2_f_vw,
+    avg_c_k2_global, avg_m_k2_global, avg_c_f_global, avg_m_f_global, 
+    avg_c_k2_f_global, avg_m_k2_f_global
+  ) %>% as.data.frame()
+  
+  names(results) <- c(
+    'cortical_k2_voxel', 'medulla_k2_voxel', 'cortical_f_voxel', 'medulla_f_voxel', 
+    'cortical_k2_f_voxel', 'medulla_k2_f_voxel',
+    'cortical_k2_global', 'medulla_k2_global', 'cortical_f_global', 'medulla_f_global',
+    'cortical_k2_f_global', 'medulla_k2_f_global'
+  )
   
   return(results)
-  
 }
 
-
-
-
-
-
-
 ###All comparison groups 
-
 
 harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 
@@ -91,24 +115,15 @@ dat <- harmonized_data %>%
     .by = c(record_id, visit)
   )
 
-
-
 tmp_results <- PET_avg(dat)
 
+dat_results <- dat %>% bind_cols(tmp_results)
 
-dat_results <- dat
-
-
-dat_results <- dat_results %>% bind_cols(tmp_results)
-
-
-dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
+dat_results <- dat_results %>% filter(!is.na(cortical_k2_voxel))
 
 dat_results$group2 <- dat_results$group
 
-
 dat_results$epic_sglti2_1[which(dat_results$group == 'Lean Control')] <- 'No'
-
 
 RH2 <- data.table::fread('C:/Users/netio/Documents/UofW/Rockies/RenalHEIRitage-SGLT2Use.csv')
 names(RH2) <- c('Subject', 'event', 'rep_instr', 'rep_inst', 'mrn', 'SGLT2', 'SGLT2_ever')
@@ -116,7 +131,6 @@ RH2 <- RH2 %>% filter(!is.na(mrn))
 
 need_med_info <- dat_results %>% filter(group == 'Type 2 Diabetes')
 RH2_small <- RH2 %>% filter(mrn %in% need_med_info$mrn)
-
 
 for(i in c(1:nrow(RH2_small))){
   if(RH2_small$SGLT2[i] == 'No'){
@@ -128,20 +142,22 @@ for(i in c(1:nrow(RH2_small))){
   }else{
     next
   }
-  
 }
-
 
 dat_results$epic_sglti2_1[which(dat_results$group2 == 'T2D-SGLTi2')] <- 'Yes'
 
+# Separate test variables for voxel and global
+tests_voxel <- c('cortical_k2_voxel', 'cortical_f_voxel', 'cortical_k2_f_voxel',
+                 'medulla_k2_voxel', 'medulla_f_voxel', 'medulla_k2_f_voxel')
 
+test_labels_voxel <- c('Cortical K2 (Voxel)', 'Cortical F (Voxel)', 'Cortical K2/F (Voxel)',
+                       'Medulla K2 (Voxel)', 'Medulla F (Voxel)', 'Medulla K2/F (Voxel)')
 
+tests_global <- c('cortical_k2_global', 'cortical_f_global', 'cortical_k2_f_global',
+                  'medulla_k2_global', 'medulla_f_global', 'medulla_k2_f_global')
 
-
-tests <- c('avg_c_k2', 'avg_c_f', 
-           'avg_m_k2', 'avg_m_f', 
-           'avg_c_k2_f', 'avg_m_k2_f')
-
+test_labels_global <- c('Cortical K2 (Global)', 'Cortical F (Global)', 'Cortical K2/F (Global)',
+                        'Medulla K2 (Global)', 'Medulla F (Global)', 'Medulla K2/F (Global)')
 
 
 boxplot_function <- function(data, variable, label, method){
@@ -150,10 +166,7 @@ boxplot_function <- function(data, variable, label, method){
   data <- data %>% dplyr::select(group, var_index)
   names(data)[2] <- 'Variable'
   
-  
   desired_order <- c("Lean Control", "Obese Control", "Type 1 Diabetes", "Type 2 Diabetes", "PKD")
-  
-  # Only include levels that actually exist in your data
   available_levels <- desired_order[desired_order %in% unique(data$group)]
   data$group <- factor(data$group, levels = available_levels)
   
@@ -166,42 +179,54 @@ boxplot_function <- function(data, variable, label, method){
       mutate(pvalue = ifelse(`p adj` < 0.001, '< 0.001', 
                              paste0('p = ', round(`p adj`, 3))))
     
-    pval_1 <- model_results$pvalue[which(rownames(model_results) == 'Type 2 Diabetes-Obese Control')] %>%
-      as.character()
-    pval_2 <- model_results$pvalue[which(rownames(model_results) == 'Type 2 Diabetes-Lean Control')] %>% 
-      as.character()
-    pval_3 <- model_results$pvalue[which(rownames(model_results) == 'Type 2 Diabetes-Type 1 Diabetes')] %>% 
-      as.character()
-    pval_4 <- model_results$pvalue[which(rownames(model_results) == 'PKD-Type 2 Diabetes')] %>% 
-      as.character()
+    # Helper function to safely extract p-values
+    safe_extract_pval <- function(comparison_name) {
+      idx <- which(rownames(model_results) == comparison_name)
+      if(length(idx) == 0) {
+        return('N/A')
+      }
+      pval <- model_results$pvalue[idx]
+      if(length(pval) == 0 || is.na(pval)) {
+        return('N/A')
+      }
+      return(as.character(pval))
+    }
+    
+    pval_1 <- safe_extract_pval('Type 2 Diabetes-Obese Control')
+    pval_2 <- safe_extract_pval('Type 2 Diabetes-Lean Control')
+    pval_3 <- safe_extract_pval('Type 2 Diabetes-Type 1 Diabetes')
+    pval_4 <- safe_extract_pval('PKD-Type 2 Diabetes')
+    
   }else if(method == 't-test'){
     
-    tmp_df <- data %>% filter(group %in% c('Type 2 Diabetes', 'Obese Control'))
-    model1 <- t.test(Variable ~ group, data = tmp_df)
-    pval_1 <- ifelse(model1$p.value < 0.001, '< 0.001', 
-                     paste0('p = ', round(model1$p.value, 3)))
+    # Helper function to perform t-test with error handling
+    safe_ttest <- function(data, groups) {
+      tmp_df <- data %>% filter(group %in% groups, !is.na(Variable))
+      
+      # Check if both groups exist and have data
+      group_counts <- table(tmp_df$group)
+      if(length(group_counts) != 2 || any(group_counts < 2)) {
+        return('N/A')
+      }
+      
+      tryCatch({
+        model1 <- t.test(Variable ~ group, data = tmp_df)
+        pval <- ifelse(model1$p.value < 0.001, '< 0.001', 
+                       paste0('p = ', round(model1$p.value, 3)))
+        return(pval)
+      }, error = function(e) {
+        return('N/A')
+      })
+    }
     
-    tmp_df <- data %>% filter(group %in% c('Type 2 Diabetes', 'Lean Control'))
-    model1 <- t.test(Variable ~ group, data = tmp_df)
-    pval_2 <- ifelse(model1$p.value < 0.001, '< 0.001', 
-                     paste0('p = ', round(model1$p.value, 3)))
-    
-    tmp_df <- data %>% filter(group %in% c('Type 2 Diabetes', 'Type 1 Diabetes'))
-    model1 <- t.test(Variable ~ group, data = tmp_df)
-    pval_3 <- ifelse(model1$p.value < 0.001, '< 0.001', 
-                     paste0('p = ', round(model1$p.value, 3)))
-    
-    tmp_df <- data %>% filter(group %in% c('Type 2 Diabetes', 'PKD'))
-    model1 <- t.test(Variable ~ group, data = tmp_df)
-    pval_4 <- ifelse(model1$p.value < 0.001, '< 0.001', 
-                     paste0('p = ', round(model1$p.value, 3)))
-    
-    
+    pval_1 <- safe_ttest(data, c('Type 2 Diabetes', 'Obese Control'))
+    pval_2 <- safe_ttest(data, c('Type 2 Diabetes', 'Lean Control'))
+    pval_3 <- safe_ttest(data, c('Type 2 Diabetes', 'Type 1 Diabetes'))
+    pval_4 <- safe_ttest(data, c('Type 2 Diabetes', 'PKD'))
   }
   
   y_max <- max(data$Variable, na.rm = TRUE)
   y_range <- diff(range(data$Variable, na.rm = TRUE))
-  
   
   plot <- ggplot(data, aes(x = group, y = Variable, fill = group))  +
     geom_boxplot()+
@@ -213,24 +238,18 @@ boxplot_function <- function(data, variable, label, method){
     scale_x_discrete(expand = expansion(mult = c(0.1, 0.1))) + 
     labs(x= 'Study Group', y = label, fill = 'Study Group')+
     theme_minimal()+
-    theme(axis.text.x = element_blank(),  # Keep x-axis labels hidden as in your original
+    theme(axis.text.x = element_blank(),
           text = element_text(size = 20),
-          legend.position = "right",      # Show legend since x-axis is hidden
-          panel.grid.major.x = element_blank(),  # Remove vertical grid lines
+          legend.position = "right",
+          panel.grid.major.x = element_blank(),
           panel.grid.minor.x = element_blank())
   
   group_positions <- 1:length(levels(data$group))
   names(group_positions) <- levels(data$group)
   
-  # Debug: Print positions
-  print("Group positions:")
-  print(group_positions)
-  
-  # Find positions of specific groups (with error checking)
   get_position <- function(group_name) {
     pos <- group_positions[group_name]
     if(is.na(pos)) {
-      print(paste("Warning: Group", group_name, "not found in data"))
       return(NULL)
     }
     return(as.numeric(pos))
@@ -242,101 +261,132 @@ boxplot_function <- function(data, variable, label, method){
   t1d_pos <- get_position("Type 1 Diabetes")
   pkd_pos <- get_position("PKD")
   
-  
-  
-  plot <- plot + 
-    annotate("segment", x = lean_pos, xend = t2d_pos, 
-             y = y_max + 0.25 * y_range, yend = y_max + 0.25 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("segment", x = lean_pos, xend = lean_pos, 
-             y = y_max + 0.23 * y_range, yend = y_max + 0.25 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("segment", x = t2d_pos, xend = t2d_pos, 
-             y = y_max + 0.23 * y_range, yend = y_max + 0.25 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("text", x = (lean_pos + t2d_pos)/2, y = y_max + 0.27 * y_range, 
-             label = pval_2, size = 4) +
-    
-    annotate("segment", x = obese_pos, xend = t2d_pos, 
-             y = y_max + 0.18 * y_range, yend = y_max + 0.18 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("segment", x = obese_pos, xend = obese_pos, 
-             y = y_max + 0.16 * y_range, yend = y_max + 0.18 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("segment", x = t2d_pos, xend = t2d_pos, 
-             y = y_max + 0.16 * y_range, yend = y_max + 0.18 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("text", x = (obese_pos + t2d_pos)/2, y = y_max + 0.20 * y_range, 
-             label = pval_1, size = 4) +
-    
-    annotate("segment", x = t1d_pos, xend = t2d_pos, 
-             y = y_max + 0.11 * y_range, yend = y_max + 0.11 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("segment", x = t1d_pos, xend = t1d_pos, 
-             y = y_max + 0.09 * y_range, yend = y_max + 0.11 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("segment", x = t2d_pos, xend = t2d_pos, 
-             y = y_max + 0.09 * y_range, yend = y_max + 0.11 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("text", x = (t1d_pos + t2d_pos)/2, y = y_max + 0.13 * y_range, 
-             label = pval_3, size = 4) +
-    
-    annotate("segment", x = t2d_pos, xend = pkd_pos, 
-             y = y_max + 0.04 * y_range, yend = y_max + 0.04 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("segment", x = t2d_pos, xend = t2d_pos, 
-             y = y_max + 0.02 * y_range, yend = y_max + 0.04 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("segment", x = pkd_pos, xend = pkd_pos, 
-             y = y_max + 0.02 * y_range, yend = y_max + 0.04 * y_range, 
-             color = "black", size = 0.5) +
-    annotate("text", x = (t2d_pos + pkd_pos)/2, y = y_max + 0.06 * y_range, 
-             label = pval_4, size = 4) + 
-    
-    expand_limits(y = y_max + 0.3 * y_range)
-  
-  print(plot)
-}
-
-
-
-
-
-
-for(i in c(1:length(tests))){
-  if(i == 1){
-    results_list <- list()
+  # Helper function to check if we should add comparison
+  should_add_comparison <- function(pos1, pos2, pval) {
+    !is.null(pos1) && !is.null(pos2) && !is.na(pval) && pval != 'N/A'
   }
-  results_list[[i]]<- boxplot_function(dat_results, tests[i], tests[i], method='ANOVA')
+  
+  # Only add comparison lines if positions exist and p-values are available
+  if(should_add_comparison(lean_pos, t2d_pos, pval_2)){
+    plot <- plot + 
+      annotate("segment", x = lean_pos, xend = t2d_pos, 
+               y = y_max + 0.25 * y_range, yend = y_max + 0.25 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = lean_pos, xend = lean_pos, 
+               y = y_max + 0.23 * y_range, yend = y_max + 0.25 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = t2d_pos, xend = t2d_pos, 
+               y = y_max + 0.23 * y_range, yend = y_max + 0.25 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("text", x = (lean_pos + t2d_pos)/2, y = y_max + 0.27 * y_range, 
+               label = pval_2, size = 4)
+  }
+  
+  if(should_add_comparison(obese_pos, t2d_pos, pval_1)){
+    plot <- plot +
+      annotate("segment", x = obese_pos, xend = t2d_pos, 
+               y = y_max + 0.18 * y_range, yend = y_max + 0.18 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = obese_pos, xend = obese_pos, 
+               y = y_max + 0.16 * y_range, yend = y_max + 0.18 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = t2d_pos, xend = t2d_pos, 
+               y = y_max + 0.16 * y_range, yend = y_max + 0.18 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("text", x = (obese_pos + t2d_pos)/2, y = y_max + 0.20 * y_range, 
+               label = pval_1, size = 4)
+  }
+  
+  if(should_add_comparison(t1d_pos, t2d_pos, pval_3)){
+    plot <- plot +
+      annotate("segment", x = t1d_pos, xend = t2d_pos, 
+               y = y_max + 0.11 * y_range, yend = y_max + 0.11 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = t1d_pos, xend = t1d_pos, 
+               y = y_max + 0.09 * y_range, yend = y_max + 0.11 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = t2d_pos, xend = t2d_pos, 
+               y = y_max + 0.09 * y_range, yend = y_max + 0.11 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("text", x = (t1d_pos + t2d_pos)/2, y = y_max + 0.13 * y_range, 
+               label = pval_3, size = 4)
+  }
+  
+  if(should_add_comparison(t2d_pos, pkd_pos, pval_4)){
+    plot <- plot +
+      annotate("segment", x = t2d_pos, xend = pkd_pos, 
+               y = y_max + 0.04 * y_range, yend = y_max + 0.04 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = t2d_pos, xend = t2d_pos, 
+               y = y_max + 0.02 * y_range, yend = y_max + 0.04 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("segment", x = pkd_pos, xend = pkd_pos, 
+               y = y_max + 0.02 * y_range, yend = y_max + 0.04 * y_range, 
+               color = "black", size = 0.5) +
+      annotate("text", x = (t2d_pos + pkd_pos)/2, y = y_max + 0.06 * y_range, 
+               label = pval_4, size = 4)
+  }
+  
+  plot <- plot + expand_limits(y = y_max + 0.3 * y_range)
+  
+  return(plot)
 }
 
-png('C:/Users/netio/Documents/UofW/Rockies/AllComparisonGroups_KidneyImaging.png', 
-    width =1200, height = 1600)  
-gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
-                        results_list[[3]], results_list[[4]], 
-                        results_list[[5]], results_list[[6]],
-                        ncol = 2)
+# ============== VOXEL PLOTS - ANOVA ==============
+for(i in c(1:length(tests_voxel))){
+  if(i == 1){
+    results_list_voxel <- list()
+  }
+  results_list_voxel[[i]] <- boxplot_function(dat_results, tests_voxel[i], 
+                                              test_labels_voxel[i], method='ANOVA')
+}
 
+png('C:/Users/netio/Documents/UofW/Projects/Imaging_Shivani/AllComparisonGroups_KidneyImaging_VOXEL.png', 
+    width = 1200, height = 1600)  
+gridExtra::grid.arrange(grobs = results_list_voxel, ncol = 2)
 dev.off()
 
-
-
-for(i in c(1:length(tests))){
+# ============== VOXEL PLOTS - T-TEST ==============
+for(i in c(1:length(tests_voxel))){
   if(i == 1){
-    results_list <- list()
+    results_list_voxel <- list()
   }
-  results_list[[i]]<- boxplot_function(dat_results, tests[i], tests[i], method='t-test')
+  results_list_voxel[[i]] <- boxplot_function(dat_results, tests_voxel[i], 
+                                              test_labels_voxel[i], method='t-test')
 }
 
-png('C:/Users/netio/Documents/UofW/Rockies/AllComparisonGroups_KidneyImaging_ttest.png', 
-    width =1200, height = 1600)  
-gridExtra::grid.arrange(results_list[[1]], results_list[[2]], 
-                        results_list[[3]], results_list[[4]], 
-                        results_list[[5]], results_list[[6]],
-                        ncol = 2)
-
+png('C:/Users/netio/Documents/UofW/Projects/Imaging_Shivani/AllComparisonGroups_KidneyImaging_VOXEL_ttest.png', 
+    width = 1200, height = 1600)  
+gridExtra::grid.arrange(grobs = results_list_voxel, ncol = 2)
 dev.off()
 
+# ============== GLOBAL PLOTS - ANOVA ==============
+for(i in c(1:length(tests_global))){
+  if(i == 1){
+    results_list_global <- list()
+  }
+  results_list_global[[i]] <- boxplot_function(dat_results, tests_global[i], 
+                                               test_labels_global[i], method='ANOVA')
+}
+
+png('C:/Users/netio/Documents/UofW/Projects/Imaging_Shivani/AllComparisonGroups_KidneyImaging_GLOBAL.png', 
+    width = 1200, height = 1600)  
+gridExtra::grid.arrange(grobs = results_list_global, ncol = 2)
+dev.off()
+
+# ============== GLOBAL PLOTS - T-TEST ==============
+for(i in c(1:length(tests_global))){
+  if(i == 1){
+    results_list_global <- list()
+  }
+  results_list_global[[i]] <- boxplot_function(dat_results, tests_global[i], 
+                                               test_labels_global[i], method='t-test')
+}
+
+png('C:/Users/netio/Documents/UofW/Projects/Imaging_Shivani/AllComparisonGroups_KidneyImaging_GLOBAL_ttest.png', 
+    width = 1200, height = 1600)  
+gridExtra::grid.arrange(grobs = results_list_global, ncol = 2)
+dev.off()
 
 
 
