@@ -57,7 +57,7 @@ dat_collapsed1 <- dat %>%
   filter(study=="PANTHER") %>% 
   filter(visit=="baseline" | visit=="screening") %>% 
   # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
-  dplyr::select(record_id, dob, date, rh2_id, visit, mrn, group, age, sex, bmi,race,ethnicity,race_ethnicity, hba1c,albuminuria_cat,acr_u,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
+  # dplyr::select(record_id, dob, date, rh2_id, visit, mrn, group, age, sex, bmi,race,ethnicity,race_ethnicity, hba1c,albuminuria_cat,acr_u,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
   # group_by(record_id, visit) %>%
   # tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
@@ -74,7 +74,7 @@ dat_collapsed2 <- dat %>%
   filter(study=="PANTHER") %>% 
   filter(visit=="year_1" | visit=="year_2") %>% 
   # dplyr::select(record_id, date, rh2_id, visit,mrn, group, age, sex, bmi, hba1c,albuminuria_cat,microalbumin_u,starts_with("egfr"),cystatin_c_s,starts_with("creat"),all_of(pfas)) %>% 
-  dplyr::select(record_id, dob, date, rh2_id, visit,mrn, group, age, sex, bmi, race,ethnicity, race_ethnicity, hba1c,acr_u,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
+  # dplyr::select(record_id, dob, date, rh2_id, visit,mrn, group, age, sex, bmi, race,ethnicity, race_ethnicity, hba1c,acr_u,albuminuria_cat,microalbumin_u,eGFR_CKiD_U25_avg,cystatin_c_s,creatinine_s,creatinine_u) %>% 
   # group_by(record_id, visit) %>%
   # tidyr::fill(date, .direction = "updown") %>% ungroup() %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
@@ -87,6 +87,8 @@ dat_collapsed2 <- dat %>%
                                                      ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
                                                      T ~ "Not Hispanic or Latino Other"))
 meta <- rbind(dat_collapsed1,dat_collapsed2)
+meta <- meta %>% 
+  dplyr::select(-all_of(pfas))
 
 pfas_dat <- dat %>% 
   filter(study=="PANTHER") %>% 
@@ -170,185 +172,10 @@ table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFOA+PFBS+PFHps+PFHxS+PFOS+PFPeAS,data=pfas_im
 
 #Format metadata
 # meta <- dat_collapsed
-dat <- tidylog::left_join(pfas_imputed,meta,by="record_id")
+meta_baseline <- meta %>% 
+  filter(visit=="baseline_screening")
+dat <- tidylog::left_join(pfas_imputed,meta_baseline,by="record_id")
 
 #Particpants 
-dat_baseline <- dat %>% 
-  filter(visit=="baseline_screening")
-table1(~age+sex+bmi+race_ethnicity_condensed+hba1c+microalbumin_u+acr_u+creatinine_s+creatinine_u+eGFR_CKiD_U25_avg|group,data=dat_baseline)
-# saveRDS(dat_baseline,fs::path(dir.dat,"panther_pfas_baseline_12_17.rds"))
-
-#Folowoup Year 1
-dat_followup1 <- dat %>% 
-  filter(visit=="year_1") %>% 
-  dplyr::select(c("record_id","microalbumin_u","acr_u","eGFR_CKiD_U25_avg")) %>% 
-  dplyr::rename(microalbumin_u_yr1=microalbumin_u,
-                acr_u_yr1=acr_u,
-                eGFR_CKiD_U25_avg_yr1=eGFR_CKiD_U25_avg)
-
-#Followup Year 2
-dat_followup2 <- dat %>% 
-  filter(visit=="year_2") %>% 
-  dplyr::select(c("record_id","microalbumin_u","acr_u","eGFR_CKiD_U25_avg")) %>% 
-  dplyr::rename(microalbumin_u_yr2=microalbumin_u,
-                acr_u_yr2=acr_u,
-                eGFR_CKiD_U25_avg_yr2=eGFR_CKiD_U25_avg)
-
-dat_all <- tidylog::left_join(dat_baseline,dat_followup1,by="record_id")
-dat_all <- tidylog::left_join(dat_all,dat_followup2,by="record_id")
-
-table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFBS+PFHps+PFHxS+PFNS+PFOS+PFPeAS,data=pfas_imputed,render.continuous = render.geometric)
-table1(~age+sex+bmi+race_ethnicity_condensed+hba1c+microalbumin_u+microalbumin_u_yr1+microalbumin_u_yr2+acr_u+
-         acr_u_yr1+acr_u_yr2+creatinine_s+creatinine_u+eGFR_CKiD_U25_avg+eGFR_CKiD_U25_avg_yr1+eGFR_CKiD_U25_avg_yr2|group,data=dat_all2)
-table1(~N.MeFOSAA+PFDA+PFHpA+PFNA+PFBS+PFHps+PFHxS+PFOA+PFOS+PFPeAS|group,data=dat_all2,render.continuous = render.geometric)
-# #Filter out albumin and acru outlier
-# dat_baseline2 <- dat_baseline %>% 
-#   mutate(microalbumin_u=ifelse(microalbumin_u>3000,NA,microalbumin_u)) %>% 
-#   mutate(acr_u=ifelse(acr_u>2367,NA,acr_u))
-# #Filter out albumin outlier and acru outlier
-# dat2 <- dat %>% 
-#   mutate(microalbumin_u=ifelse(microalbumin_u>3000,NA,microalbumin_u)) %>% 
-#   mutate(acr_u=ifelse(acr_u>2367,NA,acr_u))
-dat_all2 <- dat_all %>% 
-  mutate(microalbumin_u=ifelse(microalbumin_u>3000,NA,microalbumin_u)) %>% 
-  mutate(acr_u=ifelse(acr_u>2367,NA,acr_u))
-
-#Exposure assessment: 
-pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results/PFAS Results/pfas_acru_plots_no_outlier_withPFOA.pdf", width = 8, height = 6)
-#Baseline Analysis
-pfas_vars <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS", 
-               "PFHps", "PFHxS", "PFOA","PFOS", "PFPeAS")
-for (pfas in pfas_vars) {
-  m0 <- as.formula(paste0("acr_u~",pfas,"+age+sex"))
-  m1 <- lm(m0,dat=dat_baseline2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,4]
-  
-  p <- ggplot(data=dat_baseline2,aes(x=.data[[pfas]],y=acr_u))+
-    geom_point()+
-    geom_smooth(method="lm",se=F)+
-    theme_bw()+
-    labs(title = c("Association between PFAS and ACRu, adj. Age & Sex"),
-         subtitle = paste0("Beta = ", round(beta,3), ", pval = ", round(pval,3)),
-         x = pfas,  # This will use the variable name from pfas
-         y = "ACRu")
-  print(p)
-  
-}
-dev.off()
-
-pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results/PFAS Results/pfas_microalbumin_plots_no_outlier.pdf", width = 8, height = 6)
-#Baseline Analysis
-pfas_vars <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS", 
-                    "PFHps", "PFHxS", "PFOS", "PFPeAS")
-for (pfas in pfas_vars) {
-  m0 <- as.formula(paste0("microalbumin_u~",pfas,"+age+sex"))
-  m1 <- lm(m0,dat=dat_baseline2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,4]
-  
-  p <- ggplot(data=dat_baseline2,aes(x=.data[[pfas]],y=microalbumin_u))+
-    geom_point()+
-    geom_smooth(method="lm",se=F)+
-    theme_bw()+
-    labs(title = c("Association between PFAS and Microalbuminuria, adj. Age & Sex"),
-         subtitle = paste0("Beta = ", round(beta,3), ", pval = ", round(pval,3)),
-         x = pfas,  # This will use the variable name from pfas
-         y = "Microalbumin (U)")
-  print(p)
-  
-}
-dev.off()
-
-pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results/PFAS Results/pfas_eGFR_plots.pdf", width = 8, height = 6)
-#Baseline Analysis
-pfas_vars <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS", 
-               "PFHps", "PFHxS", "PFOS", "PFPeAS")
-for (pfas in pfas_vars) {
-  m0 <- as.formula(paste0("eGFR_CKiD_U25_avg~",pfas,"+age+sex"))
-  m1 <- lm(m0,dat=dat_baseline2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,4]
-  
-  p <- ggplot(data=dat_baseline2,aes(x=.data[[pfas]],y=eGFR_CKiD_U25_avg))+
-    geom_point()+
-    geom_smooth(method="lm",se=F)+
-    theme_bw()+
-    labs(title = c("Association between PFAS and eGFR, adj. Age & Sex"),
-         subtitle = paste0("Beta = ", round(beta,3), ", pval = ", round(pval,3)),
-         x = pfas,  # This will use the variable name from pfas
-         y = "eGFR")
-  print(p)
-  
-}
-dev.off()
-
-#Mixed Model Analysis with Time
-dat2$time_numeric <- as.numeric(factor(dat2$visit)) - 1  # Start at 0 for baseline
-m0 <- as.formula(paste0("acr_u ~ time + (1|record_id)"))
-model_simple <- lmer(m0, data = dat2)
-summary(model_simple)$coef
-
-# Scatter plot with individual trajectories
-p3 <- ggplot(dat2, aes(x = time, y = acr_u)) +
-  geom_point(aes(color = factor(visit)), alpha = 0.6) +
-  geom_path(aes(group = record_id), alpha = 0.2) +
-  geom_smooth(method = "lm", color = "red4", linewidth= 0.5,se=F) +
-  scale_color_viridis_d(name = "Time") +
-  theme_minimal() +
-  labs(title = "ACRu Levels over Time",
-       subtitle = "Beta = -3.15, P-value = 0.418",
-       x = "Time",
-       y = "acr_u Level") +
-  theme(plot.title = element_text(face = "bold"))
-# legend.position="none")
-
-print(p3)
-
-#Baseline PFAS with Follow-Up ACRu
-#Exposure assessment: 
-pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results/PFAS Results/baseline_pfas_followup_acru_yr1.pdf", width = 8, height = 6)
-#Baseline Analysis
-pfas_vars <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS", 
-               "PFHps", "PFHxS", "PFOA","PFOS", "PFPeAS")
-for (pfas in pfas_vars) {
-  m0 <- as.formula(paste0("acr_u_yr1~",pfas,"+age+sex+acr_u"))
-  m1 <- lm(m0,dat=dat_all2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,4]
-  
-  p <- ggplot(data=dat_all2,aes(x=.data[[pfas]],y=acr_u_yr1))+
-    geom_point()+
-    geom_smooth(method="lm",se=F)+
-    theme_bw()+
-    labs(title = c("Association between Baseline PFAS and ACRu 1 Year Follow-Up, adj. Age, Sex and Baseline ACRu"),
-         subtitle = paste0("Beta = ", round(beta,3), ", pval = ", round(pval,3)),
-         x = pfas,  # This will use the variable name from pfas
-         y = "ACRu (1 Yr Follow-Up)")
-  print(p)
-  
-}
-dev.off()
-
-pdf("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/PANTHER/Results/PFAS Results/baseline_pfas_followup_acru_yr2.pdf", width = 8, height = 6)
-#Baseline Analysis
-pfas_vars <- c("N.MeFOSAA", "PFDA", "PFHpA", "PFNA", "PFBS", 
-               "PFHps", "PFHxS", "PFOA","PFOS", "PFPeAS")
-for (pfas in pfas_vars) {
-  m0 <- as.formula(paste0("acr_u_yr1~",pfas,"+age+sex+acr_u"))
-  m1 <- lm(m0,dat=dat_all2)
-  beta <- summary(m1)$coef[2,1]
-  pval <- summary(m1)$coef[2,4]
-  
-  p <- ggplot(data=dat_all2,aes(x=.data[[pfas]],y=acr_u_yr2))+
-    geom_point()+
-    geom_smooth(method="lm",se=F)+
-    theme_bw()+
-    labs(title = c("Association between Baseline PFAS and ACRu 2 Year Follow-Up, adj. Age, Sex and Baseline ACRu"),
-         subtitle = paste0("Beta = ", round(beta,3), ", pval = ", round(pval,3)),
-         x = pfas,  # This will use the variable name from pfas
-         y = "ACRu (2 Yr Follow-Up)")
-  print(p)
-  
-}
-dev.off()
+table1(~age+sex+bmi+race_ethnicity_condensed+hba1c+microalbumin_u+acr_u+creatinine_s+creatinine_u+eGFR_CKiD_U25_avg|group,data=dat)
+# saveRDS(dat,fs::path(dir.dat,"panther_pfas_baseline_12_17.rds"))

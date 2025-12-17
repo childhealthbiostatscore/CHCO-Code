@@ -1,8 +1,12 @@
 # Initial Analysis
 
-source(fs::path(here::here("!libraries.R")))
-source(fs::path(here::here("!directories.R")))
-source(fs::path(here::here("!functions.R")))
+# source(fs::path(here::here("!libraries.R")))
+# source(fs::path(here::here("!directories.R")))
+# source(fs::path(here::here("!functions.R")))
+dir.dat <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive")
+dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/PFAS & IR in Panther")
+git_path <- "Users/hhampson/CHCO-Code/Petter Bjornstad"
+
 library(broom)
 library(tidyverse)
 
@@ -12,18 +16,24 @@ half_life_pfoa = 3.2 #t1/2 (PFOA)	3.2
 
 # 1. Renal-HEIR data ----------
 # Read in data
-rhdf <- readxl::read_xlsx(fs::path(dir_cleaned_data,
-                                   "RH_Complete_data_imputed_lg2_V5.xlsx")) |>
-  filter(!is.na(pfas_t_pfda))
+# panther <- readxl::read_xlsx(fs::path(dir_cleaned_data,
+#                                    "RH_Complete_data_imputed_lg2_V5.xlsx")) |>
+#   filter(!is.na(pfas_t_pfda))
 
-rhdf <- rhdf |> 
-  rename(year = date_year)
+panther <- readRDS(fs::path(dir.dat,"panther_pfas_baseline_12_17.rds")) %>% 
+  filter(!is.na(PFOA))
+
+panther <- panther %>% 
+  mutate(year = str_remove(date,"-.*$")) %>% 
+  mutate(year = as.numeric(year))
+
 
 # Select key variables from analysis
-dat <- rhdf |>
-  tidylog::select(-contains("met_"), 
-                  -contains("prot_"), 
-                  -contains("lipid_")) 
+dat <- panther
+  # tidylog::select(-contains("met_"), 
+  #                 -contains("prot_"), 
+  #                 -contains("lipid_")) 
+rm(panther)
 
 ## 1.1 Identifycalculate key variables -------
 
@@ -46,7 +56,8 @@ dat$cr_daily = 14.4 * dat$mGFRunindexed * dat$creatinine_s
 ## 1.5. Albumin excretion rate (units out: mg/day) ----
 # aer_4_coltime units: mcg * mL / min
 # dat$aer_4_mg_ml_min =  /1000
-dat$aer_mg_day = dat$aer_4_coltime * 1.44
+# dat$aer_mg_day = dat$aer_4_coltime * 1.44
+dat$aer_mg_day = dat$aer_24 * 1.44 #replaced aer_4 with aer_24, units are same
 
 ## 1.6. Fraction bound of PFAS ----
 #assume 99.92 (based on low variance in NHANES data): 
@@ -82,22 +93,23 @@ dat <- dat |>
     log10_cl_base = log10(CLbase_gfr+ 0.001)
   )
 
-
+table1(~log10_cl_alb+log10_cl_base+Calb+CLalb+CLtotal+pct_alb+PFOA,data=dat)
 
 ## 1.12. Test associations ------------
 mod <- dat |> 
-  tidylog::filter(!is.na(pfas_t_pfoa), 
+  tidylog::filter(!is.na(PFOA), 
                   !is.na(log10_cl_alb)) %>%
-  lm(log(pfas_t_pfoa) ~ log10_cl_alb + log10_cl_base + age, .)
+  lm(log(PFOA) ~ log10_cl_alb + log10_cl_base + age + year +sex, .)
 summary(mod)
 
 
 # 2. NHANES data --------
 ## 2.1. Read in data -------
-nhanes <- readxl::read_excel("/Users/jagoodri/Library/CloudStorage/OneDrive-UniversityofSouthernCalifornia/Goodrich Projects Active/1_proj_dir/NHANES/0_data/data_from_Fabian_Fischer/NHANES data analyzed_cleaned.xlsx") |>
+nhanes <- readxl::read_excel("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/PFAS & IR in Panther/NHANES data analyzed_cleaned.xlsx") |>
   janitor::clean_names()
 
-nhanes <- nhanes |> rename(log10_cl_alb = log10_cl_alb)
+nhanes <- nhanes %>% 
+  dplyr::rename(log10_cl_alb = log_cl_alb)
 nhanes$log10_cl_base = log10(nhanes$cl_base_m_l_day_from_e_gfr)
 
 nhanes$hispanic = if_else(nhanes$race %in% c("Mexican American", "Other Hispanic"), "Hispanic", "Not Hispanic")
@@ -113,7 +125,7 @@ mean(nhanes_filtered$log10_cl_alb)
 
 
 ## 2.2 Run the models -----
-covars = "year + age"
+covars = "year + age + sex"
 
 # Model with albumin
 mod_full <- lm(
@@ -162,8 +174,8 @@ pred_datf <- pred_dat |>
                   aer_mg_day > 0)
 
 # Correlation test- predicted vs. measured
-(ct_alb    <- cor.test(pred_datf$log_pfoa_est_w_alb,  log(pred_datf$pfas_t_pfoa)))
-(ct_no_alb <- cor.test(pred_datf$log_pfoa_est_no_alb, log(pred_datf$pfas_t_pfoa)))
+(ct_alb    <- cor.test(pred_datf$log_pfoa_est_w_alb,  log(pred_datf$PFOA)))
+(ct_no_alb <- cor.test(pred_datf$log_pfoa_est_no_alb, log(pred_datf$PFOA)))
 
 ct_alb$conf.int[1:2]
 ct_no_alb$conf.int[1:2]
@@ -181,14 +193,14 @@ ulim = 1.4
 
 (panel_a <- pred_datf |> 
     ggplot(aes(x = exp(log_pfoa_est_w_alb),
-               y = pfas_t_pfoa)) + 
+               y = PFOA)) + 
     # geom_abline(slope = 1, color = "grey50", linetype = 2) + 
     stat_smooth(method = "lm", color = "grey30") + 
     geom_point(alpha = 0.7) + 
     scale_y_log10(limits = c(llim, ulim)) +
     scale_x_log10(limits = c(llim, ulim)) +
     annotate("text", 
-             x = 0.3, 
+             x = 0.3,
              y = llim, 
              label = lab_alb,
              hjust = 0,
@@ -200,7 +212,7 @@ ulim = 1.4
 
 
 (panel_b <- pred_datf |> 
-    ggplot(aes(x = exp(log_pfoa_est_no_alb), y = pfas_t_pfoa)) + 
+    ggplot(aes(x = exp(log_pfoa_est_no_alb), y = PFOA)) + 
     # geom_abline(slope = 1, color = "grey50", linetype = 2) + 
     stat_smooth(method = "lm", color = "grey30") + 
     geom_point(alpha = 0.7) + 
@@ -246,7 +258,7 @@ cowplot::plot_grid(
 )
 
 
-ggsave(filename = fs::path(dir_fig, "Renal_HEIR_tk_model_prediction comparison.jpeg"), 
+ggsave(filename = fs::path(dir.results, "Panther_tk_model_prediction comparison.jpeg"), 
        width = 10, height = 5, units = "in", dpi = 300)
 
 ## 3.5. Compare estimated geometric means -------
@@ -255,14 +267,14 @@ pred_datf |>
     # pfoa_est_w_alb = exp(mean(log_pfoa_est_w_alb)), 
     # pfoa_est_w_no_alb = exp(mean(log_pfoa_est_no_alb)),
     # pfoa_est_w_race_gm = exp(mean(log_pfoa_est_no_alb)), 
-    # pfas_t_pfoa_gm = exp(mean(log(pfas_t_pfoa))), 
-    RMSE_w_alb2 = sqrt(mean((log_pfoa_est_w_alb-log(pfas_t_pfoa))^2)), 
-    RMSE_no_alb = sqrt(mean((log_pfoa_est_no_alb-log(pfas_t_pfoa))^2)), 
-    # bias_w_alb  = mean(exp(log_pfoa_est_w_alb) - (pfas_t_pfoa)),
-    # bias_no_alb = mean(exp(log_pfoa_est_no_alb) - (pfas_t_pfoa))
+    # PFOA_gm = exp(mean(log(PFOA))), 
+    RMSE_w_alb2 = sqrt(mean((log_pfoa_est_w_alb-log(PFOA))^2)), 
+    RMSE_no_alb = sqrt(mean((log_pfoa_est_no_alb-log(PFOA))^2)), 
+    # bias_w_alb  = mean(exp(log_pfoa_est_w_alb) - (PFOA)),
+    # bias_no_alb = mean(exp(log_pfoa_est_no_alb) - (PFOA))
   )
 
 
 # calculate timed urine duration
-summary(pred_datf$aer_4_coltime) 
+summary(pred_datf$aer_24) 
 
