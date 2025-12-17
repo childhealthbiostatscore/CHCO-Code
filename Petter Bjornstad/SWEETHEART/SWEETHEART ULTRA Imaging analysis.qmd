@@ -113,9 +113,15 @@ ultra_swht_coenrolled <- harm_dat %>%
   pull(swht_id) %>%
   unique()
 
+ultra_swht_coenrolled_ultra <- harm_dat %>%
+  filter(study == "ULTRA" & !is.na(swht_id)) %>%
+  pull(ultra_id) %>%
+  unique()
+
 harm_dat_subset <- harm_dat %>%
   filter(study == "ULTRA" | !is.na(swht_id)) %>%
-  mutate(imaging_visit_id = case_when(imaging_visit == 1 ~ "ultra_baseline", 
+  mutate(imaging_visit_id = case_when(record_id %in% ultra_swht_coenrolled_ultra & study == "ULTRA" & imaging_visit == 1 ~ "ultra_swht_baseline",
+                                      imaging_visit == 1 ~ "ultra_baseline", 
                                       imaging_visit == 2 ~ "ultra_follow_up",
                                       record_id %in% ultra_swht_coenrolled & study == "SWEETHEART" ~ "ultra_swht_follow_up",
                                       study == "SWEETHEART" ~ "swht_cs"),
@@ -172,10 +178,16 @@ harm_dat_subset <- harm_dat %>%
            TRUE ~ NA_character_
          ),
          acr_u_cat3 = factor(acr_u_cat3, levels = c("<30", "30–<300", "≥300")),
+         acr_u_cat300 = case_when(
+           acr_u < 300                  ~ "<300",
+           acr_u >= 300                ~ "≥300",
+           TRUE ~ NA_character_
+         ),
          long_peak   = case_when(long_peak   == 0 ~ NA_real_, TRUE ~ long_peak),
          circum_peak = case_when(circum_peak == 0 ~ NA_real_, TRUE ~ circum_peak),
          radial_peak = case_when(radial_peak == 0 ~ NA_real_, TRUE ~ radial_peak),
          log_acr_u = log(acr_u))
+
 
 harm_dat_subset_baseline <- harm_dat_subset %>%
   filter(imaging_visit_id != "ultra_follow_up")
@@ -183,86 +195,140 @@ harm_dat_subset_baseline <- harm_dat_subset %>%
 harm_dat_subset_obt2d <- harm_dat_subset %>%
   filter(group != "Lean Control" & imaging_visit_id != "ultra_follow_up")
 
+harm_dat_subset_t2d <- harm_dat_subset %>%
+  filter(group == "Type 2 Diabetes" & imaging_visit_id != "ultra_follow_up")
+
 ```
 
 ```{r}
 summary(arsenal::tableby(imaging_visit_id ~ group + age + sex + bmi + kwt(acr_u, "Nmiss", "medianq1q3") + hba1c +
                            dkd_group_30 + dkd_group_100, data = harm_dat_subset))
+
+summary(arsenal::tableby(group ~ imaging_visit_id + age + sex + bmi + kwt(acr_u, "Nmiss", "medianq1q3") + hba1c + eGFR_CKD_epi +
+                           acr_u_cat3 +
+                           dkd_group_30 + dkd_group_100, data = subset(harm_dat_subset, imaging_visit_id != "ultra_follow_up")))
+summary(arsenal::tableby(sex ~ group + imaging_visit_id + age + sex + bmi + kwt(acr_u, "Nmiss", "medianq1q3") + hba1c + eGFR_CKD_epi +
+                           dkd_group_30 + dkd_group_100, data = subset(harm_dat_subset, imaging_visit_id != "ultra_follow_up" & group != "Lean Control")))
+
+subset(harm_dat_subset, rvef < 40 & imaging_visit_id != "ultra_follow_up" & group != "Lean Control")$record_id
+subset(harm_dat_subset, rvef < 40 & imaging_visit_id != "ultra_follow_up" & group != "Lean Control")$rvef
 ```
 
 ```{r}
-library(ggplot2)
-library(purrr)
-library(cowplot)
-library(ggpubr)
-library(dplyr)
-
-plot_boxgrid <- function(df, vars = im_vars, log_vars = NULL, group_var, 
-                         ncol = 3, per_page = 9,
-                         fill_colors = c("#f08080", "#98c1d9"),
-                         save = TRUE,
-                         save_dir = paste0(root_path, "/ULTRA_SWEETHEART/Results/Figures/Box plots"),
-                         file_prefix = "plot_page",
-                         file_type = "png",
-                         width = 12, height = 12, dpi = 300) {
+plot_boxgrid <- function(df, 
+                        vars = im_vars, 
+                        log_vars = NULL, 
+                        group_var, 
+                        id_var = "mrn",  # ID variable for pairing
+                        paired = FALSE,   # Enable paired tests
+                        var_labels = NULL, 
+                        ncol = 3, 
+                        per_page = 9, 
+                        fill_colors = c("#f08080", "#98c1d9"), 
+                        save = TRUE, 
+                        save_dir = paste0(root_path, "/ULTRA_SWEETHEART/Results/Figures/Box plots"), 
+                        file_prefix = "plot_page", 
+                        file_type = "png", 
+                        width = 12, 
+                        height = 12, 
+                        dpi = 300, 
+                        show_legend = FALSE, 
+                        fill_label = NULL, 
+                        text_size = 18, 
+                        star_size = 10) {
   
   # Convert numeric vars/log_vars to names if needed
   if (is.numeric(vars)) vars <- names(df)[vars]
   if (!is.null(log_vars) && is.numeric(log_vars)) log_vars <- names(df)[log_vars]
   
+  get_legend_plot <- function(p) {
+    cowplot::get_legend(
+      p + theme(legend.position = "right")
+    )
+  }
+  
   # ---------------------------------------------
-  # 1. Create log10 transformed columns BEFORE plotting
+  # 1. Create log10 transformed columns
   # ---------------------------------------------
   if (!is.null(log_vars)) {
     for (v in log_vars) {
-      log_name <- paste0(v, "_log10")
-      df[[log_name]] <- log10(df[[v]])
+      df[[paste0(v, "_log10")]] <- log10(df[[v]])
     }
   }
   
   # ---------------------------------------------
-  # 2. Generate plots
+  # 2. If paired, filter to complete pairs only
   # ---------------------------------------------
-  plots <- purrr::map(vars, function(v) {
+  if (paired) {
+    # Identify IDs that have data in all groups
+    complete_ids <- df %>%
+      group_by(.data[[id_var]]) %>%
+      summarise(n_groups = n_distinct(.data[[group_var]]), .groups = "drop") %>%
+      filter(n_groups == length(unique(df[[group_var]]))) %>%
+      pull(.data[[id_var]])
     
-    # choose correct y-column
-    if (!is.null(log_vars) && v %in% log_vars) {
-      ycol <- paste0(v, "_log10")
-      ylab <- paste0("log10(", v, ")")
-    } else {
-      ycol <- v
-      ylab <- v
-    }
+    df <- df %>% filter(.data[[id_var]] %in% complete_ids)
     
-    # pairwise comparisons
-    comps <- combn(unique(df[[group_var]]), 2, simplify = FALSE)
-    
-    ggplot(df, aes(x = .data[[group_var]], y = .data[[ycol]], fill = .data[[group_var]])) +
-      geom_boxplot(size = 1) +
-      
-      stat_compare_means(
-        comparisons = comps, 
-        label = "p.signif", 
-        hide.ns = TRUE, 
-        size = 10
-      ) +
-      
-      labs(y = ylab, x = NULL) +
-      scale_fill_manual(values = fill_colors) +
-      
-      # give extra top space for stars
-      scale_y_continuous(expand = expansion(mult = c(0.05, 0.35))) +
-      
-      theme(
-        panel.background = element_blank(),
-        text = element_text(size = 18),
-        axis.text.x = element_text(angle = 60, hjust = 1),
-        legend.position = "none"
-      )
-  })
+    message(sprintf("Using %d complete pairs for paired analysis", length(complete_ids)))
+  }
   
   # ---------------------------------------------
-  # 3. Save pages
+  # 3. Generate plots
+  # ---------------------------------------------
+  plots <- purrr::map(seq_along(vars), function(i) {
+    v <- vars[i]
+    
+    if (!is.null(log_vars) && v %in% log_vars) {
+      ycol <- paste0(v, "_log10")
+      base_label <- if (!is.null(var_labels) && v %in% names(var_labels)) var_labels[[v]] else v
+      ylab <- paste0("log10(", base_label, ")")
+    } else {
+      ycol <- v
+      ylab <- if (!is.null(var_labels) && v %in% names(var_labels)) var_labels[[v]] else v
+    }
+    
+    comps <- combn(unique(df[[group_var]]), 2, simplify = FALSE)
+    
+    p <- ggplot(df, aes(x = as.character(.data[[group_var]]), y = .data[[ycol]], fill = as.character(.data[[group_var]]))) +
+      geom_boxplot(size = 1)
+    
+    # Add appropriate statistical test
+    if (paired) {
+      p <- p + stat_compare_means(
+        comparisons = comps,
+        method = "t.test",
+        paired = TRUE,
+        label = "p.signif",
+        hide.ns = F,
+        size = star_size
+      )
+    } else {
+      p <- p + stat_compare_means(
+        comparisons = comps,
+        label = "p.signif",
+        hide.ns = TRUE,
+        size = star_size
+      )
+    }
+    
+    p <- p +
+      labs(y = ylab, x = NULL, fill = fill_label) +
+      scale_fill_manual(values = fill_colors) +
+      scale_y_continuous(expand = expansion(mult = c(0.05, 0.35))) +
+      theme(
+        panel.background = element_blank(),
+        text = element_text(size = text_size),
+        axis.text.x = if (show_legend) element_blank() else element_text(angle = 60, hjust = 1),
+        legend.position = "none"
+      )
+    
+    p
+  })
+  
+  legend <- get_legend_plot(plots[[1]])
+  
+  # ---------------------------------------------
+  # 4. Save pages
   # ---------------------------------------------
   if (save) dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
   
@@ -273,7 +339,14 @@ plot_boxgrid <- function(df, vars = im_vars, log_vars = NULL, group_var,
     start <- (page - 1) * per_page + 1
     end <- min(page * per_page, n_plots)
     
-    page_plot <- cowplot::plot_grid(plotlist = plots[start:end], ncol = ncol)
+    page_grid <- cowplot::plot_grid(plotlist = plots[start:end], ncol = ncol)
+    page_plot <- cowplot::plot_grid(
+      page_grid,
+      legend,
+      ncol = 3,
+      rel_widths = c(1, 0.1, 0.15)
+    )
+    
     print(page_plot)
     
     if (save) {
@@ -322,6 +395,56 @@ im_vars <- c(
   "lv_myo_mass_dias",
   "lv_myo_thickness_total",
   "lv_myo_thickness_dias")
+
+im_vars_2 <- c(
+  "imaging_hr",
+  "rvedv",
+  "lvedv",
+  "rvesv",
+  "lvesv",
+  "rvsv",
+  "lvsv",
+  "rvco",
+  "lvco",
+  "lv_myo_mass_syst",
+  "lv_myo_mass_dias",
+  "lv_myo_thickness_total",
+  "lv_myo_thickness_dias",
+  "rvef",
+  "lvef",
+  "long_peak",
+  "af_high5pctwss",
+  "af_medianwss",
+  "af_meanwss",
+  "af_pwv_xcor3",
+  "tt1",
+  "tt2"
+)
+
+im_vars_2_labels <- c(
+  imaging_hr                = "Heart rate",
+  rvedv                     = "RV EDV",
+  lvedv                     = "LV EDV",
+  rvesv                     = "RV ESV",
+  lvesv                     = "LV ESV",
+  rvsv                      = "RV stroke\nvolume",
+  lvsv                      = "LV stroke\nvolume",
+  rvco                      = "RV cardiac\noutput",
+  lvco                      = "LV cardiac\noutput",
+  lv_myo_mass_syst          = "LV myocardial\nmass (systole)",
+  lv_myo_mass_dias          = "LV myocardial\nmass (diastole)",
+  lv_myo_thickness_total    = "LV\nmyocardial\nthickness (total)",
+  lv_myo_thickness_dias     = "LV\nmyocardial\nthickness (diastole)",
+  rvef                      = "RV\nejection fraction",
+  lvef                      = "LV\nejection fraction",
+  long_peak                 = "LV global\nlongitudinal strain",
+  af_high5pctwss            = "Aortic wall shear\nstress (top 5%)",
+  af_medianwss              = "Aortic wall shear\nstress (median)",
+  af_meanwss                = "Aortic wall shear\nstress (mean)",
+  af_pwv_xcor3              = "Aortic\nPWV",
+  tt1                       = "T1",
+  tt2                       = "T2*"
+)
 ```
 
 ```{r echo = F}
@@ -340,6 +463,22 @@ plot_boxgrid(
   file_prefix = "obt2d_sex"
 )
 
+plot_boxgrid(
+  df = harm_dat_subset_obt2d,
+  vars = im_vars_2,
+  var_labels = im_vars_2_labels,
+  group_var = "sex",
+  log_vars = im_vars_log,
+  file_prefix = "obt2d_sex",
+  ncol = 5,
+  per_page = 22,
+  show_legend = T,
+  fill_label = "Sex",
+  width = 18,
+  text_size = 20,
+  star_size = 12
+)
+
 table(harm_dat_subset_obt2d$group)
 
 plot_boxgrid(
@@ -354,6 +493,47 @@ plot_boxgrid(
   group_var = "dkd_group_100",
   log_vars = im_vars_log,
   file_prefix = "obt2d_dkd100"
+)
+
+plot_boxgrid(
+  df = subset(harm_dat_subset_obt2d, !is.na(acr_u_cat300)),
+  group_var = "acr_u_cat300",
+  log_vars = im_vars_log,
+  var_labels = im_vars_2_labels,
+  file_prefix = "obt2d_acr300",
+  fill_label = "UACR\nCategory"
+)
+
+plot_boxgrid(
+  df = subset(harm_dat_subset_t2d, !is.na(acr_u_cat300)),
+  group_var = "acr_u_cat300",
+  log_vars = im_vars_log,
+  var_labels = im_vars_2_labels,
+  file_prefix = "t2d_acr300",
+  fill_label = "UACR\nCategory"
+)
+
+harm_dat_subset <- harm_dat_subset %>% arrange(mrn, imaging_visit)
+plot_boxgrid(
+  df = subset(harm_dat_subset, 
+              imaging_visit_id %in% c("ultra_baseline", "ultra_swht_baseline", "ultra_follow_up")),
+  group_var = "imaging_visit",
+  log_vars = im_vars_log,
+  var_labels = im_vars_2_labels,
+  file_prefix = "ultra_prepost",
+  paired = T
+)
+
+harm_dat_subset <- harm_dat_subset %>% arrange(mrn, imaging_visit_id)
+
+plot_boxgrid(
+  df = subset(harm_dat_subset, 
+              imaging_visit_id %in% c("ultra_swht_baseline", "ultra_swht_follow_up")),
+  group_var = "imaging_visit_id",
+  log_vars = im_vars_log,
+  var_labels = im_vars_2_labels,
+  file_prefix = "longitudinal",
+  paired = T
 )
 
 
