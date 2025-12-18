@@ -183,6 +183,7 @@ harm_dat_subset <- harm_dat %>%
            acr_u >= 300                ~ "≥300",
            TRUE ~ NA_character_
          ),
+         tr2 = 1/tt2,
          long_peak   = case_when(long_peak   == 0 ~ NA_real_, TRUE ~ long_peak),
          circum_peak = case_when(circum_peak == 0 ~ NA_real_, TRUE ~ circum_peak),
          radial_peak = case_when(radial_peak == 0 ~ NA_real_, TRUE ~ radial_peak),
@@ -212,6 +213,8 @@ summary(arsenal::tableby(sex ~ group + imaging_visit_id + age + sex + bmi + kwt(
 
 subset(harm_dat_subset, rvef < 40 & imaging_visit_id != "ultra_follow_up" & group != "Lean Control")$record_id
 subset(harm_dat_subset, rvef < 40 & imaging_visit_id != "ultra_follow_up" & group != "Lean Control")$rvef
+
+table(subset(harm_dat_subset, group != "Lean Control" & imaging_visit_id != "ultra_follow_up")$acr_u_cat300)
 ```
 
 ```{r}
@@ -235,7 +238,11 @@ plot_boxgrid <- function(df,
                         show_legend = FALSE, 
                         fill_label = NULL, 
                         text_size = 18, 
-                        star_size = 10) {
+                        star_size = 10,
+                        p_format = "stars",  # New parameter: "stars" or "value"
+                        p_digits = 3,        # Number of digits for p-value display
+                        p_size = 5,
+                        test_method = "wilcox.test") {        # Size for p-value text
   
   # Convert numeric vars/log_vars to names if needed
   if (is.numeric(vars)) vars <- names(df)[vars]
@@ -292,23 +299,55 @@ plot_boxgrid <- function(df,
     p <- ggplot(df, aes(x = as.character(.data[[group_var]]), y = .data[[ycol]], fill = as.character(.data[[group_var]]))) +
       geom_boxplot(size = 1)
     
-    # Add appropriate statistical test
-    if (paired) {
-      p <- p + stat_compare_means(
-        comparisons = comps,
-        method = "t.test",
-        paired = TRUE,
-        label = "p.signif",
-        hide.ns = F,
-        size = star_size
-      )
-    } else {
-      p <- p + stat_compare_means(
-        comparisons = comps,
-        label = "p.signif",
-        hide.ns = TRUE,
-        size = star_size
-      )
+    # Add appropriate statistical test with chosen p-value format
+    if (p_format == "stars") {
+      # Original star format
+      if (paired) {
+        p <- p + stat_compare_means(
+          comparisons = comps,
+          method = test_method,
+          paired = TRUE,
+          label = "p.signif",
+          hide.ns = FALSE,
+          size = star_size
+        )
+      } else {
+        p <- p + stat_compare_means(
+          method = test_method,
+          method.args = list(var.equal = F),
+          paired = F,
+          comparisons = comps,
+          label = "p.signif",
+          hide.ns = TRUE,
+          size = star_size
+        )
+      }
+    } else if (p_format == "value") {
+      # Formatted p-value display
+      if (paired) {
+        p <- p + stat_compare_means(
+          comparisons = comps,
+          method = test_method,
+          paired = TRUE,
+          label = "p.format",
+          hide.ns = FALSE,
+          size = p_size,
+          label.x.npc = "center",
+          p.accuracy = 10^(-p_digits)  # Control decimal places
+        )
+      } else {
+        p <- p + stat_compare_means(
+          method = test_method,
+          method.args = list(var.equal = F),
+          paired = F,
+          comparisons = comps,
+          label = "p.format",
+          hide.ns = FALSE,
+          size = p_size,
+          label.x.npc = "center",
+          p.accuracy = 10^(-p_digits)  # Control decimal places
+        )
+      }
     }
     
     p <- p +
@@ -378,6 +417,7 @@ im_vars <- c(
   "mv_flow_e",
   "tt2",
   "tt1",
+  "tr2",
   "long_peak",
   "circum_peak",
   "radial_peak",
@@ -397,53 +437,55 @@ im_vars <- c(
   "lv_myo_thickness_dias")
 
 im_vars_2 <- c(
-  "imaging_hr",
-  "rvedv",
   "lvedv",
-  "rvesv",
   "lvesv",
-  "rvsv",
   "lvsv",
-  "rvco",
-  "lvco",
-  "lv_myo_mass_syst",
-  "lv_myo_mass_dias",
-  "lv_myo_thickness_total",
-  "lv_myo_thickness_dias",
-  "rvef",
+  # "lvco",
   "lvef",
+  "rvedv",
+  "rvesv",
+  "rvsv",
+  # "rvco",
+  "rvef",
+  "lv_myo_mass_dias",
+  "lv_myo_thickness_dias",
   "long_peak",
-  "af_high5pctwss",
-  "af_medianwss",
+  "imaging_hr",
   "af_meanwss",
+  # "af_high5pctwss",
   "af_pwv_xcor3",
   "tt1",
   "tt2"
+  # "tr2"
+  # "lv_myo_mass_syst",
+  # "lv_myo_thickness_total",
+  # "af_medianwss",
 )
 
 im_vars_2_labels <- c(
-  imaging_hr                = "Heart rate",
-  rvedv                     = "RV EDV",
-  lvedv                     = "LV EDV",
-  rvesv                     = "RV ESV",
-  lvesv                     = "LV ESV",
-  rvsv                      = "RV stroke\nvolume",
-  lvsv                      = "LV stroke\nvolume",
+  imaging_hr                = "Heart rate (1/min)",
+  rvedv                     = "RVEDV (mL)",
+  lvedv                     = "LVEDV (mL)",
+  rvesv                     = "RVESV (mL)",
+  lvesv                     = "LVESV (mL)",
+  rvsv                      = "RV stroke\nvolume (mL)",
+  lvsv                      = "LV stroke\nvolume (mL)",
   rvco                      = "RV cardiac\noutput",
   lvco                      = "LV cardiac\noutput",
   lv_myo_mass_syst          = "LV myocardial\nmass (systole)",
-  lv_myo_mass_dias          = "LV myocardial\nmass (diastole)",
-  lv_myo_thickness_total    = "LV\nmyocardial\nthickness (total)",
-  lv_myo_thickness_dias     = "LV\nmyocardial\nthickness (diastole)",
-  rvef                      = "RV\nejection fraction",
-  lvef                      = "LV\nejection fraction",
-  long_peak                 = "LV global\nlongitudinal strain",
+  lv_myo_mass_dias          = "LV mass (g)",
+  lv_myo_thickness_total    = "LV\nthickness total (mm)",
+  lv_myo_thickness_dias     = "LV\nthickness (mm)",
+  rvef                      = "RV\nejection fraction (%)",
+  lvef                      = "LV\nejection fraction (%)",
+  long_peak                 = "Global\nlongitudinal strain (%)",
   af_high5pctwss            = "Aortic wall shear\nstress (top 5%)",
   af_medianwss              = "Aortic wall shear\nstress (median)",
-  af_meanwss                = "Aortic wall shear\nstress (mean)",
-  af_pwv_xcor3              = "Aortic\nPWV",
-  tt1                       = "T1",
-  tt2                       = "T2*"
+  af_meanwss                = "Mean wall shear\nstress (Pa)",
+  af_pwv_xcor3              = "Pulse wave\nvelocity (m/s)",
+  tt1                       = "T1 (ms)",
+  tt2                       = "T2* (ms)",
+  tr2 = "R2* (1/ms)"
 )
 ```
 
@@ -470,14 +512,21 @@ plot_boxgrid(
   group_var = "sex",
   log_vars = im_vars_log,
   file_prefix = "obt2d_sex",
-  ncol = 5,
-  per_page = 22,
+  ncol = 4,
+  per_page = 16,
   show_legend = T,
   fill_label = "Sex",
   width = 18,
   text_size = 20,
-  star_size = 12
+  star_size = 12,
+  p_format = "value",
+  paired = F,
+  test_method = "wilcox.test"
 )
+
+# subsetting for Sungho
+# harm_dat_subset_obt2d_subset <- subset(harm_dat_subset_obt2d, select = c("record_id", "sex", im_vars_2))
+# write.csv(harm_dat_subset_obt2d_subset, file.path(root_path, "ULTRA_SWEETHEART/Data Clean/OBT2D_sex_subset.csv"), row.names = F, na = "")
 
 table(harm_dat_subset_obt2d$group)
 
@@ -543,6 +592,7 @@ map(im_vars, ~ hist(harm_dat_subset[[.x]],
 ```
 
 # correlation with log(UACR), eGFR, BMI, and HbA1c
+
 ```{r}
 harm_dat_subset <- harm_dat_subset %>%
   mutate(across(

@@ -219,6 +219,65 @@ for (folder in names(folders)) {
   }
 }
 
+sig_df_summary_comp <- data.frame(
+  celltype = character(),
+  analysis_type = character(),
+  Positive = integer(),
+  Negative = integer(),
+  Total = integer()
+)
+
+for (folder in names(folders)) {
+  for (cell in names(celltype_groups)) {
+    
+    var_name <- paste0(tolower(cell), "_", folders[folder])
+    var_name <- gsub("/", "_", var_name)
+    
+    # ---- GUARD: skip if object doesn't exist ----
+    if (!exists(var_name, inherits = TRUE)) {
+      message("Skipping missing object: ", var_name)
+      next
+    }
+    
+    df <- get(var_name)
+    
+    sig_df <- subset(df, df[[6]] < 0.05)
+    
+    sig_df_summary <- sig_df %>%
+      mutate(
+        direction = case_when(
+          .data[[names(sig_df)[2]]] > 0 ~ "Positive",
+          .data[[names(sig_df)[2]]] < 0 ~ "Negative",
+          TRUE ~ NA_character_
+        )
+      ) %>%
+      dplyr::count(direction) %>%
+      tidyr::complete(
+        direction = c("Positive", "Negative"),
+        fill = list(n = 0)
+      ) %>%
+      bind_rows(
+        tibble(
+          direction = "Total",
+          n = sum(.$n)
+        )
+      ) %>%
+      column_to_rownames("direction") %>%
+      t() %>%
+      as.data.frame() %>%
+      mutate(
+        celltype = cell,
+        analysis_type = folder
+      ) %>%
+      dplyr::select(celltype, analysis_type, Positive, Negative, Total) %>%
+      `rownames<-`(NULL)
+    
+    sig_df_summary_comp <- rbind(sig_df_summary_comp, sig_df_summary)
+  }
+}
+
+write.csv(sig_df_summary_comp, file.path(root_path, "Renal HERITAGE/Results/Summary csv/nebula_deg_results_summary.csv"), row.names = F)
+
 # Define plot parameters for each comparison
 plot_params <- list(
   # Existing parameters
@@ -911,6 +970,32 @@ for (folder in folders) {
     }
   }
 }
+
+# Endothelial dysfunction, metabolic reprogramming, and fibro-inflammation pathways in DKD30 GLP+ vs GLP-
+endothelial_dys <- c("HALLMARK_ANGIOGENESIS", "HALLMARK_HYPOXIA", "HALLMARK_ROS_PATHWAY", "HALLMARK_TNFA_SIGNALING_VIA_NFKB")
+metab_reprogram <- c("HALLMARK_GLYCOLYSIS", "HALLMARK_OXIDATIVE_PHOSPHORYLATION", "HALLMARK_FATTY_ACID_METABOLISM", "HALLMARK_MTORC1_SIGNALING", "HALLMARK_MYC_TARGETS")
+fib_inflam <- c("HALLMARK_TGF_BETA_SIGNALING", "HALLMARK_EMT", "HALLMARK_INFLAMMATORY_RESPONSE", "HALLMARK_COMPLEMENT", "HALLMARK_IL6_JAK_STAT3_SIGNALING")
+
+dkd_30_glpy_glpn_hallmark <- data.frame()
+for (cell in names(celltype_groups)) {
+  folder <- "dkd_30_glpy_glpn"
+  result_name <- paste0(folder, "_", tolower(gsub("/", "_", cell)))
+  hallmark_df <- gsea_results[[result_name]]$hallmark %>%
+    mutate(celltype = cell)
+  dkd_30_glpy_glpn_hallmark <- rbind(hallmark_df, dkd_30_glpy_glpn_hallmark)
+}
+
+dkd_30_glpy_glpn_hallmark_subset <- dkd_30_glpy_glpn_hallmark %>%
+  filter(pathway %in% c(endothelial_dys, metab_reprogram, fib_inflam)) %>%
+  filter(pval < 0.05) %>%
+  mutate(pathway_theme = case_when(pathway %in% endothelial_dys ~ "Endothelial dysfunction",
+                                   pathway %in% metab_reprogram ~ "Metabolic reprogramming",
+                                   pathway %in% fib_inflam ~ "Fibro-inflammation")) %>%
+  arrange(pathway_theme, celltype, pathway) %>%
+  select(-leadingEdge)
+
+write.csv(dkd_30_glpy_glpn_hallmark_subset, 
+          file.path(root_path, "Renal HERITAGE/Results/GSEA/hallmark_dkd_30_glpy_glpn_summary.csv"), row.names = F)
 
 for (folder in folders) {
   for (cell in names(celltype_groups)) {

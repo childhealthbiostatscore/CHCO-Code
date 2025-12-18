@@ -1,0 +1,233 @@
+---
+title: "RH RH2 GLP1RA+ vs. GLP1RA- ADA Abstract"
+author: "Ye Ji Choi"
+format:
+  revealjs:
+    embed-resources: true
+    scrollable: true
+    transition: slide
+    controls-layout: bottom-right
+    menu: true
+    toc: true
+    toc-depth: 3
+    fontsize: 15
+    number-sections: true
+---
+
+```{r include = F}
+library(jsonlite)
+library(aws.s3)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+library(lmerTest)
+library(emmeans)
+library(broom)
+library(ggbeeswarm)
+library(lemon)
+library(quantreg)
+library(readxl)
+```
+
+```{r include = F}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+```
+
+```{r include = F}
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+```{r echo = F, echo = F}
+rh_rh2_croc_panther_unique <- read.csv(file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh_rh2_croc_panther_unique.csv"))
+rh_rh2_croc_improve_unique <- read.csv(file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh_rh2_croc_improve_unique.csv")) %>%
+  mutate(kit_id = gsub("Kl", "KL", kit_id))
+rh_rh2_unique <- read.csv(file.path(root_path, "Renal HERITAGE/Data_Cleaned/rh_rh2_unique.csv"))
+bx_meta <- s3readRDS(object = "data_clean/subset/pb90_ckd_analysis_subset_meta.rds", bucket = "scrna", region = "")
+
+bx_subset <- rh_rh2_croc_improve_unique %>%
+  filter(kit_id %in% bx_meta$kit_id)
+bx_subset$dkd_group_100_hc <- factor(bx_subset$dkd_group_100_hc, levels = c("HC", "non_DKD", "DKD"))
+bx_subset$dkd_group_30_hc <- factor(bx_subset$dkd_group_30_hc, levels = c("HC", "non_DKD", "DKD"))
+```
+
+## DKD defined by UACR ≥ 30 | eGFR < 90 (limited to DKD, grouping by GLP use)
+
+```{r echo = F, results = 'asis'}
+summary(arsenal::tableby( ~ group + age + sex + kwt(acr_u, "medianq1q3") + hba1c +
+                           eGFR_CKD_epi + gfr_raw_plasma + gfr_bsa_plasma + bmi + diabetes_duration + epic_glp1ra_1 + epic_sglti2_1, 
+                         data=subset(bx_subset, dkd_group_30_hc == "DKD")),
+        total = F, digits = 1)
+```
+
+```{r}
+# read in summary of DEGs
+sig_df_summary_comp <-  read.csv(file.path(root_path, "Renal HERITAGE/Results/Summary csv/nebula_deg_results_summary.csv"))
+
+# create figure of top cell types with most DEGs
+sig_df_summary_dkd30 <- sig_df_summary_comp %>%
+  filter(analysis_type == "DKD_30_GLP_Y_vs_DKD_30_GLP_N") %>%
+  arrange(Total) %>%
+  mutate(celltype = factor(celltype, levels = celltype)) %>%
+  pivot_longer(
+    cols = c(Positive, Negative),
+    names_to = "direction",
+    values_to = "count"
+  ) %>%
+  mutate(
+    signed_count = ifelse(direction == "Negative", -count, count),
+    direction = factor(direction, levels = c("Negative", "Positive"))
+  )
+
+# all runs
+sig_df_summary_dkd30 %>%
+  ggplot(aes(x = signed_count, y = celltype, fill = direction)) +
+  geom_col(width = 0.7) +
+  geom_vline(xintercept = 0, color = "white", linewidth = 0.6) +
+  geom_text(aes(label = celltype, x = 0), size = 4) +
+  scale_x_continuous(
+    labels = abs,
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  scale_fill_manual(
+    values = c("Negative" = "#c0d6df", "Positive" = "#f4978e")
+  ) +
+  labs(
+    x = "Number of DE genes",
+    y = NULL,
+    fill = NULL
+  ) +
+  theme(
+    legend.position = "top",
+    panel.background = element_blank(),
+    text = element_text(size = 15),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/deg_summary_bar_dkd30_glp_all.png"))
+
+# KPMP low res
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  DTL_ATL = c("DTL", "aDTL", "ATL"),
+  DCT_CNT = c("DCT", "dDCT", "CNT"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD",
+  MC = "MC",
+  PEC = "PEC",
+  Schwann = "SchwannCells"
+)
+
+sig_df_summary_dkd30 %>%
+  filter(celltype %in% names(celltype_groups)) %>%
+  ggplot(aes(x = signed_count, y = celltype, fill = direction)) +
+  geom_col(width = 0.7) +
+  geom_vline(xintercept = 0, color = "white", linewidth = 0.6) +
+  geom_text(aes(label = celltype, x = 0), size = 4) +
+  scale_x_continuous(
+    labels = abs,
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  scale_fill_manual(
+    values = c("Negative" = "#c0d6df", "Positive" = "#f4978e")
+  ) +
+  labs(
+    x = "Number of DE genes",
+    y = NULL,
+    fill = NULL
+  ) +
+  theme(
+    legend.position = "top",
+    panel.background = element_blank(),
+    text = element_text(size = 15),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/deg_summary_bar_dkd30_glp_kpmp_lowres.png"), height = 5)
+
+# high res
+celltype_groups_high <- list(
+  aPT = "aPT",
+  `PT-S1/S2` = "PT-S1/S2",
+  `PT-S3` = "PT-S3",
+  `C-TAL-1` = "C-TAL-1",
+  `C-TAL-2` = "C-TAL-2",
+  aTAL = "aTAL",
+  dTAL = "dTAL",
+  `EC-AVR` = "EC-AVR",
+  `EC-GC`  = "EC-GC",
+  `EC-PTC` = "EC-PTC",
+  `EC-AEA` = "EC-AEA",
+  `EC-LYM` = "EC-LYM",
+  `EC/VSMC` = "EC/VSMC",
+  Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT")
+)
+
+sig_df_summary_dkd30 %>%
+  filter(celltype %in% names(celltype_groups_high)) %>%
+  ggplot(aes(x = signed_count, y = celltype, fill = direction)) +
+  geom_col(width = 0.7) +
+  geom_vline(xintercept = 0, color = "white", linewidth = 0.6) +
+  geom_text(aes(label = celltype, x = 0), size = 4) +
+  scale_x_continuous(
+    labels = abs,
+    expand = expansion(mult = c(0.01, 0.01))
+  ) +
+  scale_fill_manual(
+    values = c("Negative" = "#c0d6df", "Positive" = "#f4978e")
+  ) +
+  labs(
+    x = "Number of DE genes",
+    y = NULL,
+    fill = NULL
+  ) +
+  theme(
+    legend.position = "top",
+    panel.background = element_blank(),
+    text = element_text(size = 15),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/deg_summary_bar_dkd30_glp_kpmp_highres.png"), height = 5)
+```
+
+
+# Pathways
+```{r}
+dkd_30_glpy_glpn_hallmark_subset <- read.csv(file.path(root_path, "Renal HERITAGE/Results/GSEA/hallmark_dkd_30_glpy_glpn_summary.csv"))
+
+```
