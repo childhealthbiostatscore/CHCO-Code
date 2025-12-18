@@ -1617,3 +1617,319 @@ cat("All plots and statistics saved to:", dir.results, "\n")
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+####Overall comparisons
+
+
+
+
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+library(pheatmap)
+library(VennDiagram)
+
+# ============================================================================
+# 1. LOAD DATA
+# ============================================================================
+
+# Define directories
+lc_dir <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only"
+t2d_dir <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_Only"
+
+# Get all cell type files from each directory
+lc_files <- list.files(lc_dir, pattern = "Full_NEBULA_.*_LC_pooledoffset\\.csv", full.names = TRUE)
+t2d_files <- list.files(t2d_dir, pattern = "Full_NEBULA_.*_T2D_pooledoffset\\.csv", full.names = TRUE)
+
+cat(sprintf("Found %d LC files\n", length(lc_files)))
+cat(sprintf("Found %d T2D files\n\n", length(t2d_files)))
+
+# Extract cell types from filenames
+extract_celltype <- function(filepath) {
+  filename <- basename(filepath)
+  # Extract cell type between "Full_NEBULA_" and "_LC" or "_T2D"
+  gsub("Full_NEBULA_(.+?)_(LC|T2D)_pooledoffset\\.csv", "\\1", filename)
+}
+
+# Load all data
+load_and_annotate <- function(files, condition) {
+  map_dfr(files, function(f) {
+    cat(sprintf("Loading: %s\n", basename(f)))
+    read_csv(f, show_col_types = FALSE) %>%
+      mutate(
+        celltype = extract_celltype(f),
+        condition = condition
+      )
+  })
+}
+
+cat("Loading Lean Control files...\n")
+lc_data <- load_and_annotate(lc_files, "LC")
+
+cat("\nLoading T2D files...\n")
+t2d_data <- load_and_annotate(t2d_files, "T2D")
+
+cat(sprintf("\nTotal LC observations: %d\n", nrow(lc_data)))
+cat(sprintf("Total T2D observations: %d\n", nrow(t2d_data)))
+cat(sprintf("Cell types in LC: %s\n", paste(unique(lc_data$celltype), collapse = ", ")))
+cat(sprintf("Cell types in T2D: %s\n\n", paste(unique(t2d_data$celltype), collapse = ", ")))
+
+# ============================================================================
+# 2. PREPARE SEX EFFECT DATA
+# ============================================================================
+
+# Focus on sex effect (sexMale coefficient)
+# Positive logFC = higher in males, Negative logFC = higher in females (protective)
+
+prepare_sex_effects <- function(df) {
+  df %>%
+    select(
+      summary.gene,
+      celltype,
+      condition,
+      logFC_sex = summary.logFC_sexMale,
+      se_sex = summary.se_sexMale,
+      p_sex = summary.p_sexMale
+    ) %>%
+    mutate(
+      padj_sex = p.adjust(p_sex, method = "BH"),
+      sig = padj_sex < 0.05,
+      direction = case_when(
+        logFC_sex > 0 ~ "Male-biased",
+        logFC_sex < 0 ~ "Female-biased",
+        TRUE ~ "No difference"
+      )
+    )
+}
+
+lc_sex <- prepare_sex_effects(lc_data)
+t2d_sex <- prepare_sex_effects(t2d_data)
+
+# Combine for comparison
+combined <- bind_rows(lc_sex, t2d_sex) %>%
+  pivot_wider(
+    id_cols = c(summary.gene, celltype),
+    names_from = condition,
+    values_from = c(logFC_sex, se_sex, p_sex, padj_sex, sig, direction)
+  )
+
+# ============================================================================
+# 3. CATEGORIZE GENES BY SEX EFFECT PATTERNS
+# ============================================================================
+
+combined <- combined %>%
+  mutate(
+    pattern = case_when(
+      # Female-protective in both conditions
+      sig_LC & sig_T2D & logFC_sex_LC < 0 & logFC_sex_T2D < 0 ~ 
+        "Female-protective (both)",
+      
+      # Female-protective only in LC (lost in T2D)
+      sig_LC & !sig_T2D & logFC_sex_LC < 0 ~ 
+        "Female-protective lost in T2D",
+      
+      # Female-protective only in T2D (gained)
+      !sig_LC & sig_T2D & logFC_sex_T2D < 0 ~ 
+        "Female-protective gained in T2D",
+      
+      # Attenuated protection (both sig, both negative, but smaller in T2D)
+      sig_LC & sig_T2D & logFC_sex_LC < 0 & logFC_sex_T2D < 0 & 
+        abs(logFC_sex_T2D) < abs(logFC_sex_LC) ~ 
+        "Attenuated female protection",
+      
+      # Male-biased in both
+      sig_LC & sig_T2D & logFC_sex_LC > 0 & logFC_sex_T2D > 0 ~ 
+        "Male-biased (both)",
+      
+      # Other patterns
+      TRUE ~ "Other/Not significant"
+    ),
+    
+    # Calculate delta (change in sex effect from LC to T2D)
+    delta_logFC = logFC_sex_T2D - logFC_sex_LC,
+    
+    # Is the female protection attenuated? (becoming less negative)
+    protection_attenuated = logFC_sex_LC < 0 & logFC_sex_T2D > logFC_sex_LC
+  )
+
+# ============================================================================
+# 4. SUMMARY STATISTICS BY CELL TYPE
+# ============================================================================
+
+summary_by_celltype <- combined %>%
+  group_by(celltype) %>%
+  summarise(
+    n_genes = n(),
+    
+    # Female-protective genes
+    n_female_prot_LC = sum(sig_LC & logFC_sex_LC < 0, na.rm = TRUE),
+    n_female_prot_T2D = sum(sig_T2D & logFC_sex_T2D < 0, na.rm = TRUE),
+    pct_lost = 100 * sum(pattern == "Female-protective lost in T2D", na.rm = TRUE) / n_genes,
+    
+    # Attenuation metrics
+    n_attenuated = sum(protection_attenuated, na.rm = TRUE),
+    mean_attenuation = mean(delta_logFC[protection_attenuated], na.rm = TRUE),
+    
+    # Male-biased genes
+    n_male_LC = sum(sig_LC & logFC_sex_LC > 0, na.rm = TRUE),
+    n_male_T2D = sum(sig_T2D & logFC_sex_T2D > 0, na.rm = TRUE)
+  ) %>%
+  arrange(desc(n_female_prot_LC))
+
+print("Summary by cell type:")
+print(summary_by_celltype)
+
+# ============================================================================
+# 5. VISUALIZATIONS
+# ============================================================================
+
+# 5a. Scatter plot: LC vs T2D sex effects by cell type
+for (ct in unique(combined$celltype)) {
+  p <- combined %>%
+    filter(celltype == ct) %>%
+    ggplot(aes(x = logFC_sex_LC, y = logFC_sex_T2D)) +
+    geom_point(aes(color = pattern, alpha = sig_LC | sig_T2D), size = 2) +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50") +
+    geom_hline(yintercept = 0, linetype = "dotted") +
+    geom_vline(xintercept = 0, linetype = "dotted") +
+    scale_alpha_manual(values = c(0.3, 0.8)) +
+    labs(
+      title = paste("Sex Effects:", ct),
+      subtitle = "Comparing Lean Controls vs T2D",
+      x = "Log2FC (Male vs Female) in Lean Controls",
+      y = "Log2FC (Male vs Female) in T2D",
+      color = "Pattern",
+      caption = "Points above diagonal = increased male bias in T2D\nPoints below diagonal = increased female protection in T2D"
+    ) +
+    theme_minimal() +
+    theme(legend.position = "bottom")
+  
+  print(p)
+  
+  # Save plot
+  ggsave(paste0("sex_comparison_", ct, ".png"), p, width = 10, height = 8)
+}
+
+# 5b. Heatmap of delta (change in sex effect)
+top_attenuated <- combined %>%
+  filter(protection_attenuated) %>%
+  group_by(celltype) %>%
+  slice_max(abs(delta_logFC), n = 20) %>%
+  ungroup()
+
+if (nrow(top_attenuated) > 0) {
+  heatmap_data <- top_attenuated %>%
+    select(summary.gene, celltype, delta_logFC) %>%
+    pivot_wider(names_from = celltype, values_from = delta_logFC) %>%
+    column_to_rownames("summary.gene")
+  
+  pheatmap(
+    heatmap_data,
+    main = "Top Genes with Attenuated Female Protection in T2D",
+    cluster_rows = TRUE,
+    cluster_cols = TRUE,
+    color = colorRampPalette(c("blue", "white", "red"))(50),
+    breaks = seq(-max(abs(heatmap_data), na.rm = TRUE), 
+                 max(abs(heatmap_data), na.rm = TRUE), 
+                 length.out = 51)
+  )
+}
+
+# 5c. Bar plot: Pattern distribution by cell type
+pattern_summary <- combined %>%
+  count(celltype, pattern) %>%
+  filter(pattern != "Other/Not significant") %>%
+  ggplot(aes(x = celltype, y = n, fill = pattern)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Sex Effect Patterns Across Cell Types",
+    x = "Cell Type",
+    y = "Number of Genes",
+    fill = "Pattern"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(pattern_summary)
+ggsave("pattern_summary_by_celltype.png", pattern_summary, width = 12, height = 6)
+
+# ============================================================================
+# 6. KEY FINDINGS FOR ABSTRACT
+# ============================================================================
+
+cat("\n\n=== KEY FINDINGS FOR ABSTRACT ===\n\n")
+
+# Overall statistics
+overall_stats <- combined %>%
+  summarise(
+    total_genes = n(),
+    genes_female_prot_LC = sum(sig_LC & logFC_sex_LC < 0, na.rm = TRUE),
+    genes_female_prot_T2D = sum(sig_T2D & logFC_sex_T2D < 0, na.rm = TRUE),
+    genes_lost_protection = sum(pattern == "Female-protective lost in T2D", na.rm = TRUE),
+    genes_attenuated = sum(protection_attenuated, na.rm = TRUE),
+    pct_reduction = 100 * (1 - genes_female_prot_T2D / genes_female_prot_LC)
+  )
+
+cat("OVERALL FINDINGS:\n")
+cat(sprintf("- Female-protective genes in Lean Controls: %d\n", overall_stats$genes_female_prot_LC))
+cat(sprintf("- Female-protective genes in T2D: %d (%.1f%% reduction)\n", 
+            overall_stats$genes_female_prot_T2D, overall_stats$pct_reduction))
+cat(sprintf("- Genes completely losing female protection: %d\n", overall_stats$genes_lost_protection))
+cat(sprintf("- Genes with attenuated protection: %d\n\n", overall_stats$genes_attenuated))
+
+# Cell type specific insights
+cat("CELL TYPE-SPECIFIC INSIGHTS:\n")
+print(summary_by_celltype %>% select(celltype, n_female_prot_LC, n_female_prot_T2D, pct_lost, n_attenuated))
+
+# Top genes with lost/attenuated protection
+cat("\nTOP GENES WITH LOST/ATTENUATED FEMALE PROTECTION:\n")
+top_genes <- combined %>%
+  filter(pattern %in% c("Female-protective lost in T2D", "Attenuated female protection")) %>%
+  arrange(desc(abs(delta_logFC))) %>%
+  select(summary.gene, celltype, logFC_sex_LC, logFC_sex_T2D, delta_logFC, pattern) %>%
+  head(20)
+
+print(top_genes)
+
+# Save all results
+write_csv(combined, "sex_comparison_all_genes.csv")
+write_csv(summary_by_celltype, "sex_comparison_summary_by_celltype.csv")
+write_csv(top_genes, "top_genes_attenuated_protection.csv")
+
+cat("\n=== ANALYSIS COMPLETE ===\n")
+cat("Results saved to CSV files\n")
+cat("Plots saved as PNG files\n")
+
+
+
+
+
+
+
+
+
+
+
+
