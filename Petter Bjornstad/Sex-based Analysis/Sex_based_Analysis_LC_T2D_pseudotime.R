@@ -1642,22 +1642,33 @@ cat("All plots and statistics saved to:", dir.results, "\n")
 
 ####Overall comparisons
 
-
-
-
 library(tidyverse)
 library(ggplot2)
 library(ggrepel)
 library(pheatmap)
 library(VennDiagram)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+library(DOSE)
 
 # ============================================================================
 # 1. LOAD DATA
 # ============================================================================
 
 # Define directories
-lc_dir <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/LeanControl_Only"
-t2d_dir <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_Only"
+base_dir <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis"
+lc_dir <- file.path(base_dir, "LeanControl_Only")
+t2d_dir <- file.path(base_dir, "T2D_Only")
+results_dir <- file.path(base_dir, "Sex_Comparison_Results")
+
+# Create results directory if it doesn't exist
+if (!dir.exists(results_dir)) {
+  dir.create(results_dir)
+  cat(sprintf("Created results directory: %s\n\n", results_dir))
+} else {
+  cat(sprintf("Using existing results directory: %s\n\n", results_dir))
+}
 
 # Get all cell type files from each directory
 lc_files <- list.files(lc_dir, pattern = "Full_NEBULA_.*_LC_pooledoffset\\.csv", full.names = TRUE)
@@ -1705,7 +1716,7 @@ cat(sprintf("Cell types in T2D: %s\n\n", paste(unique(t2d_data$celltype), collap
 
 prepare_sex_effects <- function(df) {
   df %>%
-    select(
+    dplyr::select(
       summary.gene,
       celltype,
       condition,
@@ -1809,6 +1820,8 @@ print(summary_by_celltype)
 for (ct in unique(combined$celltype)) {
   p <- combined %>%
     filter(celltype == ct) %>%
+    filter(logFC_sex_LC >= -15 & logFC_sex_LC <= 15) %>%
+    filter(logFC_sex_T2D >= -15 & logFC_sex_T2D <= 15) %>%
     ggplot(aes(x = logFC_sex_LC, y = logFC_sex_T2D)) +
     geom_point(aes(color = pattern, alpha = sig_LC | sig_T2D), size = 2) +
     geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50") +
@@ -1829,7 +1842,8 @@ for (ct in unique(combined$celltype)) {
   print(p)
   
   # Save plot
-  ggsave(paste0("sex_comparison_", ct, ".png"), p, width = 10, height = 8)
+  ggsave(file.path(results_dir, paste0("sex_comparison_", ct, ".png")), 
+         p, width = 10, height = 8)
 }
 
 # 5b. Heatmap of delta (change in sex effect)
@@ -1841,20 +1855,37 @@ top_attenuated <- combined %>%
 
 if (nrow(top_attenuated) > 0) {
   heatmap_data <- top_attenuated %>%
-    select(summary.gene, celltype, delta_logFC) %>%
+    dplyr::select(summary.gene, celltype, delta_logFC) %>%
     pivot_wider(names_from = celltype, values_from = delta_logFC) %>%
     column_to_rownames("summary.gene")
   
-  pheatmap(
-    heatmap_data,
-    main = "Top Genes with Attenuated Female Protection in T2D",
-    cluster_rows = TRUE,
-    cluster_cols = TRUE,
-    color = colorRampPalette(c("blue", "white", "red"))(50),
-    breaks = seq(-max(abs(heatmap_data), na.rm = TRUE), 
-                 max(abs(heatmap_data), na.rm = TRUE), 
-                 length.out = 51)
-  )
+  # Remove rows or columns with all NAs
+  heatmap_data <- heatmap_data[rowSums(is.na(heatmap_data)) < ncol(heatmap_data), ]
+  heatmap_data <- heatmap_data[, colSums(is.na(heatmap_data)) < nrow(heatmap_data)]
+  
+  heatmap_data <- as.matrix(heatmap_data)
+  # Check if we still have data
+  if (nrow(heatmap_data) > 1 && ncol(heatmap_data) > 1) {
+    # Replace any remaining NAs with 0 for visualization
+    heatmap_data[is.na(heatmap_data)] <- 0
+    
+    # Remove any infinite values
+    heatmap_data[is.infinite(heatmap_data)] <- 0
+    
+    pheatmap(
+      heatmap_data,
+      main = "Top Genes with Attenuated Female Protection in T2D",
+      cluster_rows = TRUE,
+      cluster_cols = TRUE,
+      color = colorRampPalette(c("blue", "white", "red"))(50),
+      breaks = seq(-max(abs(heatmap_data), na.rm = TRUE), 
+                   max(abs(heatmap_data), na.rm = TRUE), 
+                   length.out = 51),
+      na_col = "grey"
+    )
+  } else {
+    cat("Not enough data for heatmap after filtering NAs\n")
+  }
 }
 
 # 5c. Bar plot: Pattern distribution by cell type
@@ -1873,10 +1904,295 @@ pattern_summary <- combined %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 print(pattern_summary)
-ggsave("pattern_summary_by_celltype.png", pattern_summary, width = 12, height = 6)
+ggsave(file.path(results_dir, "pattern_summary_by_celltype.png"), 
+       pattern_summary, width = 12, height = 6)
 
 # ============================================================================
-# 6. KEY FINDINGS FOR ABSTRACT
+# 6. GO PATHWAY ANALYSIS - CELL TYPE BY CELL TYPE
+# ============================================================================
+
+cat("\n\n=== RUNNING GO PATHWAY ANALYSIS ===\n\n")
+
+# Create GO results directory
+go_dir <- file.path(results_dir, "GO_Pathway_Analysis")
+if (!dir.exists(go_dir)) {
+  dir.create(go_dir)
+}
+
+# Function to run GO enrichment
+run_go_enrichment <- function(genes, analysis_name, universe = NULL) {
+  if (length(genes) < 5) {
+    cat(sprintf("  Skipping %s - too few genes (%d)\n", analysis_name, length(genes)))
+    return(NULL)
+  }
+  
+  tryCatch({
+    ego <- enrichGO(
+      gene = genes,
+      OrgDb = org.Hs.eg.db,
+      keyType = "SYMBOL",
+      ont = "BP",  # Biological Process
+      pAdjustMethod = "BH",
+      pvalueCutoff = 0.05,
+      qvalueCutoff = 0.2,
+      universe = universe,
+      readable = TRUE
+    )
+    
+    if (!is.null(ego) && nrow(as.data.frame(ego)) > 0) {
+      cat(sprintf("  ✓ %s: %d significant pathways\n", analysis_name, nrow(as.data.frame(ego))))
+      return(ego)
+    } else {
+      cat(sprintf("  - %s: No significant pathways\n", analysis_name))
+      return(NULL)
+    }
+  }, error = function(e) {
+    cat(sprintf("  ✗ %s: Error - %s\n", analysis_name, e$message))
+    return(NULL)
+  })
+}
+
+# Analyze each cell type
+all_go_results <- list()
+go_comparison_data <- list()
+
+for (ct in unique(combined$celltype)) {
+  cat(sprintf("\n--- Analyzing %s ---\n", ct))
+  
+  ct_data <- combined %>% filter(celltype == ct)
+  
+  # Get universe (all genes tested in this cell type)
+  universe_genes <- ct_data$summary.gene
+  
+  # Define gene sets for this cell type
+  # 1. Female-protective genes in LC
+  lc_female_prot <- ct_data %>%
+    filter(sig_LC & logFC_sex_LC < 0) %>%
+    pull(summary.gene)
+  
+  # 2. Female-protective genes in T2D
+  t2d_female_prot <- ct_data %>%
+    filter(sig_T2D & logFC_sex_T2D < 0) %>%
+    pull(summary.gene)
+  
+  # 3. Female-protective genes LOST in T2D
+  lost_protection <- ct_data %>%
+    filter(pattern == "Female-protective lost in T2D") %>%
+    pull(summary.gene)
+  
+  # 4. Female-protective genes with ATTENUATED protection
+  attenuated_protection <- ct_data %>%
+    filter(protection_attenuated & sig_LC) %>%
+    pull(summary.gene)
+  
+  # 5. Male-biased genes in LC
+  lc_male_bias <- ct_data %>%
+    filter(sig_LC & logFC_sex_LC > 0) %>%
+    pull(summary.gene)
+  
+  # 6. Male-biased genes in T2D
+  t2d_male_bias <- ct_data %>%
+    filter(sig_T2D & logFC_sex_T2D > 0) %>%
+    pull(summary.gene)
+  
+  # Run GO enrichment for each gene set
+  go_lc_female <- run_go_enrichment(lc_female_prot, 
+                                    paste0(ct, " - Female-protective (LC)"), 
+                                    universe_genes)
+  
+  go_t2d_female <- run_go_enrichment(t2d_female_prot, 
+                                     paste0(ct, " - Female-protective (T2D)"), 
+                                     universe_genes)
+  
+  go_lost <- run_go_enrichment(lost_protection, 
+                               paste0(ct, " - Lost protection in T2D"), 
+                               universe_genes)
+  
+  go_attenuated <- run_go_enrichment(attenuated_protection, 
+                                     paste0(ct, " - Attenuated protection"), 
+                                     universe_genes)
+  
+  go_lc_male <- run_go_enrichment(lc_male_bias, 
+                                  paste0(ct, " - Male-biased (LC)"), 
+                                  universe_genes)
+  
+  go_t2d_male <- run_go_enrichment(t2d_male_bias, 
+                                   paste0(ct, " - Male-biased (T2D)"), 
+                                   universe_genes)
+  
+  # Store results
+  all_go_results[[ct]] <- list(
+    lc_female = go_lc_female,
+    t2d_female = go_t2d_female,
+    lost = go_lost,
+    attenuated = go_attenuated,
+    lc_male = go_lc_male,
+    t2d_male = go_t2d_male
+  )
+  
+  # Create visualizations for this cell type if we have results
+  ct_go_dir <- file.path(go_dir, ct)
+  if (!dir.exists(ct_go_dir)) {
+    dir.create(ct_go_dir)
+  }
+  
+  # Plot LC female-protective pathways
+  if (!is.null(go_lc_female) && nrow(as.data.frame(go_lc_female)) > 0) {
+    p <- dotplot(go_lc_female, showCategory = 20, title = paste(ct, "- Female-protective Pathways (LC)"))
+    ggsave(file.path(ct_go_dir, "GO_LC_female_protective.png"), p, width = 12, height = 8)
+  }
+  
+  # Plot T2D female-protective pathways
+  if (!is.null(go_t2d_female) && nrow(as.data.frame(go_t2d_female)) > 0) {
+    p <- dotplot(go_t2d_female, showCategory = 20, title = paste(ct, "- Female-protective Pathways (T2D)"))
+    ggsave(file.path(ct_go_dir, "GO_T2D_female_protective.png"), p, width = 12, height = 8)
+  }
+  
+  # Plot lost protection pathways
+  if (!is.null(go_lost) && nrow(as.data.frame(go_lost)) > 0) {
+    p <- dotplot(go_lost, showCategory = 20, title = paste(ct, "- Pathways Lost in T2D"))
+    ggsave(file.path(ct_go_dir, "GO_lost_protection.png"), p, width = 12, height = 8)
+  }
+  
+  # Plot attenuated protection pathways
+  if (!is.null(go_attenuated) && nrow(as.data.frame(go_attenuated)) > 0) {
+    p <- dotplot(go_attenuated, showCategory = 20, title = paste(ct, "- Attenuated Protection Pathways"))
+    ggsave(file.path(ct_go_dir, "GO_attenuated_protection.png"), p, width = 12, height = 8)
+  }
+  
+  # Compare LC vs T2D female-protective pathways
+  if (!is.null(go_lc_female) && !is.null(go_t2d_female)) {
+    lc_pathways <- as.data.frame(go_lc_female) %>%
+      dplyr::select(ID, Description, p.adjust, Count) %>%
+      mutate(condition = "LC")
+    
+    t2d_pathways <- as.data.frame(go_t2d_female) %>%
+      dplyr::select(ID, Description, p.adjust, Count) %>%
+      mutate(condition = "T2D")
+    
+    # Combine and identify shared vs unique pathways
+    comparison <- bind_rows(lc_pathways, t2d_pathways) %>%
+      group_by(ID, Description) %>%
+      summarise(
+        in_LC = "LC" %in% condition,
+        in_T2D = "T2D" %in% condition,
+        lc_padj = ifelse(any(condition == "LC"), p.adjust[condition == "LC"][1], NA),
+        t2d_padj = ifelse(any(condition == "T2D"), p.adjust[condition == "T2D"][1], NA),
+        lc_count = ifelse(any(condition == "LC"), Count[condition == "LC"][1], NA),
+        t2d_count = ifelse(any(condition == "T2D"), Count[condition == "T2D"][1], NA),
+        .groups = "drop"
+      ) %>%
+      mutate(
+        pathway_pattern = case_when(
+          in_LC & in_T2D ~ "Shared",
+          in_LC & !in_T2D ~ "LC only",
+          !in_LC & in_T2D ~ "T2D only"
+        )
+      )
+    
+    go_comparison_data[[ct]] <- comparison
+    
+    # Save comparison
+    write_csv(comparison, file.path(ct_go_dir, "pathway_comparison_LC_vs_T2D.csv"))
+    
+    # Visualize comparison
+    if (nrow(comparison) > 0) {
+      p_comp <- comparison %>%
+        mutate(Description = str_wrap(Description, 50)) %>%
+        head(30) %>%
+        ggplot(aes(x = reorder(Description, lc_padj), 
+                   y = -log10(lc_padj),
+                   fill = pathway_pattern)) +
+        geom_col() +
+        coord_flip() +
+        labs(
+          title = paste(ct, "- Female-protective Pathway Comparison"),
+          subtitle = "LC vs T2D",
+          x = "Pathway",
+          y = "-log10(adjusted p-value) in LC",
+          fill = "Pattern"
+        ) +
+        theme_minimal() +
+        theme(axis.text.y = element_text(size = 8))
+      
+      ggsave(file.path(ct_go_dir, "pathway_comparison_barplot.png"), 
+             p_comp, width = 12, height = 10)
+    }
+  }
+  
+  # Save all GO results as CSV for this cell type
+  for (analysis_name in names(all_go_results[[ct]])) {
+    go_result <- all_go_results[[ct]][[analysis_name]]
+    if (!is.null(go_result) && nrow(as.data.frame(go_result)) > 0) {
+      write_csv(
+        as.data.frame(go_result),
+        file.path(ct_go_dir, paste0("GO_", analysis_name, ".csv"))
+      )
+    }
+  }
+}
+
+# ============================================================================
+# 7. CROSS-CELL TYPE GO COMPARISON
+# ============================================================================
+
+cat("\n\n=== CROSS-CELL TYPE PATHWAY COMPARISON ===\n\n")
+
+# Collect top pathways lost/attenuated across all cell types
+all_lost_pathways <- map_dfr(names(all_go_results), function(ct) {
+  if (!is.null(all_go_results[[ct]]$lost)) {
+    as.data.frame(all_go_results[[ct]]$lost) %>%
+      mutate(celltype = ct, category = "Lost in T2D") %>%
+      head(10)
+  }
+})
+
+all_attenuated_pathways <- map_dfr(names(all_go_results), function(ct) {
+  if (!is.null(all_go_results[[ct]]$attenuated)) {
+    as.data.frame(all_go_results[[ct]]$attenuated) %>%
+      mutate(celltype = ct, category = "Attenuated") %>%
+      head(10)
+  }
+})
+
+# Combine and save
+all_key_pathways <- bind_rows(all_lost_pathways, all_attenuated_pathways)
+
+if (nrow(all_key_pathways) > 0) {
+  write_csv(all_key_pathways, file.path(go_dir, "key_pathways_across_celltypes.csv"))
+  
+  # Visualize pathways appearing in multiple cell types
+  pathway_counts <- all_key_pathways %>%
+    count(Description, category, sort = TRUE) %>%
+    filter(n > 1) %>%
+    head(20)
+  
+  if (nrow(pathway_counts) > 0) {
+    p_shared <- ggplot(pathway_counts, 
+                       aes(x = reorder(str_wrap(Description, 40), n), 
+                           y = n, 
+                           fill = category)) +
+      geom_col() +
+      coord_flip() +
+      labs(
+        title = "Pathways Affected Across Multiple Cell Types",
+        subtitle = "Female-protective pathways lost or attenuated in T2D",
+        x = "Pathway",
+        y = "Number of Cell Types",
+        fill = "Category"
+      ) +
+      theme_minimal() +
+      theme(axis.text.y = element_text(size = 9))
+    
+    ggsave(file.path(go_dir, "shared_pathways_across_celltypes.png"), 
+           p_shared, width = 12, height = 8)
+  }
+}
+
+cat(sprintf("\nGO analysis complete! Results saved to: %s\n", go_dir))
+
+# ============================================================================
+# 8. KEY FINDINGS FOR ABSTRACT
 # ============================================================================
 
 cat("\n\n=== KEY FINDINGS FOR ABSTRACT ===\n\n")
@@ -1901,26 +2217,51 @@ cat(sprintf("- Genes with attenuated protection: %d\n\n", overall_stats$genes_at
 
 # Cell type specific insights
 cat("CELL TYPE-SPECIFIC INSIGHTS:\n")
-print(summary_by_celltype %>% select(celltype, n_female_prot_LC, n_female_prot_T2D, pct_lost, n_attenuated))
+print(summary_by_celltype %>% dplyr::select(celltype, n_female_prot_LC, n_female_prot_T2D, pct_lost, n_attenuated))
 
 # Top genes with lost/attenuated protection
 cat("\nTOP GENES WITH LOST/ATTENUATED FEMALE PROTECTION:\n")
 top_genes <- combined %>%
   filter(pattern %in% c("Female-protective lost in T2D", "Attenuated female protection")) %>%
   arrange(desc(abs(delta_logFC))) %>%
-  select(summary.gene, celltype, logFC_sex_LC, logFC_sex_T2D, delta_logFC, pattern) %>%
+  dplyr::select(summary.gene, celltype, logFC_sex_LC, logFC_sex_T2D, delta_logFC, pattern) %>%
   head(20)
 
 print(top_genes)
 
+# Generate GO pathway summary for abstract
+cat("\n\nKEY PATHWAY FINDINGS:\n")
+
+# Count pathways by category across all cell types
+pathway_summary <- tibble(
+  celltype = names(all_go_results),
+  n_lc_female_pathways = map_int(all_go_results, ~ifelse(is.null(.x$lc_female), 0, nrow(as.data.frame(.x$lc_female)))),
+  n_t2d_female_pathways = map_int(all_go_results, ~ifelse(is.null(.x$t2d_female), 0, nrow(as.data.frame(.x$t2d_female)))),
+  n_lost_pathways = map_int(all_go_results, ~ifelse(is.null(.x$lost), 0, nrow(as.data.frame(.x$lost)))),
+  n_attenuated_pathways = map_int(all_go_results, ~ifelse(is.null(.x$attenuated), 0, nrow(as.data.frame(.x$attenuated))))
+) %>%
+  mutate(
+    pct_pathway_reduction = 100 * (1 - n_t2d_female_pathways / n_lc_female_pathways)
+  )
+
+print(pathway_summary)
+write_csv(pathway_summary, file.path(go_dir, "pathway_summary_by_celltype.csv"))
+
+# Highlight interesting shared pathways
+if (exists("pathway_counts") && nrow(pathway_counts) > 0) {
+  cat("\nPathways appearing in multiple cell types:\n")
+  print(pathway_counts %>% head(10))
+}
+
 # Save all results
-write_csv(combined, "sex_comparison_all_genes.csv")
-write_csv(summary_by_celltype, "sex_comparison_summary_by_celltype.csv")
-write_csv(top_genes, "top_genes_attenuated_protection.csv")
+write_csv(combined, file.path(results_dir, "sex_comparison_all_genes.csv"))
+write_csv(summary_by_celltype, file.path(results_dir, "sex_comparison_summary_by_celltype.csv"))
+write_csv(top_genes, file.path(results_dir, "top_genes_attenuated_protection.csv"))
 
 cat("\n=== ANALYSIS COMPLETE ===\n")
-cat("Results saved to CSV files\n")
-cat("Plots saved as PNG files\n")
+cat(sprintf("Results saved to: %s\n", results_dir))
+cat("  - CSV files with all results\n")
+cat("  - PNG plots for each cell type\n")
 
 
 
@@ -1929,7 +2270,499 @@ cat("Plots saved as PNG files\n")
 
 
 
+###GSEA 
 
+library(tidyverse)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+library(ggplot2)
+library(DOSE)
 
+# ============================================================================
+# SETUP
+# ============================================================================
 
+# Define directories
+base_dir <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis"
+lc_dir <- file.path(base_dir, "LeanControl_Only")
+t2d_dir <- file.path(base_dir, "T2D_Only")
+gsea_results_dir <- file.path(base_dir, "GSEA_Results")
 
+# Create results directory
+if (!dir.exists(gsea_results_dir)) {
+  dir.create(gsea_results_dir)
+}
+
+cat(sprintf("Results will be saved to: %s\n\n", gsea_results_dir))
+
+# ============================================================================
+# LOAD DATA
+# ============================================================================
+
+cat("Loading data...\n")
+
+# Get all files
+lc_files <- list.files(lc_dir, pattern = "Full_NEBULA_.*_LC_pooledoffset\\.csv", full.names = TRUE)
+t2d_files <- list.files(t2d_dir, pattern = "Full_NEBULA_.*_T2D_pooledoffset\\.csv", full.names = TRUE)
+
+# Extract cell type from filename
+extract_celltype <- function(filepath) {
+  filename <- basename(filepath)
+  gsub("Full_NEBULA_(.+?)_(LC|T2D)_pooledoffset\\.csv", "\\1", filename)
+}
+
+# Load and combine data
+load_data <- function(files, condition) {
+  map_dfr(files, function(f) {
+    read_csv(f, show_col_types = FALSE) %>%
+      mutate(
+        celltype = extract_celltype(f),
+        condition = condition
+      )
+  })
+}
+
+lc_data <- load_data(lc_files, "LC")
+t2d_data <- load_data(t2d_files, "T2D")
+
+# Prepare sex effect data
+prepare_sex_data <- function(df) {
+  df %>%
+    dplyr::select(
+      gene = summary.gene,
+      celltype,
+      condition,
+      logFC = summary.logFC_sexMale,
+      pval = summary.p_sexMale
+    ) %>%
+    # Remove duplicates if any
+    distinct(gene, celltype, condition, .keep_all = TRUE) %>%
+    # Remove genes with missing values
+    filter(!is.na(logFC), !is.na(pval), is.finite(logFC))
+}
+
+lc_sex <- prepare_sex_data(lc_data)
+t2d_sex <- prepare_sex_data(t2d_data)
+
+# Get all unique cell types
+celltypes <- intersect(unique(lc_sex$celltype), unique(t2d_sex$celltype))
+cat(sprintf("Found %d cell types: %s\n\n", length(celltypes), paste(celltypes, collapse = ", ")))
+
+# ============================================================================
+# GSEA FUNCTION
+# ============================================================================
+
+run_gsea <- function(gene_list, ont_type = "BP", analysis_name = "") {
+  
+  # Remove any NA or infinite values
+  gene_list <- gene_list[is.finite(gene_list)]
+  
+  if (length(gene_list) < 100) {
+    cat(sprintf("  Skipping %s - too few genes (%d)\n", analysis_name, length(gene_list)))
+    return(NULL)
+  }
+  
+  tryCatch({
+    gsea_result <- gseGO(
+      geneList = gene_list,
+      OrgDb = org.Hs.eg.db,
+      keyType = "SYMBOL",
+      ont = ont_type,  # BP, CC, or MF
+      pvalueCutoff = 0.05,
+      pAdjustMethod = "BH",
+      by = "fgsea"
+    )
+    
+    if (!is.null(gsea_result) && nrow(as.data.frame(gsea_result)) > 0) {
+      cat(sprintf("  ✓ %s (%s): %d pathways\n", analysis_name, ont_type, nrow(as.data.frame(gsea_result))))
+      return(gsea_result)
+    } else {
+      cat(sprintf("  - %s (%s): No significant pathways\n", analysis_name, ont_type))
+      return(NULL)
+    }
+  }, error = function(e) {
+    cat(sprintf("  ✗ %s (%s): Error - %s\n", analysis_name, ont_type, e$message))
+    return(NULL)
+  })
+}
+
+# ============================================================================
+# ANALYZE EACH CELL TYPE
+# ============================================================================
+
+all_results <- list()
+all_comparisons <- list()
+
+for (ct in celltypes) {
+  cat(sprintf("\n========================================\n"))
+  cat(sprintf("ANALYZING: %s\n", ct))
+  cat(sprintf("========================================\n"))
+  
+  # Create cell type directory
+  ct_dir <- file.path(gsea_results_dir, ct)
+  if (!dir.exists(ct_dir)) {
+    dir.create(ct_dir)
+  }
+  
+  # Get data for this cell type
+  lc_ct <- lc_sex %>% filter(celltype == ct)
+  t2d_ct <- t2d_sex %>% filter(celltype == ct)
+  
+  # Create ranked gene lists (rank by -log10(pval) * sign(logFC))
+  create_ranked_list <- function(df) {
+    ranked <- df %>%
+      mutate(
+        rank_metric = -log10(pval) * sign(logFC)
+      ) %>%
+      arrange(desc(rank_metric)) %>%
+      dplyr::select(gene, rank_metric)
+    
+    # Create named vector
+    gene_list <- ranked$rank_metric
+    names(gene_list) <- ranked$gene
+    
+    # Remove duplicates (keep first)
+    gene_list <- gene_list[!duplicated(names(gene_list))]
+    
+    return(gene_list)
+  }
+  
+  lc_ranked <- create_ranked_list(lc_ct)
+  t2d_ranked <- create_ranked_list(t2d_ct)
+  
+  cat(sprintf("LC ranked genes: %d\n", length(lc_ranked)))
+  cat(sprintf("T2D ranked genes: %d\n", length(t2d_ranked)))
+  
+  # Save ranked gene lists
+  write_csv(
+    tibble(gene = names(lc_ranked), rank_metric = lc_ranked),
+    file.path(ct_dir, "LC_ranked_genes.csv")
+  )
+  write_csv(
+    tibble(gene = names(t2d_ranked), rank_metric = t2d_ranked),
+    file.path(ct_dir, "T2D_ranked_genes.csv")
+  )
+  
+  # Calculate difference in differences
+  # For genes present in both conditions
+  common_genes <- intersect(names(lc_ranked), names(t2d_ranked))
+  
+  delta_ranked <- tibble(
+    gene = common_genes,
+    lc_rank = lc_ranked[common_genes],
+    t2d_rank = t2d_ranked[common_genes],
+    delta_rank = t2d_ranked[common_genes] - lc_ranked[common_genes]
+  ) %>%
+    arrange(desc(abs(delta_rank)))
+  
+  write_csv(delta_ranked, file.path(ct_dir, "delta_ranked_genes.csv"))
+  
+  # Create delta ranked list for GSEA
+  delta_gene_list <- delta_ranked$delta_rank
+  names(delta_gene_list) <- delta_ranked$gene
+  
+  cat(sprintf("Delta ranked genes: %d\n", length(delta_gene_list)))
+  
+  # Initialize results storage for this cell type
+  all_results[[ct]] <- list()
+  
+  # ============================================================================
+  # RUN GSEA FOR ALL THREE ONTOLOGIES
+  # ============================================================================
+  
+  for (ont in c("BP", "CC", "MF")) {
+    cat(sprintf("\n--- %s Ontology ---\n", ont))
+    
+    # Run GSEA on LC
+    gsea_lc <- run_gsea(
+      lc_ranked, ont,
+      paste(ct, "LC")
+    )
+    
+    # Run GSEA on T2D
+    gsea_t2d <- run_gsea(
+      t2d_ranked, ont,
+      paste(ct, "T2D")
+    )
+    
+    # Run GSEA on delta (difference in differences)
+    gsea_delta <- run_gsea(
+      delta_gene_list, ont,
+      paste(ct, "Delta (T2D - LC)")
+    )
+    
+    # Store results
+    all_results[[ct]][[ont]] <- list(
+      lc = gsea_lc,
+      t2d = gsea_t2d,
+      delta = gsea_delta
+    )
+    
+    # Save CSV files
+    ont_dir <- file.path(ct_dir, ont)
+    if (!dir.exists(ont_dir)) {
+      dir.create(ont_dir)
+    }
+    
+    if (!is.null(gsea_lc)) {
+      write_csv(as.data.frame(gsea_lc), 
+                file.path(ont_dir, "GSEA_LC.csv"))
+    }
+    if (!is.null(gsea_t2d)) {
+      write_csv(as.data.frame(gsea_t2d), 
+                file.path(ont_dir, "GSEA_T2D.csv"))
+    }
+    if (!is.null(gsea_delta)) {
+      write_csv(as.data.frame(gsea_delta), 
+                file.path(ont_dir, "GSEA_Delta.csv"))
+    }
+    
+    # ============================================================================
+    # CREATE VISUALIZATIONS
+    # ============================================================================
+    
+    # GSEA plots for LC
+    if (!is.null(gsea_lc) && nrow(as.data.frame(gsea_lc)) > 0) {
+      # Dot plot
+      p <- dotplot(gsea_lc, showCategory = 20, 
+                   title = paste(ct, "- LC Sex Differences (", ont, ")"))
+      ggsave(file.path(ont_dir, "GSEA_LC_dotplot.png"), p, width = 12, height = 8)
+      
+      # Enrichment plot for top pathways
+      if (nrow(as.data.frame(gsea_lc)) >= 5) {
+        top_pathways <- as.data.frame(gsea_lc) %>% 
+          arrange(pvalue) %>% 
+          head(5) %>% 
+          pull(ID)
+        
+        for (i in seq_along(top_pathways)) {
+          p <- gseaplot2(gsea_lc, geneSetID = top_pathways[i], 
+                         title = paste(ct, "LC -", ont))
+          ggsave(file.path(ont_dir, paste0("GSEA_LC_pathway_", i, ".png")), 
+                 p, width = 10, height = 6)
+        }
+      }
+    }
+    
+    # GSEA plots for T2D
+    if (!is.null(gsea_t2d) && nrow(as.data.frame(gsea_t2d)) > 0) {
+      # Dot plot
+      p <- dotplot(gsea_t2d, showCategory = 20,
+                   title = paste(ct, "- T2D Sex Differences (", ont, ")"))
+      ggsave(file.path(ont_dir, "GSEA_T2D_dotplot.png"), p, width = 12, height = 8)
+      
+      # Enrichment plot for top pathways
+      if (nrow(as.data.frame(gsea_t2d)) >= 5) {
+        top_pathways <- as.data.frame(gsea_t2d) %>% 
+          arrange(pvalue) %>% 
+          head(5) %>% 
+          pull(ID)
+        
+        for (i in seq_along(top_pathways)) {
+          p <- gseaplot2(gsea_t2d, geneSetID = top_pathways[i],
+                         title = paste(ct, "T2D -", ont))
+          ggsave(file.path(ont_dir, paste0("GSEA_T2D_pathway_", i, ".png")), 
+                 p, width = 10, height = 6)
+        }
+      }
+    }
+    
+    # GSEA plots for Delta (difference in differences)
+    if (!is.null(gsea_delta) && nrow(as.data.frame(gsea_delta)) > 0) {
+      # Dot plot
+      p <- dotplot(gsea_delta, showCategory = 20,
+                   title = paste(ct, "- Change in Sex Differences (T2D - LC) (", ont, ")"))
+      ggsave(file.path(ont_dir, "GSEA_Delta_dotplot.png"), p, width = 12, height = 8)
+      
+      # Enrichment plot for top pathways
+      if (nrow(as.data.frame(gsea_delta)) >= 5) {
+        top_pathways <- as.data.frame(gsea_delta) %>% 
+          arrange(pvalue) %>% 
+          head(5) %>% 
+          pull(ID)
+        
+        for (i in seq_along(top_pathways)) {
+          p <- gseaplot2(gsea_delta, geneSetID = top_pathways[i],
+                         title = paste(ct, "Delta -", ont))
+          ggsave(file.path(ont_dir, paste0("GSEA_Delta_pathway_", i, ".png")), 
+                 p, width = 10, height = 6)
+        }
+      }
+    }
+    
+    # ============================================================================
+    # COMPARE LC VS T2D PATHWAYS
+    # ============================================================================
+    
+    if (!is.null(gsea_lc) && !is.null(gsea_t2d)) {
+      lc_df <- as.data.frame(gsea_lc) %>%
+        dplyr::select(ID, Description, NES, pvalue, p.adjust) %>%
+        mutate(condition = "LC")
+      
+      t2d_df <- as.data.frame(gsea_t2d) %>%
+        dplyr::select(ID, Description, NES, pvalue, p.adjust) %>%
+        mutate(condition = "T2D")
+      
+      # Merge and compare NES scores
+      comparison <- full_join(
+        lc_df %>% dplyr::select(ID, Description, NES_LC = NES, padj_LC = p.adjust),
+        t2d_df %>% dplyr::select(ID, Description, NES_T2D = NES, padj_T2D = p.adjust),
+        by = c("ID", "Description")
+      ) %>%
+        mutate(
+          in_LC = !is.na(NES_LC),
+          in_T2D = !is.na(NES_T2D),
+          NES_LC = replace_na(NES_LC, 0),
+          NES_T2D = replace_na(NES_T2D, 0),
+          delta_NES = NES_T2D - NES_LC,
+          pattern = case_when(
+            in_LC & in_T2D ~ "Shared",
+            in_LC & !in_T2D ~ "LC only",
+            !in_LC & in_T2D ~ "T2D only",
+            TRUE ~ "Neither"
+          )
+        ) %>%
+        arrange(desc(abs(delta_NES)))
+      
+      all_comparisons[[paste(ct, ont, sep = "_")]] <- comparison
+      
+      write_csv(comparison, file.path(ont_dir, "LC_vs_T2D_NES_comparison.csv"))
+      
+      # Visualization 1: Scatter plot of NES scores
+      if (nrow(comparison %>% filter(in_LC | in_T2D)) > 0) {
+        p <- comparison %>%
+          filter(in_LC | in_T2D) %>%
+          ggplot(aes(x = NES_LC, y = NES_T2D, color = pattern)) +
+          geom_point(alpha = 0.6, size = 3) +
+          geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray50") +
+          geom_hline(yintercept = 0, linetype = "dotted") +
+          geom_vline(xintercept = 0, linetype = "dotted") +
+          labs(
+            title = paste(ct, "- NES Comparison (", ont, ")"),
+            subtitle = "LC vs T2D",
+            x = "Normalized Enrichment Score (LC)",
+            y = "Normalized Enrichment Score (T2D)",
+            color = "Pattern",
+            caption = "Points above diagonal = stronger enrichment in T2D\nPoints below diagonal = stronger enrichment in LC"
+          ) +
+          theme_minimal() +
+          theme(legend.position = "bottom")
+        
+        ggsave(file.path(ont_dir, "LC_vs_T2D_NES_scatter.png"), p, width = 10, height = 8)
+      }
+      
+      # Visualization 2: Top pathways with largest change
+      if (nrow(comparison %>% filter(in_LC & in_T2D)) > 0) {
+        p <- comparison %>%
+          filter(in_LC & in_T2D) %>%
+          arrange(desc(abs(delta_NES))) %>%
+          head(20) %>%
+          mutate(Description = str_wrap(Description, 50)) %>%
+          ggplot(aes(x = reorder(Description, abs(delta_NES)), y = delta_NES)) +
+          geom_col(aes(fill = delta_NES > 0)) +
+          coord_flip() +
+          scale_fill_manual(values = c("steelblue", "coral"), 
+                            labels = c("Stronger in LC", "Stronger in T2D")) +
+          labs(
+            title = paste(ct, "- Pathways with Largest Change (", ont, ")"),
+            subtitle = "Change in Normalized Enrichment Score (T2D - LC)",
+            x = "Pathway",
+            y = "Delta NES (T2D - LC)",
+            fill = ""
+          ) +
+          theme_minimal() +
+          theme(axis.text.y = element_text(size = 9))
+        
+        ggsave(file.path(ont_dir, "LC_vs_T2D_delta_NES.png"), p, width = 12, height = 10)
+      }
+    }
+  }
+}
+
+# ============================================================================
+# CROSS-CELL TYPE SUMMARY
+# ============================================================================
+
+cat("\n\n========================================\n")
+cat("CREATING CROSS-CELL TYPE SUMMARY\n")
+cat("========================================\n")
+
+# Create summary table
+summary_table <- map_dfr(celltypes, function(ct) {
+  bp_lc <- all_results[[ct]][["BP"]]$lc
+  bp_t2d <- all_results[[ct]][["BP"]]$t2d
+  bp_delta <- all_results[[ct]][["BP"]]$delta
+  
+  tibble(
+    celltype = ct,
+    BP_LC_pathways = ifelse(is.null(bp_lc), 0, nrow(as.data.frame(bp_lc))),
+    BP_T2D_pathways = ifelse(is.null(bp_t2d), 0, nrow(as.data.frame(bp_t2d))),
+    BP_Delta_pathways = ifelse(is.null(bp_delta), 0, nrow(as.data.frame(bp_delta)))
+  )
+})
+
+write_csv(summary_table, file.path(gsea_results_dir, "summary_by_celltype.csv"))
+print(summary_table)
+
+# Find pathways with consistent changes across cell types
+for (ont in c("BP", "CC", "MF")) {
+  cat(sprintf("\n--- %s Ontology Cross-Cell Type Analysis ---\n", ont))
+  
+  # Collect all delta GSEA results
+  delta_pathways <- map_dfr(celltypes, function(ct) {
+    gsea_delta <- all_results[[ct]][[ont]]$delta
+    if (!is.null(gsea_delta)) {
+      as.data.frame(gsea_delta) %>%
+        mutate(celltype = ct) %>%
+        dplyr::select(celltype, Description, NES, pvalue, p.adjust)
+    }
+  })
+  
+  if (nrow(delta_pathways) > 0) {
+    # Find pathways appearing in multiple cell types
+    pathway_freq <- delta_pathways %>%
+      group_by(Description) %>%
+      summarise(
+        n_celltypes = n(),
+        mean_NES = mean(NES),
+        consistent_direction = all(sign(NES) == sign(NES[1]))
+      ) %>%
+      filter(n_celltypes > 1) %>%
+      arrange(desc(n_celltypes), desc(abs(mean_NES)))
+    
+    if (nrow(pathway_freq) > 0) {
+      cat(sprintf("  Found %d pathways in multiple cell types\n", nrow(pathway_freq)))
+      
+      write_csv(pathway_freq, 
+                file.path(gsea_results_dir, paste0("shared_delta_pathways_", ont, ".csv")))
+      
+      # Visualize
+      p <- pathway_freq %>%
+        head(20) %>%
+        ggplot(aes(x = reorder(str_wrap(Description, 40), n_celltypes), 
+                   y = n_celltypes,
+                   fill = mean_NES)) +
+        geom_col() +
+        coord_flip() +
+        scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+        labs(
+          title = paste("Pathways with Changed Sex Differences Across Cell Types (", ont, ")"),
+          subtitle = "Based on Delta GSEA (T2D - LC)",
+          x = "Pathway",
+          y = "Number of Cell Types",
+          fill = "Mean NES"
+        ) +
+        theme_minimal() +
+        theme(axis.text.y = element_text(size = 9))
+      
+      ggsave(file.path(gsea_results_dir, paste0("shared_delta_pathways_", ont, ".png")), 
+             p, width = 12, height = 8)
+    }
+  }
+}
+
+cat("\n\n========================================\n")
+cat("GSEA ANALYSIS COMPLETE!\n")
+cat(sprintf("Results saved to: %s\n", gsea_results_dir))
+cat("========================================\n")
