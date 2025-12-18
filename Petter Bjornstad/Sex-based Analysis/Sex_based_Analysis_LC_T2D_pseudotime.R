@@ -2462,6 +2462,9 @@ for (ct in celltypes) {
   delta_gene_list <- delta_ranked$delta_rank
   names(delta_gene_list) <- delta_ranked$gene
   
+  # Sort in decreasing order (required for GSEA)
+  delta_gene_list <- sort(delta_gene_list, decreasing = TRUE)
+  
   cat(sprintf("Delta ranked genes: %d\n", length(delta_gene_list)))
   
   # Initialize results storage for this cell type
