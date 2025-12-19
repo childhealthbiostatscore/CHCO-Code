@@ -78,11 +78,19 @@ length(unique(today$releaseid)) # 699 ids
 today <- today %>%
   filter(mvisit!="R")
 
-#Load in Proteomics in Today
+# #Load in baseline Proteomics in Today
+# gc()
+# bucket <- "harmonized.dataset" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket, "today_proteomics_log2.rds", temp_file)
+# prot <- readRDS(temp_file)
+# gc()
+
+#Load in Proteomics in Today - baseline and follow up
 gc()
 bucket <- "harmonized.dataset" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-s3$download_file(bucket, "today_proteomics_log2.rds", temp_file)
+s3$download_file(bucket, "today_proteomics_longitudinal_log2.rds", temp_file)
 prot <- readRDS(temp_file)
 gc()
 
@@ -90,7 +98,8 @@ which(colnames(prot)=="AGEBASE") #7406
 which(colnames(prot)=="releaseid") #7326
 which(colnames(prot)=="sex") #7399
 which(colnames(prot)=="time")  
-prot <- prot[c(7326,7406,7399,which(grepl("seq.",colnames(prot))))] #length(unique(prot$releaseid)) - 376 unique ids
+which(colnames(prot)=="visit") #7334
+prot <- prot[c(7334,7326,7406,7399,which(grepl("seq.",colnames(prot))))] #length(unique(prot$releaseid)) - 376 unique ids
 proteins <- colnames(prot)[which(grepl("seq.",colnames(prot)))]
 
 #Load gene protein key
@@ -111,9 +120,49 @@ prot_id <- unique(prot$releaseid)
 today_sub <- today %>% 
   filter(releaseid %in% prot_id)
 
-#Create a dataset for longitudinal proteomics
-today_full <- tidylog::full_join(today_sub,prot,by="releaseid")
+#Create visit ID to match
+today_sub <- today_sub %>% 
+  mutate(visit = case_when(
+    mvisit == "M00" ~ 1,
+    mvisit == "M02" ~ 2,
+    mvisit == "M04" ~ 3,
+    mvisit == "M06" ~ 4,
+    mvisit == "M08" ~ 5,
+    mvisit == "M10" ~ 6,
+    mvisit == "M12" ~ 7,
+    mvisit == "M15" ~ 8,
+    mvisit == "M18" ~ 9,
+    mvisit == "M21" ~ 10,
+    mvisit == "M24" ~ 11,
+    mvisit == "M27" ~ 12,
+    mvisit == "M30" ~ 13,
+    mvisit == "M33" ~ 14,
+    mvisit == "M36" ~ 15,
+    mvisit == "M39" ~ 16,
+    mvisit == "M42" ~ 17,
+    mvisit == "M45" ~ 18,
+    mvisit == "M48" ~ 19,
+    mvisit == "M51" ~ 20,
+    mvisit == "M54" ~ 21,
+    mvisit == "M57" ~ 22,
+    mvisit == "M60" ~ 23,
+    mvisit == "M63" ~ 24,
+    mvisit == "M66" ~ 25,
+    mvisit == "M69" ~ 26,
+    mvisit == "M72" ~ 27,
+    mvisit == "M75" ~ 28,
+    mvisit == "M78" ~ 29
+  ))
 
+#Create a dataset for longitudinal proteomics
+today_full <- tidylog::full_join(today_sub,prot,by=c("releaseid","visit"))
+
+
+# Find rows in prot that don't have a match in today_sub
+unmatched_prot <- anti_join(prot, today_sub, by = c("releaseid", "visit"))
+
+# View them
+unmatched_prot #"65-44561" "65-46884" "65-67713" "65-84689" "65-93182" "65-97539"
 ```
 
 ```{r}
