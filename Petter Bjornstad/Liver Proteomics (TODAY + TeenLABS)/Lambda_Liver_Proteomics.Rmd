@@ -54,7 +54,7 @@ s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
 # ncol(so_liver_sn) # 130,124 nuceli
 # invisible(gc())
 
-# #Load metadata
+# # #Load metadata
 # gc()
 # bucket <- "scrna" # bucket name in Kopah
 # temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
@@ -63,199 +63,8 @@ s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
 # gc()
 ```
 
-## c. Load MetaData, Clean and Merge
-```{r}
-#Format
-unique(meta_liver_raw$Kit_Lot)
-unique(meta_liver_raw$StudyID)
-meta_liver_raw <- meta_liver_raw %>%
-  filter(StudyID!="IT2D-18") %>%
-  filter(StudyID!="IT2D-16")
-
-#Create Liver Status Variables
-meta_liver_raw <- meta_liver_raw %>%
-  mutate(steatosis_cat = ifelse((steatosis_grade==0 | steatosis_grade==1),"Low Steatosis (0+1)","High Steatosis (2+3)")) %>%
-  mutate(fibrosis_cat = case_when(steatosis_grade==0 & fibrosis_stage==0 ~ "No Steatosis, No Fibrosis",
-                                  steatosis_grade>0 & fibrosis_stage==0 ~ "Any Steatosis, No Fibrosis",
-                                  steatosis_grade>0 & fibrosis_stage>0 ~ "Any Fibrosis & Any Steatosis"))
-
-#Create Liver Status Variables
-meta_liver_raw <- meta_liver_raw %>%
-  # mutate(steatosis_cat = ifelse((steatosis_grade==0 | steatosis_grade==1),"Low Steatosis (0+1)","High Steatosis (2+3)")) %>%
-  mutate(ballooning_category = case_when(hepatocyte_ballooning_score == 0 | hepatocyte_ballooning_score == 1 ~ "Low Hepatocyte Ballooning (0+1)",
-                                         hepatocyte_ballooning_score == 2 ~ "High Hepatocyte Ballooning (2)")) %>% 
-  mutate(ballooning_steatosis_cat = case_when(steatosis_grade==0 & hepatocyte_ballooning_score==0 ~ "No Steatosis, No Ballooning",
-                                              steatosis_grade>0 & hepatocyte_ballooning_score>0 ~ "Any Steatosis, Any Ballooning",
-                                              steatosis_grade>0 & hepatocyte_ballooning_score==0 ~ "Any Steatosis, No Ballooning")) %>% 
-  mutate(disease_cat = case_when(ballooning_steatosis_cat=="No Steatosis, No Ballooning" ~ "Low",
-                                 ballooning_steatosis_cat=="Any Steatosis, Any Ballooning" ~ "High",
-                                 ballooning_steatosis_cat=="Any Steatosis, No Ballooning" ~ "Medium"))
-
-#Merge liver sn metadata with meta liver raw metadata
-meta_liver_sn <-  so_liver_sn@meta.data[,1:11] %>%
-  dplyr::mutate(RNAlater_ID = SampleID) %>%
-  left_join(meta_liver_raw)
-#Merge into seurat object
-rownames(meta_liver_sn) <- rownames(so_liver_sn@meta.data)
-so_liver_sn <- AddMetaData(so_liver_sn, meta_liver_sn)
-rm(meta_liver_sn,meta_liver_raw)
-
-#Switch default assay in seurat object to RNA
-DefaultAssay(so_liver_sn) <- "RNA"
-invisible(gc())
-
-dim(so_liver_sn) #36601 130124
-ncol(so_liver_sn) #130124 nuclei 
-nrow(so_liver_sn) # 36601 genes
-
-#YE JI's filtering code for percent expression 
-#Filter out rare genes expressed in less than "gene_pct" of cells
-expr_matrix <- as.matrix(GetAssayData(so_liver_sn, layer = "counts"))
-# expr_matrix <- as.matrix(GetAssayData(so_liver_sn, assay = "RNA", layer = "counts"))
-expr_matrix <- so_liver_sn@assays$RNA@counts
-# Calculate the proportion of cells expressing each gene
-num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
-total_cells <- ncol(expr_matrix)  # Total number of cells
-gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
-remove(expr_matrix)
-# Keep genes expressed in at least "gene_pct" of cells
-genes_to_keep <- names(gene_proportion[gene_proportion >= 0.01])
-so_liver_sn <- subset(so_liver_sn, features = genes_to_keep)
-ncol(so_liver_sn) #130,124 nuclei
-nrow(so_liver_sn) # 11313 genes
-
-#Save a seurat object with mitochondrial genes in it for oroboros analysis
-so_oro <- so_liver_sn
-
-# Step 2: Remove mitochondrial genes (those starting with "MT")
-mito_genes <- grep("^MT-", rownames(so_liver_sn), value = TRUE)
-so_liver_sn <- subset(so_liver_sn, features = setdiff(rownames(so_liver_sn@assays$RNA@counts), mito_genes))
-dim(so_liver_sn@assays$RNA@counts) #9276 186125
-dim(so_liver_sn@assays$RNA@data) #9276 186125
-dim(so_liver_sn@assays$RNA)#9276 186125
-sum(grepl("^MT-", rownames(so_liver_sn@assays$RNA@counts))) #0
-ncol(so_liver_sn) #130124 cells
-nrow(so_liver_sn) #11300 genes
-
-#Check oro so
-ncol(so_oro) #130124 cells
-nrow(so_oro) #11313 genes
-
-#Step 3: Remove ribosomal Genes
-# Identify ribosomal genes
-ribo_genes <- c(
-  "RPL22", "RPL11", "RPS8", "RPL5", "RPS27", "RPS7", "RPS27A", "RPL31", "RPL37A", "RPL32", "RPL15", "RPL14", "RPL29",
-  "RPL24", "RPL22L1", "RPL35A", "RPL9", "RPL34", "RPS3A", "RPL37", "RPS23", "RPS14", "RPS18", "RPS10", "RPL10A", 
-  "RPS20", "RPL7", "RPL30", "RPL8", "RPS6", "RPL35", "RPL12", "RPL7A", "RPS24", "RPLP2", "RPL27A", "RPS13", "RPS3",
-  "RPS25", "RPS26", "RPL41", "RPL6", "RPLP0", "RPL21", "RPS29", "RPL4", "RPLP1", "RPS17", "RPS2", "RPS15A", "RPL13",
-  "RPL26", "RPL23A", "RPL23", "RPL19", "RPL27", "RPL38", "RPL17", "RPS15", "RPL36", "RPS28", "RPL18A", "RPS16", 
-  "RPS19", "RPL18", "RPL13A", "RPS11", "RPS9", "RPL28", "RPS5", "RPS21", "RPL3", "RPS4X", "RPL36A", "RPL39", 
-  "RPL10", "RPS4Y1"
-)
-so_liver_sn <- subset(so_liver_sn, features = setdiff(rownames(so_liver_sn), ribo_genes))
-# sum(grepl("^MT-", rownames(so_liver_sn))) #0
-length(which(rownames(so_liver_sn) %in% ribo_genes)) #0
-ncol(so_liver_sn) #130,124 cells
-nrow(so_liver_sn) #11224 genes
-
-#Also perform to oro so
-so_oro <- subset(so_oro, features = setdiff(rownames(so_oro), ribo_genes))
-# sum(grepl("^MT-", rownames(so_oro))) #0
-length(which(rownames(so_oro) %in% ribo_genes)) #0
-ncol(so_oro) #130,124 cells
-nrow(so_oro) #11237 genes
-
-so_liver_sn <- NormalizeData(so_liver_sn)
-so_liver_sn <- ScaleData(so_liver_sn, features = VariableFeatures(so_liver_sn))
-
-#Create general hepatocyte cell type variable
-so_liver_sn$celltype2 <- ifelse(grepl("Hep-",so_liver_sn$celltype) | grepl("dHep",so_liver_sn$celltype) | grepl("Hep/Immune",so_liver_sn$celltype),"Hep","Non-Hep")
-# so_liver_sn$celltype2 <- ifelse(grepl("Hep-",so_liver_sn$celltype),"Hep","Non-Hep")
-
-# table(so_liver_sn$celltype,so_liver_sn$celltype2)
-
-# rm(expression_data)
-DefaultAssay(so_liver_sn) <- "RNA" 
-
-#Oro
-# rm(gene_expression_matrix)
-so_oro <- NormalizeData(so_oro)
-so_oro <- ScaleData(so_oro, features = VariableFeatures(so_oro))
-
-#Create general hepatocyte cell type variable
-so_oro$celltype2 <- ifelse(grepl("Hep-",so_oro$celltype) | grepl("dHep",so_oro$celltype) | grepl("Hep/Immune",so_oro$celltype),"Hep","Non-Hep")
-# so_oro$celltype2 <- ifelse(grepl("Hep-",so_oro$celltype),"Hep","Non-Hep")
-
-# table(so_oro$celltype,so_oro$celltype2)
-
-# rm(expression_data)
-DefaultAssay(so_oro) <- "RNA" 
-
-
-# Calculate cell library size for offset in NEBULA --------------------------------------
-counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts"))
-library_size <- Matrix::colSums(counts_layer)
-so_liver_sn$library_size <- library_size
-# View(so_liver_sn@meta.data)
-#Oro
-counts_layer <- round(GetAssayData(so_oro, layer = "counts"))
-library_size <- Matrix::colSums(counts_layer)
-so_oro$library_size <- library_size
-# View(so_oro@meta.data)
-
-# # TMM offset
-# dge <- DGEList(counts = counts_layer)
-# dge <- calcNormFactors(dge, method = "TMM")
-# tmm_offset <- log(dge$samples$lib.size) + log(dge$samples$norm.factors)
-# so_liver_sn$tmm_offset <- tmm_offset
-
-# Pooled offset
-# Check available cores
-# library(parallel)
-cores <- detectCores() -1 
-bp <- MulticoreParam(workers = cores)
-# bp <- SnowParam(workers = 59,
-#                 packages = c("scran", "SingleCellExperiment", "stats", "Matrix"))
-# future::plan("sequential")
-counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts"))
-sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-sce <- computeSumFactors(sce, BPPARAM = bp)
-pooled_offset <- sizeFactors(sce)
-so_liver_sn$pooled_offset <- pooled_offset
-hist(so_liver_sn$pooled_offset)
-
-#Oro
-counts_layer <- round(GetAssayData(so_oro, layer = "counts"))
-sce <- SingleCellExperiment(assays = list(counts = counts_layer))
-sce <- computeSumFactors(sce, BPPARAM = bp)
-pooled_offset <- sizeFactors(sce)
-so_oro$pooled_offset <- pooled_offset
-hist(so_oro$pooled_offset)
-
-# #Calculate cell library size for offset
-# counts_layer <- round(GetAssayData(so_liver_sn, layer = "counts")) # load counts and round
-# library_size <- Matrix::colSums(counts_layer) #calculate the column sums aka the sum of all genes in each cell
-# so_liver_sn$library_size <- library_size #Put into the seurat object
-# #Check that it is accessible in the metadata
-# meta <- so_liver_sn@meta.data #It should be in the dataframe, delete meta data check df
-# rm(meta,counts_layer)
-# # hist(so_liver_sn$library_size)
-so_liver_sn$celltype_LR <- ifelse(grepl("Hep-",so_liver_sn$celltype) | grepl("dHep",so_liver_sn$celltype) | grepl("Hep/Immune",so_liver_sn$celltype),"Hep",
-                                  ifelse(so_liver_sn$celltype=="EC-1" | so_liver_sn$celltype=="EC-2","EC",
-                                         ifelse(so_liver_sn$celltype=="Stellate-1" | so_liver_sn$celltype=="Stellate-2","Stellate",
-                                                ifelse(so_liver_sn$celltype=="Cholang","Cholang",
-                                                       ifelse(so_liver_sn$celltype=="B/Plasma" | so_liver_sn$celltype=="cFIB/cImmune" | so_liver_sn$celltype=="Kup/MAC"|so_liver_sn$celltype=="Kup/MON" | so_liver_sn$celltype=="NKC/NKT","Immune","Unknown")))))
-unique(so_liver_sn$celltype_LR)
-
-so_oro$celltype_LR <- ifelse(grepl("Hep-",so_oro$celltype) | grepl("dHep",so_oro$celltype) | grepl("Hep/Immune",so_oro$celltype),"Hep",
-                             ifelse(so_oro$celltype=="EC-1" | so_oro$celltype=="EC-2","EC",
-                                    ifelse(so_oro$celltype=="Stellate-1" | so_oro$celltype=="Stellate-2","Stellate",
-                                           ifelse(so_oro$celltype=="Cholang","Cholang",
-                                                  ifelse(so_oro$celltype=="B/Plasma" | so_oro$celltype=="cFIB/cImmune" | so_oro$celltype=="Kup/MAC"|so_oro$celltype=="Kup/MON" | so_oro$celltype=="NKC/NKT","Immune","Unknown")))))
-unique(so_oro$celltype_LR)
-```
-
 ## a. TODAY
+### i. Load Data
 ```{r}
 #Load in AST and ALT in today 
 # today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL.csv"))
@@ -294,8 +103,8 @@ key <- readRDS(temp_file)
 gc()
 
 # genes <- rownames(so_liver_sn)
-gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)]
-prot <- prot[c("releaseid","AGEBASE","sex",gene_proteins)]
+# gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)]
+# prot <- prot[c("releaseid","AGEBASE","sex",gene_proteins)]
 prot_id <- unique(prot$releaseid)
 
 #Filter to IDs that have proteomics 
@@ -303,6 +112,7 @@ today_sub <- today %>%
   filter(releaseid %in% prot_id)
 
 #Create a dataset for longitudinal proteomics
+today_full <- tidylog::full_join(today_sub,prot,by="releaseid")
 
 ```
 
