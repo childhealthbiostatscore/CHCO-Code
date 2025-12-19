@@ -403,7 +403,7 @@ def clean_panda():
     dxa.dropna(thresh=5, axis=0, inplace=True)
     clamp.dropna(thresh=7, axis=0, inplace=True)
     rct.dropna(thresh=5, axis=0, inplace=True)
-    biopsy.dropna(thresh=5, axis=0, inplace=True)
+    biopsy.dropna(thresh=20, axis=0, inplace=True)
     az_u_metab.dropna(thresh=6, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
