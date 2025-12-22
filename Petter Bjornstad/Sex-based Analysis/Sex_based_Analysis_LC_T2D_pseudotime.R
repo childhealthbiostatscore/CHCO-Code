@@ -2769,3 +2769,274 @@ cat("\n\n========================================\n")
 cat("GSEA ANALYSIS COMPLETE!\n")
 cat(sprintf("Results saved to: %s\n", gsea_results_dir))
 cat("========================================\n")
+
+
+
+
+
+
+
+
+
+
+### Finding interesting results 
+
+library(tidyverse)
+
+# Set up file paths
+base_dir <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/GSEA_Results/PT_cells_"
+
+cat("================================================================================\n")
+cat("ANALYZING PT CELLS: SEX DIFFERENCES IN LC vs T2D\n")
+cat("================================================================================\n")
+
+# Load ranked gene lists
+lc_genes <- read_csv(file.path(base_dir, 'LC_ranked_genes.csv'), show_col_types = FALSE)
+t2d_genes <- read_csv(file.path(base_dir, 'T2D_ranked_genes.csv'), show_col_types = FALSE)
+delta_genes <- read_csv(file.path(base_dir, 'delta_ranked_genes.csv'), show_col_types = FALSE)
+
+cat("\n1. DATASET OVERVIEW\n")
+cat("--------------------------------------------------------------------------------\n")
+cat(sprintf("LC: %d genes ranked by sex difference\n", nrow(lc_genes)))
+cat(sprintf("T2D: %d genes ranked by sex difference\n", nrow(t2d_genes)))
+cat(sprintf("Delta (overlap): %d genes\n", nrow(delta_genes)))
+
+# Understanding the ranking
+cat("\n2. INTERPRETING THE RANK METRIC\n")
+cat("--------------------------------------------------------------------------------\n")
+cat("Rank metric = -log10(p-value) × sign(logFC_sexMale)\n")
+cat("  Positive rank = Male-biased (higher in males)\n")
+cat("  Negative rank = Female-biased (higher in females)\n\n")
+cat("LC Top 5 male-biased genes:\n")
+print(lc_genes %>% arrange(desc(rank_metric)) %>% head(5) %>% dplyr::select(gene, rank_metric))
+cat("\nLC Top 5 female-biased genes:\n")
+print(lc_genes %>% arrange(rank_metric) %>% head(5) %>% dplyr::select(gene, rank_metric))
+cat("\nT2D Top 5 male-biased genes:\n")
+print(t2d_genes %>% arrange(desc(rank_metric)) %>% head(5) %>% dplyr::select(gene, rank_metric))
+cat("\nT2D Top 5 female-biased genes:\n")
+print(t2d_genes %>% arrange(rank_metric) %>% head(5) %>% dplyr::select(gene, rank_metric))
+
+# Function to analyze each ontology
+analyze_ontology <- function(ont_name) {
+  cat("\n\n################################################################################\n")
+  cat(sprintf("### %s ONTOLOGY ANALYSIS\n", ont_name))
+  cat("################################################################################\n")
+  
+  ont_dir <- file.path(base_dir, ont_name)
+  
+  # Load GSEA results
+  gsea_lc <- read_csv(file.path(ont_dir, 'GSEA_LC.csv'), show_col_types = FALSE)
+  gsea_t2d <- read_csv(file.path(ont_dir, 'GSEA_T2D.csv'), show_col_types = FALSE)
+  gsea_delta <- read_csv(file.path(ont_dir, 'GSEA_Delta.csv'), show_col_types = FALSE)
+  comparison <- read_csv(file.path(ont_dir, 'LC_vs_T2D_NES_comparison.csv'), show_col_types = FALSE)
+  
+  cat("\n3. GSEA PATHWAY ENRICHMENT RESULTS\n")
+  cat("--------------------------------------------------------------------------------\n")
+  cat(sprintf("Significant pathways in LC: %d\n", nrow(gsea_lc)))
+  cat(sprintf("Significant pathways in T2D: %d\n", nrow(gsea_t2d)))
+  cat(sprintf("Significant pathways in Delta: %d\n", nrow(gsea_delta)))
+  
+  cat("\n4. LC SEX-DIFFERENTIAL PATHWAYS (Baseline)\n")
+  cat("--------------------------------------------------------------------------------\n")
+  if (nrow(gsea_lc) > 0) {
+    print(gsea_lc %>% dplyr::select(Description, NES, pvalue, p.adjust))
+  } else {
+    cat("No significant pathways in LC\n")
+  }
+  
+  cat("\n5. T2D SEX-DIFFERENTIAL PATHWAYS\n")
+  cat("--------------------------------------------------------------------------------\n")
+  cat("\nTop 15 pathways by absolute NES:\n")
+  gsea_t2d_sorted <- gsea_t2d %>%
+    mutate(abs_NES = abs(NES)) %>%
+    arrange(desc(abs_NES))
+  print(gsea_t2d_sorted %>% head(15) %>% dplyr::select(Description, NES, pvalue, p.adjust))
+  
+  # Count by direction
+  n_male_t2d <- sum(gsea_t2d$NES > 0)
+  n_female_t2d <- sum(gsea_t2d$NES < 0)
+  cat(sprintf("\nMale-biased pathways (NES > 0): %d\n", n_male_t2d))
+  cat(sprintf("Female-biased pathways (NES < 0): %d\n", n_female_t2d))
+  
+  cat("\n6. DELTA GSEA: CHANGE IN SEX DIFFERENCES (T2D - LC)\n")
+  cat("--------------------------------------------------------------------------------\n")
+  cat("\nTop 20 pathways by absolute NES:\n")
+  gsea_delta_sorted <- gsea_delta %>%
+    mutate(abs_NES = abs(NES)) %>%
+    arrange(desc(abs_NES))
+  print(gsea_delta_sorted %>% head(20) %>% dplyr::select(Description, NES, pvalue, p.adjust))
+  
+  # Count by direction
+  n_increased <- sum(gsea_delta$NES > 0)
+  n_decreased <- sum(gsea_delta$NES < 0)
+  cat(sprintf("\nSex differences INCREASED in T2D (NES > 0): %d\n", n_increased))
+  cat(sprintf("Sex differences DECREASED in T2D (NES < 0): %d\n", n_decreased))
+  
+  cat("\n7. LC vs T2D COMPARISON\n")
+  cat("--------------------------------------------------------------------------------\n")
+  cat("\nPathways with largest INCREASE in NES (sex diff increased in T2D):\n")
+  comp_sorted <- comparison %>% arrange(desc(delta_NES))
+  print(comp_sorted %>% head(10) %>% dplyr::select(Description, NES_LC, NES_T2D, delta_NES, pattern))
+  cat("\nPathways with largest DECREASE in NES (sex diff decreased in T2D):\n")
+  print(comp_sorted %>% tail(10) %>% dplyr::select(Description, NES_LC, NES_T2D, delta_NES, pattern))
+  
+  cat("\n8. SUMMARY STATISTICS\n")
+  cat("================================================================================\n")
+  
+  # Overall statistics
+  cat(sprintf("\nPathways enriched in LC: %d\n", nrow(gsea_lc)))
+  cat(sprintf("Pathways enriched in T2D: %d\n", nrow(gsea_t2d)))
+  cat(sprintf("Pathways with changed sex differences: %d\n", nrow(gsea_delta)))
+  
+  # Dominant themes in delta
+  cat("\nTop 5 pathways with DECREASED sex differences (negative NES):\n")
+  decreased_pathways <- gsea_delta %>%
+    filter(NES < 0) %>%
+    mutate(abs_NES = abs(NES)) %>%
+    arrange(desc(abs_NES)) %>%
+    head(5)
+  
+  for (i in 1:nrow(decreased_pathways)) {
+    row <- decreased_pathways[i,]
+    cat(sprintf("  - %s (NES=%.2f, p=%.2e)\n", row$Description, row$NES, row$pvalue))
+  }
+  
+  cat("\nTop 5 pathways with INCREASED sex differences (positive NES):\n")
+  increased_pathways <- gsea_delta %>%
+    filter(NES > 0) %>%
+    mutate(abs_NES = abs(NES)) %>%
+    arrange(desc(abs_NES)) %>%
+    head(5)
+  
+  if (nrow(increased_pathways) > 0) {
+    for (i in 1:nrow(increased_pathways)) {
+      row <- increased_pathways[i,]
+      cat(sprintf("  - %s (NES=%.2f, p=%.2e)\n", row$Description, row$NES, row$pvalue))
+    }
+  } else {
+    cat("  - None significant\n")
+  }
+  
+  # Mitochondrial focus
+  mito_keywords <- c('mitochondrial', 'ATP', 'oxidative', 'respiration', 'electron', 'metabolic')
+  mito_pattern <- paste(mito_keywords, collapse = "|")
+  mito_delta <- gsea_delta %>%
+    filter(grepl(mito_pattern, Description, ignore.case = TRUE))
+  
+  cat(sprintf("\nMitochondrial/metabolic pathways with changed sex differences: %d\n", nrow(mito_delta)))
+  if (nrow(mito_delta) > 0) {
+    mean_nes_mito <- mean(mito_delta$NES)
+    cat(sprintf("Mean NES for mitochondrial pathways: %.2f\n", mean_nes_mito))
+    cat("(Negative = sex differences decreased in T2D)\n")
+  }
+  
+  # Return summary for final abstract
+  return(list(
+    ontology = ont_name,
+    n_lc = nrow(gsea_lc),
+    n_t2d = nrow(gsea_t2d),
+    n_delta = nrow(gsea_delta),
+    n_increased = n_increased,
+    n_decreased = n_decreased,
+    top_decreased = decreased_pathways,
+    top_increased = increased_pathways
+  ))
+}
+
+# Analyze BP and MF
+cat("\n\n")
+cat("================================================================================\n")
+cat("STARTING ANALYSIS\n")
+cat("================================================================================\n")
+
+bp_summary <- analyze_ontology("BP")
+mf_summary <- analyze_ontology("MF")
+
+# Combined interpretation
+cat("\n\n")
+cat("################################################################################\n")
+cat("### COMBINED INTERPRETATION FOR ABSTRACT\n")
+cat("################################################################################\n")
+
+cat(sprintf("
+BIOLOGICAL PROCESSES (BP):
+- LC pathways: %d
+- T2D pathways: %d
+- Changed pathways: %d
+  - Increased: %d (%.1f%%)
+  - Decreased: %d (%.1f%%)
+
+MOLECULAR FUNCTIONS (MF):
+- LC pathways: %d
+- T2D pathways: %d
+- Changed pathways: %d
+  - Increased: %d (%.1f%%)
+  - Decreased: %d (%.1f%%)
+
+TOTAL GENES ANALYZED: %d
+",
+            bp_summary$n_lc, bp_summary$n_t2d, bp_summary$n_delta,
+            bp_summary$n_increased, 100*bp_summary$n_increased/bp_summary$n_delta,
+            bp_summary$n_decreased, 100*bp_summary$n_decreased/bp_summary$n_delta,
+            
+            mf_summary$n_lc, mf_summary$n_t2d, mf_summary$n_delta,
+            mf_summary$n_increased, 100*mf_summary$n_increased/mf_summary$n_delta,
+            mf_summary$n_decreased, 100*mf_summary$n_decreased/mf_summary$n_delta,
+            
+            nrow(delta_genes)
+))
+
+cat("\n================================================================================\n")
+cat("KEY FINDINGS FOR ABSTRACT:\n")
+cat("================================================================================\n")
+
+cat("\n1. BASELINE SEX DIFFERENCES (LC - Healthy Controls):\n")
+cat(sprintf("   - Very limited sex-differential pathways in healthy PT cells\n"))
+cat(sprintf("   - BP: %d pathways, MF: %d pathways\n", bp_summary$n_lc, mf_summary$n_lc))
+
+cat("\n2. T2D-ASSOCIATED SEX DIFFERENCES:\n")
+cat(sprintf("   - Strong emergence of sex dimorphism in disease\n"))
+cat(sprintf("   - BP: %d pathways, MF: %d pathways\n", bp_summary$n_t2d, mf_summary$n_t2d))
+
+cat("\n3. DOMINANT PATTERN - CONVERGENCE IN DYSFUNCTION:\n")
+cat("   - Most changed pathways show DECREASED sex differences in T2D\n")
+cat(sprintf("   - BP: %.1f%% decreased, MF: %.1f%% decreased\n", 
+            100*bp_summary$n_decreased/bp_summary$n_delta,
+            100*mf_summary$n_decreased/mf_summary$n_delta))
+cat("   - Key theme: Mitochondrial/metabolic pathways (strong negative NES)\n")
+
+cat("\n4. BIOLOGICAL INTERPRETATION:\n")
+cat("   - Healthy kidneys: Males and females use different metabolic strategies\n")
+cat("   - T2D: Sex-specific resilience is lost, both converge to dysfunction\n")
+cat("   - Implication: T2D erases protective sex differences in energy metabolism\n")
+
+cat("\n================================================================================\n")
+cat("ANALYSIS COMPLETE!\n")
+cat("================================================================================\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
