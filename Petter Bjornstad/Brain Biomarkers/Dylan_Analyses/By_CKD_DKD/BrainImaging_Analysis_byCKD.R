@@ -304,5 +304,104 @@ table(small_dat$gfr_category, small_dat$albumin_category, useNA = "always")
 
 
 
+#Compare brain biomarkers 
+
+library(ggplot2)
+library(tidyr)
+
+# Create output directory
+output_path <- "C:/Users/netio/Documents/UofW/Projects/Brain_fMRI_Analysis/CKD"
+
+# Create directory if it doesn't exist
+if (!dir.exists(output_path)) {
+  dir.create(output_path, recursive = TRUE)
+  cat("Created directory:", output_path, "\n")
+} else {
+  cat("Directory already exists:", output_path, "\n")
+}
+
+# Define your biomarkers
+qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
+            "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
+
+# Create a long format dataset for plotting
+plot_data <- small_dat %>%
+  select(record_id, gfr_category, albumin_category, all_of(qx_var)) %>%
+  pivot_longer(cols = all_of(qx_var),
+               names_to = "biomarker",
+               values_to = "concentration") %>%
+  filter(!is.na(concentration))
+
+# Create better labels for biomarkers
+biomarker_labels <- c(
+  "ab40_avg_conc" = "Aβ40",
+  "ab42_avg_conc" = "Aβ42",
+  "tau_avg_conc" = "Tau",
+  "nfl_avg_conc" = "NFL",
+  "gfap_avg_conc" = "GFAP",
+  "ptau_181_avg_conc" = "pTau-181",
+  "ptau_217_avg_conc" = "pTau-217"
+)
+
+# Plot 1: Boxplots by GFR Category
+p1 <- ggplot(plot_data %>% filter(!is.na(gfr_category)), 
+             aes(x = gfr_category, y = concentration, fill = gfr_category)) +
+  geom_boxplot(outlier.shape = 16, outlier.size = 1) +
+  geom_jitter(width = 0.2, alpha = 0.3, size = 1) +
+  facet_wrap(~biomarker, scales = "free_y", ncol = 2,
+             labeller = labeller(biomarker = biomarker_labels)) +
+  labs(title = "Brain Biomarkers by GFR Category",
+       x = "GFR Category",
+       y = "Concentration",
+       fill = "GFR Category") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text = element_text(face = "bold"),
+        legend.position = "bottom")
+
+print(p1)
+
+# Save plot 1
+ggsave(file.path(output_path, "biomarkers_by_gfr_category.png"), 
+       p1, width = 10, height = 12, dpi = 300)
+
+# Plot 2: Boxplots by Albumin Category
+p2 <- ggplot(plot_data %>% filter(!is.na(albumin_category)), 
+             aes(x = albumin_category, y = concentration, fill = albumin_category)) +
+  geom_boxplot(outlier.shape = 16, outlier.size = 1) +
+  geom_jitter(width = 0.2, alpha = 0.3, size = 1) +
+  facet_wrap(~biomarker, scales = "free_y", ncol = 2,
+             labeller = labeller(biomarker = biomarker_labels)) +
+  labs(title = "Brain Biomarkers by Albumin Category",
+       x = "Albumin Category",
+       y = "Concentration",
+       fill = "Albumin Category") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        strip.text = element_text(face = "bold"),
+        legend.position = "bottom")
+
+print(p2)
+
+# Save plot 2
+ggsave(file.path(output_path, "biomarkers_by_albumin_category.png"), 
+       p2, width = 10, height = 12, dpi = 300)
+
+# Optional: Check sample sizes for each group
+cat("\nSample sizes by GFR category:\n")
+plot_data %>%
+  filter(!is.na(gfr_category)) %>%
+  distinct(record_id, gfr_category) %>%
+  count(gfr_category)
+
+cat("\nSample sizes by Albumin category:\n")
+plot_data %>%
+  filter(!is.na(albumin_category)) %>%
+  distinct(record_id, albumin_category) %>%
+  count(albumin_category)
+
+
+
+
 
 
