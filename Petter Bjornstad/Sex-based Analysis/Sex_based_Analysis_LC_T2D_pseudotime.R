@@ -3023,7 +3023,246 @@ cat("===========================================================================
 
 
 
+### P raw no adjustment findings 
 
+library(tidyverse)
+
+# Set up file paths
+base_dir <- "C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/GSEA_Results/PT_cells_"
+
+cat("================================================================================\n")
+cat("NOMINAL P-VALUE ANALYSIS (p < 0.05) - PT CELLS\n")
+cat("For small sample sizes, exploring trends at nominal significance\n")
+cat("================================================================================\n")
+
+# Function to analyze with nominal p-values
+analyze_nominal <- function(ont_name) {
+  cat("\n\n################################################################################\n")
+  cat(sprintf("### %s ONTOLOGY - NOMINAL SIGNIFICANCE\n", ont_name))
+  cat("################################################################################\n")
+  
+  ont_dir <- file.path(base_dir, ont_name)
+  
+  # Load full GSEA results (not filtered by p.adjust)
+  # We'll read all results and filter by raw p-value
+  gsea_lc_file <- file.path(ont_dir, 'GSEA_LC.csv')
+  gsea_t2d_file <- file.path(ont_dir, 'GSEA_T2D.csv')
+  gsea_delta_file <- file.path(ont_dir, 'GSEA_Delta.csv')
+  
+  # Check if files exist
+  if (!file.exists(gsea_lc_file)) {
+    cat(sprintf("Note: %s not found, skipping LC analysis\n", gsea_lc_file))
+    gsea_lc_all <- tibble()
+  } else {
+    gsea_lc_all <- read_csv(gsea_lc_file, show_col_types = FALSE)
+  }
+  
+  gsea_t2d_all <- read_csv(gsea_t2d_file, show_col_types = FALSE)
+  gsea_delta_all <- read_csv(gsea_delta_file, show_col_types = FALSE)
+  
+  # Filter by nominal p-value < 0.05
+  gsea_lc_nom <- gsea_lc_all %>% filter(pvalue < 0.05)
+  gsea_t2d_nom <- gsea_t2d_all %>% filter(pvalue < 0.05)
+  gsea_delta_nom <- gsea_delta_all %>% filter(pvalue < 0.05)
+  
+  # Also get stricter thresholds for comparison
+  gsea_lc_adj <- gsea_lc_all %>% filter(p.adjust < 0.05)
+  gsea_t2d_adj <- gsea_t2d_all %>% filter(p.adjust < 0.05)
+  gsea_delta_adj <- gsea_delta_all %>% filter(p.adjust < 0.05)
+  
+  cat("\n1. PATHWAY COUNTS BY SIGNIFICANCE THRESHOLD\n")
+  cat("--------------------------------------------------------------------------------\n")
+  cat(sprintf("LC pathways:\n"))
+  cat(sprintf("  - Raw p < 0.05: %d\n", nrow(gsea_lc_nom)))
+  cat(sprintf("  - Adjusted p < 0.05: %d\n", nrow(gsea_lc_adj)))
+  
+  cat(sprintf("\nT2D pathways:\n"))
+  cat(sprintf("  - Raw p < 0.05: %d\n", nrow(gsea_t2d_nom)))
+  cat(sprintf("  - Adjusted p < 0.05: %d\n", nrow(gsea_t2d_adj)))
+  
+  cat(sprintf("\nDelta pathways:\n"))
+  cat(sprintf("  - Raw p < 0.05: %d\n", nrow(gsea_delta_nom)))
+  cat(sprintf("  - Adjusted p < 0.05: %d\n", nrow(gsea_delta_adj)))
+  
+  # Detailed LC analysis
+  if (nrow(gsea_lc_nom) > 0) {
+    cat("\n2. LC SEX-DIFFERENTIAL PATHWAYS (Nominal p < 0.05)\n")
+    cat("--------------------------------------------------------------------------------\n")
+    cat(sprintf("Total pathways at nominal significance: %d\n\n", nrow(gsea_lc_nom)))
+    
+    # Count by direction
+    n_male_lc <- sum(gsea_lc_nom$NES > 0)
+    n_female_lc <- sum(gsea_lc_nom$NES < 0)
+    cat(sprintf("Male-biased (NES > 0): %d\n", n_male_lc))
+    cat(sprintf("Female-biased (NES < 0): %d\n\n", n_female_lc))
+    
+    # Top pathways
+    cat("Top 20 by absolute NES:\n")
+    gsea_lc_sorted <- gsea_lc_nom %>%
+      mutate(abs_NES = abs(NES)) %>%
+      arrange(desc(abs_NES))
+    print(gsea_lc_sorted %>% head(20) %>% dplyr::select(Description, NES, pvalue, p.adjust))
+    
+    # Save to file
+    write_csv(gsea_lc_nom, file.path(ont_dir, "GSEA_LC_nominal_p05.csv"))
+  } else {
+    cat("\n2. LC SEX-DIFFERENTIAL PATHWAYS (Nominal p < 0.05)\n")
+    cat("--------------------------------------------------------------------------------\n")
+    cat("No pathways at nominal significance\n")
+  }
+  
+  # Detailed T2D analysis
+  cat("\n3. T2D SEX-DIFFERENTIAL PATHWAYS (Nominal p < 0.05)\n")
+  cat("--------------------------------------------------------------------------------\n")
+  cat(sprintf("Total pathways at nominal significance: %d\n\n", nrow(gsea_t2d_nom)))
+  
+  n_male_t2d <- sum(gsea_t2d_nom$NES > 0)
+  n_female_t2d <- sum(gsea_t2d_nom$NES < 0)
+  cat(sprintf("Male-biased (NES > 0): %d\n", n_male_t2d))
+  cat(sprintf("Female-biased (NES < 0): %d\n\n", n_female_t2d))
+  
+  cat("Top 20 by absolute NES:\n")
+  gsea_t2d_sorted <- gsea_t2d_nom %>%
+    mutate(abs_NES = abs(NES)) %>%
+    arrange(desc(abs_NES))
+  print(gsea_t2d_sorted %>% head(20) %>% dplyr::select(Description, NES, pvalue, p.adjust))
+  
+  write_csv(gsea_t2d_nom, file.path(ont_dir, "GSEA_T2D_nominal_p05.csv"))
+  
+  # Detailed Delta analysis
+  cat("\n4. DELTA GSEA (Nominal p < 0.05)\n")
+  cat("--------------------------------------------------------------------------------\n")
+  cat(sprintf("Total pathways at nominal significance: %d\n\n", nrow(gsea_delta_nom)))
+  
+  n_increased <- sum(gsea_delta_nom$NES > 0)
+  n_decreased <- sum(gsea_delta_nom$NES < 0)
+  cat(sprintf("Sex differences INCREASED in T2D (NES > 0): %d\n", n_increased))
+  cat(sprintf("Sex differences DECREASED in T2D (NES < 0): %d\n\n", n_decreased))
+  
+  cat("Top 30 by absolute NES:\n")
+  gsea_delta_sorted <- gsea_delta_nom %>%
+    mutate(abs_NES = abs(NES)) %>%
+    arrange(desc(abs_NES))
+  print(gsea_delta_sorted %>% head(30) %>% dplyr::select(Description, NES, pvalue, p.adjust))
+  
+  write_csv(gsea_delta_nom, file.path(ont_dir, "GSEA_Delta_nominal_p05.csv"))
+  
+  # Theme analysis
+  cat("\n5. THEMATIC ANALYSIS (Nominal p < 0.05)\n")
+  cat("--------------------------------------------------------------------------------\n")
+  
+  # Mitochondrial/metabolic
+  mito_keywords <- c('mitochondrial', 'ATP', 'oxidative', 'respiration', 'electron', 
+                     'NADH', 'oxidoreductase', 'dehydrogenase')
+  mito_pattern <- paste(mito_keywords, collapse = "|")
+  
+  mito_lc <- gsea_lc_nom %>% filter(grepl(mito_pattern, Description, ignore.case = TRUE))
+  mito_t2d <- gsea_t2d_nom %>% filter(grepl(mito_pattern, Description, ignore.case = TRUE))
+  mito_delta <- gsea_delta_nom %>% filter(grepl(mito_pattern, Description, ignore.case = TRUE))
+  
+  cat(sprintf("Mitochondrial/metabolic pathways:\n"))
+  cat(sprintf("  LC: %d pathways\n", nrow(mito_lc)))
+  cat(sprintf("  T2D: %d pathways\n", nrow(mito_t2d)))
+  cat(sprintf("  Delta: %d pathways\n", nrow(mito_delta)))
+  
+  if (nrow(mito_delta) > 0) {
+    mean_nes <- mean(mito_delta$NES)
+    cat(sprintf("  Mean NES in Delta: %.2f\n", mean_nes))
+    cat(sprintf("  Direction: %s\n", ifelse(mean_nes < 0, "DECREASED in T2D", "INCREASED in T2D")))
+  }
+  
+  # Ribosomal/translation
+  ribo_keywords <- c('ribosom', 'translation', 'peptide')
+  ribo_pattern <- paste(ribo_keywords, collapse = "|")
+  
+  ribo_delta <- gsea_delta_nom %>% filter(grepl(ribo_pattern, Description, ignore.case = TRUE))
+  cat(sprintf("\nRibosomal/translation pathways in Delta: %d\n", nrow(ribo_delta)))
+  
+  # Immune/adhesion
+  immune_keywords <- c('immune', 'adhesion', 'integrin', 'cytokine')
+  immune_pattern <- paste(immune_keywords, collapse = "|")
+  
+  immune_delta <- gsea_delta_nom %>% filter(grepl(immune_pattern, Description, ignore.case = TRUE))
+  cat(sprintf("Immune/adhesion pathways in Delta: %d\n", nrow(immune_delta)))
+  
+  return(list(
+    ontology = ont_name,
+    lc_nom = nrow(gsea_lc_nom),
+    t2d_nom = nrow(gsea_t2d_nom),
+    delta_nom = nrow(gsea_delta_nom),
+    lc_adj = nrow(gsea_lc_adj),
+    t2d_adj = nrow(gsea_t2d_adj),
+    delta_adj = nrow(gsea_delta_adj),
+    delta_inc = n_increased,
+    delta_dec = n_decreased,
+    mito_delta = nrow(mito_delta),
+    mito_mean_nes = ifelse(nrow(mito_delta) > 0, mean(mito_delta$NES), NA)
+  ))
+}
+
+# Analyze both ontologies
+bp_nom <- tryCatch(
+  analyze_nominal("BP"),
+  error = function(e) {
+    cat("\nBP analysis error:", e$message, "\n")
+    return(NULL)
+  }
+)
+
+mf_nom <- analyze_nominal("MF")
+
+# Summary comparison
+cat("\n\n################################################################################\n")
+cat("### SUMMARY: NOMINAL vs ADJUSTED P-VALUES\n")
+cat("################################################################################\n")
+
+if (!is.null(bp_nom)) {
+  cat(sprintf("\nBIOLOGICAL PROCESSES (BP):\n"))
+  cat(sprintf("  LC:    %d nominal (p<0.05) vs %d adjusted (padj<0.05)\n", 
+              bp_nom$lc_nom, bp_nom$lc_adj))
+  cat(sprintf("  T2D:   %d nominal (p<0.05) vs %d adjusted (padj<0.05)\n", 
+              bp_nom$t2d_nom, bp_nom$t2d_adj))
+  cat(sprintf("  Delta: %d nominal (p<0.05) vs %d adjusted (padj<0.05)\n", 
+              bp_nom$delta_nom, bp_nom$delta_adj))
+  cat(sprintf("    - Increased: %d, Decreased: %d\n", bp_nom$delta_inc, bp_nom$delta_dec))
+}
+
+cat(sprintf("\nMOLECULAR FUNCTIONS (MF):\n"))
+cat(sprintf("  LC:    %d nominal (p<0.05) vs %d adjusted (padj<0.05)\n", 
+            mf_nom$lc_nom, mf_nom$lc_adj))
+cat(sprintf("  T2D:   %d nominal (p<0.05) vs %d adjusted (padj<0.05)\n", 
+            mf_nom$t2d_nom, mf_nom$t2d_adj))
+cat(sprintf("  Delta: %d nominal (p<0.05) vs %d adjusted (padj<0.05)\n", 
+            mf_nom$delta_nom, mf_nom$delta_adj))
+cat(sprintf("    - Increased: %d, Decreased: %d\n", mf_nom$delta_inc, mf_nom$delta_dec))
+
+cat("\n\n################################################################################\n")
+cat("### KEY FINDINGS FOR ABSTRACT (Using Nominal p < 0.05)\n")
+cat("################################################################################\n")
+
+cat("\nRECOMMENDATION FOR ADA ABSTRACT:\n")
+cat("Given small sample size, reporting nominal p-values is appropriate with caveat.\n")
+cat("\nSuggested language:\n")
+cat('  "Due to limited sample size (n=X LC, n=Y T2D), we report pathways at\n')
+cat('   nominal significance (p<0.05) to identify potential sex-differential\n')
+cat('   mechanisms warranting further investigation."\n')
+
+cat("\n\nRESULTS TO REPORT:\n")
+cat(sprintf("- Molecular Functions: %d nominally significant pathways in LC\n", mf_nom$lc_nom))
+cat(sprintf("- Molecular Functions: %d nominally significant pathways in T2D\n", mf_nom$t2d_nom))
+cat(sprintf("- Molecular Functions: %d pathways with changed sex differences\n", mf_nom$delta_nom))
+cat(sprintf("  (%d increased, %d decreased in T2D)\n", mf_nom$delta_inc, mf_nom$delta_dec))
+
+if (!is.na(mf_nom$mito_mean_nes)) {
+  cat(sprintf("\n- Mitochondrial/metabolic: %d pathways affected (mean NES=%.2f)\n", 
+              mf_nom$mito_delta, mf_nom$mito_mean_nes))
+  cat(sprintf("  Interpretation: Sex differences in energy metabolism %s in T2D\n",
+              ifelse(mf_nom$mito_mean_nes < 0, "DECREASED", "INCREASED")))
+}
+
+cat("\n\n================================================================================\n")
+cat("ANALYSIS COMPLETE - Check ontology folders for *_nominal_p05.csv files\n")
+cat("================================================================================\n")
 
 
 
