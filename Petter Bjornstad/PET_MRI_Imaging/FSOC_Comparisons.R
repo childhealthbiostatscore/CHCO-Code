@@ -527,6 +527,32 @@ cat("Output directory set to:", OUTPUT_DIR, "\n")
 
 
 
+pdf(file.path(OUTPUT_DIR, "dxa_heatmap.pdf"), width = 8, height = 6)
+p_mat <- dxa_results$p_value_matrix
+sig_labels <- matrix("", nrow = nrow(p_mat), ncol = ncol(p_mat))
+sig_labels[p_mat < 0.001] <- "***"
+sig_labels[p_mat >= 0.001 & p_mat < 0.01] <- "**"
+sig_labels[p_mat >= 0.01 & p_mat < 0.05] <- "*"
+
+pheatmap(dxa_results$coefficient_matrix,
+         display_numbers = sig_labels,
+         cluster_rows = FALSE,
+         cluster_cols = FALSE,
+         color = colorRampPalette(c("blue", "white", "red"))(100),
+         main = "FSOC Associations with DXA Parameters\n(Adjusted for age, sex, disease group)",
+         fontsize = 10,
+         fontsize_number = 12)
+dev.off()
+
+
+
+png(file.path(OUTPUT_DIR, "dxa_heatmap.png"), width = 800, height = 600)
+plot_dxa_heatmap(dxa_results)
+dev.off()
+
+
+
+
 
 
 
