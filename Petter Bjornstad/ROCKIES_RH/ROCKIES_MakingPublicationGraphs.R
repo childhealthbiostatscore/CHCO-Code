@@ -1375,6 +1375,90 @@ cat(sprintf("  OxPhos significant: %d/%d\n",
 
 
 
+# ============================================================================
+# EXTRACT SPECIFIC GENE logFC VALUES FOR ABSTRACT
+# ============================================================================
+
+library(dplyr)
+library(stringr)
+
+base_path <- 'C:/Users/netio/Documents/UofW/Rockies/publication_figures/'
+
+# Load PT cell type data (all PT cells combined)
+lc_files <- list.files('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/', pattern='csv')
+
+# Get PT files
+celltype <- 'PT'
+celltype2 <- 'PT'
+tmp_lc <- lc_files[str_which(lc_files, pattern = paste0('cycle_', celltype2, '_cells'))]
+
+# TCA genes
+tmp_lc_tca <- tmp_lc[str_which(tmp_lc, pattern = 'TCA')]
+tca_lc <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/', tmp_lc_tca))
+
+tca_lc <- tca_lc %>% dplyr::select(
+  gene, 
+  logFC = logFC_groupType_2_Diabetes,
+  SE = se_groupType_2_Diabetes,
+  pvalue = any_of(c("p_groupType_2_Diabetes", "pvalue"))
+)
+
+# OxPhos genes
+tmp_lc_oxphos <- tmp_lc[str_which(tmp_lc, pattern = 'PHOS_')]
+oxphos_lc <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/', tmp_lc_oxphos))
+
+oxphos_lc <- oxphos_lc %>% dplyr::select(
+  gene, 
+  logFC = logFC_groupType_2_Diabetes,
+  SE = se_groupType_2_Diabetes,
+  pvalue = any_of(c("p_groupType_2_Diabetes", "pvalue"))
+)
+
+# Extract specific genes mentioned in abstract
+genes_of_interest <- c("IDH3A", "SUCLA2", "COX10")
+
+# Combine TCA and OxPhos data
+all_genes <- bind_rows(
+  tca_lc %>% mutate(pathway = "TCA"),
+  oxphos_lc %>% mutate(pathway = "OxPhos")
+)
+
+# Filter for genes of interest
+abstract_genes <- all_genes %>%
+  filter(gene %in% genes_of_interest) %>%
+  arrange(match(gene, genes_of_interest))
+
+cat("\n=== GENE EXPRESSION VALUES FOR ABSTRACT ===\n\n")
+print(abstract_genes)
+
+# Format for abstract
+cat("\n=== FORMATTED FOR ABSTRACT ===\n\n")
+for(i in 1:nrow(abstract_genes)) {
+  row <- abstract_genes[i,]
+  cat(sprintf("%s (logFC=%.3f, SE=%.3f, p%s)\n",
+              row$gene,
+              row$logFC,
+              row$SE,
+              ifelse(row$pvalue < 0.001, "<0.001", 
+                     sprintf("=%.3f", row$pvalue))))
+}
+
+# Save results
+write.csv(abstract_genes, 
+          paste0(base_path, 'Abstract_Gene_Expression_Values.csv'), 
+          row.names = FALSE)
+
+cat("\n\nResults saved to: Abstract_Gene_Expression_Values.csv\n")
+
+
+
+
+
+
+
+
+
+
 
 
 
