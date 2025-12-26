@@ -2540,6 +2540,275 @@ print(p_values)
 
 
 
+# ============================================================================
+# EXTRACT PATHOLOGY AND UACR CORRELATIONS FOR ABSTRACT
+# ============================================================================
+
+library(dplyr)
+library(stringr)
+library(broom)
+
+base_path <- 'C:/Users/netio/Documents/UofW/Rockies/publication_figures/'
+
+# Load the clinical data
+dat2 <- data.table::fread("C:/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")
+dat2 <- dat2[-str_which(dat2$record_id, '-O')]
+
+combined_df <- dat2 %>% 
+  dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f,
+                arteriosclerosis, arteriolohyalinosis, `GBM thickness`, 
+                `GBM thickness arith`, `GBM thickness harm`,
+                acr_u) %>% 
+  mutate(arteriolohyalinosis_severity = ifelse(arteriolohyalinosis == 'no', 0, 
+                                               ifelse(arteriolohyalinosis == 'mild', 1, 
+                                                      ifelse(arteriolohyalinosis == 'severe', 2, NA))), 
+         GBM_thickness = `GBM thickness`,
+         GBM_thickness_binary = ifelse(GBM_thickness == 'yes', 1, 
+                                       ifelse(GBM_thickness == 'no', 0, NA)),
+         arteriosclerosis_binary = ifelse(arteriosclerosis == 'yes', 1,
+                                          ifelse(arteriosclerosis == 'no', 0, NA))) %>%
+  select(-arteriolohyalinosis, -`GBM thickness`, -record_id)
+
+# ============================================================================
+# 1. GBM THICKNESS ASSOCIATIONS
+# ============================================================================
+cat("\n=== GBM THICKNESS ASSOCIATIONS ===\n\n")
+
+# Filter for complete cases
+gbm_df <- combined_df %>% 
+  filter(!is.na(GBM_thickness_binary), GBM_thickness != '')
+
+# K2 vs GBM
+gbm_k2_test <- wilcox.test(avg_c_k2 ~ GBM_thickness_binary, data = gbm_df)
+gbm_k2_means <- gbm_df %>% 
+  group_by(GBM_thickness_binary) %>% 
+  summarise(mean_k2 = mean(avg_c_k2, na.rm = TRUE))
+
+cat("K2 vs GBM Thickness:\n")
+cat(sprintf("  No GBM thickening: mean K2 = %.4f\n", 
+            gbm_k2_means$mean_k2[gbm_k2_means$GBM_thickness_binary == 0]))
+cat(sprintf("  GBM thickening: mean K2 = %.4f\n", 
+            gbm_k2_means$mean_k2[gbm_k2_means$GBM_thickness_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", gbm_k2_test$p.value))
+
+# F vs GBM
+gbm_f_test <- wilcox.test(avg_c_f ~ GBM_thickness_binary, data = gbm_df)
+gbm_f_means <- gbm_df %>% 
+  group_by(GBM_thickness_binary) %>% 
+  summarise(mean_f = mean(avg_c_f, na.rm = TRUE))
+
+cat("F vs GBM Thickness:\n")
+cat(sprintf("  No GBM thickening: mean F = %.4f\n", 
+            gbm_f_means$mean_f[gbm_f_means$GBM_thickness_binary == 0]))
+cat(sprintf("  GBM thickening: mean F = %.4f\n", 
+            gbm_f_means$mean_f[gbm_f_means$GBM_thickness_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", gbm_f_test$p.value))
+
+# K2/F vs GBM
+gbm_k2f_test <- wilcox.test(avg_c_k2_f ~ GBM_thickness_binary, data = gbm_df)
+gbm_k2f_means <- gbm_df %>% 
+  group_by(GBM_thickness_binary) %>% 
+  summarise(mean_k2f = mean(avg_c_k2_f, na.rm = TRUE))
+
+cat("K2/F vs GBM Thickness:\n")
+cat(sprintf("  No GBM thickening: mean K2/F = %.4f\n", 
+            gbm_k2f_means$mean_k2f[gbm_k2f_means$GBM_thickness_binary == 0]))
+cat(sprintf("  GBM thickening: mean K2/F = %.4f\n", 
+            gbm_k2f_means$mean_k2f[gbm_k2f_means$GBM_thickness_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", gbm_k2f_test$p.value))
+
+# ============================================================================
+# 2. ARTERIOSCLEROSIS ASSOCIATIONS
+# ============================================================================
+cat("\n=== ARTERIOSCLEROSIS ASSOCIATIONS ===\n\n")
+
+# Filter for complete cases
+arterio_df <- combined_df %>% 
+  filter(!is.na(arteriosclerosis_binary), arteriosclerosis != '')
+
+# K2 vs Arteriosclerosis
+arterio_k2_test <- wilcox.test(avg_c_k2 ~ arteriosclerosis_binary, data = arterio_df)
+arterio_k2_means <- arterio_df %>% 
+  group_by(arteriosclerosis_binary) %>% 
+  summarise(mean_k2 = mean(avg_c_k2, na.rm = TRUE))
+
+cat("K2 vs Arteriosclerosis:\n")
+cat(sprintf("  No arteriosclerosis: mean K2 = %.4f\n", 
+            arterio_k2_means$mean_k2[arterio_k2_means$arteriosclerosis_binary == 0]))
+cat(sprintf("  Arteriosclerosis: mean K2 = %.4f\n", 
+            arterio_k2_means$mean_k2[arterio_k2_means$arteriosclerosis_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", arterio_k2_test$p.value))
+
+# F vs Arteriosclerosis
+arterio_f_test <- wilcox.test(avg_c_f ~ arteriosclerosis_binary, data = arterio_df)
+arterio_f_means <- arterio_df %>% 
+  group_by(arteriosclerosis_binary) %>% 
+  summarise(mean_f = mean(avg_c_f, na.rm = TRUE))
+
+cat("F vs Arteriosclerosis:\n")
+cat(sprintf("  No arteriosclerosis: mean F = %.4f\n", 
+            arterio_f_means$mean_f[arterio_f_means$arteriosclerosis_binary == 0]))
+cat(sprintf("  Arteriosclerosis: mean F = %.4f\n", 
+            arterio_f_means$mean_f[arterio_f_means$arteriosclerosis_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", arterio_f_test$p.value))
+
+# K2/F vs Arteriosclerosis
+arterio_k2f_test <- wilcox.test(avg_c_k2_f ~ arteriosclerosis_binary, data = arterio_df)
+arterio_k2f_means <- arterio_df %>% 
+  group_by(arteriosclerosis_binary) %>% 
+  summarise(mean_k2f = mean(avg_c_k2_f, na.rm = TRUE))
+
+cat("K2/F vs Arteriosclerosis:\n")
+cat(sprintf("  No arteriosclerosis: mean K2/F = %.4f\n", 
+            arterio_k2f_means$mean_k2f[arterio_k2f_means$arteriosclerosis_binary == 0]))
+cat(sprintf("  Arteriosclerosis: mean K2/F = %.4f\n", 
+            arterio_k2f_means$mean_k2f[arterio_k2f_means$arteriosclerosis_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", arterio_k2f_test$p.value))
+
+# ============================================================================
+# 3. UACR CORRELATIONS (SPEARMAN)
+# ============================================================================
+cat("\n=== UACR CORRELATIONS ===\n\n")
+
+# Load harmonized data for UACR analysis
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+                   .by = c(record_id, visit))
+
+# Calculate PET averages (use the PET_avg function from earlier)
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  avg_m_k2_f <- avg_m_k2 / avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                      'avg_c_k2_f', 'avg_m_k2_f')
+  return(results)
+}
+
+tmp_results <- PET_avg(dat)
+dat_uacr <- dat %>% bind_cols(tmp_results)
+
+dat_uacr <- dat_uacr %>% 
+  filter(!is.na(avg_c_k2)) %>% 
+  filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
+
+# Remove specific outlier if needed
+dat_uacr <- dat_uacr %>% filter(record_id != 'CRC-55')
+
+# Calculate correlations
+uacr_k2_cor <- cor.test(dat_uacr$acr_u, dat_uacr$avg_c_k2, 
+                        method = "spearman", use = "pairwise.complete.obs")
+uacr_f_cor <- cor.test(dat_uacr$acr_u, dat_uacr$avg_c_f, 
+                       method = "spearman", use = "pairwise.complete.obs")
+uacr_k2f_cor <- cor.test(dat_uacr$acr_u, dat_uacr$avg_c_k2_f, 
+                         method = "spearman", use = "pairwise.complete.obs")
+
+cat("UACR vs K2:\n")
+cat(sprintf("  Spearman rho = %.3f\n", uacr_k2_cor$estimate))
+cat(sprintf("  p-value = %.4f\n\n", uacr_k2_cor$p.value))
+
+cat("UACR vs F:\n")
+cat(sprintf("  Spearman rho = %.3f\n", uacr_f_cor$estimate))
+cat(sprintf("  p-value = %.4f\n\n", uacr_f_cor$p.value))
+
+cat("UACR vs K2/F:\n")
+cat(sprintf("  Spearman rho = %.3f\n", uacr_k2f_cor$estimate))
+cat(sprintf("  p-value = %.4f\n\n", uacr_k2f_cor$p.value))
+
+# ============================================================================
+# 4. SAVE ALL RESULTS FOR ABSTRACT
+# ============================================================================
+
+# Create summary dataframe
+abstract_stats <- data.frame(
+  Analysis = c(
+    "GBM_K2", "GBM_F", "GBM_K2F",
+    "Arterio_K2", "Arterio_F", "Arterio_K2F",
+    "UACR_K2", "UACR_F", "UACR_K2F"
+  ),
+  Statistic = c(
+    NA, NA, NA,  # GBM uses Wilcoxon, no correlation coefficient
+    NA, NA, NA,  # Arteriosclerosis uses Wilcoxon
+    uacr_k2_cor$estimate, uacr_f_cor$estimate, uacr_k2f_cor$estimate
+  ),
+  P_value = c(
+    gbm_k2_test$p.value, gbm_f_test$p.value, gbm_k2f_test$p.value,
+    arterio_k2_test$p.value, arterio_f_test$p.value, arterio_k2f_test$p.value,
+    uacr_k2_cor$p.value, uacr_f_cor$p.value, uacr_k2f_cor$p.value
+  )
+)
+
+print(abstract_stats)
+
+write.csv(abstract_stats, 
+          paste0(base_path, 'Abstract_Clinical_Correlations.csv'), 
+          row.names = FALSE)
+
+cat("\n\nAll statistics saved for abstract!\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2755,6 +3024,49 @@ if(file.exists("C:/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")) {
   n_clinical_gbm <- "N/A"
   n_clinical_arterio <- "N/A"
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ################################################################################
 # Create CONSORT Diagram
