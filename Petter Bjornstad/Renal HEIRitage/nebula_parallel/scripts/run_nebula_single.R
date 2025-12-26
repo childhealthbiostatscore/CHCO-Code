@@ -45,6 +45,20 @@ Sys.setenv(
 # subset_cond: filtering conditions EXCLUDING celltype (that's added dynamically)
 
 analysis_config <- list(
+  # T2D GLP+ vs T2D GLP-
+  T2D_GLP_Y_vs_T2D_GLP_N = list(
+    subset_cond = "group == `Type_2_Diabetes` & !is.na(glp_t2dob)",
+    group_var = "glp_t2dob", ref = "GLP_N",
+    pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
+    s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N", file_suffix = "t2d_glpyn"
+  ),
+  # HC vs DKD+ GLP-
+  DKD_30_GLP_N_vs_HC = list(
+    subset_cond = "dkd_group_30 == `DKD` & glp_t2dob != 'GLP_N' & !is.na(glp_t2dob)",
+    group_var = "glp_t2dob", ref_level = "HC",
+    pval_col = "p_glp_t2dobGLP_N", logfc_col = "logFC_glp_t2dobGLP_N",
+    s3_subdir = "DKD_30_GLP_N_vs_HC", file_suffix = "dkd30_glpn_hc"
+  ),
   # DKD vs nonDKD comparisons (ACR >= 100)
   DKD_vs_nonDKD_100 = list(
     subset_cond = "group != 'Lean_Control' & !is.na(dkd_group_100)",
