@@ -516,6 +516,90 @@ write.csv(summary_stats_wide,
 
 
 
+# ============================================================================
+# EXTRACT STATISTICS FOR ABSTRACT
+# ============================================================================
+
+# 1. PET MEAN DIFFERENCES (T2D - Control)
+# ============================================================================
+pet_means <- aim1_long %>%
+  group_by(metric, group) %>%
+  summarise(mean = mean(value, na.rm = TRUE), .groups = 'drop') %>%
+  pivot_wider(names_from = group, values_from = mean) %>%
+  mutate(
+    mean_diff = `Type 2 Diabetes` - `Lean Control`,
+    metric_clean = case_when(
+      metric == "Cortical F" ~ "F",
+      metric == "Cortical K2" ~ "K2",
+      metric == "Cortical K2/F" ~ "K2/F"
+    )
+  ) %>%
+  select(metric_clean, `Lean Control`, `Type 2 Diabetes`, mean_diff)
+
+print("PET Mean Differences:")
+print(pet_means)
+
+# Save for abstract
+write.csv(pet_means, paste0(base_path, 'PET_mean_differences_for_abstract.csv'), row.names = FALSE)
+
+
+# 2. EXTRACT P-VALUES FROM EXISTING STAT TEST
+# ============================================================================
+pet_pvalues <- stat_test %>%
+  select(metric, p, p.adj.signif) %>%
+  mutate(metric_clean = case_when(
+    metric == "Cortical F" ~ "F",
+    metric == "Cortical K2" ~ "K2",
+    metric == "Cortical K2/F" ~ "K2/F"
+  ))
+
+print("PET P-values:")
+print(pet_pvalues)
+
+
+# 3. COMBINE FOR EASY REFERENCE
+# ============================================================================
+pet_abstract_stats <- pet_means %>%
+  left_join(pet_pvalues %>% select(metric_clean, p, p.adj.signif), 
+            by = "metric_clean")
+
+print("Combined PET Statistics for Abstract:")
+print(pet_abstract_stats)
+
+write.csv(pet_abstract_stats, 
+          paste0(base_path, 'PET_statistics_for_abstract.csv'), 
+          row.names = FALSE)
+
+
+# 4. FORMAT FOR ABSTRACT TEXT
+# ============================================================================
+cat("\n=== FORMATTED FOR ABSTRACT ===\n\n")
+
+for(i in 1:nrow(pet_abstract_stats)) {
+  cat(sprintf("%s: T2D mean = %.3f, Control mean = %.3f, Difference = %.3f (p%s)\n",
+              pet_abstract_stats$metric_clean[i],
+              pet_abstract_stats$`Type 2 Diabetes`[i],
+              pet_abstract_stats$`Lean Control`[i],
+              pet_abstract_stats$mean_diff[i],
+              ifelse(pet_abstract_stats$p[i] < 0.001, "<0.001", 
+                     sprintf("=%.3f", pet_abstract_stats$p[i]))))
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
