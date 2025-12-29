@@ -106,8 +106,13 @@ def harmonize_data():
         pd.Categorical(harmonized["visit"],
                        categories=['screening', 'baseline', 'pre_surgery',
                                    '3_months_post_surgery', '4_months_post', '12_months_post_surgery',
-                                   'year_1', 'year_2', 'year_3', 'year_4' , "post_biopsy","Post-biopsy GFR MRI","Med Dispense 1", "Med Dispense 2"],
-                       ordered=True)
+                                   'year_1', 'year_2', 'year_3', 'year_4' , "post_biopsy", "v1_screening_arm_1", "v2_gfr_mri_arm_1", 
+                                   "v3_arm_1", "v4_arm_1",
+                                   "p5_phone_visit_arm_1",
+                                   "v61_med_dispense_arm_1",
+                                   "v62_med_dispense_arm_1",
+                                   "v7_gfr_mri_arm_1",
+                                   "v8_arm_1"], ordered=True)
     harmonized["race"].replace(
         ["American Indian or Alaskan Native & White",
          "Black or African American & White",

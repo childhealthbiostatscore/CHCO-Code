@@ -516,6 +516,90 @@ write.csv(summary_stats_wide,
 
 
 
+# ============================================================================
+# EXTRACT STATISTICS FOR ABSTRACT
+# ============================================================================
+
+# 1. PET MEAN DIFFERENCES (T2D - Control)
+# ============================================================================
+pet_means <- aim1_long %>%
+  group_by(metric, group) %>%
+  summarise(mean = mean(value, na.rm = TRUE), .groups = 'drop') %>%
+  pivot_wider(names_from = group, values_from = mean) %>%
+  mutate(
+    mean_diff = `Type 2 Diabetes` - `Lean Control`,
+    metric_clean = case_when(
+      metric == "Cortical F" ~ "F",
+      metric == "Cortical K2" ~ "K2",
+      metric == "Cortical K2/F" ~ "K2/F"
+    )
+  ) %>%
+  select(metric_clean, `Lean Control`, `Type 2 Diabetes`, mean_diff)
+
+print("PET Mean Differences:")
+print(pet_means)
+
+# Save for abstract
+write.csv(pet_means, paste0(base_path, 'PET_mean_differences_for_abstract.csv'), row.names = FALSE)
+
+
+# 2. EXTRACT P-VALUES FROM EXISTING STAT TEST
+# ============================================================================
+pet_pvalues <- stat_test %>%
+  select(metric, p, p.adj.signif) %>%
+  mutate(metric_clean = case_when(
+    metric == "Cortical F" ~ "F",
+    metric == "Cortical K2" ~ "K2",
+    metric == "Cortical K2/F" ~ "K2/F"
+  ))
+
+print("PET P-values:")
+print(pet_pvalues)
+
+
+# 3. COMBINE FOR EASY REFERENCE
+# ============================================================================
+pet_abstract_stats <- pet_means %>%
+  left_join(pet_pvalues %>% select(metric_clean, p, p.adj.signif), 
+            by = "metric_clean")
+
+print("Combined PET Statistics for Abstract:")
+print(pet_abstract_stats)
+
+write.csv(pet_abstract_stats, 
+          paste0(base_path, 'PET_statistics_for_abstract.csv'), 
+          row.names = FALSE)
+
+
+# 4. FORMAT FOR ABSTRACT TEXT
+# ============================================================================
+cat("\n=== FORMATTED FOR ABSTRACT ===\n\n")
+
+for(i in 1:nrow(pet_abstract_stats)) {
+  cat(sprintf("%s: T2D mean = %.3f, Control mean = %.3f, Difference = %.3f (p%s)\n",
+              pet_abstract_stats$metric_clean[i],
+              pet_abstract_stats$`Type 2 Diabetes`[i],
+              pet_abstract_stats$`Lean Control`[i],
+              pet_abstract_stats$mean_diff[i],
+              ifelse(pet_abstract_stats$p[i] < 0.001, "<0.001", 
+                     sprintf("=%.3f", pet_abstract_stats$p[i]))))
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1286,6 +1370,90 @@ cat(sprintf("  TCA Cycle significant: %d/%d\n",
 cat(sprintf("  OxPhos significant: %d/%d\n", 
             sum(oxphos_results$Significant == "Yes"), 
             nrow(oxphos_results)))
+
+
+
+
+
+# ============================================================================
+# EXTRACT SPECIFIC GENE logFC VALUES FOR ABSTRACT
+# ============================================================================
+
+library(dplyr)
+library(stringr)
+
+base_path <- 'C:/Users/netio/Documents/UofW/Rockies/publication_figures/'
+
+# Load PT cell type data (all PT cells combined)
+lc_files <- list.files('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/', pattern='csv')
+
+# Get PT files
+celltype <- 'PT'
+celltype2 <- 'PT'
+tmp_lc <- lc_files[str_which(lc_files, pattern = paste0('cycle_', celltype2, '_cells'))]
+
+# TCA genes
+tmp_lc_tca <- tmp_lc[str_which(tmp_lc, pattern = 'TCA')]
+tca_lc <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/', tmp_lc_tca))
+
+tca_lc <- tca_lc %>% dplyr::select(
+  gene, 
+  logFC = logFC_groupType_2_Diabetes,
+  SE = se_groupType_2_Diabetes,
+  pvalue = any_of(c("p_groupType_2_Diabetes", "pvalue"))
+)
+
+# OxPhos genes
+tmp_lc_oxphos <- tmp_lc[str_which(tmp_lc, pattern = 'PHOS_')]
+oxphos_lc <- data.table::fread(paste0('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/', tmp_lc_oxphos))
+
+oxphos_lc <- oxphos_lc %>% dplyr::select(
+  gene, 
+  logFC = logFC_groupType_2_Diabetes,
+  SE = se_groupType_2_Diabetes,
+  pvalue = any_of(c("p_groupType_2_Diabetes", "pvalue"))
+)
+
+# Extract specific genes mentioned in abstract
+genes_of_interest <- c("IDH3A", "SUCLA2", "COX10")
+
+# Combine TCA and OxPhos data
+all_genes <- bind_rows(
+  tca_lc %>% mutate(pathway = "TCA"),
+  oxphos_lc %>% mutate(pathway = "OxPhos")
+)
+
+# Filter for genes of interest
+abstract_genes <- all_genes %>%
+  filter(gene %in% genes_of_interest) %>%
+  arrange(match(gene, genes_of_interest))
+
+cat("\n=== GENE EXPRESSION VALUES FOR ABSTRACT ===\n\n")
+print(abstract_genes)
+
+# Format for abstract
+cat("\n=== FORMATTED FOR ABSTRACT ===\n\n")
+for(i in 1:nrow(abstract_genes)) {
+  row <- abstract_genes[i,]
+  cat(sprintf("%s (logFC=%.3f, SE=%.3f, p%s)\n",
+              row$gene,
+              row$logFC,
+              row$SE,
+              ifelse(row$pvalue < 0.001, "<0.001", 
+                     sprintf("=%.3f", row$pvalue))))
+}
+
+# Save results
+write.csv(abstract_genes, 
+          paste0(base_path, 'Abstract_Gene_Expression_Values.csv'), 
+          row.names = FALSE)
+
+cat("\n\nResults saved to: Abstract_Gene_Expression_Values.csv\n")
+
+
+
+
+
 
 
 
@@ -2372,6 +2540,275 @@ print(p_values)
 
 
 
+# ============================================================================
+# EXTRACT PATHOLOGY AND UACR CORRELATIONS FOR ABSTRACT
+# ============================================================================
+
+library(dplyr)
+library(stringr)
+library(broom)
+
+base_path <- 'C:/Users/netio/Documents/UofW/Rockies/publication_figures/'
+
+# Load the clinical data
+dat2 <- data.table::fread("C:/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")
+dat2 <- dat2[-str_which(dat2$record_id, '-O')]
+
+combined_df <- dat2 %>% 
+  dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f,
+                arteriosclerosis, arteriolohyalinosis, `GBM thickness`, 
+                `GBM thickness arith`, `GBM thickness harm`,
+                acr_u) %>% 
+  mutate(arteriolohyalinosis_severity = ifelse(arteriolohyalinosis == 'no', 0, 
+                                               ifelse(arteriolohyalinosis == 'mild', 1, 
+                                                      ifelse(arteriolohyalinosis == 'severe', 2, NA))), 
+         GBM_thickness = `GBM thickness`,
+         GBM_thickness_binary = ifelse(GBM_thickness == 'yes', 1, 
+                                       ifelse(GBM_thickness == 'no', 0, NA)),
+         arteriosclerosis_binary = ifelse(arteriosclerosis == 'yes', 1,
+                                          ifelse(arteriosclerosis == 'no', 0, NA))) %>%
+  select(-arteriolohyalinosis, -`GBM thickness`, -record_id)
+
+# ============================================================================
+# 1. GBM THICKNESS ASSOCIATIONS
+# ============================================================================
+cat("\n=== GBM THICKNESS ASSOCIATIONS ===\n\n")
+
+# Filter for complete cases
+gbm_df <- combined_df %>% 
+  filter(!is.na(GBM_thickness_binary), GBM_thickness != '')
+
+# K2 vs GBM
+gbm_k2_test <- wilcox.test(avg_c_k2 ~ GBM_thickness_binary, data = gbm_df)
+gbm_k2_means <- gbm_df %>% 
+  group_by(GBM_thickness_binary) %>% 
+  summarise(mean_k2 = mean(avg_c_k2, na.rm = TRUE))
+
+cat("K2 vs GBM Thickness:\n")
+cat(sprintf("  No GBM thickening: mean K2 = %.4f\n", 
+            gbm_k2_means$mean_k2[gbm_k2_means$GBM_thickness_binary == 0]))
+cat(sprintf("  GBM thickening: mean K2 = %.4f\n", 
+            gbm_k2_means$mean_k2[gbm_k2_means$GBM_thickness_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", gbm_k2_test$p.value))
+
+# F vs GBM
+gbm_f_test <- wilcox.test(avg_c_f ~ GBM_thickness_binary, data = gbm_df)
+gbm_f_means <- gbm_df %>% 
+  group_by(GBM_thickness_binary) %>% 
+  summarise(mean_f = mean(avg_c_f, na.rm = TRUE))
+
+cat("F vs GBM Thickness:\n")
+cat(sprintf("  No GBM thickening: mean F = %.4f\n", 
+            gbm_f_means$mean_f[gbm_f_means$GBM_thickness_binary == 0]))
+cat(sprintf("  GBM thickening: mean F = %.4f\n", 
+            gbm_f_means$mean_f[gbm_f_means$GBM_thickness_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", gbm_f_test$p.value))
+
+# K2/F vs GBM
+gbm_k2f_test <- wilcox.test(avg_c_k2_f ~ GBM_thickness_binary, data = gbm_df)
+gbm_k2f_means <- gbm_df %>% 
+  group_by(GBM_thickness_binary) %>% 
+  summarise(mean_k2f = mean(avg_c_k2_f, na.rm = TRUE))
+
+cat("K2/F vs GBM Thickness:\n")
+cat(sprintf("  No GBM thickening: mean K2/F = %.4f\n", 
+            gbm_k2f_means$mean_k2f[gbm_k2f_means$GBM_thickness_binary == 0]))
+cat(sprintf("  GBM thickening: mean K2/F = %.4f\n", 
+            gbm_k2f_means$mean_k2f[gbm_k2f_means$GBM_thickness_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", gbm_k2f_test$p.value))
+
+# ============================================================================
+# 2. ARTERIOSCLEROSIS ASSOCIATIONS
+# ============================================================================
+cat("\n=== ARTERIOSCLEROSIS ASSOCIATIONS ===\n\n")
+
+# Filter for complete cases
+arterio_df <- combined_df %>% 
+  filter(!is.na(arteriosclerosis_binary), arteriosclerosis != '')
+
+# K2 vs Arteriosclerosis
+arterio_k2_test <- wilcox.test(avg_c_k2 ~ arteriosclerosis_binary, data = arterio_df)
+arterio_k2_means <- arterio_df %>% 
+  group_by(arteriosclerosis_binary) %>% 
+  summarise(mean_k2 = mean(avg_c_k2, na.rm = TRUE))
+
+cat("K2 vs Arteriosclerosis:\n")
+cat(sprintf("  No arteriosclerosis: mean K2 = %.4f\n", 
+            arterio_k2_means$mean_k2[arterio_k2_means$arteriosclerosis_binary == 0]))
+cat(sprintf("  Arteriosclerosis: mean K2 = %.4f\n", 
+            arterio_k2_means$mean_k2[arterio_k2_means$arteriosclerosis_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", arterio_k2_test$p.value))
+
+# F vs Arteriosclerosis
+arterio_f_test <- wilcox.test(avg_c_f ~ arteriosclerosis_binary, data = arterio_df)
+arterio_f_means <- arterio_df %>% 
+  group_by(arteriosclerosis_binary) %>% 
+  summarise(mean_f = mean(avg_c_f, na.rm = TRUE))
+
+cat("F vs Arteriosclerosis:\n")
+cat(sprintf("  No arteriosclerosis: mean F = %.4f\n", 
+            arterio_f_means$mean_f[arterio_f_means$arteriosclerosis_binary == 0]))
+cat(sprintf("  Arteriosclerosis: mean F = %.4f\n", 
+            arterio_f_means$mean_f[arterio_f_means$arteriosclerosis_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", arterio_f_test$p.value))
+
+# K2/F vs Arteriosclerosis
+arterio_k2f_test <- wilcox.test(avg_c_k2_f ~ arteriosclerosis_binary, data = arterio_df)
+arterio_k2f_means <- arterio_df %>% 
+  group_by(arteriosclerosis_binary) %>% 
+  summarise(mean_k2f = mean(avg_c_k2_f, na.rm = TRUE))
+
+cat("K2/F vs Arteriosclerosis:\n")
+cat(sprintf("  No arteriosclerosis: mean K2/F = %.4f\n", 
+            arterio_k2f_means$mean_k2f[arterio_k2f_means$arteriosclerosis_binary == 0]))
+cat(sprintf("  Arteriosclerosis: mean K2/F = %.4f\n", 
+            arterio_k2f_means$mean_k2f[arterio_k2f_means$arteriosclerosis_binary == 1]))
+cat(sprintf("  p-value = %.4f\n\n", arterio_k2f_test$p.value))
+
+# ============================================================================
+# 3. UACR CORRELATIONS (SPEARMAN)
+# ============================================================================
+cat("\n=== UACR CORRELATIONS ===\n\n")
+
+# Load harmonized data for UACR analysis
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+                   .by = c(record_id, visit))
+
+# Calculate PET averages (use the PET_avg function from earlier)
+PET_avg <- function(data){
+  tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
+                                   lc_f, rc_f, lm_f, rm_f)
+  avg_c_k2 <- tmp_df %>%
+    dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
+  avg_m_k2 <- tmp_df %>% 
+    dplyr::select(lm_k2, rm_k2) %>% rowMeans(na.rm=T)
+  avg_c_f <- tmp_df %>% 
+    dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
+  avg_m_f <- tmp_df %>% 
+    dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  avg_c_k2_f <- avg_c_k2 / avg_c_f
+  avg_m_k2_f <- avg_m_k2 / avg_m_f
+  
+  results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
+                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+  names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                      'avg_c_k2_f', 'avg_m_k2_f')
+  return(results)
+}
+
+tmp_results <- PET_avg(dat)
+dat_uacr <- dat %>% bind_cols(tmp_results)
+
+dat_uacr <- dat_uacr %>% 
+  filter(!is.na(avg_c_k2)) %>% 
+  filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes'))
+
+# Remove specific outlier if needed
+dat_uacr <- dat_uacr %>% filter(record_id != 'CRC-55')
+
+# Calculate correlations
+uacr_k2_cor <- cor.test(dat_uacr$acr_u, dat_uacr$avg_c_k2, 
+                        method = "spearman", use = "pairwise.complete.obs")
+uacr_f_cor <- cor.test(dat_uacr$acr_u, dat_uacr$avg_c_f, 
+                       method = "spearman", use = "pairwise.complete.obs")
+uacr_k2f_cor <- cor.test(dat_uacr$acr_u, dat_uacr$avg_c_k2_f, 
+                         method = "spearman", use = "pairwise.complete.obs")
+
+cat("UACR vs K2:\n")
+cat(sprintf("  Spearman rho = %.3f\n", uacr_k2_cor$estimate))
+cat(sprintf("  p-value = %.4f\n\n", uacr_k2_cor$p.value))
+
+cat("UACR vs F:\n")
+cat(sprintf("  Spearman rho = %.3f\n", uacr_f_cor$estimate))
+cat(sprintf("  p-value = %.4f\n\n", uacr_f_cor$p.value))
+
+cat("UACR vs K2/F:\n")
+cat(sprintf("  Spearman rho = %.3f\n", uacr_k2f_cor$estimate))
+cat(sprintf("  p-value = %.4f\n\n", uacr_k2f_cor$p.value))
+
+# ============================================================================
+# 4. SAVE ALL RESULTS FOR ABSTRACT
+# ============================================================================
+
+# Create summary dataframe
+abstract_stats <- data.frame(
+  Analysis = c(
+    "GBM_K2", "GBM_F", "GBM_K2F",
+    "Arterio_K2", "Arterio_F", "Arterio_K2F",
+    "UACR_K2", "UACR_F", "UACR_K2F"
+  ),
+  Statistic = c(
+    NA, NA, NA,  # GBM uses Wilcoxon, no correlation coefficient
+    NA, NA, NA,  # Arteriosclerosis uses Wilcoxon
+    uacr_k2_cor$estimate, uacr_f_cor$estimate, uacr_k2f_cor$estimate
+  ),
+  P_value = c(
+    gbm_k2_test$p.value, gbm_f_test$p.value, gbm_k2f_test$p.value,
+    arterio_k2_test$p.value, arterio_f_test$p.value, arterio_k2f_test$p.value,
+    uacr_k2_cor$p.value, uacr_f_cor$p.value, uacr_k2f_cor$p.value
+  )
+)
+
+print(abstract_stats)
+
+write.csv(abstract_stats, 
+          paste0(base_path, 'Abstract_Clinical_Correlations.csv'), 
+          row.names = FALSE)
+
+cat("\n\nAll statistics saved for abstract!\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2587,6 +3024,49 @@ if(file.exists("C:/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")) {
   n_clinical_gbm <- "N/A"
   n_clinical_arterio <- "N/A"
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ################################################################################
 # Create CONSORT Diagram
