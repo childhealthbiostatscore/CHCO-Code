@@ -15,10 +15,10 @@ format:
 ---
 
 Left ventricular (LV), right ventricular (RV) global functions
-ESV: End-systolic volume	(mL)
+ESV: End-systolic volume (mL)
 EDV: End-diastolic volume (mL)	
 SV: Stroke volume	(mL)
-CO: Cardiac output	 (L/min)
+CO: Cardiac output (L/min)
 EF: Ejection fraction (%)	
 HR: Heart rate (1/min)	
 thickness_diast: Global myocardial thickness at diastole (mm)	
@@ -187,7 +187,18 @@ harm_dat_subset <- harm_dat %>%
          long_peak   = case_when(long_peak   == 0 ~ NA_real_, TRUE ~ long_peak),
          circum_peak = case_when(circum_peak == 0 ~ NA_real_, TRUE ~ circum_peak),
          radial_peak = case_when(radial_peak == 0 ~ NA_real_, TRUE ~ radial_peak),
-         log_acr_u = log(acr_u))
+         log_acr_u = log(acr_u),
+         bsa_monsteller = sqrt(height * weight / 3600),
+         lvesv_bsa = lvesv/bsa_monsteller,
+         rvesv_bsa = rvesv/bsa_monsteller,
+         lvedv_bsa = lvedv/bsa_monsteller,
+         rvedv_bsa = rvedv/bsa_monsteller,
+         lvsv_bsa = lvsv/bsa_monsteller,
+         rvsv_bsa = rvsv/bsa_monsteller,
+         lv_stroke_volume_bsa = lv_stroke_volume/bsa_monsteller,
+         rv_stroke_volume_bsa = rv_stroke_volume/bsa_monsteller,
+         lv_myo_mass_dias_bsa = lv_myo_mass_dias/bsa_monsteller,
+         lv_myo_mass_syst_bsa = lv_myo_mass_syst/bsa_monsteller)
 
 
 harm_dat_subset_baseline <- harm_dat_subset %>%
@@ -203,18 +214,36 @@ harm_dat_subset_t2d <- harm_dat_subset %>%
 
 ```{r}
 summary(arsenal::tableby(imaging_visit_id ~ group + age + sex + bmi + kwt(acr_u, "Nmiss", "medianq1q3") + hba1c +
-                           dkd_group_30 + dkd_group_100, data = harm_dat_subset))
+                           dkd_group_30 + dkd_group_100 + bsa_monsteller, data = harm_dat_subset))
 
 summary(arsenal::tableby(group ~ imaging_visit_id + age + sex + bmi + kwt(acr_u, "Nmiss", "medianq1q3") + hba1c + eGFR_CKD_epi +
-                           acr_u_cat3 +
-                           dkd_group_30 + dkd_group_100, data = subset(harm_dat_subset, imaging_visit_id != "ultra_follow_up")))
+                           acr_u_cat3 + dkd_group_30 + dkd_group_100, data = subset(harm_dat_subset, imaging_visit_id != "ultra_follow_up")))
+
 summary(arsenal::tableby(sex ~ group + imaging_visit_id + age + sex + bmi + kwt(acr_u, "Nmiss", "medianq1q3") + hba1c + eGFR_CKD_epi +
                            dkd_group_30 + dkd_group_100, data = subset(harm_dat_subset, imaging_visit_id != "ultra_follow_up" & group != "Lean Control")))
+
+summary(arsenal::tableby(sex ~ lvedv + lvedv_bsa + lvesv + kwt(lvesv_bsa, "Nmiss", "medianq1q3") + lvsv + lvsv_bsa + lvef + kwt(lv_myo_mass_dias, "Nmiss", "medianq1q3") + kwt(lv_myo_mass_dias_bsa, "Nmiss", "medianq1q3") + lv_myo_mass_syst + lv_myo_mass_syst_bsa, data = subset(harm_dat_subset, imaging_visit_id != "ultra_follow_up" & group != "Lean Control")))
+
+summary(arsenal::tableby(sex ~ rvedv + rvedv_bsa + kwt(rvesv, "Nmiss", "medianq1q3") + kwt(rvesv_bsa, "Nmiss", "medianq1q3") + kwt(rvsv, "Nmiss", "medianq1q3") + kwt(rvsv_bsa, "Nmiss", "medianq1q3") + rvef, data = subset(harm_dat_subset, imaging_visit_id != "ultra_follow_up" & group != "Lean Control")))
+
+# hist(subset(harm_dat_subset, imaging_visit_id != "ultra_follow_up" & group != "Lean Control")$rvsv_bsa)
 
 subset(harm_dat_subset, rvef < 40 & imaging_visit_id != "ultra_follow_up" & group != "Lean Control")$record_id
 subset(harm_dat_subset, rvef < 40 & imaging_visit_id != "ultra_follow_up" & group != "Lean Control")$rvef
 
 table(subset(harm_dat_subset, group != "Lean Control" & imaging_visit_id != "ultra_follow_up")$acr_u_cat300)
+
+subset(harm_dat_subset, record_id == "SWHT_20")$age
+subset(harm_dat_subset, record_id == "SWHT_20")$bsa_monsteller
+subset(harm_dat_subset, record_id == "SWHT_20")$lv_myo_mass_dias
+subset(harm_dat_subset, record_id == "SWHT_20")$lv_myo_thickness_dias
+subset(harm_dat_subset, record_id == "SWHT_20")$long_peak
+
+subset(harm_dat_subset, record_id == "SWHT_33")$age
+subset(harm_dat_subset, record_id == "SWHT_33")$bsa_monsteller
+subset(harm_dat_subset, record_id == "SWHT_33")$lv_myo_mass_dias
+subset(harm_dat_subset, record_id == "SWHT_33")$lv_myo_thickness_dias
+subset(harm_dat_subset, record_id == "SWHT_33")$long_peak
 ```
 
 ```{r}
@@ -462,6 +491,32 @@ im_vars_2 <- c(
   # "af_medianwss",
 )
 
+im_vars_3 <- c(
+  "lvedv_bsa",
+  "lvesv_bsa",
+  "lvsv_bsa",
+  # "lvco",
+  "lvef",
+  "rvedv_bsa",
+  "rvesv_bsa",
+  "rvsv_bsa",
+  # "rvco",
+  "rvef",
+  "lv_myo_mass_dias_bsa",
+  "lv_myo_thickness_dias",
+  "long_peak",
+  "imaging_hr",
+  "af_meanwss",
+  # "af_high5pctwss",
+  "af_pwv_xcor3",
+  "tt1",
+  "tt2"
+  # "tr2"
+  # "lv_myo_mass_syst_bsa",
+  # "lv_myo_thickness_total",
+  # "af_medianwss",
+)
+
 im_vars_2_labels <- c(
   imaging_hr                = "Heart rate (1/min)",
   rvedv                     = "RVEDV (mL)",
@@ -470,10 +525,18 @@ im_vars_2_labels <- c(
   lvesv                     = "LVESV (mL)",
   rvsv                      = "RV stroke\nvolume (mL)",
   lvsv                      = "LV stroke\nvolume (mL)",
+  rvedv_bsa                     = "RVEDV BSA (mL/m^2)",
+  lvedv_bsa                     = "LVEDV BSA (mL/m^2)",
+  rvesv_bsa                     = "RVESV BSA (mL/m^2)",
+  lvesv_bsa                     = "LVESV BSA (mL/m^2)",
+  rvsv_bsa                      = "RV stroke\nvolume BSA (mL/m^2)",
+  lvsv_bsa                      = "LV stroke\nvolume BSA (mL/m^2)",
   rvco                      = "RV cardiac\noutput",
   lvco                      = "LV cardiac\noutput",
   lv_myo_mass_syst          = "LV myocardial\nmass (systole)",
   lv_myo_mass_dias          = "LV mass (g)",
+  lv_myo_mass_syst_bsa          = "LV myocardial\nmass BSA (systole)",
+  lv_myo_mass_dias_bsa          = "LV mass BSA (g/m^2)",
   lv_myo_thickness_total    = "LV\nthickness total (mm)",
   lv_myo_thickness_dias     = "LV\nthickness (mm)",
   rvef                      = "RV\nejection fraction (%)",
@@ -512,6 +575,25 @@ plot_boxgrid(
   group_var = "sex",
   log_vars = im_vars_log,
   file_prefix = "obt2d_sex",
+  ncol = 4,
+  per_page = 16,
+  show_legend = T,
+  fill_label = "Sex",
+  width = 18,
+  text_size = 20,
+  star_size = 12,
+  p_format = "value",
+  paired = F,
+  test_method = "wilcox.test"
+)
+
+plot_boxgrid(
+  df = harm_dat_subset_obt2d,
+  vars = im_vars_3,
+  var_labels = im_vars_2_labels,
+  group_var = "sex",
+  log_vars = im_vars_log,
+  file_prefix = "obt2d_sex_bsa",
   ncol = 4,
   per_page = 16,
   show_legend = T,

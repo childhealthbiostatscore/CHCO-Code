@@ -101,7 +101,7 @@ bmi_percentile <- growthcleanr::ext_bmiz(
   bmi = "bmi",
   adjust.integer.age = FALSE
 ) %>%
-  select(record_id, visit, bmip, bmiz) %>%
+  dplyr::select(record_id, visit, bmip, bmiz) %>%
   filter(!is.na(bmip))
 
 # Step 6: Merge results into harmonized dataset
