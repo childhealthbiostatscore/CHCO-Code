@@ -3095,3 +3095,415 @@ cat("\nAll cell types processed!\n")
 
 
 
+
+
+
+
+##Abstract 
+
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(cowplot)
+library(ggrepel)
+
+dir.results <- 'C:/Users/netio/Documents/UofW/Projects/Sex_based_Analysis/T2D_Only/'
+
+# ============================================================================
+# PANEL C: VOLCANO PLOT for PT cells (FILTERED VERSION)
+# ============================================================================
+
+create_volcano_plot <- function(de_results, top_n = 16, 
+                                fc_threshold = 0.5, 
+                                pval_threshold = 0.05) {
+  
+  # Prepare data - FILTER OUT extreme non-significant logFC values
+  volcano_data <- de_results %>%
+    mutate(
+      neg_log10_pval = -log10(summary.p_sexMale),
+      significant = case_when(
+        abs(summary.logFC_sexMale) >= fc_threshold & 
+          summary.p_sexMale < pval_threshold & 
+          summary.logFC_sexMale > 0 ~ "Male-enriched",
+        abs(summary.logFC_sexMale) >= fc_threshold & 
+          summary.p_sexMale < pval_threshold & 
+          summary.logFC_sexMale < 0 ~ "Female-enriched",
+        TRUE ~ "Not significant"
+      )
+    ) %>%
+    # Filter out non-significant genes with extreme logFC
+    filter(!(significant == "Not significant" & 
+               (summary.logFC_sexMale > 15 | summary.logFC_sexMale < -15)))
+  
+  # Get top genes to label (by p-value and fold change)
+  n_per_group <- floor(top_n / 2)
+  
+  top_female <- volcano_data %>%
+    filter(significant == "Female-enriched") %>%
+    arrange(summary.p_sexMale) %>%
+    slice_head(n = n_per_group)
+  
+  top_male <- volcano_data %>%
+    filter(significant == "Male-enriched") %>%
+    arrange(summary.p_sexMale) %>%
+    slice_head(n = n_per_group)
+  
+  genes_to_label <- bind_rows(top_female, top_male)
+  
+  # Create plot
+  p <- ggplot(volcano_data, aes(x = summary.logFC_sexMale, y = neg_log10_pval)) +
+    geom_point(aes(color = significant), alpha = 0.6, size = 1.5) +
+    scale_color_manual(
+      values = c(
+        "Female-enriched" = "#D55E00",
+        "Male-enriched" = "#0072B2",
+        "Not significant" = "gray70"
+      ),
+      name = "Expression"
+    ) +
+    geom_vline(xintercept = c(-fc_threshold, fc_threshold), 
+               linetype = "dashed", color = "gray40", linewidth = 0.5) +
+    geom_hline(yintercept = -log10(pval_threshold), 
+               linetype = "dashed", color = "gray40", linewidth = 0.5) +
+    geom_text_repel(
+      data = genes_to_label,
+      aes(label = summary.gene),
+      size = 3,
+      max.overlaps = 20,
+      segment.size = 0.2,
+      segment.color = "gray30",
+      box.padding = 0.5,
+      point.padding = 0.3
+    ) +
+    labs(
+      x = "Log2 Fold Change (Male vs Female)",
+      y = "-log10(p-value)",
+      title = "PT Cell Gene Expression"
+    ) +
+    theme_bw() +
+    theme(
+      axis.text = element_text(size = 10, color = "black"),
+      axis.title = element_text(size = 11, face = "bold"),
+      plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+      legend.position = "right",
+      legend.title = element_text(size = 10, face = "bold"),
+      legend.text = element_text(size = 9),
+      panel.grid.minor = element_blank()
+    )
+  
+  return(p)
+}
+
+# ============================================================================
+# PANELS D & E: GSEA PLOTS - PRIORITIZING MITOCHONDRIAL PATHWAYS
+# ============================================================================
+
+create_gsea_barplot <- function(gsea_results, pathway_type = "BP", 
+                                top_n = 10, celltype = "PT",
+                                prioritize_mito = TRUE) {
+  
+  # Define mitochondrial pathway keywords based on your abstract
+  mito_keywords <- c(
+    "ELECTRON_TRANSFER", "ELECTRON_TRANSPORT", 
+    "NADH_DEHYDROGENASE", "NADH DEHYDROGENASE",
+    "OXIDOREDUCTASE", 
+    "PROTON_TRANSMEMBRANE_TRANSPORTER", "PROTON TRANSMEMBRANE",
+    "MITOCHONDRIAL_MATRIX", "MITOCHONDRIAL MATRIX",
+    "NADH DEHYDROGENASE COMPLEX", "NADH_DEHYDROGENASE_COMPLEX",
+    "SMALL_MOLECULE_CATABOLIC", "SMALL MOLECULE CATABOLIC",
+    "ORGANIC_ACID_CATABOLISM", "ORGANIC ACID CATABOLISM",
+    "OXIDATIVE_PHOSPHORYLATION", "OXIDATIVE PHOSPHORYLATION",
+    "RESPIRATORY_CHAIN", "RESPIRATORY CHAIN",
+    "ATP_SYNTHESIS", "ATP SYNTHESIS",
+    "MITOCHONDRIAL_MEMBRANE", "MITOCHONDRIAL MEMBRANE",
+    "MITOCHONDRIAL_INNER_MEMBRANE", "INNER MEMBRANE",
+    "CELLULAR_RESPIRATION", "CELLULAR RESPIRATION"
+  )
+  
+  # Filter and prepare data
+  plot_data <- gsea_results %>%
+    filter(celltype == !!celltype, 
+           geneset_type == paste0("GO_", pathway_type),
+           pval < 0.05) %>%
+    mutate(
+      pathway_clean = gsub("GOBP_|GOMF_|GOCC_|GOMF_", "", pathway),
+      pathway_clean = gsub("_", " ", pathway_clean),
+      pathway_clean = tools::toTitleCase(tolower(pathway_clean)),
+      # Flag mitochondrial pathways
+      is_mito = grepl(paste(mito_keywords, collapse = "|"), 
+                      pathway, ignore.case = TRUE)
+    ) %>%
+    arrange(NES)
+  
+  if (prioritize_mito) {
+    # Get all significant mitochondrial pathways
+    mito_pathways <- plot_data %>%
+      filter(is_mito == TRUE)
+    
+    # Get remaining top pathways to fill up to top_n
+    n_mito <- nrow(mito_pathways)
+    n_remaining <- max(0, top_n - n_mito)
+    
+    other_pathways <- plot_data %>%
+      filter(is_mito == FALSE) %>%
+      arrange(pval) %>%
+      slice_head(n = n_remaining)
+    
+    plot_data_final <- bind_rows(mito_pathways, other_pathways) %>%
+      arrange(NES) %>%
+      mutate(
+        sex_enriched = ifelse(NES < 0, "Female", "Male"),
+        pathway_wrapped = stringr::str_wrap(pathway_clean, width = 45),
+        # Add asterisk to mitochondrial pathways
+        pathway_wrapped = ifelse(is_mito, 
+                                 paste0(pathway_wrapped, " *"), 
+                                 pathway_wrapped)
+      )
+    
+    cat("\nFor", pathway_type, "- Found", n_mito, "mitochondrial pathways\n")
+    
+  } else {
+    # Original balanced approach
+    female_enriched <- plot_data %>%
+      filter(NES < 0) %>%
+      slice_min(NES, n = ceiling(top_n * 0.7))
+    
+    male_enriched <- plot_data %>%
+      filter(NES > 0) %>%
+      slice_max(NES, n = floor(top_n * 0.3))
+    
+    plot_data_final <- bind_rows(female_enriched, male_enriched) %>%
+      mutate(
+        sex_enriched = ifelse(NES < 0, "Female", "Male"),
+        pathway_wrapped = stringr::str_wrap(pathway_clean, width = 45)
+      ) %>%
+      arrange(NES)
+  }
+  
+  # Create the plot
+  p <- ggplot(plot_data_final, 
+              aes(x = NES, y = reorder(pathway_wrapped, NES), fill = sex_enriched)) +
+    geom_col(color = "black", linewidth = 0.3) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.7) +
+    scale_fill_manual(
+      values = c("Female" = "#D55E00", "Male" = "#0072B2"),
+      name = "Sex Enrichment"
+    ) +
+    labs(
+      x = "Normalized Enrichment Score (NES)",
+      y = "",
+      title = ifelse(pathway_type == "BP", 
+                     "Biological Process", 
+                     "Molecular Function"),
+      caption = if(prioritize_mito) "* Mitochondrial pathway" else NULL
+    ) +
+    theme_bw() +
+    theme(
+      axis.text.y = element_text(size = 9, color = "black"),
+      axis.text.x = element_text(size = 10, color = "black"),
+      axis.title.x = element_text(size = 11, face = "bold"),
+      plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+      plot.caption = element_text(size = 8, hjust = 0),
+      legend.position = "right",
+      legend.title = element_text(size = 10, face = "bold"),
+      legend.text = element_text(size = 9),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.y = element_line(color = "gray90")
+    )
+  
+  return(p)
+}
+
+# ============================================================================
+# CREATE ALL PANELS
+# ============================================================================
+
+# Read PT DE results for volcano plot
+de_results_pt <- read.csv(paste0(dir.results, 'Full_NEBULA_PT_cells__T2D_pooledoffset.csv'))
+
+# Create volcano plot with filtering
+panel_c <- create_volcano_plot(de_results_pt, top_n = 16, 
+                               fc_threshold = 0.5, pval_threshold = 0.05)
+
+# Save volcano plot
+ggsave(paste0(dir.results, 'PT_volcano_plot.png'), 
+       plot = panel_c, width = 8, height = 6, dpi = 300)
+
+# Read GSEA results
+combined_gsea <- read.csv(paste0(dir.results, "GSEA/all_celltypes_all_genesets_gsea_results.csv"))
+
+# Create GSEA plots - prioritizing mitochondrial pathways
+panel_d <- create_gsea_barplot(combined_gsea, pathway_type = "BP", 
+                               top_n = 12, celltype = "PT",
+                               prioritize_mito = TRUE)
+
+panel_e <- create_gsea_barplot(combined_gsea, pathway_type = "MF", 
+                               top_n = 12, celltype = "PT",
+                               prioritize_mito = TRUE)
+
+# Save individual GSEA plots
+ggsave(paste0(dir.results, 'PT_GSEA_BP.png'), 
+       plot = panel_d, width = 8, height = 7, dpi = 300)
+ggsave(paste0(dir.results, 'PT_GSEA_MF.png'), 
+       plot = panel_e, width = 8, height = 7, dpi = 300)
+
+# ============================================================================
+# FIND AND EXPORT SPECIFIC MITOCHONDRIAL PATHWAYS FROM ABSTRACT
+# ============================================================================
+
+export_abstract_pathways <- function(gsea_results, celltype = "PT") {
+  
+  # Specific pathways mentioned in your abstract
+  abstract_pathways <- gsea_results %>%
+    filter(
+      celltype == !!celltype,
+      pval < 0.05
+    ) %>%
+    mutate(
+      pathway_clean = gsub("GOBP_|GOMF_|GOCC_", "", pathway),
+      pathway_clean = gsub("_", " ", pathway_clean)
+    ) %>%
+    filter(
+      grepl("ELECTRON.*TRANSFER|ELECTRON.*TRANSPORT", pathway, ignore.case = TRUE) |
+        grepl("NADH.*DEHYDROGENASE", pathway, ignore.case = TRUE) |
+        grepl("OXIDOREDUCTASE", pathway, ignore.case = TRUE) |
+        grepl("PROTON.*TRANSMEMBRANE", pathway, ignore.case = TRUE) |
+        grepl("MITOCHONDRIAL.*MATRIX", pathway, ignore.case = TRUE) |
+        grepl("SMALL.*MOLECULE.*CATABOLIC", pathway, ignore.case = TRUE) |
+        grepl("ORGANIC.*ACID.*CATABOLISM", pathway, ignore.case = TRUE) |
+        grepl("OXIDATIVE.*PHOSPHORYLATION", pathway, ignore.case = TRUE)
+    ) %>%
+    select(geneset_type, pathway_clean, NES, pval, padj) %>%
+    arrange(geneset_type, NES)
+  
+  write.csv(abstract_pathways,
+            paste0(dir.results, "PT_abstract_mitochondrial_pathways.csv"),
+            row.names = FALSE)
+  
+  print("Pathways matching your abstract:")
+  print(abstract_pathways)
+  
+  return(abstract_pathways)
+}
+
+# Export the specific pathways
+abstract_mito_pathways <- export_abstract_pathways(combined_gsea, celltype = "PT")
+
+# ============================================================================
+# COMBINE ALL PANELS INTO FINAL FIGURE
+# ============================================================================
+
+combine_final_figure <- function() {
+  
+  # Load demographics table as image
+  panel_a <- ggdraw() + 
+    draw_image(paste0(dir.results, "T2D_demographics.png"))
+  
+  # Load PT proportions as image
+  panel_b <- ggdraw() + 
+    draw_image(paste0(dir.results, "PT_proportions_asterisks_above.png"))
+  
+  # Use the ggplot objects created above for C, D, E
+  # panel_c, panel_d, panel_e are already created
+  
+  # Stack B, C on the right
+  top_right <- plot_grid(
+    panel_b, panel_c,
+    ncol = 2,
+    labels = c("B", "C"),
+    label_size = 16,
+    label_fontface = "bold",
+    rel_widths = c(1, 1)
+  )
+  
+  # Stack D, E below
+  bottom_right <- plot_grid(
+    panel_d, panel_e,
+    ncol = 2,
+    labels = c("D", "E"),
+    label_size = 16,
+    label_fontface = "bold",
+    rel_widths = c(1, 1)
+  )
+  
+  # Combine top and bottom right
+  right_column <- plot_grid(
+    top_right, bottom_right,
+    ncol = 1,
+    rel_heights = c(1, 1.2)
+  )
+  
+  # Combine A (left) with right column
+  final_plot <- plot_grid(
+    panel_a, right_column,
+    ncol = 2,
+    labels = c("A", ""),
+    label_size = 16,
+    label_fontface = "bold",
+    rel_widths = c(0.35, 0.65)
+  )
+  
+  return(final_plot)
+}
+
+# Create and save the combined figure
+final_figure <- combine_final_figure()
+
+ggsave(
+  filename = paste0(dir.results, "Figure1_PT_Combined.png"),
+  plot = final_figure,
+  width = 18,
+  height = 11,
+  dpi = 300,
+  bg = "white"
+)
+
+ggsave(
+  filename = paste0(dir.results, "Figure1_PT_Combined.pdf"),
+  plot = final_figure,
+  width = 18,
+  height = 11,
+  bg = "white"
+)
+
+cat("\n=== Combined figure created successfully! ===\n")
+cat("Saved as: Figure1_PT_Combined.png and Figure1_PT_Combined.pdf\n")
+
+# ============================================================================
+# CREATE SUMMARY STATISTICS FOR THE ABSTRACT
+# ============================================================================
+
+create_gsea_summary <- function(combined_gsea, celltype = "PT") {
+  
+  summary_stats <- combined_gsea %>%
+    filter(celltype == !!celltype, pval < 0.05) %>%
+    group_by(geneset_type) %>%
+    summarise(
+      total_sig = n(),
+      female_enriched = sum(NES < 0),
+      male_enriched = sum(NES > 0),
+      pct_female = round(female_enriched / total_sig * 100, 1),
+      min_NES_female = min(NES[NES < 0], na.rm = TRUE),
+      max_NES_male = max(NES[NES > 0], na.rm = TRUE),
+      .groups = 'drop'
+    )
+  
+  print(summary_stats)
+  
+  write.csv(summary_stats, 
+            paste0(dir.results, "PT_GSEA_summary_statistics.csv"),
+            row.names = FALSE)
+  
+  return(summary_stats)
+}
+
+# Generate summary statistics
+gsea_summary <- create_gsea_summary(combined_gsea, celltype = "PT")
+
+cat("\n=== Summary statistics created! ===\n")
+cat("Check PT_GSEA_summary_statistics.csv for numbers to use in your abstract\n")
+cat("Check PT_abstract_mitochondrial_pathways.csv for the specific pathways you mentioned\n")
+
+
+
+
