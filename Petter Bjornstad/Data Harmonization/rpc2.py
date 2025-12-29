@@ -53,7 +53,6 @@ def clean_rpc2_redcap():
     # Columns to drop
     redcap_cols = ["redcap_event_name",
                    "redcap_repeat_instrument", "redcap_repeat_instance"]
-    
     # Get metadata
     meta = pd.DataFrame(proj.metadata)
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
@@ -66,6 +65,7 @@ def clean_rpc2_redcap():
 
     dem_cols = ["subject_id", "age_current", "date_of_consent", "mr_number", "dob", "gender", "race", "ethnicity", "participation_status", "diabetes_hx_type"]
     demo = pd.DataFrame(proj.export_records(fields=dem_cols))
+    print(demo[redcap_cols])
     demo.replace(rep, np.nan, inplace=True)
     demo.rename({"mr_number": "mrn", "gender": "sex", "age_current": "age" , "date_of_consent":"date"}, axis=1, inplace=True)
     demo = combine_checkboxes(demo, base_name="race", levels=["American Indian or Alaskan Native", "Asian", "Hawaiian or Pacific Islander", "Black or African American", "White", "Unknown", "Other"])
@@ -75,12 +75,15 @@ def clean_rpc2_redcap():
     demo["group"] = demo["diabetes_hx_type"].replace({"1": "Type 1 Diabetes", "2": "Type 2 Diabetes", 1: "Type 1 Diabetes", 2: "Type 2 Diabetes"})
     demo["participation_status"].replace({"1": "Participated", "2": "Removed", "3": "Will Participate"}, inplace=True)
     demo["age"] = pd.to_numeric(demo["age"], downcast='integer', errors='coerce')
-    demo["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", "v2_gfr_mri_arm_1": "gfr_mri_visit", "v4_arm_1": "post_biopsy_vist", "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  "v62_med_dispense_arm_1": "med_dispense_2"}, 
-        inplace=True)
+    # demo["redcap_event_name"].replace(
+    #     {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", 
+    #      "v2_gfr_mri_arm_1": "gfr_mri_visit", "v3_arm_1": "visit_3", "v4_arm_1": "post_biopsy_visit", 
+    #      "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  
+    #      "v62_med_dispense_arm_1": "med_dispense_2", "v8_arm_1": "visit_8"}, 
+    #     inplace=True)
     demo = demo.rename(columns={"redcap_event_name": "visit"})
 
-
+    demo["procedure"] = "screening"
     print(demo)
 
     
@@ -88,19 +91,30 @@ def clean_rpc2_redcap():
     # --------------------------------------------------------------------------
     # Medications
     # --------------------------------------------------------------------------
-    var = ["subject_id", "vitals_date", "diabetes_med", "diabetes_med_other", "htn_med_type", "addl_hld_meds", "insulin_med", "kidneybx_1", "kidneybx_2"]
+    var = ["subject_id", "vitals_date", "diabetes_med", "diabetes_med_other", "htn_med_type", "addl_hld_meds", "insulin_med", "kidneybx_1", "kidneybx_2", "med_hx_date"]
     med = pd.DataFrame(proj.export_records(fields=var))
     med.replace(rep, np.nan, inplace=True)
-    med.rename({"diabetes_med_other": "sglt2i_timepoint", "insulin_med": "insulin_med_timepoint"}, axis=1, inplace=True)
+    med.rename({"diabetes_med_other": "sglt2i_timepoint", "insulin_med": "insulin_med_timepoint", "med_hx_date": "date"}, axis=1, inplace=True)
     med.iloc[:, 1:] = med.iloc[:, 1:].replace(
         {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
     med["procedure"] = "medications"
-    med["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", "v2_gfr_mri_arm_1": "gfr_mri_visit", "v4_arm_1": "post_biopsy_vist", "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  "v62_med_dispense_arm_1": "med_dispense_2"}, 
-        inplace=True)    
+    # med["redcap_event_name"].replace(
+    #     {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", 
+    #      "v2_gfr_mri_arm_1": "gfr_mri_visit", "v3_arm_1": "visit_3", "v4_arm_1": "post_biopsy_visit", 
+    #      "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  
+    #      "v62_med_dispense_arm_1": "med_dispense_2", "v8_arm_1": "visit_8"}, 
+    #     inplace=True)   
     med = med.rename(columns={"redcap_event_name": "visit"})
 
     print(med)
+    # --------------------------------------------------------------------------
+    # Med Dispense
+    # --------------------------------------------------------------------------
+    var = ["subject_id","study_med_disp_date"]
+    disp = pd.DataFrame(proj.export_records(fields=var))
+    disp.replace(rep, np.nan, inplace=True)
+    disp.rename({"study_med_disp_date": "date"}, axis=1, inplace=True)
+
     # --------------------------------------------------------------------------
     # Physical exam
     # --------------------------------------------------------------------------
@@ -109,9 +123,12 @@ def clean_rpc2_redcap():
     phys.replace(rep, np.nan, inplace=True)
     phys.rename({"bp_systolic": "sbp", "bp_diastolic": "dbp", "phys_date": "date"}, axis=1, inplace=True)
     phys["procedure"] = "physical_exam"
-    phys["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", "v2_gfr_mri_arm_1": "gfr_mri_visit", "v4_arm_1": "post_biopsy_vist", "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  "v62_med_dispense_arm_1": "med_dispense_2"}, 
-        inplace=True)
+    # phys["redcap_event_name"].replace(
+    #     {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", 
+    #      "v2_gfr_mri_arm_1": "gfr_mri_visit", "v3_arm_1": "visit_3", "v4_arm_1": "post_biopsy_visit", 
+    #      "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  
+    #      "v62_med_dispense_arm_1": "med_dispense_2", "v8_arm_1": "visit_8"}, 
+    #     inplace=True)
     phys = phys.rename(columns={"redcap_event_name": "visit"})
     print(phys)
     #phys.drop(["redcap_event_name"], axis=1, inplace=True)
@@ -124,9 +141,12 @@ def clean_rpc2_redcap():
     vit.replace(rep, np.nan, inplace=True)
     vit.rename({"vitals_date" : "date"}, axis=1, inplace=True)
     vit["procedure"] = "physical_exam"
-    vit["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", "v2_gfr_mri_arm_1": "gfr_mri_visit", "v4_arm_1": "post_biopsy_vist", "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  "v62_med_dispense_arm_1": "med_dispense_2"}, 
-        inplace=True)
+    # vit["redcap_event_name"].replace(
+    #     {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", 
+    #      "v2_gfr_mri_arm_1": "gfr_mri_visit", "v3_arm_1": "visit_3", "v4_arm_1": "post_biopsy_visit", 
+    #      "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  
+    #      "v62_med_dispense_arm_1": "med_dispense_2", "v8_arm_1": "visit_8"}, 
+    #     inplace=True)
     vit = vit.rename(columns={"redcap_event_name": "visit"})
 
     # --------------------------------------------------------------------------
@@ -137,9 +157,12 @@ def clean_rpc2_redcap():
     labs.replace(rep, np.nan, inplace=True)
     labs.rename({ "date_of_screen": "date"}, axis=1, inplace=True)
     labs["procedure"] = "labs"
-    labs["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", "v2_gfr_mri_arm_1": "gfr_mri_visit", "v4_arm_1": "post_biopsy_vist", "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  "v62_med_dispense_arm_1": "med_dispense_2"}, 
-        inplace=True)
+    # labs["redcap_event_name"].replace(
+    #     {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", 
+    #      "v2_gfr_mri_arm_1": "gfr_mri_visit", "v3_arm_1": "visit_3", "v4_arm_1": "post_biopsy_visit", 
+    #      "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  
+    #      "v62_med_dispense_arm_1": "med_dispense_2", "v8_arm_1": "visit_8"}, 
+    #     inplace=True)
     labs = labs.rename(columns={"redcap_event_name": "visit"})
     print(labs)
 
@@ -176,9 +199,12 @@ def clean_rpc2_redcap():
     kidney_outcomes.replace(rep, np.nan, inplace=True)
     #kidney_outcomes.rename({"serum_creatinine": "creatinine_s", "urine_albumin": "screen_urine_acr", "creatinine_u": "creatinine_u"}, axis=1, inplace=True)
     kidney_outcomes["procedure"] = "kidney_hemodynamic_outcomes"
-    kidney_outcomes["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", "v2_gfr_mri_arm_1": "gfr_mri_visit", "v4_arm_1": "post_biopsy_vist", "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  "v62_med_dispense_arm_1": "med_dispense_2"}, 
-        inplace=True)
+    # kidney_outcomes["redcap_event_name"].replace(
+    #     {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", 
+    #      "v2_gfr_mri_arm_1": "gfr_mri_visit", "v3_arm_1": "visit_3", "v4_arm_1": "post_biopsy_visit", 
+    #      "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  
+    #      "v62_med_dispense_arm_1": "med_dispense_2", "v8_arm_1": "visit_8"}, 
+    #     inplace=True)
     kidney_outcomes = kidney_outcomes.rename(columns={"redcap_event_name": "visit"})
 
     print(kidney_outcomes)
@@ -191,9 +217,12 @@ def clean_rpc2_redcap():
     biopsy.replace(rep, np.nan, inplace=True)
     biopsy.rename({"bx_date": "date", "bx_kit_id":"kit_id"}, axis=1, inplace=True)
     biopsy["procedure"] = "kidney_biopsy"
-    biopsy["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", "v2_gfr_mri_arm_1": "gfr_mri_visit", "v4_arm_1": "post_biopsy_vist", "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  "v62_med_dispense_arm_1": "med_dispense_2"}, 
-        inplace=True)
+    # biopsy["redcap_event_name"].replace(
+    #     {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", 
+    #      "v2_gfr_mri_arm_1": "gfr_mri_visit", "v3_arm_1": "visit_3", "v4_arm_1": "post_biopsy_visit", 
+    #      "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  
+    #      "v62_med_dispense_arm_1": "med_dispense_2", "v8_arm_1": "visit_8"}, 
+    #     inplace=True)
     biopsy = biopsy.rename(columns={"redcap_event_name": "visit"})
     print(biopsy)
     
@@ -206,11 +235,14 @@ def clean_rpc2_redcap():
     mri.rename({"asl_left": "pcasl3d_left","asl_right": "pcasl3d_right", "mri_date": "date"}, axis=1, inplace=True)
 
     mri["procedure"] = "bold_mri"
-    mri["redcap_event_name"].replace(
-        {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", "v2_gfr_mri_arm_1": "gfr_mri_visit", "v4_arm_1": "post_biopsy_vist", "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  "v62_med_dispense_arm_1": "med_dispense_2"}, 
-        inplace=True)
+    # mri["redcap_event_name"].replace(
+    #     {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "phone_visit", 
+    #      "v2_gfr_mri_arm_1": "gfr_mri_visit", "v3_arm_1": "visit_3", "v4_arm_1": "post_biopsy_visit", 
+    #      "v7_gfr_mri_arm_1": "post_biopsy_gfr_mri_visit", "v61_med_dispense_arm_1": "med_dispense_1",  
+    #      "v62_med_dispense_arm_1": "med_dispense_2", "v8_arm_1": "visit_8"}, 
+    #     inplace=True)
     mri = mri.rename(columns={"redcap_event_name": "visit"})
-    print(mri)
+    #print(mri)
 
 
     # --------------------------------------------------------------------------
@@ -222,9 +254,12 @@ def clean_rpc2_redcap():
     df = pd.concat([df, labs], join='outer', ignore_index=True)
     df = pd.concat([df, kidney_outcomes], join='outer', ignore_index=True)
     df = pd.concat([df, biopsy], join='outer', ignore_index=True)
+    df = pd.concat([df, disp], join='outer', ignore_index=True)
     df = pd.concat([df, mri], join='outer', ignore_index=True)
     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
     df = df.copy()
+
+    print("UNIQUE VISITS: ", df["visit"].unique())
 
     # --------------------------------------------------------------------------
     # Reorganize
@@ -233,6 +268,15 @@ def clean_rpc2_redcap():
     #df.rename({"study_visit": "visit"}, axis=1, inplace=True)
     df["study"] = "RPC2"
     id_cols = ["subject_id", "mrn", "study", "dob", "sex", "race", "ethnicity", "visit", "procedure", "group"]
+    cols = ['dob', 'group', 'sex', 'race', 'ethnicity', 'mrn']
+
+    df[cols] = (
+        df
+        .sort_values(['subject_id'])   # important for reproducibility
+        .groupby('subject_id')[cols]
+        .transform(lambda x: x.ffill().bfill())
+    )
+
     other_cols = df.columns.difference(id_cols, sort=False).tolist()
     other_cols = natsorted(other_cols, alg=ns.IGNORECASE)
     df = df[id_cols + other_cols]
@@ -248,6 +292,12 @@ def clean_rpc2_redcap():
     fields = ["record_id", "visit", "procedure", "date"]
     mask_fsoc = datecheck["date"].replace("", np.nan).notna()
     sub_fsoc = datecheck[mask_fsoc][fields]
+    # list of record_ids that have failed screening
+    drop_ids = ["RPC-10", "RPC-12", "RPC-14", "RPC-19", "RPC-22", "RPC-23", "RPC-24", 
+                "RPC-30", "RPC-32", "RPC-33", "RPC-34", "RPC-35", "RPC-36", "RPC-39", 
+                "RPC-40", "RPC-42"]  
+    df = df[~df['record_id'].isin(drop_ids)]
+
 
     # sub_fsoc.to_csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/rpc2.csv", index=False)
     return df
