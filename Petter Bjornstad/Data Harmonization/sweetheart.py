@@ -157,7 +157,7 @@ def clean_sweetheart():
     phys.rename({"phys_sysbp": "sbp", "phys_diasbp": "dbp"
                  }, inplace=True, axis=1)
     non_nan_count = phys['sbp'].notna().sum()
-    print(f"NONNAN SBP COUNT:", non_nan_count)
+    #print(f"NONNAN SBP COUNT:", non_nan_count)
     phys.columns = phys.columns.str.replace(r"phys_", "", regex=True)
     phys["procedure"] = "physical_exam"
 
@@ -172,11 +172,12 @@ def clean_sweetheart():
     screen.replace(rep, np.nan, inplace=True)  # Replace missing values
     screen.drop( ['prescreen_a1c_date', 'prescreen_a1c'],
                 axis=1, inplace=True)
-    screen.columns = screen.columns.str.replace(
-        r"screen_|_of_screen", "", regex=True)
-    screen.rename({ "uacr": "acr_u",
-                    "a1c":"hba1c", "creat_s": "creatinine_s", "creat_u":"creatinine_u", "labs_date":"date_of_screen"},
+    
+    screen.rename({ "screen_uacr": "acr_u",
+                    "screen_a1c":"hba1c", "screen_creat_s": "creatinine_s", "screen_creat_u":"creatinine_u", "labs_date":"date_of_screen"},
                   axis=1, inplace=True)
+    print("NONNAN ACRU:", screen['acr_u'].notna().sum())
+    screen.columns = screen.columns.str.replace(r"screen_|_of_screen", "", regex=True)
     screen["procedure"] = "screening"
 
     # --------------------------------------------------------------------------
