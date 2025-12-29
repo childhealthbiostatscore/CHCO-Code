@@ -3507,3 +3507,294 @@ cat("Check PT_abstract_mitochondrial_pathways.csv for the specific pathways you 
 
 
 
+
+# ============================================================================
+# SAVE FIGURE FOR WORD DOCUMENT - HIGH RESOLUTION
+# ============================================================================
+
+# Save as high-resolution PNG for Word
+ggsave(
+  filename = paste0(dir.results, "Figure1_PT_Combined_ForWord.png"),
+  plot = final_figure,
+  width = 18,
+  height = 11,
+  dpi = 600,  # High DPI for print quality
+  bg = "white"
+)
+
+# Alternative: Save as TIFF (often preferred for publication)
+ggsave(
+  filename = paste0(dir.results, "Figure1_PT_Combined_ForWord.tiff"),
+  plot = final_figure,
+  width = 18,
+  height = 11,
+  dpi = 600,
+  bg = "white",
+  compression = "lzw"  # Lossless compression
+)
+
+# Alternative: Smaller file size but still readable (300 DPI is standard)
+ggsave(
+  filename = paste0(dir.results, "Figure1_PT_Combined_ForWord_300dpi.png"),
+  plot = final_figure,
+  width = 18,
+  height = 11,
+  dpi = 300,
+  bg = "white"
+)
+
+cat("\n=== Word-compatible figures saved! ===\n")
+cat("- 600 DPI PNG: Figure1_PT_Combined_ForWord.png (best quality, larger file)\n")
+cat("- 600 DPI TIFF: Figure1_PT_Combined_ForWord.tiff (publication standard)\n")
+cat("- 300 DPI PNG: Figure1_PT_Combined_ForWord_300dpi.png (good quality, smaller file)\n")
+
+
+
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(cowplot)
+
+# ============================================================================
+# CREATE FIGURE LEGEND
+# ============================================================================
+
+create_figure_legend <- function() {
+  
+  legend_text <- "Figure 1. Sex differences in proximal tubule cells from young adults with type 2 diabetes.
+(A) Demographic characteristics of study participants (n=31; 15 female, 16 male). No significant differences 
+were observed between sexes in age, BMI, or HbA1c. (B) Distribution of PT cell subtypes by sex showing 
+significant differences in cellular composition (chi-square test, *p<0.05). (C) Volcano plot of differential 
+gene expression in PT cells (n=13,534) comparing male vs female, with log2 fold change on x-axis and 
+-log10(p-value) on y-axis. Orange points indicate female-enriched genes (logFC<-0.5, p<0.05); blue points 
+indicate male-enriched genes (logFC>0.5, p<0.05). Top differentially expressed genes are labeled. 
+(D) Gene Set Enrichment Analysis (GSEA) of biological processes showing sex-differential pathways. 
+(E) GSEA of molecular functions revealing predominant female enrichment in mitochondrial metabolism 
+pathways. Asterisks (*) denote mitochondrial-related pathways. Negative NES values indicate female 
+enrichment; positive values indicate male enrichment. All pathways shown have p<0.05."
+  
+  return(legend_text)
+}
+
+# ============================================================================
+# COMBINE FIGURE WITH LEGEND
+# ============================================================================
+
+combine_figure_with_legend <- function() {
+  
+  # Load demographics table as image
+  panel_a <- ggdraw() + 
+    draw_image(paste0(dir.results, "T2D_demographics.png"))
+  
+  # Load PT proportions as image
+  panel_b <- ggdraw() + 
+    draw_image(paste0(dir.results, "PT_proportions_asterisks_above.png"))
+  
+  # Use the ggplot objects created above for C, D, E
+  # panel_c, panel_d, panel_e should already be created
+  
+  # Stack B, C on the right
+  top_right <- plot_grid(
+    panel_b, panel_c,
+    ncol = 2,
+    labels = c("B", "C"),
+    label_size = 16,
+    label_fontface = "bold",
+    rel_widths = c(1, 1)
+  )
+  
+  # Stack D, E below
+  bottom_right <- plot_grid(
+    panel_d, panel_e,
+    ncol = 2,
+    labels = c("D", "E"),
+    label_size = 16,
+    label_fontface = "bold",
+    rel_widths = c(1, 1)
+  )
+  
+  # Combine top and bottom right
+  right_column <- plot_grid(
+    top_right, bottom_right,
+    ncol = 1,
+    rel_heights = c(1, 1.2)
+  )
+  
+  # Combine A (left) with right column
+  main_figure <- plot_grid(
+    panel_a, right_column,
+    ncol = 2,
+    labels = c("A", ""),
+    label_size = 16,
+    label_fontface = "bold",
+    rel_widths = c(0.35, 0.65)
+  )
+  
+  # Create legend as a text grob
+  legend_text <- create_figure_legend()
+  
+  legend_grob <- textGrob(
+    legend_text,
+    gp = gpar(fontsize = 10, lineheight = 1.2),
+    just = "left",
+    x = 0.02,
+    y = 0.98,
+    hjust = 0,
+    vjust = 1
+  )
+  
+  # Add legend below the main figure
+  final_with_legend <- plot_grid(
+    main_figure,
+    legend_grob,
+    ncol = 1,
+    rel_heights = c(1, 0.18)  # Adjust this ratio as needed
+  )
+  
+  return(final_with_legend)
+}
+
+# ============================================================================
+# CREATE AND SAVE FIGURE WITH LEGEND
+# ============================================================================
+
+# Create the complete figure with legend
+final_figure_with_legend <- combine_figure_with_legend()
+
+# Save as PNG (high quality)
+ggsave(
+  filename = paste0(dir.results, "Figure1_PT_Combined_With_Legend.png"),
+  plot = final_figure_with_legend,
+  width = 18,
+  height = 13,  # Increased height for legend
+  dpi = 300,
+  bg = "white"
+)
+
+# Save as JPEG (for Word - smaller file size)
+ggsave(
+  filename = paste0(dir.results, "Figure1_PT_Combined_With_Legend.jpg"),
+  plot = final_figure_with_legend,
+  width = 18,
+  height = 13,
+  dpi = 300,
+  bg = "white",
+  quality = 95  # JPEG quality (1-100, higher is better)
+)
+
+# Save as high-resolution JPEG for publication
+ggsave(
+  filename = paste0(dir.results, "Figure1_PT_Combined_With_Legend_HighRes.jpg"),
+  plot = final_figure_with_legend,
+  width = 18,
+  height = 13,
+  dpi = 600,
+  bg = "white",
+  quality = 100
+)
+
+# Save as TIFF (publication standard)
+ggsave(
+  filename = paste0(dir.results, "Figure1_PT_Combined_With_Legend.tiff"),
+  plot = final_figure_with_legend,
+  width = 18,
+  height = 13,
+  dpi = 600,
+  bg = "white",
+  compression = "lzw"
+)
+
+cat("\n=== Figure with legend saved in multiple formats! ===\n")
+cat("PNG (300 DPI): Figure1_PT_Combined_With_Legend.png\n")
+cat("JPEG (300 DPI, 95% quality): Figure1_PT_Combined_With_Legend.jpg\n")
+cat("JPEG (600 DPI, 100% quality): Figure1_PT_Combined_With_Legend_HighRes.jpg\n")
+cat("TIFF (600 DPI): Figure1_PT_Combined_With_Legend.tiff\n")
+
+# ============================================================================
+# ALTERNATIVE: More compact legend with better formatting
+# ============================================================================
+
+create_compact_legend <- function() {
+  
+  legend_lines <- c(
+    "Figure 1. Sex differences in proximal tubule cells from young adults with type 2 diabetes.",
+    "",
+    "(A) Demographics (n=31; 15F, 16M). (B) PT cell subtype distribution by sex (*p<0.05, chi-square). ",
+    "(C) Volcano plot of PT cell gene expression (n=13,534); orange=female-enriched, blue=male-enriched ",
+    "(|logFC|>0.5, p<0.05). (D-E) GSEA of biological processes and molecular functions showing female ",
+    "predominance in mitochondrial metabolism (*mitochondrial pathways). Negative NES=female enrichment; ",
+    "positive NES=male enrichment (all p<0.05)."
+  )
+  
+  return(paste(legend_lines, collapse = "\n"))
+}
+
+# Alternative with compact legend
+combine_figure_with_compact_legend <- function() {
+  
+  # [Same code as above for main_figure]
+  panel_a <- ggdraw() + draw_image(paste0(dir.results, "T2D_demographics.png"))
+  panel_b <- ggdraw() + draw_image(paste0(dir.results, "PT_proportions_asterisks_above.png"))
+  
+  top_right <- plot_grid(panel_b, panel_c, ncol = 2, labels = c("B", "C"),
+                         label_size = 16, label_fontface = "bold", rel_widths = c(1, 1))
+  bottom_right <- plot_grid(panel_d, panel_e, ncol = 2, labels = c("D", "E"),
+                            label_size = 16, label_fontface = "bold", rel_widths = c(1, 1))
+  right_column <- plot_grid(top_right, bottom_right, ncol = 1, rel_heights = c(1, 1.2))
+  main_figure <- plot_grid(panel_a, right_column, ncol = 2, labels = c("A", ""),
+                           label_size = 16, label_fontface = "bold", rel_widths = c(0.35, 0.65))
+  
+  # Create compact legend
+  legend_text <- create_compact_legend()
+  
+  legend_grob <- textGrob(
+    legend_text,
+    gp = gpar(fontsize = 9, lineheight = 1.1),
+    just = "left",
+    x = 0.02,
+    y = 0.98,
+    hjust = 0,
+    vjust = 1
+  )
+  
+  final_with_legend <- plot_grid(
+    main_figure,
+    legend_grob,
+    ncol = 1,
+    rel_heights = c(1, 0.12)  # Less space for compact legend
+  )
+  
+  return(final_with_legend)
+}
+
+# Save compact version
+final_figure_compact <- combine_figure_with_compact_legend()
+
+ggsave(
+  filename = paste0(dir.results, "Figure1_PT_Combined_Compact_Legend.jpg"),
+  plot = final_figure_compact,
+  width = 18,
+  height = 12,
+  dpi = 300,
+  bg = "white",
+  quality = 95
+)
+
+# ============================================================================
+# SAVE LEGEND AS SEPARATE TEXT FILE
+# ============================================================================
+
+# Save full legend to text file
+full_legend <- create_figure_legend()
+writeLines(full_legend, paste0(dir.results, "Figure1_Legend.txt"))
+
+# Save compact legend to text file
+compact_legend <- create_compact_legend()
+writeLines(compact_legend, paste0(dir.results, "Figure1_Legend_Compact.txt"))
+
+cat("\n=== Legend text files also saved ===\n")
+cat("Full legend: Figure1_Legend.txt\n")
+cat("Compact legend: Figure1_Legend_Compact.txt\n")
+
+
+
