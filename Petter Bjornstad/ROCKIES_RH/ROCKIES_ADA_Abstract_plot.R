@@ -360,7 +360,7 @@ corrplot(corr_subset,
          sig.level = c(0.001, 0.01, 0.05),
          pch.cex = 2.5,
          insig = "label_sig",
-         addCoef.col = "black",
+        # addCoef.col = "black",
          number.cex = 1.5,
          tl.cex = 1.5,
          tl.col = 'black',
@@ -376,6 +376,8 @@ plot_j <- ggplot() +
   theme_void() +
   labs(tag = "J") +
   theme(plot.tag = element_text(size = 16, face = "bold"))
+
+plot_j
 
 # ============================================================================
 # CREATE FIGURE LEGEND TEXT
@@ -412,7 +414,7 @@ combined_plots <- (plot_a | plot_b | plot_c) /
   wrap_elements(legend_grob) +
   plot_layout(heights = c(1, 1, 1, 0.5, 0.3)) +
   plot_annotation(
-    title = "Figure.",
+    title = "Figure 1.",
     subtitle = 'PET Imaging Metrics: Group Comparisons, Pathology Associations, and Clinical Correlations',
     theme = theme(
       plot.title = element_text(size = 18, face = "bold", hjust = 0, color = "black"),
