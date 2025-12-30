@@ -61,11 +61,6 @@ dat <- harmonized_data %>%
 
 
 
-
-
-
-
-
 # ============================================================================
 # FSOC Analysis: Tubular Oxygen Consumption Across Disease Groups
 # ============================================================================
@@ -224,46 +219,25 @@ run_all_group_comparisons <- function(dat) {
 # 4. OBJECTIVE 1.2: SEX DIFFERENCES
 # ============================================================================
 
-# Fixed sex analysis function
 analyze_sex_differences <- function(dat, outcome_var) {
   
   # Model with sex × disease group interaction
   formula_str <- paste(outcome_var, 
                        "~ group * sex + age + weight")
-  
-  # Check if sex has sufficient variation
-  sex_table <- table(dat$sex, dat$group)
-  
-  # Only run if we have both sexes in multiple groups
-  if (min(rowSums(sex_table > 0)) < 2) {
-    cat("Warning: Insufficient sex variation for interaction analysis\n")
-    return(list(
-      interaction_model = NULL,
-      interaction_anova = NULL,
-      stratified = NULL,
-      note = "Insufficient data for sex analysis"
-    ))
-  }
-  
   model_interaction <- lm(as.formula(formula_str), data = dat)
   
   # Test interaction
   anova_interaction <- Anova(model_interaction, type = "III")
   
-  # Stratified analyses by disease group (only for groups with both sexes)
+  # Stratified analyses by disease group
   stratified_results <- dat %>%
     group_by(group) %>%
-    filter(n_distinct(sex) > 1) %>%  # Only groups with both sexes
     do({
-      if(nrow(.) > 5) {  # Need sufficient sample size
-        model <- lm(as.formula(paste(outcome_var, "~ sex + age + weight")), 
-                    data = .)
-        tidy_result <- broom::tidy(model) %>%
-          filter(grepl("sex", term, ignore.case = TRUE))
-        tidy_result
-      } else {
-        data.frame()
-      }
+      model <- lm(as.formula(paste(outcome_var, "~ sex + age + weight")), 
+                  data = .)
+      tidy_result <- broom::tidy(model) %>%
+        filter(term == "sexMale")  # Assuming Female is reference
+      tidy_result
     })
   
   list(
@@ -272,7 +246,6 @@ analyze_sex_differences <- function(dat, outcome_var) {
     stratified = stratified_results
   )
 }
-
 
 # Run sex difference analyses
 run_sex_analyses <- function(dat) {
@@ -408,25 +381,78 @@ create_table1 <- function(dat) {
 plot_fsoc_by_group <- function(dat) {
   
   fsoc_long <- dat %>%
+    filter(!is.na(group)) %>%  # Remove NA groups
     select(record_id, group, sex,
            whole_kidney_fsoc_abs, medullary_fsoc_abs) %>%
     pivot_longer(cols = contains("fsoc"),
                  names_to = "fsoc_type",
-                 values_to = "fsoc_value")
+                 values_to = "fsoc_value") %>%
+    filter(!is.na(fsoc_value))  # Remove NA values
+  
+  # Clean up facet labels
+  fsoc_long <- fsoc_long %>%
+    mutate(fsoc_type = recode(fsoc_type,
+                              "whole_kidney_fsoc_abs" = "Whole Kidney FSOC",
+                              "medullary_fsoc_abs" = "Medullary FSOC"))
   
   ggplot(fsoc_long, aes(x = group, y = fsoc_value, fill = group)) +
-    geom_boxplot(alpha = 0.7) +
-    geom_jitter(width = 0.2, alpha = 0.3) +
+    geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+    geom_jitter(width = 0.2, alpha = 0.4, size = 1.5) +
     facet_wrap(~ fsoc_type, scales = "free_y", ncol = 2) +
-    theme_bw() +
-    theme(legend.position = "bottom") +
-    labs(x = "Disease Group", y = "FSOC Value",
+    theme_bw(base_size = 12) +
+    theme(
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+      panel.grid.major.x = element_blank(),
+      strip.background = element_rect(fill = "grey90"),
+      strip.text = element_text(face = "bold", size = 12)
+    ) +
+    labs(x = "Disease Group", y = "FSOC Value (s⁻¹)",
          title = "FSOC Endpoints by Disease Group") +
     scale_fill_brewer(palette = "Set2")
 }
 
-# Create plot
+# New function: Plot with sex separation
+plot_fsoc_by_group_sex <- function(dat) {
+  
+  fsoc_long <- dat %>%
+    filter(!is.na(group), !is.na(sex)) %>%
+    select(record_id, group, sex,
+           whole_kidney_fsoc_abs, medullary_fsoc_abs) %>%
+    pivot_longer(cols = contains("fsoc"),
+                 names_to = "fsoc_type",
+                 values_to = "fsoc_value") %>%
+    filter(!is.na(fsoc_value))
+  
+  # Clean up labels
+  fsoc_long <- fsoc_long %>%
+    mutate(fsoc_type = recode(fsoc_type,
+                              "whole_kidney_fsoc_abs" = "Whole Kidney FSOC",
+                              "medullary_fsoc_abs" = "Medullary FSOC"))
+  
+  ggplot(fsoc_long, aes(x = group, y = fsoc_value, fill = sex)) +
+    geom_boxplot(alpha = 0.7, outlier.shape = NA, position = position_dodge(0.8)) +
+    geom_point(aes(color = sex), position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.8),
+               alpha = 0.4, size = 1.5) +
+    facet_wrap(~ fsoc_type, scales = "free_y", ncol = 2) +
+    theme_bw(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+      panel.grid.major.x = element_blank(),
+      strip.background = element_rect(fill = "grey90"),
+      strip.text = element_text(face = "bold", size = 12)
+    ) +
+    labs(x = "Disease Group", y = "FSOC Value (s⁻¹)",
+         title = "FSOC Endpoints by Disease Group and Sex",
+         fill = "Sex", color = "Sex") +
+    scale_fill_manual(values = c("Female" = "#F8766D", "Male" = "#00BFC4")) +
+    scale_color_manual(values = c("Female" = "#F8766D", "Male" = "#00BFC4"))
+}
+
+# Create plots
 # plot_fsoc_by_group(dat)
+# plot_fsoc_by_group_sex(dat)
 
 # ============================================================================
 # 8. EXPORT RESULTS
@@ -451,21 +477,62 @@ export_results <- function(group_results, sex_results, dxa_results,
   sink()
   
   # Export sex difference results
-  sink(file.path(output_dir, "sex_differences.txt"))
-  cat("========================================\n")
-  cat("SEX DIFFERENCES IN FSOC\n")
-  cat("========================================\n\n")
-  print(sex_results)
-  sink()
+  if (!is.null(sex_results)) {
+    sink(file.path(output_dir, "sex_differences.txt"))
+    cat("========================================\n")
+    cat("SEX DIFFERENCES IN FSOC\n")
+    cat("========================================\n\n")
+    print(sex_results)
+    sink()
+  }
   
-  # Export heatmap
+  # Export DXA heatmap (PDF and TIFF)
   pdf(file.path(output_dir, "dxa_heatmap.pdf"), width = 8, height = 6)
-  plot_dxa_heatmap(dxa_results)
+  p_mat <- dxa_results$p_value_matrix
+  sig_labels <- matrix("", nrow = nrow(p_mat), ncol = ncol(p_mat))
+  sig_labels[p_mat < 0.001] <- "***"
+  sig_labels[p_mat >= 0.001 & p_mat < 0.01] <- "**"
+  sig_labels[p_mat >= 0.01 & p_mat < 0.05] <- "*"
+  pheatmap(dxa_results$coefficient_matrix,
+           display_numbers = sig_labels,
+           cluster_rows = FALSE,
+           cluster_cols = FALSE,
+           color = colorRampPalette(c("blue", "white", "red"))(100),
+           main = "FSOC Associations with DXA Parameters\n(Adjusted for age, sex, disease group)",
+           fontsize = 10,
+           fontsize_number = 12)
   dev.off()
   
-  # Export FSOC boxplots (note: dat must be in global environment)
+  tiff(file.path(output_dir, "dxa_heatmap.tiff"), width = 8, height = 6, 
+       units = "in", res = 300, compression = "lzw")
+  pheatmap(dxa_results$coefficient_matrix,
+           display_numbers = sig_labels,
+           cluster_rows = FALSE,
+           cluster_cols = FALSE,
+           color = colorRampPalette(c("blue", "white", "red"))(100),
+           main = "FSOC Associations with DXA Parameters\n(Adjusted for age, sex, disease group)",
+           fontsize = 10,
+           fontsize_number = 12)
+  dev.off()
+  
+  # Export FSOC boxplots (PDF and TIFF)
   pdf(file.path(output_dir, "fsoc_by_group.pdf"), width = 10, height = 6)
   print(plot_fsoc_by_group(dat))
+  dev.off()
+  
+  tiff(file.path(output_dir, "fsoc_by_group.tiff"), width = 10, height = 6, 
+       units = "in", res = 300, compression = "lzw")
+  print(plot_fsoc_by_group(dat))
+  dev.off()
+  
+  # Export FSOC boxplots by sex (PDF and TIFF)
+  pdf(file.path(output_dir, "fsoc_by_group_sex.pdf"), width = 12, height = 6)
+  print(plot_fsoc_by_group_sex(dat))
+  dev.off()
+  
+  tiff(file.path(output_dir, "fsoc_by_group_sex.tiff"), width = 12, height = 6, 
+       units = "in", res = 300, compression = "lzw")
+  print(plot_fsoc_by_group_sex(dat))
   dev.off()
   
   # Export coefficient matrices
@@ -475,14 +542,30 @@ export_results <- function(group_results, sex_results, dxa_results,
             file.path(output_dir, "dxa_pvalues.csv"), row.names = TRUE)
   
   cat("Results exported to:", output_dir, "\n")
+  cat("\nFiles created:\n")
+  cat("- group_comparisons.txt\n")
+  if (!is.null(sex_results)) cat("- sex_differences.txt\n")
+  cat("- dxa_heatmap.pdf and .tiff\n")
+  cat("- fsoc_by_group.pdf and .tiff\n")
+  cat("- fsoc_by_group_sex.pdf and .tiff\n")
+  cat("- dxa_coefficients.csv and dxa_pvalues.csv\n")
 }
 
-# Helper function to save individual plots
+# Helper function to save individual plots (both PDF and TIFF)
 save_plot <- function(plot_obj, filename, width = 10, height = 6) {
-  pdf(file.path(OUTPUT_DIR, filename), width = width, height = height)
+  # Save PDF
+  pdf_file <- sub("\\.pdf$", "", filename)
+  pdf(file.path(OUTPUT_DIR, paste0(pdf_file, ".pdf")), width = width, height = height)
   print(plot_obj)
   dev.off()
-  cat("Saved:", filename, "\n")
+  
+  # Save TIFF
+  tiff(file.path(OUTPUT_DIR, paste0(pdf_file, ".tiff")), width = width, height = height,
+       units = "in", res = 300, compression = "lzw")
+  print(plot_obj)
+  dev.off()
+  
+  cat("Saved:", pdf_file, "(PDF and TIFF)\n")
 }
 
 # ============================================================================
@@ -492,86 +575,39 @@ save_plot <- function(plot_obj, filename, width = 10, height = 6) {
 # Output directory is set globally
 OUTPUT_DIR <- "C:/Users/netio/Documents/UofW/Projects/Imaging_Shivani"
 
- # Step 2: Calculate averaged FSOC endpoints
+# READY TO RUN - Your data is already loaded as 'dat'
+# Just uncomment the following lines:
+
+# # Step 1: Calculate averaged FSOC endpoints
  dat <- calculate_fsoc_averages(dat)
- 
- # Step 3: Run all analyses
+# 
+ # Step 2: Run all analyses
  group_results <- run_all_group_comparisons(dat)
  sex_results <- run_sex_analyses(dat)
  dxa_results <- analyze_dxa_associations(dat)
  
- # Step 4: Create and save visualizations
+ # Step 3: Create and save visualizations
  save_plot(plot_fsoc_by_group(dat), "fsoc_by_group.pdf")
  
- # Step 5: Generate descriptive table
+ # Step 4: Generate descriptive table
  table1 <- create_table1(dat)
  print(table1)
  
- # Step 6: Save Table 1 as CSV
+ # Step 5: Save Table 1 as CSV
  table1_df <- as.data.frame(table1)
  write.csv(table1_df, file.path(OUTPUT_DIR, "table1_descriptives.csv"))
  
- # Step 7: Export all results (heatmaps and matrices)
+ # Step 6: Export all results (heatmaps and matrices)
  export_results(group_results, sex_results, dxa_results)
  
  cat("\n========================================\n")
  cat("All analyses complete!\n")
  cat("Results saved to:", OUTPUT_DIR, "\n")
  cat("========================================\n")
-
 cat("FSOC Analysis Script Loaded Successfully!\n")
 cat("Output directory set to:", OUTPUT_DIR, "\n")
+cat("Your data is loaded as 'dat' - just uncomment the workflow section to run!\n")
+  
+  
 
-
-
-
-
-
-pdf(file.path(OUTPUT_DIR, "dxa_heatmap.pdf"), width = 8, height = 6)
-p_mat <- dxa_results$p_value_matrix
-sig_labels <- matrix("", nrow = nrow(p_mat), ncol = ncol(p_mat))
-sig_labels[p_mat < 0.001] <- "***"
-sig_labels[p_mat >= 0.001 & p_mat < 0.01] <- "**"
-sig_labels[p_mat >= 0.01 & p_mat < 0.05] <- "*"
-
-pheatmap(dxa_results$coefficient_matrix,
-         display_numbers = sig_labels,
-         cluster_rows = FALSE,
-         cluster_cols = FALSE,
-         color = colorRampPalette(c("blue", "white", "red"))(100),
-         main = "FSOC Associations with DXA Parameters\n(Adjusted for age, sex, disease group)",
-         fontsize = 10,
-         fontsize_number = 12)
-dev.off()
-
-
-
-png(file.path(OUTPUT_DIR, "dxa_heatmap.png"), width = 800, height = 600)
-plot_dxa_heatmap(dxa_results)
-dev.off()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    
