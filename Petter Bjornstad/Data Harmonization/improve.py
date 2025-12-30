@@ -519,6 +519,19 @@ def clean_improve():
     plasma_metab.replace(rep, np.nan, inplace=True)
     plasma_metab["procedure"] = "plasma_metab"
     plasma_metab["date"] = clamp["date"]
+    # --------------------------------------------------------------------------
+    # Lipidomics
+    # --------------------------------------------------------------------------
+    
+    var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "lipidomics", "field_name"]]
+    lip = pd.DataFrame(proj.export_records(fields=var))
+    lip.drop(redcap_cols, axis=1, inplace=True)
+    # Replace missing values
+    lip.replace(rep, np.nan, inplace=True)
+    lip["procedure"] = "lipidomics"
+    dictionary.loc[dictionary['variable_name'].isin(lip.columns), 'form_name'] = 'lipidomics'
+
     
     # --------------------------------------------------------------------------
     # Missingness
@@ -538,6 +551,7 @@ def clean_improve():
     biopsy.dropna(thresh=12, axis=0, inplace=True)
     az_u_metab.dropna(thresh=10, axis=0, inplace=True)
     plasma_metab.dropna(thresh=10, axis=0, inplace=True)
+    lip.dropna(thresh=10, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge
@@ -557,6 +571,7 @@ def clean_improve():
     df = pd.concat([df, pavel], join='outer', ignore_index=True)
     df = pd.concat([df, az_u_metab], join='outer', ignore_index=True)
     df = pd.concat([df, plasma_metab], join='outer', ignore_index=True)
+    df = pd.concat([df, lip], join='outer', ignore_index=True)
     df = pd.merge(df, demo, how="outer")
     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
     df = df.copy()
