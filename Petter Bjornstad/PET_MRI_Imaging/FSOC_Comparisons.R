@@ -59,8 +59,6 @@ dat <- harmonized_data %>%
   )
 
 
-
-
 # ============================================================================
 # FSOC Analysis: Tubular Oxygen Consumption Across Disease Groups
 # ============================================================================
@@ -576,38 +574,40 @@ save_plot <- function(plot_obj, filename, width = 10, height = 6) {
 OUTPUT_DIR <- "C:/Users/netio/Documents/UofW/Projects/Imaging_Shivani"
 
 # READY TO RUN - Your data is already loaded as 'dat'
-# Just uncomment the following lines:
 
-# # Step 1: Calculate averaged FSOC endpoints
- dat <- calculate_fsoc_averages(dat)
-# 
- # Step 2: Run all analyses
- group_results <- run_all_group_comparisons(dat)
- sex_results <- run_sex_analyses(dat)
- dxa_results <- analyze_dxa_associations(dat)
- 
- # Step 3: Create and save visualizations
- save_plot(plot_fsoc_by_group(dat), "fsoc_by_group.pdf")
- 
- # Step 4: Generate descriptive table
- table1 <- create_table1(dat)
- print(table1)
- 
- # Step 5: Save Table 1 as CSV
- table1_df <- as.data.frame(table1)
- write.csv(table1_df, file.path(OUTPUT_DIR, "table1_descriptives.csv"))
- 
- # Step 6: Export all results (heatmaps and matrices)
- export_results(group_results, sex_results, dxa_results)
- 
- cat("\n========================================\n")
- cat("All analyses complete!\n")
- cat("Results saved to:", OUTPUT_DIR, "\n")
- cat("========================================\n")
+# Step 1: Calculate averaged FSOC endpoints
+dat <- calculate_fsoc_averages(dat)
+
+# Step 2: Run all analyses
+group_results <- run_all_group_comparisons(dat)
+
+# Step 3: Run sex analyses (set to NULL if it fails due to data structure)
+sex_results <- tryCatch({
+  run_sex_analyses(dat)
+}, error = function(e) {
+  cat("Sex analysis failed - insufficient variation in sex across groups\n")
+  return(NULL)
+})
+
+# Step 4: Run DXA analyses
+dxa_results <- analyze_dxa_associations(dat)
+
+# Step 5: Generate descriptive table
+table1 <- create_table1(dat)
+print(table1)
+
+# Step 6: Save Table 1 as CSV
+table1_df <- as.data.frame(table1)
+write.csv(table1_df, file.path(OUTPUT_DIR, "table1_descriptives.csv"))
+
+# Step 7: Export all results (heatmaps and matrices)
+export_results(group_results, sex_results, dxa_results)
+
+cat("\n========================================\n")
+cat("All analyses complete!\n")
+cat("Results saved to:", OUTPUT_DIR, "\n")
+cat("========================================\n")
+
 cat("FSOC Analysis Script Loaded Successfully!\n")
 cat("Output directory set to:", OUTPUT_DIR, "\n")
-cat("Your data is loaded as 'dat' - just uncomment the workflow section to run!\n")
-  
-  
-
-    
+cat("Script will run automatically when sourced!\n")
