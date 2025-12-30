@@ -47,6 +47,8 @@ def clean_renal_heiritage():
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+
 
     # --------------------------------------------------------------------------
     # Demographics
@@ -406,6 +408,20 @@ def clean_renal_heiritage():
     brain.replace(rep, np.nan, inplace=True)
     brain["procedure"] = "brain_biomarkers"
     brain["visit"] = "baseline"
+
+    # --------------------------------------------------------------------------
+    # Lipidomics
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "lipidomics", "field_name"]]
+    lip = pd.DataFrame(proj.export_records(fields=var))
+    # Replace missing values
+    lip.replace(rep, np.nan, inplace=True)
+    lip["procedure"] = "lipidomics"
+    lip["visit"] = "baseline"
+    dictionary.loc[dictionary['variable_name'].isin(lip.columns), 'form_name'] = 'lipidomics'
+
     
     # --------------------------------------------------------------------------
     # Missingness
@@ -427,6 +443,7 @@ def clean_renal_heiritage():
     voxelwise.dropna(thresh=4, axis=0, inplace=True)
     az_u_metab.dropna(thresh=5, axis=0, inplace=True)
     plasma_metab.dropna(thresh=10, axis=0, inplace=True)
+    lip.dropna(thresh=10, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge
@@ -447,6 +464,7 @@ def clean_renal_heiritage():
     df = pd.concat([df, biopsy], join='outer', ignore_index=True)
     df = pd.concat([df, az_u_metab], join='outer', ignore_index=True)
     df = pd.concat([df, plasma_metab], join='outer', ignore_index=True)
+    df = pd.concat([df, lip], join='outer', ignore_index=True)
     df = pd.merge(df, demo, on='record_id', how="outer")
     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
     df = df.copy()

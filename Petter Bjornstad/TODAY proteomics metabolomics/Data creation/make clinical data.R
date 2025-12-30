@@ -345,12 +345,16 @@ VISIT_keep <- VISIT %>% select(releaseid,visit,bmi,height,weight,visit_days,bmip
 # TODAY CBL - eIS
 CBL <- read.csv("./Clinical data/TODAY/CBL.csv")
 CBL$visit <- CBL$mvisit
-CBL_keep <- CBL %>% select(releaseid,visit,ins0min,Trig,HbA1c)
+CBL_keep <- CBL %>% select(releaseid,visit,ins0min,Trig,HbA1c,ALT,AST)
 CBL_keep <- CBL_keep %>% filter(!visit=="R")
 CBL_keep$trig <- CBL_keep$Trig
 CBL_keep$Trig <- NULL
 CBL_keep$hba1c <- CBL_keep$HbA1c
 CBL_keep$HbA1c <- NULL
+CBL_keep$alt <- CBL_keep$ALT
+CBL_keep$ALT <- NULL
+CBL_keep$ast <- CBL_keep$AST
+CBL_keep$AST <- NULL
 
 # TODAY ADDCBL - coDI
 ADDCBL <- read.csv("./Clinical data/TODAY/ADDCBL.csv")
@@ -375,7 +379,7 @@ VISIT_TODAY2_KEEP$wastcirc <- NA
 CBL_TODAY2 <- read.csv("./Clinical data/TODAY2/CBL.csv")
 CBL_TODAY2$visit <- CBL_TODAY2$pvisit
 CBL_TODAY2$ins0min <- CBL_TODAY2$ins
-CBL_TODAY2_KEEP <- CBL_TODAY2 %>% select(releaseid, visit, ins0min, codi,  trig, hba1c)
+CBL_TODAY2_KEEP <- CBL_TODAY2 %>% select(releaseid, visit, ins0min, codi,  trig, hba1c, alt, ast)
 
 # TODAY2 DXA - no DXA in TODAY2
 

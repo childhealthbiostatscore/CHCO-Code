@@ -432,6 +432,17 @@ def clean_renal_heir():
     pavel.replace(rep, np.nan, inplace=True)
     pavel["procedure"] = "labs"
     pavel["visit"] = "baseline"
+    # --------------------------------------------------------------------------
+    # Lipidomics
+    # --------------------------------------------------------------------------
+    var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
+                                               == "lipidomics", "field_name"]]
+    lip = pd.DataFrame(proj.export_records(fields=var))
+    lip.replace(rep, np.nan, inplace=True)
+    lip["procedure"] = "lipidomics"
+    lip["visit"] = "baseline"
+    dictionary.loc[dictionary['variable_name'].isin(lip), 'form_name'] = 'lipidomics'
+
 
     
     # --------------------------------------------------------------------------
@@ -450,6 +461,7 @@ def clean_renal_heir():
     biopsy.dropna(thresh=4, axis=0, inplace=True)
     az_u_metab.dropna(thresh=5, axis=0, inplace=True)
     plasma_metab.dropna(thresh=10, axis=0, inplace=True)
+    lip.dropna(thresh=10, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge
@@ -467,6 +479,7 @@ def clean_renal_heir():
     df = pd.concat([df, biopsy], join='outer', ignore_index=True)
     df = pd.concat([df, az_u_metab], join='outer', ignore_index=True)
     df = pd.concat([df, plasma_metab], join='outer', ignore_index=True)
+    df = pd.concat([df, lip], join='outer', ignore_index=True)
     df = pd.merge(df, demo, how="outer")
     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
     df = df.copy()

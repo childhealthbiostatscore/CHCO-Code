@@ -16,15 +16,14 @@ source("Lambda_Libraries_Liver_Proteomics.R")
 source("Lambda_Liver_Proteomics_Functions.R")
 # source("/Users/hhampson/CHCO-Code/Petter Bjornstad/Data Processing and Analysis/Standard_Functions.R")
 
+# install.packages("PGEE")
+library(PGEE)
+
 ```
 
 
-# 2. Load Data, Pre-Processing & Qualtiy Control
+# 2. Set up Cyberduck to load data
 ```{r, Cyberduck setup}
-# install.packages("reticulate")
-# library(reticulate)
-# reticulate::use_python("/home/hhampson/miniconda3/bin/python") # replace with your username
-
 ## Load boto3 and pandas
 boto3 <- reticulate::import("boto3")
 pd <- reticulate::import("pandas")
@@ -41,52 +40,13 @@ session <- boto3$session$Session(
 
 ## Create an S3 client with the session
 s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
-# 
-# # read file
-# bucket <- "scrna" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-# s3$download_file(bucket,"Liver transcriptomics/Single nucleus RNA seq/NoRef_PetterLiver_ClinData_Labels_Char_041924.rds", temp_file)
-# so_liver_sn <- readRDS(temp_file)
-# 
-# DefaultAssay(so_liver_sn) <- "RNA"
-# dim(so_liver_sn)#36601 130124
-# nrow(so_liver_sn) #36,601 genes
-# ncol(so_liver_sn) # 130,124 nuceli
-# invisible(gc())
 
-# # #Load metadata
-# gc()
-# bucket <- "scrna" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-# s3$download_file(bucket, "Liver transcriptomics/liver_biopsy_metadata_PN.csv", temp_file)
-# meta_liver_raw <- read.csv(temp_file)
-# gc()
 ```
 
-## a. TODAY
-### i. Load Data
+#3. TODAY
+## a. Load Data & Format
 ```{r}
-#Load in AST and ALT in today 
-# today <- read.csv(fs::path(dir.dat,"TODAY subaward","Clinical data","TODAY","CBL.csv"))
-gc()
-bucket <- "harmonized.dataset" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-s3$download_file(bucket, "CBL.csv", temp_file)
-today <- read.csv(temp_file)
-gc()
-length(unique(today$releaseid)) # 699 ids
-today <- today %>%
-  filter(mvisit!="R")
-
-# #Load in baseline Proteomics in Today
-# gc()
-# bucket <- "harmonized.dataset" # bucket name in Kopah
-# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-# s3$download_file(bucket, "today_proteomics_log2.rds", temp_file)
-# prot <- readRDS(temp_file)
-# gc()
-
-#Load in Proteomics in Today - baseline and follow up
+#Load in Proteomics in Today - baseline and follow up & alt ast
 gc()
 bucket <- "harmonized.dataset" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
@@ -94,76 +54,146 @@ s3$download_file(bucket, "today_proteomics_longitudinal_log2.rds", temp_file)
 prot <- readRDS(temp_file)
 gc()
 
-which(colnames(prot)=="AGEBASE") #7406
-which(colnames(prot)=="releaseid") #7326
-which(colnames(prot)=="sex") #7399
-which(colnames(prot)=="time")  
-which(colnames(prot)=="visit") #7334
-prot <- prot[c(7334,7326,7406,7399,which(grepl("seq.",colnames(prot))))] #length(unique(prot$releaseid)) - 376 unique ids
-proteins <- colnames(prot)[which(grepl("seq.",colnames(prot)))]
+# which(colnames(prot)=="AGEBASE") #7406
+# which(colnames(prot)=="releaseid") #7326
+# which(colnames(prot)=="sex") #7399
+# which(colnames(prot)=="time")  #na
+# which(colnames(prot)=="visit") #7334
+# prot <- prot[c(7334,7326,7406,7399,which(grepl("seq.",colnames(prot))))] #length(unique(prot$releaseid)) - 376 unique ids
+proteins <- colnames(prot)[which(grepl("seq.",colnames(prot)))] #7728 aptamers
 
 #Load gene protein key
-# key <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Liver project/Data/gene_prot.RDS")
 gc()
 bucket <- "harmonized.dataset" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".RDS") # need to create a temporary file
-s3$download_file(bucket, "gene_prot.RDS", temp_file)
-key <- readRDS(temp_file)
+s3$download_file(bucket, "analytes.RDS", temp_file)
+analytes <- readRDS(temp_file)
+gc()
+analytes <- analytes %>% 
+  dplyr::select(all_of(c("AptName","EntrezGeneSymbol"))) #7288 aptamers
+
+
+#Load ALT/AST longitudinal data
+#Need to figure out which timeponts we have ALT/AST for and where that data is and then merge it into prot dataframe. 
+#Proteins at baseline & 10 years
+#ALT/AST at baseline & additional timepoints up to 10 years?
+
+#Research Question: Or impact of change ALT/AST levels on changing proteins over time?Impact of protein changes on ALT/AST Changes over time? 
+
+#Baseline - M00
+#Year 10 - P120
+
+#Spaghetti plot of peoples ALT and AST trajectories over time - pick a trajectory type (linear,sline, quadradic) 
+#Then get a slope for each pewrsons ALT trajectory
+#Slope variable ALT/AST - single value as the outcome
+#longitudinal proteins for the PGEE 
+#Load in ALT/AST data
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".RDS") # need to create a temporary file
+s3$download_file(bucket, "clinical_data_long.RDS", temp_file)
+clinical <- readRDS(temp_file)
 gc()
 
-# genes <- rownames(so_liver_sn)
-# gene_proteins <- key$AptName[which(key$EntrezGeneSymbol %in% genes)]
-# prot <- prot[c("releaseid","AGEBASE","sex",gene_proteins)]
-prot_id <- unique(prot$releaseid)
-
-#Filter to IDs that have proteomics 
-today_sub <- today %>% 
-  filter(releaseid %in% prot_id)
-
-#Create visit ID to match
-today_sub <- today_sub %>% 
-  mutate(visit = case_when(
-    mvisit == "M00" ~ 1,
-    mvisit == "M02" ~ 2,
-    mvisit == "M04" ~ 3,
-    mvisit == "M06" ~ 4,
-    mvisit == "M08" ~ 5,
-    mvisit == "M10" ~ 6,
-    mvisit == "M12" ~ 7,
-    mvisit == "M15" ~ 8,
-    mvisit == "M18" ~ 9,
-    mvisit == "M21" ~ 10,
-    mvisit == "M24" ~ 11,
-    mvisit == "M27" ~ 12,
-    mvisit == "M30" ~ 13,
-    mvisit == "M33" ~ 14,
-    mvisit == "M36" ~ 15,
-    mvisit == "M39" ~ 16,
-    mvisit == "M42" ~ 17,
-    mvisit == "M45" ~ 18,
-    mvisit == "M48" ~ 19,
-    mvisit == "M51" ~ 20,
-    mvisit == "M54" ~ 21,
-    mvisit == "M57" ~ 22,
-    mvisit == "M60" ~ 23,
-    mvisit == "M63" ~ 24,
-    mvisit == "M66" ~ 25,
-    mvisit == "M69" ~ 26,
-    mvisit == "M72" ~ 27,
-    mvisit == "M75" ~ 28,
-    mvisit == "M78" ~ 29
-  ))
-
-#Create a dataset for longitudinal proteomics
-today_full <- tidylog::full_join(today_sub,prot,by=c("releaseid","visit"))
-
-
-# Find rows in prot that don't have a match in today_sub
-unmatched_prot <- anti_join(prot, today_sub, by = c("releaseid", "visit"))
-
-# View them
-unmatched_prot #"65-44561" "65-46884" "65-67713" "65-84689" "65-93182" "65-97539"
 ```
+
+##b. Longitudinal Elastic Net Feature Selection
+###i. Process and Prepare Data
+```{r}
+# Order data by subject and visit (REQUIRED for PGEE)
+prot <- prot[order(prot$releaseid, prot$visit), ]
+
+#Check for NAs before scaling the log2 transformed proteins
+# Total NAs in entire dataframe
+sum(is.na(prot[proteins])) #0 NAs
+# Summary of NAs by column 
+colSums(is.na(prot[proteins])) #all 0 NAs
+
+# Scale proteins
+prot[proteins] <- scale(prot[proteins])
+
+# Check structure
+length(unique(prot$releaseid))  # Number of subjects, 379
+table(prot$visit)                # Visits per timepoint
+#  1   2 
+# 376 268 
+
+# =============================================================================
+# CHECK DATA COMPLETENESS
+# =============================================================================
+
+# 1. How many subjects have BOTH visits?
+visits_per_subject <- table(prot$releaseid)
+table(visits_per_subject)  # How many have 1 visit vs 2 visits
+
+subjects_both_visits <- names(visits_per_subject[visits_per_subject == 2])
+subjects_one_visit <- names(visits_per_subject[visits_per_subject == 1])
+
+cat("Subjects with both visits:", length(subjects_both_visits), "\n")
+cat("Subjects with only one visit:", length(subjects_one_visit), "\n")
+
+# 2. Check ALT completeness
+cat("\n--- ALT ---\n")
+cat("Total NAs in ALT:", sum(is.na(prot$ALT)), "\n")
+cat("Complete ALT at visit 1:", sum(!is.na(prot$ALT[prot$visit == 1])), "\n")
+cat("Complete ALT at visit 2:", sum(!is.na(prot$ALT[prot$visit == 2])), "\n")
+
+# 3. Check AST completeness
+cat("\n--- AST ---\n")
+cat("Total NAs in AST:", sum(is.na(prot$AST)), "\n")
+cat("Complete AST at visit 1:", sum(!is.na(prot$AST[prot$visit == 1])), "\n")
+cat("Complete AST at visit 2:", sum(!is.na(prot$AST[prot$visit == 2])), "\n")
+
+# 4. Check proteins completeness
+cat("\n--- Proteins ---\n")
+protein_na_count <- colSums(is.na(prot[proteins]))
+cat("Proteins with any NA:", sum(protein_na_count > 0), "\n")
+cat("Total protein NAs:", sum(protein_na_count), "\n")
+
+# 5. Subjects with complete data for ALT analysis
+complete_ALT <- complete.cases(prot[, c("releaseid", "visit", "ALT", proteins)])
+cat("\n--- Complete cases for ALT ---\n")
+cat("Total complete rows:", sum(complete_ALT), "\n")
+cat("Subjects with at least one complete ALT row:", length(unique(prot$releaseid[complete_ALT])), "\n")
+
+# 6. Subjects with complete data for AST analysis
+complete_AST <- complete.cases(prot[, c("releaseid", "visit", "AST", proteins)])
+cat("\n--- Complete cases for AST ---\n")
+cat("Total complete rows:", sum(complete_AST), "\n")
+cat("Subjects with at least one complete AST row:", length(unique(prot$releaseid[complete_AST])), "\n")
+
+# 7. Detailed breakdown by visit
+cat("\n--- Breakdown by visit ---\n")
+for (v in unique(prot$visit)) {
+  subset_v <- prot[prot$visit == v, ]
+  cat("\nVisit", v, ":\n")
+  cat("  Total rows:", nrow(subset_v), "\n")
+  cat("  Complete ALT:", sum(!is.na(subset_v$ALT)), "\n")
+  cat("  Complete AST:", sum(!is.na(subset_v$AST)), "\n")
+  cat("  Complete proteins (all):", sum(complete.cases(subset_v[proteins])), "\n")
+}
+
+# 8. Subjects with complete data at BOTH visits
+cat("\n--- Subjects complete at BOTH visits ---\n")
+complete_both <- prot %>%
+  group_by(releaseid) %>%
+  summarise(
+    n_visits = n(),
+    n_complete_ALT = sum(!is.na(ALT)),
+    n_complete_AST = sum(!is.na(AST)),
+    n_complete_proteins = sum(complete.cases(across(all_of(proteins))))
+  )
+
+cat("Subjects with 2 visits AND complete ALT at both:", 
+    sum(complete_both$n_visits == 2 & complete_both$n_complete_ALT == 2), "\n")
+cat("Subjects with 2 visits AND complete AST at both:", 
+    sum(complete_both$n_visits == 2 & complete_both$n_complete_AST == 2), "\n")
+cat("Subjects with 2 visits AND complete proteins at both:", 
+    sum(complete_both$n_visits == 2 & complete_both$n_complete_proteins == 2), "\n")
+
+
+```
+
 
 ```{r}
 #Load in AST and ALT in today 
