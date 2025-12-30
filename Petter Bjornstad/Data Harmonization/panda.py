@@ -198,6 +198,30 @@ def clean_panda():
     labs["visit"] = labs["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
     labs["visit"] = labs["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
     labs.drop(["redcap_event_name"], axis=1, inplace=True)
+    
+    # --------------------------------------------------------------------------
+    # CROC Labs
+    # --------------------------------------------------------------------------
+
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"] 
+                                               == "crc_substudy_baseline_vitalslabs", "field_name"]]
+    croc_labs = pd.DataFrame(proj.export_records(fields=var))
+    croc_labs = croc_labs.loc[~croc_labs.redcap_event_name.str.contains("screen|annual_visit_1_arm_1")]
+    # Replace missing values
+    croc_labs.drop(["study_id_0", "baseline_vitals_clamp"], axis=1, inplace=True)    
+    croc_labs.replace(rep, np.nan, inplace=True)
+    croc_labs.columns = croc_labs.columns.str.replace(
+        r"visit_|bl_|_yr|yr_|_clamp", "", regex=True)
+    croc_labs.rename({"uacr": "acr_u", "a1c": "hba1c",
+                "na_u": "sodium_u", "na_s": "sodium_s",
+                "s_creat": "creat_s", "u_creat": "creat_u",
+                "u_mab": "urine_mab_baseline", "u_glucose": "urine_glucose",
+                "u_na": "na_u"}, axis=1, inplace=True)
+    croc_labs["procedure"] = "croc_clamp"
+    croc_labs["visit"] = croc_labs["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
+    croc_labs["visit"] = croc_labs["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
+    croc_labs.drop(["redcap_event_name"], axis=1, inplace=True)
+
 
     # --------------------------------------------------------------------------
     # BOLD/ASL MRI
@@ -289,11 +313,12 @@ def clean_panda():
     # Replace missing values
     clamp.replace(rep, np.nan, inplace=True)
     # Format
-    clamp.drop(["clamp_yn", "clamp_d20", "clamp_ffa",
+    clamp.drop(["clamp_yn", "clamp_ffa",
                 "clamp_insulin", "hct_yn", "clamp_bg"], axis=1, inplace=True)
     clamp.rename({"clamp_wt": "weight", "clamp_ht": "height",
                   "cystatin_c": "cystatin_c_s", "hct_210": "hematocrit_210",
-                  "acr_baseline": "acr_u", "acr_250": "acr_u_pm"},
+                  "acr_baseline": "acr_u", "acr_250": "acr_u_pm",
+                  "clamp_d20": "d20_infusion"},
                  inplace=True, axis=1)
     clamp.columns = clamp.columns.str.replace(r"clamp_", "", regex=True)
     clamp.columns = clamp.columns.str.replace(
@@ -308,7 +333,15 @@ def clean_panda():
     clamp["visit"] = clamp["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
     clamp.drop(["redcap_event_name"], axis=1, inplace=True)
     clamp["insulin_sensitivity_method"] = "hyperinsulinemic_euglycemic_clamp"
-    # FFA
+
+    num_vars = ["d20_infusion", "weight"]
+    clamp[num_vars] = clamp[num_vars].apply(
+        pd.to_numeric, errors='coerce')
+    
+    clamp["gir_190"] = (clamp["d20_infusion"] * 190 / 60) / clamp["weight"] # previously M-value
+    clamp["gir_200"] = (clamp["d20_infusion"] * 200 / 60) / clamp["weight"]
+    
+     # FFA
     ffa = [c for c in clamp.columns if "ffa_" in c]
     clamp[ffa] = clamp[ffa].apply(
         pd.to_numeric, errors='coerce')
@@ -322,6 +355,19 @@ def clean_panda():
         (clamp["baseline_ffa"] - clamp["p1_steady_state_ffa"]) / clamp["baseline_ffa"]) * 100
     clamp["p2_ffa_suppression"] = (
         (clamp["baseline_ffa"] - clamp["p2_steady_state_ffa"]) / clamp["baseline_ffa"]) * 100
+        
+    # Insulin
+    insulin = [c for c in clamp.columns if "insulin_" in c]
+    clamp[insulin] = clamp[insulin].apply(
+        pd.to_numeric, errors='coerce')
+    clamp["baseline_insulin"] = \
+        clamp[['insulin_minus_20', 'insulin_minus_10', 'insulin_0']].mean(
+            axis=1)
+    clamp["p1_steady_state_insulin"] = \
+        clamp[['insulin_70', 'insulin_80', 'insulin_90']].mean(axis=1)
+    clamp["p2_steady_state_insulin"] = \
+        clamp[['insulin_250', 'insulin_260', 'insulin_270']].mean(axis=1)
+    clamp["ffa_method"] = "hyperinsulinemic_euglycemic_clamp"
     clamp["ffa_method"] = "hyperinsulinemic_euglycemic_clamp"
 
     # --------------------------------------------------------------------------
@@ -395,7 +441,7 @@ def clean_panda():
     # --------------------------------------------------------------------------
 
     med.dropna(thresh=5, axis=0, inplace=True)
-    epic_med.dropna(thresh=5, axis=0, inplace=True)
+    epic_med.dropna(thresh=6, axis=0, inplace=True)
     phys.dropna(thresh=5, axis=0, inplace=True)
     screen.dropna(thresh=4, axis=0, inplace=True)
     labs.dropna(thresh=5, axis=0, inplace=True)
@@ -405,6 +451,7 @@ def clean_panda():
     rct.dropna(thresh=5, axis=0, inplace=True)
     biopsy.dropna(thresh=20, axis=0, inplace=True)
     az_u_metab.dropna(thresh=6, axis=0, inplace=True)
+    croc_labs.dropna(thresh=5, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge
@@ -417,6 +464,7 @@ def clean_panda():
     df = pd.concat([df, mri], join='outer', ignore_index=True)
     df = pd.concat([df, dxa], join='outer', ignore_index=True)
     df = pd.concat([df, clamp_merge], join='outer', ignore_index=True)
+    df = pd.concat([df, croc_labs], join='outer', ignore_index=True)
     df = pd.concat([df, biopsy], join='outer', ignore_index=True)
     df = pd.concat([df, med], join='outer', ignore_index=True)
     df = pd.concat([df, epic_med], join='outer', ignore_index=True)

@@ -73,6 +73,17 @@ dat_panda <- dat %>%
   filter(!is.na(panda_id)) %>%
   filter(study != "ATTEMPT")
   
+# MRI in PANDA
+dat_panda_mri <- dat_panda %>%
+  filter(
+    if_all(
+      c(avg_pcascl, total_kidney_volume_ml, avg_c_r2, avg_k_r2),
+      ~ is.na(.x)
+    )
+  ) %>%
+  filter(study == "PANDA") %>%
+  dplyr::select(record_id, panda_id, croc_id, visit, avg_pcascl, total_kidney_volume_ml, avg_c_r2, avg_k_r2)
+
 # record ID in master spreadsheet but not in REDCap
 biopsy_master_panda$record_id[biopsy_master_panda$record_id %nin% dat_panda$record_id]
 

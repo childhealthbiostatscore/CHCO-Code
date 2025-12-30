@@ -1,11 +1,9 @@
 ---
 title: "Phoom's 2026 EDNSG Abstract CROC->PANDA"
 author: "Ye Ji Choi"
-format: docx
+format: html
 date: "`r lubridate::today()`"
 ---
-
-I spoke with Petter yesterday about our EDNSG abstract submission, and he suggested I reach out to ask about the CROCODILE follow-up data, particularly measured GFR, RPF, and the multiparametric MRI outcomes. Would you be able to share the available follow-up dataset?
 
 ```{r, include = F}
 library(dplyr)
@@ -15,9 +13,10 @@ library(arsenal)
 library(Hmisc)
 library(purrr)
 library(REDCapR)
+library(jsonlite)
 ```
 
-```{r}
+```{r, include = F}
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") { # local version
@@ -44,7 +43,7 @@ if (user == "choiyej") { # local version
 dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = c(" ", "", "-9999",-9999))
 dict <- read.csv(file.path(root_path, "Data Harmonization/data_dictionary_master.csv"), na.strings = c(" ", "", "-9999",-9999)) %>%
   dplyr::select(variable_name, label)
-
+patho_qual <- read.csv(file.path(root_path, "Kidney Morphometrics/Data_Cleaned/croc_panda_patho_qual.csv"), na.strings = "")
 # REDCap tokens
 api_tok <- read.csv(file.path(root_path, "Data Harmonization/api_tokens.csv"))
 
@@ -70,7 +69,6 @@ ATTEMPT_mrn <- ATTEMPT_rc %>%
   dplyr::rename("record_id" = "subject_id")
 ATTEMPT_mrn$record_id <- as.character(ATTEMPT_mrn$record_id)
 
-
 combined_mrn <- bind_rows(PANDA_mrn, CROC_mrn, ATTEMPT_mrn) %>%
   mutate(co_enroll_study = case_when(startsWith(record_id, "PNDA-1") & (mrn %in% CROC_mrn$mrn) ~ "CO_CROC (Follow up)",
                                      startsWith(record_id, "CRC") & (mrn %in% PANDA_mrn$mrn) ~ "CO_CROC (Initial visit)",
@@ -88,7 +86,7 @@ dat <- dat %>%
   group_by(mrn) %>%
   fill(hba1c) %>% fill(acr_u) %>% ungroup() %>%
   # filter(participation_status != "Removed"|is.na(participation_status)) %>%
-  filter(!is.na(kidney_side)|!is.na(kit_id)) %>%
+  # filter(!is.na(kidney_side)|!is.na(kit_id)) %>%
   mutate(race_ethnicity_condensed = case_when(race == "White" & 
                                                 ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
                                               race == "Black or African American" & 
@@ -128,12 +126,53 @@ dat$t1d_duration_category <- factor(dat$t1d_duration_category,
                                     levels = c("<10","10-<15","15-<20","20-<25","25-<30", ">=30"))
 ```
 
-```{r}
-dat_subset <- dat %>%
+```{r, include = F}
+# 1) Keep only CO_CROC initial + follow-up
+croc_only <- dat %>%
   filter(co_enroll_study %in% c("CO_CROC (Initial visit)", "CO_CROC (Follow up)")) %>%
-  dplyr::select(record_id, visit, co_enroll_study, croc_id, panda_id, age, group, sex, 
-                weight, height, bmi, gfr_raw_plasma, gfr_bsa_plasma,
-                erpf_raw_plasma, erpf_bsa_plasma, avg_pcascl, avg_c_adc, avg_c_r2, avg_m_r2, avg_k_r2,
-                total_kidney_volume_ml
-                )
+  filter(visit == "baseline")
+
+# --- replace `visit_date` below with your actual date field ---
+# e.g. mutate(visit_date = as.Date(biopsy_date)) or as.Date(biopsy_date, "%m/%d/%Y")
+
+croc_only <- croc_only %>%
+  mutate(
+    date = as.Date(date)  # <-- CHANGE THIS LINE if needed (format)
+  )
+
+# 2) Pull baseline/follow-up dates per MRN and compute follow-up time
+croc_fu <- croc_only %>%
+  dplyr::summarise(
+    baseline_date = min(date[co_enroll_study == "CO_CROC (Initial visit)"], na.rm = TRUE),
+    followup_date = min(date[co_enroll_study == "CO_CROC (Follow up)"], na.rm = TRUE),
+    .by = mrn
+  ) %>%
+  mutate(followup_date = case_when(followup_date != Inf ~ followup_date)) %>%
+  mutate(
+    days_to_followup  = as.numeric(followup_date - baseline_date),
+    years_to_followup = days_to_followup / 365.25,
+    co_enroll_study = case_when(!is.na(followup_date) ~ "CO_CROC (Follow up)",
+                                T ~ "CO_CROC (Initial visit)")
+  )
+
+croc_only <- croc_only %>%
+  left_join(croc_fu) %>%
+  left_join(morpho_quant)
+```
+
+```{r echo = F, results='asis', warning = F}
+croc_only$croc_visit = ifelse(croc_only$co_enroll_study == "CO_CROC (Follow up)", "Visit 2", "Visit 1")
+
+summary(arsenal::tableby(croc_visit ~ years_to_followup + group + sex,
+                data = croc_only), test = F)
+
+summary(arsenal::paired(croc_visit ~  age + hba1c +
+                weight + height + bmi + gfr_raw_plasma + gfr_bsa_plasma +
+                erpf_raw_plasma + erpf_bsa_plasma + avg_pcascl + avg_c_adc + avg_c_r2 + avg_k_r2 +
+                total_kidney_volume_ml + p1_raw_m + p1_raw_leanm + p1_gc_m + p1_gc_leanm +
+                  p2_raw_m + p2_raw_leanm + p2_gc_m + p2_gc_leanm + gir_190 + m_i_p2_raw_lean +
+                  glom_enlarged + tubulointerstitium + vessels,
+                id = croc_id, data = croc_only))
+
+# View(subset(croc_only, select = c(record_id,visit, kit_id, croc_id, panda_id, croc_visit, avg_pcascl, avg_c_adc, avg_c_r2)))
 ```
