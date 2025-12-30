@@ -28,70 +28,73 @@ source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
 
 # Pull in nebula results
 folders <- c(
-  
-  # --- Base DKD vs nonDKD ---
-  "DKD_vs_nonDKD_30" = "dkd30",
-  "DKD_vs_nonDKD_100" = "dkd100",
-  
-  # --- DKD vs nonDKD with T2D ---
-  "DKD_vs_nonDKD_30_t2d" = "dkd30_t2d",
-  "DKD_vs_nonDKD_100_t2d" = "dkd100_t2d",
-  
-  # --- DKD vs HC (30 / 100) ---
-  "DKD_30_vs_HC" = "dkd30_hc",
-  "DKD_100_vs_HC" = "dkd100_hc",
-  
-  # --- DKD vs HC with T2D ---
-  "DKD_30_t2d_vs_HC" = "dkd30_t2d_hc",
-  "DKD_100_t2d_vs_HC" = "dkd100_t2d_hc",
-  
-  # --- nonDKD vs HC (30 / 100) ---
-  "nonDKD_30_vs_HC" = "nondkd30_hc",
-  "nonDKD_100_vs_HC" = "nondkd100_hc",
-  
-  # --- nonDKD vs HC with T2D ---
-  "nonDKD_30_t2d_vs_HC" = "nondkd30_t2d_hc",
-  "nonDKD_100_t2d_vs_HC" = "nondkd100_t2d_hc",
-  
-  # --- GLP (within DKD) ---
-  "DKD_30_GLP_Y_vs_DKD_30_GLP_N" = "dkd_30_glpy_glpn",
-  "DKD_100_GLP_Y_vs_DKD_100_GLP_N" = "dkd_100_glpy_glpn",
-  
-  # --- GLP (within nonDKD) ---
-  "nonDKD_30_GLP_Y_vs_nonDKD_30_GLP_N" = "nondkd_30_glpy_glpn",
-  "nonDKD_100_GLP_Y_vs_nonDKD_100_GLP_N" = "nondkd_100_glpy_glpn",
-  
-  # --- GLP N/Y vs HC (nonDKD) ---
-  "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc",
-  "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc",
-  "nonDKD_100_GLP_N_vs_HC" = "nondkd100_glpn_hc",
-  "nonDKD_100_GLP_Y_vs_HC" = "nondkd100_glpy_hc",
-  
-  # --- GLP N/Y vs HC (DKD) ---
-  "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc",
-  "DKD_30_GLP_Y_vs_HC" = "dkd30_glpy_hc",
-  "DKD_100_GLP_N_vs_HC" = "dkd100_glpn_hc",
-  "DKD_100_GLP_Y_vs_HC" = "dkd100_glpy_hc",
-  
-  # --- SGLT2i (within DKD) ---
-  "DKD_30_SGLT2i_Y_vs_DKD_30_SGLT2i_N" = "dkd30_sglt2iy_sglt2in",
-  "DKD_100_SGLT2i_Y_vs_DKD_100_SGLT2i_N" = "dkd100_sglt2iy_sglt2in",
-  
-  # --- SGLT2i (within nonDKD) ---
-  "nonDKD_30_SGLT2i_Y_vs_nonDKD_30_SGLT2i_N" = "nondkd30_sglt2iy_sglt2in",
-  "nonDKD_100_SGLT2i_Y_vs_nonDKD_100_SGLT2i_N" = "nondkd100_sglt2iy_sglt2in",
-  
-  # --- SGLT2i N/Y vs HC (nonDKD) ---
-  "nonDKD_30_SGLT2i_N_vs_HC" = "nondkd30_sglt2in_hc",
-  "nonDKD_30_SGLT2i_Y_vs_HC" = "nondkd30_sglt2iy_hc",
-  "nonDKD_100_SGLT2i_N_vs_HC" = "nondkd100_sglt2in_hc",
-  "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc",
-  
-  # --- SGLT2i N/Y vs HC (DKD) ---
-  "DKD_30_SGLT2i_N_vs_HC" = "dkd30_sglt2in_hc",
-  "DKD_30_SGLT2i_Y_vs_HC" = "dkd30_sglt2iy_hc",
-  "DKD_100_SGLT2i_N_vs_HC" = "dkd100_sglt2in_hc",
-  "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc"
+  # new additions
+  "T2D_GLP_Y_vs_T2D_GLP_N" = "t2d_glpyn",
+  "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc"
+  # 
+  # # --- Base DKD vs nonDKD ---
+  # "DKD_vs_nonDKD_30" = "dkd30",
+  # "DKD_vs_nonDKD_100" = "dkd100",
+  # 
+  # # --- DKD vs nonDKD with T2D ---
+  # "DKD_vs_nonDKD_30_t2d" = "dkd30_t2d",
+  # "DKD_vs_nonDKD_100_t2d" = "dkd100_t2d",
+  # 
+  # # --- DKD vs HC (30 / 100) ---
+  # "DKD_30_vs_HC" = "dkd30_hc",
+  # "DKD_100_vs_HC" = "dkd100_hc",
+  # 
+  # # --- DKD vs HC with T2D ---
+  # "DKD_30_t2d_vs_HC" = "dkd30_t2d_hc",
+  # "DKD_100_t2d_vs_HC" = "dkd100_t2d_hc",
+  # 
+  # # --- nonDKD vs HC (30 / 100) ---
+  # "nonDKD_30_vs_HC" = "nondkd30_hc",
+  # "nonDKD_100_vs_HC" = "nondkd100_hc",
+  # 
+  # # --- nonDKD vs HC with T2D ---
+  # "nonDKD_30_t2d_vs_HC" = "nondkd30_t2d_hc",
+  # "nonDKD_100_t2d_vs_HC" = "nondkd100_t2d_hc",
+  # 
+  # # --- GLP (within DKD) ---
+  # "DKD_30_GLP_Y_vs_DKD_30_GLP_N" = "dkd_30_glpy_glpn",
+  # "DKD_100_GLP_Y_vs_DKD_100_GLP_N" = "dkd_100_glpy_glpn",
+  # 
+  # # --- GLP (within nonDKD) ---
+  # "nonDKD_30_GLP_Y_vs_nonDKD_30_GLP_N" = "nondkd_30_glpy_glpn",
+  # "nonDKD_100_GLP_Y_vs_nonDKD_100_GLP_N" = "nondkd_100_glpy_glpn",
+  # 
+  # # --- GLP N/Y vs HC (nonDKD) ---
+  # "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc",
+  # "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc",
+  # "nonDKD_100_GLP_N_vs_HC" = "nondkd100_glpn_hc",
+  # "nonDKD_100_GLP_Y_vs_HC" = "nondkd100_glpy_hc",
+  # 
+  # # --- GLP N/Y vs HC (DKD) ---
+  # "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc",
+  # "DKD_30_GLP_Y_vs_HC" = "dkd30_glpy_hc",
+  # "DKD_100_GLP_N_vs_HC" = "dkd100_glpn_hc",
+  # "DKD_100_GLP_Y_vs_HC" = "dkd100_glpy_hc",
+  # 
+  # # --- SGLT2i (within DKD) ---
+  # "DKD_30_SGLT2i_Y_vs_DKD_30_SGLT2i_N" = "dkd30_sglt2iy_sglt2in",
+  # "DKD_100_SGLT2i_Y_vs_DKD_100_SGLT2i_N" = "dkd100_sglt2iy_sglt2in",
+  # 
+  # # --- SGLT2i (within nonDKD) ---
+  # "nonDKD_30_SGLT2i_Y_vs_nonDKD_30_SGLT2i_N" = "nondkd30_sglt2iy_sglt2in",
+  # "nonDKD_100_SGLT2i_Y_vs_nonDKD_100_SGLT2i_N" = "nondkd100_sglt2iy_sglt2in",
+  # 
+  # # --- SGLT2i N/Y vs HC (nonDKD) ---
+  # "nonDKD_30_SGLT2i_N_vs_HC" = "nondkd30_sglt2in_hc",
+  # "nonDKD_30_SGLT2i_Y_vs_HC" = "nondkd30_sglt2iy_hc",
+  # "nonDKD_100_SGLT2i_N_vs_HC" = "nondkd100_sglt2in_hc",
+  # "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc",
+  # 
+  # # --- SGLT2i N/Y vs HC (DKD) ---
+  # "DKD_30_SGLT2i_N_vs_HC" = "dkd30_sglt2in_hc",
+  # "DKD_30_SGLT2i_Y_vs_HC" = "dkd30_sglt2iy_hc",
+  # "DKD_100_SGLT2i_N_vs_HC" = "dkd100_sglt2in_hc",
+  # "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc"
 )
 
 # Define common parameters
