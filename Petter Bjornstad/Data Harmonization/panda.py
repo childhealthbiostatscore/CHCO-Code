@@ -245,7 +245,7 @@ def clean_panda():
     mri.rename({"volume_right": "right_kidney_volume_ml",
                 "volume_left": "left_kidney_volume_ml"},
                axis=1, inplace=True)
-    mri["procedure"] = "bold_mri"
+    mri["procedure"] = "mri"
     mri["visit"] = mri["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
     mri["visit"] = mri["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
     mri.drop(["redcap_event_name"], axis=1, inplace=True)
@@ -445,7 +445,7 @@ def clean_panda():
     phys.dropna(thresh=5, axis=0, inplace=True)
     screen.dropna(thresh=4, axis=0, inplace=True)
     labs.dropna(thresh=5, axis=0, inplace=True)
-    mri.dropna(thresh=6, axis=0, inplace=True)
+    mri.dropna(thresh=4, axis=0, inplace=True)
     dxa.dropna(thresh=5, axis=0, inplace=True)
     clamp.dropna(thresh=7, axis=0, inplace=True)
     rct.dropna(thresh=5, axis=0, inplace=True)

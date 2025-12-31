@@ -24,6 +24,7 @@ if (user == "choiyej") { # local version
 library(tidyverse)
 library(purrr)
 library(Hmisc)
+library(stringr)
 
 get_filtered_subfolders <- function(root_path, keywords = c("bjornstad", "nadeau", 
                                                             "kendrick", "kelsey")) {
@@ -112,15 +113,131 @@ get_filtered_subfolders <- function(root_path, keywords = c("bjornstad", "nadeau
 # Set your folder path
 folder_path <- "/Volumes/bic-server"
 
+extract_num <- function(x) {
+  hits <- stringr::str_extract_all(x, rx)[[1]]
+  if (length(hits) == 0) return(NA_character_)
+  hits <- hits[nchar(hits) == max(nchar(hits))]
+  dplyr::last(hits)  # tie-breaker
+}
+
 # Get two levels (keyword-matched folders and their immediate subfolders)
 bic_folders <- get_filtered_subfolders(folder_path)
 
 bic_folders_clean <- bic_folders %>%
        filter(level1_folder %nin% c("Bjornstad_GZBU_231527", "Kendrick_BC_161572", "Kelsey_HIP_070988")) %>%
-       mutate(record_id = gsub("ATTEMPT[_.]|ATTEMPTR.|_192947|_171874|_170820|_170802|_161752|_191282|_180704|_18-704|_200277|_212999|_1611752|_213019", 
+       mutate(bic_id = gsub("ATTEMPT[_.]|ATTEMPTR.|_192947|_171874|_170820|_170802|_161752|_191282|_180704|_18-704|_200277|_212999|_1611752|_213019", 
                                "", 
                                level2_folder)) %>%
-  filter(!grepl("[._]twix", record_id, ignore.case = T)) %>%
-  dplyr::select(record_id, level1_path)
+  filter(!grepl("[._]twix", bic_id, ignore.case = T)) %>%
+  mutate(study = case_when(bic_id == "RH2.04.O" ~ "RENAL-HEIRitage",
+                           grepl("ATTEMPT", level1_path) ~ "ATTEMPT",
+                           grepl("CFE", level1_path) ~ "COFFEE",
+                           grepl("CRC", level1_path) ~ "CROCODILE",
+                           grepl("CS", level1_path) ~ "CASPER",
+                           grepl("Bjornstad_HEIR", level1_path) ~ "RENAL-HEIR",
+                           grepl("IMPROVE", level1_path) ~ "IMPROVE",
+                           grepl("PENGUIN", level1_path) ~ "PENGUIN",
+                           grepl("RH2", level1_path) ~ "RENAL-HEIRitage",
+                           grepl("PANTHER", level1_path) ~ "PANTHER",
+                           grepl("RPC2", level1_path) ~ "RPC2",
+                           grepl("PANDA", level1_path) ~ "PANDA",
+                           ),
+         
+         record_number = case_when(study == "ATTEMPT" ~ sub("^([0-9]+)[._].*", "\\1", bic_id),
+                                   study == "PANDA" ~ as.character(as.numeric(str_extract(bic_id, "(?<=[._-])[0-9]+(?=$|[._-])")) + 100),
+                                   T ~ sapply(stringr::str_extract_all(bic_id, "(?<=[._-])[0-9]+(?![0-9])"),
+                                              function(h) if (length(h)) tail(h[nchar(h) == max(nchar(h))], 1) else NA_character_)
+         ),
+         record_number = as.numeric(record_number),
+         record_id = case_when(study == "ATTEMPT" ~ sub("^([0-9]+)[._].*", "\\1", bic_id),
+                               study %in% c("COFFEE", "CROCODILE", "CASPER") ~ gsub("[_.]", "-", bic_id),
+                               study == "RENAL-HEIR" ~ sub("-0$", "-O", gsub("[_.]", "-", bic_id)),
+                               study == "IMPROVE" ~ sub("\\_[123]$", "", gsub("IT2D", "IT", gsub("[.]", "_", bic_id))),
+                               study == "PENGUIN" ~ sub("PENGUIN[._]", "PEN-", bic_id),
+                               study == "RENAL-HEIRitage" ~ sub("-0$", "-O", gsub("[_.]", "-", gsub("RH.2", "RH2", gsub("\\.[123]$|\\_ABD$|\\_BRAIN$", "", bic_id)))),
+                               study == "PANTHER" ~ gsub("PANTHER", "PAN", gsub("[._]", "-", gsub("\\.[123]$", "", bic_id))),
+                               study == "RPC2" ~ ifelse(grepl("\\.[123]$|\\.BL$", bic_id), sub("RPC2", "RPC", gsub("\\.", "-", sub("\\.[123]$|\\.BL$", "", bic_id))), sub("RPC2[.]", "RPC-", bic_id)),
+                               study == "PANDA" ~ sub("PANDA.", "PNDA-1", bic_id)
+         ),
+         visit_id = case_when(bic_id %in% c("IT2D_14_2", "IT2D_15_2", "IT2D.16.2") ~ "3",
+           study %in% c("ATTEMPT", "RPC2", "PANTHER", "IMPROVE") ~ ifelse(grepl("[._-][1-3]$", bic_id), sub(".*[._-]([1-3])$", "\\1", bic_id), "1"),
+                           study %in% c("COFFEE", "CROCODILE", "CASPER", "PANDA", "RENAL-HEIRitage", "PENGUIN", "RENAL-HEIR") ~ "1"
+         ),
+         visit_id = as.numeric(visit_id),
+  ) %>%
+  filter(!is.na(study))  %>%
+  filter(!is.na(record_number)) %>%
+  filter(record_number != 0) %>%
+  dplyr::select(bic_id, record_id_bic = record_id, record_number, visit_id, study)
 
-write.csv(bic_folders_clean, file.path(root_path, "Data Harmonization/Data Clean/bic_folders_list.csv"), row.names = F)
+write.csv(bic_folders_clean, file.path(root_path, "Data Harmonization/Data Clean/MRI/bic_folders_list.csv"), row.names = F)
+
+# pull in data from harmonized dataset
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
+
+mri_dat <- harm_dat %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  mutate(record_number = case_when(study == "ATTEMPT" ~ as.character(sub("^([0-9]+)[._].*", "\\1", record_id)),
+                                   T ~ stringr::str_extract(record_id, "(?<=[._\\- ])[0-9]+(?=$|[._\\- ])")),
+         visit_id = case_when(visit == "v2_gfr_mri_arm_1" ~ 1,
+                              visit == "v7_gfr_mri_arm_1" ~ 2,
+                              visit == "baseline" ~ 1,
+                              visit == "4_months_post" ~ 2,
+                              visit == "3_months_post_surgery" ~ 2,
+                              visit == "12_months_post_surgery" ~ 3,
+                              visit == "year_1" ~ 2,
+                              visit == "year_2" ~ 3),
+         record_number = as.numeric(record_number),
+         data_in_redcap = case_when(if_all(
+           c(avg_c_r2, avg_k_r2, avg_m_r2,
+             total_kidney_volume_ml,
+             avg_c_t1, avg_k_t1,
+             avg_c_adc, avg_pcascl),
+           is.na
+         ) ~ FALSE,
+         TRUE ~ TRUE
+         )
+  ) %>%
+  filter(!is.na(visit_id)) %>%
+  select(record_id, record_number, study, procedure, visit, visit_id,
+         data_in_redcap, avg_c_r2, avg_k_r2, avg_m_r2, total_kidney_volume_ml, avg_c_t1, avg_k_t1, avg_c_adc, avg_pcascl) 
+
+
+panda_uw_mri_ids <- harm_dat %>%
+  filter(procedure == "mri" & (grepl("PNDA 2", record_id) | grepl("PNDA-2", record_id) | grepl("PNDA_2", record_id))) %>%
+  filter(is.na(avg_c_r2)) %>%
+  filter(!is.na(date)) %>%
+  pull(record_id)
+
+panther_manual_ids <- c("PAN_202_T",
+                      "PAN_204_T",
+                      "PAN_205_O",
+                      "PAN_207_O",
+                      "PAN_208_O",
+                      "PAN_209_O",
+                      "PAN_210_O",
+                      "PAN_211_O")
+
+mri_dat_combined <- full_join(mri_dat, bic_folders_clean, 
+                              by = join_by(record_number, study, visit_id)) %>%
+  filter(!(study == "PANDA" & visit != "baseline")) %>%
+  mutate(data_in_bic = case_when(record_id %in% panther_manual_ids & visit == "baseline" ~ TRUE,
+                                 record_id %in% panda_uw_mri_ids ~ TRUE,
+                                 is.na(bic_id) ~ FALSE, 
+                                 bic_id == "IT2D_14" ~ FALSE, # comment in REDCap - pt unable to be scanned
+                                 T ~ TRUE),
+         record_id = coalesce(record_id, record_id_bic),
+         data_in_redcap = case_when(is.na(data_in_redcap) ~ FALSE, 
+                                    T ~ data_in_redcap),
+         status = case_when(data_in_bic & !data_in_redcap ~ "Awaiting analysis",
+                            data_in_bic & data_in_redcap ~ "Complete",
+                            data_in_redcap & !data_in_bic ~ "Complete",
+                            !data_in_bic ~ "N/A")) %>%
+  select(record_id, bic_id, visit_id, study, visit, data_in_redcap, data_in_bic, status) %>%
+  arrange(status)
+
+write.csv(mri_dat_combined, file.path(root_path, "Data Harmonization/Data Clean/MRI/mri_data_compiled.csv"), row.names = F, na = "")
+
+table(subset(mri_dat_combined, status == "Awaiting analysis")$study)
