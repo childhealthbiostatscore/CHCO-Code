@@ -19,7 +19,7 @@ library(patchwork)
 base_path <- "C:/Users/netio/Documents/UofW/Projects/Long_Paper/VSG_analysis-main/VSG_analysis-main/output"
 
 # Helper function
-pdf_to_plot <- function(path, density = 300) {
+pdf_to_plot <- function(path, density = 300, page = 1) {
   if (!file.exists(path)) {
     stop(paste("File not found:", path))
   }
@@ -89,7 +89,7 @@ make_figure1 <- function(
   message("Loading panels...")
   A <- pdf_to_plot(path_A, density)
   B <- pdf_to_plot(path_B, density)
-  C <- pdf_to_plot(path_C, density)
+  C <- pdf_to_plot(path_C, density, page = 2)
   D <- pdf_to_plot(path_D, density)
   
   message("Assembling figure...")
