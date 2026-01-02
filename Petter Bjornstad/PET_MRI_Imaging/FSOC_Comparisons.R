@@ -1,7 +1,5 @@
 #####FSOC Analysis 
 
-
-
 library(scran)
 library(future)
 library(future.apply)
@@ -76,15 +74,6 @@ library(corrplot)
 # 1. DATA PREPARATION
 # ============================================================================
 
-# Your data is already loaded as 'dat'
-# Data structure expected:
-# - group (LC, OC, T1D, T2D)
-# - sex (Male, Female)
-# - age, weight
-# - FSOC variables: fsoc_l_cortex, fsoc_l_kidney, fsoc_l_medulla,
-#                   fsoc_r_cortex, fsoc_r_kidney, fsoc_r_medulla
-# - DXA: dexa_fat_kg, dexa_trunk_kg, dexa_lean_kg, dexa_body_fat
-
 # ============================================================================
 # 2. CALCULATE AVERAGED FSOC ENDPOINTS
 # ============================================================================
@@ -123,38 +112,7 @@ calculate_fsoc_averages <- function(df) {
       log_UACR = log(acr_u + 1)  # Add 1 to handle zeros
     )
   
-  # If you have pre/post R2 values and need to calculate % change:
-  # Uncomment and modify the following section
-  
-  # df <- df %>%
-  #   mutate(
-  #     # Whole-kidney FSOC (% change)
-  #     left_wk_fsoc_pct = ((left_kidney_pre_R2 - left_kidney_post_R2) / 
-  #                          left_kidney_pre_R2) * 100,
-  #     right_wk_fsoc_pct = ((right_kidney_pre_R2 - right_kidney_post_R2) / 
-  #                           right_kidney_pre_R2) * 100,
-  #     whole_kidney_fsoc_pct = case_when(
-  #       !is.na(left_wk_fsoc_pct) & !is.na(right_wk_fsoc_pct) ~ 
-  #         (left_wk_fsoc_pct + right_wk_fsoc_pct) / 2,
-  #       !is.na(left_wk_fsoc_pct) ~ left_wk_fsoc_pct,
-  #       !is.na(right_wk_fsoc_pct) ~ right_wk_fsoc_pct,
-  #       TRUE ~ NA_real_
-  #     ),
-  #     
-  #     # Medullary FSOC (% change)
-  #     left_med_fsoc_pct = ((left_medulla_pre_R2 - left_medulla_post_R2) / 
-  #                           left_medulla_pre_R2) * 100,
-  #     right_med_fsoc_pct = ((right_medulla_pre_R2 - right_medulla_post_R2) / 
-  #                            right_medulla_pre_R2) * 100,
-  #     medullary_fsoc_pct = case_when(
-  #       !is.na(left_med_fsoc_pct) & !is.na(right_med_fsoc_pct) ~ 
-  #         (left_med_fsoc_pct + right_med_fsoc_pct) / 2,
-  #       !is.na(left_med_fsoc_pct) ~ left_med_fsoc_pct,
-  #       !is.na(right_med_fsoc_pct) ~ right_med_fsoc_pct,
-  #       TRUE ~ NA_real_
-  #     )
-  #   )
-  
+
   return(df)
 }
 
