@@ -18,6 +18,11 @@ source("Lambda_Liver_Proteomics_Functions.R")
 
 # install.packages("PGEE")
 library(PGEE)
+# install.packages("glmnet")
+library(glmnet)
+library(lme4)
+library(lmerTest)  # For p-values in mixed models
+library(dplyr)
 
 ```
 
@@ -62,6 +67,9 @@ gc()
 # prot <- prot[c(7334,7326,7406,7399,which(grepl("seq.",colnames(prot))))] #length(unique(prot$releaseid)) - 376 unique ids
 proteins <- colnames(prot)[which(grepl("seq.",colnames(prot)))] #7728 aptamers
 
+#Participants with proteomics
+prot_IDs <- unique(prot$releaseid)
+
 #Load gene protein key
 gc()
 bucket <- "harmonized.dataset" # bucket name in Kopah
@@ -96,8 +104,1708 @@ clinical <- readRDS(temp_file)
 gc()
 
 ```
+##b. Explore the Data 
+```{r}
+#Select only those with proteomics
+clinical <- clinical %>% 
+  filter(releaseid %in% prot_IDs)
+#Order of visits 
+clinical$visit <- as.factor(clinical$visit)
+unique(clinical$releaseid)
 
-##b. Longitudinal Elastic Net Feature Selection
+#ALT
+alt <- ggplot(clinical,aes(x=visit,y=alt,color=releaseid))+
+  # Individual trajectories (spaghetti lines)
+  geom_line(aes(group = releaseid), alpha = 0.2) +
+  # Mean line
+  stat_summary(aes(group = 1), fun = median, geom = "line", 
+               color = "grey2", linewidth = 1) +
+  labs(x = "Visit",
+       y = "ALT (U/L)",
+       title = "Longitudinal ALT Trajectories",
+       subtitle = "Median ALT Levels (Black Line)")+
+  # Vertical lines
+  geom_vline(xintercept = "P027", linetype = "dashed", 
+             color = "blue", linewidth = 1) +
+  geom_vline(xintercept = "M00", linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  geom_vline(xintercept = "P120", linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  # Labels for vertical lines
+  annotate("text", x = "P027", y = Inf, label = "Start of TODAY2", 
+           vjust = 1.5, hjust = -0.1, color = "blue", size = 3, angle = 0) +
+  annotate("text", x = "M00", y = Inf, label = "Baseline\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  annotate("text", x = "P120", y = Inf, label = "Follow-Up\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+
+#AST
+ast <- ggplot(clinical,aes(x=visit,y=ast,color=releaseid))+
+  # Individual trajectories (spaghetti lines)
+  geom_line(aes(group = releaseid), alpha = 0.2) +
+  # Mean line
+  stat_summary(aes(group = 1), fun = median, geom = "line", 
+               color = "grey2", linewidth = 1) +
+  labs(x = "Visit",
+       y = "ALT (U/L)",
+       title = "Longitudinal AST Trajectories in TODAY & TODAY2",
+       subtitle = "Median AST Levels (Black Line)")+
+  # Vertical lines
+  geom_vline(xintercept = "P027", linetype = "dashed", 
+             color = "blue", linewidth = 1) +
+  geom_vline(xintercept = "M00", linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  geom_vline(xintercept = "P120", linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  # Labels for vertical lines
+  annotate("text", x = "P027", y = Inf, label = "Start of TODAY2", 
+           vjust = 1.5, hjust = -0.1, color = "blue", size = 3, angle = 0) +
+  annotate("text", x = "M00", y = Inf, label = "Baseline\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  annotate("text", x = "P120", y = Inf, label = "Follow-Up\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+plot <- alt/ast
+png("/home/hhampson/Results/ALT_AST_Overtime_TODAY.png",res=300,width=3050,height=2100)
+print(plot)
+dev.off()
+
+#Visit -> Numeric variable
+clinical$visit_num
+# clinical$visit_numeric <- as.numeric(clinical$visit)
+
+#ALT
+alt <- ggplot(clinical,aes(x=visit_num,y=alt,color=releaseid))+
+  # Individual trajectories (spaghetti lines)
+  geom_line(aes(group = releaseid), alpha = 0.2) +
+  # Mean line
+  stat_summary(aes(group = 1), fun = median, geom = "line", 
+               color = "grey2", linewidth = 1) +
+  labs(x = "Visit (Months)",
+       y = "ALT (U/L)",
+       title = "Longitudinal ALT Trajectories",
+       subtitle = "Median ALT Levels (Black Line)")+
+  # Vertical lines
+  geom_vline(xintercept =  27, linetype = "dashed", 
+             color = "blue", linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  geom_vline(xintercept = 60, linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  # Labels for vertical lines
+  annotate("text", x = 27, y = Inf, label = "Start of TODAY2", 
+           vjust = 1.5, hjust = -0.1, color = "blue", size = 3, angle = 0) +
+  annotate("text", x = 0, y = Inf, label = "Baseline\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  annotate("text", x = 60, y = Inf, label = "Follow-Up\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+
+#AST
+ast <- ggplot(clinical,aes(x=visit_num,y=ast,color=releaseid))+
+  # Individual trajectories (spaghetti lines)
+  geom_line(aes(group = releaseid), alpha = 0.2) +
+  # Mean line
+  stat_summary(aes(group = 1), fun = median, geom = "line", 
+               color = "grey2", linewidth = 1) +
+  labs(x = "Visit (Months)",
+       y = "ALT (U/L)",
+       title = "Longitudinal AST Trajectories in TODAY & TODAY2",
+       subtitle = "Median AST Levels (Black Line)")+
+  # Vertical lines
+  geom_vline(xintercept =  27, linetype = "dashed", 
+             color = "blue", linewidth = 1) +
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  geom_vline(xintercept = 60, linetype = "dashed", 
+             color = "grey50", linewidth = 0.8) +
+  # Labels for vertical lines
+  annotate("text", x = 27, y = Inf, label = "Start of TODAY2", 
+           vjust = 1.5, hjust = -0.1, color = "blue", size = 3, angle = 0) +
+  annotate("text", x = 0, y = Inf, label = "Baseline\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  annotate("text", x = 60, y = Inf, label = "Follow-Up\nProteomics", 
+           vjust = 1.2, hjust = -0.1, color = "grey30", size = 3, angle = 0) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+plot <- alt/ast
+png("/home/hhampson/Results/ALT_AST_Overtime_TODAY_Months.png",res=300,width=3050,height=2100)
+print(plot)
+dev.off()
+```
+##c. Prepare Data for Analysis
+```{r}
+
+# Calculate all three summary measures for each person
+individual_summaries <- clinical %>%
+  group_by(releaseid) %>%
+  filter(n() >= 2) %>%  # Need at least 3 visits for meaningful summaries, keep one person with only 2 for now (ID: 65-84560)
+  summarise(
+    # 1. MEAN SUMMARY - overall ALT/AST level
+    mean_alt = mean(alt, na.rm = TRUE),
+    mean_ast = mean(ast, na.rm = TRUE),
+    
+    # 2. VARIABILITY SUMMARY - within-person SD
+    sd_alt = sd(alt, na.rm = TRUE),
+    sd_ast = sd(ast, na.rm = TRUE),
+    
+    # Number of visits used
+    n_visits = n()
+  ) %>%
+  ungroup() #N = 379 
+
+# 3. SLOPE TRAJECTORY - fit linear model for each person
+individual_slopes <- clinical %>%
+  group_by(releaseid) %>%
+  filter(n() >= 2) %>%
+  do({
+    # Fit linear models
+    alt_model <- lm(alt ~ visit_num, data = .)
+    ast_model <- lm(ast ~ visit_num, data = .)
+    
+    data.frame(
+      releaseid = unique(.$releaseid),
+      alt_slope = coef(alt_model)[2],
+      alt_intercept = coef(alt_model)[1],
+      alt_r_squared = summary(alt_model)$r.squared,
+      ast_slope = coef(ast_model)[2],
+      ast_intercept = coef(ast_model)[1],
+      ast_r_squared = summary(ast_model)$r.squared
+    )
+  }) %>%
+  ungroup()
+
+# Combine all summaries into one dataset
+all_summaries <- individual_summaries %>%
+  left_join(individual_slopes, by = "releaseid")
+
+# Check the results
+head(all_summaries)
+summary(all_summaries)
+
+#Prepare change in proteomics
+# Get baseline proteomics (M00)
+proteomics_baseline <- prot %>%
+  filter(visit == 1) %>%
+  dplyr::select(-visit) %>% 
+  dplyr::select(c("releaseid",starts_with("seq.")))
+
+# Get follow-up proteomics (P120)
+proteomics_followup <- prot %>%
+  filter(visit == 2) %>%
+  dplyr::select(-visit) %>% 
+  dplyr::select(c("releaseid",starts_with("seq.")))
+
+# Calculate protein CHANGES (P120 - M00)
+proteomics_change <- proteomics_baseline %>%
+  inner_join(proteomics_followup, by = "releaseid", suffix = c("_baseline", "_followup")) %>%
+  mutate(across(starts_with("seq.") & ends_with("_baseline"), 
+                ~get(sub("_baseline", "_followup", cur_column())) - .x,
+                .names = "{sub('_baseline', '_change', .col)}")) %>%
+  # Keep only the change variables
+  dplyr::select(releaseid, ends_with("_change"))
+
+# Combine baseline + change proteomics
+proteomics_full <- proteomics_baseline %>%
+  inner_join(proteomics_change, by = "releaseid")
+# Now you have: seq.XXXX (baseline) and seq.XXXX_change for each protein
+
+# Now merge with change in proteomics for analysis
+analysis_data <- proteomics_full %>%
+  inner_join(all_summaries, by = "releaseid")
+
+```
+##d. Analysis #1 - Summary Values
+###i. Prepare Datasets
+```{r}
+# Identify protein column names
+baseline_proteins <- proteins #7288, number of baseline proteins
+change_proteins <- paste0(baseline_proteins, "_change")  # seq.XXXX_change
+
+# Define outcome columns
+outcomes <- c("mean_alt", "sd_alt", "alt_slope", 
+              "mean_ast", "sd_ast", "ast_slope", "n_visits",
+              "alt_intercept", "alt_r_squared",
+              "ast_intercept", "ast_r_squared")
+
+# Analysis A: Baseline proteins only
+data_baseline <- analysis_data %>%
+  dplyr::select(releaseid, all_of(outcomes), all_of(baseline_proteins))
+
+# Analysis B: Protein changes only
+data_change <- analysis_data %>%
+  dplyr::select(releaseid, all_of(outcomes), all_of(change_proteins))
+
+# Analysis C: Combined (baseline + change)
+data_combined <- analysis_data %>%
+  dplyr::select(releaseid, all_of(outcomes), all_of(baseline_proteins), all_of(change_proteins))
+
+# Summary
+cat("\nDataset dimensions:\n")
+cat("Analysis A (baseline proteins):", nrow(data_baseline), "people x", 
+    length(baseline_proteins), "proteins\n")
+#Analysis A (baseline proteins): 265 people x 7288 proteins
+cat("Analysis B (protein changes):", nrow(data_change), "people x", 
+    length(change_proteins), "protein changes\n")
+#Analysis B (protein changes): 265 people x 7288 protein changes
+cat("Analysis C (combined):", nrow(data_combined), "people x", 
+    length(baseline_proteins) + length(change_proteins), "total features\n")
+#Analysis C (combined): 265 people x 14576 total features
+
+```
+###ii. Feature Selection - Elastic Net
+```{r}
+# Function to run elastic net feature selection
+run_elastic_net <- function(data, outcome_var, protein_cols, alpha = 0.5, seed = 123) {
+  
+  # Prepare data
+  X <- as.matrix(data[, protein_cols])
+  y <- data[[outcome_var]]
+  
+  # Remove any rows with missing outcome
+  complete_cases <- complete.cases(y)
+  X <- X[complete_cases, ]
+  y <- y[complete_cases]
+  
+  cat("\n===", outcome_var, "===\n")
+  cat("Sample size:", length(y), "\n")
+  cat("Number of predictors:", ncol(X), "\n")
+  
+  # Run cross-validated elastic net
+  set.seed(seed)
+  cv_fit <- cv.glmnet(X, y, 
+                      alpha = alpha,  # 0.5 = elastic net
+                      nfolds = 10,
+                      standardize = TRUE)
+  
+  # Extract coefficients at lambda.min (best CV performance)
+  coef_min <- coef(cv_fit, s = "lambda.min")
+  selected_min <- rownames(coef_min)[coef_min[,1] != 0][-1]  # Remove intercept
+  
+  # Extract coefficients at lambda.1se (more regularized, more stable)
+  coef_1se <- coef(cv_fit, s = "lambda.1se")
+  selected_1se <- rownames(coef_1se)[coef_1se[,1] != 0][-1]  # Remove intercept
+  
+  cat("Selected proteins (lambda.min):", length(selected_min), "\n")
+  cat("Selected proteins (lambda.1se):", length(selected_1se), "\n")
+  
+  # Performance metrics
+  r2_min <- cv_fit$glmnet.fit$dev.ratio[which(cv_fit$glmnet.fit$lambda == cv_fit$lambda.min)]
+  r2_1se <- cv_fit$glmnet.fit$dev.ratio[which(cv_fit$glmnet.fit$lambda == cv_fit$lambda.1se)]
+  
+  cat("R-squared (lambda.min):", round(r2_min, 3), "\n")
+  cat("R-squared (lambda.1se):", round(r2_1se, 3), "\n")
+  
+  # Return results
+  list(
+    cv_fit = cv_fit,
+    selected_proteins_min = selected_min,
+    selected_proteins_1se = selected_1se,
+    coefficients_min = coef_min[coef_min[,1] != 0, ],
+    coefficients_1se = coef_1se[coef_1se[,1] != 0, ],
+    r2_min = r2_min,
+    r2_1se = r2_1se,
+    n_samples = length(y),
+    outcome = outcome_var
+  )
+}
+
+# Outcomes to test (start with main 6)
+outcomes_to_test <- c("mean_alt", "sd_alt", "alt_slope", 
+                      "mean_ast", "sd_ast", "ast_slope")
+
+# Storage for results
+results_baseline <- list()
+results_change <- list()
+results_combined <- list()
+
+# Analysis A: Baseline proteins
+cat("\n#############################################\n")
+cat("ANALYSIS A: BASELINE PROTEINS\n")
+cat("#############################################\n")
+
+for(outcome in outcomes_to_test) {
+  results_baseline[[outcome]] <- run_elastic_net(
+    data = data_baseline,
+    outcome_var = outcome,
+    protein_cols = baseline_proteins,
+    alpha = 0.5  # elastic net
+  )
+}
+
+# Analysis B: Protein changes
+cat("\n#############################################\n")
+cat("ANALYSIS B: PROTEIN CHANGES\n")
+cat("#############################################\n")
+
+for(outcome in outcomes_to_test) {
+  results_change[[outcome]] <- run_elastic_net(
+    data = data_change,
+    outcome_var = outcome,
+    protein_cols = change_proteins,
+    alpha = 0.5
+  )
+}
+
+# Analysis C: Combined (baseline + change)
+cat("\n#############################################\n")
+cat("ANALYSIS C: COMBINED (BASELINE + CHANGE)\n")
+cat("#############################################\n")
+
+for(outcome in outcomes_to_test) {
+  results_combined[[outcome]] <- run_elastic_net(
+    data = data_combined,
+    outcome_var = outcome,
+    protein_cols = c(baseline_proteins, change_proteins),
+    alpha = 0.5
+  )
+}
+
+# Create summary table (using lambda.min results only)
+summary_table <- data.frame()
+
+for(outcome in outcomes_to_test) {
+  summary_table <- rbind(summary_table,
+                         data.frame(
+                           outcome = outcome,
+                           analysis = "Baseline",
+                           n_proteins = length(results_baseline[[outcome]]$selected_proteins_min),
+                           r2 = results_baseline[[outcome]]$r2_min
+                         ),
+                         data.frame(
+                           outcome = outcome,
+                           analysis = "Change",
+                           n_proteins = length(results_change[[outcome]]$selected_proteins_min),
+                           r2 = results_change[[outcome]]$r2_min
+                         ),
+                         data.frame(
+                           outcome = outcome,
+                           analysis = "Combined",
+                           n_proteins = length(results_combined[[outcome]]$selected_proteins_min),
+                           r2 = results_combined[[outcome]]$r2_min
+                         )
+  )
+}
+
+# View summary
+print(summary_table)
+
+# 1. Bar plot: Number of proteins selected
+summary_table %>%
+  mutate(outcome_type = ifelse(grepl("alt", outcome), "ALT", "AST"),
+         outcome = factor(outcome, levels = c("mean_alt", "sd_alt", "alt_slope", 
+                                              "mean_ast", "sd_ast", "ast_slope"))) %>%
+  ggplot(aes(x = outcome, y = n_proteins, fill = analysis)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black", linewidth = 0.3) +
+  geom_text(aes(label = n_proteins), position = position_dodge(width = 0.9), 
+            vjust = -0.5, size = 3) +
+  facet_wrap(~outcome_type, scales = "free_x") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom") +
+  labs(x = "Outcome", 
+       y = "Number of Selected Proteins",
+       title = "Protein Selection Across Analysis Types",
+       fill = "Analysis") +
+  scale_fill_manual(values = c("Baseline" = "#E69F00", 
+                               "Change" = "#56B4E9", 
+                               "Combined" = "#009E73"))
+
+ggsave("~/Results/n_proteins_selected.png", width = 10, height = 6, dpi = 300)
+
+# 2. Bar plot: R-squared performance
+summary_table %>%
+  mutate(outcome_type = ifelse(grepl("alt", outcome), "ALT", "AST"),
+         outcome = factor(outcome, levels = c("mean_alt", "sd_alt", "alt_slope", 
+                                              "mean_ast", "sd_ast", "ast_slope"))) %>%
+  ggplot(aes(x = outcome, y = r2, fill = analysis)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black", linewidth = 0.3) +
+  geom_text(aes(label = round(r2, 2)), position = position_dodge(width = 0.9), 
+            vjust = -0.5, size = 3) +
+  facet_wrap(~outcome_type, scales = "free_x") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom") +
+  labs(x = "Outcome", 
+       y = "R-squared",
+       title = "Prediction Performance Across Analysis Types",
+       fill = "Analysis") +
+  scale_fill_manual(values = c("Baseline" = "#E69F00", 
+                               "Change" = "#56B4E9", 
+                               "Combined" = "#009E73")) +
+  ylim(0, 1)
+
+ggsave("~/Results/r2_performance.png", width = 10, height = 6, dpi = 300)
+
+# 3. Heatmap of R-squared values
+summary_table %>%
+  mutate(outcome = factor(outcome, levels = c("mean_alt", "sd_alt", "alt_slope", 
+                                              "mean_ast", "sd_ast", "ast_slope"))) %>%
+  ggplot(aes(x = outcome, y = analysis, fill = r2)) +
+  geom_tile(color = "white", linewidth = 1) +
+  geom_text(aes(label = round(r2, 2)), color = "white", fontface = "bold", size = 5) +
+  scale_fill_gradient2(low = "darkred", mid = "orange", high = "darkgreen", 
+                       midpoint = 0.5, limits = c(0, 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid = element_blank()) +
+  labs(x = "Outcome", 
+       y = "Analysis Type",
+       fill = "R²",
+       title = "Prediction Performance Heatmap")
+
+ggsave("~/Results/r2_heatmap.png", width = 10, height = 6, dpi = 300)
+
+# 4. Compare baseline vs change: which matters more?
+summary_table %>%
+  filter(analysis != "Combined") %>%
+  mutate(outcome = factor(outcome, levels = c("mean_alt", "sd_alt", "alt_slope", 
+                                              "mean_ast", "sd_ast", "ast_slope"))) %>%
+  ggplot(aes(x = outcome, y = r2, group = analysis, color = analysis)) +
+  geom_line(linewidth = 1.5) +
+  geom_point(size = 4) +
+  geom_text(aes(label = round(r2, 2)), vjust = -1, size = 3) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom") +
+  labs(x = "Outcome", 
+       y = "R-squared",
+       title = "Baseline vs Change: Which Predicts Better?",
+       color = "Analysis") +
+  scale_color_manual(values = c("Baseline" = "#E69F00", "Change" = "#56B4E9")) +
+  ylim(0, 1)
+
+# ggsave("~/Results/baseline_vs_change.png", width = 10, height = 6, dpi = 300)
+
+# Keep only Combined and Baseline results
+summary_table_final <- summary_table %>%
+  filter(analysis %in% c("Baseline", "Combined"))
+
+# Print
+print(summary_table_final)
+
+# Save
+write.csv(summary_table_final, "~/Results/feature_selection_summary_final.csv", row.names = FALSE)
+
+# Save selected proteins and coefficients for both approaches
+outcomes_to_save <- c("mean_alt", "sd_alt", "alt_slope", 
+                      "mean_ast", "sd_ast", "ast_slope")
+
+for(outcome in outcomes_to_save) {
+  
+  # BASELINE approach
+  baseline_results <- data.frame(
+    protein = results_baseline[[outcome]]$selected_proteins_min,
+    coefficient = results_baseline[[outcome]]$coefficients_min[-1],  # Remove intercept
+    approach = "Baseline"
+  )
+  
+  write.csv(baseline_results,
+            paste0("~/Results/selected_baseline_", outcome, ".csv"),
+            row.names = FALSE)
+  
+  # COMBINED approach
+  combined_results <- data.frame(
+    protein = results_combined[[outcome]]$selected_proteins_min,
+    coefficient = results_combined[[outcome]]$coefficients_min[-1],
+    approach = "Combined"
+  )
+  
+  # Add indicator for whether it's baseline or change protein
+  combined_results <- combined_results %>%
+    mutate(feature_type = ifelse(grepl("_change$", protein), "Change", "Baseline"))
+  
+  write.csv(combined_results,
+            paste0("~/Results/selected_combined_", outcome, ".csv"),
+            row.names = FALSE)
+}
+
+# For each outcome, see which baseline proteins are also in combined
+overlap_summary <- data.frame()
+
+for(outcome in outcomes_to_save) {
+  baseline_prots <- results_baseline[[outcome]]$selected_proteins_min
+  combined_prots <- results_combined[[outcome]]$selected_proteins_min
+  
+  # Remove "_change" suffix from combined to compare
+  combined_baseline_prots <- combined_prots[!grepl("_change$", combined_prots)]
+  combined_change_prots <- gsub("_change$", "", combined_prots[grepl("_change$", combined_prots)])
+  
+  # Overlap
+  both_baseline <- intersect(baseline_prots, combined_baseline_prots)
+  only_baseline_model <- setdiff(baseline_prots, combined_baseline_prots)
+  only_combined_model <- setdiff(combined_baseline_prots, baseline_prots)
+  change_features <- length(combined_change_prots)
+  
+  overlap_summary <- rbind(overlap_summary, data.frame(
+    outcome = outcome,
+    baseline_model_total = length(baseline_prots),
+    combined_model_total = length(combined_prots),
+    combined_baseline_features = length(combined_baseline_prots),
+    combined_change_features = change_features,
+    overlap_baseline_proteins = length(both_baseline),
+    unique_to_baseline_model = length(only_baseline_model),
+    unique_to_combined_model = length(only_combined_model)
+  ))
+}
+
+print(overlap_summary)
+write.csv(overlap_summary, "~/Results/protein_overlap_summary.csv", row.names = FALSE)
+
+
+```
+
+###iii. Mixed Model
+####A. Mean ALT  & Baseline Proteomics
+```{r}
+# Choose which outcome and approach to start with
+outcome_choice <- "mean_alt"
+approach_choice <- "baseline"  # or "combined"
+
+# Get selected proteins
+if(approach_choice == "baseline") {
+  selected_proteins <- results_baseline[[outcome_choice]]$selected_proteins_min
+} else if(approach_choice == "combined") {
+  selected_proteins <- results_combined[[outcome_choice]]$selected_proteins_min
+}
+
+cat("Number of selected proteins:", length(selected_proteins), "\n")
+
+# Prepare longitudinal dataset
+# Merge clinical data with proteomics (long format)
+mixed_model_data <- clinical %>%
+  # Join with proteomics at baseline (M00)
+  left_join(
+    proteomics_baseline %>% 
+      dplyr::select(releaseid, all_of(selected_proteins)),
+    by = "releaseid"
+  )
+
+# If using combined approach, also add change features
+if(approach_choice == "combined") {
+  # Separate baseline and change proteins
+  baseline_prots <- selected_proteins[!grepl("_change$", selected_proteins)]
+  change_prots <- selected_proteins[grepl("_change$", selected_proteins)]
+  
+  # Add change proteins
+  mixed_model_data <- mixed_model_data %>%
+    left_join(
+      proteomics_change %>% select(releaseid, all_of(change_prots)),
+      by = "releaseid"
+    )
+}
+
+# Scale the selected proteins
+cat("\nScaling", length(selected_proteins), "proteins...\n")
+
+mixed_model_data <- mixed_model_data %>%
+  mutate(across(all_of(selected_proteins), 
+                ~scale(.)[,1],  # scale() returns a matrix, extract vector
+                .names = "{.col}"))
+
+# Verify scaling worked
+cat("\nVerifying scaling:\n")
+protein_check_scaled <- mixed_model_data %>%
+  dplyr::select(all_of(selected_proteins[1:5])) %>%
+  summarise(across(everything(), list(
+    mean = ~mean(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE)
+  )))
+
+print(t(protein_check_scaled))
+
+# Should now see means ≈ 0 and SDs ≈ 1
+cat("\n✓ Proteins are now scaled!\n")
+
+#Run analysis with scaled values
+# Build mixed model formula
+cat("\nBuilding mixed model with", length(selected_proteins), "scaled baseline proteins\n")
+
+# Create formula string
+protein_formula <- paste(selected_proteins, collapse = " + ")
+formula_str <- paste0("alt ~ visit_num + ", protein_formula, " + (1 + visit_num | releaseid)")
+
+cat("Formula: alt ~ visit_num + [65 proteins] + (1 + visit_num | releaseid)\n")
+
+# Fit the model
+cat("\nFitting model... this may take a few minutes with 65 proteins\n")
+start_time <- Sys.time()
+
+model_baseline_alt <- lmer(
+  as.formula(formula_str), 
+  data = mixed_model_data, 
+  REML = TRUE,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000))
+)
+
+end_time <- Sys.time()
+cat("Model fitting time:", round(difftime(end_time, start_time, units = "mins"), 2), "minutes\n")
+
+# Check convergence
+if(model_baseline_alt@optinfo$conv$opt == 0) {
+  cat("\n✓ Model converged successfully!\n")
+} else {
+  cat("\n⚠ Warning: Model convergence issue\n")
+  print(model_baseline_alt@optinfo$conv$lme4$messages)
+}
+
+# Extract fixed effects for proteins
+cat("\nExtracting protein effects...\n")
+fixed_effects <- summary(model_baseline_alt)$coefficients
+protein_effects <- fixed_effects[grepl("^seq\\.", rownames(fixed_effects)), , drop = FALSE]
+
+# Convert to dataframe
+protein_effects_df <- as.data.frame(protein_effects) %>%
+  tibble::rownames_to_column("protein") %>%
+  rename(
+    estimate = Estimate,
+    se = `Std. Error`,
+    df = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  mutate(
+    fdr = p.adjust(p_value, method = "fdr"),
+    sig_p = ifelse(p_value < 0.05, "**", ""),
+    sig_fdr = ifelse(fdr < 0.05, "**", ifelse(fdr < 0.1, "*", ""))
+  ) %>%
+  arrange(p_value)
+
+# Summary
+cat("\n=== RESULTS SUMMARY ===\n")
+cat("Total proteins tested:", nrow(protein_effects_df), "\n")
+cat("Significant (p < 0.05):", sum(protein_effects_df$p_value < 0.05), "\n")
+cat("Significant (p < 0.01):", sum(protein_effects_df$p_value < 0.01), "\n")
+cat("Significant (FDR < 0.05):", sum(protein_effects_df$fdr < 0.05), "\n")
+cat("Significant (FDR < 0.1):", sum(protein_effects_df$fdr < 0.1), "\n")
+
+# Show top 20
+cat("\n=== TOP 20 PROTEINS ===\n")
+print(protein_effects_df[1:20, c("protein", "estimate", "se", "t_value", "p_value", "fdr")])
+
+# Map protein aptamer IDs to gene symbols
+protein_effects_annotated <- protein_effects_df %>%
+  left_join(
+    analytes %>% dplyr::select(AptName, EntrezGeneSymbol),
+    by = c("protein" = "AptName")
+  ) %>%
+  dplyr::select(protein, EntrezGeneSymbol, estimate, se, t_value, p_value, fdr, sig_p, sig_fdr, everything())
+
+# Check how many mapped
+cat("\nProteins mapped to gene symbols:", sum(!is.na(protein_effects_annotated$EntrezGeneSymbol)), "/", nrow(protein_effects_annotated), "\n")
+
+# Show top 20 with gene names
+cat("\n=== TOP 20 PROTEINS (with gene symbols) ===\n")
+print(protein_effects_annotated[1:20, c("protein", "EntrezGeneSymbol", "estimate", "se", "t_value", "p_value", "fdr")])
+
+# Save annotated results
+write.csv(protein_effects_annotated, 
+          "~/Results/mixed_model_baseline_mean_alt_annotated.csv",
+          row.names = FALSE)
+
+cat("\n✓ Annotated results saved to ~/Results/mixed_model_baseline_mean_alt_annotated.csv\n")
+
+# Also create a summary of top hits
+top_hits <- protein_effects_annotated %>%
+  filter(fdr < 0.1) %>%
+  arrange(p_value) %>%
+  dplyr::select(EntrezGeneSymbol, protein, estimate, se, p_value, fdr)
+
+cat("\n=== SIGNIFICANT PROTEINS (FDR < 0.1) ===\n")
+print(top_hits)
+
+write.csv(top_hits,
+          "~/Results/mixed_model_baseline_mean_alt_top_hits.csv",
+          row.names = FALSE)
+
+cat("\n✓ Top hits saved to ~/Results/mixed_model_baseline_mean_alt_top_hits.csv\n")
+
+# Save results
+write.csv(protein_effects_df, 
+          "~/Results/mixed_model_baseline_mean_alt.csv",
+          row.names = FALSE)
+
+cat("\n✓ Results saved to ~/Results/mixed_model_baseline_mean_alt.csv\n")
+
+# Visualize results
+# Prepare data for volcano plot
+volcano_data <- protein_effects_annotated %>%
+  mutate(
+    # For volcano plot, use estimate as coefficient
+    log_fc = estimate,
+    neg_log10_p = -log10(p_value),
+    # Color by significance and direction
+    significance = case_when(
+      fdr < 0.05 & estimate > 0 ~ "Positive (FDR < 0.05)",
+      fdr < 0.05 & estimate < 0 ~ "Negative (FDR < 0.05)",
+      TRUE ~ "Not Significant"
+    ),
+    # Label only FDR < 0.05
+    label = ifelse(fdr < 0.05, EntrezGeneSymbol, "")
+  )
+
+# Count significant proteins
+n_pos <- sum(volcano_data$significance == "Positive (FDR < 0.05)")
+n_neg <- sum(volcano_data$significance == "Negative (FDR < 0.05)")
+
+cat("Positive associations (FDR < 0.05):", n_pos, "\n")
+cat("Negative associations (FDR < 0.05):", n_neg, "\n")
+
+# Find the p-value threshold that corresponds to FDR = 0.05
+fdr_threshold_pvalue <- max(volcano_data$p_value[volcano_data$fdr < 0.05], na.rm = TRUE)
+
+# If no proteins pass FDR < 0.05, use placeholder
+if(is.infinite(fdr_threshold_pvalue) | length(fdr_threshold_pvalue) == 0) {
+  fdr_threshold_pvalue <- 0.05
+  cat("No proteins pass FDR < 0.05\n")
+} else {
+  cat("FDR < 0.05 corresponds to p-value <", signif(fdr_threshold_pvalue, 3), "\n")
+}
+
+# Create volcano plot
+volcano_plot <- ggplot(volcano_data, aes(x = log_fc, y = neg_log10_p)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+  # Grey points for non-significant
+  geom_point(data = volcano_data %>% filter(significance == "Not Significant"),
+             color = "grey70", alpha = 0.5, size = 2) +
+  # Red for positive associations
+  geom_point(data = volcano_data %>% filter(significance == "Positive (FDR < 0.05)"),
+             color = "darkred", size = 3) +
+  # Blue for negative associations
+  geom_point(data = volcano_data %>% filter(significance == "Negative (FDR < 0.05)"),
+             color = "darkblue", size = 3) +
+  # Add labels for significant proteins
+  geom_text_repel(data = volcano_data %>% filter(fdr < 0.05),
+                  aes(label = label),
+                  size = 3.5,
+                  max.overlaps = 20,
+                  box.padding = 0.5,
+                  point.padding = 0.3,
+                  segment.color = "grey50",
+                  segment.size = 0.3) +
+  # # Add FDR threshold line (the correct one!)
+  # geom_hline(yintercept = -log10(fdr_threshold_pvalue), 
+  #            linetype = "dashed", color = "gray", linewidth = 0.5) +
+  # annotate("text", x = min(volcano_data$log_fc, na.rm = TRUE) * 0.8, 
+  #          y = -log10(fdr_threshold_pvalue) + 0.3,
+  #          label = "FDR = 0.05", color = "red", size = 3.5, hjust = 0) +
+  # Optional: raw p = 0.05 reference line
+  # geom_hline(yintercept = -log10(0.05), linetype = "dotted", 
+  #            color = "grey50", alpha = 0.5, linewidth = 0.5) +
+  # Labels and theme
+  labs(x = "Coefficient (Effect Size)",
+       y = "-log10(p-value)",
+       title = "Volcano Plot of Baseline Proteins Associated with Mean Longitudinal ALT",
+       subtitle = paste0("Red: Positive associations (n=", n_pos, ") | Blue: Negative associations (n=", n_neg, ") | FDR < 0.05")) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+print(volcano_plot)
+
+# Save plot
+ggsave("~/Results/volcano_baseline_mean_alt.png", 
+       volcano_plot, 
+       width = 9, height = 7, dpi = 300)
+
+```
+
+####B. Mean AST & Baseline Proteomics
+```{r}
+# Choose which outcome and approach to start with
+outcome_choice <- "mean_ast"
+approach_choice <- "baseline"  # or "combined"
+
+# Get selected proteins
+if(approach_choice == "baseline") {
+  selected_proteins <- results_baseline[[outcome_choice]]$selected_proteins_min
+} else if(approach_choice == "combined") {
+  selected_proteins <- results_combined[[outcome_choice]]$selected_proteins_min
+}
+
+cat("Number of selected proteins:", length(selected_proteins), "\n")
+
+# Prepare longitudinal dataset
+# Merge clinical data with proteomics (long format)
+mixed_model_data <- clinical %>%
+  # Join with proteomics at baseline (M00)
+  left_join(
+    proteomics_baseline %>% 
+      dplyr::select(releaseid, all_of(selected_proteins)),
+    by = "releaseid"
+  )
+
+# If using combined approach, also add change features
+if(approach_choice == "combined") {
+  # Separate baseline and change proteins
+  baseline_prots <- selected_proteins[!grepl("_change$", selected_proteins)]
+  change_prots <- selected_proteins[grepl("_change$", selected_proteins)]
+  
+  # Add change proteins
+  mixed_model_data <- mixed_model_data %>%
+    left_join(
+      proteomics_change %>% select(releaseid, all_of(change_prots)),
+      by = "releaseid"
+    )
+}
+
+# Scale the selected proteins
+cat("\nScaling", length(selected_proteins), "proteins...\n")
+
+mixed_model_data <- mixed_model_data %>%
+  mutate(across(all_of(selected_proteins), 
+                ~scale(.)[,1],  # scale() returns a matrix, extract vector
+                .names = "{.col}"))
+
+# Verify scaling worked
+cat("\nVerifying scaling:\n")
+protein_check_scaled <- mixed_model_data %>%
+  dplyr::select(all_of(selected_proteins[1:5])) %>%
+  summarise(across(everything(), list(
+    mean = ~mean(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE)
+  )))
+
+print(t(protein_check_scaled))
+
+# Should now see means ≈ 0 and SDs ≈ 1
+cat("\n✓ Proteins are now scaled!\n")
+
+#Run analysis with scaled values
+# Build mixed model formula
+cat("\nBuilding mixed model with", length(selected_proteins), "scaled baseline proteins\n")
+
+# Create formula string
+protein_formula <- paste(selected_proteins, collapse = " + ")
+formula_str <- paste0("ast ~ visit_num + ", protein_formula, " + (1 + visit_num | releaseid)")
+
+# cat("Formula: ast ~ visit_num + [65 proteins] + (1 + visit_num | releaseid)\n")
+
+# Fit the model
+# cat("\nFitting model... this may take a few minutes with 65 proteins\n")
+start_time <- Sys.time()
+
+model_baseline_ast <- lmer(
+  as.formula(formula_str), 
+  data = mixed_model_data, 
+  REML = TRUE,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000))
+)
+
+end_time <- Sys.time()
+cat("Model fitting time:", round(difftime(end_time, start_time, units = "mins"), 2), "minutes\n")
+
+# Check convergence
+if(model_baseline_ast@optinfo$conv$opt == 0) {
+  cat("\n✓ Model converged successfully!\n")
+} else {
+  cat("\n⚠ Warning: Model convergence issue\n")
+  print(model_baseline_ast@optinfo$conv$lme4$messages)
+}
+
+# Extract fixed effects for proteins
+cat("\nExtracting protein effects...\n")
+fixed_effects <- summary(model_baseline_ast)$coefficients
+protein_effects <- fixed_effects[grepl("^seq\\.", rownames(fixed_effects)), , drop = FALSE]
+
+# Convert to dataframe
+protein_effects_df <- as.data.frame(protein_effects) %>%
+  tibble::rownames_to_column("protein") %>%
+  rename(
+    estimate = Estimate,
+    se = `Std. Error`,
+    df = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  mutate(
+    fdr = p.adjust(p_value, method = "fdr"),
+    sig_p = ifelse(p_value < 0.05, "**", ""),
+    sig_fdr = ifelse(fdr < 0.05, "**", ifelse(fdr < 0.1, "*", ""))
+  ) %>%
+  arrange(p_value)
+
+# Summary
+cat("\n=== RESULTS SUMMARY ===\n")
+cat("Total proteins tested:", nrow(protein_effects_df), "\n")
+cat("Significant (p < 0.05):", sum(protein_effects_df$p_value < 0.05), "\n")
+cat("Significant (p < 0.01):", sum(protein_effects_df$p_value < 0.01), "\n")
+cat("Significant (FDR < 0.05):", sum(protein_effects_df$fdr < 0.05), "\n")
+cat("Significant (FDR < 0.1):", sum(protein_effects_df$fdr < 0.1), "\n")
+
+# Show top 20
+cat("\n=== TOP 20 PROTEINS ===\n")
+print(protein_effects_df[1:20, c("protein", "estimate", "se", "t_value", "p_value", "fdr")])
+
+# Map protein aptamer IDs to gene symbols
+protein_effects_annotated <- protein_effects_df %>%
+  left_join(
+    analytes %>% dplyr::select(AptName, EntrezGeneSymbol),
+    by = c("protein" = "AptName")
+  ) %>%
+  dplyr::select(protein, EntrezGeneSymbol, estimate, se, t_value, p_value, fdr, sig_p, sig_fdr, everything())
+
+# Check how many mapped
+cat("\nProteins mapped to gene symbols:", sum(!is.na(protein_effects_annotated$EntrezGeneSymbol)), "/", nrow(protein_effects_annotated), "\n")
+
+# Show top 20 with gene names
+cat("\n=== TOP 20 PROTEINS (with gene symbols) ===\n")
+print(protein_effects_annotated[1:20, c("protein", "EntrezGeneSymbol", "estimate", "se", "t_value", "p_value", "fdr")])
+
+# Save annotated results
+write.csv(protein_effects_annotated, 
+          "~/Results/mixed_model_baseline_mean_ast_annotated.csv",
+          row.names = FALSE)
+
+cat("\n✓ Annotated results saved to ~/Results/mixed_model_baseline_mean_ast_annotated.csv\n")
+
+# Also create a summary of top hits
+top_hits <- protein_effects_annotated %>%
+  filter(fdr < 0.1) %>%
+  arrange(p_value) %>%
+  dplyr::select(EntrezGeneSymbol, protein, estimate, se, p_value, fdr)
+
+cat("\n=== SIGNIFICANT PROTEINS (FDR < 0.1) ===\n")
+print(top_hits)
+
+write.csv(top_hits,
+          "~/Results/mixed_model_baseline_mean_ast_top_hits.csv",
+          row.names = FALSE)
+
+cat("\n✓ Top hits saved to ~/Results/mixed_model_baseline_mean_ast_top_hits.csv\n")
+
+# Save results
+write.csv(protein_effects_df, 
+          "~/Results/mixed_model_baseline_mean_ast.csv",
+          row.names = FALSE)
+
+cat("\n✓ Results saved to ~/Results/mixed_model_baseline_mean_ast.csv\n")
+
+# Visualize results
+# Prepare data for volcano plot
+volcano_data <- protein_effects_annotated %>%
+  mutate(
+    # For volcano plot, use estimate as coefficient
+    log_fc = estimate,
+    neg_log10_p = -log10(p_value),
+    # Color by significance and direction
+    significance = case_when(
+      fdr < 0.05 & estimate > 0 ~ "Positive (FDR < 0.05)",
+      fdr < 0.05 & estimate < 0 ~ "Negative (FDR < 0.05)",
+      TRUE ~ "Not Significant"
+    ),
+    # Label only FDR < 0.05
+    label = ifelse(fdr < 0.05, EntrezGeneSymbol, "")
+  )
+
+# Count significant proteins
+n_pos <- sum(volcano_data$significance == "Positive (FDR < 0.05)")
+n_neg <- sum(volcano_data$significance == "Negative (FDR < 0.05)")
+
+cat("Positive associations (FDR < 0.05):", n_pos, "\n")
+cat("Negative associations (FDR < 0.05):", n_neg, "\n")
+
+# Find the p-value threshold that corresponds to FDR = 0.05
+fdr_threshold_pvalue <- max(volcano_data$p_value[volcano_data$fdr < 0.05], na.rm = TRUE)
+
+# If no proteins pass FDR < 0.05, use placeholder
+if(is.infinite(fdr_threshold_pvalue) | length(fdr_threshold_pvalue) == 0) {
+  fdr_threshold_pvalue <- 0.05
+  cat("No proteins pass FDR < 0.05\n")
+} else {
+  cat("FDR < 0.05 corresponds to p-value <", signif(fdr_threshold_pvalue, 3), "\n")
+}
+
+# Create volcano plot
+volcano_plot <- ggplot(volcano_data, aes(x = log_fc, y = neg_log10_p)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+  # Grey points for non-significant
+  geom_point(data = volcano_data %>% filter(significance == "Not Significant"),
+             color = "grey70", alpha = 0.5, size = 2) +
+  # Red for positive associations
+  geom_point(data = volcano_data %>% filter(significance == "Positive (FDR < 0.05)"),
+             color = "darkred", size = 3) +
+  # Blue for negative associations
+  geom_point(data = volcano_data %>% filter(significance == "Negative (FDR < 0.05)"),
+             color = "darkblue", size = 3) +
+  # Add labels for significant proteins
+  geom_text_repel(data = volcano_data %>% filter(fdr < 0.05),
+                  aes(label = label),
+                  size = 3.5,
+                  max.overlaps = 20,
+                  box.padding = 0.5,
+                  point.padding = 0.3,
+                  segment.color = "grey50",
+                  segment.size = 0.3) +
+  # # Add FDR threshold line (the correct one!)
+  # geom_hline(yintercept = -log10(fdr_threshold_pvalue), 
+  #            linetype = "dashed", color = "gray", linewidth = 0.5) +
+  # annotate("text", x = min(volcano_data$log_fc, na.rm = TRUE) * 0.8, 
+  #          y = -log10(fdr_threshold_pvalue) + 0.3,
+  #          label = "FDR = 0.05", color = "red", size = 3.5, hjust = 0) +
+  # Optional: raw p = 0.05 reference line
+  # geom_hline(yintercept = -log10(0.05), linetype = "dotted", 
+  #            color = "grey50", alpha = 0.5, linewidth = 0.5) +
+  # Labels and theme
+  labs(x = "Coefficient (Effect Size)",
+       y = "-log10(p-value)",
+       title = "Volcano Plot of Baseline Proteins Associated with Mean Longitudinal AST",
+       subtitle = paste0("Red: Positive associations (n=", n_pos, ") | Blue: Negative associations (n=", n_neg, ") | FDR < 0.05")) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+print(volcano_plot)
+
+# Save plot
+ggsave("~/Results/volcano_baseline_mean_ast.png", 
+       volcano_plot, 
+       width = 9, height = 7, dpi = 300)
+
+```
+####C. Mean ALT  & Combined Proteomics
+```{r}
+# Choose which outcome and approach to start with
+outcome_choice <- "mean_alt"
+approach_choice <- "combined"  # or "baseline"
+
+# Get selected proteins from COMBINED elastic net results
+selected_proteins <- results_combined[[outcome_choice]]$selected_proteins_min
+
+cat("Number of selected proteins:", length(selected_proteins), "\n")
+
+# Separate baseline and change features
+baseline_prots <- selected_proteins[!grepl("_change$", selected_proteins)]
+change_prots <- selected_proteins[grepl("_change$", selected_proteins)]
+
+cat("Baseline features:", length(baseline_prots), "\n")
+cat("Change features:", length(change_prots), "\n")
+
+# Prepare longitudinal dataset
+# Merge clinical data with proteomics (long format)
+mixed_model_data <- clinical %>%
+  # Join with BASELINE proteins from proteomics_baseline
+  left_join(
+    proteomics_baseline %>% dplyr::select(releaseid, all_of(baseline_prots)),
+    by = "releaseid"
+  ) %>%
+  # Join with CHANGE proteins from proteomics_change
+  left_join(
+    proteomics_change %>% dplyr::select(releaseid, all_of(change_prots)),
+    by = "releaseid"
+  )
+
+# Check dimensions
+cat("Dataset dimensions:", nrow(mixed_model_data), "rows x", ncol(mixed_model_data), "columns\n")
+cat("Unique individuals:", length(unique(mixed_model_data$releaseid)), "\n")
+
+# Remove rows with missing outcome
+mixed_model_data <- mixed_model_data %>%
+  filter(!is.na(alt))
+
+cat("After removing missing ALT:", nrow(mixed_model_data), "rows\n")
+
+# Scale ALL selected proteins (both baseline and change)
+cat("\nScaling", length(selected_proteins), "proteins...\n")
+
+mixed_model_data <- mixed_model_data %>%
+  mutate(across(all_of(selected_proteins), 
+                ~scale(.)[,1],
+                .names = "{.col}"))
+
+# Verify scaling
+cat("\nVerifying scaling:\n")
+protein_check_scaled <- mixed_model_data %>%
+  dplyr::select(all_of(selected_proteins[1:5])) %>%
+  summarise(across(everything(), list(
+    mean = ~mean(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE)
+  )))
+
+print(t(protein_check_scaled))
+cat("\n✓ Proteins are now scaled!\n")
+
+# Build mixed model formula
+cat("\nBuilding mixed model with", length(selected_proteins), "features (baseline + change)\n")
+
+# Create formula string with ALL selected proteins
+protein_formula <- paste(selected_proteins, collapse = " + ")
+formula_str <- paste0("alt ~ visit_num + ", protein_formula, " + (1 + visit_num | releaseid)")
+
+cat("Formula: alt ~ visit_num + [", length(baseline_prots), "baseline +", length(change_prots), "change features] + (1 + visit_num | releaseid)\n")
+
+# Fit the model
+cat("\nFitting model... this may take longer with", length(selected_proteins), "features\n")
+start_time <- Sys.time()
+
+model_combined_alt <- lmer(
+  as.formula(formula_str), 
+  data = mixed_model_data, 
+  REML = TRUE,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000))
+)
+
+end_time <- Sys.time()
+cat("Model fitting time:", round(difftime(end_time, start_time, units = "mins"), 2), "minutes\n")
+
+# Check convergence
+if(model_combined_alt@optinfo$conv$opt == 0) {
+  cat("\n✓ Model converged successfully!\n")
+} else {
+  cat("\n⚠ Warning: Model convergence issue\n")
+  print(model_combined_alt@optinfo$conv$lme4$messages)
+}
+
+# Extract results (rest is same as before)
+fixed_effects <- summary(model_combined_alt)$coefficients
+protein_effects <- fixed_effects[grepl("^seq\\.", rownames(fixed_effects)), , drop = FALSE]
+
+protein_effects_df <- as.data.frame(protein_effects) %>%
+  tibble::rownames_to_column("protein") %>%
+  rename(
+    estimate = Estimate,
+    se = `Std. Error`,
+    df = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  mutate(
+    fdr = p.adjust(p_value, method = "fdr"),
+    # Add feature type indicator
+    feature_type = ifelse(grepl("_change$", protein), "Change", "Baseline")
+  ) %>%
+  arrange(p_value)
+
+# Summary
+cat("\n=== RESULTS SUMMARY ===\n")
+cat("Total features tested:", nrow(protein_effects_df), "\n")
+cat("Significant (p < 0.05):", sum(protein_effects_df$p_value < 0.05), "\n")
+cat("Significant (FDR < 0.05):", sum(protein_effects_df$fdr < 0.05), "\n")
+cat("  - Baseline features:", sum(protein_effects_df$fdr < 0.05 & protein_effects_df$feature_type == "Baseline"), "\n")
+cat("  - Change features:", sum(protein_effects_df$fdr < 0.05 & protein_effects_df$feature_type == "Change"), "\n")
+
+# Add gene symbols - need to handle _change suffix
+protein_effects_annotated <- protein_effects_df %>%
+  mutate(
+    # Remove _change suffix for matching with analytes
+    protein_base = gsub("_change$", "", protein)
+  ) %>%
+  left_join(
+    analytes %>% dplyr::select(AptName, EntrezGeneSymbol),
+    by = c("protein_base" = "AptName")
+  ) %>%
+  dplyr::select(protein, EntrezGeneSymbol, feature_type, estimate, se, t_value, p_value, fdr, everything(), -protein_base)
+
+# Check mapping success
+cat("\nProteins mapped to gene symbols:", sum(!is.na(protein_effects_annotated$EntrezGeneSymbol)), "/", nrow(protein_effects_annotated), "\n")
+cat("Baseline features mapped:", sum(!is.na(protein_effects_annotated$EntrezGeneSymbol) & protein_effects_annotated$feature_type == "Baseline"), "\n")
+cat("Change features mapped:", sum(!is.na(protein_effects_annotated$EntrezGeneSymbol) & protein_effects_annotated$feature_type == "Change"), "\n")
+
+# Show top hits
+top_hits <- protein_effects_annotated %>%
+  filter(fdr < 0.1) %>%
+  arrange(p_value) %>%
+  dplyr::select(EntrezGeneSymbol, feature_type, protein, estimate, se, p_value, fdr)
+
+cat("\n=== SIGNIFICANT FEATURES (FDR < 0.1) ===\n")
+print(top_hits)
+
+# Save results
+write.csv(protein_effects_annotated,
+          "~/Results/mixed_model_combined_mean_alt_annotated.csv",
+          row.names = FALSE)
+
+write.csv(top_hits,
+          "~/Results/mixed_model_combined_mean_alt_top_hits.csv",
+          row.names = FALSE)
+
+cat("\n✓ Results saved\n")
+# Check if it's really bad
+max(abs(summary(model_combined_alt)$coefficients[, "Std. Error"]))
+# If SEs are huge (>100), model is unstable
+# ============================================
+# VOLCANO PLOT: COMBINED MODEL RESULTS
+# ============================================
+
+# Prepare volcano plot data with unique labels
+volcano_data_combined <- protein_effects_annotated %>%
+  mutate(
+    log_fc = estimate,
+    neg_log10_p = -log10(p_value),
+    # Color by feature type AND significance
+    significance = case_when(
+      fdr < 0.05 & feature_type == "Baseline" & estimate > 0 ~ "Baseline Positive",
+      fdr < 0.05 & feature_type == "Baseline" & estimate < 0 ~ "Baseline Negative",
+      fdr < 0.05 & feature_type == "Change" & estimate > 0 ~ "Change Positive",
+      fdr < 0.05 & feature_type == "Change" & estimate < 0 ~ "Change Negative",
+      TRUE ~ "Not Significant"
+    )
+  ) %>%
+  # Create unique labels for duplicates
+  group_by(EntrezGeneSymbol) %>%
+  mutate(
+    n_duplicates = n(),
+    duplicate_id = row_number(),
+    label = case_when(
+      fdr >= 0.05 ~ "",  # No label for non-significant
+      is.na(EntrezGeneSymbol) ~ protein,  # Use aptamer ID if no gene symbol
+      n_duplicates > 1 ~ paste0(EntrezGeneSymbol, "_apt", duplicate_id),  # Add suffix for duplicates
+      TRUE ~ EntrezGeneSymbol  # Use gene symbol for unique ones
+    )
+  ) %>%
+  ungroup()
+
+# Count significant features
+sig_counts <- volcano_data_combined %>%
+  filter(fdr < 0.05) %>%
+  count(significance)
+
+cat("\n=== SIGNIFICANT FEATURES (FDR < 0.05) ===\n")
+print(sig_counts)
+
+# Check for any missing labels
+missing_labels <- volcano_data_combined %>%
+  filter(fdr < 0.05, label == "")
+if(nrow(missing_labels) > 0) {
+  cat("\n⚠ WARNING:", nrow(missing_labels), "significant features have no gene symbol\n")
+  print(missing_labels %>% dplyr::select(protein, EntrezGeneSymbol, fdr))
+}
+
+# Find FDR threshold
+fdr_threshold_pvalue <- max(volcano_data_combined$p_value[volcano_data_combined$fdr < 0.05], na.rm = TRUE)
+if(is.infinite(fdr_threshold_pvalue) | length(fdr_threshold_pvalue) == 0) {
+  fdr_threshold_pvalue <- 0.05
+}
+
+# Create volcano plot with legend
+volcano_plot <- ggplot(volcano_data_combined, aes(x = log_fc, y = neg_log10_p)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+  
+  # Plot all points with color and shape mapping
+  geom_point(aes(color = significance, shape = significance, size = significance, alpha = significance)) +
+  
+  # Manual scales
+  scale_color_manual(
+    values = c(
+      "Baseline Positive" = "darkred",
+      "Baseline Negative" = "darkblue",
+      "Change Positive" = "darkorange",
+      "Change Negative" = "cyan3",
+      "Not Significant" = "grey70"
+    ),
+    breaks = c("Baseline Positive", "Baseline Negative", "Change Positive", "Change Negative")
+  ) +
+  scale_shape_manual(
+    values = c(
+      "Baseline Positive" = 16,    # circle
+      "Baseline Negative" = 16,    # circle
+      "Change Positive" = 17,      # triangle
+      "Change Negative" = 17,      # triangle
+      "Not Significant" = 16       # circle
+    ),
+    breaks = c("Baseline Positive", "Baseline Negative", "Change Positive", "Change Negative")
+  ) +
+  scale_size_manual(
+    values = c(
+      "Baseline Positive" = 3.5,
+      "Baseline Negative" = 3.5,
+      "Change Positive" = 4,
+      "Change Negative" = 4,
+      "Not Significant" = 2
+    ),
+    breaks = c("Baseline Positive", "Baseline Negative", "Change Positive", "Change Negative")
+  ) +
+  scale_alpha_manual(
+    values = c(
+      "Baseline Positive" = 1,
+      "Baseline Negative" = 1,
+      "Change Positive" = 1,
+      "Change Negative" = 1,
+      "Not Significant" = 0.5
+    ),
+    breaks = c("Baseline Positive", "Baseline Negative", "Change Positive", "Change Negative")
+  ) +
+  
+  # Labels for ALL significant features
+  geom_text_repel(
+    data = volcano_data_combined %>% filter(fdr < 0.05),
+    aes(label = label),
+    size = 3,
+    max.overlaps = Inf,  # Show all labels
+    box.padding = 0.5,
+    point.padding = 0.3,
+    segment.size = 0.3,
+    segment.color = "grey50",
+    min.segment.length = 0,
+    show.legend = FALSE
+  ) +
+  
+  # Labels and theme
+  labs(
+    x = "Coefficient: Change in ALT (U/L) per SD",
+    y = "-log10(p-value)",
+    title = "Volcano Plot of Combined Model: Baseline + Change Features",
+    color = "Feature Type",
+    shape = "Feature Type"
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 13, face = "bold"),
+    axis.title = element_text(size = 11),
+    legend.position = "right",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 9)
+  ) +
+  guides(
+    color = guide_legend(override.aes = list(size = 4)),
+    shape = guide_legend(override.aes = list(size = 4)),
+    size = "none",
+    alpha = "none"
+  )
+
+print(volcano_plot)
+
+# Save
+ggsave("~/Results/volcano_combined_mean_alt.png",
+       volcano_plot, 
+       width = 12, height = 9, dpi = 300)
+
+
+
+```
+
+####D. Mean AST  & Combined Proteomics
+```{r}
+# Choose which outcome and approach to start with
+outcome_choice <- "mean_ast"
+approach_choice <- "combined"  # or "baseline"
+
+# Get selected proteins from COMBINED elastic net results
+selected_proteins <- results_combined[[outcome_choice]]$selected_proteins_min
+
+cat("Number of selected proteins:", length(selected_proteins), "\n")
+
+# Separate baseline and change features
+baseline_prots <- selected_proteins[!grepl("_change$", selected_proteins)]
+change_prots <- selected_proteins[grepl("_change$", selected_proteins)]
+
+cat("Baseline features:", length(baseline_prots), "\n")
+cat("Change features:", length(change_prots), "\n")
+
+# Prepare longitudinal dataset
+# Merge clinical data with proteomics (long format)
+mixed_model_data <- clinical %>%
+  # Join with BASELINE proteins from proteomics_baseline
+  left_join(
+    proteomics_baseline %>% dplyr::select(releaseid, all_of(baseline_prots)),
+    by = "releaseid"
+  ) %>%
+  # Join with CHANGE proteins from proteomics_change
+  left_join(
+    proteomics_change %>% dplyr::select(releaseid, all_of(change_prots)),
+    by = "releaseid"
+  )
+
+# Check dimensions
+cat("Dataset dimensions:", nrow(mixed_model_data), "rows x", ncol(mixed_model_data), "columns\n")
+cat("Unique individuals:", length(unique(mixed_model_data$releaseid)), "\n")
+
+# Remove rows with missing outcome
+mixed_model_data <- mixed_model_data %>%
+  filter(!is.na(ast))
+
+cat("After removing missing AST:", nrow(mixed_model_data), "rows\n")
+
+# Scale ALL selected proteins (both baseline and change)
+cat("\nScaling", length(selected_proteins), "proteins...\n")
+
+mixed_model_data <- mixed_model_data %>%
+  mutate(across(all_of(selected_proteins), 
+                ~scale(.)[,1],
+                .names = "{.col}"))
+
+# Verify scaling
+cat("\nVerifying scaling:\n")
+protein_check_scaled <- mixed_model_data %>%
+  dplyr::select(all_of(selected_proteins[1:5])) %>%
+  summarise(across(everything(), list(
+    mean = ~mean(., na.rm = TRUE),
+    sd = ~sd(., na.rm = TRUE)
+  )))
+
+print(t(protein_check_scaled))
+cat("\n✓ Proteins are now scaled!\n")
+
+# Build mixed model formula
+cat("\nBuilding mixed model with", length(selected_proteins), "features (baseline + change)\n")
+
+# Create formula string with ALL selected proteins
+protein_formula <- paste(selected_proteins, collapse = " + ")
+formula_str <- paste0("ast ~ visit_num + ", protein_formula, " + (1 + visit_num | releaseid)")
+
+cat("Formula: ast ~ visit_num + [", length(baseline_prots), "baseline +", length(change_prots), "change features] + (1 + visit_num | releaseid)\n")
+
+# Fit the model
+cat("\nFitting model... this may take longer with", length(selected_proteins), "features\n")
+start_time <- Sys.time()
+
+model_combined_ast <- lmer(
+  as.formula(formula_str), 
+  data = mixed_model_data, 
+  REML = TRUE,
+  control = lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 100000))
+)
+
+end_time <- Sys.time()
+cat("Model fitting time:", round(difftime(end_time, start_time, units = "mins"), 2), "minutes\n")
+
+# Check convergence
+if(model_combined_ast@optinfo$conv$opt == 0) {
+  cat("\n✓ Model converged successfully!\n")
+} else {
+  cat("\n⚠ Warning: Model convergence issue\n")
+  print(model_combined_ast@optinfo$conv$lme4$messages)
+}
+
+# Extract results (rest is same as before)
+fixed_effects <- summary(model_combined_ast)$coefficients
+protein_effects <- fixed_effects[grepl("^seq\\.", rownames(fixed_effects)), , drop = FALSE]
+
+protein_effects_df <- as.data.frame(protein_effects) %>%
+  tibble::rownames_to_column("protein") %>%
+  rename(
+    estimate = Estimate,
+    se = `Std. Error`,
+    df = df,
+    t_value = `t value`,
+    p_value = `Pr(>|t|)`
+  ) %>%
+  mutate(
+    fdr = p.adjust(p_value, method = "fdr"),
+    # Add feature type indicator
+    feature_type = ifelse(grepl("_change$", protein), "Change", "Baseline")
+  ) %>%
+  arrange(p_value)
+
+# Summary
+cat("\n=== RESULTS SUMMARY ===\n")
+cat("Total features tested:", nrow(protein_effects_df), "\n")
+cat("Significant (p < 0.05):", sum(protein_effects_df$p_value < 0.05), "\n")
+cat("Significant (FDR < 0.05):", sum(protein_effects_df$fdr < 0.05), "\n")
+cat("  - Baseline features:", sum(protein_effects_df$fdr < 0.05 & protein_effects_df$feature_type == "Baseline"), "\n")
+cat("  - Change features:", sum(protein_effects_df$fdr < 0.05 & protein_effects_df$feature_type == "Change"), "\n")
+
+# Add gene symbols - need to handle _change suffix
+protein_effects_annotated <- protein_effects_df %>%
+  mutate(
+    # Remove _change suffix for matching with analytes
+    protein_base = gsub("_change$", "", protein)
+  ) %>%
+  left_join(
+    analytes %>% dplyr::select(AptName, EntrezGeneSymbol),
+    by = c("protein_base" = "AptName")
+  ) %>%
+  dplyr::select(protein, EntrezGeneSymbol, feature_type, estimate, se, t_value, p_value, fdr, everything(), -protein_base)
+
+# Check mapping success
+cat("\nProteins mapped to gene symbols:", sum(!is.na(protein_effects_annotated$EntrezGeneSymbol)), "/", nrow(protein_effects_annotated), "\n")
+cat("Baseline features mapped:", sum(!is.na(protein_effects_annotated$EntrezGeneSymbol) & protein_effects_annotated$feature_type == "Baseline"), "\n")
+cat("Change features mapped:", sum(!is.na(protein_effects_annotated$EntrezGeneSymbol) & protein_effects_annotated$feature_type == "Change"), "\n")
+
+# Show top hits
+top_hits <- protein_effects_annotated %>%
+  filter(fdr < 0.1) %>%
+  arrange(p_value) %>%
+  dplyr::select(EntrezGeneSymbol, feature_type, protein, estimate, se, p_value, fdr)
+
+cat("\n=== SIGNIFICANT FEATURES (FDR < 0.1) ===\n")
+print(top_hits)
+
+# Save results
+write.csv(protein_effects_annotated,
+          "~/Results/mixed_model_combined_mean_ast_annotated.csv",
+          row.names = FALSE)
+
+write.csv(top_hits,
+          "~/Results/mixed_model_combined_mean_ast_top_hits.csv",
+          row.names = FALSE)
+
+cat("\n✓ Results saved\n")
+# Check if it's really bad
+max(abs(summary(model_combined_ast)$coefficients[, "Std. Error"]))
+# If SEs are huge (>100), model is unstable
+# ============================================
+# VOLCANO PLOT: COMBINED MODEL RESULTS
+# ============================================
+
+# Prepare volcano plot data with unique labels
+volcano_data_combined <- protein_effects_annotated %>%
+  mutate(
+    log_fc = estimate,
+    neg_log10_p = -log10(p_value),
+    # Color by feature type AND significance
+    significance = case_when(
+      fdr < 0.05 & feature_type == "Baseline" & estimate > 0 ~ "Baseline Positive",
+      fdr < 0.05 & feature_type == "Baseline" & estimate < 0 ~ "Baseline Negative",
+      fdr < 0.05 & feature_type == "Change" & estimate > 0 ~ "Change Positive",
+      fdr < 0.05 & feature_type == "Change" & estimate < 0 ~ "Change Negative",
+      TRUE ~ "Not Significant"
+    )
+  ) %>%
+  # Create unique labels for duplicates
+  group_by(EntrezGeneSymbol) %>%
+  mutate(
+    n_duplicates = n(),
+    duplicate_id = row_number(),
+    label = case_when(
+      fdr >= 0.05 ~ "",  # No label for non-significant
+      is.na(EntrezGeneSymbol) ~ protein,  # Use aptamer ID if no gene symbol
+      n_duplicates > 1 ~ paste0(EntrezGeneSymbol, "_apt", duplicate_id),  # Add suffix for duplicates
+      TRUE ~ EntrezGeneSymbol  # Use gene symbol for unique ones
+    )
+  ) %>%
+  ungroup()
+
+# Count significant features
+sig_counts <- volcano_data_combined %>%
+  filter(fdr < 0.05) %>%
+  count(significance)
+
+cat("\n=== SIGNIFICANT FEATURES (FDR < 0.05) ===\n")
+print(sig_counts)
+
+# Check for any missing labels
+missing_labels <- volcano_data_combined %>%
+  filter(fdr < 0.05, label == "")
+if(nrow(missing_labels) > 0) {
+  cat("\n⚠ WARNING:", nrow(missing_labels), "significant features have no gene symbol\n")
+  print(missing_labels %>% dplyr::select(protein, EntrezGeneSymbol, fdr))
+}
+
+# Find FDR threshold
+fdr_threshold_pvalue <- max(volcano_data_combined$p_value[volcano_data_combined$fdr < 0.05], na.rm = TRUE)
+if(is.infinite(fdr_threshold_pvalue) | length(fdr_threshold_pvalue) == 0) {
+  fdr_threshold_pvalue <- 0.05
+}
+
+# Create volcano plot with legend
+volcano_plot <- ggplot(volcano_data_combined, aes(x = log_fc, y = neg_log10_p)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", alpha = 0.5) +
+  
+  # Plot all points with color and shape mapping
+  geom_point(aes(color = significance, shape = significance, size = significance, alpha = significance)) +
+  
+  # Manual scales
+  scale_color_manual(
+    values = c(
+      "Baseline Positive" = "darkred",
+      "Baseline Negative" = "darkblue",
+      "Change Positive" = "darkorange",
+      "Change Negative" = "cyan3",
+      "Not Significant" = "grey70"
+    ),
+    breaks = c("Baseline Positive", "Baseline Negative", "Change Positive", "Change Negative")
+  ) +
+  scale_shape_manual(
+    values = c(
+      "Baseline Positive" = 16,    # circle
+      "Baseline Negative" = 16,    # circle
+      "Change Positive" = 17,      # triangle
+      "Change Negative" = 17,      # triangle
+      "Not Significant" = 16       # circle
+    ),
+    breaks = c("Baseline Positive", "Baseline Negative", "Change Positive", "Change Negative")
+  ) +
+  scale_size_manual(
+    values = c(
+      "Baseline Positive" = 3.5,
+      "Baseline Negative" = 3.5,
+      "Change Positive" = 4,
+      "Change Negative" = 4,
+      "Not Significant" = 2
+    ),
+    breaks = c("Baseline Positive", "Baseline Negative", "Change Positive", "Change Negative")
+  ) +
+  scale_alpha_manual(
+    values = c(
+      "Baseline Positive" = 1,
+      "Baseline Negative" = 1,
+      "Change Positive" = 1,
+      "Change Negative" = 1,
+      "Not Significant" = 0.5
+    ),
+    breaks = c("Baseline Positive", "Baseline Negative", "Change Positive", "Change Negative")
+  ) +
+  
+  # Labels for ALL significant features
+  geom_text_repel(
+    data = volcano_data_combined %>% filter(fdr < 0.05),
+    aes(label = label),
+    size = 3,
+    max.overlaps = Inf,  # Show all labels
+    box.padding = 0.5,
+    point.padding = 0.3,
+    segment.size = 0.3,
+    segment.color = "grey50",
+    min.segment.length = 0,
+    show.legend = FALSE
+  ) +
+  
+  # Labels and theme
+  labs(
+    x = "Coefficient: Change in AST (U/L) per SD",
+    y = "-log10(p-value)",
+    title = "Volcano Plot of Combined Model: Baseline + Change Features",
+    color = "Feature Type",
+    shape = "Feature Type"
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 13, face = "bold"),
+    axis.title = element_text(size = 11),
+    legend.position = "right",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 9)
+  ) +
+  guides(
+    color = guide_legend(override.aes = list(size = 4)),
+    shape = guide_legend(override.aes = list(size = 4)),
+    size = "none",
+    alpha = "none"
+  )
+
+print(volcano_plot)
+
+# Save
+ggsave("~/Results/volcano_combined_mean_ast.png",
+       volcano_plot, 
+       width = 12, height = 9, dpi = 300)
+
+
+
+```
+
+##e. Longitudinal Elastic Net Feature Selection
 ###i. Process and Prepare Data
 ```{r}
 # Order data by subject and visit (REQUIRED for PGEE)
