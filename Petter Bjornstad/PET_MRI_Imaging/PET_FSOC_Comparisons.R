@@ -163,16 +163,17 @@ dat_results <- dat_results %>% filter(!is.na(avg_c_k2))
 
 
 
-
-
-
 # ============================================================================
 # PET ANALYSIS: Hypermetabolism Across Disease Groups
 # Boxplots, Sex-stratified boxplots, and Heatmaps
+# Matching FSOC analysis style
 # ============================================================================
 
-# Additional libraries needed (you already have most loaded)
+# Additional libraries needed
 library(car)
+library(rstatix)
+library(ggpubr)
+library(ggsignif)
 
 # Set output directory
 OUTPUT_DIR <- "C:/Users/netio/Documents/UofW/Projects/Imaging_Shivani/PET_Analysis"
@@ -196,14 +197,16 @@ pet_labels <- c(
   "avg_m_k2_f" = "Medullary K2/F Ratio"
 )
 
-# Group levels and colors (5 groups including PKD)
+# Group levels and colors - MATCHING FSOC ANALYSIS
 group_levels <- c("Lean Control", "Obese Control", "Type 1 Diabetes", 
                   "Type 2 Diabetes", "PKD")
-group_colors <- c("Lean Control" = "#2166AC",
-                  "Obese Control" = "#67A9CF",
-                  "Type 1 Diabetes" = "#FDDBC7",
-                  "Type 2 Diabetes" = "#B2182B",
-                  "PKD" = "#762A83")
+
+# Colors matching your FSOC analysis exactly
+group_colors <- c("Lean Control" = "#3182BD",
+                  "Obese Control" = "#9ECAE1",
+                  "Type 1 Diabetes" = "#FDAE6B",
+                  "Type 2 Diabetes" = "#E6550D",
+                  "PKD" = "#9E9AC8")
 
 # Prepare the data - set up group and sex factors
 dat_results <- dat_results %>%
@@ -211,7 +214,7 @@ dat_results <- dat_results %>%
          sex = factor(sex, levels = c("Female", "Male")))
 
 # ============================================================================
-# 1. BOXPLOTS BY GROUP
+# 1. BOXPLOTS BY GROUP WITH PAIRWISE P-VALUES (simplified, fast version)
 # ============================================================================
 
 plot_pet_by_group <- function(dat, endpoint, label) {
@@ -220,7 +223,7 @@ plot_pet_by_group <- function(dat, endpoint, label) {
     filter(!is.na(group), !is.na(.data[[endpoint]])) %>%
     mutate(group = factor(group, levels = group_levels))
   
-  # Run ANOVA with covariates
+  # Run ANOVA with covariates for adjusted analysis
   formula_str <- paste(endpoint, "~ group + age + sex + weight")
   model <- tryCatch({
     lm(as.formula(formula_str), data = dat_plot)
@@ -229,39 +232,50 @@ plot_pet_by_group <- function(dat, endpoint, label) {
     return(NULL)
   })
   
-  if (is.null(model)) return(NULL)
+  # Get pairwise comparisons using emmeans (adjusted)
+  pairs_df <- NULL
+  if (!is.null(model)) {
+    emm <- emmeans(model, ~ group)
+    pairs_result <- pairs(emm, adjust = "tukey")
+    pairs_df <- as.data.frame(pairs_result)
+    
+    # Print pairwise results
+    cat("\n--- Pairwise comparisons for", label, "(adjusted) ---\n")
+    print(pairs_df[, c("contrast", "estimate", "SE", "p.value")])
+  }
   
-  # Get pairwise comparisons
-  emm <- emmeans(model, ~ group)
-  pairs_result <- pairs(emm, adjust = "tukey")
-  pairs_df <- as.data.frame(pairs_result)
-  
-  # Create p-value annotations
-  pairs_df <- pairs_df %>%
+  # Calculate unadjusted pairwise comparisons (Wilcoxon)
+  stat_test <- dat_plot %>%
+    wilcox_test(as.formula(paste(endpoint, "~ group"))) %>%
     mutate(p_label = case_when(
-      p.value < 0.001 ~ "***",
-      p.value < 0.01 ~ "**",
-      p.value < 0.05 ~ "*",
-      TRUE ~ ""
+      p < 0.001 ~ "p<0.001",
+      p < 0.01 ~ paste0("p=", formatC(p, format = "f", digits = 3)),
+      TRUE ~ paste0("p=", formatC(p, format = "f", digits = 2))
     ))
   
-  # Create boxplot
+  # Get y-axis range for positioning
+  y_max <- max(dat_plot[[endpoint]], na.rm = TRUE)
+  y_min <- min(dat_plot[[endpoint]], na.rm = TRUE)
+  y_range <- y_max - y_min
+  
+  # Create boxplot (no p-value brackets for speed - they're printed to console)
   p <- ggplot(dat_plot, aes(x = group, y = .data[[endpoint]], fill = group)) +
     geom_boxplot(width = 0.7, outlier.shape = NA, alpha = 0.8) +
     geom_jitter(width = 0.2, alpha = 0.5, size = 1.5) +
     scale_fill_manual(values = group_colors) +
     labs(title = label,
-         subtitle = "Adjusted for age, sex, and weight",
+         subtitle = "Raw pairwise Wilcoxon p-values printed to console",
          y = label, x = "") +
-    theme_minimal() +
+    theme_bw() +
     theme(
       legend.position = "none",
       axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
       plot.title = element_text(face = "bold", size = 12),
+      plot.subtitle = element_text(size = 8, color = "gray50"),
       panel.grid.minor = element_blank()
     )
   
-  return(list(plot = p, model = model, pairwise = pairs_df))
+  return(list(plot = p, model = model, pairwise = pairs_df, stat_test = stat_test))
 }
 
 # Generate all group boxplots
@@ -271,7 +285,13 @@ generate_group_boxplots <- function(dat) {
   
   for (endpoint in pet_endpoints) {
     label <- pet_labels[endpoint]
-    result <- plot_pet_by_group(dat, endpoint, label)
+    result <- tryCatch({
+      plot_pet_by_group(dat, endpoint, label)
+    }, error = function(e) {
+      message("Failed for ", endpoint, ": ", e$message)
+      return(NULL)
+    })
+    
     if (!is.null(result)) {
       results[[endpoint]] <- result
       plots[[endpoint]] <- result$plot
@@ -285,7 +305,7 @@ generate_group_boxplots <- function(dat) {
 }
 
 # ============================================================================
-# 2. BOXPLOTS BY GROUP SPLIT BY SEX
+# 2. BOXPLOTS BY GROUP SPLIT BY SEX (raw pairwise p-values)
 # ============================================================================
 
 plot_pet_by_group_sex <- function(dat, endpoint, label) {
@@ -295,50 +315,47 @@ plot_pet_by_group_sex <- function(dat, endpoint, label) {
     mutate(
       group = factor(group, levels = group_levels),
       sex = factor(sex, levels = c("Female", "Male"))
-    )
+    ) %>%
+    droplevels()
   
-  # Test for sex × group interaction
-  formula_int <- paste(endpoint, "~ group * sex + age + weight")
-  model_int <- tryCatch({
-    lm(as.formula(formula_int), data = dat_plot)
-  }, error = function(e) {
-    message("Interaction model failed for ", endpoint, ": ", e$message)
+  # Check we have data
+  if (nrow(dat_plot) < 5) {
+    message("Not enough data for ", endpoint)
     return(NULL)
-  })
-  
-  if (is.null(model_int)) return(NULL)
-  
-  anova_int <- tryCatch({
-    Anova(model_int, type = "III")
-  }, error = function(e) {
-    message("ANOVA failed for ", endpoint)
-    return(NULL)
-  })
-  
-  interaction_p <- if (!is.null(anova_int) && "group:sex" %in% rownames(anova_int)) {
-    anova_int["group:sex", "Pr(>F)"]
-  } else {
-    NA
   }
   
-  # Create boxplot
+  # Calculate RAW pairwise comparisons within each group (between sexes)
+  # No adjustment - raw Wilcoxon p-values
+  stat_test <- NULL
+  tryCatch({
+    stat_test <- dat_plot %>%
+      group_by(group) %>%
+      filter(n_distinct(sex) == 2) %>%  # Only groups with both sexes
+      wilcox_test(as.formula(paste(endpoint, "~ sex"))) %>%
+      ungroup() %>%
+      mutate(p_label = case_when(
+        p < 0.001 ~ "p<0.001",
+        p < 0.01 ~ paste0("p=", formatC(p, format = "f", digits = 3)),
+        TRUE ~ paste0("p=", formatC(p, format = "f", digits = 2))
+      ))
+  }, error = function(e) {
+    message("Wilcoxon test failed: ", e$message)
+  })
+  
+  # Get y-axis range for positioning
+  y_max <- max(dat_plot[[endpoint]], na.rm = TRUE)
+  y_min <- min(dat_plot[[endpoint]], na.rm = TRUE)
+  y_range <- y_max - y_min
+  
+  # Create boxplot - NO subtitle
   p <- ggplot(dat_plot, aes(x = group, y = .data[[endpoint]], fill = sex)) +
-    geom_boxplot(width = 0.7, outlier.shape = NA, alpha = 0.8,
+    geom_boxplot(width = 0.7, alpha = 0.8,
                  position = position_dodge(width = 0.75)) +
-    geom_point(aes(color = sex), 
-               position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.75),
-               alpha = 0.5, size = 1.5) +
-    scale_fill_manual(values = c("Female" = "#E78AC3", "Male" = "#8DA0CB"),
+    scale_fill_manual(values = c("Female" = "#E78AC3", "Male" = "#66C2A5"),
                       name = "Sex") +
-    scale_color_manual(values = c("Female" = "#E78AC3", "Male" = "#8DA0CB"),
-                       guide = "none") +
     labs(title = label,
-         subtitle = paste0("Sex × Group interaction p = ", 
-                           ifelse(is.na(interaction_p), "N/A",
-                                  ifelse(interaction_p < 0.001, "< 0.001", 
-                                         round(interaction_p, 3)))),
-         y = label, x = "") +
-    theme_minimal() +
+         y = label, x = "Disease Group") +
+    theme_bw() +
     theme(
       legend.position = "bottom",
       axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
@@ -346,7 +363,25 @@ plot_pet_by_group_sex <- function(dat, endpoint, label) {
       panel.grid.minor = element_blank()
     )
   
-  return(list(plot = p, model = model_int, interaction_p = interaction_p))
+  # Add raw p-values above each group if we have them
+  if (!is.null(stat_test) && nrow(stat_test) > 0) {
+    groups_in_plot <- levels(dat_plot$group)
+    for (i in seq_along(groups_in_plot)) {
+      grp <- groups_in_plot[i]
+      p_row <- stat_test %>% filter(group == grp)
+      if (nrow(p_row) > 0) {
+        p <- p + annotate("text", 
+                          x = i, 
+                          y = y_max + 0.08 * y_range,
+                          label = p_row$p_label[1],
+                          size = 2.5)
+      }
+    }
+    # Expand y-axis to fit p-values
+    p <- p + coord_cartesian(ylim = c(y_min - 0.02 * y_range, y_max + 0.18 * y_range))
+  }
+  
+  return(list(plot = p, stat_test = stat_test))
 }
 
 # Generate all sex-stratified boxplots
@@ -354,15 +389,33 @@ generate_sex_boxplots <- function(dat) {
   results <- list()
   plots <- list()
   
+  cat("Starting sex-stratified boxplots...\n")
+  
   for (endpoint in pet_endpoints) {
+    cat("  Processing:", endpoint, "\n")
     label <- pet_labels[endpoint]
-    result <- plot_pet_by_group_sex(dat, endpoint, label)
+    result <- tryCatch({
+      plot_pet_by_group_sex(dat, endpoint, label)
+    }, error = function(e) {
+      cat("    ERROR for ", endpoint, ": ", e$message, "\n")
+      return(NULL)
+    })
+    
     if (!is.null(result)) {
       results[[endpoint]] <- result
       plots[[endpoint]] <- result$plot
+      cat("    Success!\n")
+    } else {
+      cat("    Returned NULL\n")
     }
   }
   
+  if (length(plots) == 0) {
+    cat("No sex-stratified plots were generated!\n")
+    return(NULL)
+  }
+  
+  cat("Combining", length(plots), "plots...\n")
   combined_plot <- cowplot::plot_grid(plotlist = plots, ncol = 3, nrow = 2)
   
   return(list(individual = results, combined = combined_plot))
@@ -391,6 +444,8 @@ analyze_dxa_associations_pet <- function(dat) {
     message("No DXA variables found! Check variable names.")
     return(NULL)
   }
+  
+  cat("DXA variables found:", paste(existing_dxa, collapse = ", "), "\n")
   
   # Create matrices for coefficients and p-values
   coef_matrix <- matrix(NA, nrow = length(pet_endpoints), ncol = length(existing_dxa))
@@ -435,7 +490,7 @@ plot_dxa_heatmap_pet <- function(dxa_results) {
   sig_labels[p_mat >= 0.001 & p_mat < 0.01] <- "**"
   sig_labels[p_mat >= 0.01 & p_mat < 0.05] <- "*"
   
-  # Create heatmap
+  # Create heatmap (removed angle_col which was causing error)
   pheatmap(dxa_results$coefficient_matrix,
            display_numbers = sig_labels,
            cluster_rows = FALSE,
@@ -443,8 +498,7 @@ plot_dxa_heatmap_pet <- function(dxa_results) {
            color = colorRampPalette(c("#2166AC", "white", "#B2182B"))(100),
            main = "PET Associations with DXA Parameters\n(Adjusted for age, sex, disease group)",
            fontsize = 10,
-           fontsize_number = 14,
-           angle_col = 45)
+           fontsize_number = 14)
 }
 
 # ============================================================================
@@ -454,18 +508,18 @@ plot_dxa_heatmap_pet <- function(dxa_results) {
 analyze_clinical_associations_pet <- function(dat) {
   
   # Clinical variables - UPDATE to match your column names
-  clinical_vars <- c("diabetes_duration", "hba1c", "gfr_raw_plasma", "gfr_bsa_plasma",
-                     "erpf_raw_plasma", "erpf_bsa_plasma", "p_glo", "ff",
+  clinical_vars <- c("diabetes_duration", "hba1c", "eGFR_CKD_epi", "gfr_raw_plasma", "gfr_bsa_plasma",
+                     "erpf_raw_plasma", "erpf_bsa_plasma", "ff",
                      "acr_u", "sbp", "dbp")
   
   clinical_labels <- c(
     "diabetes_duration" = "DM Duration",
     "hba1c" = "HbA1c",
+    "eGFR_CKD_epi" = "eGFR (CKD-EPI)",
     "gfr_raw_plasma" = "mGFR (raw)",
     "gfr_bsa_plasma" = "mGFR (BSA)",
     "erpf_raw_plasma" = "ERPF (raw)",
     "erpf_bsa_plasma" = "ERPF (BSA)",
-    "p_glo" = "Pglo",
     "ff" = "FF",
     "acr_u" = "log(UACR)",
     "sbp" = "SBP",
@@ -478,6 +532,8 @@ analyze_clinical_associations_pet <- function(dat) {
     message("No clinical variables found! Check variable names.")
     return(NULL)
   }
+  
+  cat("Clinical variables found:", paste(existing_vars, collapse = ", "), "\n")
   existing_labels <- clinical_labels[existing_vars]
   
   coef_matrix <- matrix(NA, nrow = length(pet_endpoints), ncol = length(existing_vars))
@@ -529,6 +585,7 @@ plot_clinical_heatmap_pet <- function(clinical_results) {
   sig_labels[p_mat >= 0.001 & p_mat < 0.01] <- "**"
   sig_labels[p_mat >= 0.01 & p_mat < 0.05] <- "*"
   
+  # Create heatmap (removed angle_col which was causing error)
   pheatmap(clinical_results$coefficient_matrix,
            display_numbers = sig_labels,
            cluster_rows = FALSE,
@@ -536,8 +593,7 @@ plot_clinical_heatmap_pet <- function(clinical_results) {
            color = colorRampPalette(c("#2166AC", "white", "#B2182B"))(100),
            main = "PET Associations with Clinical Parameters\n(Adjusted for age, sex, disease group)",
            fontsize = 10,
-           fontsize_number = 14,
-           angle_col = 45)
+           fontsize_number = 14)
 }
 
 # ============================================================================
@@ -549,12 +605,12 @@ run_pet_analysis <- function(dat) {
   cat("Starting PET Analysis...\n")
   cat("Sample size:", nrow(dat), "\n\n")
   
-  # Step 1: Group boxplots
-  cat("Generating group boxplots...\n")
+  # Step 1: Group boxplots with pairwise p-values
+  cat("=== Generating group boxplots with pairwise comparisons ===\n")
   group_results <- generate_group_boxplots(dat)
   
   # Step 2: Sex-stratified boxplots
-  cat("Generating sex-stratified boxplots...\n")
+  cat("\n=== Generating sex-stratified boxplots ===\n")
   sex_results <- tryCatch({
     generate_sex_boxplots(dat)
   }, error = function(e) {
@@ -563,15 +619,15 @@ run_pet_analysis <- function(dat) {
   })
   
   # Step 3: DXA heatmap
-  cat("Analyzing DXA associations...\n")
+  cat("\n=== Analyzing DXA associations ===\n")
   dxa_results <- analyze_dxa_associations_pet(dat)
   
   # Step 4: Clinical heatmap
-  cat("Analyzing clinical associations...\n")
+  cat("\n=== Analyzing clinical associations ===\n")
   clinical_results <- analyze_clinical_associations_pet(dat)
   
   # Save outputs
-  cat("\nSaving outputs to:", OUTPUT_DIR, "\n")
+  cat("\n=== Saving outputs to:", OUTPUT_DIR, "===\n")
   
   # Save group boxplots
   pdf(file.path(OUTPUT_DIR, "pet_by_group.pdf"), width = 14, height = 10)
@@ -588,32 +644,48 @@ run_pet_analysis <- function(dat) {
   }
   
   # Save DXA heatmap
-  if (!is.null(dxa_results)) {
-    pdf(file.path(OUTPUT_DIR, "pet_dxa_heatmap.pdf"), width = 10, height = 8)
-    plot_dxa_heatmap_pet(dxa_results)
-    dev.off()
-    cat("Saved: pet_dxa_heatmap.pdf\n")
+  if (!is.null(dxa_results) && !all(is.na(dxa_results$coefficient_matrix))) {
+    tryCatch({
+      pdf(file.path(OUTPUT_DIR, "pet_dxa_heatmap.pdf"), width = 10, height = 8)
+      plot_dxa_heatmap_pet(dxa_results)
+      dev.off()
+      cat("Saved: pet_dxa_heatmap.pdf\n")
+    }, error = function(e) {
+      cat("Error saving DXA heatmap:", e$message, "\n")
+      dev.off()
+    })
     
     write.csv(dxa_results$coefficient_matrix, 
               file.path(OUTPUT_DIR, "pet_dxa_coefficients.csv"), row.names = TRUE)
     write.csv(dxa_results$p_value_matrix, 
               file.path(OUTPUT_DIR, "pet_dxa_pvalues.csv"), row.names = TRUE)
+    cat("Saved: pet_dxa_coefficients.csv and pet_dxa_pvalues.csv\n")
+  } else {
+    cat("DXA results are NULL or all NA - skipping heatmap\n")
   }
   
   # Save clinical heatmap
-  if (!is.null(clinical_results)) {
-    pdf(file.path(OUTPUT_DIR, "pet_clinical_heatmap.pdf"), width = 12, height = 8)
-    plot_clinical_heatmap_pet(clinical_results)
-    dev.off()
-    cat("Saved: pet_clinical_heatmap.pdf\n")
+  if (!is.null(clinical_results) && !all(is.na(clinical_results$coefficient_matrix))) {
+    tryCatch({
+      pdf(file.path(OUTPUT_DIR, "pet_clinical_heatmap.pdf"), width = 12, height = 8)
+      plot_clinical_heatmap_pet(clinical_results)
+      dev.off()
+      cat("Saved: pet_clinical_heatmap.pdf\n")
+    }, error = function(e) {
+      cat("Error saving clinical heatmap:", e$message, "\n")
+      dev.off()
+    })
     
     write.csv(clinical_results$coefficient_matrix, 
               file.path(OUTPUT_DIR, "pet_clinical_coefficients.csv"), row.names = TRUE)
     write.csv(clinical_results$p_value_matrix, 
               file.path(OUTPUT_DIR, "pet_clinical_pvalues.csv"), row.names = TRUE)
+    cat("Saved: pet_clinical_coefficients.csv and pet_clinical_pvalues.csv\n")
+  } else {
+    cat("Clinical results are NULL or all NA - skipping heatmap\n")
   }
   
-  cat("\nAnalysis complete!\n")
+  cat("\n=== Analysis complete! ===\n")
   
   return(list(
     group_boxplots = group_results,
@@ -644,16 +716,6 @@ if (!is.null(results$sex_boxplots)) print(results$sex_boxplots$combined)
 # View heatmaps interactively
 if (!is.null(results$dxa_associations)) plot_dxa_heatmap_pet(results$dxa_associations)
 if (!is.null(results$clinical_associations)) plot_clinical_heatmap_pet(results$clinical_associations)
-
-
-
-
-
-
-
-
-
-
 
 
 
