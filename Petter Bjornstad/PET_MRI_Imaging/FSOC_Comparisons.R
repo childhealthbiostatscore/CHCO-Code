@@ -560,12 +560,3 @@ write.csv(table1_df, file.path(OUTPUT_DIR, "table1_descriptives.csv"))
 
 # Step 7: Export all results (heatmaps and matrices)
 export_results(group_results, sex_results, dxa_results)
-
-cat("\n========================================\n")
-cat("All analyses complete!\n")
-cat("Results saved to:", OUTPUT_DIR, "\n")
-cat("========================================\n")
-
-cat("FSOC Analysis Script Loaded Successfully!\n")
-cat("Output directory set to:", OUTPUT_DIR, "\n")
-cat("Script will run automatically when sourced!\n")
