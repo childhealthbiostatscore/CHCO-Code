@@ -1158,3 +1158,86 @@ print(p_group)
 # Save
 ggsave(file.path(OUTPUT_DIR, "fsoc_by_group_pairwise.pdf"), p_group, width = 14, height = 8)
 ggsave(file.path(OUTPUT_DIR, "fsoc_by_group_pairwise.tiff"), p_group, width = 14, height = 8, dpi = 300)
+
+
+
+
+
+
+find_high_fsoc <- function(dat, wk_threshold = 15, med_threshold = 30) {
+  
+  cat("\n========================================\n")
+  cat("HIGH FSOC VALUES\n")
+  cat("Thresholds: Whole Kidney >", wk_threshold, ", Medullary >", med_threshold, "\n")
+  cat("========================================\n\n")
+  
+  # Find high whole kidney FSOC
+  high_wk <- dat %>%
+    filter(!is.na(group)) %>%
+    filter(whole_kidney_fsoc_abs > wk_threshold) %>%
+    dplyr::select(record_id, group, sex, age, 
+                  whole_kidney_fsoc_abs, medullary_fsoc_abs) %>%
+    arrange(desc(whole_kidney_fsoc_abs))
+  
+  cat("WHOLE KIDNEY FSOC >", wk_threshold, ":\n")
+  cat("Found", nrow(high_wk), "subjects\n")
+  if (nrow(high_wk) > 0) {
+    print(as.data.frame(high_wk))
+  }
+  
+  # Find high medullary FSOC
+  high_med <- dat %>%
+    filter(!is.na(group)) %>%
+    filter(medullary_fsoc_abs > med_threshold) %>%
+    dplyr::select(record_id, group, sex, age, 
+                  whole_kidney_fsoc_abs, medullary_fsoc_abs) %>%
+    arrange(desc(medullary_fsoc_abs))
+  
+  cat("\nMEDULLARY FSOC >", med_threshold, ":\n")
+  cat("Found", nrow(high_med), "subjects\n")
+  if (nrow(high_med) > 0) {
+    print(as.data.frame(high_med))
+  }
+  
+  # Combined: any extreme value
+  high_any <- dat %>%
+    filter(!is.na(group)) %>%
+    filter(whole_kidney_fsoc_abs > wk_threshold | medullary_fsoc_abs > med_threshold) %>%
+    dplyr::select(record_id, group, sex, age, 
+                  whole_kidney_fsoc_abs, medullary_fsoc_abs) %>%
+    arrange(desc(whole_kidney_fsoc_abs))
+  
+  cat("\n--- Summary ---\n")
+  cat("Total subjects with any high FSOC:", nrow(high_any), "\n")
+  
+  result <- list(
+    high_whole_kidney = high_wk,
+    high_medullary = high_med,
+    high_any = high_any
+  )
+  
+  return(invisible(result))
+}
+
+find_high_fsoc(dat)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
