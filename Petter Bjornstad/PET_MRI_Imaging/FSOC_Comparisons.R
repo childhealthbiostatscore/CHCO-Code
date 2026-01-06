@@ -1357,6 +1357,346 @@ ggsave(file.path(OUTPUT_DIR, "fsoc_by_group_sex_pairwise.tiff"), p_sex, width = 
 
 
 
+# ============================================================================
+# UNADJUSTED CORRELATION HEATMAPS BY GROUP
+# ============================================================================
+
+library(pheatmap)
+library(tidyverse)
+
+# ============================================================================
+# 1. DXA CORRELATIONS BY GROUP (UNADJUSTED)
+# ============================================================================
+
+create_dxa_heatmap_by_group <- function(dat) {
+  
+  # Filter invalid FSOC
+  dat_clean <- dat %>%
+    filter(!is.na(group)) %>%
+    filter(whole_kidney_fsoc_abs >= 0 | is.na(whole_kidney_fsoc_abs)) %>%
+    filter(whole_kidney_fsoc_abs <= 15 | is.na(whole_kidney_fsoc_abs)) %>%
+    filter(medullary_fsoc_abs >= 0 | is.na(medullary_fsoc_abs))
+  
+  # Define variables
+  fsoc_vars <- c("whole_kidney_fsoc_abs", "medullary_fsoc_abs")
+  dxa_vars <- c("dexa_fat_kg", "dexa_trunk_kg", "dexa_lean_kg", "dexa_body_fat")
+  dxa_labels <- c("Fat Mass", "Trunk Fat", "Lean Mass", "Body Fat %")
+  
+  groups <- unique(dat_clean$group[!is.na(dat_clean$group)])
+  
+  # Create matrices for correlations and p-values
+  # Rows: Group_WK, Group_Med for each group
+  # Cols: DXA variables
+  
+  row_names <- c()
+  for (g in groups) {
+    row_names <- c(row_names, paste0(g, " - WK"), paste0(g, " - Med"))
+  }
+  
+  cor_matrix <- matrix(NA, nrow = length(row_names), ncol = length(dxa_vars))
+  p_matrix <- matrix(NA, nrow = length(row_names), ncol = length(dxa_vars))
+  rownames(cor_matrix) <- row_names
+  colnames(cor_matrix) <- dxa_labels
+  rownames(p_matrix) <- row_names
+  colnames(p_matrix) <- dxa_labels
+  
+  # Calculate correlations for each group
+  row_idx <- 1
+  for (g in groups) {
+    group_data <- dat_clean %>% filter(group == g)
+    
+    for (j in seq_along(dxa_vars)) {
+      # Whole kidney correlation
+      wk_data <- group_data %>% 
+        filter(!is.na(whole_kidney_fsoc_abs), !is.na(.data[[dxa_vars[j]]]))
+      if (nrow(wk_data) >= 5) {
+        cor_test <- cor.test(wk_data$whole_kidney_fsoc_abs, wk_data[[dxa_vars[j]]], method = "spearman")
+        cor_matrix[row_idx, j] <- cor_test$estimate
+        p_matrix[row_idx, j] <- cor_test$p.value
+      }
+      
+      # Medullary correlation
+      med_data <- group_data %>% 
+        filter(!is.na(medullary_fsoc_abs), !is.na(.data[[dxa_vars[j]]]))
+      if (nrow(med_data) >= 5) {
+        cor_test <- cor.test(med_data$medullary_fsoc_abs, med_data[[dxa_vars[j]]], method = "spearman")
+        cor_matrix[row_idx + 1, j] <- cor_test$estimate
+        p_matrix[row_idx + 1, j] <- cor_test$p.value
+      }
+    }
+    row_idx <- row_idx + 2
+  }
+  
+  # Create significance labels
+  sig_labels <- matrix("", nrow = nrow(cor_matrix), ncol = ncol(cor_matrix))
+  for (i in 1:nrow(p_matrix)) {
+    for (j in 1:ncol(p_matrix)) {
+      if (!is.na(cor_matrix[i, j])) {
+        r_val <- sprintf("%.2f", cor_matrix[i, j])
+        stars <- ""
+        if (!is.na(p_matrix[i, j])) {
+          if (p_matrix[i, j] < 0.001) stars <- "***"
+          else if (p_matrix[i, j] < 0.01) stars <- "**"
+          else if (p_matrix[i, j] < 0.05) stars <- "*"
+        }
+        sig_labels[i, j] <- paste0(r_val, stars)
+      }
+    }
+  }
+  
+  # Row annotation for group
+  row_annotation <- data.frame(
+    Group = rep(groups, each = 2),
+    FSOC = rep(c("Whole Kidney", "Medulla"), length(groups))
+  )
+  rownames(row_annotation) <- row_names
+  
+  # Color palette
+  pastel_colors <- colorRampPalette(c("#4575B4", "#91BFDB", "#E0F3F8", 
+                                      "#FFFFBF", "#FEE090", "#FC8D59", 
+                                      "#D73027"))(100)
+  
+  # Print correlations to console
+  cat("\n========================================\n")
+  cat("DXA CORRELATIONS BY GROUP (Spearman, Unadjusted)\n")
+  cat("========================================\n")
+  cat("* p<0.05, ** p<0.01, *** p<0.001\n\n")
+  
+  for (g in groups) {
+    cat(paste0("\n", g, ":\n"))
+    idx_wk <- which(row_names == paste0(g, " - WK"))
+    idx_med <- which(row_names == paste0(g, " - Med"))
+    cat("  Whole Kidney: ")
+    cat(paste(dxa_labels, "=", sig_labels[idx_wk, ], collapse = ", "), "\n")
+    cat("  Medulla:      ")
+    cat(paste(dxa_labels, "=", sig_labels[idx_med, ], collapse = ", "), "\n")
+  }
+  
+  # Create heatmap
+  p <- pheatmap(cor_matrix,
+                display_numbers = sig_labels,
+                cluster_rows = FALSE,
+                cluster_cols = FALSE,
+                color = pastel_colors,
+                breaks = seq(-1, 1, length.out = 101),
+                main = "FSOC-DXA Correlations by Group\n(Spearman, Unadjusted)",
+                fontsize = 10,
+                fontsize_number = 8,
+                number_color = "black",
+                border_color = "grey80",
+                cellwidth = 60,
+                cellheight = 25,
+                angle_col = 45,
+                gaps_row = seq(2, length(row_names) - 2, by = 2),
+                annotation_row = row_annotation,
+                na_col = "grey90")
+  
+  return(list(cor_matrix = cor_matrix, p_matrix = p_matrix, plot = p))
+}
+
+# ============================================================================
+# 2. CLINICAL CORRELATIONS BY GROUP (UNADJUSTED)
+# ============================================================================
+
+create_clinical_heatmap_by_group <- function(dat) {
+  
+  # Filter invalid FSOC
+  dat_clean <- dat %>%
+    filter(!is.na(group)) %>%
+    filter(whole_kidney_fsoc_abs >= 0 | is.na(whole_kidney_fsoc_abs)) %>%
+    filter(whole_kidney_fsoc_abs <= 15 | is.na(whole_kidney_fsoc_abs)) %>%
+    filter(medullary_fsoc_abs >= 0 | is.na(medullary_fsoc_abs))
+  
+  # Find available clinical variables
+  available_vars <- names(dat_clean)
+  
+  clinical_var_map <- list(
+    "eGFR" = c("eGFR_CKD_epi", "gfr_fas_cr", "eGFR", "egfr"),
+    "mGFR" = c("gfr_raw_plasma", "gfr_bsa_plasma", "mGFR"),
+    "HbA1c" = c("hba1c", "HbA1c", "a1c"),
+    "SBP" = c("sbp", "SBP", "systolic_bp"),
+    "DBP" = c("dbp", "DBP", "diastolic_bp"),
+    "BMI" = c("bmi", "BMI"),
+    "log(UACR)" = c("acr_u", "uacr", "ACR")
+  )
+  
+  clinical_vars <- c()
+  clinical_labels <- c()
+  
+  for (var_name in names(clinical_var_map)) {
+    possible_names <- clinical_var_map[[var_name]]
+    found_var <- possible_names[possible_names %in% available_vars][1]
+    if (!is.na(found_var)) {
+      clinical_vars <- c(clinical_vars, found_var)
+      clinical_labels <- c(clinical_labels, var_name)
+    }
+  }
+  
+  cat("\nClinical variables found:", paste(clinical_labels, collapse = ", "), "\n")
+  
+  if (length(clinical_vars) == 0) {
+    cat("No clinical variables found.\n")
+    return(NULL)
+  }
+  
+  groups <- unique(dat_clean$group[!is.na(dat_clean$group)])
+  
+  # Create row names
+  row_names <- c()
+  for (g in groups) {
+    row_names <- c(row_names, paste0(g, " - WK"), paste0(g, " - Med"))
+  }
+  
+  cor_matrix <- matrix(NA, nrow = length(row_names), ncol = length(clinical_vars))
+  p_matrix <- matrix(NA, nrow = length(row_names), ncol = length(clinical_vars))
+  rownames(cor_matrix) <- row_names
+  colnames(cor_matrix) <- clinical_labels
+  rownames(p_matrix) <- row_names
+  colnames(p_matrix) <- clinical_labels
+  
+  # Calculate correlations
+  row_idx <- 1
+  for (g in groups) {
+    group_data <- dat_clean %>% filter(group == g)
+    
+    for (j in seq_along(clinical_vars)) {
+      # Log-transform ACR if needed
+      if (clinical_labels[j] == "log(ACR)") {
+        group_data <- group_data %>%
+          mutate(temp_clinical = log(.data[[clinical_vars[j]]] + 1))
+      } else {
+        group_data <- group_data %>%
+          mutate(temp_clinical = .data[[clinical_vars[j]]])
+      }
+      
+      # Whole kidney correlation
+      wk_data <- group_data %>% 
+        filter(!is.na(whole_kidney_fsoc_abs), !is.na(temp_clinical))
+      if (nrow(wk_data) >= 5) {
+        cor_test <- cor.test(wk_data$whole_kidney_fsoc_abs, wk_data$temp_clinical, method = "spearman")
+        cor_matrix[row_idx, j] <- cor_test$estimate
+        p_matrix[row_idx, j] <- cor_test$p.value
+      }
+      
+      # Medullary correlation
+      med_data <- group_data %>% 
+        filter(!is.na(medullary_fsoc_abs), !is.na(temp_clinical))
+      if (nrow(med_data) >= 5) {
+        cor_test <- cor.test(med_data$medullary_fsoc_abs, med_data$temp_clinical, method = "spearman")
+        cor_matrix[row_idx + 1, j] <- cor_test$estimate
+        p_matrix[row_idx + 1, j] <- cor_test$p.value
+      }
+    }
+    row_idx <- row_idx + 2
+  }
+  
+  # Create significance labels
+  sig_labels <- matrix("", nrow = nrow(cor_matrix), ncol = ncol(cor_matrix))
+  for (i in 1:nrow(p_matrix)) {
+    for (j in 1:ncol(p_matrix)) {
+      if (!is.na(cor_matrix[i, j])) {
+        r_val <- sprintf("%.2f", cor_matrix[i, j])
+        stars <- ""
+        if (!is.na(p_matrix[i, j])) {
+          if (p_matrix[i, j] < 0.001) stars <- "***"
+          else if (p_matrix[i, j] < 0.01) stars <- "**"
+          else if (p_matrix[i, j] < 0.05) stars <- "*"
+        }
+        sig_labels[i, j] <- paste0(r_val, stars)
+      }
+    }
+  }
+  
+  # Row annotation
+  row_annotation <- data.frame(
+    Group = rep(groups, each = 2),
+    FSOC = rep(c("Whole Kidney", "Medulla"), length(groups))
+  )
+  rownames(row_annotation) <- row_names
+  
+  # Color palette
+  pastel_colors <- colorRampPalette(c("#4575B4", "#91BFDB", "#E0F3F8", 
+                                      "#FFFFBF", "#FEE090", "#FC8D59", 
+                                      "#D73027"))(100)
+  
+  # Print to console
+  cat("\n========================================\n")
+  cat("CLINICAL CORRELATIONS BY GROUP (Spearman, Unadjusted)\n")
+  cat("========================================\n")
+  cat("* p<0.05, ** p<0.01, *** p<0.001\n")
+  cat("Note: ACR is log-transformed\n\n")
+  
+  for (g in groups) {
+    cat(paste0("\n", g, ":\n"))
+    idx_wk <- which(row_names == paste0(g, " - WK"))
+    idx_med <- which(row_names == paste0(g, " - Med"))
+    cat("  Whole Kidney: ")
+    cat(paste(clinical_labels, "=", sig_labels[idx_wk, ], collapse = ", "), "\n")
+    cat("  Medulla:      ")
+    cat(paste(clinical_labels, "=", sig_labels[idx_med, ], collapse = ", "), "\n")
+  }
+  
+  # Create heatmap
+  p <- pheatmap(cor_matrix,
+                display_numbers = sig_labels,
+                cluster_rows = FALSE,
+                cluster_cols = FALSE,
+                color = pastel_colors,
+                breaks = seq(-1, 1, length.out = 101),
+                main = "FSOC-Clinical Correlations by Group\n(Spearman, Unadjusted)",
+                fontsize = 10,
+                fontsize_number = 8,
+                number_color = "black",
+                border_color = "grey80",
+                cellwidth = 50,
+                cellheight = 25,
+                angle_col = 45,
+                gaps_row = seq(2, length(row_names) - 2, by = 2),
+                annotation_row = row_annotation,
+                na_col = "grey90")
+  
+  return(list(cor_matrix = cor_matrix, p_matrix = p_matrix, plot = p))
+}
+
+# ============================================================================
+# RUN AND SAVE
+# ============================================================================
+
+# DXA heatmap by group
+dxa_by_group <- create_dxa_heatmap_by_group(dat)
+
+pdf(file.path(OUTPUT_DIR, "dxa_heatmap_by_group.pdf"), width = 10, height = 10)
+create_dxa_heatmap_by_group(dat)
+dev.off()
+
+# Clinical heatmap by group
+clinical_by_group <- create_clinical_heatmap_by_group(dat)
+
+pdf(file.path(OUTPUT_DIR, "clinical_heatmap_by_group.pdf"), width = 12, height = 10)
+create_clinical_heatmap_by_group(dat)
+dev.off()
+
+# Export correlation matrices
+write.csv(dxa_by_group$cor_matrix, file.path(OUTPUT_DIR, "dxa_correlations_by_group.csv"))
+write.csv(dxa_by_group$p_matrix, file.path(OUTPUT_DIR, "dxa_pvalues_by_group.csv"))
+
+if (!is.null(clinical_by_group)) {
+  write.csv(clinical_by_group$cor_matrix, file.path(OUTPUT_DIR, "clinical_correlations_by_group.csv"))
+  write.csv(clinical_by_group$p_matrix, file.path(OUTPUT_DIR, "clinical_pvalues_by_group.csv"))
+}
+
+cat("\n\nHeatmaps saved to:", OUTPUT_DIR, "\n")
+
+
+
+
+
+
+
+
+
+
+
 
 
 
