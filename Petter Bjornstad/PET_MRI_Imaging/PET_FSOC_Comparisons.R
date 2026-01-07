@@ -723,7 +723,63 @@ if (!is.null(results$clinical_associations)) plot_clinical_heatmap_pet(results$c
 
 
 
+library(gtsummary)
+library(gt)
 
+demographics <- dat_results %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, diabetes_duration, eGFR_CKD_epi, acr_u, group) %>%
+  tbl_summary(
+    by = group,
+    type = list(
+      age ~ "continuous",
+      bmi ~ "continuous", 
+      hba1c ~ "continuous",
+      diabetes_duration ~ "continuous",
+      eGFR_CKD_epi ~ "continuous",
+      acr_u ~ "continuous",
+      sex ~ "categorical",
+      race_ethnicity ~ "categorical"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age ~ 1,
+      bmi ~ 1,
+      hba1c ~ 2,
+      diabetes_duration ~ 1,
+      eGFR_CKD_epi ~ 1,
+      acr_u ~ 1,
+      all_categorical() ~ c(0, 1)
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex", 
+      race_ethnicity ~ "Race/Ethnicity",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      diabetes_duration ~ "Diabetes Duration, years",
+      eGFR_CKD_epi ~ "eGFR, mL/min/1.73m²",
+      acr_u ~ "UACR, mg/g"
+    ),
+    missing_text = "Missing"
+  ) %>%
+  add_p(test = list(
+    all_continuous() ~ "kruskal.test",
+    all_categorical() ~ "chisq.test"
+  )) %>%
+  add_overall(col_label = "**Overall**\nN = {N}") %>%
+  modify_header(label ~ "**Characteristic**") %>%
+  modify_spanning_header(all_stat_cols() ~ "**Group**")
+
+# View it
+demographics
+
+# Save it
+demographics %>%
+  as_gt() %>%
+  gtsave(file.path(OUTPUT_DIR, "pet_demographics_table.png"), vwidth = 1400, vheight = 600)
 
 
 
