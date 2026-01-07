@@ -38,13 +38,13 @@ library(limma)
 library(ggrepel)
 #
 
-base_dir <- "C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/scrna/ "
+base_dir <- "C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/scrna/"
 
 scrna <- readRDS(paste0(base_dir, "data_raw/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds"))
 scrna <- subset(scrna, subset = percent.mt < 50 & nFeature_RNA < 5000 & nFeature_RNA > 500) 
 
 #
-clin <- read_csv(paste0(base_dir, "data_clean/pb90_rhrh2improve_clinical_subset.csv", show_col_types = FALSE)) %>%
+clin <- read_csv(paste0(base_dir, "data_clean/pb90_rhrh2improve_clinical_subset.csv"), show_col_types = FALSE) %>%
   dplyr::select(record_id, visit,acr_u, gfr_bsa_plasma, gfr_raw_plasma, bmi, eGFR_CKiD_U25_avg, eGFR_fas_cr_cysc) %>%
   dplyr::mutate(visit = dplyr::recode(visit,"baseline" = "pre","12_months_post_surgery" = "post"))
 
@@ -103,6 +103,21 @@ combined <- merge(improve, rh)
 
 
 
+###harmonized 
+
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+dat <- harmonized_data %>% dplyr::select(-dob) %>% 
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+                   .by = c(record_id, visit))
+
+dat <- dat %>% filter(visit == 'baseline') %>% 
+  dplyr::select(record_id, race_ethnicity, diabetes_duration, sbp, dbp, hba1c, epic_insulin_1, 
+                epic_sglti2_1, epic_glp1ra_1, epic_statin_1,  epic_fibrate_1,  
+                ace_inhibitor, epic_raasi_1, epic_mfm_1, epic_tzd_1)
 
 
 
@@ -110,8 +125,108 @@ combined <- merge(improve, rh)
 
 
 
+library(gtsummary)
+library(dplyr)
 
+# Select variables from dat
+dat_subset <- dat %>%
+  select(
+    record_id,
+    race_ethnicity,
+    diabetes_duration,
+    sbp,
+    dbp,
+    hba1c,
+    epic_insulin_1,
+    epic_sglti2_1,
+    epic_glp1ra_1,
+    epic_statin_1,
+    epic_fibrate_1,
+    epic_raasi_1,
+    epic_mfm_1,
+    epic_tzd_1
+  )
 
+# Get baseline data from combined Seurat object
+baseline_data <- combined@meta.data %>%
+  filter(pre_post == "pre", treatment %in% c("VSG", "Standard")) %>%
+  distinct(record_id, .keep_all = TRUE)
+
+# Merge with dat
+patient_level <- baseline_data %>%
+  left_join(dat_subset, by = "record_id")
+
+# Check sample sizes
+table(patient_level$treatment)
+
+# Create Table 1
+table1 <- patient_level %>%
+  select(
+    treatment,
+    age,
+    sex,
+    race_ethnicity,
+    diabetes_duration,
+    bmi,
+    hba1c,
+    sbp,
+    dbp,
+    eGFR_fas_cr_cysc,
+    acr_u,
+    epic_insulin_1,
+    epic_sglti2_1,
+    epic_glp1ra_1,
+    epic_tzd_1,
+    epic_mfm_1,
+    epic_raasi_1,
+    epic_statin_1,
+    epic_fibrate_1
+  ) %>%
+  tbl_summary(
+    by = treatment,
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    label = list(
+      age ~ "Age, years",
+      sex ~ "Sex",
+      race_ethnicity ~ "Race/Ethnicity",
+      diabetes_duration ~ "Diabetes duration, years",
+      bmi ~ "BMI, kg/m²",
+      hba1c ~ "HbA1c, %",
+      sbp ~ "SBP, mmHg",
+      dbp ~ "DBP, mmHg",
+      eGFR_fas_cr_cysc ~ "eGFR, mL/min/1.73m²",
+      acr_u ~ "UACR, mg/g",
+      epic_insulin_1 ~ "Insulin",
+      epic_sglti2_1 ~ "SGLT2i",
+      epic_glp1ra_1 ~ "GLP-1RA",
+      epic_tzd_1 ~ "PPARγ agonist",
+      epic_mfm_1 ~ "Metformin",
+      epic_raasi_1 ~ "ACEi/ARB",
+      epic_statin_1 ~ "Statin",
+      epic_fibrate_1 ~ "Fenofibrate"
+    ),
+    missing = "no"
+  ) %>%
+  add_p() %>%
+  bold_labels() %>%
+  modify_spanning_header(
+    starts_with("stat_") ~ "**Treatment Group**"
+  )
+
+table1
+
+# Export to Word
+table1 %>% 
+  as_gt() %>% 
+  gt::gtsave("Table1_VSG_vs_SMT.docx")
+
+# Or export to CSV
+table1 %>%
+  as_tibble() %>%
+  write.csv("Table1_VSG_vs_SMT.csv", row.names = FALSE)
 
 
 
