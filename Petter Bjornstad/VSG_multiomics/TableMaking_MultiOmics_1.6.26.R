@@ -159,7 +159,10 @@ patient_level <- baseline_data %>%
 # Check sample sizes
 table(patient_level$treatment)
 
-# Create Table 1
+library(gtsummary)
+library(dplyr)
+
+# Create Table 1 with corrected column names
 table1 <- patient_level %>%
   select(
     treatment,
@@ -168,7 +171,7 @@ table1 <- patient_level %>%
     race_ethnicity,
     diabetes_duration,
     bmi,
-    hba1c,
+    hba1c.y,
     sbp,
     dbp,
     eGFR_fas_cr_cysc,
@@ -194,7 +197,7 @@ table1 <- patient_level %>%
       race_ethnicity ~ "Race/Ethnicity",
       diabetes_duration ~ "Diabetes duration, years",
       bmi ~ "BMI, kg/m²",
-      hba1c ~ "HbA1c, %",
+      hba1c.y ~ "HbA1c, %",
       sbp ~ "SBP, mmHg",
       dbp ~ "DBP, mmHg",
       eGFR_fas_cr_cysc ~ "eGFR, mL/min/1.73m²",
@@ -211,26 +214,20 @@ table1 <- patient_level %>%
     missing = "no"
   ) %>%
   add_p() %>%
-  bold_labels() %>%
-  modify_spanning_header(
-    starts_with("stat_") ~ "**Treatment Group**"
-  )
+  bold_labels()
 
 table1
+
+# Set output folder
+output_dir <- "C:/Users/netio/Documents/UofW/Projects/Long_Paper/"
+
+# Create folder if it doesn't exist
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 # Export to Word
 table1 %>% 
   as_gt() %>% 
-  gt::gtsave("Table1_VSG_vs_SMT.docx")
-
-# Or export to CSV
-table1 %>%
-  as_tibble() %>%
-  write.csv("Table1_VSG_vs_SMT.csv", row.names = FALSE)
-
-
-
-
+  gt::gtsave(paste0(output_dir, "Table1_VSG_vs_SMT.docx"))
 
 
 
