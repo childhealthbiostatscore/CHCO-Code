@@ -159,14 +159,18 @@ patient_level <- baseline_data %>%
 # Check sample sizes
 table(patient_level$treatment)
 
+
+
 library(gtsummary)
 library(dplyr)
 
-# Create Table 1 with corrected column names
+
+# Create Table 1 with age properly converted
 table1 <- patient_level %>%
+  mutate(age_numeric = as.numeric(as.character(age))) %>%
   select(
     treatment,
-    age,
+    age_numeric,
     sex,
     race_ethnicity,
     diabetes_duration,
@@ -187,12 +191,13 @@ table1 <- patient_level %>%
   ) %>%
   tbl_summary(
     by = treatment,
+    type = list(age_numeric ~ "continuous"),
     statistic = list(
       all_continuous() ~ "{mean} ({sd})",
       all_categorical() ~ "{n} ({p}%)"
     ),
     label = list(
-      age ~ "Age, years",
+      age_numeric ~ "Age, years",
       sex ~ "Sex",
       race_ethnicity ~ "Race/Ethnicity",
       diabetes_duration ~ "Diabetes duration, years",
@@ -217,7 +222,6 @@ table1 <- patient_level %>%
   bold_labels()
 
 table1
-
 # Set output folder
 output_dir <- "C:/Users/netio/Documents/UofW/Projects/Long_Paper/"
 
