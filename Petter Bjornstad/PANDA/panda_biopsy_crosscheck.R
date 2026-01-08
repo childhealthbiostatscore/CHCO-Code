@@ -134,20 +134,9 @@ dat_panda_ids %>% # Sample collected for diagnostics only
 
 write.csv(dat_panda_ids, file.path(root_path, "PANDA/Data_Cleaned/panda_outstanding_scrna.csv"), row.names = F, na = "")
 
-# Shivani's list
-# pnda_ids <- c( "PNDA-111", "PNDA-113", "PNDA-115", "PNDA-118", "PNDA-129", "PNDA-132", 
-#                "PNDA-135", "PNDA-137", "PNDA-139", "PNDA-140",
-#                "PNDA-141", "PNDA-142", "PNDA-144", "PNDA-145", "PNDA-146", "PNDA-147",
-#                "PNDA-148", "PNDA-149", "PNDA-150", "PNDA-152", "PNDA-154", "PNDA-155",
-#                "PNDA-159", "PNDA-160", "PNDA-161", "PNDA-162", "PNDA-163", "PNDA-164",
-#                "PNDA-165", "PNDA-166", "PNDA-167", "PNDA-168", "PNDA-169", "PNDA-171",
-#                "PNDA-173", "PNDA-174", "PNDA-175", "PNDA-176", "PNDA-182", "PNDA-183",
-#                "PNDA-184", "PNDA-185", "PNDA-186", "PNDA-188", "PNDA-193", "PNDA-194",
-#                "PNDA-201", "PNDA 202", "PNDA 205", "PNDA 206", "PNDA 207", "PNDA 209", 
-#                "PNDA 211")
-# 
-# length(pnda_ids)
-# 
-# pnda_ids[pnda_ids %nin% dat_panda_ids$record_id]
-# 
-# dat_panda_ids$record_id[dat_panda_ids$record_id %nin% pnda_ids]
+
+# IDs to run
+dat_panda_ids_run <- dat_panda_ids %>%
+  filter(run_yn == "n" | (study == "PANDA" & run_yn == "pb90"))
+
+write.csv(dat_panda_ids_run, file.path(root_path, "PANDA/Data_Cleaned/panda_outstanding_scrna_torun_010625.csv"), row.names = F, na = "")
