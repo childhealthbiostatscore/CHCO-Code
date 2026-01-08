@@ -10,6 +10,9 @@ if(Sys.info()["sysname"] == "Windows"){
 } else if (Sys.info()["sysname"] == "Darwin"){
   home_dir = "/Volumes/RI Biostatistics Core/Shared/Shared Projects/Laura/Peds Endo/Petter Bjornstad/TODAY subaward"
 }
+
+home_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/TODAY subaward"
+
 setwd(home_dir)
 
 ####################
@@ -69,6 +72,13 @@ lead_plamsa_oa$Creatinine.in.uM <- NULL
 lead_plasma <- merge(lead_plasma,lead_plamsa_oa,by="Freezerworks.ID")
 lead_plasma$site <- "LEAD"
 
+# read in LEAD OA samples (2025)
+lead_plasma_oa_2025 <- openxlsx::read.xlsx("./Metabolomic data/200251008_TODAY_LEAD_Organic_Acid Panel Metabolites_Final.xlsx", sheet = "TODAY_LEAD_OA",
+                                        startRow = 2,colNames = TRUE)
+lead_plasma_oa_2025$Sample.Name <- gsub("_Plasma", "", lead_plasma_oa_2025$File.Name)
+lead_plasma <- merge(lead_plasma,lead_plasma_oa_2025,by="Sample.Name")
+
+
 ######################
 # link IDs and merge #
 ######################
@@ -107,8 +117,11 @@ nih_plasma$SAMPLE_ID <- NA
 lead_plasma <- merge(lead_plasma,ids_lead,by="Sample.Name",all.x=T, all.y = F)
 lead_plasma$current_label <- NA
 # combine NIH and LEAD
-plasma <- rbind(nih_plasma,lead_plasma)
+# plasma <- rbind(nih_plasma,lead_plasma)
+nih_plasma$Sample.Name <- as.character(nih_plasma$Sample.Name)
+plasma <- bind_rows(nih_plasma,lead_plasma)
 
 # Save
-save(urine,file = "./Metabolomic data/urine.Rdata")
-save(plasma,file = "./Metabolomic data/plasma.Rdata")
+# save(urine,file = "./Metabolomic data/urine.Rdata")
+# save(plasma,file = "./Metabolomic data/plasma.Rdata")
+write.csv(plasma, file = "./Metabolomic data/today_plasma_metabolomics.csv", row.names = F, na = "")
