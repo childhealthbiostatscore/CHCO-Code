@@ -455,6 +455,7 @@ cat("\n========== ANALYSIS COMPLETE ==========\n")
 
 ##########################DKD
 
+
 ### Brain Imaging by Healthy vs DKD Classification
 ### Healthy: eGFR 90-120 AND UACR < 30
 ### DKD: eGFR < 90 or > 120, AND/OR UACR > 300
@@ -568,11 +569,12 @@ small_dat %>%
 
 # Show which participants fall into each category
 cat("\nParticipants by kidney status:\n")
-small_dat %>%
+participant_summary <- small_dat %>%
   filter(!is.na(kidney_status)) %>%
   select(record_id, sample_type, eGFR_CKD_epi, acr_u, kidney_status) %>%
   arrange(kidney_status, record_id) %>%
-  print(n = 50)
+  as.data.frame()
+print(participant_summary)
 
 # ============================================================
 # OUTPUT PATH
@@ -769,8 +771,3 @@ write.csv(stat_results_all, file.path(output_path, "stats_healthy_vs_dkd.csv"), 
 write.csv(summary_stats, file.path(output_path, "summary_healthy_vs_dkd.csv"), row.names = FALSE)
 
 cat("\n========== ANALYSIS COMPLETE ==========\n")
-
-
-
-
-
