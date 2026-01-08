@@ -71,8 +71,9 @@ pbmc_list <- pbmc_list_raw %>%
                                study == "IMPROVE" ~ paste0("IT_", record_number),
                                study == "RPC2" ~ paste0("RPC-", record_number),
                                study == "RENAL-HEIR" ~ paste0("RH-", record_number, "-T")),
-         pbmc_availability = TRUE) %>%
-  dplyr::select(record_id, pbmc_availability)
+         pbmc_availability = TRUE,
+         visit = "baseline") %>%
+  dplyr::select(record_id, visit, pbmc_availability)
 
 # Harmonized dataset
 harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/soma_harmonized_dataset.csv"), na.strings = "") %>%
@@ -81,12 +82,15 @@ harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/soma_ha
     any_of(c("seq.10000.28_urine_cradj", "seq.10000.28"))
   )
 
-harm_dat_combined <- harm_dat %>% 
+harm_dat_collapsed <- harm_dat %>% 
   mutate(bx_date = case_when(procedure == "kidney_biopsy" ~ date),
-         visit = case_when(kit_id == "KL-0024005" ~ "12_months_post_surgery", T ~ visit)) %>%
+         visit = case_when(kit_id == "KL-0024005" ~ "12_months_post_surgery", T ~ visit),
+         visit = case_when(study == "RPC2" & visit == "v2_gfr_mri_arm_1" ~ "baseline", T ~ visit)) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id, visit)) %>%
+                   .by = c(record_id, visit)) 
+
+harm_dat_combined <- harm_dat_collapsed %>%
   left_join(pbmc_list) %>%
   mutate(pbmc = case_when(pbmc_availability ~ 1, T ~ 0),
          urine_soma = case_when(!is.na(seq.10000.28_urine_cradj) ~ 1, T ~ 0),
@@ -102,5 +106,7 @@ harm_dat_combined <- harm_dat %>%
   dplyr::select(record_id, study, visit, pbmc, urine_soma, blood_soma, clamp, pet, mri, mgfr, erpf, egfr,
                 ends_with("_ID", ignore.case = F)) %>%
   filter(pbmc == 1)
+
+write.csv(harm_dat_combined, file.path(root_path, "CITE-seq/CITE_seq_PBMC_priority_list.csv"))
 ```
 
