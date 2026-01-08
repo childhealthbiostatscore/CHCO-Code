@@ -1,0 +1,575 @@
+---
+title: "07_scRNA_pathway_reversal_figures"
+author: "Ye Ji Choi"
+format: html
+---
+
+```{r}
+library(dplyr)
+library(aws.s3)
+library(jsonlite)
+library(ggplot2)
+library(ggforce)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
+```
+
+```{r}
+# Pull in nebula results
+folders <- c(
+  # new additions
+  "T2D_GLP_Y_vs_T2D_GLP_N" = "t2d_glpyn",
+  "T2D_GLP_N_vs_HC" = "t2d_glpn_hc",
+  "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc",
+  # 
+  # # --- Base DKD vs nonDKD ---
+  # "DKD_vs_nonDKD_30" = "dkd30",
+  # "DKD_vs_nonDKD_100" = "dkd100",
+  # 
+  # # --- DKD vs nonDKD with T2D ---
+  # "DKD_vs_nonDKD_30_t2d" = "dkd30_t2d",
+  # "DKD_vs_nonDKD_100_t2d" = "dkd100_t2d",
+  # 
+  # # --- DKD vs HC (30 / 100) ---
+  # "DKD_30_vs_HC" = "dkd30_hc",
+  # "DKD_100_vs_HC" = "dkd100_hc",
+  # 
+  # # --- DKD vs HC with T2D ---
+  # "DKD_30_t2d_vs_HC" = "dkd30_t2d_hc",
+  # "DKD_100_t2d_vs_HC" = "dkd100_t2d_hc",
+  # 
+  # # --- nonDKD vs HC (30 / 100) ---
+  # "nonDKD_30_vs_HC" = "nondkd30_hc",
+  # "nonDKD_100_vs_HC" = "nondkd100_hc",
+  # 
+  # # --- nonDKD vs HC with T2D ---
+  # "nonDKD_30_t2d_vs_HC" = "nondkd30_t2d_hc",
+  # "nonDKD_100_t2d_vs_HC" = "nondkd100_t2d_hc",
+  # 
+  # # --- GLP (within DKD) ---
+  "DKD_30_GLP_Y_vs_DKD_30_GLP_N" = "dkd_30_glpy_glpn"
+  # "DKD_100_GLP_Y_vs_DKD_100_GLP_N" = "dkd_100_glpy_glpn",
+  # 
+  # # --- GLP (within nonDKD) ---
+  # "nonDKD_30_GLP_Y_vs_nonDKD_30_GLP_N" = "nondkd_30_glpy_glpn",
+  # "nonDKD_100_GLP_Y_vs_nonDKD_100_GLP_N" = "nondkd_100_glpy_glpn",
+  # 
+  # # --- GLP N/Y vs HC (nonDKD) ---
+  # "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc",
+  # "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc",
+  # "nonDKD_100_GLP_N_vs_HC" = "nondkd100_glpn_hc",
+  # "nonDKD_100_GLP_Y_vs_HC" = "nondkd100_glpy_hc",
+  # 
+  # # --- GLP N/Y vs HC (DKD) ---
+  # "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc",
+  # "DKD_30_GLP_Y_vs_HC" = "dkd30_glpy_hc",
+  # "DKD_100_GLP_N_vs_HC" = "dkd100_glpn_hc",
+  # "DKD_100_GLP_Y_vs_HC" = "dkd100_glpy_hc",
+  # 
+  # # --- SGLT2i (within DKD) ---
+  # "DKD_30_SGLT2i_Y_vs_DKD_30_SGLT2i_N" = "dkd30_sglt2iy_sglt2in",
+  # "DKD_100_SGLT2i_Y_vs_DKD_100_SGLT2i_N" = "dkd100_sglt2iy_sglt2in",
+  # 
+  # # --- SGLT2i (within nonDKD) ---
+  # "nonDKD_30_SGLT2i_Y_vs_nonDKD_30_SGLT2i_N" = "nondkd30_sglt2iy_sglt2in",
+  # "nonDKD_100_SGLT2i_Y_vs_nonDKD_100_SGLT2i_N" = "nondkd100_sglt2iy_sglt2in",
+  # 
+  # # --- SGLT2i N/Y vs HC (nonDKD) ---
+  # "nonDKD_30_SGLT2i_N_vs_HC" = "nondkd30_sglt2in_hc",
+  # "nonDKD_30_SGLT2i_Y_vs_HC" = "nondkd30_sglt2iy_hc",
+  # "nonDKD_100_SGLT2i_N_vs_HC" = "nondkd100_sglt2in_hc",
+  # "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc",
+  # 
+  # # --- SGLT2i N/Y vs HC (DKD) ---
+  # "DKD_30_SGLT2i_N_vs_HC" = "dkd30_sglt2in_hc",
+  # "DKD_30_SGLT2i_Y_vs_HC" = "dkd30_sglt2iy_hc",
+  # "DKD_100_SGLT2i_N_vs_HC" = "dkd100_sglt2in_hc",
+  # "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc"
+)
+
+# Define common parameters
+celltype_groups <- list(
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  aPT = "aPT",
+  `PT-S1/S2` = "PT-S1/S2",
+  `PT-S3` = "PT-S3",
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  `C-TAL-1` = "C-TAL-1",
+  `C-TAL-2` = "C-TAL-2",
+  aTAL = "aTAL",
+  dTAL = "dTAL",
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC", "EC-A"),
+  `EC-AVR` = "EC-AVR",
+  `EC-GC`  = "EC-GC",
+  `EC-PTC` = "EC-PTC",
+  `EC-AEA` = "EC-AEA",
+  `EC-LYM` = "EC-LYM",
+  `EC/VSMC` = "EC/VSMC",
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+  Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  DTL_ATL = c("DTL", "aDTL", "ATL"),
+  DCT_CNT = c("DCT", "dDCT", "CNT"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD",
+  MC = "MC",
+  PEC = "PEC",
+  Schwann = "SchwannCells"
+)
+
+```
+
+```{r}
+# load all the necessary files (processed df and pathways)
+gsea_results <- list()
+for (folder in names(folders)) {
+  for (cell in names(celltype_groups)) {
+    
+    var_name <- paste0(tolower(cell), "_", folders[folder])
+    var_name <- gsub("/", "_", var_name)
+    
+    processed_path <- file.path(
+      root_path,
+      paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")
+    )
+    
+    if (!file.exists(processed_path)) {
+      message("Processed DF not found, skipping: ", var_name)
+      next
+    }
+    
+    processed_df <- read.csv(processed_path)
+    assign(var_name, processed_df, envir = .GlobalEnv)
+    
+    file_path <- file.path(root_path, paste0("Renal HERITAGE/Results/GSEA/hallmark_", folders[[folder]], "_", tolower(gsub("/", "_", cell)), "_gsea.RDS"))
+    
+    # Check if file exists and read it
+    if (file.exists(file_path)) {
+      # Create a unique name for this combination
+      result_name <- paste0(folders[[folder]], "_", tolower(gsub("/", "_", cell)))
+      
+      # Read the RDS file
+      gsea_results[[result_name]] <- readRDS(file_path)
+    } else {
+      message(paste0("File not found: ", file_path))
+    }
+  }
+}
+```
+
+
+```{r}
+# check on some genes for Petter
+gene_list <- c(
+  "PLVAP",
+  "LRG1",
+  "A2M",
+  "IL13RA2",
+  "SOST2",
+  "EHD3",
+  "FAS",
+  "SLC16A3",
+  "FSCN1",
+  "S100A6",
+  "VCAM1",
+  "ICAM1",
+  "SELE",
+  "CXCL9",
+  "CXCL10",
+  "CCL2",
+  "FOS",
+  "JUN",
+  "EGR1",
+  "SROHINH1",
+  "ACTA2",
+  "VIM",
+  "TAGLN",
+  "CDH5",
+  "PECAM1"
+)
+
+gene_search <- data.frame()
+for (folder in names(folders)) {
+  for (cell in names(celltype_groups)) {
+    
+    var_name <- paste0(tolower(cell), "_", folders[folder])
+    var_name <- gsub("/", "_", var_name)
+    
+    processed_path <- file.path(
+      root_path,
+      paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")
+    )
+    
+    if (!file.exists(processed_path)) {
+      message("Processed DF not found, skipping: ", var_name)
+      next
+    }
+    
+    processed_df <- read.csv(processed_path)
+    
+
+    processed_df_subset <- processed_df %>%
+      dplyr::select(logFC = 2, pval = 6, 10, 9) %>%
+      mutate(cell = cell, run = folder) %>%
+      filter(Gene %in% gene_list & pval < 0.05) 
+
+    gene_search <- rbind(gene_search, processed_df_subset)
+      
+  }
+}
+
+gene_search <- gene_search %>%
+  arrange(Gene, cell)
+
+write.csv(gene_search, file.path(root_path, "Renal HERITAGE/Results/Summary csv/nebula_transcript_search.csv"), row.names = F, na =)
+```
+
+```{r}
+make_leadingedge_long <- function(
+    hallmark_df,
+    de_glpn_hc,            # gene-level table for DKD GLP- vs HC
+    de_glpy_glpn,          # gene-level table for DKD GLP+ vs GLP-
+    logfc_col_glpn_hc,
+    pval_col_glpn_hc,
+    logfc_col_glpy_glpn,
+    pval_col_glpy_glpn,
+    comp1_label = "DKD GLP- vs. HC",
+    comp2_label = "DKD GLP+ vs. GLP-"
+) {
+  
+  # expand pathway -> leadingEdge genes
+  lead <- hallmark_df %>%
+    transmute(
+      pathway,
+      leadingEdge
+    ) %>%
+    tidyr::unnest(leadingEdge) %>%
+    rename(Gene = leadingEdge) %>%
+    distinct(pathway, Gene)
+  
+  # pull stats for comparison 1
+  d1 <- de_glpn_hc %>%
+    select(
+      Gene,
+      logFC = all_of(logfc_col_glpn_hc),
+      pval  = all_of(pval_col_glpn_hc)
+    ) %>%
+    mutate(comparison = comp1_label)
+  
+  # pull stats for comparison 2
+  d2 <- de_glpy_glpn %>%
+    select(
+      Gene,
+      logFC = all_of(logfc_col_glpy_glpn),
+      pval  = all_of(pval_col_glpy_glpn)
+    ) %>%
+    mutate(comparison = comp2_label)
+  
+  # join leadingEdge genes to both comparisons, then keep genes with both comps
+  out <- lead %>%
+    left_join(d1, by = "Gene") %>%
+    bind_rows(
+      lead %>% left_join(d2, by = "Gene")
+    ) %>%
+    group_by(pathway, Gene) %>%
+    filter(sum(!is.na(logFC)) == 2) %>%   # gene exists in both comps
+    ungroup()
+  
+  out
+}
+
+```
+
+## (DKD30 GLP+ vs. GLP-) vs. (DKD30 GLP- vs. HC) 
+
+### Bar plots from JCI paper
+
+```{r}
+# first look for significant pathways
+# then look at the gene sets in those pathways
+# then plot the direction of logFCs of those genes in GLPN vs. HC and GLPY vs. GLPN
+for (cell in names(celltype_groups)) {
+  # define vars
+  cellname = tolower(gsub("/", "_", cell))
+  glpn_hc = "dkd30_glpn_hc"
+  glpn_hc_var <- paste0(cellname, "_", glpn_hc)
+  glpn_hc_df <- get(glpn_hc_var)
+  
+  glpy_glpn = "dkd_30_glpy_glpn"
+  glpy_glpn_var <- paste0(cellname, "_", glpy_glpn)
+  glpy_glpn_df <- get(glpy_glpn_var)
+  
+  # filter to significant hallmark pathways
+  glpn_hc_hallmark <- gsea_results[[paste0(glpn_hc, "_", cellname)]]$hallmark %>%
+    filter(pval < 0.05)
+  glpy_glpn_hallmark <- gsea_results[[paste0(glpy_glpn, "_", cellname)]]$hallmark %>%
+    filter(pval < 0.05)  
+  
+  # create df to plot
+  plot_df <- bind_rows(
+    make_leadingedge_long(
+      hallmark_df       = glpn_hc_hallmark,
+      de_glpn_hc        = glpn_hc_df,
+      de_glpy_glpn      = glpy_glpn_df,
+      logfc_col_glpn_hc = "logFC_dkd_group_30_hcDKD",
+      pval_col_glpn_hc  = "p_dkd_group_30_hcDKD",
+      logfc_col_glpy_glpn = "logFC_glp_t2dobGLP_Y",
+      pval_col_glpy_glpn  = "p_glp_t2dobGLP_Y",
+      comp1_label = "DKD GLP- vs. HC",
+      comp2_label = "DKD GLP+ vs. GLP-"
+    ),
+    make_leadingedge_long(
+      hallmark_df       = glpy_glpn_hallmark,
+      de_glpn_hc        = glpn_hc_df,
+      de_glpy_glpn      = glpy_glpn_df,
+      logfc_col_glpn_hc = "logFC_dkd_group_30_hcDKD",
+      pval_col_glpn_hc  = "p_dkd_group_30_hcDKD",
+      logfc_col_glpy_glpn = "logFC_glp_t2dobGLP_Y",
+      pval_col_glpy_glpn  = "p_glp_t2dobGLP_Y",
+      comp1_label = "DKD GLP- vs. HC",
+      comp2_label = "DKD GLP+ vs. GLP-"
+    )
+  ) %>%
+    distinct(pathway, Gene, comparison, .keep_all = TRUE)
+  
+  # count reversed genes
+  pathway_rev_summary <-  plot_df %>%
+    dplyr::select(-pval) %>%
+    group_by(Gene) %>%
+    pivot_wider(
+      names_from = comparison,
+      values_from = logFC) %>%
+    mutate(
+      reversed = sign(`DKD GLP- vs. HC`) != sign(`DKD GLP+ vs. GLP-`)
+    ) %>% ungroup() %>%
+    group_by(pathway) %>%
+    summarise(n_genes = sum(!is.na(reversed)),
+              n_reversed = sum(reversed, na.rm = TRUE),
+              pct_reversed = 100 * n_reversed / n_genes,
+              .groups = "drop")
+  
+  plot_df <- plot_df %>%
+    left_join(pathway_rev_summary %>% select(pathway, pct_reversed), by = "pathway") %>%
+    mutate(pathway_lab = paste0(gsub("HALLMARK ", "", gsub("_", " ", pathway)), "\n(", sprintf("%.1f", pct_reversed), "% Reversed)"))
+  
+  # plot
+  n_pages <- ceiling(length(unique(plot_df$pathway)) / 6)
+  for (i in seq_len(n_pages)) {
+    p <- ggplot(plot_df, aes(x = Gene, y = logFC, fill = comparison)) +
+      geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+      facet_wrap_paginate(
+        ~ pathway_lab,
+        nrow = 3,
+        ncol = 2,
+        scales = "free_x",
+        page = i
+      ) +
+      labs(
+        x = NULL,
+        y = "logFC",
+        title = paste0(cell, " pathways (", i, "/", n_pages, ")"),
+        fill = NULL
+      ) +
+      theme_minimal() +
+      theme(
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 40, hjust = 1),
+        strip.text = element_text(face = "bold"),
+        legend.position = "bottom"
+      )
+    
+    ggsave(file.path(root_path, paste0("Renal HERITAGE/Results/Figures/Pathway comparisons/DKD30/hallmark_dkd30_glpyn_glpn_hc_", cellname, "_", i, ".png")),
+           width = 15)
+  }
+}
+```
+
+### Bar plots of pathways
+
+```{r}
+gsea_results$t2d_glpyn_ec
+
+glpn_hc_hallmark <- gsea_results[[paste0(glpn_hc, "_", cellname)]]$hallmark %>%
+  filter(pval < 0.05)
+glpy_glpn_hallmark <- gsea_results[[paste0(glpy_glpn, "_", cellname)]]$hallmark %>%
+  filter(pval < 0.05)  
+
+```
+
+
+
+## (T2D GLP+ vs. GLP-) vs. (T2D GLP- vs. HC) 
+
+```{r}
+# first look for significant pathways
+# then look at the gene sets in those pathways
+# then plot the direction of logFCs of those genes in GLPN vs. HC and GLPY vs. GLPN
+for (cell in names(celltype_groups)) {
+  
+  cellname <- tolower(gsub("/", "_", cell))
+  
+  glpn_hc   <- "t2d_glpn_hc"
+  glpy_glpn <- "t2d_glpyn"
+  
+  glpn_hc_var   <- paste0(cellname, "_", glpn_hc)
+  glpy_glpn_var <- paste0(cellname, "_", glpy_glpn)
+  
+  # -------------------------
+  # 1) Skip if dfs don't exist
+  # -------------------------
+  if (!exists(glpn_hc_var, envir = .GlobalEnv) || !exists(glpy_glpn_var, envir = .GlobalEnv)) {
+    message("Skipping ", cellname, ": missing processed dfs (", glpn_hc_var, " or ", glpy_glpn_var, ")")
+    next
+  }
+  
+  glpn_hc_df   <- get(glpn_hc_var, envir = .GlobalEnv)
+  glpy_glpn_df <- get(glpy_glpn_var, envir = .GlobalEnv)
+  
+  # -------------------------
+  # 2) Skip if GSEA results missing
+  # -------------------------
+  gsea_glpn_key   <- paste0(glpn_hc, "_", cellname)
+  gsea_glpy_key   <- paste0(glpy_glpn, "_", cellname)
+  
+  if (!gsea_glpn_key %in% names(gsea_results) || !gsea_glpy_key %in% names(gsea_results)) {
+    message("Skipping ", cellname, ": missing gsea_results (", gsea_glpn_key, " or ", gsea_glpy_key, ")")
+    next
+  }
+  
+  # -------------------------
+  # 3) Skip if hallmark missing/empty
+  # -------------------------
+  glpn_obj <- gsea_results[[gsea_glpn_key]]
+  glpy_obj <- gsea_results[[gsea_glpy_key]]
+  
+  if (is.null(glpn_obj$hallmark) || is.null(glpy_obj$hallmark)) {
+    message("Skipping ", cellname, ": hallmark table missing in GSEA object(s)")
+    next
+  }
+  
+  glpn_hc_hallmark <- glpn_obj$hallmark %>% filter(pval < 0.05)
+  glpy_glpn_hallmark <- glpy_obj$hallmark %>% filter(pval < 0.05)
+  
+  if (nrow(glpn_hc_hallmark) == 0 && nrow(glpy_glpn_hallmark) == 0) {
+    message("Skipping ", cellname, ": no significant hallmark pathways in either comparison")
+    next
+  }
+  
+  # -------------------------
+  # create df to plot
+  # -------------------------
+  plot_df <- bind_rows(
+    make_leadingedge_long(
+      hallmark_df          = glpn_hc_hallmark,
+      de_glpn_hc           = glpn_hc_df,
+      de_glpy_glpn         = glpy_glpn_df,
+      logfc_col_glpn_hc    = "logFC_glp_t2dobGLP_N",
+      pval_col_glpn_hc     = "p_glp_t2dobGLP_N",
+      logfc_col_glpy_glpn  = "logFC_glp_t2dobGLP_Y",
+      pval_col_glpy_glpn   = "p_glp_t2dobGLP_Y",
+      comp1_label          = "T2D GLP- vs. HC",
+      comp2_label          = "T2D GLP+ vs. GLP-"
+    ),
+    make_leadingedge_long(
+      hallmark_df          = glpy_glpn_hallmark,
+      de_glpn_hc           = glpn_hc_df,
+      de_glpy_glpn         = glpy_glpn_df,
+      logfc_col_glpn_hc    = "logFC_glp_t2dobGLP_N",
+      pval_col_glpn_hc     = "p_glp_t2dobGLP_N",
+      logfc_col_glpy_glpn  = "logFC_glp_t2dobGLP_Y",
+      pval_col_glpy_glpn   = "p_glp_t2dobGLP_Y",
+      comp1_label          = "T2D GLP- vs. HC",
+      comp2_label          = "T2D GLP+ vs. GLP-"
+    )
+  ) %>%
+    distinct(pathway, Gene, comparison, .keep_all = TRUE)
+  
+  # If still nothing to plot (e.g., no overlapping genes), skip
+  if (nrow(plot_df) == 0) {
+    message("Skipping ", cellname, ": plot_df empty after leadingEdge overlap filter")
+    next
+  }
+  
+  # -------------------------
+  # count reversed genes (FIXED grouping!)
+  # -------------------------
+  pathway_rev_summary <- plot_df %>%
+    select(pathway, Gene, comparison, logFC) %>%
+    pivot_wider(names_from = comparison, values_from = logFC) %>%
+    mutate(reversed = sign(`T2D GLP- vs. HC`) != sign(`T2D GLP+ vs. GLP-`)) %>%
+    group_by(pathway) %>%
+    summarise(
+      n_genes = sum(!is.na(reversed)),
+      n_reversed = sum(reversed, na.rm = TRUE),
+      pct_reversed = 100 * n_reversed / n_genes,
+      .groups = "drop"
+    )
+  
+  plot_df <- plot_df %>%
+    left_join(pathway_rev_summary %>% select(pathway, pct_reversed), by = "pathway") %>%
+    mutate(pathway_lab = paste0(gsub("HALLMARK ", "", gsub("_", " ", pathway)), "\n(", sprintf("%.1f", pct_reversed), "% Reversed)"))
+  
+  n_pages <- ceiling(length(unique(plot_df$pathway)) / 6)
+  
+  for (i in seq_len(n_pages)) {
+    p <- ggplot(plot_df, aes(x = Gene, y = logFC, fill = comparison)) +
+      geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+      ggforce::facet_wrap_paginate(
+        ~ pathway_lab,
+        nrow = 3, ncol = 2,
+        scales = "free_x",
+        page = i
+      ) +
+      labs(
+        x = NULL,
+        y = "logFC",
+        title = paste0(cell, " pathways (", i, "/", n_pages, ")"),
+        fill = NULL
+      ) +
+      theme_minimal() +
+      theme(
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 40, hjust = 1),
+        strip.text = element_text(face = "bold"),
+        legend.position = "bottom"
+      )
+    
+    ggsave(
+      filename = file.path(
+        root_path,
+        paste0("Renal HERITAGE/Results/Figures/Pathway comparisons/T2D/hallmark_t2d_glpyn_glpn_hc_", cellname, "_", i, ".png")
+      ),
+      plot = p,
+      width = 15
+    )
+  }
+}
+```
+
+

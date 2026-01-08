@@ -1029,6 +1029,44 @@ plot_emms_with_brackets <- function(
   return(p)
 }
 
+library(fgsea)
+matrix_to_list <- function(pws){
+  pws.l <- list()
+  for (pw in colnames(pws)) {
+    pws.l[[pw]] <- rownames(pws)[as.logical(pws[, pw])]
+  }
+  return(pws.l)
+}
+prepare_gmt <- function(gmt_file, genes_in_data, savefile = FALSE){
+  # for debug
+  #file <- gmt_files[1]
+  #genes_in_data <- df$gene_symbol
+  
+  # Read in gmt file
+  gmt <- gmtPathways(gmt_file)
+  hidden <- unique(unlist(gmt))
+  
+  # Convert gmt file to a matrix with the genes as rows and for each go annotation (columns) the values are 0 or 1
+  mat <- matrix(NA, dimnames = list(hidden, names(gmt)),
+                nrow = length(hidden), ncol = length(gmt))
+  for (i in 1:dim(mat)[2]){
+    mat[,i] <- as.numeric(hidden %in% gmt[[i]])
+  }
+  
+  #Subset to the genes that are present in our data to avoid bias
+  hidden1 <- intersect(genes_in_data, hidden)
+  mat <- mat[hidden1, colnames(mat)[which(colSums(mat[hidden1,])>5)]] # filter for gene sets with more than 5 genes annotated
+  # And get the list again
+  final_list <- matrix_to_list(mat) # for this we use the function we previously defined
+  
+  if(savefile){
+    saveRDS(final_list, file = paste0(gsub('.gmt', '', gmt_file), '_subset_', format(Sys.time(), '%d%m'), '.RData'))
+  }
+  
+  print('Wohoo! .gmt conversion successfull!:)')
+  return(final_list)
+}
+
 run_fgsea_analysis <- function(bg_path = file.path(root_path, "GSEA/"),
                                results_annotated,
                                stat_col = "t",

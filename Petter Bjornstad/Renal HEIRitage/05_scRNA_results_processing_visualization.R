@@ -1,6 +1,8 @@
 library(aws.s3)
 library(jsonlite)
+library(ggrepel)
 library(biomaRt)
+library(enrichR)
 
 user <- Sys.info()[["user"]]
 
@@ -29,8 +31,9 @@ source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
 # Pull in nebula results
 folders <- c(
   # new additions
-  "T2D_GLP_Y_vs_T2D_GLP_N" = "t2d_glpyn",
-  "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc"
+  # "T2D_GLP_Y_vs_T2D_GLP_N" = "t2d_glpyn",
+  "T2D_GLP_N_vs_HC" = "t2d_glpn_hc"
+  # "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc",
   # 
   # # --- Base DKD vs nonDKD ---
   # "DKD_vs_nonDKD_30" = "dkd30",
@@ -57,7 +60,7 @@ folders <- c(
   # "nonDKD_100_t2d_vs_HC" = "nondkd100_t2d_hc",
   # 
   # # --- GLP (within DKD) ---
-  # "DKD_30_GLP_Y_vs_DKD_30_GLP_N" = "dkd_30_glpy_glpn",
+  # "DKD_30_GLP_Y_vs_DKD_30_GLP_N" = "dkd_30_glpy_glpn"
   # "DKD_100_GLP_Y_vs_DKD_100_GLP_N" = "dkd_100_glpy_glpn",
   # 
   # # --- GLP (within nonDKD) ---
@@ -283,6 +286,13 @@ write.csv(sig_df_summary_comp, file.path(root_path, "Renal HERITAGE/Results/Summ
 
 # Define plot parameters for each comparison
 plot_params <- list(
+  "t2d_glpn_hc" = list(
+    fc_col = "logFC_glp_t2dobGLP_N",
+    p_col = "p_glp_t2dobGLP_N",
+    x_label = "logFC T2D GLP- vs. HC",
+    positive_text = "Positive with T2D",
+    negative_text = "Negative with T2D",
+    formula = "T2D GLP_N"),
   # Existing parameters
   "dkd100" = list(
     fc_col = "logFC_dkd_group_100DKD",
@@ -837,6 +847,14 @@ plot_params <- list(
     positive_text = "Positive with DKD, GLP+",
     negative_text = "Negative with DKD, GLP+",
     formula = "DKD, GLP+"
+  ),
+  "t2d_glpyn" = list(
+    fc_col = "logFC_glp_t2dobGLP_Y",
+    p_col  = "p_glp_t2dobGLP_Y",
+    x_label = "logFC T2D GLP1RA+ vs T2D GLP1RA-",
+    positive_text = "Positive with GLP+",
+    negative_text = "Negative with GLP+",
+    formula = "GLP+"
   )
 )
 
@@ -975,30 +993,30 @@ for (folder in folders) {
 }
 
 # Endothelial dysfunction, metabolic reprogramming, and fibro-inflammation pathways in DKD30 GLP+ vs GLP-
-endothelial_dys <- c("HALLMARK_ANGIOGENESIS", "HALLMARK_HYPOXIA", "HALLMARK_ROS_PATHWAY", "HALLMARK_TNFA_SIGNALING_VIA_NFKB")
-metab_reprogram <- c("HALLMARK_GLYCOLYSIS", "HALLMARK_OXIDATIVE_PHOSPHORYLATION", "HALLMARK_FATTY_ACID_METABOLISM", "HALLMARK_MTORC1_SIGNALING", "HALLMARK_MYC_TARGETS")
-fib_inflam <- c("HALLMARK_TGF_BETA_SIGNALING", "HALLMARK_EMT", "HALLMARK_INFLAMMATORY_RESPONSE", "HALLMARK_COMPLEMENT", "HALLMARK_IL6_JAK_STAT3_SIGNALING")
-
-dkd_30_glpy_glpn_hallmark <- data.frame()
-for (cell in names(celltype_groups)) {
-  folder <- "dkd_30_glpy_glpn"
-  result_name <- paste0(folder, "_", tolower(gsub("/", "_", cell)))
-  hallmark_df <- gsea_results[[result_name]]$hallmark %>%
-    mutate(celltype = cell)
-  dkd_30_glpy_glpn_hallmark <- rbind(hallmark_df, dkd_30_glpy_glpn_hallmark)
-}
-
-dkd_30_glpy_glpn_hallmark_subset <- dkd_30_glpy_glpn_hallmark %>%
-  filter(pathway %in% c(endothelial_dys, metab_reprogram, fib_inflam)) %>%
-  filter(pval < 0.05) %>%
-  mutate(pathway_theme = case_when(pathway %in% endothelial_dys ~ "Endothelial dysfunction",
-                                   pathway %in% metab_reprogram ~ "Metabolic reprogramming",
-                                   pathway %in% fib_inflam ~ "Fibro-inflammation")) %>%
-  arrange(pathway_theme, celltype, pathway) %>%
-  select(-leadingEdge)
-
-write.csv(dkd_30_glpy_glpn_hallmark_subset, 
-          file.path(root_path, "Renal HERITAGE/Results/GSEA/hallmark_dkd_30_glpy_glpn_summary.csv"), row.names = F)
+# endothelial_dys <- c("HALLMARK_ANGIOGENESIS", "HALLMARK_HYPOXIA", "HALLMARK_ROS_PATHWAY", "HALLMARK_TNFA_SIGNALING_VIA_NFKB")
+# metab_reprogram <- c("HALLMARK_GLYCOLYSIS", "HALLMARK_OXIDATIVE_PHOSPHORYLATION", "HALLMARK_FATTY_ACID_METABOLISM", "HALLMARK_MTORC1_SIGNALING", "HALLMARK_MYC_TARGETS")
+# fib_inflam <- c("HALLMARK_TGF_BETA_SIGNALING", "HALLMARK_EMT", "HALLMARK_INFLAMMATORY_RESPONSE", "HALLMARK_COMPLEMENT", "HALLMARK_IL6_JAK_STAT3_SIGNALING")
+# 
+# dkd_30_glpy_glpn_hallmark <- data.frame()
+# for (cell in names(celltype_groups)) {
+#   folder <- "dkd_30_glpy_glpn"
+#   result_name <- paste0(folder, "_", tolower(gsub("/", "_", cell)))
+#   hallmark_df <- gsea_results[[result_name]]$hallmark %>%
+#     mutate(celltype = cell)
+#   dkd_30_glpy_glpn_hallmark <- rbind(hallmark_df, dkd_30_glpy_glpn_hallmark)
+# }
+# 
+# dkd_30_glpy_glpn_hallmark_subset <- dkd_30_glpy_glpn_hallmark %>%
+#   filter(pathway %in% c(endothelial_dys, metab_reprogram, fib_inflam)) %>%
+#   filter(pval < 0.05) %>%
+#   mutate(pathway_theme = case_when(pathway %in% endothelial_dys ~ "Endothelial dysfunction",
+#                                    pathway %in% metab_reprogram ~ "Metabolic reprogramming",
+#                                    pathway %in% fib_inflam ~ "Fibro-inflammation")) %>%
+#   arrange(pathway_theme, celltype, pathway) %>%
+#   select(-leadingEdge)
+# 
+# write.csv(dkd_30_glpy_glpn_hallmark_subset, 
+#           file.path(root_path, "Renal HERITAGE/Results/GSEA/hallmark_dkd_30_glpy_glpn_summary.csv"), row.names = F)
 
 for (folder in folders) {
   for (cell in names(celltype_groups)) {
@@ -1181,3 +1199,7 @@ ec_combined_df %>%
 # - **CAT** (Catalase): Upregulated in GLP- but normalized in GLP+ - Suggests reduced oxidative stress response need
 
 # c("VEGFA", "ICAM1", "COL4A1", "SLC2A4", "GLUT4", "NOX4", "CAT")
+
+
+
+########################################################################################################################################################################################################################

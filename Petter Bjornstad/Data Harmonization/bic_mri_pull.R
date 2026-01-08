@@ -176,6 +176,7 @@ write.csv(bic_folders_clean, file.path(root_path, "Data Harmonization/Data Clean
 harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
 
 mri_dat <- harm_dat %>%
+  mutate(visit = case_when(study == "ATTEMPT" & visit == "screening" ~ "baseline", T ~ visit)) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) %>%
@@ -201,8 +202,9 @@ mri_dat <- harm_dat %>%
          )
   ) %>%
   filter(!is.na(visit_id)) %>%
-  select(record_id, record_number, study, procedure, visit, visit_id,
-         data_in_redcap, avg_c_r2, avg_k_r2, avg_m_r2, total_kidney_volume_ml, avg_c_t1, avg_k_t1, avg_c_adc, avg_pcascl) 
+  dplyr::select(record_id, 
+                record_number, study, procedure, visit, visit_id, data_in_redcap,
+                avg_c_r2, avg_k_r2, avg_m_r2, total_kidney_volume_ml, avg_c_t1, avg_k_t1, avg_c_adc, avg_pcascl) 
 
 
 panda_uw_mri_ids <- harm_dat %>%
@@ -212,6 +214,7 @@ panda_uw_mri_ids <- harm_dat %>%
   pull(record_id)
 
 panther_manual_ids <- c("PAN_202_T",
+                        "PAN_203_O",
                       "PAN_204_T",
                       "PAN_205_O",
                       "PAN_207_O",
@@ -235,7 +238,7 @@ mri_dat_combined <- full_join(mri_dat, bic_folders_clean,
                             data_in_bic & data_in_redcap ~ "Complete",
                             data_in_redcap & !data_in_bic ~ "Complete",
                             !data_in_bic ~ "N/A")) %>%
-  select(record_id, bic_id, visit_id, study, visit, data_in_redcap, data_in_bic, status) %>%
+  dplyr::select(record_id, bic_id, visit_id, study, visit, data_in_redcap, data_in_bic, status) %>%
   arrange(status)
 
 write.csv(mri_dat_combined, file.path(root_path, "Data Harmonization/Data Clean/MRI/mri_data_compiled.csv"), row.names = F, na = "")
