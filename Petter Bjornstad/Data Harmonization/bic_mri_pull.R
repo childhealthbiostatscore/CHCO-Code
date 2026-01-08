@@ -124,10 +124,10 @@ extract_num <- function(x) {
 bic_folders <- get_filtered_subfolders(folder_path)
 
 bic_folders_clean <- bic_folders %>%
-       filter(level1_folder %nin% c("Bjornstad_GZBU_231527", "Kendrick_BC_161572", "Kelsey_HIP_070988")) %>%
-       mutate(bic_id = gsub("ATTEMPT[_.]|ATTEMPTR.|_192947|_171874|_170820|_170802|_161752|_191282|_180704|_18-704|_200277|_212999|_1611752|_213019", 
-                               "", 
-                               level2_folder)) %>%
+  filter(level1_folder %nin% c("Bjornstad_GZBU_231527", "Kendrick_BC_161572", "Kelsey_HIP_070988")) %>%
+  mutate(bic_id = gsub("ATTEMPT[_.]|ATTEMPTR.|_192947|_171874|_170820|_170802|_161752|_191282|_180704|_18-704|_200277|_212999|_1611752|_213019", 
+                       "", 
+                       level2_folder)) %>%
   filter(!grepl("[._]twix", bic_id, ignore.case = T)) %>%
   mutate(study = case_when(bic_id == "RH2.04.O" ~ "RENAL-HEIRitage",
                            grepl("ATTEMPT", level1_path) ~ "ATTEMPT",
@@ -141,29 +141,29 @@ bic_folders_clean <- bic_folders %>%
                            grepl("PANTHER", level1_path) ~ "PANTHER",
                            grepl("RPC2", level1_path) ~ "RPC2",
                            grepl("PANDA", level1_path) ~ "PANDA",
-                           ),
-         
-         record_number = case_when(study == "ATTEMPT" ~ sub("^([0-9]+)[._].*", "\\1", bic_id),
-                                   study == "PANDA" ~ as.character(as.numeric(str_extract(bic_id, "(?<=[._-])[0-9]+(?=$|[._-])")) + 100),
-                                   T ~ sapply(stringr::str_extract_all(bic_id, "(?<=[._-])[0-9]+(?![0-9])"),
-                                              function(h) if (length(h)) tail(h[nchar(h) == max(nchar(h))], 1) else NA_character_)
-         ),
-         record_number = as.numeric(record_number),
-         record_id = case_when(study == "ATTEMPT" ~ sub("^([0-9]+)[._].*", "\\1", bic_id),
-                               study %in% c("COFFEE", "CROCODILE", "CASPER") ~ gsub("[_.]", "-", bic_id),
-                               study == "RENAL-HEIR" ~ sub("-0$", "-O", gsub("[_.]", "-", bic_id)),
-                               study == "IMPROVE" ~ sub("\\_[123]$", "", gsub("IT2D", "IT", gsub("[.]", "_", bic_id))),
-                               study == "PENGUIN" ~ sub("PENGUIN[._]", "PEN-", bic_id),
-                               study == "RENAL-HEIRitage" ~ sub("-0$", "-O", gsub("[_.]", "-", gsub("RH.2", "RH2", gsub("\\.[123]$|\\_ABD$|\\_BRAIN$", "", bic_id)))),
-                               study == "PANTHER" ~ gsub("PANTHER", "PAN", gsub("[._]", "-", gsub("\\.[123]$", "", bic_id))),
-                               study == "RPC2" ~ ifelse(grepl("\\.[123]$|\\.BL$", bic_id), sub("RPC2", "RPC", gsub("\\.", "-", sub("\\.[123]$|\\.BL$", "", bic_id))), sub("RPC2[.]", "RPC-", bic_id)),
-                               study == "PANDA" ~ sub("PANDA.", "PNDA-1", bic_id)
-         ),
-         visit_id = case_when(bic_id %in% c("IT2D_14_2", "IT2D_15_2", "IT2D.16.2") ~ "3",
-           study %in% c("ATTEMPT", "RPC2", "PANTHER", "IMPROVE") ~ ifelse(grepl("[._-][1-3]$", bic_id), sub(".*[._-]([1-3])$", "\\1", bic_id), "1"),
-                           study %in% c("COFFEE", "CROCODILE", "CASPER", "PANDA", "RENAL-HEIRitage", "PENGUIN", "RENAL-HEIR") ~ "1"
-         ),
-         visit_id = as.numeric(visit_id),
+  ),
+  
+  record_number = case_when(study == "ATTEMPT" ~ sub("^([0-9]+)[._].*", "\\1", bic_id),
+                            study == "PANDA" ~ as.character(as.numeric(str_extract(bic_id, "(?<=[._-])[0-9]+(?=$|[._-])")) + 100),
+                            T ~ sapply(stringr::str_extract_all(bic_id, "(?<=[._-])[0-9]+(?![0-9])"),
+                                       function(h) if (length(h)) tail(h[nchar(h) == max(nchar(h))], 1) else NA_character_)
+  ),
+  record_number = as.numeric(record_number),
+  record_id = case_when(study == "ATTEMPT" ~ sub("^([0-9]+)[._].*", "\\1", bic_id),
+                        study %in% c("COFFEE", "CROCODILE", "CASPER") ~ gsub("[_.]", "-", bic_id),
+                        study == "RENAL-HEIR" ~ sub("-0$", "-O", gsub("[_.]", "-", bic_id)),
+                        study == "IMPROVE" ~ sub("\\_[123]$", "", gsub("IT2D", "IT", gsub("[.]", "_", bic_id))),
+                        study == "PENGUIN" ~ sub("PENGUIN[._]", "PEN-", bic_id),
+                        study == "RENAL-HEIRitage" ~ sub("-0$", "-O", gsub("[_.]", "-", gsub("RH.2", "RH2", gsub("\\.[123]$|\\_ABD$|\\_BRAIN$", "", bic_id)))),
+                        study == "PANTHER" ~ gsub("PANTHER", "PAN", gsub("[._]", "-", gsub("\\.[123]$", "", bic_id))),
+                        study == "RPC2" ~ ifelse(grepl("\\.[123]$|\\.BL$", bic_id), sub("RPC2", "RPC", gsub("\\.", "-", sub("\\.[123]$|\\.BL$", "", bic_id))), sub("RPC2[.]", "RPC-", bic_id)),
+                        study == "PANDA" ~ sub("PANDA.", "PNDA-1", bic_id)
+  ),
+  visit_id = case_when(bic_id %in% c("IT2D_14_2", "IT2D_15_2", "IT2D.16.2") ~ "3",
+                       study %in% c("ATTEMPT", "RPC2", "PANTHER", "IMPROVE") ~ ifelse(grepl("[._-][1-3]$", bic_id), sub(".*[._-]([1-3])$", "\\1", bic_id), "1"),
+                       study %in% c("COFFEE", "CROCODILE", "CASPER", "PANDA", "RENAL-HEIRitage", "PENGUIN", "RENAL-HEIR") ~ "1"
+  ),
+  visit_id = as.numeric(visit_id),
   ) %>%
   filter(!is.na(study))  %>%
   filter(!is.na(record_number)) %>%
@@ -215,13 +215,13 @@ panda_uw_mri_ids <- harm_dat %>%
 
 panther_manual_ids <- c("PAN_202_T",
                         "PAN_203_O",
-                      "PAN_204_T",
-                      "PAN_205_O",
-                      "PAN_207_O",
-                      "PAN_208_O",
-                      "PAN_209_O",
-                      "PAN_210_O",
-                      "PAN_211_O")
+                        "PAN_204_T",
+                        "PAN_205_O",
+                        "PAN_207_O",
+                        "PAN_208_O",
+                        "PAN_209_O",
+                        "PAN_210_O",
+                        "PAN_211_O")
 
 mri_dat_combined <- full_join(mri_dat, bic_folders_clean, 
                               by = join_by(record_number, study, visit_id)) %>%
