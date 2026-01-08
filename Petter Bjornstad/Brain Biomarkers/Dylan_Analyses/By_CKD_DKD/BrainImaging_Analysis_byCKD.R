@@ -426,3 +426,351 @@ cat("\nSaved summary statistics to: biomarker_summary_by_ckd_sample_type.csv\n")
 
 cat("\n========== ANALYSIS COMPLETE ==========\n")
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##########################DKD
+
+### Brain Imaging by Healthy vs DKD Classification
+### Healthy: eGFR 90-120 AND UACR < 30
+### DKD: eGFR < 90 or > 120, AND/OR UACR > 300
+
+# Load libraries
+library(oro.nifti)  
+library(neurobase)  
+library(R.matlab)    
+library(ggplot2)     
+library(dplyr)       
+library(corrplot)   
+library(psych)        
+library(pls)  
+library(caret) 
+library(randomForest) 
+library(igraph)
+library(brainGraph)
+library(R.matlab)
+library(tidyverse)
+library(patchwork)
+
+bucket <- 'brain.mri'
+
+# ============================================================
+# DATA LOADING AND PREPARATION
+# ============================================================
+
+harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+
+dat <- harmonized_data %>%
+  arrange(date_of_screen) %>% 
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+                   .by = c(record_id, visit))
+
+# ============================================================
+# DETERMINE SAMPLE TYPE (SERUM/PLASMA) BY STUDY
+# ============================================================
+
+dat <- dat %>%
+  mutate(
+    sample_type = case_when(
+      grepl("^CRC", record_id, ignore.case = TRUE) ~ "plasma",
+      grepl("^PEN", record_id, ignore.case = TRUE) ~ "plasma",
+      study == "RH2" ~ "serum",
+      grepl("^RH2", record_id, ignore.case = TRUE) ~ "serum",
+      study == "RENAL-HEIR" ~ "serum",
+      study == "RENAL-HEIRitage" ~ "serum",
+      study == "CROCODILE" ~ "plasma",
+      study == "PENGUIN" ~ "plasma",
+      TRUE ~ NA_character_
+    )
+  )
+
+cat("\nSample type distribution:\n")
+print(table(dat$sample_type, useNA = "always"))
+
+small_dat <- dat
+
+# Fix the RH2-38-T record
+small_dat$group[which(small_dat$record_id == 'RH2-38-T')] <- 'Obese Control'
+small_dat$record_id[which(small_dat$record_id == 'RH2-38-T')] <- 'RH2-38-O'
+
+# Define biomarkers
+qx_var <- c("ab40_avg_conc","ab42_avg_conc","tau_avg_conc",
+            "nfl_avg_conc","gfap_avg_conc","ptau_181_avg_conc","ptau_217_avg_conc")
+
+# ============================================================
+# NEW CLASSIFICATION: HEALTHY vs DKD
+# ============================================================
+# Healthy: eGFR 90-120 AND UACR < 30
+# DKD: eGFR < 90 or > 120, AND/OR UACR > 300
+
+small_dat <- small_dat %>%
+  mutate(
+    kidney_status = case_when(
+      # Healthy: eGFR between 90-120 AND UACR < 30
+      (eGFR_CKD_epi >= 90 & eGFR_CKD_epi <= 120) & (acr_u < 30) ~ "Healthy",
+      # DKD: eGFR outside 90-120 range OR UACR > 300
+      (eGFR_CKD_epi < 90 | eGFR_CKD_epi > 120) | (acr_u > 300) ~ "DKD",
+      # Everyone else (e.g., normal eGFR but UACR 30-300) - intermediate/unclassified
+      TRUE ~ NA_character_
+    )
+  )
+
+# Check classification results
+cat("\n========== KIDNEY STATUS CLASSIFICATION ==========\n")
+cat("\nOverall distribution:\n")
+print(table(small_dat$kidney_status, useNA = "always"))
+
+cat("\nBy sample type:\n")
+print(table(small_dat$sample_type, small_dat$kidney_status, useNA = "always"))
+
+# Summary of eGFR and UACR by group
+cat("\nSummary statistics by kidney status:\n")
+small_dat %>%
+  filter(!is.na(kidney_status)) %>%
+  group_by(kidney_status) %>%
+  summarise(
+    n = n(),
+    eGFR_mean = mean(eGFR_CKD_epi, na.rm = TRUE),
+    eGFR_sd = sd(eGFR_CKD_epi, na.rm = TRUE),
+    eGFR_min = min(eGFR_CKD_epi, na.rm = TRUE),
+    eGFR_max = max(eGFR_CKD_epi, na.rm = TRUE),
+    UACR_mean = mean(acr_u, na.rm = TRUE),
+    UACR_sd = sd(acr_u, na.rm = TRUE),
+    UACR_median = median(acr_u, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  print()
+
+# Show which participants fall into each category
+cat("\nParticipants by kidney status:\n")
+small_dat %>%
+  filter(!is.na(kidney_status)) %>%
+  select(record_id, sample_type, eGFR_CKD_epi, acr_u, kidney_status) %>%
+  arrange(kidney_status, record_id) %>%
+  print(n = 50)
+
+# ============================================================
+# OUTPUT PATH
+# ============================================================
+
+output_path <- "C:/Users/netio/Documents/UofW/Projects/Brain_fMRI_Analysis/CKD"
+
+if (!dir.exists(output_path)) {
+  dir.create(output_path, recursive = TRUE)
+  cat("Created directory:", output_path, "\n")
+}
+
+# Biomarker labels
+biomarker_labels <- c(
+  "ab40_avg_conc" = "Aβ40", "ab42_avg_conc" = "Aβ42", "tau_avg_conc" = "Tau",
+  "nfl_avg_conc" = "NFL", "gfap_avg_conc" = "GFAP",
+  "ptau_181_avg_conc" = "pTau-181", "ptau_217_avg_conc" = "pTau-217"
+)
+
+# Create long format data
+plot_data <- small_dat %>%
+  filter(!is.na(sample_type), !is.na(kidney_status)) %>%
+  select(record_id, sample_type, kidney_status, eGFR_CKD_epi, acr_u, all_of(qx_var)) %>%
+  pivot_longer(cols = all_of(qx_var), names_to = "biomarker", values_to = "concentration") %>%
+  filter(!is.na(concentration)) %>%
+  mutate(
+    biomarker_label = biomarker_labels[biomarker],
+    sample_type = factor(sample_type, levels = c("serum", "plasma")),
+    kidney_status = factor(kidney_status, levels = c("Healthy", "DKD"))
+  )
+
+# Check data availability
+cat("\nData availability by sample type and kidney status:\n")
+plot_data %>%
+  distinct(record_id, sample_type, kidney_status) %>%
+  count(sample_type, kidney_status) %>%
+  print()
+
+# ============================================================
+# PLOT 1: Healthy vs DKD - Side by Side Serum/Plasma
+# ============================================================
+
+create_kidney_plot <- function(data, biomarker_name) {
+  bm_data <- data %>% filter(biomarker == biomarker_name)
+  
+  if(nrow(bm_data) == 0) return(NULL)
+  
+  ggplot(bm_data, aes(x = kidney_status, y = concentration, fill = sample_type)) +
+    geom_boxplot(outlier.shape = 16, outlier.size = 1, position = position_dodge(width = 0.8)) +
+    geom_point(aes(group = sample_type), position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.8), 
+               alpha = 0.4, size = 1.5) +
+    scale_fill_manual(values = c("serum" = "#E69F00", "plasma" = "#56B4E9"),
+                      labels = c("serum" = "Serum", "plasma" = "Plasma")) +
+    labs(title = biomarker_labels[biomarker_name],
+         x = "Kidney Status", y = "Concentration (pg/mL)", fill = "Sample Type") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 10),
+          plot.title = element_text(face = "bold", size = 11),
+          legend.position = "bottom")
+}
+
+# Create all plots
+kidney_plots <- lapply(qx_var, function(bm) create_kidney_plot(plot_data, bm))
+kidney_plots <- kidney_plots[!sapply(kidney_plots, is.null)]
+
+if(length(kidney_plots) > 0) {
+  p1_combined <- wrap_plots(kidney_plots, ncol = 2) +
+    plot_annotation(
+      title = "Brain Biomarkers: Healthy vs DKD",
+      subtitle = "Healthy: eGFR 90-120 & UACR <30 | DKD: eGFR <90 or >120, and/or UACR >300\nOrange = Serum, Blue = Plasma",
+      theme = theme(plot.title = element_text(face = "bold", size = 14))
+    ) +
+    plot_layout(guides = "collect") &
+    theme(legend.position = "bottom")
+  
+  print(p1_combined)
+  ggsave(file.path(output_path, "biomarkers_healthy_vs_dkd_serum_plasma.png"), 
+         p1_combined, width = 12, height = 14, dpi = 300)
+  cat("\nSaved: biomarkers_healthy_vs_dkd_serum_plasma.png\n")
+}
+
+# ============================================================
+# PLOT 2: Faceted by Sample Type
+# ============================================================
+
+p2_faceted <- ggplot(plot_data, 
+                     aes(x = kidney_status, y = concentration, fill = kidney_status)) +
+  geom_boxplot(outlier.shape = 16, outlier.size = 1) +
+  geom_jitter(width = 0.2, alpha = 0.4, size = 1.5) +
+  facet_grid(biomarker_label ~ sample_type, scales = "free_y",
+             labeller = labeller(sample_type = c("serum" = "Serum", "plasma" = "Plasma"))) +
+  scale_fill_manual(values = c("Healthy" = "#2E86AB", "DKD" = "#E94F37")) +
+  labs(title = "Brain Biomarkers: Healthy vs DKD",
+       subtitle = "Healthy: eGFR 90-120 & UACR <30 | DKD: eGFR <90 or >120, and/or UACR >300",
+       x = "Kidney Status", y = "Concentration (pg/mL)", fill = "Status") +
+  theme_bw() +
+  theme(strip.text = element_text(face = "bold"),
+        legend.position = "bottom")
+
+print(p2_faceted)
+ggsave(file.path(output_path, "biomarkers_healthy_vs_dkd_faceted.png"), 
+       p2_faceted, width = 10, height = 16, dpi = 300)
+
+# ============================================================
+# PLOT 3: Combined (ignore sample type)
+# ============================================================
+
+p3_combined_all <- ggplot(plot_data, 
+                          aes(x = kidney_status, y = concentration, fill = kidney_status)) +
+  geom_boxplot(outlier.shape = 16, outlier.size = 1, width = 0.6) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 1.5) +
+  facet_wrap(~ biomarker_label, scales = "free_y", ncol = 2) +
+  scale_fill_manual(values = c("Healthy" = "#2E86AB", "DKD" = "#E94F37")) +
+  labs(title = "Brain Biomarkers: Healthy vs DKD (All Samples Combined)",
+       subtitle = "Healthy: eGFR 90-120 & UACR <30 | DKD: eGFR <90 or >120, and/or UACR >300",
+       x = "Kidney Status", y = "Concentration (pg/mL)", fill = "Status") +
+  theme_bw() +
+  theme(strip.text = element_text(face = "bold", size = 11),
+        legend.position = "bottom",
+        axis.text.x = element_text(size = 10))
+
+print(p3_combined_all)
+ggsave(file.path(output_path, "biomarkers_healthy_vs_dkd_combined.png"), 
+       p3_combined_all, width = 10, height = 12, dpi = 300)
+
+# ============================================================
+# STATISTICAL TESTS: Healthy vs DKD
+# ============================================================
+
+cat("\n\n========== STATISTICAL COMPARISONS ==========\n")
+
+# Wilcoxon tests for each biomarker (overall)
+cat("\nWilcoxon rank-sum tests (Healthy vs DKD - all samples):\n")
+stat_results_all <- plot_data %>%
+  group_by(biomarker_label) %>%
+  summarise(
+    n_healthy = sum(kidney_status == "Healthy"),
+    n_dkd = sum(kidney_status == "DKD"),
+    median_healthy = median(concentration[kidney_status == "Healthy"], na.rm = TRUE),
+    median_dkd = median(concentration[kidney_status == "DKD"], na.rm = TRUE),
+    p_value = wilcox.test(concentration ~ kidney_status)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(p_adj = p.adjust(p_value, method = "BH"),
+         significant = ifelse(p_adj < 0.05, "*", ""))
+
+print(stat_results_all)
+
+# By sample type
+cat("\nWilcoxon tests by sample type:\n")
+stat_results_by_sample <- plot_data %>%
+  group_by(sample_type, biomarker_label) %>%
+  summarise(
+    n_healthy = sum(kidney_status == "Healthy"),
+    n_dkd = sum(kidney_status == "DKD"),
+    median_healthy = median(concentration[kidney_status == "Healthy"], na.rm = TRUE),
+    median_dkd = median(concentration[kidney_status == "DKD"], na.rm = TRUE),
+    p_value = tryCatch(wilcox.test(concentration ~ kidney_status)$p.value, error = function(e) NA),
+    .groups = "drop"
+  )
+
+print(stat_results_by_sample, n = 20)
+
+# ============================================================
+# SUMMARY STATISTICS
+# ============================================================
+
+cat("\n\n========== SUMMARY STATISTICS ==========\n")
+
+# Sample sizes
+cat("\nSample sizes by kidney status and sample type:\n")
+plot_data %>%
+  distinct(record_id, sample_type, kidney_status) %>%
+  count(sample_type, kidney_status) %>%
+  pivot_wider(names_from = sample_type, values_from = n, values_fill = 0) %>%
+  print()
+
+# Mean concentrations
+cat("\nMean biomarker concentrations by kidney status:\n")
+summary_stats <- plot_data %>%
+  group_by(biomarker_label, kidney_status) %>%
+  summarise(
+    n = n(),
+    mean = mean(concentration, na.rm = TRUE),
+    sd = sd(concentration, na.rm = TRUE),
+    median = median(concentration, na.rm = TRUE),
+    IQR = IQR(concentration, na.rm = TRUE),
+    .groups = "drop"
+  )
+print(summary_stats)
+
+# Save results
+write.csv(stat_results_all, file.path(output_path, "stats_healthy_vs_dkd.csv"), row.names = FALSE)
+write.csv(summary_stats, file.path(output_path, "summary_healthy_vs_dkd.csv"), row.names = FALSE)
+
+cat("\n========== ANALYSIS COMPLETE ==========\n")
+
+
+
+
+
