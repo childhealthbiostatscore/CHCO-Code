@@ -1,5 +1,6 @@
 # ============================================================================
 # MULTI-PANEL FIGURE: PET METRICS BY GROUP, PATHOLOGY, AND UACR
+# Figure 1 - Updated with K2/K1 metric and reordered variables
 # ============================================================================
 
 # Clear environment
@@ -38,10 +39,11 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
                    .by = c(record_id, visit))
 
-# Calculate PET averages
+# Calculate PET averages - UPDATED to include K1 and K2/K1
 PET_avg <- function(data){
   tmp_df <- data %>% dplyr::select(lc_k2, rc_k2, lm_k2, rm_k2,
-                                   lc_f, rc_f, lm_f, rm_f)
+                                   lc_f, rc_f, lm_f, rm_f,
+                                   lc_k1, rc_k1, lm_k1, rm_k1)
   avg_c_k2 <- tmp_df %>%
     dplyr::select(lc_k2, rc_k2) %>% rowMeans(na.rm=T)
   avg_m_k2 <- tmp_df %>% 
@@ -50,13 +52,23 @@ PET_avg <- function(data){
     dplyr::select(lc_f, rc_f) %>% rowMeans(na.rm=T)
   avg_m_f <- tmp_df %>% 
     dplyr::select(lm_f, rm_f) %>% rowMeans(na.rm=T)
+  avg_c_k1 <- tmp_df %>% 
+    dplyr::select(lc_k1, rc_k1) %>% rowMeans(na.rm=T)
+  avg_m_k1 <- tmp_df %>% 
+    dplyr::select(lm_k1, rm_k1) %>% rowMeans(na.rm=T)
   avg_c_k2_f <- avg_c_k2 / avg_c_f
   avg_m_k2_f <- avg_m_k2 / avg_m_f
+  avg_c_k2_k1 <- avg_c_k2 / avg_c_k1
+  avg_m_k2_k1 <- avg_m_k2 / avg_m_k1
   
   results <- bind_cols(avg_c_k2, avg_m_k2, avg_c_f, avg_m_f, 
-                       avg_c_k2_f, avg_m_k2_f) %>% as.data.frame()
+                       avg_c_k1, avg_m_k1,
+                       avg_c_k2_f, avg_m_k2_f,
+                       avg_c_k2_k1, avg_m_k2_k1) %>% as.data.frame()
   names(results) <- c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
-                      'avg_c_k2_f', 'avg_m_k2_f')
+                      'avg_c_k1', 'avg_m_k1',
+                      'avg_c_k2_f', 'avg_m_k2_f',
+                      'avg_c_k2_k1', 'avg_m_k2_k1')
   return(results)
 }
 
@@ -64,7 +76,10 @@ tmp_results <- PET_avg(dat)
 
 # Remove any existing PET average columns before binding new ones
 dat_results <- dat %>% 
-  select(-any_of(c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 'avg_c_k2_f', 'avg_m_k2_f'))) %>%
+  select(-any_of(c('avg_c_k2', 'avg_m_k2', 'avg_c_f', 'avg_m_f', 
+                   'avg_c_k1', 'avg_m_k1',
+                   'avg_c_k2_f', 'avg_m_k2_f',
+                   'avg_c_k2_k1', 'avg_m_k2_k1'))) %>%
   bind_cols(tmp_results)
 
 # Filter for PET data and correct groups
@@ -135,29 +150,48 @@ dat2 <- dat2 %>% filter(epic_sglti2_1 != 'Yes')
 dat_clinical <- data.table::fread(clinical_path)
 dat_clinical <- dat_clinical[-str_which(dat_clinical$record_id, '-O')]
 
+# Calculate K1 averages from the FULL harmonized data (before SGLT2i filtering)
+# This ensures all participants in dat_clinical get K2/K1 values
+k1_data <- dat %>%
+  filter(!is.na(lc_k1) | !is.na(rc_k1)) %>%
+  mutate(avg_c_k1 = rowMeans(select(., lc_k1, rc_k1), na.rm = TRUE)) %>%
+  select(record_id, avg_c_k1) %>%
+  distinct(record_id, .keep_all = TRUE)
+
+# Merge K1 into dat_clinical and calculate K2/K1
+dat_clinical <- dat_clinical %>%
+  left_join(k1_data, by = "record_id") %>%
+  mutate(avg_c_k2_k1 = avg_c_k2 / avg_c_k1)
+
+# Check how many now have K2/K1
+cat(sprintf("N with K2/K1 in dat_clinical: %d / %d\n", 
+            sum(!is.na(dat_clinical$avg_c_k2_k1)), nrow(dat_clinical)))
+
 cat("All data loaded successfully\n\n")
 
 # ============================================================================
-# PANEL A-C: PET METRICS BY GROUP (Healthy Weight Control vs T2D)
+# PANEL A-D: PET METRICS BY GROUP (Healthy Weight Control vs T2D)
+# Order: F, K2, K2/F, K2/K1
 # ============================================================================
 
-cat("Creating Panels A-C: PET by Group\n")
+cat("Creating Panels A-D: PET by Group\n")
 
 # Prepare data for group comparison
 aim1_df <- dat2 %>% 
-  dplyr::select(record_id, group, avg_c_f, avg_c_k2, avg_c_k2_f)
+  dplyr::select(record_id, group, avg_c_f, avg_c_k2, avg_c_k2_f, avg_c_k2_k1)
 
 aim1_long <- aim1_df %>%
-  pivot_longer(cols = c(avg_c_f, avg_c_k2, avg_c_k2_f),
+  pivot_longer(cols = c(avg_c_f, avg_c_k2, avg_c_k2_f, avg_c_k2_k1),
                names_to = "metric",
                values_to = "value") %>%
   mutate(metric = factor(metric, 
-                         levels = c("avg_c_f", "avg_c_k2", "avg_c_k2_f"),
-                         labels = c("Cortical F", "Cortical K2", "Cortical K2/F")))
+                         levels = c("avg_c_f", "avg_c_k2", "avg_c_k2_f", "avg_c_k2_k1"),
+                         labels = c("Cortical F", "Cortical K2", "Cortical K2/F", "Cortical K2/K1")))
 
 # Create group comparison plots
 group_colors <- c("Healthy Weight Control" = "#c2dfe3", "Type 2 Diabetes" = "#fcb1a6")
 
+# Panel A: Cortical F
 plot_a <- aim1_long %>% filter(metric == "Cortical F") %>%
   ggplot(aes(x = group, y = value, fill = group)) +
   geom_boxplot(color = "black", alpha = 0.8, outlier.shape = NA, linewidth = 0.5) +
@@ -176,6 +210,7 @@ plot_a <- aim1_long %>% filter(metric == "Cortical F") %>%
     plot.background = element_rect(fill = "white", color = NA)
   )
 
+# Panel B: Cortical K2
 plot_b <- aim1_long %>% filter(metric == "Cortical K2") %>%
   ggplot(aes(x = group, y = value, fill = group)) +
   geom_boxplot(color = "black", alpha = 0.8, outlier.shape = NA, linewidth = 0.5) +
@@ -194,6 +229,7 @@ plot_b <- aim1_long %>% filter(metric == "Cortical K2") %>%
     plot.background = element_rect(fill = "white", color = NA)
   )
 
+# Panel C: Cortical K2/F
 plot_c <- aim1_long %>% filter(metric == "Cortical K2/F") %>%
   ggplot(aes(x = group, y = value, fill = group)) +
   geom_boxplot(color = "black", alpha = 0.8, outlier.shape = NA, linewidth = 0.5) +
@@ -212,26 +248,18 @@ plot_c <- aim1_long %>% filter(metric == "Cortical K2/F") %>%
     plot.background = element_rect(fill = "white", color = NA)
   )
 
-# ============================================================================
-# PANEL D-F: GBM THICKNESS
-# ============================================================================
-
-cat("Creating Panels D-F: GBM Thickness\n")
-
-combined_df_gbm <- dat_clinical %>% 
-  dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f, `GBM thickness`) %>% 
-  filter(`GBM thickness` != '', !is.na(`GBM thickness`))
-
-pathology_colors <- c("no" = "#00008B", "yes" = "#8B0000")
-
-plot_d <- ggplot(combined_df_gbm, aes(x = `GBM thickness`, y = avg_c_k2, fill = `GBM thickness`)) +
-  geom_boxplot(color = "black", alpha = 0.8, linewidth = 0.5) +
-  scale_fill_manual(values = pathology_colors) +
-  stat_compare_means(method = "wilcox.test", label = "p.format", size = 5, p.adjust.method = "none") +
-  labs(x = "GBM Thickening", y = "Cortical K2", fill = "GBM Thickening", tag = "D") +
+# Panel D: Cortical K2/K1 (NEW)
+plot_d <- aim1_long %>% filter(metric == "Cortical K2/K1") %>%
+  ggplot(aes(x = group, y = value, fill = group)) +
+  geom_boxplot(color = "black", alpha = 0.8, outlier.shape = NA, linewidth = 0.5) +
+  geom_point(position = position_jitter(width = 0.2), alpha = 0.6, size = 2, shape = 21, color = "black", stroke = 0.3) +
+  scale_fill_manual(values = group_colors) +
+  stat_compare_means(method = "wilcox.test", label = "p.format", size = 5) +
+  labs(x = NULL, y = "Cortical K2/K1", tag = "D") +
   theme_classic(base_size = 14) +
   theme(
-    axis.text = element_text(size = 12, color = "black"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12, color = "black"),
+    axis.text.y = element_text(size = 12, color = "black"),
     axis.title = element_text(size = 14, face = "bold", color = "black"),
     legend.position = "none",
     plot.tag = element_text(size = 16, face = "bold"),
@@ -239,6 +267,19 @@ plot_d <- ggplot(combined_df_gbm, aes(x = `GBM thickness`, y = avg_c_k2, fill = 
     plot.background = element_rect(fill = "white", color = NA)
   )
 
+# ============================================================================
+# PANEL E-H: GBM THICKNESS (Order: F, K2, K2/F, K2/K1)
+# ============================================================================
+
+cat("Creating Panels E-H: GBM Thickness\n")
+
+combined_df_gbm <- dat_clinical %>% 
+  dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f, avg_c_k2_k1, `GBM thickness`) %>% 
+  filter(`GBM thickness` != '', !is.na(`GBM thickness`))
+
+pathology_colors <- c("no" = "#00008B", "yes" = "#8B0000")
+
+# Panel E: Cortical F
 plot_e <- ggplot(combined_df_gbm, aes(x = `GBM thickness`, y = avg_c_f, fill = `GBM thickness`)) +
   geom_boxplot(color = "black", alpha = 0.8, linewidth = 0.5) +
   scale_fill_manual(values = pathology_colors) +
@@ -254,11 +295,44 @@ plot_e <- ggplot(combined_df_gbm, aes(x = `GBM thickness`, y = avg_c_f, fill = `
     plot.background = element_rect(fill = "white", color = NA)
   )
 
-plot_f <- ggplot(combined_df_gbm, aes(x = `GBM thickness`, y = avg_c_k2_f, fill = `GBM thickness`)) +
+# Panel F: Cortical K2
+plot_f <- ggplot(combined_df_gbm, aes(x = `GBM thickness`, y = avg_c_k2, fill = `GBM thickness`)) +
   geom_boxplot(color = "black", alpha = 0.8, linewidth = 0.5) +
   scale_fill_manual(values = pathology_colors) +
   stat_compare_means(method = "wilcox.test", label = "p.format", size = 5, p.adjust.method = "none") +
-  labs(x = "GBM Thickening", y = "Cortical K2/F", fill = "GBM Thickening", tag = "F") +
+  labs(x = "GBM Thickening", y = "Cortical K2", fill = "GBM Thickening", tag = "F") +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text = element_text(size = 12, color = "black"),
+    axis.title = element_text(size = 14, face = "bold", color = "black"),
+    legend.position = "none",
+    plot.tag = element_text(size = 16, face = "bold"),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+
+# Panel G: Cortical K2/F
+plot_g <- ggplot(combined_df_gbm, aes(x = `GBM thickness`, y = avg_c_k2_f, fill = `GBM thickness`)) +
+  geom_boxplot(color = "black", alpha = 0.8, linewidth = 0.5) +
+  scale_fill_manual(values = pathology_colors) +
+  stat_compare_means(method = "wilcox.test", label = "p.format", size = 5, p.adjust.method = "none") +
+  labs(x = "GBM Thickening", y = "Cortical K2/F", fill = "GBM Thickening", tag = "G") +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text = element_text(size = 12, color = "black"),
+    axis.title = element_text(size = 14, face = "bold", color = "black"),
+    legend.position = "none",
+    plot.tag = element_text(size = 16, face = "bold"),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
+
+# Panel H: Cortical K2/K1 (NEW)
+plot_h <- ggplot(combined_df_gbm, aes(x = `GBM thickness`, y = avg_c_k2_k1, fill = `GBM thickness`)) +
+  geom_boxplot(color = "black", alpha = 0.8, linewidth = 0.5) +
+  scale_fill_manual(values = pathology_colors) +
+  stat_compare_means(method = "wilcox.test", label = "p.format", size = 5, p.adjust.method = "none") +
+  labs(x = "GBM Thickening", y = "Cortical K2/K1", fill = "GBM Thickening", tag = "H") +
   theme_classic(base_size = 14) +
   theme(
     axis.text = element_text(size = 12, color = "black"),
@@ -270,20 +344,21 @@ plot_f <- ggplot(combined_df_gbm, aes(x = `GBM thickness`, y = avg_c_k2_f, fill 
   )
 
 # ============================================================================
-# PANEL G-I: ARTERIOSCLEROSIS
+# PANEL I-L: ARTERIOSCLEROSIS (Order: F, K2, K2/F, K2/K1)
 # ============================================================================
 
-cat("Creating Panels G-I: Arteriosclerosis\n")
+cat("Creating Panels I-L: Arteriosclerosis\n")
 
 combined_df_arterio <- dat_clinical %>% 
-  dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f, arteriosclerosis) %>% 
+  dplyr::select(record_id, avg_c_k2, avg_c_f, avg_c_k2_f, avg_c_k2_k1, arteriosclerosis) %>% 
   filter(arteriosclerosis != '', !is.na(arteriosclerosis))
 
-plot_g <- ggplot(combined_df_arterio, aes(x = arteriosclerosis, y = avg_c_k2, fill = arteriosclerosis)) +
+# Panel I: Cortical F
+plot_i <- ggplot(combined_df_arterio, aes(x = arteriosclerosis, y = avg_c_f, fill = arteriosclerosis)) +
   geom_boxplot(color = "black", alpha = 0.8, linewidth = 0.5) +
   scale_fill_manual(values = pathology_colors) +
   stat_compare_means(method = "wilcox.test", label = "p.format", size = 5, p.adjust.method = "none") +
-  labs(x = "Arteriosclerosis", y = "Cortical K2", fill = "Arteriosclerosis", tag = "G") +
+  labs(x = "Arteriosclerosis", y = "Cortical F", fill = "Arteriosclerosis", tag = "I") +
   theme_classic(base_size = 14) +
   theme(
     axis.text = element_text(size = 12, color = "black"),
@@ -294,11 +369,12 @@ plot_g <- ggplot(combined_df_arterio, aes(x = arteriosclerosis, y = avg_c_k2, fi
     plot.background = element_rect(fill = "white", color = NA)
   )
 
-plot_h <- ggplot(combined_df_arterio, aes(x = arteriosclerosis, y = avg_c_f, fill = arteriosclerosis)) +
+# Panel J: Cortical K2
+plot_j <- ggplot(combined_df_arterio, aes(x = arteriosclerosis, y = avg_c_k2, fill = arteriosclerosis)) +
   geom_boxplot(color = "black", alpha = 0.8, linewidth = 0.5) +
   scale_fill_manual(values = pathology_colors) +
   stat_compare_means(method = "wilcox.test", label = "p.format", size = 5, p.adjust.method = "none") +
-  labs(x = "Arteriosclerosis", y = "Cortical F", fill = "Arteriosclerosis", tag = "H") +
+  labs(x = "Arteriosclerosis", y = "Cortical K2", fill = "Arteriosclerosis", tag = "J") +
   theme_classic(base_size = 14) +
   theme(
     axis.text = element_text(size = 12, color = "black"),
@@ -309,11 +385,12 @@ plot_h <- ggplot(combined_df_arterio, aes(x = arteriosclerosis, y = avg_c_f, fil
     plot.background = element_rect(fill = "white", color = NA)
   )
 
-plot_i <- ggplot(combined_df_arterio, aes(x = arteriosclerosis, y = avg_c_k2_f, fill = arteriosclerosis)) +
+# Panel K: Cortical K2/F
+plot_k <- ggplot(combined_df_arterio, aes(x = arteriosclerosis, y = avg_c_k2_f, fill = arteriosclerosis)) +
   geom_boxplot(color = "black", alpha = 0.8, linewidth = 0.5) +
   scale_fill_manual(values = pathology_colors) +
   stat_compare_means(method = "wilcox.test", label = "p.format", size = 5, p.adjust.method = "none") +
-  labs(x = "Arteriosclerosis", y = "Cortical K2/F", fill = "Arteriosclerosis", tag = "I") +
+  labs(x = "Arteriosclerosis", y = "Cortical K2/F", fill = "Arteriosclerosis", tag = "K") +
   theme_classic(base_size = 14) +
   theme(
     axis.text = element_text(size = 12, color = "black"),
@@ -324,81 +401,75 @@ plot_i <- ggplot(combined_df_arterio, aes(x = arteriosclerosis, y = avg_c_k2_f, 
     plot.background = element_rect(fill = "white", color = NA)
   )
 
+# Panel L: Cortical K2/K1 (NEW)
+plot_l <- ggplot(combined_df_arterio, aes(x = arteriosclerosis, y = avg_c_k2_k1, fill = arteriosclerosis)) +
+  geom_boxplot(color = "black", alpha = 0.8, linewidth = 0.5) +
+  scale_fill_manual(values = pathology_colors) +
+  stat_compare_means(method = "wilcox.test", label = "p.format", size = 5, p.adjust.method = "none") +
+  labs(x = "Arteriosclerosis", y = "Cortical K2/K1", fill = "Arteriosclerosis", tag = "L") +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text = element_text(size = 12, color = "black"),
+    axis.title = element_text(size = 14, face = "bold", color = "black"),
+    legend.position = "none",
+    plot.tag = element_text(size = 16, face = "bold"),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
 
 # ============================================================================
-# PANEL J: UACR CORRELATIONS (EXACT VALUES FROM YOUR FIGURE)
+# PANEL M: UACR CORRELATIONS (Order: F, K2, K2/F, K2/K1)
+# Using ggplot heatmap instead of corrplot for better patchwork integration
 # ============================================================================
 
-cat("Creating Panel J: UACR Correlations\n")
+cat("Creating Panel M: UACR Correlations\n")
 
-# Use the exact correlation values from your figure legend:
-# K2: ρ=0.39, p=0.013 (*)
-# F: ρ=-0.37, p=0.019 (*)
-# K2/F: ρ=0.51, p=0.001 (***)
+# Calculate K2/K1 correlation with UACR from your data
+uacr_k2k1_corr <- cor.test(dat2$acr_u, dat2$avg_c_k2_k1, method = "spearman", use = "complete.obs")
 
-# Create correlation matrix manually with your exact values
-corr_subset <- matrix(c(0.39, -0.37, 0.51), nrow = 1, ncol = 3)
-p_subset <- matrix(c(0.013, 0.019, 0.0001), nrow = 1, ncol = 3)
+# Create data frame for ggplot heatmap
+# Order: F, K2, K2/F, K2/K1
+corr_df <- data.frame(
+  metric = factor(c('Cortical F', 'Cortical K2', 'Cortical K2/F', 'Cortical K2/K1'),
+                  levels = c('Cortical F', 'Cortical K2', 'Cortical K2/F', 'Cortical K2/K1')),
+  rho = c(-0.37, 0.39, 0.51, round(uacr_k2k1_corr$estimate, 2)),
+  pval = c(0.019, 0.013, 0.001, uacr_k2k1_corr$p.value)
+)
 
-rownames(corr_subset) <- c('UACR')
-colnames(corr_subset) <- c('Cortical K2', 'Cortical F', 'Cortical K2/F')
-rownames(p_subset) <- rownames(corr_subset)
-colnames(p_subset) <- colnames(corr_subset)
+# Add significance stars
+corr_df <- corr_df %>%
+  mutate(sig = case_when(
+    pval < 0.001 ~ "***",
+    pval < 0.01 ~ "**",
+    pval < 0.05 ~ "*",
+    TRUE ~ ""
+  ),
+  label = paste0(rho, sig))
 
 # Print to verify
 cat("\nCorrelation values:\n")
-print(corr_subset)
-cat("\nP-values:\n")
-print(p_subset)
+print(corr_df)
 
-# Create correlation plot with your exact values
-temp_file <- paste0(base_path, "temp_corrplot.png")
-png(temp_file, width = 10, height = 4, units = "in", res = 300)
-corrplot(corr_subset, 
-         method = "color",
-         p.mat = p_subset,
-         sig.level = c(0.001, 0.01, 0.05),
-         pch.cex = 2.5,
-         insig = "label_sig",
-        # addCoef.col = "black",
-         number.cex = 1.5,
-         tl.cex = 1.5,
-         tl.col = 'black',
-         cl.cex = 1.3,
-         col = colorRampPalette(c("#4575b4", "white", "#d73027"))(200),
-         mar = c(1, 0, 2, 0))
-dev.off()
-
-# Convert to grob
-corr_grob <- grid::rasterGrob(png::readPNG(temp_file), interpolate = TRUE)
-plot_j <- ggplot() + 
-  annotation_custom(corr_grob, xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf) +
-  theme_void() +
-  labs(tag = "J") +
-  theme(plot.tag = element_text(size = 16, face = "bold"))
-
-plot_j
-
-# ============================================================================
-# CREATE FIGURE LEGEND TEXT
-# ============================================================================
-
-legend_text <- "Figure 1. PET Imaging Metrics: Group Comparisons, Pathology Associations, and Clinical Correlations.
-(A-C) Cortical PET metrics by group. Boxplots comparing Healthy Weight Control vs Type 2 Diabetes for (A) Cortical F (perfusion), 
-(B) Cortical K2 (TCA cycle metabolism), and (C) Cortical K2/F ratio (metabolic efficiency). P-values from Wilcoxon tests.
-(D-F) Association of PET metrics with glomerular basement membrane (GBM) thickening. Boxplots comparing participants 
-with vs without GBM thickening for (D) Cortical K2, (E) Cortical F, and (F) Cortical K2/F. P-values from Wilcoxon tests.
-(G-I) Association of PET metrics with arteriosclerosis. Boxplots comparing participants with vs without arteriosclerosis 
-for (G) Cortical K2, (H) Cortical F, and (I) Cortical K2/F. P-values from Wilcoxon tests. (J) Spearman correlations 
-between urinary albumin-to-creatinine ratio (UACR) and cortical PET metrics (K2: ρ=0.39, p=0.013; F: ρ=-0.37, p=0.019; 
-K2/F: ρ=0.51, p=0.001). Heat map shows correlation coefficients with significance levels: * p<0.05, ** p<0.01, *** p<0.001."
-
-# Create text grob for legend
-legend_grob <- textGrob(legend_text, 
-                        gp = gpar(fontsize = 10, lineheight = 1.1),
-                        x = 0.02, 
-                        hjust = 0,
-                        just = "left")
+# Create ggplot heatmap
+plot_m <- ggplot(corr_df, aes(x = metric, y = "UACR", fill = rho)) +
+  geom_tile(color = "white", linewidth = 1) +
+  geom_text(aes(label = label), size = 6, fontface = "bold") +
+  scale_fill_gradient2(low = "#4575b4", mid = "white", high = "#d73027", 
+                       midpoint = 0, limits = c(-1, 1),
+                       name = "Spearman ρ") +
+  labs(x = NULL, y = NULL, tag = "M") +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12, color = "black", face = "bold"),
+    axis.text.y = element_text(size = 14, color = "black", face = "bold"),
+    legend.position = "right",
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 10),
+    plot.tag = element_text(size = 16, face = "bold"),
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA)
+  )
 
 # ============================================================================
 # COMBINE ALL PANELS WITH PATCHWORK
@@ -406,21 +477,12 @@ legend_grob <- textGrob(legend_text,
 
 cat("Combining all panels\n")
 
-# Combine main plots using patchwork
-combined_plots <- (plot_a | plot_b | plot_c) /
-  (plot_d | plot_e | plot_f) /
-  (plot_g | plot_h | plot_i) /
-  plot_j /
-  wrap_elements(legend_grob) +
-  plot_layout(heights = c(1, 1, 1, 0.5, 0.3)) +
-  plot_annotation(
-    title = "Figure 1.",
-    subtitle = 'PET Imaging Metrics: Group Comparisons, Pathology Associations, and Clinical Correlations',
-    theme = theme(
-      plot.title = element_text(size = 18, face = "bold", hjust = 0, color = "black"),
-      plot.subtitle = element_text(size = 16, hjust = 0, color = "black", margin = margin(b = 10))
-    )
-  )
+# Combine main plots using patchwork (now 4 columns per row)
+combined_plots <- (plot_a | plot_b | plot_c | plot_d) /
+  (plot_e | plot_f | plot_g | plot_h) /
+  (plot_i | plot_j | plot_k | plot_l) /
+  plot_m +
+  plot_layout(heights = c(1, 1, 1, 0.5))
 
 # ============================================================================
 # SAVE FIGURE
@@ -428,25 +490,120 @@ combined_plots <- (plot_a | plot_b | plot_c) /
 
 cat("Saving figure\n")
 
-ggsave(paste0(base_path, "Figure4_Complete_PET_Analysis.pdf"), 
-       plot = combined_plots, width = 18, height = 26, dpi = 300)
+ggsave(paste0(base_path, "Figure1_Complete_PET_Analysis.pdf"), 
+       plot = combined_plots, width = 22, height = 26, dpi = 300)
 
-ggsave(paste0(base_path, "Figure4_Complete_PET_Analysis.png"), 
-       plot = combined_plots, width = 18, height = 26, dpi = 300)
+ggsave(paste0(base_path, "Figure1_Complete_PET_Analysis.png"), 
+       plot = combined_plots, width = 22, height = 26, dpi = 300)
 
-ggsave(paste0(base_path, "Figure4_Complete_PET_Analysis.tiff"), 
-       plot = combined_plots, width = 18, height = 26, dpi = 300, compression = "lzw")
+ggsave(paste0(base_path, "Figure1_Complete_PET_Analysis.tiff"), 
+       plot = combined_plots, width = 22, height = 26, dpi = 300, compression = "lzw")
 
-# Clean up
-file.remove(temp_file)
+# ============================================================================
+# OUTPUT SUMMARY STATISTICS FOR ABSTRACT
+# ============================================================================
 
-# Also save the legend text to a file
-writeLines(legend_text, paste0(base_path, "Figure4_Legend.txt"))
+cat("\n=== SUMMARY STATISTICS FOR ABSTRACT ===\n\n")
+
+# Group comparisons (Healthy Weight Control vs T2D)
+cat("--- GROUP COMPARISONS (Control vs T2D) ---\n\n")
+
+# Calculate means by group
+group_summary <- aim1_df %>%
+  group_by(group) %>%
+  summarise(
+    n = n(),
+    F_mean = mean(avg_c_f, na.rm = TRUE),
+    F_sd = sd(avg_c_f, na.rm = TRUE),
+    K2_mean = mean(avg_c_k2, na.rm = TRUE),
+    K2_sd = sd(avg_c_k2, na.rm = TRUE),
+    K2_F_mean = mean(avg_c_k2_f, na.rm = TRUE),
+    K2_F_sd = sd(avg_c_k2_f, na.rm = TRUE),
+    K2_K1_mean = mean(avg_c_k2_k1, na.rm = TRUE),
+    K2_K1_sd = sd(avg_c_k2_k1, na.rm = TRUE)
+  )
+
+print(group_summary)
+
+# Calculate percent differences (T2D vs Control)
+control_vals <- group_summary %>% filter(group == "Healthy Weight Control")
+t2d_vals <- group_summary %>% filter(group == "Type 2 Diabetes")
+
+cat("\n--- PERCENT DIFFERENCES (T2D vs Control) ---\n")
+cat(sprintf("F: %.1f%% difference\n", (t2d_vals$F_mean - control_vals$F_mean) / control_vals$F_mean * 100))
+cat(sprintf("K2: %.1f%% difference\n", (t2d_vals$K2_mean - control_vals$K2_mean) / control_vals$K2_mean * 100))
+cat(sprintf("K2/F: %.1f%% difference\n", (t2d_vals$K2_F_mean - control_vals$K2_F_mean) / control_vals$K2_F_mean * 100))
+cat(sprintf("K2/K1: %.1f%% difference\n", (t2d_vals$K2_K1_mean - control_vals$K2_K1_mean) / control_vals$K2_K1_mean * 100))
+
+# Wilcoxon tests for group comparisons
+cat("\n--- P-VALUES (Wilcoxon tests) ---\n")
+f_test <- wilcox.test(avg_c_f ~ group, data = aim1_df)
+k2_test <- wilcox.test(avg_c_k2 ~ group, data = aim1_df)
+k2f_test <- wilcox.test(avg_c_k2_f ~ group, data = aim1_df)
+k2k1_test <- wilcox.test(avg_c_k2_k1 ~ group, data = aim1_df)
+
+cat(sprintf("F: p = %.4g\n", f_test$p.value))
+cat(sprintf("K2: p = %.4g\n", k2_test$p.value))
+cat(sprintf("K2/F: p = %.4g\n", k2f_test$p.value))
+cat(sprintf("K2/K1: p = %.4g\n", k2k1_test$p.value))
+
+# GBM Thickening associations
+cat("\n--- GBM THICKENING ASSOCIATIONS ---\n")
+if(nrow(combined_df_gbm) > 0) {
+  gbm_summary <- combined_df_gbm %>%
+    group_by(`GBM thickness`) %>%
+    summarise(
+      n = n(),
+      F_mean = mean(avg_c_f, na.rm = TRUE),
+      K2_mean = mean(avg_c_k2, na.rm = TRUE),
+      K2_F_mean = mean(avg_c_k2_f, na.rm = TRUE),
+      K2_K1_mean = mean(avg_c_k2_k1, na.rm = TRUE)
+    )
+  print(gbm_summary)
+  
+  cat("\nP-values:\n")
+  cat(sprintf("F: p = %.4g\n", wilcox.test(avg_c_f ~ `GBM thickness`, data = combined_df_gbm)$p.value))
+  cat(sprintf("K2: p = %.4g\n", wilcox.test(avg_c_k2 ~ `GBM thickness`, data = combined_df_gbm)$p.value))
+  cat(sprintf("K2/F: p = %.4g\n", wilcox.test(avg_c_k2_f ~ `GBM thickness`, data = combined_df_gbm)$p.value))
+  cat(sprintf("K2/K1: p = %.4g\n", wilcox.test(avg_c_k2_k1 ~ `GBM thickness`, data = combined_df_gbm)$p.value))
+}
+
+# Arteriosclerosis associations
+cat("\n--- ARTERIOSCLEROSIS ASSOCIATIONS ---\n")
+if(nrow(combined_df_arterio) > 0) {
+  arterio_summary <- combined_df_arterio %>%
+    group_by(arteriosclerosis) %>%
+    summarise(
+      n = n(),
+      F_mean = mean(avg_c_f, na.rm = TRUE),
+      K2_mean = mean(avg_c_k2, na.rm = TRUE),
+      K2_F_mean = mean(avg_c_k2_f, na.rm = TRUE),
+      K2_K1_mean = mean(avg_c_k2_k1, na.rm = TRUE)
+    )
+  print(arterio_summary)
+  
+  cat("\nP-values:\n")
+  cat(sprintf("F: p = %.4g\n", wilcox.test(avg_c_f ~ arteriosclerosis, data = combined_df_arterio)$p.value))
+  cat(sprintf("K2: p = %.4g\n", wilcox.test(avg_c_k2 ~ arteriosclerosis, data = combined_df_arterio)$p.value))
+  cat(sprintf("K2/F: p = %.4g\n", wilcox.test(avg_c_k2_f ~ arteriosclerosis, data = combined_df_arterio)$p.value))
+  cat(sprintf("K2/K1: p = %.4g\n", wilcox.test(avg_c_k2_k1 ~ arteriosclerosis, data = combined_df_arterio)$p.value))
+}
+
+# UACR Correlations
+cat("\n--- UACR CORRELATIONS (Spearman) ---\n")
+uacr_f <- cor.test(dat2$acr_u, dat2$avg_c_f, method = "spearman", use = "complete.obs")
+uacr_k2 <- cor.test(dat2$acr_u, dat2$avg_c_k2, method = "spearman", use = "complete.obs")
+uacr_k2f <- cor.test(dat2$acr_u, dat2$avg_c_k2_f, method = "spearman", use = "complete.obs")
+uacr_k2k1 <- cor.test(dat2$acr_u, dat2$avg_c_k2_k1, method = "spearman", use = "complete.obs")
+
+cat(sprintf("F: rho = %.2f, p = %.4g\n", uacr_f$estimate, uacr_f$p.value))
+cat(sprintf("K2: rho = %.2f, p = %.4g\n", uacr_k2$estimate, uacr_k2$p.value))
+cat(sprintf("K2/F: rho = %.2f, p = %.4g\n", uacr_k2f$estimate, uacr_k2f$p.value))
+cat(sprintf("K2/K1: rho = %.2f, p = %.4g\n", uacr_k2k1$estimate, uacr_k2k1$p.value))
 
 cat("\n=== FIGURE COMPLETE ===\n")
 cat(sprintf("Saved to: %s\n", base_path))
 cat("Files created:\n")
-cat("  - Figure4_Complete_PET_Analysis.pdf\n")
-cat("  - Figure4_Complete_PET_Analysis.png\n")
-cat("  - Figure4_Complete_PET_Analysis.tiff\n")
-cat("  - Figure4_Legend.txt\n")
+cat("  - Figure1_Complete_PET_Analysis.pdf\n")
+cat("  - Figure1_Complete_PET_Analysis.png\n")
+cat("  - Figure1_Complete_PET_Analysis.tiff\n")
