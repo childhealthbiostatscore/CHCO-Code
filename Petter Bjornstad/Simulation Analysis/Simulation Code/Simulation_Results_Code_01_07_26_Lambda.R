@@ -105,7 +105,7 @@ format.fxn <- function(results.data){
     mutate(model="ZING") %>% 
     mutate(lcl = estimate - (1.96 * SE),ucl = estimate + (1.96 * SE)
     ) %>% 
-    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","fdr.sig","iteration"))
+    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","sig","fdr.sig","iteration"))
   
   # zing.data.prob <- results.data %>%
   #   filter(model=="ZINB" | model =="Poisson") %>%
@@ -123,10 +123,10 @@ format.fxn <- function(results.data){
     mutate(taxa_full=str_replace_all(taxa_full,"k__species","species")) %>% 
     # mutate(fdr=p) %>% 
     # mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) 
-    mutate(fdr.sig=sig) %>% 
+    mutate(fdr.sig=NA) %>% 
     dplyr::rename(lcl=bci_lcl,
                   ucl=bci_ucl) %>% 
-    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","fdr.sig","iteration"))
+    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","sig","fdr.sig","iteration"))
   
   # formatted.data.prob <- results.data %>%
   #   filter(component=="Probability") %>%
@@ -136,8 +136,8 @@ format.fxn <- function(results.data){
   #   mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) 
   
   formatted.data <- rbind(zing.data,  bayesian)
-  formatted.data <- formatted.data %>% 
-    dplyr::rename(sig=fdr.sig)
+  # formatted.data <- formatted.data %>% 
+    # dplyr::rename(sig=fdr.sig)
   # formatted.data.prob <- rbind(zing.data.prob,formatted.data.prob)
   # rm(zing.data,zing.data.prob)
   rm(zing.data,bayesian)
@@ -328,7 +328,7 @@ format.fxn <- function(results.data){
 all_formatted_results <- data.frame()
 temp_file <- tempfile(fileext = ".RDS") 
 # for (scenario in 1:9) {
-for (scenario in 4:9) {
+for (scenario in c(1,4:9)) {
   s3$download_file(bucket,paste0("scn",scenario,"_iters1_to_1000.RDS"), temp_file)
   results <- readRDS(temp_file)
   formatted.results <- format.fxn(results)
@@ -1323,10 +1323,10 @@ sens.fxn <- function(data){
   RBaH_ZING <- data %>% 
     filter(model=="RBaHZING") %>% 
     filter(exposure!="Mixture") %>%
-    mutate(PosNeg = case_when(indicator=="Associated" & significant=="*" ~ "True Positive",
-                              indicator=="Associated" & significant!="*" ~ "False Negative",
-                              indicator=="Not Associated" & significant=="*" ~ "False Positive",
-                              indicator=="Not Associated" & significant!="*" ~ "True Negative")) %>% 
+    mutate(PosNeg = case_when(indicator=="Associated" & sig=="*" ~ "True Positive",
+                              indicator=="Associated" & sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & sig!="*" ~ "True Negative")) %>% 
     group_by(domain, Scenario) %>%
     summarise(
       Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
@@ -1344,10 +1344,10 @@ sens.fxn <- function(data){
   ZING <- data %>% 
     filter(model=="ZING") %>% 
     filter(exposure!="Mixture") %>%
-    mutate(PosNeg = case_when(indicator=="Associated" & significant=="*" ~ "True Positive",
-                              indicator=="Associated" & significant!="*" ~ "False Negative",
-                              indicator=="Not Associated" & significant=="*" ~ "False Positive",
-                              indicator=="Not Associated" & significant!="*" ~ "True Negative")) %>% 
+    mutate(PosNeg = case_when(indicator=="Associated" & sig=="*" ~ "True Positive",
+                              indicator=="Associated" & sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & sig!="*" ~ "True Negative")) %>% 
     group_by(domain, Scenario) %>%
     summarise(
       Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
@@ -1365,10 +1365,10 @@ sens.fxn <- function(data){
   ZING.fdr <- data %>% 
     filter(model=="ZING") %>% 
     filter(exposure!="Mixture") %>%
-    mutate(PosNeg = case_when(indicator=="Associated" & fdr.significant=="*" ~ "True Positive",
-                              indicator=="Associated" & fdr.significant!="*" ~ "False Negative",
-                              indicator=="Not Associated" & fdr.significant=="*" ~ "False Positive",
-                              indicator=="Not Associated" & fdr.significant!="*" ~ "True Negative")) %>% 
+    mutate(PosNeg = case_when(indicator=="Associated" & fdr.sig=="*" ~ "True Positive",
+                              indicator=="Associated" & fdr.sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & fdr.sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & fdr.sig!="*" ~ "True Negative")) %>% 
     group_by(domain, Scenario) %>%
     summarise(
       Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
