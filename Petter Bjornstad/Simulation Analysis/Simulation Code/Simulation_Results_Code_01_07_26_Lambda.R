@@ -105,7 +105,7 @@ format.fxn <- function(results.data){
     mutate(model="ZING") %>% 
     mutate(lcl = estimate - (1.96 * SE),ucl = estimate + (1.96 * SE)
     ) %>% 
-    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","fdr.sig","iteration"))
+    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","sig","fdr.sig","iteration"))
   
   # zing.data.prob <- results.data %>%
   #   filter(model=="ZINB" | model =="Poisson") %>%
@@ -123,10 +123,10 @@ format.fxn <- function(results.data){
     mutate(taxa_full=str_replace_all(taxa_full,"k__species","species")) %>% 
     # mutate(fdr=p) %>% 
     # mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) 
-    mutate(fdr.sig=sig) %>% 
+    mutate(fdr.sig=NA) %>% 
     dplyr::rename(lcl=bci_lcl,
                   ucl=bci_ucl) %>% 
-    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","fdr.sig","iteration"))
+    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","sig","fdr.sig","iteration"))
   
   # formatted.data.prob <- results.data %>%
   #   filter(component=="Probability") %>%
@@ -136,8 +136,8 @@ format.fxn <- function(results.data){
   #   mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) 
   
   formatted.data <- rbind(zing.data,  bayesian)
-  formatted.data <- formatted.data %>% 
-    dplyr::rename(sig=fdr.sig)
+  # formatted.data <- formatted.data %>% 
+    # dplyr::rename(sig=fdr.sig)
   # formatted.data.prob <- rbind(zing.data.prob,formatted.data.prob)
   # rm(zing.data,zing.data.prob)
   rm(zing.data,bayesian)
@@ -328,7 +328,7 @@ format.fxn <- function(results.data){
 all_formatted_results <- data.frame()
 temp_file <- tempfile(fileext = ".RDS") 
 # for (scenario in 1:9) {
-for (scenario in 4:9) {
+for (scenario in c(1,4:9)) {
   s3$download_file(bucket,paste0("scn",scenario,"_iters1_to_1000.RDS"), temp_file)
   results <- readRDS(temp_file)
   formatted.results <- format.fxn(results)
@@ -485,7 +485,7 @@ scale_colour_gradientn(colours = c("#660000","#660000","#cc0000","#cc0000","#e69
 theme(legend.position="left")
 
 mix.plot
-png("/home/hhampson/Results/Mixture_Plots_Test2.png",res=300,height=4000,width=4000)
+png("/home/hhampson/Results/Mixture_Plots_Test.png",res=300,height=4000,width=4000)
 plot(mix.plot)
 dev.off()
 
@@ -551,7 +551,7 @@ mix.plot.edit
 
 # ggsave(plot=mix.plot,fs::path(dir.results,"Figure 3.3 Scenario 15.jpeg"),height=4,width=15)
 # png(fs::path(dir.results,"Scenario 4 Test.jpeg"),res=300,height=1000,width=3000)
-png("/home/hhampson/Results/Mixture_Plots_Test.png",res=300,height=4000,width=4000)
+png("/home/hhampson/Results/Mixture_Plots_Test2.png",res=300,height=4000,width=4000)
 plot(mix.plot.edit)
 dev.off()
 
@@ -739,78 +739,6 @@ NA.ind <- ind %>%
   filter(indicator=="Not Associated")
 A.ind <- ind %>%
   filter(indicator=="Associated")
-
-
-# ind.plot <- ggplot()+
-#   geom_line(data = NC, alpha = 0.5, aes(Model,Mean,group = group_number,color=Mean)) +
-#   geom_point(data=NC,aes(Model,Mean,color=Mean),alpha = 0.5) +
-#   geom_line(data = C, alpha = 0.5, aes(Model,Mean,group = group_number,color=Mean)) +
-#   geom_point(data=C,aes(Model,Mean,color=Mean),alpha = 0.5) +
-#   geom_errorbar(data=NC,
-#                 aes(Model,Mean,group = Model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black"
-#   ) +
-#   geom_errorbar(data=C,
-#                 aes(Model,Mean,group = Model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black"
-#   ) +
-#   geom_point(data=NC,
-#              aes(Model,Mean,group = Model),
-#              stat = "summary",
-#              fun = mean,   # Use the mean function to calculate the summary statistic
-#              size = 2,     # Size of the points
-#              shape = 16,   # Shape of the points
-#              color = "black",  # Color of the points
-#              fill = "black") +   # Fill color of the points
-#   geom_point(data=C,
-#              aes(Model,Mean,group = Model),
-#              stat = "summary",
-#              fun = mean,   # Use the mean function to calculate the summary statistic
-#              size = 2,     # Size of the points
-#              shape = 16,   # Shape of the points
-#              color = "black",  # Color of the points
-#              fill = "black") +
-#   facet_grid(Scenario ~ Taxa.Level)+
-#   # facet_grid(Scenario ~ Taxa.Level,scales = "free_y", space = "free_y")+
-#   theme_bw() +
-#   theme(
-#     text = element_text(family = "Times", size = 20,color="black"),
-#     axis.text = element_text(family = "Times", size = 15),
-#     plot.title = element_text(family = "Times", face = "bold", size = 16),
-#     plot.subtitle = element_text(family = "Times", size = 15),
-#     axis.title.x = element_blank(),
-#     axis.title.y = element_text(family = "Times", size = 20,face="bold"),
-#     axis.text.x=element_text(angle=45,hjust=1),
-#     # strip.text.y = element_blank(),
-#     strip.text.x = element_text(size=15,face="bold"))+
-#   # labs(x="Log Odds Ratio")+
-#   # scale_color_gradient2(low = "gray", mid = "orange", high = "#CC0066")
-#   # scale_color_gradient2(low = "gray", mid = c("yellow","orange"), high = "#CC0066",
-#   #                       midpoint = max/2, limits = c(min, max), na.value = NA)
-#   scale_colour_gradientn(colours = c("#9a9a9a","#9a9a9a","#9a9a9a","#9a9a9a","#e69f00","#cc0000","#660000","#660000"),
-#                          # values = c(1.0,0.8,0.6,0.4,0.2,0))+
-#                          # c("#660000","#660000","#cc0000","#e69f00","#9a9a9a","#9a9a9a")
-#                          # breaks = c(1,0.5,0,-0.5,-1)) +
-#                          breaks = c(3,2,1,0,-1,-2,-3)) +
-#   theme(legend.position="left")
-# 
-# ind.plot
 
 # ggsave(plot=ind.plot,fs::path(dir.results,"Figure 3.2 Scenario 15.jpeg"),height=4,width=15)
 ind.plot <- ggplot() +
@@ -1123,6 +1051,7 @@ dev.off()
 individual <- all_formatted_results %>% 
   filter(exposure!="Mixture")
 data <- individual
+#Update function
 sens.fxn.old <- function(data){
   BaH_ZING <- data %>% 
     filter(Model=="BaH-ZING") %>% 
@@ -1323,10 +1252,10 @@ sens.fxn <- function(data){
   RBaH_ZING <- data %>% 
     filter(model=="RBaHZING") %>% 
     filter(exposure!="Mixture") %>%
-    mutate(PosNeg = case_when(indicator=="Associated" & significant=="*" ~ "True Positive",
-                              indicator=="Associated" & significant!="*" ~ "False Negative",
-                              indicator=="Not Associated" & significant=="*" ~ "False Positive",
-                              indicator=="Not Associated" & significant!="*" ~ "True Negative")) %>% 
+    mutate(PosNeg = case_when(indicator=="Associated" & sig=="*" ~ "True Positive",
+                              indicator=="Associated" & sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & sig!="*" ~ "True Negative")) %>% 
     group_by(domain, Scenario) %>%
     summarise(
       Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
@@ -1344,10 +1273,10 @@ sens.fxn <- function(data){
   ZING <- data %>% 
     filter(model=="ZING") %>% 
     filter(exposure!="Mixture") %>%
-    mutate(PosNeg = case_when(indicator=="Associated" & significant=="*" ~ "True Positive",
-                              indicator=="Associated" & significant!="*" ~ "False Negative",
-                              indicator=="Not Associated" & significant=="*" ~ "False Positive",
-                              indicator=="Not Associated" & significant!="*" ~ "True Negative")) %>% 
+    mutate(PosNeg = case_when(indicator=="Associated" & sig=="*" ~ "True Positive",
+                              indicator=="Associated" & sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & sig!="*" ~ "True Negative")) %>% 
     group_by(domain, Scenario) %>%
     summarise(
       Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
@@ -1365,10 +1294,10 @@ sens.fxn <- function(data){
   ZING.fdr <- data %>% 
     filter(model=="ZING") %>% 
     filter(exposure!="Mixture") %>%
-    mutate(PosNeg = case_when(indicator=="Associated" & fdr.significant=="*" ~ "True Positive",
-                              indicator=="Associated" & fdr.significant!="*" ~ "False Negative",
-                              indicator=="Not Associated" & fdr.significant=="*" ~ "False Positive",
-                              indicator=="Not Associated" & fdr.significant!="*" ~ "True Negative")) %>% 
+    mutate(PosNeg = case_when(indicator=="Associated" & fdr.sig=="*" ~ "True Positive",
+                              indicator=="Associated" & fdr.sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & fdr.sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & fdr.sig!="*" ~ "True Negative")) %>% 
     group_by(domain, Scenario) %>%
     summarise(
       Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
@@ -1404,7 +1333,7 @@ formatted.all <- formatted.all %>%
 formatted.all$Scenario <- factor(formatted.all$Scenario,levels=scenario_order)
 
 formatted.wide <- formatted.all %>% 
-  pivot_wider(names_from = Taxa.Level,
+  pivot_wider(names_from = taxa_full,
               values_from=value) %>% 
   select(-Scenario)
 formatted.wide <- formatted.wide[c("Model","variable","Species","Genus",
