@@ -221,7 +221,9 @@ panther_manual_ids <- c("PAN_202_T",
                         "PAN_208_O",
                         "PAN_209_O",
                         "PAN_210_O",
-                        "PAN_211_O")
+                        "PAN_211_O",
+                        "PAN_208_O" # for year 1 follow up
+                        )
 
 mri_dat_combined <- full_join(mri_dat, bic_folders_clean, 
                               by = join_by(record_number, study, visit_id)) %>%

@@ -83,13 +83,17 @@ sim.par.all <- sim.par.all %>%
   dplyr::rename(P.s.scenario=P.s.causal.all)
 
 #4. Format Results ----
-# results.data <- results.scenario4
+# results.data <- results
 format.fxn <- function(results.data){
   results.data <- results.data %>% 
     dplyr::mutate(component=case_when(component=="Count model coefficients" ~ "Means",
                                       component=="Zero-inflation model coefficients" ~ "Probability",
                                       component=="Means" ~ "Means",
-                                      component=="Probability" ~ "Probability"))
+                                      component=="Probability" ~ "Probability")) %>% 
+    mutate(sig=case_when(pdir > 0.975 ~ "*",
+                         pdir <= 0.975 ~ "N.S.",
+                         is.na(pdir) ~ sig))
+  
   zing.data <- results.data %>%
     filter(model=="ZINB" | model =="Poisson") %>%
     filter(component=="Means") %>%
@@ -98,7 +102,10 @@ format.fxn <- function(results.data){
     mutate(fdr = p.adjust(pval, method = "fdr")) %>%
     ungroup() %>%
     mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) %>%
-    mutate(model="ZING") 
+    mutate(model="ZING") %>% 
+    mutate(lcl = estimate - (1.96 * SE),ucl = estimate + (1.96 * SE)
+    ) %>% 
+    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","fdr.sig","iteration"))
   
   # zing.data.prob <- results.data %>%
   #   filter(model=="ZINB" | model =="Poisson") %>%
@@ -110,12 +117,16 @@ format.fxn <- function(results.data){
   #   mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) %>%
   #   mutate(model="ZING") 
   
-  formatted.data <- results.data %>%
+  bayesian <- results.data %>%
     filter(component=="Means") %>%
     filter(model=="BaHZING" | model =="RBaHZING") %>%
     mutate(taxa_full=str_replace_all(taxa_full,"k__species","species")) %>% 
-    mutate(fdr=pval) %>% 
-    mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) 
+    # mutate(fdr=p) %>% 
+    # mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) 
+    mutate(fdr.sig=sig) %>% 
+    dplyr::rename(lcl=bci_lcl,
+                  ucl=bci_ucl) %>% 
+    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","fdr.sig","iteration"))
   
   # formatted.data.prob <- results.data %>%
   #   filter(component=="Probability") %>%
@@ -124,10 +135,12 @@ format.fxn <- function(results.data){
   #   mutate(fdr=pval) %>% 
   #   mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) 
   
-  formatted.data <- rbind(zing.data,formatted.data)
+  formatted.data <- rbind(zing.data,  bayesian)
+  formatted.data <- formatted.data %>% 
+    dplyr::rename(sig=fdr.sig)
   # formatted.data.prob <- rbind(zing.data.prob,formatted.data.prob)
   # rm(zing.data,zing.data.prob)
-  rm(zing.data)
+  rm(zing.data,bayesian)
   
   # formatted.data <- formatted.data %>%
   #   mutate(Taxa.Level=case_when(grepl("species",Taxa) ~ "Species",
