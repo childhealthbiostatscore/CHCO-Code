@@ -121,6 +121,7 @@ format.fxn <- function(results.data){
     filter(component=="Means") %>%
     filter(model=="BaHZING" | model =="RBaHZING") %>%
     mutate(taxa_full=str_replace_all(taxa_full,"k__species","species")) %>% 
+    mutate(taxa_full=str_replace_all(taxa_full,"k__X","species")) %>% 
     # mutate(fdr=p) %>% 
     # mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) 
     mutate(fdr.sig=NA) %>% 
@@ -336,6 +337,10 @@ for (scenario in c(1,4:9)) {
 }
 rm(formatted.results)
 
+# #Trouble shoot sim 1
+# sim1 <- all_formatted_results %>% 
+#   filter(Scenario==1)
+
 #5. Plot Results ----
 temp_file <- tempfile(fileext = ".RDS") 
 s3$download_file(bucket,"taxa_structure.RDS", temp_file)
@@ -374,11 +379,119 @@ mixture$Scenario <- paste0("Scenario ",mixture$Scenario)
 taxa_order <- c("Species","Genus","Family","Order","Class","Phylum")
 mixture$domain <- factor(mixture$domain, levels = taxa_order)
 
+# mixture <- mixture %>% 
+#   filter(Scenario=="Scenario 1")
 NA.mix <- mixture %>%
   filter(indicator=="Not Associated")
 A.mix <- mixture %>%
   filter(indicator=="Associated")
 
+# mix.plot <- ggplot()+
+#   geom_line(data = NA.mix, alpha = 0.5, aes(model,estimate,group = group_number,color=estimate)) +
+#   geom_point(data=NA.mix,aes(model,estimate,color=estimate),alpha = 0.5) +
+#   geom_line(data = A.mix, alpha = 0.5, aes(model,estimate,group = group_number,color=estimate)) +
+#   geom_point(data=A.mix,aes(model,estimate,color=estimate),alpha = 0.5) +
+#   geom_errorbar(data=NA.mix,
+#                 aes(model,estimate,group = model),
+#                 stat = "summary",
+#                 fun.data = function(x) {
+#                   mean_val <- mean(x)
+#                   sd_val <- sd(x)
+#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
+#                 },
+#                 width = 0.1,
+#                 linewidth = 0.5,
+#                 color = "black"
+#   ) +
+#   geom_errorbar(data=A.mix,
+#                 aes(model,estimate,group = model),
+#                 stat = "summary",
+#                 fun.data = function(x) {
+#                   mean_val <- mean(x)
+#                   sd_val <- sd(x)
+#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
+#                 },
+#                 width = 0.1,
+#                 linewidth = 0.5,
+#                 color = "black"
+#   ) +
+#   geom_point(data=NA.mix,
+#              aes(model,estimate,group = model),
+#              stat = "summary",
+#              fun = mean,   # Use the mean function to calculate the summary statistic
+#              size = 2,     # Size of the points
+#              shape = 16,   # Shape of the points
+#              color = "black",  # Color of the points
+#              fill = "black") +   # Fill color of the points
+#   geom_point(data=A.mix,
+#              aes(model,estimate,group = model),
+#              stat = "summary",
+#              fun = mean,   # Use the mean function to calculate the summary statistic
+#              size = 2,     # Size of the points
+#              shape = 16,   # Shape of the points
+#              color = "black",  # Color of the points
+#              fill = "black") +
+# # geom_errorbar(data=NA.mix,
+# #               aes(model,estimate,group = model),
+# #               stat = "summary",
+# #               fun.data = function(x) {
+# #                 estimate_val <- estimate(x)
+# #                 sd_val <- sd(x)
+# #                 data.frame(y = estimate_val, ymin = estimate_val - sd_val, ymax = estimate_val + sd_val)
+# #               },
+# #               width = 0.1,
+# #               linewidth = 0.5,
+# #               color = "black"
+# # ) +
+# # geom_errorbar(data=A.mix,
+# #               aes(model,estimate,group = model),
+# #               stat = "summary",
+# #               fun.data = function(x) {
+# #                 estimate_val <- estimate(x)
+# #                 sd_val <- sd(x)
+# #                 data.frame(y = estimate_val, ymin = estimate_val - sd_val, ymax = estimate_val + sd_val)
+# #               },
+# #               width = 0.1,
+# #               linewidth = 0.5,
+# #               color = "black"
+# # ) +
+# # geom_point(data=NA.mix,
+# #            aes(model,estimate,group = model),
+# #            stat = "summary",
+# #            fun = mean,   # Use the estimate function to calculate the summary statistic
+# #            size = 2,     # Size of the points
+# #            shape = 16,   # Shape of the points
+# #            color = "black",  # Color of the points
+# #            fill = "black") +   # Fill color of the points
+# # geom_point(data=A.mix,
+# #            aes(model,estimate,group = model),
+# #            stat = "summary",
+# #            fun = mean,   # Use the estimate function to calculate the summary statistic
+# #            size = 2,     # Size of the points
+# #            shape = 16,   # Shape of the points
+# #            color = "black",  # Color of the points
+# #            fill = "black") +
+# # facet_grid(Scenario ~ domain)+
+# facet_grid(Scenario ~ domain,scales = "free_y")+
+# theme_bw() +
+# theme(
+#   text = element_text(family = "Times", size = 20,color="black"),
+#   axis.text = element_text(family = "Times", size = 15),
+#   plot.title = element_text(family = "Times", face = "bold", size = 16),
+#   plot.subtitle = element_text(family = "Times", size = 15),
+#   axis.title.x = element_blank(),
+#   axis.title.y = element_text(family = "Times", size = 20,face="bold"),
+#   axis.text.x=element_text(angle=45,hjust=1),
+#   # strip.text.y = element_blank(),
+#   strip.text.x = element_text(size=15,face="bold"))+
+# 
+# scale_colour_gradientn(colours = c("#660000","#660000","#cc0000","#cc0000","#e69f00","#e69f00","#9a9a9a","#9a9a9a"),
+#                        # scale_colour_gradientn(colours = c("#9a9a9a","#9a9a9a","#9a9a9a","#9a9a9a","#e69f00","#cc0000","#660000"),
+#                        values = c(1.0,0.8,0.6,0.4,0.2,0)) +
+# # breaks = c(-0.2,-0.4,-0.6,0,0.2,0.4,0.6))+
+# theme(legend.position="left")
+# 
+# mix.plot
 mix.plot <- ggplot()+
   geom_line(data = NA.mix, alpha = 0.5, aes(model,estimate,group = group_number,color=estimate)) +
   geom_point(data=NA.mix,aes(model,estimate,color=estimate),alpha = 0.5) +
@@ -394,8 +507,7 @@ mix.plot <- ggplot()+
                 },
                 width = 0.1,
                 linewidth = 0.5,
-                color = "black"
-  ) +
+                color = "black") +
   geom_errorbar(data=A.mix,
                 aes(model,estimate,group = model),
                 stat = "summary",
@@ -406,86 +518,43 @@ mix.plot <- ggplot()+
                 },
                 width = 0.1,
                 linewidth = 0.5,
-                color = "black"
-  ) +
+                color = "black") +
   geom_point(data=NA.mix,
              aes(model,estimate,group = model),
              stat = "summary",
-             fun = mean,   # Use the mean function to calculate the summary statistic
-             size = 2,     # Size of the points
-             shape = 16,   # Shape of the points
-             color = "black",  # Color of the points
-             fill = "black") +   # Fill color of the points
+             fun = mean,
+             size = 2,
+             shape = 16,
+             color = "black",
+             fill = "black") +
   geom_point(data=A.mix,
              aes(model,estimate,group = model),
              stat = "summary",
-             fun = mean,   # Use the mean function to calculate the summary statistic
-             size = 2,     # Size of the points
-             shape = 16,   # Shape of the points
-             color = "black",  # Color of the points
+             fun = mean,
+             size = 2,
+             shape = 16,
+             color = "black",
              fill = "black") +
-# geom_errorbar(data=NA.mix,
-#               aes(model,estimate,group = model),
-#               stat = "summary",
-#               fun.data = function(x) {
-#                 estimate_val <- estimate(x)
-#                 sd_val <- sd(x)
-#                 data.frame(y = estimate_val, ymin = estimate_val - sd_val, ymax = estimate_val + sd_val)
-#               },
-#               width = 0.1,
-#               linewidth = 0.5,
-#               color = "black"
-# ) +
-# geom_errorbar(data=A.mix,
-#               aes(model,estimate,group = model),
-#               stat = "summary",
-#               fun.data = function(x) {
-#                 estimate_val <- estimate(x)
-#                 sd_val <- sd(x)
-#                 data.frame(y = estimate_val, ymin = estimate_val - sd_val, ymax = estimate_val + sd_val)
-#               },
-#               width = 0.1,
-#               linewidth = 0.5,
-#               color = "black"
-# ) +
-# geom_point(data=NA.mix,
-#            aes(model,estimate,group = model),
-#            stat = "summary",
-#            fun = mean,   # Use the estimate function to calculate the summary statistic
-#            size = 2,     # Size of the points
-#            shape = 16,   # Shape of the points
-#            color = "black",  # Color of the points
-#            fill = "black") +   # Fill color of the points
-# geom_point(data=A.mix,
-#            aes(model,estimate,group = model),
-#            stat = "summary",
-#            fun = mean,   # Use the estimate function to calculate the summary statistic
-#            size = 2,     # Size of the points
-#            shape = 16,   # Shape of the points
-#            color = "black",  # Color of the points
-#            fill = "black") +
-# facet_grid(Scenario ~ domain)+
-facet_grid(Scenario ~ domain,scales = "free_y")+
-theme_bw() +
-theme(
-  text = element_text(family = "Times", size = 20,color="black"),
-  axis.text = element_text(family = "Times", size = 15),
-  plot.title = element_text(family = "Times", face = "bold", size = 16),
-  plot.subtitle = element_text(family = "Times", size = 15),
-  axis.title.x = element_blank(),
-  axis.title.y = element_text(family = "Times", size = 20,face="bold"),
-  axis.text.x=element_text(angle=45,hjust=1),
-  # strip.text.y = element_blank(),
-  strip.text.x = element_text(size=15,face="bold"))+
-
-scale_colour_gradientn(colours = c("#660000","#660000","#cc0000","#cc0000","#e69f00","#e69f00","#9a9a9a","#9a9a9a"),
-                       # scale_colour_gradientn(colours = c("#9a9a9a","#9a9a9a","#9a9a9a","#9a9a9a","#e69f00","#cc0000","#660000"),
-                       values = c(1.0,0.8,0.6,0.4,0.2,0)) +
-# breaks = c(-0.2,-0.4,-0.6,0,0.2,0.4,0.6))+
-theme(legend.position="left")
+  facet_grid(Scenario ~ domain,scales = "free_y")+
+  theme_bw() +
+  theme(
+    text = element_text(family = "Times", size = 20,color="black"),
+    axis.text = element_text(family = "Times", size = 15),
+    plot.title = element_text(family = "Times", face = "bold", size = 16),
+    plot.subtitle = element_text(family = "Times", size = 15),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(family = "Times", size = 20,face="bold"),
+    axis.text.x=element_text(angle=45,hjust=1),
+    strip.text.x = element_text(size=15,face="bold"),
+    legend.position="left") +
+  scale_colour_gradientn(
+    colours = c("#2166ac", "#4393c3", "#92c5de", "#d1e5f0", "#f7f7f7", 
+                "#fddbc7", "#f4a582", "#d6604d", "#b2182b"),
+    values = scales::rescale(c(-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1)),
+    name = "Estimate")
 
 mix.plot
-png("/home/hhampson/Results/Mixture_Plots_Test.png",res=300,height=4000,width=4000)
+png("/home/hhampson/Results/Mixture_Plots_Test1.png",res=300,height=4000,width=4000)
 plot(mix.plot)
 dev.off()
 
@@ -545,9 +614,76 @@ mix.plot.edit <- ggplot()+
     axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
     axis.text.x = element_text(angle = 45, hjust = 1),
     strip.text.x = element_text(size = 15, face = "bold"),
-    strip.text.y = element_text(size = 15, face = "bold")) +
-  labs(y = "Estimate")
+    strip.text.y = element_text(size = 15, face = "bold"))
 mix.plot.edit 
+
+mix.plot.edit <- ggplot()+
+  geom_line(data = NA.mix, alpha = 0.3, 
+            aes(model, estimate, group = group_number, color = "Not Associated")) +
+  geom_line(data = A.mix, alpha = 0.5, 
+            aes(model, estimate, group = group_number, color = "Associated")) +
+  geom_errorbar(data = NA.mix,
+                aes(model, estimate, group = model),
+                stat = "summary",
+                fun.data = function(x) {
+                  mean_val <- mean(x)
+                  sd_val <- sd(x)
+                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
+                },
+                width = 0.2,
+                linewidth = 0.8,
+                color = "gray30") +
+  geom_errorbar(data = A.mix,
+                aes(model, estimate, group = model),
+                stat = "summary",
+                fun.data = function(x) {
+                  mean_val <- mean(x)
+                  sd_val <- sd(x)
+                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
+                },
+                width = 0.2,
+                linewidth = 0.8,
+                color = "firebrick4") +
+  geom_point(data = NA.mix,
+             aes(model, estimate, group = model),
+             stat = "summary",
+             fun = mean,
+             size = 3,
+             shape = 21,
+             color = "gray30",
+             fill = "white",
+             stroke = 1.5) +
+  geom_point(data = A.mix,
+             aes(model, estimate, group = model),
+             stat = "summary",
+             fun = mean,
+             size = 3,
+             shape = 21,
+             color = "firebrick4",
+             fill = "white",
+             stroke = 1.5) +
+  facet_grid(Scenario ~ domain, scales = "free_y") +
+  theme_bw() +
+  theme(
+    text = element_text(family = "Times", size = 20, color = "black"),
+    axis.text = element_text(family = "Times", size = 15),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text.x = element_text(size = 15, face = "bold"),
+    strip.text.y = element_text(size = 15, face = "bold")) +
+  scale_color_manual(
+    name = "Taxa Status",
+    values = c("Associated" = "firebrick4", 
+               "Not Associated" = "gray60"),
+    breaks = c("Associated", "Not Associated")) +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 14)) +
+  labs(y = "Estimate")
+
+mix.plot.edit
 
 # ggsave(plot=mix.plot,fs::path(dir.results,"Figure 3.3 Scenario 15.jpeg"),height=4,width=15)
 # png(fs::path(dir.results,"Scenario 4 Test.jpeg"),res=300,height=1000,width=3000)
@@ -740,6 +876,7 @@ NA.ind <- ind %>%
 A.ind <- ind %>%
   filter(indicator=="Associated")
 
+
 # ggsave(plot=ind.plot,fs::path(dir.results,"Figure 3.2 Scenario 15.jpeg"),height=4,width=15)
 ind.plot <- ggplot() +
   geom_line(data = NA.ind, alpha = 0.5, 
@@ -865,9 +1002,65 @@ ind.plot.v2 <- ggplot() +
     strip.text.y = element_text(size = 15, face = "bold")) +
   labs(y = "Estimate")
 
-ind.plot.v2
-png("/home/hhampson/Results/Individual_Plots_Test2.png",res=300,height=4000,width=4000)
-plot(ind.plot.v2)
+# First, combine the data with status indicator
+NA.ind_legend <- NA.ind %>% mutate(status = "Not Associated")
+A.ind_legend <- A.ind %>% mutate(status = "Associated")
+combined_ind_data <- bind_rows(NA.ind_legend, A.ind_legend)
+
+# Now create the plot with the combined data
+ind.plot.edit <- ggplot(combined_ind_data, aes(model, estimate)) +
+  geom_line(aes(group = group_number, color = status), 
+            alpha = 0.4) +
+  geom_errorbar(aes(group = model, color = status),
+                stat = "summary",
+                fun.data = function(x) {
+                  mean_val <- mean(x)
+                  sd_val <- sd(x)
+                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
+                },
+                width = 0.2,
+                linewidth = 0.8,
+                alpha = 0.8) +
+  geom_point(aes(group = model, color = status),
+             stat = "summary",
+             fun = mean,
+             size = 3,
+             shape = 21,
+             fill = "white",
+             stroke = 1.5) +
+  facet_grid(Scenario ~ domain, scales = "free_y") +
+  theme_bw() +
+  theme(
+    text = element_text(family = "Times", size = 20, color = "black"),
+    axis.text = element_text(family = "Times", size = 15),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text.x = element_text(size = 15, face = "bold"),
+    strip.text.y = element_text(size = 15, face = "bold"),
+    legend.position = "right",
+    legend.title = element_text(size = 16, face = "bold"),
+    legend.text = element_text(size = 14)) +
+  scale_color_manual(
+    name = "Taxa Status",
+    values = c("Associated" = "firebrick4", 
+               "Not Associated" = "gray60"),
+    breaks = c("Associated", "Not Associated")) +
+  guides(color = guide_legend(
+    override.aes = list(
+      shape = 21,
+      size = 3,
+      stroke = 1.5,
+      fill = "white",
+      linewidth = 1
+    )
+  )) +
+  labs(y = "Estimate")
+
+ind.plot.edit
+
+png("/home/hhampson/Results/Individual_Plots_Test5.png",res=300,height=4000,width=4000)
+plot(ind.plot.edit)
 dev.off()
 
 # Add categorical color variable
@@ -1050,7 +1243,7 @@ dev.off()
 ##A. Individual----
 individual <- all_formatted_results %>% 
   filter(exposure!="Mixture")
-data <- individual
+# data <- individual
 #Update function
 sens.fxn.old <- function(data){
   BaH_ZING <- data %>% 
@@ -1330,15 +1523,92 @@ formatted.all <- sens.fxn(individual)
 rm(individual)
 formatted.all <- formatted.all %>% 
   mutate(Scenario=paste0("Scenario ",Scenario))
-formatted.all$Scenario <- factor(formatted.all$Scenario,levels=scenario_order)
+# formatted.all$Scenario <- factor(formatted.all$Scenario,levels=scenario_order)
 
-formatted.wide <- formatted.all %>% 
-  pivot_wider(names_from = taxa_full,
-              values_from=value) %>% 
-  select(-Scenario)
-formatted.wide <- formatted.wide[c("Model","variable","Species","Genus",
-                                   "Family","Order","Class","Phylum")]
-write.csv(formatted.wide,fs::path(dir.results,"Sensitivity_Individual_Scenario15.csv"))
+# formatted.wide <- formatted.all %>% 
+#   pivot_wider(names_from = taxa_full,
+#               values_from=value) %>% 
+#   select(-Scenario)
+# formatted.wide <- formatted.wide[c("Model","variable","Species","Genus",
+#                                    "Family","Order","Class","Phylum")]
+# write.csv(formatted.wide,fs::path(dir.results,"Sensitivity_Individual_Scenario15.csv"))
+
+# Filter for key metrics
+key_metrics <- c("Sensitivity", "Specificity", "FDR", "PPV")
+
+formatted.subset <- formatted.all %>%
+  filter(variable %in% key_metrics)
+
+plot <- ggplot(formatted.subset, aes(x = Model, y = domain, fill = value)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = round(value, 2)), size = 3, color = "black") +
+  facet_grid(variable ~ Scenario) +
+  scale_fill_gradient(low = "white", high = "#2166ac",
+                      limits = c(0, 1),
+                      name = "Value") +
+  theme_bw() +
+  theme(
+    text = element_text(family = "Times", size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_blank(),
+    strip.text = element_text(size = 10, face = "bold"),
+    legend.position = "right"
+  ) +
+  labs(title = "Model Performance Across Scenarios and Taxonomic Levels")
+
+png("/home/hhampson/Results/Individual_Sensitivity_plots.png",res=300,height=4000,width=4000)
+plot(plot)
+dev.off()
+
+# Separate good and bad metrics
+good_metrics <- c("Sensitivity", "Specificity", "PPV", "NPV")  # Higher is better
+bad_metrics <- c("FDR", "TypeI", "TypeII")  # Lower is better
+
+formatted.good <- formatted.all %>%
+  filter(variable %in% good_metrics)
+
+formatted.bad <- formatted.all %>%
+  filter(variable %in% bad_metrics)
+
+# Plot good metrics (darker = better)
+plot_good <- ggplot(formatted.good, aes(x = Model, y = domain, fill = value)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = round(value, 2)), size = 3, color = "black") +
+  facet_grid(variable ~ Scenario) +
+  scale_fill_gradient(low = "darkred", high = "#1a9850",
+                      limits = c(0, 1),
+                      name = "Value\n(Higher = Better)") +
+  theme_bw() +
+  theme(
+    text = element_text(family = "Times", size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_blank(),
+    strip.text = element_text(size = 10, face = "bold")
+  ) +
+  labs(title = "Positive Performance Metrics")
+
+# Plot bad metrics (lighter = better)
+plot_bad <- ggplot(formatted.bad, aes(x = Model, y = domain, fill = value)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = round(value, 2)), size = 3, color = "black") +
+  facet_grid(variable ~ Scenario) +
+  scale_fill_gradient(low = "#1a9850", high = "darkred",  # Reversed!
+                      limits = c(0, 1),
+                      name = "Value\n(Lower = Better)") +
+  theme_bw() +
+  theme(
+    text = element_text(family = "Times", size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.title = element_blank(),
+    strip.text = element_text(size = 10, face = "bold")
+  ) +
+  labs(title = "Error Rate Metrics")
+
+# library(gridExtra)
+grid.arrange(plot_good, plot_bad, ncol = 1)
+png("/home/hhampson/Results/Individual_Sensitivity_plots2.png",res=300,height=4000,width=4000)
+plot(grid.arrange(plot_good, plot_bad, ncol = 1))
+dev.off()
 
 ##B. Mixture----
 mixture.sens <- formatted.data %>% 
