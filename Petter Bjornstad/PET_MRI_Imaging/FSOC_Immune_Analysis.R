@@ -7,13 +7,13 @@ library(stringr)
 
 
 
-harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
+#harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
 
-dat <- harmonized_data %>%
-  arrange(date_of_screen) %>% 
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
-                   .by = c(record_id, visit))
+#dat <- harmonized_data %>%
+# arrange(date_of_screen) %>% 
+#  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+#                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
+#                   .by = c(record_id, visit))
 
 
 
@@ -193,11 +193,15 @@ demographics <- dat_fsoc_proteomics %>%
 
 print(demographics)
 
+# Save demographics table
 demographics %>%
   as_gt() %>%
-  gtsave(file.path(OUTPUT_DIR, "fsoc_proteomics_demographics.png"), 
-         vwidth = 1400, vheight = 800)
+  gt::gtsave(file.path(OUTPUT_DIR, "fsoc_proteomics_demographics.html"))
 
+# Also save as CSV for reference
+demographics_df <- as.data.frame(demographics)
+write.csv(demographics_df, file.path(OUTPUT_DIR, "fsoc_proteomics_demographics.csv"), 
+          row.names = FALSE)
 # ============================================================================
 # 4. DEFINE INFLAMMATORY/KIDNEY INJURY MARKERS
 # ============================================================================
