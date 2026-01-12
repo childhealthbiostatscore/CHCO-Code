@@ -29,21 +29,24 @@ library(BaHZING)
 use_git()
 
 #Set working directory----
-setwd("/project2/jagoodri_1060/BaHZING_code")
+# setwd("/project2/jagoodri_1060/BaHZING_code")
+dir <- c(here::here(),"HPC Simulation Code")
+setwd(dir)
 
 #Load functions----
-source("HPC_Simulation_Functions_New.R")
+source("/Users/hhampson/CHCO-Code/Petter Bjornstad/Simulation Analysis/Simulation Code/HPC Simulation Code/HPC_Simulation_Functions_New.R")
 # use package functions, except for the ZING model
 
 #Set scenario (1-9)
 simulation_scenario <- 8
+iter <- 475
 
 #Load data----
-Object <- readRDS("FormattedObject.RDS")
+Object <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Microbiome Manuscript/Simulation Data 01_08/HPC Data/FormattedObject.RDS")
 Table <- data.frame(Object$Table)
 Table <- Table[-149]
-P.s.causal.all <- readRDS("Simulation_Scenarios_03_12_25.rds")
-parameters <- read.csv("Simulation_Parameters.csv")
+P.s.causal.all <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Microbiome Manuscript/Simulation Data 01_08/HPC Data/Simulation_Scenarios_03_12_25.rds")
+parameters <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Microbiome Manuscript/Simulation Data 01_08/HPC Data/Simulation_Parameters.csv")
 sim.par <- parameters %>% 
   filter(scenario==simulation_scenario)
 
@@ -63,19 +66,19 @@ Corr <- sim.par$Corr
 
 # Load Z matrices----
 # Genus
-Z.s.g <- readRDS("Z.s.g.RDS")
+Z.s.g <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Microbiome Manuscript/Simulation Data 01_08/HPC Data/Z.s.g.RDS")
 Genus.R <- ncol(Z.s.g)
 #Family
-Z.g.f <- readRDS("Z.g.f.RDS")
+Z.g.f <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Microbiome Manuscript/Simulation Data 01_08/HPC Data/Z.g.f.RDS")
 Family.R <- ncol(Z.g.f)
 #Order
-Z.f.o <- readRDS("Z.f.o.RDS")
+Z.f.o <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Microbiome Manuscript/Simulation Data 01_08/HPC Data/Z.f.o.RDS")
 Order.R <- ncol(Z.f.o)
 #Class
-Z.o.c <- readRDS("Z.o.c.RDS")
+Z.o.c <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Microbiome Manuscript/Simulation Data 01_08/HPC Data/Z.o.c.RDS")
 Class.R <- ncol(Z.o.c)
 #Phylum
-Z.c.p <- readRDS("Z.c.p.RDS")
+Z.c.p <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Microbiome Manuscript/Simulation Data 01_08/HPC Data/Z.c.p.RDS")
 Phylum.R <- ncol(Z.c.p)
 
 #Create data for simulation
@@ -156,9 +159,9 @@ corr_matrix <- create_corr_matrix(P.e, Corr)
   #Names vector
   Taxa.names <- c(rownames(Z.s.g),colnames(Z.s.g),colnames(Z.g.f),colnames(Z.f.o),colnames(Z.o.c),colnames(Z.c.p))
   # HW added: test iter 475
-  saveRDS(Y2, "simulated_data_iter_475.rds")
+  # saveRDS(Y2, "simulated_data_iter_475.rds")
   Y2 <- readRDS("/Users/hhampson/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Microbiome Manuscript/Simulation Data 01_08/Simulation 8 Debugging/simulated_data_iter_475.rds")
-
+  Y2_test <- Y2
   #Run ZING Model ----
   results_list <- map(Taxa.names,dat=Y2,exposure=exposure.names,ZING_Model)
   # results_list <- map(Taxa.names, ~ ZING_Model(.x, dat = Y2, exposure = exposure.names))
