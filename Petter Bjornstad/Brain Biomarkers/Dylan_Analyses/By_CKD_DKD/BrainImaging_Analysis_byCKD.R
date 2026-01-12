@@ -771,3 +771,559 @@ write.csv(stat_results_all, file.path(output_path, "stats_healthy_vs_dkd.csv"), 
 write.csv(summary_stats, file.path(output_path, "summary_healthy_vs_dkd.csv"), row.names = FALSE)
 
 cat("\n========== ANALYSIS COMPLETE ==========\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================
+# ADDITIONAL ANALYSES: GROUP-ADJUSTED PLOTS AND CORRELATIONS
+# ============================================================
+
+# ============================================================
+# PLOT 4: Healthy vs DKD - Adjusted by Group (T1D/T2D/Control)
+# ============================================================
+
+cat("\n\n========== GROUP-ADJUSTED ANALYSES ==========\n")
+
+# Check group distribution
+cat("\nGroup distribution by kidney status:\n")
+small_dat %>%
+  filter(!is.na(kidney_status)) %>%
+  count(kidney_status, group) %>%
+  pivot_wider(names_from = kidney_status, values_from = n, values_fill = 0) %>%
+  print()
+
+# Create plot data with group
+plot_data_group <- small_dat %>%
+  filter(!is.na(sample_type), !is.na(kidney_status), !is.na(group)) %>%
+  select(record_id, sample_type, kidney_status, group, eGFR_CKD_epi, acr_u, all_of(qx_var)) %>%
+  pivot_longer(cols = all_of(qx_var), names_to = "biomarker", values_to = "concentration") %>%
+  filter(!is.na(concentration)) %>%
+  mutate(
+    biomarker_label = biomarker_labels[biomarker],
+    sample_type = factor(sample_type, levels = c("serum", "plasma")),
+    kidney_status = factor(kidney_status, levels = c("Healthy", "DKD")),
+    group = factor(group)
+  )
+
+# Plot: Faceted by biomarker and group
+p4_group_adjusted <- ggplot(plot_data_group, 
+                            aes(x = kidney_status, y = concentration, fill = kidney_status)) +
+  geom_boxplot(outlier.shape = 16, outlier.size = 1, width = 0.6) +
+  geom_jitter(width = 0.15, alpha = 0.4, size = 1.5) +
+  facet_grid(biomarker_label ~ group, scales = "free_y") +
+  scale_fill_manual(values = c("Healthy" = "#2E86AB", "DKD" = "#E94F37")) +
+  labs(title = "Brain Biomarkers: Healthy vs DKD by Group",
+       subtitle = "Stratified by T1D, T2D, and Control groups",
+       x = "Kidney Status", y = "Concentration (pg/mL)", fill = "Status") +
+  theme_bw() +
+  theme(strip.text = element_text(face = "bold", size = 9),
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+
+print(p4_group_adjusted)
+ggsave(file.path(output_path, "biomarkers_healthy_vs_dkd_by_group.png"), 
+       p4_group_adjusted, width = 14, height = 16, dpi = 300)
+
+# Alternative: Each biomarker separately with group coloring
+create_group_biomarker_plot <- function(data, biomarker_name) {
+  bm_data <- data %>% filter(biomarker == biomarker_name)
+  
+  if(nrow(bm_data) == 0) return(NULL)
+  
+  ggplot(bm_data, aes(x = kidney_status, y = concentration, fill = group)) +
+    geom_boxplot(outlier.shape = 16, outlier.size = 1, position = position_dodge(width = 0.8)) +
+    geom_point(aes(group = group), position = position_jitterdodge(jitter.width = 0.15, dodge.width = 0.8), 
+               alpha = 0.5, size = 1.5) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(title = biomarker_labels[biomarker_name],
+         x = "Kidney Status", y = "Concentration (pg/mL)", fill = "Group") +
+    theme_bw() +
+    theme(plot.title = element_text(face = "bold", size = 11),
+          legend.position = "bottom")
+}
+
+group_plots <- lapply(qx_var, function(bm) create_group_biomarker_plot(plot_data_group, bm))
+group_plots <- group_plots[!sapply(group_plots, is.null)]
+
+if(length(group_plots) > 0) {
+  p5_group_combined <- wrap_plots(group_plots, ncol = 2) +
+    plot_annotation(
+      title = "Brain Biomarkers by Group: Healthy vs DKD",
+      subtitle = "Each panel shows distribution across T1D, T2D, and Control groups",
+      theme = theme(plot.title = element_text(face = "bold", size = 14))
+    ) +
+    plot_layout(guides = "collect") &
+    theme(legend.position = "bottom")
+  
+  print(p5_group_combined)
+  ggsave(file.path(output_path, "biomarkers_healthy_vs_dkd_group_colored.png"), 
+         p5_group_combined, width = 12, height = 14, dpi = 300)
+}
+
+# ============================================================
+# PLOT 5: UACR-ADJUSTED PLOTS (Continuous UACR)
+# ============================================================
+
+cat("\n\n========== UACR-ADJUSTED ANALYSES ==========\n")
+
+# Create correlation data
+uacr_data <- small_dat %>%
+  filter(!is.na(sample_type), !is.na(acr_u)) %>%
+  select(record_id, sample_type, group, kidney_status, eGFR_CKD_epi, acr_u, all_of(qx_var)) %>%
+  pivot_longer(cols = all_of(qx_var), names_to = "biomarker", values_to = "concentration") %>%
+  filter(!is.na(concentration)) %>%
+  mutate(
+    biomarker_label = biomarker_labels[biomarker],
+    log_uacr = log10(acr_u + 1),  # Log transform UACR
+    sample_type = factor(sample_type, levels = c("serum", "plasma"))
+  )
+
+# Scatter plots: Biomarker vs log(UACR)
+p6_uacr_scatter <- ggplot(uacr_data, 
+                          aes(x = log_uacr, y = concentration, color = kidney_status)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
+  facet_wrap(~ biomarker_label, scales = "free_y", ncol = 2) +
+  scale_color_manual(values = c("Healthy" = "#2E86AB", "DKD" = "#E94F37"), 
+                     na.value = "gray50") +
+  labs(title = "Brain Biomarkers vs Log(UACR)",
+       subtitle = "Linear relationship with albumin-to-creatinine ratio",
+       x = "Log10(UACR + 1) [mg/g]", y = "Concentration (pg/mL)", 
+       color = "Kidney Status") +
+  theme_bw() +
+  theme(strip.text = element_text(face = "bold", size = 10),
+        legend.position = "bottom")
+
+print(p6_uacr_scatter)
+ggsave(file.path(output_path, "biomarkers_vs_uacr_scatter.png"), 
+       p6_uacr_scatter, width = 12, height = 14, dpi = 300)
+
+# Facet by sample type as well
+p7_uacr_by_sample <- ggplot(uacr_data, 
+                            aes(x = log_uacr, y = concentration, color = sample_type)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
+  facet_wrap(~ biomarker_label, scales = "free_y", ncol = 2) +
+  scale_color_manual(values = c("serum" = "#E69F00", "plasma" = "#56B4E9")) +
+  labs(title = "Brain Biomarkers vs Log(UACR) by Sample Type",
+       x = "Log10(UACR + 1) [mg/g]", y = "Concentration (pg/mL)", 
+       color = "Sample Type") +
+  theme_bw() +
+  theme(strip.text = element_text(face = "bold", size = 10),
+        legend.position = "bottom")
+
+print(p7_uacr_by_sample)
+ggsave(file.path(output_path, "biomarkers_vs_uacr_by_sample.png"), 
+       p7_uacr_by_sample, width = 12, height = 14, dpi = 300)
+
+# ============================================================
+# PLOT 6: eGFR-ADJUSTED PLOTS (Continuous eGFR)
+# ============================================================
+
+egfr_data <- small_dat %>%
+  filter(!is.na(sample_type), !is.na(eGFR_CKD_epi)) %>%
+  select(record_id, sample_type, group, kidney_status, eGFR_CKD_epi, acr_u, all_of(qx_var)) %>%
+  pivot_longer(cols = all_of(qx_var), names_to = "biomarker", values_to = "concentration") %>%
+  filter(!is.na(concentration)) %>%
+  mutate(
+    biomarker_label = biomarker_labels[biomarker],
+    sample_type = factor(sample_type, levels = c("serum", "plasma"))
+  )
+
+p8_egfr_scatter <- ggplot(egfr_data, 
+                          aes(x = eGFR_CKD_epi, y = concentration, color = kidney_status)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
+  geom_vline(xintercept = c(90, 120), linetype = "dashed", color = "gray40", alpha = 0.6) +
+  facet_wrap(~ biomarker_label, scales = "free_y", ncol = 2) +
+  scale_color_manual(values = c("Healthy" = "#2E86AB", "DKD" = "#E94F37"), 
+                     na.value = "gray50") +
+  labs(title = "Brain Biomarkers vs eGFR",
+       subtitle = "Dashed lines indicate healthy range (90-120 mL/min/1.73m²)",
+       x = "eGFR (mL/min/1.73m²)", y = "Concentration (pg/mL)", 
+       color = "Kidney Status") +
+  theme_bw() +
+  theme(strip.text = element_text(face = "bold", size = 10),
+        legend.position = "bottom")
+
+print(p8_egfr_scatter)
+ggsave(file.path(output_path, "biomarkers_vs_egfr_scatter.png"), 
+       p8_egfr_scatter, width = 12, height = 14, dpi = 300)
+
+# ============================================================
+# CORRELATION ANALYSES
+# ============================================================
+
+cat("\n\n========== CORRELATION ANALYSES ==========\n")
+
+# 1. Biomarker intercorrelations
+cat("\n1. BIOMARKER INTERCORRELATIONS\n")
+
+correlation_data <- small_dat %>%
+  filter(!is.na(kidney_status)) %>%
+  dplyr::select(all_of(qx_var)) %>%
+  drop_na()
+
+if(nrow(correlation_data) > 0 && ncol(correlation_data) > 1) {
+  cor_matrix <- cor(correlation_data, use = "pairwise.complete.obs", method = "spearman")
+  
+  # Rename columns for better display
+  cor_matrix_display <- cor_matrix
+  rownames(cor_matrix_display) <- biomarker_labels[rownames(cor_matrix_display)]
+  colnames(cor_matrix_display) <- biomarker_labels[colnames(cor_matrix_display)]
+  
+  # Open PNG device
+  png(file.path(output_path, "biomarker_intercorrelations.png"), 
+      width = 10, height = 10, units = "in", res = 300)
+  
+  # Create corrplot
+  corrplot::corrplot(cor_matrix_display, 
+                     method = "color", 
+                     type = "upper", 
+                     tl.col = "black", 
+                     tl.srt = 45,
+                     tl.cex = 0.9,
+                     addCoef.col = "black", 
+                     number.cex = 0.7,
+                     col = colorRampPalette(c("#2166AC", "white", "#B2182B"))(200),
+                     diag = TRUE,
+                     cl.cex = 0.8,
+                     mar = c(0, 0, 2, 0),
+                     title = "Biomarker Intercorrelations (All Samples)")
+  
+  # Close device
+  dev.off()
+  
+  cat("\nSpearman correlations between biomarkers:\n")
+  print(round(cor_matrix, 3))
+  
+  # Save correlation matrix as CSV
+  write.csv(cor_matrix, 
+            file.path(output_path, "biomarker_intercorrelations.csv"))
+  
+} else {
+  cat("Insufficient data for biomarker intercorrelations.\n")
+}
+
+# 2. Correlations with kidney function (eGFR and UACR)
+cat("\n\n2. CORRELATIONS WITH KIDNEY FUNCTION\n")
+
+kidney_cor_data <- small_dat %>%
+  filter(!is.na(kidney_status)) %>%
+  dplyr::select(eGFR_CKD_epi, acr_u, all_of(qx_var)) %>%
+  mutate(log_uacr = log10(acr_u + 1))
+
+# Calculate correlations
+kidney_correlations <- data.frame(
+  biomarker = qx_var,
+  biomarker_label = biomarker_labels[qx_var]
+)
+
+for(bm in qx_var) {
+  # eGFR correlation
+  if(sum(!is.na(kidney_cor_data[[bm]]) & !is.na(kidney_cor_data$eGFR_CKD_epi)) > 3) {
+    egfr_test <- cor.test(kidney_cor_data[[bm]], kidney_cor_data$eGFR_CKD_epi, 
+                          method = "spearman", exact = FALSE)
+    kidney_correlations[kidney_correlations$biomarker == bm, "egfr_rho"] <- egfr_test$estimate
+    kidney_correlations[kidney_correlations$biomarker == bm, "egfr_p"] <- egfr_test$p.value
+  } else {
+    kidney_correlations[kidney_correlations$biomarker == bm, "egfr_rho"] <- NA
+    kidney_correlations[kidney_correlations$biomarker == bm, "egfr_p"] <- NA
+  }
+  
+  # UACR correlation
+  if(sum(!is.na(kidney_cor_data[[bm]]) & !is.na(kidney_cor_data$log_uacr)) > 3) {
+    uacr_test <- cor.test(kidney_cor_data[[bm]], kidney_cor_data$log_uacr, 
+                          method = "spearman", exact = FALSE)
+    kidney_correlations[kidney_correlations$biomarker == bm, "log_uacr_rho"] <- uacr_test$estimate
+    kidney_correlations[kidney_correlations$biomarker == bm, "log_uacr_p"] <- uacr_test$p.value
+  } else {
+    kidney_correlations[kidney_correlations$biomarker == bm, "log_uacr_rho"] <- NA
+    kidney_correlations[kidney_correlations$biomarker == bm, "log_uacr_p"] <- NA
+  }
+}
+
+kidney_correlations <- kidney_correlations %>%
+  mutate(
+    egfr_sig = ifelse(!is.na(egfr_p) & egfr_p < 0.05, "*", ""),
+    log_uacr_sig = ifelse(!is.na(log_uacr_p) & log_uacr_p < 0.05, "*", "")
+  )
+
+cat("\nCorrelations with kidney function:\n")
+print(kidney_correlations %>% dplyr::select(-biomarker), row.names = FALSE)
+
+write.csv(kidney_correlations, 
+          file.path(output_path, "kidney_function_correlations.csv"), 
+          row.names = FALSE)
+
+# 3. Stratified correlations by kidney status
+cat("\n\n3. STRATIFIED CORRELATIONS BY KIDNEY STATUS\n")
+
+for(status in c("Healthy", "DKD")) {
+  cat(paste0("\n", status, " group:\n"))
+  
+  status_data <- small_dat %>%
+    filter(kidney_status == status) %>%
+    dplyr::select(eGFR_CKD_epi, acr_u, all_of(qx_var)) %>%
+    mutate(log_uacr = log10(acr_u + 1)) %>%
+    dplyr::select(-acr_u) %>%
+    drop_na()
+  
+  if(nrow(status_data) > 5 && ncol(status_data) > 2) {
+    status_cor <- cor(status_data, use = "pairwise.complete.obs", method = "spearman")
+    
+    # Rename for display
+    status_cor_display <- status_cor
+    colnames(status_cor_display)[1] <- "eGFR"
+    rownames(status_cor_display)[1] <- "eGFR"
+    colnames(status_cor_display)[2] <- "Log10(UACR)"
+    rownames(status_cor_display)[2] <- "Log10(UACR)"
+    for(i in 3:ncol(status_cor_display)) {
+      old_name <- colnames(status_cor_display)[i]
+      if(old_name %in% names(biomarker_labels)) {
+        colnames(status_cor_display)[i] <- biomarker_labels[old_name]
+        rownames(status_cor_display)[i] <- biomarker_labels[old_name]
+      }
+    }
+    
+    png(file.path(output_path, paste0("correlations_", tolower(status), ".png")), 
+        width = 12, height = 10, units = "in", res = 300)
+    
+    corrplot::corrplot(status_cor_display, 
+                       method = "color", 
+                       type = "upper", 
+                       tl.col = "black", 
+                       tl.srt = 45,
+                       tl.cex = 0.9,
+                       addCoef.col = "black", 
+                       number.cex = 0.7,
+                       col = colorRampPalette(c("#2166AC", "white", "#B2182B"))(200),
+                       diag = TRUE,
+                       cl.cex = 0.8,
+                       mar = c(0, 0, 2, 0),
+                       title = paste("Correlations -", status, "Group"))
+    
+    dev.off()
+    
+    cat("Correlation matrix saved.\n")
+    # Print eGFR and log(UACR) correlations with biomarkers
+    if(ncol(status_cor) > 2) {
+      cat("eGFR and Log10(UACR) correlations with biomarkers:\n")
+      print(round(status_cor[1:2, 3:ncol(status_cor)], 3))
+    }
+  } else {
+    cat("Insufficient data for correlation analysis.\n")
+  }
+}
+
+# 4. Correlations by group (T1D/T2D/Control)
+cat("\n\n4. CORRELATIONS BY DIABETES GROUP\n")
+
+for(grp in unique(small_dat$group[!is.na(small_dat$group)])) {
+  cat(paste0("\n", grp, ":\n"))
+  
+  group_data <- small_dat %>%
+    filter(group == grp, !is.na(kidney_status)) %>%
+    dplyr::select(eGFR_CKD_epi, acr_u, all_of(qx_var)) %>%
+    mutate(log_uacr = log10(acr_u + 1)) %>%
+    dplyr::select(-acr_u) %>%
+    drop_na()
+  
+  if(nrow(group_data) > 5 && ncol(group_data) > 2) {
+    group_cor <- cor(group_data, use = "pairwise.complete.obs", method = "spearman")
+    
+    # Rename for display
+    group_cor_display <- group_cor
+    colnames(group_cor_display)[1] <- "eGFR"
+    rownames(group_cor_display)[1] <- "eGFR"
+    colnames(group_cor_display)[2] <- "Log10(UACR)"
+    rownames(group_cor_display)[2] <- "Log10(UACR)"
+    for(i in 3:ncol(group_cor_display)) {
+      old_name <- colnames(group_cor_display)[i]
+      if(old_name %in% names(biomarker_labels)) {
+        colnames(group_cor_display)[i] <- biomarker_labels[old_name]
+        rownames(group_cor_display)[i] <- biomarker_labels[old_name]
+      }
+    }
+    
+    safe_grp_name <- gsub("[^A-Za-z0-9]", "_", grp)
+    png(file.path(output_path, paste0("correlations_", tolower(safe_grp_name), ".png")), 
+        width = 12, height = 10, units = "in", res = 300)
+    
+    corrplot::corrplot(group_cor_display, 
+                       method = "color", 
+                       type = "upper", 
+                       tl.col = "black", 
+                       tl.srt = 45,
+                       tl.cex = 0.9,
+                       addCoef.col = "black", 
+                       number.cex = 0.7,
+                       col = colorRampPalette(c("#2166AC", "white", "#B2182B"))(200),
+                       diag = TRUE,
+                       cl.cex = 0.8,
+                       mar = c(0, 0, 2, 0),
+                       title = paste("Correlations -", grp))
+    
+    dev.off()
+    
+    cat("Correlation matrix saved.\n")
+  } else {
+    cat("Insufficient data.\n")
+  }
+}
+
+# 5. Partial correlations (adjusting for age, BMI, etc.)
+cat("\n\n5. PARTIAL CORRELATIONS (if demographic data available)\n")
+
+if(all(c("age", "bmi") %in% names(small_dat))) {
+  # Check if ppcor is installed
+  if(!require(ppcor, quietly = TRUE)) {
+    cat("Installing ppcor package...\n")
+    install.packages("ppcor")
+    library(ppcor)
+  }
+  
+  partial_cor_data <- small_dat %>%
+    filter(!is.na(kidney_status)) %>%
+    dplyr::select(age, bmi, eGFR_CKD_epi, acr_u, all_of(qx_var)) %>%
+    mutate(log_uacr = log10(acr_u + 1)) %>%
+    dplyr::select(-acr_u) %>%
+    drop_na()
+  
+  if(nrow(partial_cor_data) > 10) {
+    # Partial correlation controlling for age and BMI
+    pcor_results <- pcor(partial_cor_data, method = "spearman")
+    
+    cat("\nPartial correlations (controlling for age, BMI):\n")
+    cat("eGFR and Log10(UACR) with biomarkers:\n")
+    print(round(pcor_results$estimate[3:4, 5:ncol(pcor_results$estimate)], 3))
+    
+    cat("\nP-values:\n")
+    print(round(pcor_results$p.value[3:4, 5:ncol(pcor_results$p.value)], 4))
+    
+    # Save partial correlation results
+    partial_results <- data.frame(
+      biomarker = colnames(pcor_results$estimate)[5:ncol(pcor_results$estimate)],
+      egfr_partial_r = pcor_results$estimate[3, 5:ncol(pcor_results$estimate)],
+      egfr_partial_p = pcor_results$p.value[3, 5:ncol(pcor_results$p.value)],
+      log_uacr_partial_r = pcor_results$estimate[4, 5:ncol(pcor_results$estimate)],
+      log_uacr_partial_p = pcor_results$p.value[4, 5:ncol(pcor_results$p.value)]
+    )
+    
+    write.csv(partial_results, 
+              file.path(output_path, "partial_correlations_age_bmi_adjusted.csv"), 
+              row.names = FALSE)
+    cat("\nPartial correlation results saved.\n")
+  } else {
+    cat("Insufficient data for partial correlation analysis.\n")
+  }
+} else {
+  cat("Age or BMI not available for adjustment.\n")
+}
+
+# 6. Create a comprehensive correlation heatmap
+cat("\n\n6. COMPREHENSIVE CORRELATION HEATMAP\n")
+
+comprehensive_data <- small_dat %>%
+  filter(!is.na(kidney_status)) %>%
+  dplyr::select(eGFR_CKD_epi, acr_u, all_of(qx_var)) %>%
+  mutate(log_uacr = log10(acr_u + 1)) %>%
+  dplyr::select(-acr_u) %>%
+  drop_na()
+
+if(nrow(comprehensive_data) > 5 && ncol(comprehensive_data) > 2) {
+  comp_cor <- cor(comprehensive_data, use = "pairwise.complete.obs", method = "spearman")
+  
+  # Rename for better labels
+  comp_cor_display <- comp_cor
+  colnames(comp_cor_display)[1] <- "eGFR"
+  rownames(comp_cor_display)[1] <- "eGFR"
+  colnames(comp_cor_display)[2] <- "Log10(UACR)"
+  rownames(comp_cor_display)[2] <- "Log10(UACR)"
+  for(i in 3:ncol(comp_cor_display)) {
+    old_name <- colnames(comp_cor_display)[i]
+    if(old_name %in% names(biomarker_labels)) {
+      colnames(comp_cor_display)[i] <- biomarker_labels[old_name]
+      rownames(comp_cor_display)[i] <- biomarker_labels[old_name]
+    }
+  }
+  
+  png(file.path(output_path, "comprehensive_correlations_all.png"), 
+      width = 12, height = 11, units = "in", res = 300)
+  
+  corrplot::corrplot(comp_cor_display, 
+                     method = "color", 
+                     type = "upper", 
+                     tl.col = "black", 
+                     tl.srt = 45,
+                     tl.cex = 1,
+                     addCoef.col = "black", 
+                     number.cex = 0.7,
+                     col = colorRampPalette(c("#2166AC", "white", "#B2182B"))(200),
+                     diag = TRUE,
+                     cl.cex = 0.8,
+                     mar = c(0, 0, 3, 0),
+                     title = "Comprehensive Correlations: Kidney Function & Brain Biomarkers")
+  
+  dev.off()
+  
+  cat("Comprehensive correlation heatmap saved.\n")
+  
+  # Print the full correlation matrix
+  cat("\nFull correlation matrix:\n")
+  print(round(comp_cor, 3))
+  
+  # Save as CSV
+  write.csv(comp_cor, 
+            file.path(output_path, "comprehensive_correlations.csv"))
+}
+
+# ============================================================
+# SUMMARY TABLE: Group-stratified statistics
+# ============================================================
+
+cat("\n\n========== GROUP-STRATIFIED SUMMARY ==========\n")
+
+group_summary <- plot_data_group %>%
+  group_by(biomarker_label, group, kidney_status) %>%
+  summarise(
+    n = n(),
+    mean = mean(concentration, na.rm = TRUE),
+    sd = sd(concentration, na.rm = TRUE),
+    median = median(concentration, na.rm = TRUE),
+    IQR = IQR(concentration, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(biomarker_label, group, kidney_status)
+
+print(group_summary, n = 50)
+
+write.csv(group_summary, 
+          file.path(output_path, "summary_by_group_and_kidney_status.csv"), 
+          row.names = FALSE)
+
+cat("\n========== ALL ANALYSES COMPLETE ==========\n")
+cat(paste0("All plots and tables saved to: ", output_path, "\n"))
+
+
+
