@@ -1327,3 +1327,293 @@ cat(paste0("All plots and tables saved to: ", output_path, "\n"))
 
 
 
+
+
+
+
+
+######
+
+# ============================================================
+# CORRELATION ANALYSES BY SAMPLE TYPE (PLASMA vs SERUM)
+# ============================================================
+
+cat("\n\n8. CORRELATION ANALYSES STRATIFIED BY SAMPLE TYPE\n")
+
+# ============================================================
+# PLASMA CORRELATIONS
+# ============================================================
+
+cat("\n--- PLASMA SAMPLES ---\n")
+
+plasma_data <- small_dat %>%
+  filter(sample_type == "plasma", !is.na(kidney_status)) %>%
+  dplyr::select(eGFR_CKD_epi, acr_u, all_of(qx_var)) %>%
+  mutate(log_uacr = log10(acr_u + 1)) %>%
+  dplyr::select(-acr_u) %>%
+  drop_na()
+
+cat(paste("Plasma sample size:", nrow(plasma_data), "\n"))
+
+if(nrow(plasma_data) >= 5) {
+  # Calculate correlations
+  plasma_cor_results <- corr.test(plasma_data, method = "spearman", adjust = "none")
+  plasma_cor <- plasma_cor_results$r
+  plasma_pval <- plasma_cor_results$p
+  
+  # Rename
+  new_names <- colnames(plasma_cor)
+  new_names[1] <- "eGFR"
+  new_names[2] <- "Log10(UACR)"
+  for(i in 3:length(new_names)) {
+    if(new_names[i] %in% names(biomarker_labels)) {
+      new_names[i] <- biomarker_labels[new_names[i]]
+    }
+  }
+  colnames(plasma_cor) <- new_names
+  rownames(plasma_cor) <- new_names
+  colnames(plasma_pval) <- new_names
+  rownames(plasma_pval) <- new_names
+  
+  # Create label matrix with correlations + significance stars
+  plasma_labels <- matrix("", nrow = nrow(plasma_cor), ncol = ncol(plasma_cor))
+  for(i in 1:nrow(plasma_cor)) {
+    for(j in 1:ncol(plasma_cor)) {
+      # Format correlation
+      cor_val <- sprintf("%.2f", plasma_cor[i, j])
+      
+      # Add stars based on p-value
+      if(!is.na(plasma_pval[i, j])) {
+        if(plasma_pval[i, j] < 0.001) {
+          stars <- "***"
+        } else if(plasma_pval[i, j] < 0.01) {
+          stars <- "**"
+        } else if(plasma_pval[i, j] < 0.05) {
+          stars <- "*"
+        } else {
+          stars <- ""
+        }
+      } else {
+        stars <- ""
+      }
+      
+      plasma_labels[i, j] <- paste0(cor_val, stars)
+    }
+  }
+  
+  # Create plot - NO automatic coefficients
+  png(file.path(output_path, "correlations_plasma.png"), 
+      width = 14, height = 13, units = "in", res = 300)
+  
+  corrplot::corrplot(plasma_cor, 
+                     method = "color", 
+                     type = "full",
+                     tl.col = "black", 
+                     tl.srt = 45,
+                     tl.cex = 1.1,
+                     col = colorRampPalette(c("#2166AC", "white", "#B2182B"))(200),
+                     cl.cex = 0.9,
+                     mar = c(0, 0, 4, 0),
+                     title = "Correlations: PLASMA Samples\n* p<0.05, ** p<0.01, *** p<0.001")
+  
+  # Add custom labels with stars
+  for(i in 1:nrow(plasma_cor)) {
+    for(j in 1:ncol(plasma_cor)) {
+      text(j, nrow(plasma_cor) - i + 1, plasma_labels[i, j], cex = 0.7, col = "black")
+    }
+  }
+  dev.off()
+  
+  cat("✓ Plasma correlation plot saved.\n")
+  
+  # Save detailed CSV
+  plasma_detailed <- data.frame(
+    Variable1 = rep(rownames(plasma_cor), each = ncol(plasma_cor)),
+    Variable2 = rep(colnames(plasma_cor), times = nrow(plasma_cor)),
+    Correlation = as.vector(plasma_cor),
+    P_value = as.vector(plasma_pval),
+    stringsAsFactors = FALSE
+  ) %>%
+    filter(Variable1 != Variable2) %>%
+    mutate(
+      Significance = case_when(
+        P_value < 0.001 ~ "***",
+        P_value < 0.01 ~ "**",
+        P_value < 0.05 ~ "*",
+        TRUE ~ ""
+      ),
+      Correlation_with_sig = paste0(sprintf("%.2f", Correlation), Significance)
+    ) %>%
+    arrange(P_value)
+  
+  write.csv(plasma_detailed, 
+            file.path(output_path, "correlations_plasma_table.csv"), 
+            row.names = FALSE)
+  
+  cat("\nPlasma - Top significant correlations:\n")
+  sig_plasma_print <- plasma_detailed %>% 
+    filter(P_value < 0.05) %>% 
+    dplyr::select(Variable1, Variable2, Correlation_with_sig, P_value)
+  print(head(sig_plasma_print, 10), row.names = FALSE)
+  
+} else {
+  cat("Insufficient plasma data.\n")
+  plasma_detailed <- NULL
+}
+
+# ============================================================
+# SERUM CORRELATIONS
+# ============================================================
+
+cat("\n--- SERUM SAMPLES ---\n")
+
+serum_data <- small_dat %>%
+  filter(sample_type == "serum", !is.na(kidney_status)) %>%
+  dplyr::select(eGFR_CKD_epi, acr_u, all_of(qx_var)) %>%
+  mutate(log_uacr = log10(acr_u + 1)) %>%
+  dplyr::select(-acr_u) %>%
+  drop_na()
+
+cat(paste("Serum sample size:", nrow(serum_data), "\n"))
+
+if(nrow(serum_data) >= 5) {
+  # Calculate correlations
+  serum_cor_results <- corr.test(serum_data, method = "spearman", adjust = "none")
+  serum_cor <- serum_cor_results$r
+  serum_pval <- serum_cor_results$p
+  
+  # Rename
+  new_names <- colnames(serum_cor)
+  new_names[1] <- "eGFR"
+  new_names[2] <- "Log10(UACR)"
+  for(i in 3:length(new_names)) {
+    if(new_names[i] %in% names(biomarker_labels)) {
+      new_names[i] <- biomarker_labels[new_names[i]]
+    }
+  }
+  colnames(serum_cor) <- new_names
+  rownames(serum_cor) <- new_names
+  colnames(serum_pval) <- new_names
+  rownames(serum_pval) <- new_names
+  
+  # Create label matrix with correlations + significance stars
+  serum_labels <- matrix("", nrow = nrow(serum_cor), ncol = ncol(serum_cor))
+  for(i in 1:nrow(serum_cor)) {
+    for(j in 1:ncol(serum_cor)) {
+      # Format correlation
+      cor_val <- sprintf("%.2f", serum_cor[i, j])
+      
+      # Add stars based on p-value
+      if(!is.na(serum_pval[i, j])) {
+        if(serum_pval[i, j] < 0.001) {
+          stars <- "***"
+        } else if(serum_pval[i, j] < 0.01) {
+          stars <- "**"
+        } else if(serum_pval[i, j] < 0.05) {
+          stars <- "*"
+        } else {
+          stars <- ""
+        }
+      } else {
+        stars <- ""
+      }
+      
+      serum_labels[i, j] <- paste0(cor_val, stars)
+    }
+  }
+  
+  # Create plot - NO automatic coefficients
+  png(file.path(output_path, "correlations_serum.png"), 
+      width = 14, height = 13, units = "in", res = 300)
+  
+  corrplot::corrplot(serum_cor, 
+                     method = "color", 
+                     type = "full",
+                     tl.col = "black", 
+                     tl.srt = 45,
+                     tl.cex = 1.1,
+                     col = colorRampPalette(c("#2166AC", "white", "#B2182B"))(200),
+                     cl.cex = 0.9,
+                     mar = c(0, 0, 4, 0),
+                     title = "Correlations: SERUM Samples\n* p<0.05, ** p<0.01, *** p<0.001")
+  
+  # Add custom labels with stars
+  for(i in 1:nrow(serum_cor)) {
+    for(j in 1:ncol(serum_cor)) {
+      text(j, nrow(serum_cor) - i + 1, serum_labels[i, j], cex = 0.7, col = "black")
+    }
+  }
+  
+  dev.off()
+  
+  cat("✓ Serum correlation plot saved.\n")
+  
+  # Save detailed CSV
+  serum_detailed <- data.frame(
+    Variable1 = rep(rownames(serum_cor), each = ncol(serum_cor)),
+    Variable2 = rep(colnames(serum_cor), times = nrow(serum_cor)),
+    Correlation = as.vector(serum_cor),
+    P_value = as.vector(serum_pval),
+    stringsAsFactors = FALSE
+  ) %>%
+    filter(Variable1 != Variable2) %>%
+    mutate(
+      Significance = case_when(
+        P_value < 0.001 ~ "***",
+        P_value < 0.01 ~ "**",
+        P_value < 0.05 ~ "*",
+        TRUE ~ ""
+      ),
+      Correlation_with_sig = paste0(sprintf("%.2f", Correlation), Significance)
+    ) %>%
+    arrange(P_value)
+  
+  write.csv(serum_detailed, 
+            file.path(output_path, "correlations_serum_table.csv"), 
+            row.names = FALSE)
+  
+  cat("\nSerum - Top significant correlations:\n")
+  sig_serum_print <- serum_detailed %>% 
+    filter(P_value < 0.05) %>% 
+    dplyr::select(Variable1, Variable2, Correlation_with_sig, P_value)
+  print(head(sig_serum_print, 10), row.names = FALSE)
+  
+} else {
+  cat("Insufficient serum data.\n")
+  serum_detailed <- NULL
+}
+
+# ============================================================
+# COMPARISON
+# ============================================================
+
+if(!is.null(plasma_detailed) && !is.null(serum_detailed)) {
+  cat("\n\n========== COMPARISON: PLASMA vs SERUM ==========\n")
+  
+  comparison <- plasma_detailed %>%
+    dplyr::select(Variable1, Variable2, Corr_Plasma = Correlation, 
+                  P_Plasma = P_value, Sig_Plasma = Significance) %>%
+    full_join(
+      serum_detailed %>% dplyr::select(Variable1, Variable2, Corr_Serum = Correlation, 
+                                       P_Serum = P_value, Sig_Serum = Significance),
+      by = c("Variable1", "Variable2")
+    ) %>%
+    mutate(
+      Difference = Corr_Plasma - Corr_Serum,
+      Both_Sig = (P_Plasma < 0.05) & (P_Serum < 0.05),
+      Only_Plasma = (P_Plasma < 0.05) & (P_Serum >= 0.05 | is.na(P_Serum)),
+      Only_Serum = (P_Serum < 0.05) & (P_Plasma >= 0.05 | is.na(P_Plasma))
+    ) %>%
+    arrange(desc(abs(Difference)))
+  
+  write.csv(comparison, 
+            file.path(output_path, "correlations_plasma_vs_serum_comparison.csv"), 
+            row.names = FALSE)
+  
+  cat("\nSample sizes: Plasma n=", nrow(plasma_data), ", Serum n=", nrow(serum_data), "\n")
+  cat("\nTop differences in correlations:\n")
+  print(head(comparison, 10), row.names = FALSE)
+}
+
+cat("\n========== SAMPLE TYPE ANALYSES COMPLETE ==========\n")
+
