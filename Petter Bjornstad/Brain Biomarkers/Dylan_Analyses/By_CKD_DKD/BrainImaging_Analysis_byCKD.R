@@ -1617,3 +1617,239 @@ if(!is.null(plasma_detailed) && !is.null(serum_detailed)) {
 
 cat("\n========== SAMPLE TYPE ANALYSES COMPLETE ==========\n")
 
+
+
+
+
+
+####Correlations by groups as well 
+
+# ============================================================
+# PLASMA CORRELATIONS - MULTI-PANEL
+# ============================================================
+
+cat("\n--- PLASMA SAMPLES ---\n")
+
+# Prepare base plasma data
+plasma_base <- small_dat %>%
+  filter(sample_type == "plasma", !is.na(group)) %>%
+  dplyr::select(eGFR_CKD_epi, acr_u, all_of(qx_var), group) %>%
+  mutate(log_uacr = log10(acr_u + 1)) %>%
+  dplyr::select(-acr_u)
+
+cat(paste("Total plasma samples:", nrow(plasma_base), "\n"))
+cat("Group distribution:\n")
+print(table(plasma_base$group))
+
+# All plasma
+plasma_all_data <- plasma_base %>% dplyr::select(-group) %>% drop_na()
+plasma_all <- create_correlation_matrices(plasma_all_data, "All Plasma")
+
+# Type 1 Diabetes
+plasma_t1d_data <- plasma_base %>% filter(group == "Type 1 Diabetes") %>% dplyr::select(-group) %>% drop_na()
+plasma_t1d <- create_correlation_matrices(plasma_t1d_data, "Plasma T1D")
+
+# Type 2 Diabetes
+plasma_t2d_data <- plasma_base %>% filter(group == "Type 2 Diabetes") %>% dplyr::select(-group) %>% drop_na()
+plasma_t2d <- create_correlation_matrices(plasma_t2d_data, "Plasma T2D")
+
+# Lean Control
+plasma_lean_data <- plasma_base %>% filter(group == "Lean Control") %>% dplyr::select(-group) %>% drop_na()
+plasma_lean <- create_correlation_matrices(plasma_lean_data, "Plasma Lean Control")
+
+# Obese Control
+plasma_obese_data <- plasma_base %>% filter(group == "Obese Control") %>% dplyr::select(-group) %>% drop_na()
+plasma_obese <- create_correlation_matrices(plasma_obese_data, "Plasma Obese Control")
+
+# PKD
+plasma_pkd_data <- plasma_base %>% filter(group == "PKD") %>% dplyr::select(-group) %>% drop_na()
+plasma_pkd <- create_correlation_matrices(plasma_pkd_data, "Plasma PKD")
+
+cat(paste("Plasma - All:", ifelse(!is.null(plasma_all), plasma_all$n, 0), 
+          " | T1D:", ifelse(!is.null(plasma_t1d), plasma_t1d$n, 0),
+          " | T2D:", ifelse(!is.null(plasma_t2d), plasma_t2d$n, 0),
+          " | Lean:", ifelse(!is.null(plasma_lean), plasma_lean$n, 0),
+          " | Obese:", ifelse(!is.null(plasma_obese), plasma_obese$n, 0),
+          " | PKD:", ifelse(!is.null(plasma_pkd), plasma_pkd$n, 0), "\n"))
+
+# Create multi-panel figure (3x2 layout for 6 panels)
+if(!is.null(plasma_all)) {
+  tiff(file.path(output_path, "correlations_plasma_multipanel.tif"), 
+       width = 18, height = 24, units = "in", res = 300, compression = "lzw")
+  
+  par(mfrow = c(3, 2), oma = c(0, 0, 3, 0))
+  
+  # Panel A - All
+  plot_correlation_panel(plasma_all$cor_mat, plasma_all$labels_mat, "A. All Plasma", plasma_all$n)
+  
+  # Panel B - Type 1 Diabetes
+  if(!is.null(plasma_t1d)) {
+    plot_correlation_panel(plasma_t1d$cor_mat, plasma_t1d$labels_mat, "B. Type 1 Diabetes", plasma_t1d$n)
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Insufficient data\nfor Type 1 Diabetes", cex = 1.5)
+  }
+  
+  # Panel C - Type 2 Diabetes
+  if(!is.null(plasma_t2d)) {
+    plot_correlation_panel(plasma_t2d$cor_mat, plasma_t2d$labels_mat, "C. Type 2 Diabetes", plasma_t2d$n)
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Insufficient data\nfor Type 2 Diabetes", cex = 1.5)
+  }
+  
+  # Panel D - Lean Control
+  if(!is.null(plasma_lean)) {
+    plot_correlation_panel(plasma_lean$cor_mat, plasma_lean$labels_mat, "D. Lean Control", plasma_lean$n)
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Insufficient data\nfor Lean Control", cex = 1.5)
+  }
+  
+  # Panel E - Obese Control
+  if(!is.null(plasma_obese)) {
+    plot_correlation_panel(plasma_obese$cor_mat, plasma_obese$labels_mat, "E. Obese Control", plasma_obese$n)
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Insufficient data\nfor Obese Control", cex = 1.5)
+  }
+  
+  # Panel F - PKD
+  if(!is.null(plasma_pkd)) {
+    plot_correlation_panel(plasma_pkd$cor_mat, plasma_pkd$labels_mat, "F. PKD", plasma_pkd$n)
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Insufficient data\nfor PKD", cex = 1.5)
+  }
+  
+  mtext("PLASMA Correlations by Participant Group\n* p<0.05, ** p<0.01, *** p<0.001", 
+        outer = TRUE, cex = 1.3, font = 2)
+  
+  dev.off()
+  cat("✓ Plasma multi-panel correlation plot saved.\n")
+}
+
+# ============================================================
+# SERUM CORRELATIONS - MULTI-PANEL
+# ============================================================
+
+cat("\n--- SERUM SAMPLES ---\n")
+
+# Prepare base serum data
+serum_base <- small_dat %>%
+  filter(sample_type == "serum", !is.na(group)) %>%
+  dplyr::select(eGFR_CKD_epi, acr_u, all_of(qx_var), group) %>%
+  mutate(log_uacr = log10(acr_u + 1)) %>%
+  dplyr::select(-acr_u)
+
+cat(paste("Total serum samples:", nrow(serum_base), "\n"))
+cat("Group distribution:\n")
+print(table(serum_base$group))
+
+# All serum
+serum_all_data <- serum_base %>% dplyr::select(-group) %>% drop_na()
+serum_all <- create_correlation_matrices(serum_all_data, "All Serum")
+
+# Type 1 Diabetes
+serum_t1d_data <- serum_base %>% filter(group == "Type 1 Diabetes") %>% dplyr::select(-group) %>% drop_na()
+serum_t1d <- create_correlation_matrices(serum_t1d_data, "Serum T1D")
+
+# Type 2 Diabetes
+serum_t2d_data <- serum_base %>% filter(group == "Type 2 Diabetes") %>% dplyr::select(-group) %>% drop_na()
+serum_t2d <- create_correlation_matrices(serum_t2d_data, "Serum T2D")
+
+# Lean Control
+serum_lean_data <- serum_base %>% filter(group == "Lean Control") %>% dplyr::select(-group) %>% drop_na()
+serum_lean <- create_correlation_matrices(serum_lean_data, "Serum Lean Control")
+
+# Obese Control
+serum_obese_data <- serum_base %>% filter(group == "Obese Control") %>% dplyr::select(-group) %>% drop_na()
+serum_obese <- create_correlation_matrices(serum_obese_data, "Serum Obese Control")
+
+# PKD
+serum_pkd_data <- serum_base %>% filter(group == "PKD") %>% dplyr::select(-group) %>% drop_na()
+serum_pkd <- create_correlation_matrices(serum_pkd_data, "Serum PKD")
+
+cat(paste("Serum - All:", ifelse(!is.null(serum_all), serum_all$n, 0), 
+          " | T1D:", ifelse(!is.null(serum_t1d), serum_t1d$n, 0),
+          " | T2D:", ifelse(!is.null(serum_t2d), serum_t2d$n, 0),
+          " | Lean:", ifelse(!is.null(serum_lean), serum_lean$n, 0),
+          " | Obese:", ifelse(!is.null(serum_obese), serum_obese$n, 0),
+          " | PKD:", ifelse(!is.null(serum_pkd), serum_pkd$n, 0), "\n"))
+
+# Create multi-panel figure (3x2 layout for 6 panels)
+if(!is.null(serum_all)) {
+  tiff(file.path(output_path, "correlations_serum_multipanel.tif"), 
+       width = 18, height = 24, units = "in", res = 300, compression = "lzw")
+  
+  par(mfrow = c(3, 2), oma = c(0, 0, 3, 0))
+  
+  # Panel A - All
+  plot_correlation_panel(serum_all$cor_mat, serum_all$labels_mat, "A. All Serum", serum_all$n)
+  
+  # Panel B - Type 1 Diabetes
+  if(!is.null(serum_t1d)) {
+    plot_correlation_panel(serum_t1d$cor_mat, serum_t1d$labels_mat, "B. Type 1 Diabetes", serum_t1d$n)
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Insufficient data\nfor Type 1 Diabetes", cex = 1.5)
+  }
+  
+  # Panel C - Type 2 Diabetes
+  if(!is.null(serum_t2d)) {
+    plot_correlation_panel(serum_t2d$cor_mat, serum_t2d$labels_mat, "C. Type 2 Diabetes", serum_t2d$n)
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Insufficient data\nfor Type 2 Diabetes", cex = 1.5)
+  }
+  
+  # Panel D - Lean Control
+  if(!is.null(serum_lean)) {
+    plot_correlation_panel(serum_lean$cor_mat, serum_lean$labels_mat, "D. Lean Control", serum_lean$n)
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Insufficient data\nfor Lean Control", cex = 1.5)
+  }
+  
+  # Panel E - Obese Control
+  if(!is.null(serum_obese)) {
+    plot_correlation_panel(serum_obese$cor_mat, serum_obese$labels_mat, "E. Obese Control", serum_obese$n)
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Insufficient data\nfor Obese Control", cex = 1.5)
+  }
+  
+  # Panel F - PKD
+  if(!is.null(serum_pkd)) {
+    plot_correlation_panel(serum_pkd$cor_mat, serum_pkd$labels_mat, "F. PKD", serum_pkd$n)
+  } else {
+    plot.new()
+    text(0.5, 0.5, "Insufficient data\nfor PKD", cex = 1.5)
+  }
+  
+  mtext("SERUM Correlations by Participant Group\n* p<0.05, ** p<0.01, *** p<0.001", 
+        outer = TRUE, cex = 1.3, font = 2)
+  
+  dev.off()
+  cat("✓ Serum multi-panel correlation plot saved.\n")
+}
+
+# Save detailed tables (update the save section accordingly)
+plasma_all_table <- save_correlation_table(plasma_all, "correlations_plasma_all.csv")
+plasma_t1d_table <- save_correlation_table(plasma_t1d, "correlations_plasma_t1d.csv")
+plasma_t2d_table <- save_correlation_table(plasma_t2d, "correlations_plasma_t2d.csv")
+plasma_lean_table <- save_correlation_table(plasma_lean, "correlations_plasma_lean.csv")
+plasma_obese_table <- save_correlation_table(plasma_obese, "correlations_plasma_obese.csv")
+plasma_pkd_table <- save_correlation_table(plasma_pkd, "correlations_plasma_pkd.csv")
+
+serum_all_table <- save_correlation_table(serum_all, "correlations_serum_all.csv")
+serum_t1d_table <- save_correlation_table(serum_t1d, "correlations_serum_t1d.csv")
+serum_t2d_table <- save_correlation_table(serum_t2d, "correlations_serum_t2d.csv")
+serum_lean_table <- save_correlation_table(serum_lean, "correlations_serum_lean.csv")
+serum_obese_table <- save_correlation_table(serum_obese, "correlations_serum_obese.csv")
+serum_pkd_table <- save_correlation_table(serum_pkd, "correlations_serum_pkd.csv")
+
+cat("\n========== SAMPLE TYPE ANALYSES COMPLETE ==========\n")
+
+
+
