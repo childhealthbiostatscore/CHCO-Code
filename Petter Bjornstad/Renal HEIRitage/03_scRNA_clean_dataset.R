@@ -48,7 +48,7 @@ library(parallel)
 library(doParallel)
 library(quantreg)
 library(aws.s3)
-
+library(biomaRt)
 # Set up environment for Kopah
 keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
 
@@ -59,6 +59,14 @@ Sys.setenv(
   "AWS_REGION" = "",
   "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
 )
+
+# Set up paths
+user <- "yejichoi"
+root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
 
 # Pull in PB90 Seurat object
 pb90 <- s3readRDS(object = "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", 
@@ -90,7 +98,7 @@ celltype_groups <- list(
   IC = c("IC-A", "IC-B", "aIC"),
   DTL_ATL = c("DTL", "aDTL", "ATL"),   # grouped thin limbs
   DCT_CNT = c("DCT", "dDCT", "CNT"),   # grouped distal tubule/connecting tubule
-  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"), 
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"),
   Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
   # Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
   # Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
@@ -525,26 +533,43 @@ folders <- c(
   # 
   # # --- SGLT2i (within DKD) ---
   # "DKD_30_SGLT2i_Y_vs_DKD_30_SGLT2i_N" = "dkd30_sglt2iy_sglt2in",
-  "DKD_100_SGLT2i_Y_vs_DKD_100_SGLT2i_N" = "dkd100_sglt2iy_sglt2in",
+  # "DKD_100_SGLT2i_Y_vs_DKD_100_SGLT2i_N" = "dkd100_sglt2iy_sglt2in",
+  # 
+  # # --- SGLT2i (within nonDKD) ---
+  # "nonDKD_30_SGLT2i_Y_vs_nonDKD_30_SGLT2i_N" = "nondkd30_sglt2iy_sglt2in",
+  # "nonDKD_100_SGLT2i_Y_vs_nonDKD_100_SGLT2i_N" = "nondkd100_sglt2iy_sglt2in",
+  # 
+  # # --- SGLT2i N/Y vs HC (nonDKD) ---
+  # "nonDKD_30_SGLT2i_N_vs_HC" = "nondkd30_sglt2in_hc",
+  # "nonDKD_30_SGLT2i_Y_vs_HC" = "nondkd30_sglt2iy_hc",
+  # "nonDKD_100_SGLT2i_N_vs_HC" = "nondkd100_sglt2in_hc",
+  # "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc",
+  # 
+  # # --- SGLT2i N/Y vs HC (DKD) ---
+  # "DKD_30_SGLT2i_N_vs_HC" = "dkd30_sglt2in_hc",
+  # "DKD_30_SGLT2i_Y_vs_HC" = "dkd30_sglt2iy_hc",
+  # "DKD_100_SGLT2i_N_vs_HC" = "dkd100_sglt2in_hc",
+  # "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc",
   
-  # --- SGLT2i (within nonDKD) ---
-  "nonDKD_30_SGLT2i_Y_vs_nonDKD_30_SGLT2i_N" = "nondkd30_sglt2iy_sglt2in",
-  "nonDKD_100_SGLT2i_Y_vs_nonDKD_100_SGLT2i_N" = "nondkd100_sglt2iy_sglt2in",
-  
-  # --- SGLT2i N/Y vs HC (nonDKD) ---
-  "nonDKD_30_SGLT2i_N_vs_HC" = "nondkd30_sglt2in_hc",
-  "nonDKD_30_SGLT2i_Y_vs_HC" = "nondkd30_sglt2iy_hc",
-  "nonDKD_100_SGLT2i_N_vs_HC" = "nondkd100_sglt2in_hc",
-  "nonDKD_100_SGLT2i_Y_vs_HC" = "nondkd100_sglt2iy_hc",
-  
-  # --- SGLT2i N/Y vs HC (DKD) ---
-  "DKD_30_SGLT2i_N_vs_HC" = "dkd30_sglt2in_hc",
-  "DKD_30_SGLT2i_Y_vs_HC" = "dkd30_sglt2iy_hc",
-  "DKD_100_SGLT2i_N_vs_HC" = "dkd100_sglt2in_hc",
-  "DKD_100_SGLT2i_Y_vs_HC" = "dkd100_sglt2iy_hc"
+  # "T2D_GLP_Y_vs_T2D_GLP_N" = "t2d_glpyn",
+  "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc"
 )
 
 analysis_config <- list(
+  # T2D GLP+ vs T2D GLP-
+  T2D_GLP_Y_vs_T2D_GLP_N = list(
+    subset_cond = "group == 'Type_2_Diabetes' & !is.na(glp_t2dob)",
+    group_var = "glp_t2dob", ref = "GLP_N",
+    pval_col = "p_glp_t2dobGLP_Y", logfc_col = "logFC_glp_t2dobGLP_Y",
+    s3_subdir = "T2D_GLP_Y_vs_T2D_GLP_N", file_suffix = "t2d_glpyn"
+  ),
+  
+  DKD_30_GLP_N_vs_HC = list(
+    subset_cond = "dkd_group_30_hc != 'non_DKD' & glp_t2dob != 'GLP_Y' & !is.na(dkd_group_30_hc)",
+    group_var = "dkd_group_30_hc", ref_level = "HC",
+    pval_col = "p_dkd_group_30_hcDKD", logfc_col = "logFC_dkd_group_30_hcDKD",
+    s3_subdir = "DKD_30_GLP_N_vs_HC", file_suffix = "dkd30_glpn_hc"
+  ),
   # DKD vs nonDKD comparisons (ACR >= 100)
   DKD_vs_nonDKD_100 = list(
     subset_cond = "group != 'Lean_Control' & !is.na(dkd_group_100)",
@@ -935,28 +960,65 @@ analysis_config <- list(
 )
 
 celltype_groups <- list(
-  # aPT = "aPT",
-  # `PT-S1/S2` = "PT-S1/S2",
-  # `PT-S3` = "PT-S3",
-  # `PT-1` = "PT-1",
-  # `PT-2` = "PT-2",
-  # `PT-3` = "PT-3",
-  # `PT-4` = "PT-4",
-  # `PT-5` = "PT-5",
-  # `C-TAL-1` = "C-TAL-1",
-  # `C-TAL-2` = "C-TAL-2",
-  # aTAL = "aTAL",
-  # dTAL = "dTAL",
-  # `EC-AVR` = "EC-AVR",
-  # `EC-GC`  = "EC-GC",
-  # `EC-PTC` = "EC-PTC",
-  # `EC-AEA` = "EC-AEA",
-  # `EC-LYM` = "EC-LYM",
-  # `EC/VSMC` = "EC/VSMC",
-  Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
-  Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT")
+  PT = c("PT-S1/S2", "PT-S3", "aPT"),
+  TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
+  PC = c("CCD-PC", "CNT-PC", "dCCD-PC", "M-PC", "tPC-IC"),
+  IC = c("IC-A", "IC-B", "aIC"),
+  DTL_ATL = c("DTL", "aDTL", "ATL"),   # grouped thin limbs
+  DCT_CNT = c("DCT", "dDCT", "CNT"),   # grouped distal tubule/connecting tubule
+  EC = c("EC-AVR", "EC-GC", "EC-PTC", "EC-AEA", "EC-LYM", "EC/VSMC"), 
+  Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  # Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+  # Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  VSMC_P_FIB = c("VSMC/P", "FIB"),
+  POD = "POD",
+  MC = "MC",                         # mesangial cells
+  PEC = "PEC",                       # parietal epithelial cells
+  Schwann = "SchwannCells",
+  Other = c("non-specific"),          # catchall
+  ## Proximal tubule
+  `PT-S1/S2` = "PT-S1/S2",
+  `PT-S3`    = "PT-S3",
+  `aPT`      = "aPT",
   
+  ## Thick ascending limb
+  `C-TAL-1`  = "C-TAL-1",
+  `C-TAL-2`  = "C-TAL-2",
+  `aTAL`     = "aTAL",
+  `dTAL`     = "dTAL",
+  
+  ## Principal cells
+  `CCD-PC`   = "CCD-PC",
+  `CNT-PC`   = "CNT-PC",
+  `dCCD-PC`  = "dCCD-PC",
+  `M-PC`     = "M-PC",
+  `tPC-IC`   = "tPC-IC",
+  
+  ## Intercalated cells
+  `IC-A`     = "IC-A",
+  `IC-B`     = "IC-B",
+  `aIC`      = "aIC",
+  
+  ## Endothelial cells
+  `EC-AVR`   = "EC-AVR",
+  `EC-GC`    = "EC-GC",
+  `EC-PTC`   = "EC-PTC",
+  `EC-AEA`   = "EC-AEA",
+  `EC-LYM`   = "EC-LYM",
+  `EC/VSMC`  = "EC/VSMC",
+  
+  ## Immune cells
+  `MAC`      = "MAC",
+  `MON`      = "MON",
+  `cDC`      = "cDC",
+  `pDC`      = "pDC",
+  `CD4+ T`   = "CD4+ T",
+  `CD8+ T`   = "CD8+ T",
+  `B`        = "B",
+  `NK`       = "NK",
+  `cycT`     = "cycT"
 )
+
 
 mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
 

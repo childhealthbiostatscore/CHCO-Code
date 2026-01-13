@@ -3244,6 +3244,10 @@ plot_slingshot_trajectory <- function(sce_sl,
     temp_file <- tempfile(fileext = ".png")
     ggsave(filename = temp_file, plot = p, width = 7, height = 5, bg = "transparent")
     s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_pca_", tolower(celltype_suffix), "_slingshot.png"))
+    
+    temp_file <- tempfile(fileext = ".RDS")
+    saveRDS(p, temp_file)
+    s3$upload_file(temp_file, bucket, paste0("slingshot/attempt_pca_", tolower(celltype_suffix), "_slingshot.RDS"))
   }
   
   return(list(
@@ -3401,6 +3405,7 @@ plot_and_test_pseudotime_distribution <- function(df,
   temp_file <- tempfile(fileext = ".png")
   ggsave(filename = temp_file, plot = p, width = 7, height = 5)
   s3$upload_file(temp_file, "attempt", file.path(s3_folder, paste0("attempt_", filename_suffix, "_slingshot_density_trtvisit.png")))
+
   
   # Run progressionTest
   registerDoSEQ()
