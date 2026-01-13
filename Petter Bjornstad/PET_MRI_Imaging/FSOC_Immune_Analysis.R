@@ -15,7 +15,7 @@ library(stringr)
 #                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm=T))),
 #                   .by = c(record_id, visit))
 
-
+load("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization\Combined SomaScan/analytes_2.RData")
 
 # ============================================================================
 # PROTEOMICS ANALYSIS BY FSOC STATUS
