@@ -448,7 +448,7 @@ mix.plot <- ggplot()+
     name = "Estimate")
 
 mix.plot
-png("/home/hhampson/Results/Mixture_Plot_Option1.png",res=300,height=4000,width=4000)
+png("/home/hhampson/Results//Mixture_Plot_Option1.png",res=300,height=4000,width=4000)
 plot(mix.plot)
 dev.off()
 
