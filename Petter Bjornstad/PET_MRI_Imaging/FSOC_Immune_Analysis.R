@@ -1,6 +1,6 @@
 # ============================================================================
-# FSOC ANALYSIS WITH SOMASCAN PROTEOMICS - FINAL CORRECT VERSION
-# Uses seq.NUMBER.NUMBER format (periods, not underscores!)
+# FSOC IMMUNE-FOCUSED PROTEOMICS ANALYSIS
+# Enhanced visualizations with real protein names and immune enrichment
 # ============================================================================
 
 library(tidyverse)
@@ -9,129 +9,32 @@ library(ggplot2)
 library(pheatmap)
 library(gridExtra)
 library(ggrepel)
-
-# ============================================================================
-# SETUP
-# ============================================================================
+library(enrichR)
 
 OUTPUT_DIR <- "C:/Users/netio/Documents/UofW/Projects/Imaging_Shivani/FSOC_Proteomics"
-dir.create(OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 # ============================================================================
-# 1. LOAD DATA
+# 1. LOAD PREVIOUS RESULTS
 # ============================================================================
 
-cat("=== LOADING SOMA HARMONIZED DATASET ===\n")
+cat("=== LOADING RESULTS ===\n")
 
+# Load the results from previous analysis
+results <- read.csv(file.path(OUTPUT_DIR, "fsoc_proteomics_results_FINAL.csv"))
+seq_mapping <- read.csv(file.path(OUTPUT_DIR, "seq_to_protein_mapping.csv"))
+
+cat("Total proteins analyzed:", nrow(results), "\n")
+cat("Proteins with names:", sum(!is.na(results$protein_name)), "\n\n")
+
+# Load harmonized data for plotting
 harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na = '')
 
 data_dictionary <- readxl::read_xlsx('C:/Users/netio/Downloads/data_dictionary_master.xlsx')
 
-cat("Data loaded:", nrow(harmonized_data), "rows x", ncol(harmonized_data), "columns\n")
-
-# Find seq. columns (with PERIODS!)
-all_cols <- names(harmonized_data)
-
-# Get plasma proteomics (seq.NUMBER.NUMBER with no suffix)
-plasma_seq_cols <- all_cols[str_detect(all_cols, "^seq\\.[0-9]+\\.[0-9]+$")]
-
-# Get urine proteomics
-urine_seq_cols <- all_cols[str_detect(all_cols, "^seq\\.[0-9]+\\.[0-9]+_urine$")]
-urine_cradj_cols <- all_cols[str_detect(all_cols, "^seq\\.[0-9]+\\.[0-9]+_urine_cradj$")]
-
-cat("\nFound proteomics columns:\n")
-cat("  Plasma:", length(plasma_seq_cols), "\n")
-cat("  Urine:", length(urine_seq_cols), "\n")
-cat("  Urine (Cr-adjusted):", length(urine_cradj_cols), "\n")
-
-# Use plasma proteomics for analysis
-seq_cols <- plasma_seq_cols
-
-cat("\nUsing", length(seq_cols), "plasma proteomics columns\n")
-cat("Sample columns:\n")
-print(head(seq_cols, 20))
-
 # ============================================================================
-# 2. MAP SEQ IDs TO PROTEIN NAMES
+# 2. PREPARE DATA (same as before)
 # ============================================================================
 
-cat("\n=== MAPPING SEQ IDs TO PROTEIN NAMES ===\n")
-
-# Get proteomics dictionary
-proteomics_dict <- data_dictionary %>%
-  filter(form_name == 'proteomics')
-
-cat("Proteomics entries in dictionary:", nrow(proteomics_dict), "\n")
-
-# Convert data column names to dictionary format
-# seq.10000.28 -> seq_10000_28
-seq_mapping <- data.frame(
-  column_name = seq_cols,
-  dict_name = str_replace_all(seq_cols, "\\.", "_"),
-  stringsAsFactors = FALSE
-) %>%
-  left_join(
-    proteomics_dict %>% select(variable_name, label),
-    by = c("dict_name" = "variable_name")
-  )
-
-cat("Successfully mapped:", sum(!is.na(seq_mapping$label)), "of", nrow(seq_mapping), "proteins\n\n")
-
-cat("Sample mappings:\n")
-print(head(seq_mapping %>% filter(!is.na(label)) %>% select(column_name, label), 20))
-
-write.csv(seq_mapping, file.path(OUTPUT_DIR, "seq_to_protein_mapping.csv"), 
-          row.names = FALSE)
-
-# ============================================================================
-# 3. IDENTIFY INFLAMMATORY/IMMUNE PROTEINS
-# ============================================================================
-
-cat("\n=== IDENTIFYING INFLAMMATORY/IMMUNE PROTEINS ===\n")
-
-inflammatory_keywords <- c(
-  "interleukin", "IL-", "IL6", "IL1", "IL8", "IL10", "IL12", "IL17", "IL18",
-  "TNF", "tumor necrosis",
-  "chemokine", "CCL", "CXCL", "MCP", "MIP", "RANTES",
-  "C-reactive", "CRP",
-  "complement", " C3", " C5", " C4",
-  "adhesion", "ICAM", "VCAM", "selectin", "SELE", "SELL",
-  "myeloperoxidase", "MPO",
-  "kidney injury", "KIM", "NGAL", "lipocalin",
-  "cystatin", "clusterin",
-  "uromodulin", "osteopontin", "pentraxin",
-  "haptoglobin", "serum amyloid", "SAA",
-  "fibrinogen", "interferon", "IFN",
-  "CD40", "CD14", "CD163",
-  "matrix metalloproteinase", "MMP"
-)
-
-inflammatory_proteins <- seq_mapping %>%
-  filter(!is.na(label)) %>%
-  filter(str_detect(tolower(label), 
-                    paste(tolower(inflammatory_keywords), collapse = "|")))
-
-cat("Found", nrow(inflammatory_proteins), "inflammatory/immune proteins\n\n")
-
-if (nrow(inflammatory_proteins) > 0) {
-  cat("Inflammatory proteins found:\n")
-  print(inflammatory_proteins %>% select(column_name, label))
-  
-  write.csv(inflammatory_proteins, 
-            file.path(OUTPUT_DIR, "inflammatory_proteins_list.csv"),
-            row.names = FALSE)
-} else {
-  cat("WARNING: No inflammatory proteins found with keywords!\n")
-  cat("Will use all proteomics for analysis.\n")
-}
-
-# ============================================================================
-# 4. PREPARE DATA FOR FSOC ANALYSIS
-# ============================================================================
-
-cat("\n=== PREPARING DATA ===\n")
-
-# Aggregate by subject
 dat <- harmonized_data %>% 
   dplyr::select(-dob) %>% 
   arrange(date) %>% 
@@ -139,15 +42,7 @@ dat <- harmonized_data %>%
     across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
     across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(na.omit(.x), na.rm = TRUE))),
     .by = c(record_id, visit)
-  )
-
-# Check FSOC columns
-cat("FSOC columns available:\n")
-fsoc_cols_found <- names(dat)[str_detect(tolower(names(dat)), "fsoc")]
-print(fsoc_cols_found)
-
-# Calculate medullary FSOC
-dat <- dat %>%
+  ) %>%
   mutate(
     medullary_fsoc = case_when(
       !is.na(avg_m_fsoc) ~ avg_m_fsoc,
@@ -155,276 +50,460 @@ dat <- dat %>%
       !is.na(fsoc_l_medulla) ~ fsoc_l_medulla,
       !is.na(fsoc_r_medulla) ~ fsoc_r_medulla,
       TRUE ~ NA_real_
-    ),
-    whole_kidney_fsoc = case_when(
-      !is.na(avg_k_fsoc) ~ avg_k_fsoc,
-      !is.na(fsoc_l_kidney) & !is.na(fsoc_r_kidney) ~ (fsoc_l_kidney + fsoc_r_kidney) / 2,
-      !is.na(fsoc_l_kidney) ~ fsoc_l_kidney,
-      !is.na(fsoc_r_kidney) ~ fsoc_r_kidney,
-      TRUE ~ NA_real_
     )
   )
 
-# Filter to valid FSOC
-dat_fsoc <- dat %>%
+dat_fsoc_proteomics <- dat %>%
   filter(visit == 'baseline') %>%
-  filter(!is.na(medullary_fsoc)) %>%
-  filter(medullary_fsoc >= 0) %>%
-  filter(whole_kidney_fsoc < 15 | is.na(whole_kidney_fsoc))
-
-cat("Subjects with valid FSOC:", nrow(dat_fsoc), "\n")
-
-# Decide which proteins to test
-proteomics_cols <- if (nrow(inflammatory_proteins) >= 10) {
-  inflammatory_proteins$column_name
-} else {
-  seq_cols
-}
-
-# Filter to subjects with proteomics
-dat_fsoc_proteomics <- dat_fsoc %>%
-  filter(rowSums(!is.na(select(., any_of(proteomics_cols)))) > 10)
-
-cat("Subjects with FSOC and proteomics:", nrow(dat_fsoc_proteomics), "\n")
-
-# Classify FSOC
-dat_fsoc_proteomics <- dat_fsoc_proteomics %>%
+  filter(!is.na(medullary_fsoc), medullary_fsoc >= 0) %>%
   mutate(
-    fsoc_binary = ifelse(medullary_fsoc < median(medullary_fsoc, na.rm = TRUE), 
-                         "Impaired", "Normal"),
-    fsoc_binary = factor(fsoc_binary, levels = c("Normal", "Impaired"))
+    fsoc_binary = factor(
+      ifelse(medullary_fsoc < median(medullary_fsoc, na.rm = TRUE), "Impaired", "Normal"),
+      levels = c("Normal", "Impaired")
+    )
   )
 
-cat("\nFSOC Classification:\n")
-print(table(dat_fsoc_proteomics$fsoc_binary))
-
 # ============================================================================
-# 5. DIFFERENTIAL EXPRESSION ANALYSIS
+# 3. IDENTIFY IMMUNE-RELATED PROTEINS
 # ============================================================================
 
-cat("\n=== DIFFERENTIAL EXPRESSION ANALYSIS ===\n")
+cat("=== IDENTIFYING IMMUNE-RELATED PROTEINS ===\n")
 
-results <- data.frame()
+# COMPREHENSIVE immune/inflammatory keywords - EXPANDED
+immune_keywords <- c(
+  # Interleukins (all)
+  "interleukin", "IL-", "IL1", "IL2", "IL3", "IL4", "IL5", "IL6", "IL7", "IL8", 
+  "IL9", "IL10", "IL11", "IL12", "IL13", "IL14", "IL15", "IL16", "IL17", "IL18",
+  "IL19", "IL20", "IL21", "IL22", "IL23", "IL24", "IL25", "IL26", "IL27", "IL28",
+  "IL29", "IL30", "IL31", "IL32", "IL33", "IL34", "IL35", "IL36", "IL37",
+  
+  # TNF superfamily
+  "TNF", "tumor necrosis", "TNFR", "TNFSF", "TRAIL", "TWEAK", "lymphotoxin",
+  "FAS", "FASL", "CD95", "OX40", "4-1BB", "GITR", "LIGHT", "APRIL", "BAFF",
+  
+  # Chemokines (comprehensive)
+  "chemokine", "CCL", "CXCL", "CX3CL", "XCL", 
+  "MCP", "MIP", "RANTES", "eotaxin", "IP-10", "MIG", "fractalkine", "SDF",
+  "GRO", "ENA", "NAP", "I-TAC", "Mig", "lymphotactin",
+  
+  # Inflammatory cytokines & markers
+  "C-reactive", "CRP", "serum amyloid", "SAA", "pentraxin", "PTX",
+  "calprotectin", "S100A", "HMGB1", "ferritin", "procalcitonin",
+  
+  # Complement system
+  "complement", " C1", " C2", " C3", " C4", " C5", " C6", " C7", " C8", " C9",
+  "factor B", "factor D", "factor H", "factor I", "properdin", "mannose-binding",
+  "MBL", "ficolin", "C1q", "C3a", "C3b", "C5a", "MAC",
+  
+  # Adhesion molecules
+  "adhesion", "ICAM", "VCAM", "selectin", "SELE", "SELL", "SELP",
+  "integrin", "PECAM", "CD31", "PSGL-1", "LFA-1", "VLA-4", "cadherin",
+  
+  # Acute phase proteins
+  "haptoglobin", "fibrinogen", "alpha-1-antitrypsin", "ceruloplasmin",
+  "alpha-2-macroglobulin", "transferrin", "albumin",
+  
+  # Growth factors & angiogenesis
+  "growth factor", "VEGF", "PDGF", "FGF", "TGF", "EGF", "HGF", "IGF",
+  "NGF", "BDNF", "GDNF", "angiopoietin", "angiogenin", "endoglin",
+  "PlGF", "bFGF", "SCF", "thrombopoietin",
+  
+  # Matrix & proteases
+  "matrix metalloproteinase", "MMP", "TIMP", "ADAM", "ADAMTS",
+  "cathepsin", "elastase", "collagenase", "gelatinase", "stromelysin",
+  "kallikrein", "urokinase", "plasminogen", "tissue factor",
+  
+  # Cell surface markers & receptors
+  "CD40", "CD14", "CD163", "CD80", "CD86", "CD28", "CTLA", "PD-1", "PD-L1", "PD-L2",
+  "CD3", "CD4", "CD8", "CD11", "CD16", "CD19", "CD20", "CD25", "CD56", "CD68",
+  "CD138", "HLA-DR", "Toll-like", "TLR", "NOD", "RAGE", "scavenger receptor",
+  
+  # Interferons
+  "interferon", "IFN", "IFN-gamma", "IFN-alpha", "IFN-beta", "IFN-lambda",
+  
+  # Colony stimulating & hematopoietic factors
+  "CSF", "G-CSF", "GM-CSF", "M-CSF", "erythropoietin", "EPO", "thrombopoietin",
+  
+  # Immune cell markers
+  "macrophage", "monocyte", "neutrophil", "lymphocyte", "eosinophil", 
+  "basophil", "dendritic", "NK cell", "mast cell", "T cell", "B cell",
+  
+  # Adipokines & metabolic inflammation
+  "osteopontin", "resistin", "adiponectin", "leptin", "visfatin", "omentin",
+  "apelin", "chemerin", "vaspin", "RBP4", "fetuin", "PAI-1",
+  
+  # Kidney injury & fibrosis
+  "kidney injury", "KIM-1", "NGAL", "lipocalin", "cystatin", "clusterin", 
+  "uromodulin", "nephrin", "podocin", "synaptopodin", "CTGF", "periostin",
+  
+  # Oxidative stress & ROS
+  "myeloperoxidase", "MPO", "NADPH oxidase", "NOX", "superoxide dismutase",
+  "catalase", "glutathione", "thioredoxin", "peroxiredoxin",
+  
+  # Coagulation & hemostasis
+  "von Willebrand", "vWF", "thrombin", "fibrin", "D-dimer", "plasmin",
+  "protein C", "protein S", "antithrombin", "tissue factor",
+  
+  # Apoptosis & cell death
+  "caspase", "BCL-2", "BAX", "cytochrome c", "PARP", "annexin",
+  "survivin", "XIAP", "Smac", "DIABLO",
+  
+  # Signaling molecules
+  "JAK", "STAT", "MAPK", "NF-kB", "PI3K", "AKT", "mTOR", "AMPK",
+  
+  # Specialized immune
+  "perforin", "granzyme", "defensin", "cathelicidin", "lactoferrin",
+  "lysozyme", "mucin", "surfactant protein", "collectin",
+  
+  # Autoimmune & rheumatologic
+  "rheumatoid factor", "anti-CCP", "ANA", "dsDNA", "Sm antigen",
+  "Jo-1", "Scl-70", "centromere", "histone",
+  
+  # Other inflammation-related
+  "prostaglandin", "leukotriene", "lipoxin", "thromboxane",
+  "bradykinin", "histamine", "serotonin", "substance P",
+  "neopterin", "tryptase", "chymase", "nitric oxide", "iNOS"
+)
 
-for(var in proteomics_cols) {
+# Find immune proteins
+immune_results <- results %>%
+  filter(!is.na(protein_name)) %>%
+  filter(str_detect(tolower(protein_name), 
+                    paste(tolower(immune_keywords), collapse = "|")))
+
+cat("Immune-related proteins found:", nrow(immune_results), "\n")
+cat("Significant (p < 0.05):", sum(immune_results$p_value < 0.05), "\n")
+cat("Significant (FDR < 0.10):", sum(immune_results$p_fdr < 0.10), "\n\n")
+
+# Save immune results
+write.csv(immune_results, 
+          file.path(OUTPUT_DIR, "immune_proteins_results.csv"),
+          row.names = FALSE)
+
+# ============================================================================
+# 4. VOLCANO PLOT - IMMUNE PROTEINS ONLY
+# ============================================================================
+
+cat("=== CREATING IMMUNE-FOCUSED VOLCANO PLOT ===\n")
+
+sig_immune <- immune_results %>% filter(p_fdr < 0.10)
+top_immune <- immune_results %>% filter(p_value < 0.05)
+
+# Extract gene symbols from protein names (first word or in parentheses)
+immune_results <- immune_results %>%
+  mutate(
+    gene_symbol = case_when(
+      str_detect(protein_name, "\\(([A-Z0-9-]+)\\)") ~ 
+        str_extract(protein_name, "(?<=\\()[A-Z0-9-]+(?=\\))"),
+      TRUE ~ word(protein_name, 1)
+    )
+  )
+
+p_volcano_immune <- ggplot(immune_results, 
+                           aes(x = log2_fc, y = -log10(p_value))) +
+  geom_point(aes(color = p_fdr < 0.10, size = -log10(p_value)), alpha = 0.7) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", 
+             color = "blue", alpha = 0.5, linewidth = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5, linewidth = 0.5) +
+  geom_vline(xintercept = c(-0.2, 0.2), linetype = "dotted", 
+             color = "gray50", alpha = 0.3) +
+  scale_color_manual(values = c("FALSE" = "gray60", "TRUE" = "#E41A1C"),
+                     name = "FDR < 0.10",
+                     labels = c("No", "Yes")) +
+  scale_size_continuous(range = c(1, 5), guide = "none") +
+  theme_bw(base_size = 12) +
+  labs(x = "Log2 Fold Change (Impaired / Normal FSOC)",
+       y = "-log10(P-value)",
+       title = "Immune-Related Proteins: Impaired vs Normal Medullary FSOC",
+       subtitle = paste0(nrow(immune_results), " immune proteins tested, ",
+                         sum(immune_results$p_value < 0.05), " nominal p<0.05, ",
+                         sum(immune_results$p_fdr < 0.10), " FDR<0.10")) +
+  theme(legend.position = "top",
+        panel.grid.minor = element_blank())
+
+# Label significant proteins
+if (nrow(sig_immune) > 0) {
+  # Use proteins with FDR < 0.10
+  label_data <- sig_immune %>%
+    mutate(
+      gene_symbol = case_when(
+        str_detect(protein_name, "\\(([A-Z0-9-]+)\\)") ~ 
+          str_extract(protein_name, "(?<=\\()[A-Z0-9-]+(?=\\))"),
+        TRUE ~ word(protein_name, 1)
+      )
+    )
   
-  if (!var %in% names(dat_fsoc_proteomics)) next
+  p_volcano_immune <- p_volcano_immune +
+    geom_text_repel(data = label_data,
+                    aes(label = gene_symbol), 
+                    size = 3, fontface = "bold",
+                    max.overlaps = 30, 
+                    segment.size = 0.3,
+                    segment.color = "gray40",
+                    min.segment.length = 0,
+                    box.padding = 0.5)
+} else if (nrow(top_immune) > 0) {
+  # If no FDR<0.10, label top 20 by p-value
+  label_data <- head(top_immune, 20) %>%
+    mutate(
+      gene_symbol = case_when(
+        str_detect(protein_name, "\\(([A-Z0-9-]+)\\)") ~ 
+          str_extract(protein_name, "(?<=\\()[A-Z0-9-]+(?=\\))"),
+        TRUE ~ word(protein_name, 1)
+      )
+    )
   
-  # Get protein name
-  protein_name <- seq_mapping$label[seq_mapping$column_name == var]
-  if (length(protein_name) == 0 || is.na(protein_name)) protein_name <- var
+  p_volcano_immune <- p_volcano_immune +
+    geom_text_repel(data = label_data,
+                    aes(label = gene_symbol), 
+                    size = 2.5,
+                    max.overlaps = 20, 
+                    segment.size = 0.2)
+}
+
+ggsave(file.path(OUTPUT_DIR, "volcano_immune_proteins.pdf"), 
+       p_volcano_immune, width = 12, height = 10)
+ggsave(file.path(OUTPUT_DIR, "volcano_immune_proteins.png"), 
+       p_volcano_immune, width = 12, height = 10, dpi = 300)
+
+print(p_volcano_immune)
+
+# ============================================================================
+# 5. ENHANCED BOXPLOTS WITH REAL PROTEIN NAMES
+# ============================================================================
+
+cat("\n=== CREATING ENHANCED BOXPLOTS ===\n")
+
+# Get top proteins (prioritize FDR, then p-value)
+if (sum(immune_results$p_fdr < 0.10) >= 12) {
+  top_proteins <- immune_results %>% 
+    filter(p_fdr < 0.10) %>%
+    arrange(p_value) %>%
+    head(12)
+} else {
+  top_proteins <- immune_results %>% 
+    arrange(p_value) %>%
+    head(12)
+}
+
+plot_list <- list()
+
+for(i in 1:nrow(top_proteins)) {
+  var <- top_proteins$variable[i]
   
-  temp_data <- dat_fsoc_proteomics %>%
+  plot_data <- dat_fsoc_proteomics %>%
     select(fsoc_binary, all_of(var)) %>%
     rename(value = all_of(var)) %>%
     filter(!is.na(value), !is.na(fsoc_binary))
   
-  if(nrow(temp_data) < 10) next
+  # Extract clean protein name
+  full_name <- top_proteins$protein_name[i]
   
-  impaired <- temp_data$value[temp_data$fsoc_binary == "Impaired"]
-  normal <- temp_data$value[temp_data$fsoc_binary == "Normal"]
-  
-  if(length(impaired) < 3 || length(normal) < 3) next
-  
-  test_result <- wilcox.test(value ~ fsoc_binary, data = temp_data)
-  
-  results <- rbind(results, data.frame(
-    variable = var,
-    protein_name = protein_name,
-    p_value = test_result$p.value,
-    mean_impaired = mean(impaired, na.rm = TRUE),
-    mean_normal = mean(normal, na.rm = TRUE),
-    median_impaired = median(impaired, na.rm = TRUE),
-    median_normal = median(normal, na.rm = TRUE),
-    n_impaired = length(impaired),
-    n_normal = length(normal),
-    stringsAsFactors = FALSE
-  ))
-}
-
-# Adjust for multiple testing
-results <- results %>%
-  mutate(
-    p_fdr = p.adjust(p_value, method = "fdr"),
-    fold_change = mean_impaired / mean_normal,
-    log2_fc = log2(fold_change),
-    difference = mean_impaired - mean_normal
-  ) %>%
-  arrange(p_value)
-
-cat("\nProteins tested:", nrow(results), "\n")
-cat("Significant (p < 0.05):", sum(results$p_value < 0.05, na.rm = TRUE), "\n")
-cat("Significant (FDR < 0.05):", sum(results$p_fdr < 0.05, na.rm = TRUE), "\n")
-cat("Significant (FDR < 0.10):", sum(results$p_fdr < 0.10, na.rm = TRUE), "\n\n")
-
-cat("Top 30 proteins:\n")
-print(head(results %>% select(protein_name, p_value, p_fdr, fold_change), 30))
-
-write.csv(results, 
-          file.path(OUTPUT_DIR, "fsoc_proteomics_results_FINAL.csv"),
-          row.names = FALSE)
-
-# ============================================================================
-# 6. VISUALIZATIONS
-# ============================================================================
-
-if (nrow(results) > 0) {
-  
-  # Volcano plot
-  sig_proteins <- results %>% filter(p_fdr < 0.10)
-  
-  p_volcano <- ggplot(results, 
-                      aes(x = log2_fc, y = -log10(p_value), 
-                          color = p_fdr < 0.10)) +
-    geom_point(alpha = 0.6, size = 2) +
-    geom_hline(yintercept = -log10(0.05), linetype = "dashed", 
-               color = "blue", alpha = 0.5) +
-    geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
-    scale_color_manual(values = c("FALSE" = "gray50", "TRUE" = "red"),
-                       name = "FDR < 0.10") +
-    theme_bw(base_size = 12) +
-    labs(x = "Log2 Fold Change (Impaired / Normal FSOC)",
-         y = "-log10(P-value)",
-         title = "Proteomics: Impaired vs Normal Medullary FSOC",
-         subtitle = paste0("n=", nrow(dat_fsoc_proteomics), " subjects, ", 
-                           nrow(results), " proteins tested")) +
-    theme(legend.position = "top")
-  
-  if (nrow(sig_proteins) > 0 && nrow(sig_proteins) <= 40) {
-    p_volcano <- p_volcano +
-      geom_text_repel(data = sig_proteins,
-                      aes(label = protein_name), 
-                      size = 2, max.overlaps = 40, segment.size = 0.2)
+  # Try to extract gene symbol in parentheses
+  if (str_detect(full_name, "\\([A-Z0-9-]+\\)")) {
+    gene_symbol <- str_extract(full_name, "(?<=\\()[A-Z0-9-]+(?=\\))")
+    # Get protein name before parentheses
+    protein_part <- str_extract(full_name, "^[^\\(]+") %>% str_trim()
+    # Truncate if too long
+    if (nchar(protein_part) > 30) {
+      protein_part <- paste0(substr(protein_part, 1, 27), "...")
+    }
+    display_name <- paste0(gene_symbol, ": ", protein_part)
+  } else {
+    # Just use first 40 characters
+    display_name <- if(nchar(full_name) > 40) {
+      paste0(substr(full_name, 1, 37), "...")
+    } else {
+      full_name
+    }
   }
   
-  ggsave(file.path(OUTPUT_DIR, "volcano_plot_FINAL.pdf"), 
-         p_volcano, width = 14, height = 10)
-  ggsave(file.path(OUTPUT_DIR, "volcano_plot_FINAL.png"), 
-         p_volcano, width = 14, height = 10, dpi = 300)
+  # Statistical annotation
+  p_val <- top_proteins$p_value[i]
+  p_fdr <- top_proteins$p_fdr[i]
+  fc <- top_proteins$fold_change[i]
   
-  cat("\nVolcano plot saved.\n")
+  p_label <- sprintf("p=%.2e, FDR=%.3f, FC=%.2f", p_val, p_fdr, fc)
   
-  # Boxplots
-  if (sum(results$p_value < 0.05, na.rm = TRUE) > 0) {
-    top_n <- min(12, sum(results$p_value < 0.05, na.rm = TRUE))
-    top_vars <- head(results$variable, top_n)
+  # Add significance stars
+  stars <- if(p_fdr < 0.001) "***" else if(p_fdr < 0.01) "**" else if(p_fdr < 0.05) "*" else ""
+  
+  p <- ggplot(plot_data, aes(x = fsoc_binary, y = value, fill = fsoc_binary)) +
+    geom_boxplot(alpha = 0.8, outlier.shape = NA, linewidth = 0.6) +
+    geom_jitter(width = 0.25, alpha = 0.6, size = 2) +
+    scale_fill_manual(values = c("Normal" = "#3182BD", "Impaired" = "#E6550D")) +
+    theme_bw(base_size = 10) +
+    labs(title = display_name,
+         subtitle = paste0(p_label, " ", stars),
+         x = "FSOC Status",
+         y = "Expression (RFU)") +
+    theme(legend.position = "none",
+          plot.title = element_text(size = 9, face = "bold"),
+          plot.subtitle = element_text(size = 7.5),
+          panel.grid.major.x = element_blank())
+  
+  # Add p-value annotation on plot
+  y_max <- max(plot_data$value, na.rm = TRUE)
+  y_min <- min(plot_data$value, na.rm = TRUE)
+  y_range <- y_max - y_min
+  
+  if (p_val < 0.05) {
+    p <- p + annotate("text", x = 1.5, y = y_max + 0.05 * y_range,
+                      label = stars, size = 6, fontface = "bold")
+  }
+  
+  plot_list[[i]] <- p
+}
+
+png(file.path(OUTPUT_DIR, 'top_immune_proteins_boxplots.png'), 
+    height = 15, width = 16, units = 'in', res = 300)
+grid.arrange(grobs = plot_list, ncol = 3,
+             top = grid::textGrob("Top Immune Proteins by FSOC Status", 
+                                  gp = grid::gpar(fontsize = 16, fontface = "bold")))
+dev.off()
+
+cat("Enhanced boxplots saved.\n")
+
+# ============================================================================
+# 6. PATHWAY ENRICHMENT ANALYSIS
+# ============================================================================
+
+cat("\n=== PATHWAY ENRICHMENT ANALYSIS ===\n")
+
+# Extract gene symbols for enrichment
+sig_genes <- immune_results %>%
+  filter(p_value < 0.05) %>%
+  mutate(
+    gene_symbol = case_when(
+      str_detect(protein_name, "\\(([A-Z0-9-]+)\\)") ~ 
+        str_extract(protein_name, "(?<=\\()[A-Z0-9-]+(?=\\))"),
+      TRUE ~ word(protein_name, 1)
+    )
+  ) %>%
+  filter(!is.na(gene_symbol), gene_symbol != "") %>%
+  pull(gene_symbol) %>%
+  unique()
+
+cat("Genes for enrichment:", length(sig_genes), "\n")
+
+if (length(sig_genes) >= 5) {
+  # Set enrichR databases
+  dbs <- c("GO_Biological_Process_2021", "KEGG_2021_Human", 
+           "Reactome_2022", "WikiPathways_2019_Human")
+  
+  tryCatch({
+    # Run enrichment
+    enriched <- enrichr(sig_genes, dbs)
     
-    plot_list <- list()
-    
-    for(i in 1:length(top_vars)) {
-      var <- top_vars[i]
-      var_info <- results %>% filter(variable == var)
+    # Process results for each database
+    for (db_name in names(enriched)) {
+      result_df <- enriched[[db_name]]
       
-      plot_data <- dat_fsoc_proteomics %>%
-        select(fsoc_binary, all_of(var)) %>%
-        rename(value = all_of(var)) %>%
-        filter(!is.na(value), !is.na(fsoc_binary))
-      
-      display_name <- if(nchar(var_info$protein_name) > 45) {
-        paste0(substr(var_info$protein_name, 1, 42), "...")
-      } else {
-        var_info$protein_name
+      if (nrow(result_df) > 0) {
+        # Filter significant
+        sig_pathways <- result_df %>%
+          filter(Adjusted.P.value < 0.05) %>%
+          arrange(Adjusted.P.value) %>%
+          head(20)
+        
+        if (nrow(sig_pathways) > 0) {
+          cat("\n=== ", db_name, " ===\n", sep = "")
+          print(sig_pathways %>% select(Term, Overlap, Adjusted.P.value))
+          
+          # Save
+          write.csv(sig_pathways, 
+                    file.path(OUTPUT_DIR, paste0("enrichment_", db_name, ".csv")),
+                    row.names = FALSE)
+        }
       }
-      
-      p_label <- sprintf("p=%.4f, FDR=%.3f, FC=%.2f", 
-                         var_info$p_value, var_info$p_fdr, var_info$fold_change)
-      
-      p <- ggplot(plot_data, aes(x = fsoc_binary, y = value, fill = fsoc_binary)) +
-        geom_boxplot(alpha = 0.7, outlier.shape = NA) +
-        geom_jitter(width = 0.2, alpha = 0.5, size = 1.5) +
-        scale_fill_manual(values = c("Impaired" = "#E6550D", "Normal" = "#3182BD")) +
-        theme_bw(base_size = 9) +
-        labs(title = display_name,
-             subtitle = p_label,
-             x = "FSOC Status",
-             y = "RFU") +
-        theme(legend.position = "none",
-              plot.title = element_text(size = 8, face = "bold"),
-              plot.subtitle = element_text(size = 6.5))
-      
-      plot_list[[i]] <- p
     }
     
-    png(file.path(OUTPUT_DIR, 'top_proteins_boxplots_FINAL.png'), 
-        height = 15, width = 14, units = 'in', res = 300)
-    grid.arrange(grobs = plot_list, ncol = 3)
-    dev.off()
+    # Create enrichment plot for top pathways
+    if (nrow(enriched[[1]]) > 0) {
+      top_pathways <- enriched[[1]] %>%
+        filter(Adjusted.P.value < 0.05) %>%
+        arrange(Adjusted.P.value) %>%
+        head(15) %>%
+        mutate(
+          Term = str_trunc(Term, 60),
+          logP = -log10(Adjusted.P.value)
+        )
+      
+      if (nrow(top_pathways) > 0) {
+        p_enrich <- ggplot(top_pathways, 
+                           aes(x = reorder(Term, logP), y = logP)) +
+          geom_col(fill = "#3182BD", alpha = 0.8) +
+          geom_hline(yintercept = -log10(0.05), linetype = "dashed", 
+                     color = "red") +
+          coord_flip() +
+          theme_bw(base_size = 11) +
+          labs(x = "", y = "-log10(Adjusted P-value)",
+               title = "Pathway Enrichment: Immune Proteins (p<0.05)",
+               subtitle = paste0(length(sig_genes), " genes analyzed")) +
+          theme(panel.grid.major.y = element_blank())
+        
+        ggsave(file.path(OUTPUT_DIR, "pathway_enrichment.pdf"), 
+               p_enrich, width = 10, height = 8)
+        ggsave(file.path(OUTPUT_DIR, "pathway_enrichment.png"), 
+               p_enrich, width = 10, height = 8, dpi = 300)
+        
+        cat("\nEnrichment plot saved.\n")
+      }
+    }
     
-    cat("Boxplots saved.\n")
-  }
+  }, error = function(e) {
+    cat("Enrichment analysis failed:", e$message, "\n")
+    cat("This is optional - main analysis is complete.\n")
+  })
+} else {
+  cat("Not enough genes (n=", length(sig_genes), ") for enrichment analysis\n")
 }
 
 # ============================================================================
-# 7. SUMMARY
+# 7. SUMMARY TABLE
 # ============================================================================
+
+cat("\n=== CREATING SUMMARY TABLE ===\n")
+
+summary_table <- immune_results %>%
+  filter(p_value < 0.05) %>%
+  arrange(p_value) %>%
+  mutate(
+    gene_symbol = case_when(
+      str_detect(protein_name, "\\(([A-Z0-9-]+)\\)") ~ 
+        str_extract(protein_name, "(?<=\\()[A-Z0-9-]+(?=\\))"),
+      TRUE ~ word(protein_name, 1)
+    ),
+    Direction = ifelse(log2_fc > 0, "↑ Impaired", "↓ Impaired"),
+    `P-value` = formatC(p_value, format = "e", digits = 2),
+    `FDR` = formatC(p_fdr, format = "f", digits = 3),
+    `Fold Change` = formatC(fold_change, format = "f", digits = 2)
+  ) %>%
+  select(gene_symbol, protein_name, Direction, `P-value`, FDR, `Fold Change`) %>%
+  head(30)
+
+write.csv(summary_table, 
+          file.path(OUTPUT_DIR, "immune_proteins_summary_table.csv"),
+          row.names = FALSE)
+
+cat("\n=== FINAL SUMMARY ===\n")
+cat("Immune proteins analyzed:", nrow(immune_results), "\n")
+cat("Nominally significant (p<0.05):", sum(immune_results$p_value < 0.05), "\n")
+cat("FDR significant (q<0.10):", sum(immune_results$p_fdr < 0.10), "\n")
+cat("Upregulated in Impaired:", sum(immune_results$log2_fc > 0 & immune_results$p_value < 0.05), "\n")
+cat("Downregulated in Impaired:", sum(immune_results$log2_fc < 0 & immune_results$p_value < 0.05), "\n")
+
+cat("\n\n=== FILES CREATED ===\n")
+cat("1. immune_proteins_results.csv - Full immune protein results\n")
+cat("2. volcano_immune_proteins.pdf/.png - Immune-focused volcano plot\n")
+cat("3. top_immune_proteins_boxplots.png - Boxplots with real names\n")
+cat("4. immune_proteins_summary_table.csv - Summary table\n")
+if (length(sig_genes) >= 5) {
+  cat("5. enrichment_*.csv - Pathway enrichment results\n")
+  cat("6. pathway_enrichment.pdf/.png - Enrichment visualization\n")
+}
 
 cat("\n=== ANALYSIS COMPLETE ===\n")
-cat("Results saved to:", OUTPUT_DIR, "\n\n")
-
-cat("=== SUMMARY ===\n")
-cat("Total subjects analyzed:", nrow(dat_fsoc_proteomics), "\n")
-cat("  Impaired FSOC:", sum(dat_fsoc_proteomics$fsoc_binary == "Impaired"), "\n")
-cat("  Normal FSOC:", sum(dat_fsoc_proteomics$fsoc_binary == "Normal"), "\n\n")
-
-cat("Proteins tested:", nrow(results), "\n")
-cat("Significant (p < 0.05):", sum(results$p_value < 0.05, na.rm = TRUE), "\n")
-cat("Significant (FDR < 0.10):", sum(results$p_fdr < 0.10, na.rm = TRUE), "\n\n")
-
-if (sum(results$p_fdr < 0.10, na.rm = TRUE) > 0) {
-  cat("=== TOP SIGNIFICANT PROTEINS (FDR < 0.10) ===\n")
-  sig_results <- results %>% filter(p_fdr < 0.10)
-  print(sig_results %>% 
-          select(protein_name, fold_change, p_value, p_fdr) %>%
-          head(20))
-} else {
-  cat("=== TOP PROTEINS BY P-VALUE ===\n")
-  print(head(results %>% select(protein_name, fold_change, p_value, p_fdr), 20))
-}
-
-cat("\n\nFILES CREATED:\n")
-cat("1. seq_to_protein_mapping.csv - Protein name mappings\n")
-if (nrow(inflammatory_proteins) > 0) {
-  cat("2. inflammatory_proteins_list.csv - Inflammatory markers\n")
-}
-cat("3. fsoc_proteomics_results_FINAL.csv - Full results\n")
-cat("4. volcano_plot_FINAL.pdf/.png - Volcano plot\n")
-if (sum(results$p_value < 0.05, na.rm = TRUE) > 0) {
-  cat("5. top_proteins_boxplots_FINAL.png - Boxplots\n")
-}
-
-cat("\n=== DONE! ===\n")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
