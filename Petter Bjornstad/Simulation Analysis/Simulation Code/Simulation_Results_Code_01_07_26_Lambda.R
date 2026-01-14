@@ -328,8 +328,8 @@ format.fxn <- function(results.data){
 #Read in & Format all results
 all_formatted_results <- data.frame()
 temp_file <- tempfile(fileext = ".RDS") 
-# for (scenario in 1:9) {
-for (scenario in c(1,4:9)) {
+for (scenario in 1:9) {
+# for (scenario in c(1,2,4:9)) {
   s3$download_file(bucket,paste0("scn",scenario,"_iters1_to_1000.RDS"), temp_file)
   results <- readRDS(temp_file)
   formatted.results <- format.fxn(results)
@@ -374,8 +374,8 @@ mixture <- all_formatted_sample %>%
 
 mixture$model <- factor(mixture$model, levels = c("BaHZING","RBaHZING","ZING"))
 mixture$Scenario <- paste0("Scenario ",mixture$Scenario)
-# scenario_order <- c("Scenario 4")
-# mixture$Scenario <- factor(mixture$Scenario, levels = scenario_order)
+scenario_order <- paste0("Scenario ",rep(1:9))
+mixture$Scenario <- factor(mixture$Scenario, levels = scenario_order)
 taxa_order <- c("Species","Genus","Family","Order","Class","Phylum")
 mixture$domain <- factor(mixture$domain, levels = taxa_order)
 
@@ -386,112 +386,6 @@ NA.mix <- mixture %>%
 A.mix <- mixture %>%
   filter(indicator=="Associated")
 
-# mix.plot <- ggplot()+
-#   geom_line(data = NA.mix, alpha = 0.5, aes(model,estimate,group = group_number,color=estimate)) +
-#   geom_point(data=NA.mix,aes(model,estimate,color=estimate),alpha = 0.5) +
-#   geom_line(data = A.mix, alpha = 0.5, aes(model,estimate,group = group_number,color=estimate)) +
-#   geom_point(data=A.mix,aes(model,estimate,color=estimate),alpha = 0.5) +
-#   geom_errorbar(data=NA.mix,
-#                 aes(model,estimate,group = model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black"
-#   ) +
-#   geom_errorbar(data=A.mix,
-#                 aes(model,estimate,group = model),
-#                 stat = "summary",
-#                 fun.data = function(x) {
-#                   mean_val <- mean(x)
-#                   sd_val <- sd(x)
-#                   data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-#                 },
-#                 width = 0.1,
-#                 linewidth = 0.5,
-#                 color = "black"
-#   ) +
-#   geom_point(data=NA.mix,
-#              aes(model,estimate,group = model),
-#              stat = "summary",
-#              fun = mean,   # Use the mean function to calculate the summary statistic
-#              size = 2,     # Size of the points
-#              shape = 16,   # Shape of the points
-#              color = "black",  # Color of the points
-#              fill = "black") +   # Fill color of the points
-#   geom_point(data=A.mix,
-#              aes(model,estimate,group = model),
-#              stat = "summary",
-#              fun = mean,   # Use the mean function to calculate the summary statistic
-#              size = 2,     # Size of the points
-#              shape = 16,   # Shape of the points
-#              color = "black",  # Color of the points
-#              fill = "black") +
-# # geom_errorbar(data=NA.mix,
-# #               aes(model,estimate,group = model),
-# #               stat = "summary",
-# #               fun.data = function(x) {
-# #                 estimate_val <- estimate(x)
-# #                 sd_val <- sd(x)
-# #                 data.frame(y = estimate_val, ymin = estimate_val - sd_val, ymax = estimate_val + sd_val)
-# #               },
-# #               width = 0.1,
-# #               linewidth = 0.5,
-# #               color = "black"
-# # ) +
-# # geom_errorbar(data=A.mix,
-# #               aes(model,estimate,group = model),
-# #               stat = "summary",
-# #               fun.data = function(x) {
-# #                 estimate_val <- estimate(x)
-# #                 sd_val <- sd(x)
-# #                 data.frame(y = estimate_val, ymin = estimate_val - sd_val, ymax = estimate_val + sd_val)
-# #               },
-# #               width = 0.1,
-# #               linewidth = 0.5,
-# #               color = "black"
-# # ) +
-# # geom_point(data=NA.mix,
-# #            aes(model,estimate,group = model),
-# #            stat = "summary",
-# #            fun = mean,   # Use the estimate function to calculate the summary statistic
-# #            size = 2,     # Size of the points
-# #            shape = 16,   # Shape of the points
-# #            color = "black",  # Color of the points
-# #            fill = "black") +   # Fill color of the points
-# # geom_point(data=A.mix,
-# #            aes(model,estimate,group = model),
-# #            stat = "summary",
-# #            fun = mean,   # Use the estimate function to calculate the summary statistic
-# #            size = 2,     # Size of the points
-# #            shape = 16,   # Shape of the points
-# #            color = "black",  # Color of the points
-# #            fill = "black") +
-# # facet_grid(Scenario ~ domain)+
-# facet_grid(Scenario ~ domain,scales = "free_y")+
-# theme_bw() +
-# theme(
-#   text = element_text(family = "Times", size = 20,color="black"),
-#   axis.text = element_text(family = "Times", size = 15),
-#   plot.title = element_text(family = "Times", face = "bold", size = 16),
-#   plot.subtitle = element_text(family = "Times", size = 15),
-#   axis.title.x = element_blank(),
-#   axis.title.y = element_text(family = "Times", size = 20,face="bold"),
-#   axis.text.x=element_text(angle=45,hjust=1),
-#   # strip.text.y = element_blank(),
-#   strip.text.x = element_text(size=15,face="bold"))+
-# 
-# scale_colour_gradientn(colours = c("#660000","#660000","#cc0000","#cc0000","#e69f00","#e69f00","#9a9a9a","#9a9a9a"),
-#                        # scale_colour_gradientn(colours = c("#9a9a9a","#9a9a9a","#9a9a9a","#9a9a9a","#e69f00","#cc0000","#660000"),
-#                        values = c(1.0,0.8,0.6,0.4,0.2,0)) +
-# # breaks = c(-0.2,-0.4,-0.6,0,0.2,0.4,0.6))+
-# theme(legend.position="left")
-# 
-# mix.plot
 mix.plot <- ggplot()+
   geom_line(data = NA.mix, alpha = 0.5, aes(model,estimate,group = group_number,color=estimate)) +
   geom_point(data=NA.mix,aes(model,estimate,color=estimate),alpha = 0.5) +
@@ -554,7 +448,7 @@ mix.plot <- ggplot()+
     name = "Estimate")
 
 mix.plot
-png("/home/hhampson/Results/Mixture_Plots_Test1.png",res=300,height=4000,width=4000)
+png("/home/hhampson/Results//Mixture_Plot_Option1.png",res=300,height=4000,width=4000)
 plot(mix.plot)
 dev.off()
 
@@ -1611,10 +1505,10 @@ plot(grid.arrange(plot_good, plot_bad, ncol = 1))
 dev.off()
 
 ##B. Mixture----
-mixture.sens <- formatted.data %>% 
-  filter(Exposure=="Mixture")
+mixture.sens <- all_formatted_results %>% 
+  filter(exposure=="Mixture")
 data <- mixture.sens
-sens.fxn.mix <- function(data){
+sens.fxn.mix.old <- function(data){
   BaH_ZING <- data %>% 
     filter(Model=="BaH-ZING") %>% 
     filter(Exposure=="Mixture") %>%
@@ -1731,7 +1625,87 @@ sens.fxn.mix <- function(data){
   melted_data$Taxa.Level <- factor(melted_data$Taxa.Level, levels = taxa_order)
   return(melted_data)
 }
-formatted.all.mix <- sens.fxn.mix(mixture.sens)
+sens.fxn.mixture <- function(data){
+  BaH_ZING <- data %>% 
+    filter(model=="BaHZING") %>% 
+    filter(exposure=="Mixture") %>%
+    mutate(PosNeg = case_when(indicator=="Associated" & sig=="*" ~ "True Positive",
+                              indicator=="Associated" & sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & sig!="*" ~ "True Negative")) %>% 
+    group_by(domain, Scenario) %>%
+    summarise(
+      Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
+      Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
+      PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
+      FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      FDR2 = (1 - PPV)*100,
+      TypeI = (1-Specificity),
+      TypeII = 1-Sensitivity,
+      .groups = 'drop'
+    ) %>%  
+    mutate(Model="BaHZING")
+  
+  RBaH_ZING <- data %>% 
+    filter(model=="RBaHZING") %>% 
+    filter(exposure=="Mixture") %>%
+    mutate(PosNeg = case_when(indicator=="Associated" & sig=="*" ~ "True Positive",
+                              indicator=="Associated" & sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & sig!="*" ~ "True Negative")) %>% 
+    group_by(domain, Scenario) %>%
+    summarise(
+      Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
+      Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
+      PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
+      FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      FDR2 = (1 - PPV)*100,
+      TypeI = (1-Specificity),
+      TypeII = 1-Sensitivity,
+      .groups = 'drop'
+    ) %>% 
+    mutate(Model="RBaHZING")
+  
+  ZING <- data %>% 
+    filter(model=="ZING") %>% 
+    filter(exposure=="Mixture") %>%
+    mutate(PosNeg = case_when(indicator=="Associated" & sig=="*" ~ "True Positive",
+                              indicator=="Associated" & sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & sig!="*" ~ "True Negative")) %>% 
+    group_by(domain, Scenario) %>%
+    summarise(
+      Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
+      Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
+      PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
+      FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      FDR2 = (1 - PPV)*100,
+      TypeI = (1-Specificity),
+      TypeII = 1-Sensitivity,
+      .groups = 'drop'
+    ) %>% 
+    mutate(Model="ZING")
+  
+  # Note: No FDR-adjusted version for ZING mixture since there's only one test per domain
+  
+  SensSpec <- rbind(BaH_ZING, RBaH_ZING, ZING)
+  
+  measures <- c("Specificity","Sensitivity","PPV","NPV","FDR","TypeI","TypeII")
+  
+  melted_data <- reshape2::melt(SensSpec, id.vars = c('Model','domain','Scenario'))
+  
+  model_order <- c('BaHZING', 'RBaHZING', 'ZING')
+  melted_data$Model <- factor(melted_data$Model, levels = model_order)
+  
+  taxa_order <- c("Species","Genus","Family","Order","Class","Phylum")
+  melted_data$domain <- factor(melted_data$domain, levels = taxa_order)
+  
+  return(melted_data)
+}
+formatted.all.mix <- sens.fxn.mixture(mixture.sens)
 
 formatted.all.mix <- formatted.all.mix %>% 
   mutate(Scenario=paste0("Scenario ",Scenario))
