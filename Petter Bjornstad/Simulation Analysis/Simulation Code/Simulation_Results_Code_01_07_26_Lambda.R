@@ -329,7 +329,7 @@ format.fxn <- function(results.data){
 all_formatted_results <- data.frame()
 temp_file <- tempfile(fileext = ".RDS") 
 # for (scenario in 1:9) {
-for (scenario in c(1,4:9)) {
+for (scenario in c(1,2,4:9)) {
   s3$download_file(bucket,paste0("scn",scenario,"_iters1_to_1000.RDS"), temp_file)
   results <- readRDS(temp_file)
   formatted.results <- format.fxn(results)
@@ -1611,10 +1611,10 @@ plot(grid.arrange(plot_good, plot_bad, ncol = 1))
 dev.off()
 
 ##B. Mixture----
-mixture.sens <- formatted.data %>% 
-  filter(Exposure=="Mixture")
+mixture.sens <- all_formatted_results %>% 
+  filter(exposure=="Mixture")
 data <- mixture.sens
-sens.fxn.mix <- function(data){
+sens.fxn.mix.old <- function(data){
   BaH_ZING <- data %>% 
     filter(Model=="BaH-ZING") %>% 
     filter(Exposure=="Mixture") %>%
@@ -1731,7 +1731,87 @@ sens.fxn.mix <- function(data){
   melted_data$Taxa.Level <- factor(melted_data$Taxa.Level, levels = taxa_order)
   return(melted_data)
 }
-formatted.all.mix <- sens.fxn.mix(mixture.sens)
+sens.fxn.mixture <- function(data){
+  BaH_ZING <- data %>% 
+    filter(model=="BaHZING") %>% 
+    filter(exposure=="Mixture") %>%
+    mutate(PosNeg = case_when(indicator=="Associated" & sig=="*" ~ "True Positive",
+                              indicator=="Associated" & sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & sig!="*" ~ "True Negative")) %>% 
+    group_by(domain, Scenario) %>%
+    summarise(
+      Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
+      Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
+      PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
+      FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      FDR2 = (1 - PPV)*100,
+      TypeI = (1-Specificity),
+      TypeII = 1-Sensitivity,
+      .groups = 'drop'
+    ) %>%  
+    mutate(Model="BaHZING")
+  
+  RBaH_ZING <- data %>% 
+    filter(model=="RBaHZING") %>% 
+    filter(exposure=="Mixture") %>%
+    mutate(PosNeg = case_when(indicator=="Associated" & sig=="*" ~ "True Positive",
+                              indicator=="Associated" & sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & sig!="*" ~ "True Negative")) %>% 
+    group_by(domain, Scenario) %>%
+    summarise(
+      Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
+      Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
+      PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
+      FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      FDR2 = (1 - PPV)*100,
+      TypeI = (1-Specificity),
+      TypeII = 1-Sensitivity,
+      .groups = 'drop'
+    ) %>% 
+    mutate(Model="RBaHZING")
+  
+  ZING <- data %>% 
+    filter(model=="ZING") %>% 
+    filter(exposure=="Mixture") %>%
+    mutate(PosNeg = case_when(indicator=="Associated" & sig=="*" ~ "True Positive",
+                              indicator=="Associated" & sig!="*" ~ "False Negative",
+                              indicator=="Not Associated" & sig=="*" ~ "False Positive",
+                              indicator=="Not Associated" & sig!="*" ~ "True Negative")) %>% 
+    group_by(domain, Scenario) %>%
+    summarise(
+      Specificity = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="True Negative")) + length(which(PosNeg=="False Positive")))),
+      Sensitivity = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Negative")))),
+      PPV = (length(which(PosNeg=="True Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      NPV = (length(which(PosNeg=="True Negative")) / (length(which(PosNeg=="False Negative")) + length(which(PosNeg=="True Negative")))),
+      FDR =  (length(which(PosNeg=="False Positive")) / (length(which(PosNeg=="True Positive")) + length(which(PosNeg=="False Positive")))),
+      FDR2 = (1 - PPV)*100,
+      TypeI = (1-Specificity),
+      TypeII = 1-Sensitivity,
+      .groups = 'drop'
+    ) %>% 
+    mutate(Model="ZING")
+  
+  # Note: No FDR-adjusted version for ZING mixture since there's only one test per domain
+  
+  SensSpec <- rbind(BaH_ZING, RBaH_ZING, ZING)
+  
+  measures <- c("Specificity","Sensitivity","PPV","NPV","FDR","TypeI","TypeII")
+  
+  melted_data <- reshape2::melt(SensSpec, id.vars = c('Model','domain','Scenario'))
+  
+  model_order <- c('BaHZING', 'RBaHZING', 'ZING')
+  melted_data$Model <- factor(melted_data$Model, levels = model_order)
+  
+  taxa_order <- c("Species","Genus","Family","Order","Class","Phylum")
+  melted_data$domain <- factor(melted_data$domain, levels = taxa_order)
+  
+  return(melted_data)
+}
+formatted.all.mix <- sens.fxn.mixture(mixture.sens)
 
 formatted.all.mix <- formatted.all.mix %>% 
   mutate(Scenario=paste0("Scenario ",Scenario))
