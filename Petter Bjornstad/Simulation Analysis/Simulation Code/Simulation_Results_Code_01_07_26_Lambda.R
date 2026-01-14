@@ -442,74 +442,14 @@ mix.plot <- ggplot()+
     strip.text.x = element_text(size=15,face="bold"),
     legend.position="left") +
   scale_colour_gradientn(
-    colours = c("#2166ac", "#4393c3", "#92c5de", "#d1e5f0", "#f7f7f7", 
-                "#fddbc7", "#f4a582", "#d6604d", "#b2182b"),
-    values = scales::rescale(c(-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1)),
+    colours = c("darkblue","#2166ac", "#f7f7f7", "#b2182b","darkred"),
+    values = scales::rescale(c(-1, -0.5, 0, 0.5, 1)),
     name = "Estimate")
 
-mix.plot
-png("/home/hhampson/Results//Mixture_Plot_Option1.png",res=300,height=4000,width=4000)
+# mix.plot
+png("/home/hhampson/Results/Microbiome Results/Mixture_Plot_Option1.png",res=300,height=4000,width=4000)
 plot(mix.plot)
 dev.off()
-
-mix.plot.edit <- ggplot()+
-  geom_line(data = NA.mix, alpha = 0.3, 
-            aes(model, estimate, group = group_number), 
-            color = "gray60") +
-  geom_line(data = A.mix, alpha = 0.5, 
-            aes(model, estimate, group = group_number), 
-            color = "firebrick3") +
-  geom_errorbar(data = NA.mix,
-                aes(model, estimate, group = model),
-                stat = "summary",
-                fun.data = function(x) {
-                  mean_val <- mean(x)
-                  sd_val <- sd(x)
-                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-                },
-                width = 0.2,
-                linewidth = 0.8,
-                color = "gray30") +
-  geom_errorbar(data = A.mix,
-                aes(model, estimate, group = model),
-                stat = "summary",
-                fun.data = function(x) {
-                  mean_val <- mean(x)
-                  sd_val <- sd(x)
-                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-                },
-                width = 0.2,
-                linewidth = 0.8,
-                color = "firebrick4") +
-  geom_point(data = NA.mix,
-             aes(model, estimate, group = model),
-             stat = "summary",
-             fun = mean,
-             size = 3,
-             shape = 21,
-             color = "gray30",
-             fill = "white",
-             stroke = 1.5) +
-  geom_point(data = A.mix,
-             aes(model, estimate, group = model),
-             stat = "summary",
-             fun = mean,
-             size = 3,
-             shape = 21,
-             color = "firebrick4",
-             fill = "white",
-             stroke = 1.5) +
-  facet_grid(Scenario ~ domain, scales = "free_y") +
-  theme_bw() +
-  theme(
-    text = element_text(family = "Times", size = 20, color = "black"),
-    axis.text = element_text(family = "Times", size = 15),
-    axis.title.x = element_blank(),
-    axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    strip.text.x = element_text(size = 15, face = "bold"),
-    strip.text.y = element_text(size = 15, face = "bold"))
-mix.plot.edit 
 
 mix.plot.edit <- ggplot()+
   geom_line(data = NA.mix, alpha = 0.3, 
@@ -577,87 +517,12 @@ mix.plot.edit <- ggplot()+
     legend.text = element_text(size = 14)) +
   labs(y = "Estimate")
 
-mix.plot.edit
+# mix.plot.edit
 
 # ggsave(plot=mix.plot,fs::path(dir.results,"Figure 3.3 Scenario 15.jpeg"),height=4,width=15)
 # png(fs::path(dir.results,"Scenario 4 Test.jpeg"),res=300,height=1000,width=3000)
-png("/home/hhampson/Results/Mixture_Plots_Test2.png",res=300,height=4000,width=4000)
+png("/home/hhampson/Results/Microbiome Results/Mixture_Plot_Option2.png",res=300,height=4000,width=4000)
 plot(mix.plot.edit)
-dev.off()
-
-
-mix.plot.edit2 <- ggplot()+
-  geom_line(data = NA.mix, alpha = 0.5, 
-            aes(model, estimate, group = group_number, color = estimate)) +
-  geom_point(data = NA.mix, aes(model, estimate), 
-             alpha = 0.3, color = "gray50", size = 0.5) +  # Neutral color
-  geom_line(data = A.mix, alpha = 0.5, 
-            aes(model, estimate, group = group_number, color = estimate)) +
-  geom_point(data = A.mix, aes(model, estimate), 
-             alpha = 0.3, color = "gray50", size = 0.5) +  # Neutral color
-  geom_errorbar(data = NA.mix,
-                aes(model, estimate, group = model),
-                stat = "summary",
-                fun.data = function(x) {
-                  mean_val <- mean(x)
-                  sd_val <- sd(x)
-                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-                },
-                width = 0.1,
-                linewidth = 0.5,
-                color = "black") +
-  geom_errorbar(data = A.mix,
-                aes(model, estimate, group = model),
-                stat = "summary",
-                fun.data = function(x) {
-                  mean_val <- mean(x)
-                  sd_val <- sd(x)
-                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-                },
-                width = 0.1,
-                linewidth = 0.5,
-                color = "black") +
-  geom_point(data = NA.mix,
-             aes(model, estimate, group = model),
-             stat = "summary",
-             fun = mean,
-             size = 3,
-             shape = 21,
-             color = "black",
-             fill = "white",
-             stroke = 1) +
-  geom_point(data = A.mix,
-             aes(model, estimate, group = model),
-             stat = "summary",
-             fun = mean,
-             size = 3,
-             shape = 21,
-             color = "black",
-             fill = "white",
-             stroke = 1) +
-  facet_grid(Scenario ~ domain, scales = "free_y") +
-  theme_bw() +
-  theme(
-    text = element_text(family = "Times", size = 20, color = "black"),
-    axis.text = element_text(family = "Times", size = 15),
-    plot.title = element_text(family = "Times", face = "bold", size = 16),
-    plot.subtitle = element_text(family = "Times", size = 15),
-    axis.title.x = element_blank(),
-    axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    strip.text.x = element_text(size = 15, face = "bold"),
-    legend.position = "right",  # Move legend to right for clarity
-    legend.title = element_text(size = 14, face = "bold"),
-    legend.text = element_text(size = 12)) +
-  scale_colour_gradientn(
-    colours = c("#660000", "#cc0000", "#e69f00", "#9a9a9a"),
-    values = scales::rescale(c(0.75, 0.5, 0.25, 0, -0.25, -0.5)),
-    name = "Effect\nEstimate",  # Clear legend title
-    guide = guide_colorbar(barwidth = 1.5, barheight = 15)) +
-  labs(y = "Estimate")
-
-png("/home/hhampson/Results/Mixture_Plots_Test3.png",res=300,height=4000,width=4000)
-plot(mix.plot.edit2)
 dev.off()
 
 # Add a categorical color variable
@@ -747,8 +612,8 @@ mix.plot.edit3 <- ggplot() +
                "Weak Negative", "Negative")) +
   labs(y = "Estimate")
 
-mix.plot.edit3
-png("/home/hhampson/Results/Mixture_Plots_Test4.png",res=300,height=4000,width=4000)
+# mix.plot.edit3
+png("/home/hhampson/Results/Microbiome Results/Mixture_Plot_Option3.png",res=300,height=4000,width=4000)
 plot(mix.plot.edit3)
 dev.off()
 
@@ -761,7 +626,7 @@ ind <- all_formatted_sample %>%
 ind$model <- factor(ind$model, levels = c("BaHZING","RBaHZING","ZING"))
 ind$Scenario <- paste0("Scenario ",ind$Scenario)
 # scenario_order <- c("Scenario 4")
-# ind$Scenario <- factor(ind$Scenario, levels = scenario_order)
+ind$Scenario <- factor(ind$Scenario, levels = scenario_order)
 taxa_order <- c("Species","Genus","Family","Order","Class","Phylum")
 ind$domain <- factor(ind$domain, levels = taxa_order)
 
@@ -770,8 +635,6 @@ NA.ind <- ind %>%
 A.ind <- ind %>%
   filter(indicator=="Associated")
 
-
-# ggsave(plot=ind.plot,fs::path(dir.results,"Figure 3.2 Scenario 15.jpeg"),height=4,width=15)
 ind.plot <- ggplot() +
   geom_line(data = NA.ind, alpha = 0.5, 
             aes(model, estimate, group = group_number, color = estimate)) +
@@ -828,73 +691,15 @@ ind.plot <- ggplot() +
     strip.text.x = element_text(size = 15, face = "bold"),
     legend.position = "left") +
   scale_colour_gradientn(
-    colours = c("#660000", "#660000", "#cc0000", "#cc0000", "#e69f00", "#e69f00", "#9a9a9a", "#9a9a9a"),
-    values = c(1.0, 0.8, 0.6, 0.4, 0.2, 0)) +
+    colours = c("darkblue","#2166ac", "#f7f7f7", "#b2182b","darkred"),
+    values = scales::rescale(c(-1, -0.5, 0, 0.5, 1)),
+    name = "Estimate")+
   labs(y = "Estimate")
 
-ind.plot
-png("/home/hhampson/Results/Individual_Plots_Test1.png",res=300,height=4000,width=4000)
+# ind.plot
+png("/home/hhampson/Results/Microbiome Results/Individual_Plot_Option1.png",res=300,height=4000,width=4000)
 plot(ind.plot)
 dev.off()
-
-ind.plot.v2 <- ggplot() +
-  geom_line(data = NA.ind, alpha = 0.3, 
-            aes(model, estimate, group = group_number), 
-            color = "gray60") +
-  geom_line(data = A.ind, alpha = 0.5, 
-            aes(model, estimate, group = group_number), 
-            color = "firebrick3") +
-  geom_errorbar(data = NA.ind,
-                aes(model, estimate, group = model),
-                stat = "summary",
-                fun.data = function(x) {
-                  mean_val <- mean(x)
-                  sd_val <- sd(x)
-                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-                },
-                width = 0.2,
-                linewidth = 0.8,
-                color = "gray30") +
-  geom_errorbar(data = A.ind,
-                aes(model, estimate, group = model),
-                stat = "summary",
-                fun.data = function(x) {
-                  mean_val <- mean(x)
-                  sd_val <- sd(x)
-                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-                },
-                width = 0.2,
-                linewidth = 0.8,
-                color = "firebrick4") +
-  geom_point(data = NA.ind,
-             aes(model, estimate, group = model),
-             stat = "summary",
-             fun = mean,
-             size = 3,
-             shape = 21,
-             color = "gray30",
-             fill = "white",
-             stroke = 1.5) +
-  geom_point(data = A.ind,
-             aes(model, estimate, group = model),
-             stat = "summary",
-             fun = mean,
-             size = 3,
-             shape = 21,
-             color = "firebrick4",
-             fill = "white",
-             stroke = 1.5) +
-  facet_grid(Scenario ~ domain, scales = "free_y") +
-  theme_bw() +
-  theme(
-    text = element_text(family = "Times", size = 20, color = "black"),
-    axis.text = element_text(family = "Times", size = 15),
-    axis.title.x = element_blank(),
-    axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    strip.text.x = element_text(size = 15, face = "bold"),
-    strip.text.y = element_text(size = 15, face = "bold")) +
-  labs(y = "Estimate")
 
 # First, combine the data with status indicator
 NA.ind_legend <- NA.ind %>% mutate(status = "Not Associated")
@@ -902,11 +707,10 @@ A.ind_legend <- A.ind %>% mutate(status = "Associated")
 combined_ind_data <- bind_rows(NA.ind_legend, A.ind_legend)
 
 # Now create the plot with the combined data
-ind.plot.edit <- ggplot(combined_ind_data, aes(model, estimate)) +
-  geom_line(aes(group = group_number, color = status), 
+ind.plot.edit <- ggplot(combined_ind_data, aes(model, estimate, color = status)) +
+  geom_line(aes(group = group_number), 
             alpha = 0.4) +
-  geom_errorbar(aes(group = model, color = status),
-                stat = "summary",
+  geom_errorbar(stat = "summary",
                 fun.data = function(x) {
                   mean_val <- mean(x)
                   sd_val <- sd(x)
@@ -914,14 +718,15 @@ ind.plot.edit <- ggplot(combined_ind_data, aes(model, estimate)) +
                 },
                 width = 0.2,
                 linewidth = 0.8,
-                alpha = 0.8) +
-  geom_point(aes(group = model, color = status),
-             stat = "summary",
+                alpha = 0.8,
+                position = position_dodge(width = 0.3)) +
+  geom_point(stat = "summary",
              fun = mean,
              size = 3,
              shape = 21,
              fill = "white",
-             stroke = 1.5) +
+             stroke = 1.5,
+             position = position_dodge(width = 0.3)) +
   facet_grid(Scenario ~ domain, scales = "free_y") +
   theme_bw() +
   theme(
@@ -950,10 +755,9 @@ ind.plot.edit <- ggplot(combined_ind_data, aes(model, estimate)) +
     )
   )) +
   labs(y = "Estimate")
+# ind.plot.edit
 
-ind.plot.edit
-
-png("/home/hhampson/Results/Individual_Plots_Test5.png",res=300,height=4000,width=4000)
+png("/home/hhampson/Results/Microbiome Results/Individual_Plot_Option2.png",res=300,height=4000,width=4000)
 plot(ind.plot.edit)
 dev.off()
 
@@ -1054,82 +858,9 @@ ind.plot.v3 <- ggplot() +
                "Weak Negative", "Negative")) +
   labs(y = "Estimate")
 
-ind.plot.v3
-png("/home/hhampson/Results/Individual_Plots_Test3.png",res=300,height=4000,width=4000)
+# ind.plot.v3
+png("/home/hhampson/Results/Microbiome Results/Individual_Plot_Option3.png",res=300,height=4000,width=4000)
 plot(ind.plot.v3)
-dev.off()
-
-ind.plot.v4 <- ggplot() +
-  geom_line(data = NA.ind, alpha = 0.5, 
-            aes(model, estimate, group = group_number, color = estimate)) +
-  geom_point(data = NA.ind, aes(model, estimate), 
-             alpha = 0.3, color = "gray50", size = 0.5) +
-  geom_line(data = A.ind, alpha = 0.5, 
-            aes(model, estimate, group = group_number, color = estimate)) +
-  geom_point(data = A.ind, aes(model, estimate), 
-             alpha = 0.3, color = "gray50", size = 0.5) +
-  geom_errorbar(data = NA.ind,
-                aes(model, estimate, group = model),
-                stat = "summary",
-                fun.data = function(x) {
-                  mean_val <- mean(x)
-                  sd_val <- sd(x)
-                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-                },
-                width = 0.1,
-                linewidth = 0.5,
-                color = "black") +
-  geom_errorbar(data = A.ind,
-                aes(model, estimate, group = model),
-                stat = "summary",
-                fun.data = function(x) {
-                  mean_val <- mean(x)
-                  sd_val <- sd(x)
-                  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-                },
-                width = 0.1,
-                linewidth = 0.5,
-                color = "black") +
-  geom_point(data = NA.ind,
-             aes(model, estimate, group = model),
-             stat = "summary",
-             fun = mean,
-             size = 3,
-             shape = 21,
-             color = "black",
-             fill = "white",
-             stroke = 1.5) +
-  geom_point(data = A.ind,
-             aes(model, estimate, group = model),
-             stat = "summary",
-             fun = mean,
-             size = 3,
-             shape = 21,
-             color = "black",
-             fill = "white",
-             stroke = 1.5) +
-  facet_grid(Scenario ~ domain, scales = "free_y") +
-  theme_bw() +
-  theme(
-    text = element_text(family = "Times", size = 20, color = "black"),
-    axis.text = element_text(family = "Times", size = 15),
-    axis.title.x = element_blank(),
-    axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    strip.text.x = element_text(size = 15, face = "bold"),
-    legend.position = "right",
-    legend.title = element_text(size = 14, face = "bold"),
-    legend.text = element_text(size = 12)) +
-  scale_colour_gradientn(
-    colours = c("#660000", "#cc0000", "#e69f00", "#9a9a9a"),
-    values = scales::rescale(c(0.75, 0.5, 0.25, 0, -0.25, -0.5)),
-    name = "Effect\nEstimate",
-    guide = guide_colorbar(barwidth = 1.5, barheight = 15)) +
-  labs(y = "Estimate")
-
-ind.plot.v4
-png("/home/hhampson/Results/Individual_Plots_Test4.png",res=300,height=4000,width=4000)
-plot(ind.plot.v4)
 dev.off()
 
 #7. Sensitivity Measures ----
@@ -1417,91 +1148,51 @@ formatted.all <- sens.fxn(individual)
 rm(individual)
 formatted.all <- formatted.all %>% 
   mutate(Scenario=paste0("Scenario ",Scenario))
-# formatted.all$Scenario <- factor(formatted.all$Scenario,levels=scenario_order)
+formatted.all$Scenario <- factor(formatted.all$Scenario,levels=scenario_order)
 
-# formatted.wide <- formatted.all %>% 
-#   pivot_wider(names_from = taxa_full,
-#               values_from=value) %>% 
-#   select(-Scenario)
-# formatted.wide <- formatted.wide[c("Model","variable","Species","Genus",
-#                                    "Family","Order","Class","Phylum")]
-# write.csv(formatted.wide,fs::path(dir.results,"Sensitivity_Individual_Scenario15.csv"))
+formatted.wide <- formatted.all %>%
+  pivot_wider(names_from = domain,
+              values_from=value) 
+  # select(-Scenario)
+formatted.wide <- formatted.wide[c("Model","Scenario","variable","Species","Genus",
+                                   "Family","Order","Class","Phylum")]
+# write.csv(formatted.wide,fs::path(dir.results,"Sensitivity_Individual.csv"))
+# write.csv(formatted.wide,"/home/hhampson/Results/Microbiome Results/Sensitivity_Measures_Individual.csv")
 
-# Filter for key metrics
-key_metrics <- c("Sensitivity", "Specificity", "FDR", "PPV")
+ # Assuming your data is already in long format with columns:
+# Model, Scenario, variable, Taxonomic_Level, Specificity
 
-formatted.subset <- formatted.all %>%
-  filter(variable %in% key_metrics)
+# Make sure Taxonomic_Level is a factor in the right order
+specificity_long <- formatted.all %>%
+  mutate(domain = factor(domain, 
+                                  levels = c("Species", "Genus", "Family", 
+                                             "Order", "Class", "Phylum")))
 
-plot <- ggplot(formatted.subset, aes(x = Model, y = domain, fill = value)) +
-  geom_tile(color = "white", linewidth = 0.5) +
-  geom_text(aes(label = round(value, 2)), size = 3, color = "black") +
-  facet_grid(variable ~ Scenario) +
-  scale_fill_gradient(low = "white", high = "#2166ac",
-                      limits = c(0, 1),
-                      name = "Value") +
+# PLOT 1: BOXPLOT - All metrics by Model and Taxonomic Level
+boxplot_all_metrics <- ggplot(specificity_long, 
+                              aes(x = domain, y = value, fill = Model)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = 16, outlier.size = 1) +
+  facet_grid(variable ~ ., scales = "free_y") +
   theme_bw() +
   theme(
-    text = element_text(family = "Times", size = 12),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.title = element_blank(),
-    strip.text = element_text(size = 10, face = "bold"),
-    legend.position = "right"
-  ) +
-  labs(title = "Model Performance Across Scenarios and Taxonomic Levels")
+    text = element_text(family = "Times", size = 14),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    strip.text.y = element_text(size = 12, face = "bold"),
+    legend.position = "right",
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 11)) +
+  scale_fill_manual(values = c("BaHZING" = "#2166ac", 
+                               "RBaHZING" = "#92c5de", 
+                               "ZING" = "#b2182b",
+                               "Adj.ZING" = "gray")) +
+  labs(x = "Taxonomic Level", 
+       y = "Value",
+       fill = "Model")
 
-png("/home/hhampson/Results/Individual_Sensitivity_plots.png",res=300,height=4000,width=4000)
-plot(plot)
-dev.off()
-
-# Separate good and bad metrics
-good_metrics <- c("Sensitivity", "Specificity", "PPV", "NPV")  # Higher is better
-bad_metrics <- c("FDR", "TypeI", "TypeII")  # Lower is better
-
-formatted.good <- formatted.all %>%
-  filter(variable %in% good_metrics)
-
-formatted.bad <- formatted.all %>%
-  filter(variable %in% bad_metrics)
-
-# Plot good metrics (darker = better)
-plot_good <- ggplot(formatted.good, aes(x = Model, y = domain, fill = value)) +
-  geom_tile(color = "white", linewidth = 0.5) +
-  geom_text(aes(label = round(value, 2)), size = 3, color = "black") +
-  facet_grid(variable ~ Scenario) +
-  scale_fill_gradient(low = "darkred", high = "#1a9850",
-                      limits = c(0, 1),
-                      name = "Value\n(Higher = Better)") +
-  theme_bw() +
-  theme(
-    text = element_text(family = "Times", size = 12),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.title = element_blank(),
-    strip.text = element_text(size = 10, face = "bold")
-  ) +
-  labs(title = "Positive Performance Metrics")
-
-# Plot bad metrics (lighter = better)
-plot_bad <- ggplot(formatted.bad, aes(x = Model, y = domain, fill = value)) +
-  geom_tile(color = "white", linewidth = 0.5) +
-  geom_text(aes(label = round(value, 2)), size = 3, color = "black") +
-  facet_grid(variable ~ Scenario) +
-  scale_fill_gradient(low = "#1a9850", high = "darkred",  # Reversed!
-                      limits = c(0, 1),
-                      name = "Value\n(Lower = Better)") +
-  theme_bw() +
-  theme(
-    text = element_text(family = "Times", size = 12),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.title = element_blank(),
-    strip.text = element_text(size = 10, face = "bold")
-  ) +
-  labs(title = "Error Rate Metrics")
-
-# library(gridExtra)
-grid.arrange(plot_good, plot_bad, ncol = 1)
-png("/home/hhampson/Results/Individual_Sensitivity_plots2.png",res=300,height=4000,width=4000)
-plot(grid.arrange(plot_good, plot_bad, ncol = 1))
+png("/home/hhampson/Results/Microbiome Results/Individual_Metrics_BoxPlots.png",res=300,width=2000,height=1000)
+plot(boxplot_all_metrics)
 dev.off()
 
 ##B. Mixture----
