@@ -174,8 +174,8 @@ results_list <- map(Taxa.names,dat=Y2,exposure=exposure.names,ZING_Model)
 #Try withouth problematic taxa
 Taxa.names.clean <- Taxa.names[-212]
 results_list <- map(Taxa.names.clean,dat=Y2,exposure=exposure.names,ZING_Model)
-Taxa.names.clean[303]
 
+Taxa.names.clean[303]
 Taxa.names.clean2 <- Taxa.names.clean[-303]
 results_list <- map(Taxa.names.clean2,dat=Y2,exposure=exposure.names,ZING_Model)
 
