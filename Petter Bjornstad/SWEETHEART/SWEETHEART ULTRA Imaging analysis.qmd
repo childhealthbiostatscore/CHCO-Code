@@ -73,7 +73,7 @@ library(ggpubr)
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") { # local version
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
   keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
 } else if (user == "rameshsh") { # hyak version
@@ -215,7 +215,7 @@ im_vars_2_labels <- c(
   lv_myo_mass_dias          = "LV mass (g)",
   lv_myo_mass_syst_bsa          = "LV myocardial\nmass BSA (systole)",
   lv_myo_mass_dias_bsa          = "LV mass BSA (g/m^2)",
-  lv_myo_thickness_total    = "LV\nthickness total (mm)",
+  lv_myo_thickness_total    = "LV thickness\ntotal (mm)",
   lv_myo_thickness_dias     = "LV\nthickness (mm)",
   rvef                      = "RV\nejection fraction (%)",
   lvef                      = "LV\nejection fraction (%)",
@@ -667,6 +667,24 @@ plot_boxgrid(
   fill_label = "UACR\nCategory"
 )
 
+harm_dat_subset_obt2d %>%
+  filter(!is.na(acr_u_cat300)) %>%
+  ggplot(aes(x = acr_u_cat300, y = tt2, fill = acr_u_cat300)) +
+  geom_boxplot(size = 1.8, outlier.size = 3) +
+  stat_compare_means(
+    method = "wilcox.test",
+    label = "p.signif", 
+    size = 15,
+    hjust = -5
+  ) +
+  theme_minimal() + 
+  theme(panel.grid = element_blank(),
+        text = element_text(size = 25),
+        legend.position = "none") +
+  scale_fill_manual(values = c("#f2cc8f", "#f08080")) +
+  labs(x = "UACR", y = "T2* (s)") + 
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.30))) 
+
 plot_boxgrid(
   df = subset(harm_dat_subset_t2d, !is.na(acr_u_cat300)),
   group_var = "acr_u_cat300",
@@ -720,7 +738,7 @@ imaging_for_cor <- c(
   paste0(im_vars_log, "_log10")   # log versions
 )
 
-anchor_vars <- c("log_acr_u", "eGFR_CKD_epi", "bmi", "hba1c")
+anchor_vars <- c("log_acr_u", "eGFR_CKD_epi", "gfr_bsa_plasma", "bmi", "hba1c")
 
 cor_df <- expand.grid(
   imaging = imaging_for_cor,
@@ -755,4 +773,29 @@ ggplot(cor_df, aes(x = anchor, y = imaging, fill = rho)) +
   ) +
   theme_minimal(base_size = 14) +
   labs(fill = "rho")
+
+anchor_labels <- c(bmi = "BMI",
+                   eGFR_CKD_epi = "eGFR",
+                   gfr_bsa_plasma = "mGFR",
+                   hba1c = "HbA1c",
+                   log_acr_u = "log(UACR)")
+anchor_levels <- c("bmi", "eGFR_CKD_epi", "gfr_bsa_plasma", "hba1c", "log_acr_u")
+
+cor_df %>%
+  filter(imaging %in% c("lv_myo_thickness_total", "lv_myo_mass_dias", "lvco", "af_pwv_xcor3", "rvedv", "tt2")) %>%
+  mutate(imaging_label = im_vars_2_labels[imaging],
+         anchor = factor(anchor, levels = anchor_levels),
+         anchor_label = factor(anchor_labels[anchor],
+                               levels = anchor_labels[anchor_levels])) %>%
+  ggplot(aes(x = anchor_label, y = imaging_label, fill = rho)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = stars), color = "black", size = 10) +
+  scale_fill_gradient2(
+    low = "#2166ac", mid = "white", high = "#b2182b",
+    midpoint = 0, limits = c(-1, 1)
+  ) +
+  theme_minimal(base_size = 18) +
+  theme(panel.grid = element_blank()) +
+  labs(fill = "rho",
+       x = NULL, y = NULL)
 ```
