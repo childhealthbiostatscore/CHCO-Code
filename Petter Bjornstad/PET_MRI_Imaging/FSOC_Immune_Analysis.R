@@ -28,26 +28,9 @@ cat("========================================\n\n")
 # UPDATE THIS PATH to your SomaScan annotation file
 # It should have columns: SeqId, TargetFullName, UniProt, EntrezGeneSymbol
 ANNOTATION_FILE <- "C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Combined SomaScan/analytes_2.RData"
-
-# Try loading as CSV first
-if (file.exists(ANNOTATION_FILE)) {
-  if (str_detect(ANNOTATION_FILE, "\\.xlsx$")) {
-    somascan_annotation <- readxl::read_excel(ANNOTATION_FILE)
-  } else {
-    somascan_annotation <- load(ANNOTATION_FILE)
-  }
+load(ANNOTATION_FILE)
   
-  cat("✓ Loaded annotation file:", nrow(somascan_annotation), "entries\n")
-  cat("Columns:", paste(names(somascan_annotation), collapse = ", "), "\n\n")
-  
-  # Show sample
-  cat("Sample entries:\n")
-  print(head(somascan_annotation, 10))
-} else {
-  stop("\n❌ ERROR: Annotation file not found!\n",
-       "Please update ANNOTATION_FILE path at line 30\n",
-       "Expected file with columns: SeqId, TargetFullName, UniProt, EntrezGeneSymbol\n")
-}
+somascan_annotation <- analytes_attempt
 
 # ============================================================================
 # STEP 2: LOAD HARMONIZED DATA
@@ -496,4 +479,344 @@ cat("  5. immune_proteins_summary_table.csv\n")
 cat("\n========================================\n")
 
 
+
+
+
+
+
+# ============================================================================
+# STEP 10: PATHWAY ANALYSIS
+# ============================================================================
+
+cat("\n========================================\n")
+cat("STEP 10: PATHWAY ANALYSIS\n")
+cat("========================================\n\n")
+
+# Install packages if needed
+if (!require("clusterProfiler")) {
+  if (!require("BiocManager")) install.packages("BiocManager")
+  BiocManager::install("clusterProfiler")
+}
+if (!require("enrichplot")) {
+  BiocManager::install("enrichplot")
+}
+if (!require("org.Hs.eg.db")) {
+  BiocManager::install("org.Hs.eg.db")
+}
+
+library(clusterProfiler)
+library(enrichplot)
+library(org.Hs.eg.db)
+
+# ============================================================================
+# A. PATHWAY ANALYSIS - ALL SIGNIFICANT PROTEINS
+# ============================================================================
+
+cat("A. Analyzing all significant proteins (p < 0.05)...\n")
+
+# Get significant proteins with gene symbols
+sig_all <- results_annotated %>%
+  filter(p_value < 0.05, !is.na(EntrezGeneSymbol), EntrezGeneSymbol != "")
+
+cat("  Significant proteins with gene symbols:", nrow(sig_all), "\n")
+
+if (nrow(sig_all) >= 10) {
+  
+  # Convert gene symbols to Entrez IDs
+  gene_list_all <- sig_all$log2_fc
+  names(gene_list_all) <- sig_all$EntrezGeneSymbol
+  gene_list_all <- sort(gene_list_all, decreasing = TRUE)
+  
+  genes_all <- names(gene_list_all)
+  
+  # Gene Ontology - Biological Process
+  cat("  Running GO Biological Process...\n")
+  ego_bp_all <- enrichGO(gene = genes_all,
+                         OrgDb = org.Hs.eg.db,
+                         keyType = "SYMBOL",
+                         ont = "BP",
+                         pAdjustMethod = "BH",
+                         pvalueCutoff = 0.05,
+                         qvalueCutoff = 0.10,
+                         readable = TRUE)
+  
+  # Gene Ontology - Molecular Function
+  cat("  Running GO Molecular Function...\n")
+  ego_mf_all <- enrichGO(gene = genes_all,
+                         OrgDb = org.Hs.eg.db,
+                         keyType = "SYMBOL",
+                         ont = "MF",
+                         pAdjustMethod = "BH",
+                         pvalueCutoff = 0.05,
+                         qvalueCutoff = 0.10,
+                         readable = TRUE)
+  
+  # KEGG Pathway
+  cat("  Running KEGG pathway...\n")
+  # Convert to Entrez IDs for KEGG
+  gene_entrez_all <- bitr(genes_all, 
+                          fromType = "SYMBOL",
+                          toType = "ENTREZID",
+                          OrgDb = org.Hs.eg.db)
+  
+  kegg_all <- enrichKEGG(gene = gene_entrez_all$ENTREZID,
+                         organism = 'hsa',
+                         pvalueCutoff = 0.05,
+                         qvalueCutoff = 0.10)
+  
+  # Disease Ontology
+  cat("  Running Disease Ontology...\n")
+  edo_all <- enrichDO(gene = gene_entrez_all$ENTREZID,
+                      pvalueCutoff = 0.05,
+                      qvalueCutoff = 0.10,
+                      readable = TRUE)
+  
+  # Save results
+  if (!is.null(ego_bp_all) && nrow(as.data.frame(ego_bp_all)) > 0) {
+    write.csv(as.data.frame(ego_bp_all), 
+              file.path(OUTPUT_DIR, "pathway_ALL_GO_BP.csv"),
+              row.names = FALSE)
+    cat("  ✓ GO BP:", nrow(as.data.frame(ego_bp_all)), "pathways\n")
+  }
+  
+  if (!is.null(ego_mf_all) && nrow(as.data.frame(ego_mf_all)) > 0) {
+    write.csv(as.data.frame(ego_mf_all), 
+              file.path(OUTPUT_DIR, "pathway_ALL_GO_MF.csv"),
+              row.names = FALSE)
+    cat("  ✓ GO MF:", nrow(as.data.frame(ego_mf_all)), "pathways\n")
+  }
+  
+  if (!is.null(kegg_all) && nrow(as.data.frame(kegg_all)) > 0) {
+    write.csv(as.data.frame(kegg_all), 
+              file.path(OUTPUT_DIR, "pathway_ALL_KEGG.csv"),
+              row.names = FALSE)
+    cat("  ✓ KEGG:", nrow(as.data.frame(kegg_all)), "pathways\n")
+  }
+  
+  if (!is.null(edo_all) && nrow(as.data.frame(edo_all)) > 0) {
+    write.csv(as.data.frame(edo_all), 
+              file.path(OUTPUT_DIR, "pathway_ALL_Disease.csv"),
+              row.names = FALSE)
+    cat("  ✓ Disease:", nrow(as.data.frame(edo_all)), "diseases\n")
+  }
+  
+  # Create visualizations
+  cat("  Creating visualizations...\n")
+  
+  # Dotplot for GO BP
+  if (!is.null(ego_bp_all) && nrow(as.data.frame(ego_bp_all)) > 0) {
+    p1 <- dotplot(ego_bp_all, showCategory = 20, font.size = 10) +
+      ggtitle("GO Biological Process - All Significant Proteins") +
+      theme(plot.title = element_text(size = 12, face = "bold"))
+    
+    ggsave(file.path(OUTPUT_DIR, "pathway_ALL_GO_BP_dotplot.png"),
+           p1, width = 12, height = 10, dpi = 300)
+  }
+  
+  # Enrichment map
+  if (!is.null(ego_bp_all) && nrow(as.data.frame(ego_bp_all)) > 5) {
+    ego_bp_all <- pairwise_termsim(ego_bp_all)
+    p2 <- emapplot(ego_bp_all, showCategory = 30, cex_label_category = 0.6) +
+      ggtitle("GO BP Enrichment Map - All Proteins")
+    
+    ggsave(file.path(OUTPUT_DIR, "pathway_ALL_GO_BP_emap.png"),
+           p2, width = 14, height = 12, dpi = 300)
+  }
+  
+  # KEGG dotplot
+  if (!is.null(kegg_all) && nrow(as.data.frame(kegg_all)) > 0) {
+    p3 <- dotplot(kegg_all, showCategory = 20, font.size = 10) +
+      ggtitle("KEGG Pathways - All Significant Proteins") +
+      theme(plot.title = element_text(size = 12, face = "bold"))
+    
+    ggsave(file.path(OUTPUT_DIR, "pathway_ALL_KEGG_dotplot.png"),
+           p3, width = 12, height = 10, dpi = 300)
+  }
+  
+} else {
+  cat("  ⚠️ Too few proteins for pathway analysis\n")
+}
+
+# ============================================================================
+# B. PATHWAY ANALYSIS - IMMUNE PROTEINS ONLY
+# ============================================================================
+
+cat("\nB. Analyzing immune-related proteins (p < 0.05)...\n")
+
+sig_immune_pathway <- immune_results %>%
+  filter(p_value < 0.05, !is.na(EntrezGeneSymbol), EntrezGeneSymbol != "")
+
+cat("  Significant immune proteins:", nrow(sig_immune_pathway), "\n")
+
+if (nrow(sig_immune_pathway) >= 5) {
+  
+  # Gene list with fold changes
+  gene_list_immune <- sig_immune_pathway$log2_fc
+  names(gene_list_immune) <- sig_immune_pathway$EntrezGeneSymbol
+  gene_list_immune <- sort(gene_list_immune, decreasing = TRUE)
+  
+  genes_immune <- names(gene_list_immune)
+  
+  # GO Biological Process
+  cat("  Running GO Biological Process...\n")
+  ego_bp_immune <- enrichGO(gene = genes_immune,
+                            OrgDb = org.Hs.eg.db,
+                            keyType = "SYMBOL",
+                            ont = "BP",
+                            pAdjustMethod = "BH",
+                            pvalueCutoff = 0.05,
+                            qvalueCutoff = 0.20,
+                            readable = TRUE)
+  
+  # GO Molecular Function
+  cat("  Running GO Molecular Function...\n")
+  ego_mf_immune <- enrichGO(gene = genes_immune,
+                            OrgDb = org.Hs.eg.db,
+                            keyType = "SYMBOL",
+                            ont = "MF",
+                            pAdjustMethod = "BH",
+                            pvalueCutoff = 0.05,
+                            qvalueCutoff = 0.20,
+                            readable = TRUE)
+  
+  # KEGG
+  cat("  Running KEGG pathway...\n")
+  gene_entrez_immune <- bitr(genes_immune, 
+                             fromType = "SYMBOL",
+                             toType = "ENTREZID",
+                             OrgDb = org.Hs.eg.db)
+  
+  kegg_immune <- enrichKEGG(gene = gene_entrez_immune$ENTREZID,
+                            organism = 'hsa',
+                            pvalueCutoff = 0.05,
+                            qvalueCutoff = 0.20)
+  
+  # Disease Ontology
+  cat("  Running Disease Ontology...\n")
+  edo_immune <- enrichDO(gene = gene_entrez_immune$ENTREZID,
+                         pvalueCutoff = 0.05,
+                         qvalueCutoff = 0.20,
+                         readable = TRUE)
+  
+  # Reactome Pathway
+  cat("  Running Reactome pathway...\n")
+  if (!require("ReactomePA")) {
+    BiocManager::install("ReactomePA")
+    library(ReactomePA)
+  }
+  reactome_immune <- enrichPathway(gene = gene_entrez_immune$ENTREZID,
+                                   pvalueCutoff = 0.05,
+                                   qvalueCutoff = 0.20,
+                                   readable = TRUE)
+  
+  # Save results
+  if (!is.null(ego_bp_immune) && nrow(as.data.frame(ego_bp_immune)) > 0) {
+    write.csv(as.data.frame(ego_bp_immune), 
+              file.path(OUTPUT_DIR, "pathway_IMMUNE_GO_BP.csv"),
+              row.names = FALSE)
+    cat("  ✓ GO BP:", nrow(as.data.frame(ego_bp_immune)), "pathways\n")
+  }
+  
+  if (!is.null(ego_mf_immune) && nrow(as.data.frame(ego_mf_immune)) > 0) {
+    write.csv(as.data.frame(ego_mf_immune), 
+              file.path(OUTPUT_DIR, "pathway_IMMUNE_GO_MF.csv"),
+              row.names = FALSE)
+    cat("  ✓ GO MF:", nrow(as.data.frame(ego_mf_immune)), "pathways\n")
+  }
+  
+  if (!is.null(kegg_immune) && nrow(as.data.frame(kegg_immune)) > 0) {
+    write.csv(as.data.frame(kegg_immune), 
+              file.path(OUTPUT_DIR, "pathway_IMMUNE_KEGG.csv"),
+              row.names = FALSE)
+    cat("  ✓ KEGG:", nrow(as.data.frame(kegg_immune)), "pathways\n")
+  }
+  
+  if (!is.null(edo_immune) && nrow(as.data.frame(edo_immune)) > 0) {
+    write.csv(as.data.frame(edo_immune), 
+              file.path(OUTPUT_DIR, "pathway_IMMUNE_Disease.csv"),
+              row.names = FALSE)
+    cat("  ✓ Disease:", nrow(as.data.frame(edo_immune)), "diseases\n")
+  }
+  
+  if (!is.null(reactome_immune) && nrow(as.data.frame(reactome_immune)) > 0) {
+    write.csv(as.data.frame(reactome_immune), 
+              file.path(OUTPUT_DIR, "pathway_IMMUNE_Reactome.csv"),
+              row.names = FALSE)
+    cat("  ✓ Reactome:", nrow(as.data.frame(reactome_immune)), "pathways\n")
+  }
+  
+  # Create visualizations
+  cat("  Creating visualizations...\n")
+  
+  # GO BP dotplot
+  if (!is.null(ego_bp_immune) && nrow(as.data.frame(ego_bp_immune)) > 0) {
+    p4 <- dotplot(ego_bp_immune, showCategory = 20, font.size = 10) +
+      ggtitle("GO Biological Process - Immune Proteins") +
+      theme(plot.title = element_text(size = 12, face = "bold"))
+    
+    ggsave(file.path(OUTPUT_DIR, "pathway_IMMUNE_GO_BP_dotplot.png"),
+           p4, width = 12, height = 10, dpi = 300)
+  }
+  
+  # Enrichment map
+  if (!is.null(ego_bp_immune) && nrow(as.data.frame(ego_bp_immune)) > 3) {
+    ego_bp_immune <- pairwise_termsim(ego_bp_immune)
+    p5 <- emapplot(ego_bp_immune, showCategory = 20, cex_label_category = 0.7) +
+      ggtitle("GO BP Enrichment Map - Immune Proteins")
+    
+    ggsave(file.path(OUTPUT_DIR, "pathway_IMMUNE_GO_BP_emap.png"),
+           p5, width = 12, height = 10, dpi = 300)
+  }
+  
+  # KEGG dotplot
+  if (!is.null(kegg_immune) && nrow(as.data.frame(kegg_immune)) > 0) {
+    p6 <- dotplot(kegg_immune, showCategory = 15, font.size = 10) +
+      ggtitle("KEGG Pathways - Immune Proteins") +
+      theme(plot.title = element_text(size = 12, face = "bold"))
+    
+    ggsave(file.path(OUTPUT_DIR, "pathway_IMMUNE_KEGG_dotplot.png"),
+           p6, width = 12, height = 10, dpi = 300)
+  }
+  
+  # Reactome dotplot
+  if (!is.null(reactome_immune) && nrow(as.data.frame(reactome_immune)) > 0) {
+    p7 <- dotplot(reactome_immune, showCategory = 15, font.size = 10) +
+      ggtitle("Reactome Pathways - Immune Proteins") +
+      theme(plot.title = element_text(size = 12, face = "bold"))
+    
+    ggsave(file.path(OUTPUT_DIR, "pathway_IMMUNE_Reactome_dotplot.png"),
+           p7, width = 12, height = 10, dpi = 300)
+  }
+  
+  # Cnetplot (gene-concept network)
+  if (!is.null(ego_bp_immune) && nrow(as.data.frame(ego_bp_immune)) > 0) {
+    p8 <- cnetplot(ego_bp_immune, 
+                   categorySize = "pvalue",
+                   showCategory = 5,
+                   foldChange = gene_list_immune,
+                   colorEdge = TRUE) +
+      ggtitle("Gene-Concept Network - Top 5 GO Terms")
+    
+    ggsave(file.path(OUTPUT_DIR, "pathway_IMMUNE_GO_cnetplot.png"),
+           p8, width = 14, height = 12, dpi = 300)
+  }
+  
+  # Heatplot
+  if (!is.null(ego_bp_immune) && nrow(as.data.frame(ego_bp_immune)) > 5) {
+    p9 <- heatplot(ego_bp_immune, 
+                   showCategory = 10,
+                   foldChange = gene_list_immune) +
+      ggtitle("Pathway Heatmap - Immune Proteins")
+    
+    ggsave(file.path(OUTPUT_DIR, "pathway_IMMUNE_GO_heatplot.png"),
+           p9, width = 12, height = 10, dpi = 300)
+  }
+  
+} else {
+  cat("  ⚠️ Too few immune proteins for pathway analysis\n")
+}
+
+cat("\n========================================\n")
+cat("PATHWAY ANALYSIS COMPLETE!\n")
+cat("========================================\n\n")
 
