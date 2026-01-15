@@ -613,10 +613,10 @@ if (nrow(sig_all) >= 10) {
            p1, width = 12, height = 10, dpi = 300)
   }
   
-  # Enrichment map
+  # Enrichment map (FIXED)
   if (!is.null(ego_bp_all) && nrow(as.data.frame(ego_bp_all)) > 5) {
     ego_bp_all <- pairwise_termsim(ego_bp_all)
-    p2 <- emapplot(ego_bp_all, showCategory = 30, cex_label_category = 0.6) +
+    p2 <- emapplot(ego_bp_all, showCategory = 30, cex.params = list(category_label = 0.6)) +
       ggtitle("GO BP Enrichment Map - All Proteins")
     
     ggsave(file.path(OUTPUT_DIR, "pathway_ALL_GO_BP_emap.png"),
@@ -758,10 +758,10 @@ if (nrow(sig_immune_pathway) >= 5) {
            p4, width = 12, height = 10, dpi = 300)
   }
   
-  # Enrichment map
+  # Enrichment map (FIXED)
   if (!is.null(ego_bp_immune) && nrow(as.data.frame(ego_bp_immune)) > 3) {
     ego_bp_immune <- pairwise_termsim(ego_bp_immune)
-    p5 <- emapplot(ego_bp_immune, showCategory = 20, cex_label_category = 0.7) +
+    p5 <- emapplot(ego_bp_immune, showCategory = 20, cex.params = list(category_label = 0.7)) +
       ggtitle("GO BP Enrichment Map - Immune Proteins")
     
     ggsave(file.path(OUTPUT_DIR, "pathway_IMMUNE_GO_BP_emap.png"),
@@ -792,6 +792,7 @@ if (nrow(sig_immune_pathway) >= 5) {
   if (!is.null(ego_bp_immune) && nrow(as.data.frame(ego_bp_immune)) > 0) {
     p8 <- cnetplot(ego_bp_immune, 
                    categorySize = "pvalue",
+                   node_label = "category",
                    showCategory = 5,
                    foldChange = gene_list_immune,
                    colorEdge = TRUE) +
