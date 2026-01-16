@@ -787,7 +787,242 @@ demographics %>%
 
 
 
+# ============================================================================
+# TABLE OF REGRESSION COEFFICIENTS FOR SIGNIFICANT PET-CLINICAL ASSOCIATIONS
+# ============================================================================
 
+create_regression_table <- function(dat) {
+  
+  # Use dat_results which has the PET averages already calculated
+  dat_clean <- dat %>%
+    filter(!is.na(group))
+  
+  # Define the 5 significant associations (from heatmap with asterisks)
+  # Format: list(pet_var, clinical_var, pet_label, clinical_label)
+  significant_pairs <- list(
+    list("avg_c_k2", "erpf_bsa_plasma", "Cortical K2", "ERPF (BSA)"),
+    list("avg_c_f", "eGFR_CKD_epi", "Cortical F (Perfusion)", "eGFR (CKD-EPI)"),
+    list("avg_m_f", "dbp", "Medullary F (Perfusion)", "DBP"),
+    list("avg_c_k2_f", "eGFR_CKD_epi", "Cortical K2/F Ratio", "eGFR (CKD-EPI)"),
+    list("avg_c_k2_f", "gfr_bsa_plasma", "Cortical K2/F Ratio", "mGFR (BSA)")
+  )
+  
+  # Function to run regression and extract results
+  run_regression <- function(pet_var, clinical_var, pet_label, clinical_label) {
+    
+    # Build formula: PET ~ clinical + age + sex + group (matching original heatmap)
+    formula_str <- paste(pet_var, "~", clinical_var, "+ age + sex + group")
+    
+    # Filter to complete cases for this model
+    model_data <- dat_clean %>%
+      filter(!is.na(.data[[pet_var]]), 
+             !is.na(.data[[clinical_var]]),
+             !is.na(age),
+             !is.na(sex),
+             !is.na(group))
+    
+    # Fit model
+    model <- lm(as.formula(formula_str), data = model_data)
+    
+    # Extract coefficient for clinical variable
+    coef_summary <- summary(model)$coefficients
+    
+    # Get the row for the clinical variable
+    clinical_row <- which(rownames(coef_summary) == clinical_var)
+    
+    if (length(clinical_row) > 0) {
+      beta <- coef_summary[clinical_row, "Estimate"]
+      se <- coef_summary[clinical_row, "Std. Error"]
+      t_val <- coef_summary[clinical_row, "t value"]
+      p_val <- coef_summary[clinical_row, "Pr(>|t|)"]
+    } else {
+      beta <- se <- t_val <- p_val <- NA
+    }
+    
+    # Also get model R-squared
+    r_squared <- summary(model)$r.squared
+    adj_r_squared <- summary(model)$adj.r.squared
+    n <- nrow(model_data)
+    
+    data.frame(
+      PET_Variable = pet_label,
+      Clinical_Variable = clinical_label,
+      N = n,
+      Beta = beta,
+      SE = se,
+      t_value = t_val,
+      p_value = p_val,
+      R_squared = r_squared,
+      Adj_R_squared = adj_r_squared
+    )
+  }
+  
+  # Run all regressions
+  results_list <- lapply(significant_pairs, function(pair) {
+    run_regression(pair[[1]], pair[[2]], pair[[3]], pair[[4]])
+  })
+  
+  # Combine into single table
+  results_table <- bind_rows(results_list)
+  
+  # Format for display
+  results_formatted <- results_table %>%
+    mutate(
+      Beta = round(Beta, 5),
+      SE = round(SE, 5),
+      t_value = round(t_value, 2),
+      p_value_raw = p_value,
+      p_value_formatted = case_when(
+        p_value < 0.001 ~ "<0.001",
+        p_value < 0.01 ~ sprintf("%.4f", p_value),
+        TRUE ~ sprintf("%.3f", p_value)
+      ),
+      R_squared = round(R_squared, 3),
+      Adj_R_squared = round(Adj_R_squared, 3)
+    )
+  
+  return(list(
+    raw = results_table,
+    formatted = results_formatted
+  ))
+}
+
+# Run and display
+regression_results <- create_regression_table(dat_results)
+
+cat("\n========================================\n")
+cat("REGRESSION COEFFICIENTS FOR SIGNIFICANT ASSOCIATIONS\n")
+cat("Model: PET ~ Clinical + age + sex + group\n")
+cat("========================================\n\n")
+
+# Print nice table
+print(regression_results$formatted %>% 
+        dplyr::select(PET_Variable, Clinical_Variable, N, Beta, SE, t_value, p_value_formatted, Adj_R_squared) %>%
+        rename(`P-value` = p_value_formatted, `Adj R²` = Adj_R_squared, `t` = t_value))
+
+# Save to CSV
+write.csv(regression_results$formatted, 
+          file.path(OUTPUT_DIR, "significant_associations_regression_table.csv"),
+          row.names = FALSE)
+
+cat("\n\nTable saved to:", file.path(OUTPUT_DIR, "significant_associations_regression_table.csv"), "\n")
+
+
+
+
+# ============================================================================
+# SCATTERPLOT PANEL FOR SIGNIFICANT PET-CLINICAL ASSOCIATIONS (CORRECTED)
+# ============================================================================
+
+create_significant_associations_panel <- function(dat) {
+  
+  # Filter to subjects with group and valid data
+  dat_clean <- dat %>%
+    filter(!is.na(group))
+  
+  # Define the 5 significant associations - using correct variable names from your script
+  significant_pairs <- list(
+    list("avg_c_k2", "erpf_bsa_plasma", "Cortical K2", "ERPF (BSA)"),
+    list("avg_c_f", "eGFR_CKD_epi", "Cortical F (Perfusion)", "eGFR (CKD-EPI)"),
+    list("avg_m_f", "dbp", "Medullary F (Perfusion)", "DBP (mmHg)"),
+    list("avg_c_k2_f", "eGFR_CKD_epi", "Cortical K2/F Ratio", "eGFR (CKD-EPI)"),
+    list("avg_c_k2_f", "gfr_bsa_plasma", "Cortical K2/F Ratio", "mGFR (BSA)")
+  )
+  
+  # Color palette for groups - matching your original script
+  group_colors <- c("Lean Control" = "#3182BD",
+                    "Obese Control" = "#9ECAE1",
+                    "Type 1 Diabetes" = "#FDAE6B",
+                    "Type 2 Diabetes" = "#E6550D",
+                    "PKD" = "#9E9AC8")
+  
+  # Function to create individual scatterplot
+  create_scatter <- function(pet_var, clinical_var, pet_label, clinical_label) {
+    
+    plot_data <- dat_clean %>%
+      filter(!is.na(.data[[pet_var]]), !is.na(.data[[clinical_var]])) %>%
+      filter(is.finite(.data[[pet_var]]))
+    
+    # Calculate Spearman correlation for display
+    cor_test <- cor.test(plot_data[[pet_var]], plot_data[[clinical_var]], method = "spearman")
+    r_val <- round(cor_test$estimate, 2)
+    p_cor <- cor_test$p.value
+    
+    # Also get the regression beta and p-value (adjusted model)
+    model <- lm(as.formula(paste(pet_var, "~", clinical_var, "+ age + sex + group")), data = plot_data)
+    coef_summary <- summary(model)$coefficients
+    clinical_row <- which(rownames(coef_summary) == clinical_var)
+    beta <- round(coef_summary[clinical_row, "Estimate"], 4)
+    p_reg <- coef_summary[clinical_row, "Pr(>|t|)"]
+    
+    p_text <- ifelse(p_reg < 0.001, "p < 0.001", paste0("p = ", round(p_reg, 3)))
+    
+    ggplot(plot_data, aes(x = .data[[clinical_var]], y = .data[[pet_var]], color = group)) +
+      geom_point(alpha = 0.6, size = 2.5) +
+      geom_smooth(method = "lm", se = TRUE, color = "black", linetype = "dashed", linewidth = 0.8) +
+      scale_color_manual(values = group_colors) +
+      theme_bw(base_size = 11) +
+      theme(
+        legend.position = "none",
+        plot.title = element_text(size = 10, face = "bold"),
+        plot.subtitle = element_text(size = 8, face = "italic"),
+        axis.title = element_text(size = 10)
+      ) +
+      labs(
+        x = clinical_label,
+        y = pet_label,
+        title = paste0(pet_label, " vs ", clinical_label),
+        subtitle = paste0("β = ", beta, ", ", p_text, " (adjusted)")
+      )
+  }
+  
+  # Create all 5 plots
+  plot_list <- lapply(significant_pairs, function(pair) {
+    create_scatter(pair[[1]], pair[[2]], pair[[3]], pair[[4]])
+  })
+  
+  # Create a legend plot
+  legend_plot <- ggplot(dat_clean %>% filter(!is.na(avg_c_k2)), 
+                        aes(x = 1, y = 1, color = group)) +
+    geom_point(size = 4) +
+    scale_color_manual(values = group_colors, name = "Disease Group") +
+    theme_void() +
+    theme(legend.position = "bottom",
+          legend.title = element_text(face = "bold", size = 11),
+          legend.text = element_text(size = 10)) +
+    guides(color = guide_legend(nrow = 1))
+  
+  # Extract legend
+  legend <- cowplot::get_legend(legend_plot)
+  
+  # Combine plots: 3 on top row, 2 on bottom row + legend
+  combined <- (plot_list[[1]] | plot_list[[2]] | plot_list[[3]]) /
+    (plot_list[[4]] | plot_list[[5]] | plot_spacer()) /
+    wrap_elements(legend) +
+    plot_layout(heights = c(1, 1, 0.12)) +
+    plot_annotation(
+      title = "Significant PET-Clinical Associations",
+      subtitle = "Regression line shown; β and p-value from model adjusted for age, sex, disease group",
+      theme = theme(
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(size = 10, face = "italic", hjust = 0.5)
+      )
+    )
+  
+  return(combined)
+}
+
+# Run and display
+p_associations <- create_significant_associations_panel(dat_results)
+print(p_associations)
+
+# Save
+ggsave(file.path(OUTPUT_DIR, "significant_pet_clinical_associations.pdf"), 
+       p_associations, width = 12, height = 9)
+ggsave(file.path(OUTPUT_DIR, "significant_pet_clinical_associations.tiff"), 
+       p_associations, width = 12, height = 9, dpi = 300)
+
+cat("\nPlot saved to:", OUTPUT_DIR, "\n")
 
 
 
