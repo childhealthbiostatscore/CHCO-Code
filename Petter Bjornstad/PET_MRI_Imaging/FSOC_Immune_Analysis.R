@@ -31,6 +31,7 @@ ANNOTATION_FILE <- "C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatist
 load(ANNOTATION_FILE)
   
 somascan_annotation <- analytes_attempt
+ANNOTATION_FILE <- analytes_attempt
 
 # ============================================================================
 # STEP 2: LOAD HARMONIZED DATA
@@ -616,7 +617,7 @@ if (nrow(sig_all) >= 10) {
   # Enrichment map (FIXED)
   if (!is.null(ego_bp_all) && nrow(as.data.frame(ego_bp_all)) > 5) {
     ego_bp_all <- pairwise_termsim(ego_bp_all)
-    p2 <- emapplot(ego_bp_all, showCategory = 30, cex.params = list(category_label = 0.6)) +
+    p2 <- emapplot(ego_bp_all, showCategory = 30) +
       ggtitle("GO BP Enrichment Map - All Proteins")
     
     ggsave(file.path(OUTPUT_DIR, "pathway_ALL_GO_BP_emap.png"),
@@ -761,7 +762,7 @@ if (nrow(sig_immune_pathway) >= 5) {
   # Enrichment map (FIXED)
   if (!is.null(ego_bp_immune) && nrow(as.data.frame(ego_bp_immune)) > 3) {
     ego_bp_immune <- pairwise_termsim(ego_bp_immune)
-    p5 <- emapplot(ego_bp_immune, showCategory = 20, cex.params = list(category_label = 0.7)) +
+    p5 <- emapplot(ego_bp_immune, showCategory = 20) +
       ggtitle("GO BP Enrichment Map - Immune Proteins")
     
     ggsave(file.path(OUTPUT_DIR, "pathway_IMMUNE_GO_BP_emap.png"),
@@ -1521,6 +1522,376 @@ if (nrow(top_proteins) > 0) {
   cat("  4. top_immune_proteins_boxplots.png\n")
 }
 cat("  5. immune_proteins_summary_table.csv\n")
+
+cat("\n========================================\n")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ============================================================================
+# PATHWAY DIRECTIONALITY ANALYSIS - PROTEOMICS
+# ============================================================================
+
+library(tidyverse)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(ggplot2)
+
+OUTPUT_DIR <- "C:/Users/netio/Documents/UofW/Projects/Imaging_Shivani/FSOC_Proteomics"
+
+# Load your immune protein results
+immune_results <- read.csv(file.path(OUTPUT_DIR, "immune_proteins_results.csv"))
+
+cat("Loaded", nrow(immune_results), "immune proteins\n")
+
+# ============================================================================
+# STEP 1: CREATE RANKED PROTEIN LIST
+# ============================================================================
+
+cat("\n========================================\n")
+cat("STEP 1: RANKING PROTEINS BY DIRECTION & SIGNIFICANCE\n")
+cat("========================================\n\n")
+
+# Prepare ranked list
+# Positive values = HIGHER protein levels in Impaired FSOC
+# Negative values = LOWER protein levels in Impaired FSOC
+
+ranked_proteins <- immune_results %>%
+  filter(!is.na(EntrezGeneSymbol), 
+         EntrezGeneSymbol != "", 
+         EntrezGeneSymbol != "NA",
+         !is.na(log2_fc),
+         !is.na(p_value)) %>%
+  # Ranking metric: combines direction (sign) with significance
+  mutate(rank_metric = sign(log2_fc) * -log10(p_value)) %>%
+  # Keep one entry per gene (most significant)
+  group_by(EntrezGeneSymbol) %>%
+  slice_max(abs(rank_metric), n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  arrange(desc(rank_metric))
+
+cat("Proteins in ranked list:", nrow(ranked_proteins), "\n")
+
+# Show the ranking
+cat("\n--- TOP 10: HIGHEST in Impaired FSOC ---\n")
+print(ranked_proteins %>% 
+        dplyr::select(EntrezGeneSymbol, TargetFullName, log2_fc, p_value, rank_metric) %>%
+        head(10))
+
+cat("\n--- BOTTOM 10: LOWEST in Impaired FSOC ---\n")
+print(ranked_proteins %>% 
+        dplyr::select(EntrezGeneSymbol, TargetFullName, log2_fc, p_value, rank_metric) %>%
+        tail(10))
+
+# Create named vector for GSEA
+gene_list <- ranked_proteins$rank_metric
+names(gene_list) <- ranked_proteins$EntrezGeneSymbol
+gene_list <- sort(gene_list, decreasing = TRUE)
+
+# ============================================================================
+# STEP 2: RUN GSEA
+# ============================================================================
+
+cat("\n========================================\n")
+cat("STEP 2: RUNNING GSEA\n")
+cat("========================================\n\n")
+
+set.seed(42)
+
+# GO Biological Process
+gsea_go <- gseGO(geneList = gene_list,
+                 OrgDb = org.Hs.eg.db,
+                 keyType = "SYMBOL",
+                 ont = "BP",
+                 minGSSize = 10,
+                 maxGSSize = 500,
+                 pvalueCutoff = 0.10,
+                 pAdjustMethod = "BH",
+                 verbose = TRUE)
+
+cat("\nGO BP pathways found:", nrow(as.data.frame(gsea_go)), "\n")
+
+# ============================================================================
+# STEP 3: SEPARATE BY DIRECTIONALITY
+# ============================================================================
+
+cat("\n========================================\n")
+cat("STEP 3: PATHWAY DIRECTIONALITY\n")
+cat("========================================\n\n")
+
+gsea_results <- as.data.frame(gsea_go) %>%
+  mutate(
+    Direction = case_when(
+      NES > 0 ~ "ELEVATED in Impaired FSOC",
+      NES < 0 ~ "REDUCED in Impaired FSOC"
+    ),
+    Direction_Simple = ifelse(NES > 0, "Elevated", "Reduced")
+  )
+
+# ----- PATHWAYS WITH ELEVATED PROTEINS IN IMPAIRED FSOC -----
+cat("=============================================\n")
+cat("PATHWAYS ELEVATED IN IMPAIRED FSOC\n")
+cat("(Proteins in these pathways are HIGHER in Impaired)\n")
+cat("=============================================\n\n")
+
+elevated_pathways <- gsea_results %>%
+  filter(NES > 0, p.adjust < 0.05) %>%
+  arrange(desc(NES)) %>%
+  dplyr::select(Description, NES, pvalue, p.adjust, setSize, core_enrichment)
+
+cat("Number of elevated pathways:", nrow(elevated_pathways), "\n\n")
+
+if (nrow(elevated_pathways) > 0) {
+  print(elevated_pathways %>% dplyr::select(-core_enrichment) %>% head(20))
+  
+  # Show which proteins drive top elevated pathway
+  cat("\n--- Proteins driving top elevated pathway ---\n")
+  cat("Pathway:", elevated_pathways$Description[1], "\n")
+  cat("Core proteins:", elevated_pathways$core_enrichment[1], "\n")
+}
+
+# ----- PATHWAYS WITH REDUCED PROTEINS IN IMPAIRED FSOC -----
+cat("\n=============================================\n")
+cat("PATHWAYS REDUCED IN IMPAIRED FSOC\n")
+cat("(Proteins in these pathways are LOWER in Impaired)\n")
+cat("=============================================\n\n")
+
+reduced_pathways <- gsea_results %>%
+  filter(NES < 0, p.adjust < 0.05) %>%
+  arrange(NES) %>%
+  dplyr::select(Description, NES, pvalue, p.adjust, setSize, core_enrichment)
+
+cat("Number of reduced pathways:", nrow(reduced_pathways), "\n\n")
+
+if (nrow(reduced_pathways) > 0) {
+  print(reduced_pathways %>% dplyr::select(-core_enrichment) %>% head(20))
+  
+  cat("\n--- Proteins driving top reduced pathway ---\n")
+  cat("Pathway:", reduced_pathways$Description[1], "\n")
+  cat("Core proteins:", reduced_pathways$core_enrichment[1], "\n")
+}
+
+# ----- SUMMARY -----
+cat("\n=============================================\n")
+cat("SUMMARY\n")
+cat("=============================================\n\n")
+
+direction_count <- gsea_results %>%
+  filter(p.adjust < 0.05) %>%
+  count(Direction_Simple) %>%
+  rename(Pathways = n)
+
+print(direction_count)
+
+# ============================================================================
+# STEP 4: SAVE RESULTS
+# ============================================================================
+
+write.csv(elevated_pathways, 
+          file.path(OUTPUT_DIR, "GSEA_pathways_ELEVATED_in_Impaired.csv"),
+          row.names = FALSE)
+
+write.csv(reduced_pathways, 
+          file.path(OUTPUT_DIR, "GSEA_pathways_REDUCED_in_Impaired.csv"),
+          row.names = FALSE)
+
+write.csv(gsea_results,
+          file.path(OUTPUT_DIR, "GSEA_all_pathways_with_direction.csv"),
+          row.names = FALSE)
+
+cat("\n✓ Results saved\n")
+
+# ============================================================================
+# STEP 5: VISUALIZATION - BIDIRECTIONAL NES PLOT
+# ============================================================================
+
+cat("\n========================================\n")
+cat("STEP 5: CREATING VISUALIZATIONS\n")
+cat("========================================\n\n")
+
+# Get top pathways from each direction
+top_elevated <- gsea_results %>%
+  filter(NES > 0, p.adjust < 0.05) %>%
+  arrange(desc(NES)) %>%
+  head(15)
+
+top_reduced <- gsea_results %>%
+  filter(NES < 0, p.adjust < 0.05) %>%
+  arrange(NES) %>%
+  head(15)
+
+plot_data <- bind_rows(top_elevated, top_reduced) %>%
+  mutate(
+    Description = str_trunc(Description, 45),
+    Direction = factor(Direction, 
+                       levels = c("ELEVATED in Impaired FSOC", 
+                                  "REDUCED in Impaired FSOC"))
+  )
+
+# Create bidirectional barplot
+p_nes <- ggplot(plot_data, 
+                aes(x = reorder(Description, NES), y = NES, fill = Direction)) +
+  geom_col(alpha = 0.85, width = 0.75) +
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.8) +
+  coord_flip() +
+  scale_fill_manual(
+    values = c("ELEVATED in Impaired FSOC" = "#D73027",
+               "REDUCED in Impaired FSOC" = "#4575B4"),
+    name = "Protein Levels"
+  ) +
+  theme_bw(base_size = 11) +
+  labs(
+    x = "",
+    y = "Normalized Enrichment Score (NES)",
+    title = "Pathway Changes in Impaired vs Normal FSOC",
+    subtitle = "Based on circulating protein levels | Red = Higher in Impaired | Blue = Lower in Impaired"
+  ) +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(size = 10, color = "gray40"),
+    axis.text.y = element_text(size = 9),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+ggsave(file.path(OUTPUT_DIR, "GSEA_pathway_direction_NES.pdf"),
+       p_nes, width = 12, height = 10)
+ggsave(file.path(OUTPUT_DIR, "GSEA_pathway_direction_NES.png"),
+       p_nes, width = 12, height = 10, dpi = 300)
+
+cat("✓ NES barplot saved\n")
+
+# ============================================================================
+# STEP 6: DETAILED PROTEIN-PATHWAY TABLE
+# ============================================================================
+
+cat("\n========================================\n")
+cat("STEP 6: WHICH PROTEINS DRIVE EACH PATHWAY?\n")
+cat("========================================\n\n")
+
+# Function to get protein details for a pathway
+get_pathway_proteins <- function(pathway_name, gsea_df, protein_df) {
+  
+  # Get core enrichment genes
+  core_genes <- gsea_df %>%
+    filter(Description == pathway_name) %>%
+    pull(core_enrichment) %>%
+    str_split("/") %>%
+    unlist()
+  
+  # Get protein details
+  protein_details <- protein_df %>%
+    filter(EntrezGeneSymbol %in% core_genes) %>%
+    dplyr::select(EntrezGeneSymbol, TargetFullName, log2_fc, fold_change, p_value) %>%
+    mutate(
+      Direction = ifelse(log2_fc > 0, "↑ Higher in Impaired", "↓ Lower in Impaired"),
+      fold_change = round(fold_change, 2),
+      log2_fc = round(log2_fc, 3)
+    ) %>%
+    arrange(desc(abs(log2_fc)))
+  
+  return(protein_details)
+}
+
+# Show proteins for top elevated pathway
+if (nrow(elevated_pathways) > 0) {
+  cat("--- Proteins in top ELEVATED pathway ---\n")
+  cat("Pathway:", elevated_pathways$Description[1], "\n\n")
+  
+  top_elevated_proteins <- get_pathway_proteins(
+    elevated_pathways$Description[1], 
+    gsea_results, 
+    ranked_proteins
+  )
+  print(top_elevated_proteins)
+  
+  write.csv(top_elevated_proteins,
+            file.path(OUTPUT_DIR, "proteins_in_top_elevated_pathway.csv"),
+            row.names = FALSE)
+}
+
+# Show proteins for top reduced pathway
+if (nrow(reduced_pathways) > 0) {
+  cat("\n--- Proteins in top REDUCED pathway ---\n")
+  cat("Pathway:", reduced_pathways$Description[1], "\n\n")
+  
+  top_reduced_proteins <- get_pathway_proteins(
+    reduced_pathways$Description[1], 
+    gsea_results, 
+    ranked_proteins
+  )
+  print(top_reduced_proteins)
+  
+  write.csv(top_reduced_proteins,
+            file.path(OUTPUT_DIR, "proteins_in_top_reduced_pathway.csv"),
+            row.names = FALSE)
+}
+
+# ============================================================================
+# STEP 7: SUMMARY TABLE FOR PUBLICATION
+# ============================================================================
+
+cat("\n========================================\n")
+cat("STEP 7: PUBLICATION-READY SUMMARY\n")
+cat("========================================\n\n")
+
+publication_table <- gsea_results %>%
+  filter(p.adjust < 0.05) %>%
+  arrange(desc(abs(NES))) %>%
+  mutate(
+    `Pathway` = Description,
+    `NES` = round(NES, 2),
+    `P-value` = formatC(pvalue, format = "e", digits = 2),
+    `FDR` = formatC(p.adjust, format = "e", digits = 2),
+    `# Proteins` = setSize,
+    `Direction in Impaired FSOC` = ifelse(NES > 0, "↑ Elevated", "↓ Reduced")
+  ) %>%
+  dplyr::select(`Pathway`, `Direction in Impaired FSOC`, `NES`, `P-value`, `FDR`, `# Proteins`) %>%
+  head(30)
+
+print(publication_table)
+
+write.csv(publication_table,
+          file.path(OUTPUT_DIR, "GSEA_publication_table.csv"),
+          row.names = FALSE)
+
+cat("\n✓ Publication table saved\n")
+
+# ============================================================================
+# FINAL SUMMARY
+# ============================================================================
+
+cat("\n========================================\n")
+cat("ANALYSIS COMPLETE!\n")
+cat("========================================\n\n")
+
+cat("INTERPRETATION KEY:\n")
+cat("  • ELEVATED pathways (positive NES, red):\n")
+cat("    Proteins in these pathways have HIGHER circulating levels\n")
+cat("    in patients with Impaired FSOC\n\n")
+cat("  • REDUCED pathways (negative NES, blue):\n")
+cat("    Proteins in these pathways have LOWER circulating levels\n")
+cat("    in patients with Impaired FSOC\n\n")
+
+cat("FILES CREATED:\n")
+cat("  1. GSEA_pathways_ELEVATED_in_Impaired.csv\n")
+cat("  2. GSEA_pathways_REDUCED_in_Impaired.csv\n")
+cat("  3. GSEA_all_pathways_with_direction.csv\n")
+cat("  4. GSEA_pathway_direction_NES.pdf/.png\n")
+cat("  5. proteins_in_top_elevated_pathway.csv\n")
+cat("  6. proteins_in_top_reduced_pathway.csv\n")
+cat("  7. GSEA_publication_table.csv\n")
 
 cat("\n========================================\n")
 
