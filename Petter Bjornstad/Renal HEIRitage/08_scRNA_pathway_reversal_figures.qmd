@@ -682,8 +682,10 @@ t2d_glp_dir_summary <- t2d_glp_rev_combined %>%
   dplyr::summarise(n = n()) %>%
   mutate(total_n = sum(n)) %>%
   arrange(desc(total_n)) %>% ungroup() %>%
-  mutate(celltype = factor(celltype, levels = unique(celltype)))
+  mutate(celltype = factor(celltype, levels = unique(celltype)),
+         percentage = n/total_n)
 
+# Reversed vs. not-reversed
 t2d_glp_dir_summary %>%
   ggplot(aes(x = celltype, y = n, fill = direction)) +
   geom_col(width = 0.7) +
@@ -704,6 +706,28 @@ t2d_glp_dir_summary %>%
   )
 
 ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/Pathway comparisons/T2D/N_transcripts_direction_barplot.png"),
+       width = 7, height = 5)
+# reversed in percentage
+t2d_glp_dir_summary %>%
+  ggplot(aes(x = celltype, y = percentage, fill = direction)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(
+    values = c("Reversed" = "#8fb996")
+  ) +
+  labs(
+    x = NULL,
+    y = "% of transcripts\naffected by GLP1RA",
+    fill = NULL
+  ) +
+  theme(
+    legend.position = "top",
+    panel.background = element_blank(),
+    text = element_text(size = 15),
+    axis.ticks.y = element_blank(),
+    axis.text.x = element_text(angle = 50, hjust = 1)
+  )
+
+ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/Pathway comparisons/T2D/N_transcripts_direction_barplot_percentage.png"),
        width = 7, height = 5)
 
 # Of the reversed, enhanced vs. suppressed
@@ -809,5 +833,181 @@ ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/Pathway comparisons/
 #   pull(Term) %>%
 #   unique()
 
+rev_reactome_celltypes <- rev_reactome_df %>%
+  filter(P.value < 0.05) %>%
+  group_by(Term, bg) %>%
+  mutate(n = n()) %>%
+  filter(celltype %in% c("EC", "Immune", "VSMC_P_FIB"))
 
+rev_reactome_celltypes %>%
+  filter(bg == "Suppressed" & n > 5) %>%
+  ggplot(aes(x = celltype, y = Term, size = n_genes, color = neg_logp)) +
+  geom_point() +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = NULL, y = NULL, size = "N of genes", color = "-log10(P)") +
+  scale_color_gradient2(mid = "white", high = "#669bbc", midpoint = 0)
+ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/Pathway comparisons/T2D/rev_suppressed_reactome_dotplot_celltypes.png"),
+       width = 12, height = 20)
+  
+ rev_reactome_celltypes %>%
+  filter(bg == "Enhanced" & n > 5) %>%
+  ggplot(aes(x = celltype, y = Term, size = n_genes, color = neg_logp)) +
+  geom_point() +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = NULL, y = NULL, size = "N of genes", color = "-log10(P)") +
+  scale_color_gradient2(mid = "white", high = "#df7373", midpoint = 0)
+ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/Pathway comparisons/T2D/rev_enhanced_reactome_dotplot_celltypes.png"),
+       width = 12, height = 15)
+
+
+rev_reactome_celltypes %>%
+  filter(bg == "Suppressed" & Adjusted.P.value < 0.1) %>%
+  ggplot(aes(x = celltype, y = Term, size = n_genes, color = neg_logp)) +
+  geom_point() +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = NULL, y = NULL, size = "N of genes", color = "-log10(P)") +
+  scale_color_gradient2(mid = "white", high = "#669bbc", midpoint = 0)
+ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/Pathway comparisons/T2D/rev_suppressed_reactome_dotplot_celltypes_fdr.png"),
+       width = 12, height = 8)
+  
+ rev_reactome_celltypes %>%
+  filter(bg == "Enhanced" & Adjusted.P.value < 0.1) %>%
+  ggplot(aes(x = celltype, y = Term, size = n_genes, color = neg_logp)) +
+  geom_point() +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(x = NULL, y = NULL, size = "N of genes", color = "-log10(P)") +
+  scale_color_gradient2(mid = "white", high = "#df7373", midpoint = 0)
+ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/Pathway comparisons/T2D/rev_enhanced_reactome_dotplot_celltypes_fdr.png"),
+       width = 12, height = 8)
 ```
+
+```{r}
+# first look for significant pathways
+# then look at the gene sets in those pathways
+# then plot the direction of logFCs of those genes in GLPN vs. HC and GLPY vs. GLPN
+for (cell in names(celltype_groups)) {
+  
+  cellname <- tolower(gsub("/", "_", cell))
+  
+  glpn_hc   <- "t2d_glpn_hc"
+  glpy_glpn <- "t2d_glpyn"
+  
+  glpn_hc_var   <- paste0(cellname, "_", glpn_hc)
+  glpy_glpn_var <- paste0(cellname, "_", glpy_glpn)
+  
+  # -------------------------
+  # 1) Skip if dfs don't exist
+  # -------------------------
+  if (!exists(glpn_hc_var, envir = .GlobalEnv) || !exists(glpy_glpn_var, envir = .GlobalEnv)) {
+    message("Skipping ", cellname, ": missing processed dfs (", glpn_hc_var, " or ", glpy_glpn_var, ")")
+    next
+  }
+  
+  glpn_hc_df   <- get(glpn_hc_var, envir = .GlobalEnv)
+  glpy_glpn_df <- get(glpy_glpn_var, envir = .GlobalEnv)
+  
+  # -------------------------
+  # define pathways from reactome
+  # -------------------------
+  rev_reactome_sig_combined <- 
+    rev_reactome_sig %>%
+    filter(bg == "Enhanced" & celltype == cell) %>%
+    head(5) %>%
+    separate_rows(Genes, sep = ";") %>%
+    rbind(rev_reactome_sig %>%
+            filter(bg == "Suppressed" & celltype == cell) %>%
+            head(5) %>%
+            separate_rows(Genes, sep = ";")) %>%
+    dplyr::select(pathway = Term, Gene = Genes, bg, celltype)
+  
+  if (nrow(rev_reactome_sig_combined) == 0) {
+    message("Skipping ", cell, ": no significant Reactome pathways")
+    next
+  }
+  
+  # -------------------------
+  # create df to plot
+  # -------------------------
+
+  plot_df <- bind_rows(
+    glpn_hc_df %>%
+    separate_rows(Gene, sep = ";") %>%
+    dplyr::select(Gene, logFC = logFC_glp_t2dobGLP_N,
+                  p.val = p_glp_t2dobGLP_N, fdr) %>%
+      mutate(comparison = "T2D GLP- vs. HC"),
+    glpy_glpn_df %>%
+    separate_rows(Gene, sep = ";") %>%
+    dplyr::select(Gene, logFC = logFC_glp_t2dobGLP_Y,
+                  p.val = p_glp_t2dobGLP_Y, fdr) %>%
+      mutate(comparison = "T2D GLP+ vs. GLP-")
+  ) %>%
+    left_join(rev_reactome_sig_combined) %>%
+    filter(!is.na(pathway))
+  
+  
+  
+  # If still nothing to plot (e.g., no overlapping genes), skip
+  if (nrow(plot_df) == 0) {
+    message("Skipping ", cellname, ": plot_df empty after leadingEdge overlap filter")
+    next
+  }
+  
+  # -------------------------
+  # count reversed genes
+  # -------------------------
+  pathway_rev_summary <- plot_df %>%
+    select(pathway, Gene, comparison, logFC) %>%
+    pivot_wider(names_from = comparison, values_from = logFC) %>%
+    mutate(reversal_direction = case_when(`T2D GLP+ vs. GLP-` > 0 ~ "Enhanced", T ~ "Suppressed")) %>%
+    distinct(pathway, reversal_direction)
+  
+  plot_df <- plot_df %>%
+    left_join(pathway_rev_summary %>% select(pathway, reversal_direction), by = "pathway") %>%
+    mutate(pathway_lab = paste0(pathway, "\n(", reversal_direction, ")"))
+  
+  n_pages <- ceiling(length(unique(plot_df$pathway)) / 4)
+  
+  for (i in seq_len(n_pages)) {
+    p <- ggplot(plot_df, aes(x = Gene, y = logFC, fill = comparison)) +
+      geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+      ggforce::facet_wrap_paginate(
+        ~ pathway_lab,
+        nrow = 2, ncol = 2,
+        scales = "free_x",
+        page = i
+      ) +
+      labs(
+        x = NULL,
+        y = "logFC",
+        title = paste0(cell, " pathways (", i, "/", n_pages, ")"),
+        fill = NULL
+      ) +
+      theme_minimal() +
+      theme(
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 40, hjust = 1),
+        strip.text = element_text(face = "bold"),
+        legend.position = "bottom"
+      ) +
+      scale_fill_manual(values = c("grey", "#e8998d"))
+    
+    ggsave(
+      filename = file.path(
+        root_path,
+        paste0("Renal HERITAGE/Results/Figures/Pathway comparisons/T2D/reactome_t2d_glpyn_glpn_hc_", cellname, "_", i, ".png")
+      ),
+      plot = p,
+      width = 15
+    )
+  }
+}
+```
+

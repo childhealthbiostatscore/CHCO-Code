@@ -31,7 +31,7 @@ source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
 # Pull in nebula results
 folders <- c(
   # new additions
-  # "T2D_GLP_Y_vs_T2D_GLP_N" = "t2d_glpyn",
+  "T2D_GLP_Y_vs_T2D_GLP_N" = "t2d_glpyn",
   "T2D_GLP_N_vs_HC" = "t2d_glpn_hc"
   # "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc",
   # 
@@ -106,11 +106,11 @@ celltype_groups <- list(
   aPT = "aPT",
   `PT-S1/S2` = "PT-S1/S2",
   `PT-S3` = "PT-S3",
-  `PT-1` = "PT-1",
-  `PT-2` = "PT-2",
-  `PT-3` = "PT-3",
-  `PT-4` = "PT-4",
-  `PT-5` = "PT-5",
+  # `PT-1` = "PT-1",
+  # `PT-2` = "PT-2",
+  # `PT-3` = "PT-3",
+  # `PT-4` = "PT-4",
+  # `PT-5` = "PT-5",
   TAL = c("C-TAL-1", "C-TAL-2", "aTAL", "dTAL"),
   `C-TAL-1` = "C-TAL-1",
   `C-TAL-2` = "C-TAL-2",
