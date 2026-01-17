@@ -11,7 +11,7 @@ library(purrr)
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") {
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
 } else if (user == "pylell") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"

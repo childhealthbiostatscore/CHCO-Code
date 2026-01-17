@@ -10,7 +10,7 @@ unregister_dopar <- function() {
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") { # local version
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
 } else if (user == "yejichoi") { # hyak version
   root_path <- ""
@@ -592,7 +592,7 @@ process_nebula_results <- function(nebula_list,
 
 process_nebula_results_clin <- function(cell_type, clinical_var, cell_subtype,
                                         bucket = "attempt", region = "",
-                                        output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/") {
+                                        output_dir = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/ATTEMPT/Results/nebula/") {
   
   # Construct file path
   clean_subtype <- paste(
