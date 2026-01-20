@@ -43,7 +43,7 @@ library(aws.s3)
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") { # local version
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
   keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
 } else if (user == "rameshsh") { # hyak version
@@ -1248,6 +1248,195 @@ run_fgsea_analysis <- function(bg_path = file.path(root_path, "GSEA/"),
     hallmark = if("hallmark" %in% references) hallmark_res else NULL
   ))
 }
+
+clean_pathway_names <- function(pathways) {
+  # Remove REACTOME_ prefix
+  cleaned <- gsub("^REACTOME_", "", pathways)
+  cleaned <- gsub("^GOBP_", "", cleaned)
+  cleaned <- gsub("^KEGG_", "", cleaned)
+  cleaned <- gsub("^HALLMARK_", "", cleaned)
+  
+  # Replace underscores with spaces
+  cleaned <- gsub("_", " ", cleaned)
+  
+  # Convert to title case (capitalize first letter of each word)
+  cleaned <- tools::toTitleCase(tolower(cleaned))
+  
+  # Define patterns that should be in uppercase
+  uppercase_words <- c(
+    # Roman numerals
+    "\\bI\\b", "\\bIi\\b", "\\bIii\\b", "\\bIv\\b", "\\bV\\b", "\\bVi\\b", 
+    "\\bVii\\b", "\\bViii\\b", "\\bIx\\b", "\\bX\\b",
+    # Common biological abbreviations
+    "\\bTca\\b", "\\bAtp\\b", "\\bAdp\\b", "\\bAmp\\b", "\\bGtp\\b", "\\bGdp\\b",
+    "\\bNad\\b", "\\bNadh\\b", "\\bFad\\b", "\\bFadh2\\b", "\\bCoa\\b",
+    "\\bDna\\b", "\\bRna\\b", "\\bMrna\\b", "\\bTrna\\b", "\\bRrna\\b",
+    "\\bEr\\b", "\\bUpr\\b", "\\bNf\\b", "\\bHif\\b", "\\bMhc\\b",
+    "\\bTgf\\b", "\\bEgf\\b", "\\bVegf\\b", "\\bPdgf\\b", "\\bFgf\\b",
+    "\\bRos\\b", "\\bRns\\b", "\\bNo\\b", "\\bNos\\b", "\\bInos\\b", "\\bEnos\\b", "\\bNnos\\b",
+    "\\Mapk\\b"
+  )
+  
+  # Apply uppercase replacements
+  for (pattern in uppercase_words) {
+    # Extract the word without the word boundaries
+    word <- gsub("\\\\b", "", pattern)
+    # Convert to uppercase
+    replacement <- toupper(word)
+    # Replace in the cleaned string
+    cleaned <- gsub(pattern, replacement, cleaned, ignore.case = TRUE)
+  }
+  
+  # Fix specific cases that might need custom handling
+  cleaned <- gsub("\\bOf\\b", "of", cleaned)  # lowercase 'of'
+  cleaned <- gsub("\\bBy\\b", "by", cleaned)  # lowercase 'by'
+  cleaned <- gsub("\\bThe\\b", "the", cleaned)  # lowercase 'the' (except at start)
+  cleaned <- gsub("^the", "The", cleaned)  # capitalize 'the' at start
+  cleaned <- gsub("\\bO Linked\\b", "O-Linked", cleaned, ignore.case = TRUE)
+  
+  return(cleaned)
+}
+
+shorten_pathway_names <- function(pathway_names, max_length = 40, aggressive = FALSE) {
+  
+  # Define replacement patterns
+  # [Keep all your existing replacements as they are]
+  word_replacements <- c(
+    "Hallmark " = "",
+    "Role of " = "",
+    "Function of " = "",
+    "Eukaryotic " = "",
+    "in the" = "in",
+    "by the" = "by",
+    "of the" = "of",
+    "Phosphorylation" = "Phosph",
+    "Metabolism" = "Metab",
+    "Extracellular" = "EC",
+    "Intracellular" = "IC",
+    "Dysfunction" = "Adaptation",
+    "Alternative" = "Alt",
+    "Dependent" = "Dep",
+    "Independent" = "Indep",
+    "Associated" = "Assoc",
+    "Inflammatory" = "Inflam",
+    "Inflammation" = "Inflam",
+    "Lymphocyte" = "Lymph",
+    "Lymphocytes" = "Lymph",
+    "Fibroblast" = "Fib",
+    "Fibroblasts" = "Fib",
+    "Endothelial" = "Endo",
+    "Epithelial" = "Epi",
+    "Transition" = "Trans",
+    "Rheumatoid Arthritis" = "RA",
+    "Multiple Sclerosis" = "MS",
+    "Alzheimer's Disease" = "Alzheimer's",
+    "Parkinson's Disease" = "Parkinson's",
+    "Respiratory" = "Resp",
+    "Gastrointestinal" = "GI",
+    "Central Nervous System" = "CNS",
+    "Oxidative" = "Ox",
+    "between" = "b/w",
+    "through" = "via",
+    "and" = "&"
+  )
+  
+  # More aggressive replacements
+  aggressive_replacements <- c(
+    " the " = " ",
+    " in " = " ",
+    " of " = " ",
+    " to " = "→",
+    " from " = "←"
+  )
+  
+  # Cell/molecule specific replacements
+  molecule_replacements <- c(
+    "Natural Killer" = "NK",
+    "Tumor Necrosis Factor" = "TNF",
+    "Transforming Growth Factor" = "TGF",
+    "Platelet Derived Growth Factor" = "PDGF",
+    "Epidermal Growth Factor" = "EGF",
+    "Vascular Endothelial Growth Factor" = "VEGF",
+    "Insulin-like Growth Factor" = "IGF",
+    "Interferon" = "IFN",
+    "Interleukin" = "IL",
+    "G-Protein Coupled" = "GPCR",
+    "G Protein Coupled" = "GPCR",
+    "Activator Protein" = "AP",
+    "Electron Transport" = "e- Transport",
+    "Nitric Oxide" = "NO",
+    "Reactive Oxygen Species" = "ROS",
+    "Amino Acid" = "AA",
+    "Fatty Acid" = "FA"
+  )
+  
+  # Function to apply replacements
+  apply_replacements <- function(text, replacements) {
+    for (pattern in names(replacements)) {
+      text <- gsub(pattern, replacements[pattern], text, ignore.case = FALSE)
+    }
+    return(text)
+  }
+  
+  # Track which pathways got truncated at Step 6
+  step6_truncated <- rep(FALSE, length(pathway_names))
+  
+  # Process each pathway name
+  shortened <- sapply(seq_along(pathway_names), function(i) {
+    pathway <- pathway_names[i]
+    if (is.na(pathway)) return(NA)
+    
+    # Step 1: Apply molecule/cell replacements first
+    result <- apply_replacements(pathway, molecule_replacements)
+    
+    # Step 2: Apply standard word replacements
+    result <- apply_replacements(result, word_replacements)
+    
+    # Step 3: If still too long and aggressive mode is on
+    if (nchar(result) > max_length && aggressive) {
+      result <- apply_replacements(result, aggressive_replacements)
+    }
+    
+    # Step 4: Remove parenthetical content if still too long
+    if (nchar(result) > max_length) {
+      result <- gsub(" \\([^)]+\\)", "", result)
+    }
+    
+    # # Step 5: If still too long, abbreviate remaining long words
+    # if (nchar(result) > max_length) {
+    #   words <- strsplit(result, " ")[[1]]
+    #   # Abbreviate words longer than 8 characters that aren't already abbreviated
+    #   words <- sapply(words, function(word) {
+    #     if (nchar(word) > 8 && !grepl("[A-Z]{2,}", word)) {
+    #       # Keep first 3-4 letters and last letter
+    #       if (nchar(word) > 10) {
+    #         paste0(substr(word, 1, 3), ".", substr(word, nchar(word), nchar(word)))
+    #       } else {
+    #         paste0(substr(word, 1, 4), ".")
+    #       }
+    #     } else {
+    #       word
+    #     }
+    #   })
+    #   result <- paste(words, collapse = " ")
+    # }
+    
+    # Step 6: Final truncation if needed
+    if (nchar(result) > max_length) {
+      step6_truncated[i] <<- TRUE  # Mark this pathway as truncated at Step 6
+      result <- paste0(substr(result, 1, max_length - 3), "...")
+    }
+    
+    return(result)
+  })
+  
+  # Return a list with both the shortened names and the Step 6 truncation info
+  return(list(
+    shortened = shortened,
+    step6_truncated = step6_truncated
+  ))
+}
+
 
 plot_gsea_results <- function(gsea_list, 
                               cell_name,

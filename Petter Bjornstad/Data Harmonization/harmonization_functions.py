@@ -169,7 +169,7 @@ def create_study_id_columns(harmonized):
     user = getpass.getuser()  # safer than os.getlogin(), works in more environments
 
     if user == "choiyej":
-        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
     elif user == "pylell":
         base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
@@ -191,7 +191,7 @@ def biopsy_merge(harmonized):
     user = getpass.getuser()  # safer than os.getlogin(), works in more environments
 
     if user == "choiyej":
-        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
         git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
     elif user == "pylell":
         base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"

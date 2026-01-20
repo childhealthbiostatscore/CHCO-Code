@@ -28,7 +28,7 @@ def clean_improve():
 
     base_paths = {
         "choiyej": {
-            "base_data_path": "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/",
+            "base_data_path": "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/",
             "git_path": "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
         },
         "pylell": {

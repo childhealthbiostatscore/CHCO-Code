@@ -1,0 +1,805 @@
+#Format Simulation Results Function ----
+format.fxn <- function(results.data){
+  results.data <- results.data %>% 
+    dplyr::mutate(component=case_when(component=="Count model coefficients" ~ "Means",
+                                      component=="Zero-inflation model coefficients" ~ "Probability",
+                                      component=="Means" ~ "Means",
+                                      component=="Probability" ~ "Probability")) %>% 
+    mutate(sig=case_when(pdir > 0.975 ~ "*",
+                         pdir <= 0.975 ~ "N.S.",
+                         is.na(pdir) ~ sig))
+  
+  zing.data <- results.data %>%
+    filter(model=="ZINB" | model =="Poisson") %>%
+    filter(component=="Means") %>%
+    mutate(pval = as.numeric(pval)) %>%
+    dplyr::group_by(domain) %>%
+    mutate(fdr = p.adjust(pval, method = "fdr")) %>%
+    ungroup() %>%
+    mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) %>%
+    mutate(model="ZING") %>% 
+    mutate(lcl = estimate - (1.96 * SE),ucl = estimate + (1.96 * SE)
+    ) %>% 
+    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","sig","fdr.sig","iteration"))
+  
+  # zing.data.prob <- results.data %>%
+  #   filter(model=="ZINB" | model =="Poisson") %>%
+  #   filter(component=="Probability") %>%
+  #   mutate(pval = as.numeric(pval)) %>%
+  #   dplyr::group_by(domain) %>%
+  #   mutate(fdr = p.adjust(pval, method = "fdr")) %>%
+  #   ungroup() %>%
+  #   mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) %>%
+  #   mutate(model="ZING") 
+  
+  bayesian <- results.data %>%
+    filter(component=="Means") %>%
+    filter(model=="BaHZING" | model =="RBaHZING") %>%
+    mutate(taxa_full=str_replace_all(taxa_full,"k__species","species")) %>% 
+    mutate(taxa_full=str_replace_all(taxa_full,"k__X","species")) %>% 
+    # mutate(fdr=p) %>% 
+    # mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) 
+    mutate(fdr.sig=NA) %>% 
+    dplyr::rename(lcl=bci_lcl,
+                  ucl=bci_ucl) %>% 
+    dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","sig","fdr.sig","iteration"))
+  
+  # formatted.data.prob <- results.data %>%
+  #   filter(component=="Probability") %>%
+  #   filter(model=="BaHZING" | model =="RBaHZING") %>%
+  #   mutate(taxa_full=str_replace_all(taxa_full,"k__species","species")) %>% 
+  #   mutate(fdr=pval) %>% 
+  #   mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) 
+  
+  formatted.data <- rbind(zing.data,  bayesian)
+  # formatted.data <- formatted.data %>% 
+  # dplyr::rename(sig=fdr.sig)
+  # formatted.data.prob <- rbind(zing.data.prob,formatted.data.prob)
+  # rm(zing.data,zing.data.prob)
+  rm(zing.data,bayesian)
+  
+  # formatted.data <- formatted.data %>%
+  #   mutate(Taxa.Level=case_when(grepl("species",Taxa) ~ "Species",
+  #                               grepl("genus",Taxa) ~ "Genus",
+  #                               grepl("family",Taxa) ~ "Family",
+  #                               grepl("order",Taxa) ~ "Order",
+  #                               grepl("class",Taxa) ~ "Class",
+  #                               grepl("phylum",Taxa) ~ "Phylum"))
+  # #Remove columns not needed
+  # formatted.data <- formatted.data %>%
+  #   select(-Component)
+  
+  # # Define a function to assign replication numbers
+  # assign_replication_numbers <- function(group) {
+  #   group$Replication <- seq_len(nrow(group))
+  #   return(group)
+  # }
+  
+  # # Apply the function to each group
+  # formatted.data <- formatted.data %>%
+  #   tidylog::group_by(Taxa, Exposure, Model,iteration) %>%
+  #   group_modify(~ assign_replication_numbers(.x))
+  
+  #Group number for plotting
+  formatted.data <- formatted.data %>%
+    tidylog::group_by(taxa_full,exposure,iteration) %>%
+    tidylog::mutate(group_number = cur_group_id()) %>%
+    ungroup()
+  
+  # formatted.data.prob <- formatted.data.prob %>%
+  #   tidylog::group_by(taxa_full,exposure,iteration) %>%
+  #   tidylog::mutate(group_number = cur_group_id()) %>%
+  #   ungroup()
+  
+  sim.par <- sim.par.all[unique(formatted.data$Scenario),]
+  par <- sim.par$P.s.scenario
+  
+  #Causal Exposures
+  if (sim.par$P.e.causal==0){
+    causal.e <- NULL
+  } else {
+    causal.e <- paste0("X.",rep(1:sim.par$P.e.causal))
+  }
+  
+  #Species level indicator
+  if(par==1){
+    causal.s <- NULL
+  }
+  if(par!=1){
+    causal.s <- paste0("species",simulation.parameters[[par]])
+  }
+  
+  #Genus level indicator
+  is_in_causal_s <- which(rownames(Z.s.g) %in% causal.s)
+  subset_matrix <- Z.s.g[is_in_causal_s, ]
+  genus_occurrences <- colSums(subset_matrix)
+  causal.g <- names(which(genus_occurrences > 0))
+  
+  #Family level indicator
+  is_in_causal_g <- which(rownames(Z.g.f) %in% causal.g)
+  subset_matrix <- Z.g.f[is_in_causal_g, ]
+  family_occurrences <- colSums(subset_matrix)
+  causal.f <- names(which(family_occurrences > 0))
+  
+  #Order level indicator
+  is_in_causal_f <- which(rownames(Z.f.o) %in% causal.f)
+  subset_matrix <- Z.f.o[is_in_causal_f, ]
+  order_occurrences <- colSums(subset_matrix)
+  causal.o <- names(which(order_occurrences > 0))
+  
+  # Class level indicator
+  is_in_causal_c <- which(rownames(Z.o.c) %in% causal.o)
+  subset_matrix <- Z.o.c[is_in_causal_c, ]
+  class_occurrences <- colSums(subset_matrix)
+  causal.c <- names(which(class_occurrences > 0))
+  
+  #Phylum level indicator
+  is_in_causal_p<- which(rownames(Z.c.p) %in% causal.c)
+  subset_matrix <- Z.c.p[is_in_causal_p, ]
+  phylum_occurrences <- colSums(subset_matrix)
+  causal.p <- names(which(phylum_occurrences > 0))
+  
+  #Set the intended OR for the scenario
+  setOR <- sim.par$OR.exposure
+  null <- 1
+  
+  #Calculate expected values for Phyla
+  ExpectedValues.p <- data.frame()
+  phylum.names <- unique(formatted.data$taxa_full[which(grepl("phylum",formatted.data$taxa_full))])
+  for (p in phylum.names) {
+    causal <- length(which(paste0("class",which(Z.c.p[,p]==1)) %in% causal.c))
+    total <- length(which(Z.c.p[,p] == 1))
+    Expected.p <- data.frame(taxa_full=p,ExpectedLogOdds=log(setOR) *(causal / total),Index=as.numeric(str_remove(p,"phylum")))
+    ExpectedValues.p <- rbind(ExpectedValues.p,Expected.p)
+  }
+  
+  #Calculate expected values for Class
+  ExpectedValues.c <- data.frame()
+  class.names <- unique(formatted.data$taxa_full[which(grepl("class",formatted.data$taxa_full))])
+  for (c in class.names) {
+    causal <- length(which(paste0("order",which(Z.o.c[,c]==1)) %in% causal.o))
+    total <- length(which(Z.o.c[,c] == 1))
+    Expected.c <- data.frame(taxa_full=c,ExpectedLogOdds=log(setOR) *(causal / total),Index=as.numeric(str_remove(c,"class")))
+    ExpectedValues.c <- rbind(ExpectedValues.c,Expected.c)
+  }
+  
+  #Calculate expected values for Order
+  ExpectedValues.o <- data.frame()
+  order.names <- unique(formatted.data$taxa_full[which(grepl("order",formatted.data$taxa_full))])
+  for (o in order.names) {
+    causal <- length(which(paste0("family",which(Z.f.o[,o]==1)) %in% causal.f))
+    total <- length(which(Z.f.o[,o] == 1))
+    Expected.o <- data.frame(taxa_full=o,ExpectedLogOdds= log(setOR) *(causal / total),Index=as.numeric(str_remove(o,"order")))
+    ExpectedValues.o <- rbind(ExpectedValues.o,Expected.o)
+  }
+  
+  #Calculate expected values for Family
+  ExpectedValues.f <- data.frame()
+  family.names <- unique(formatted.data$taxa_full[which(grepl("family",formatted.data$taxa_full))])
+  for (f in family.names) {
+    causal <- length(which(paste0("genus",which(Z.g.f[,f]==1)) %in% causal.g))
+    total <- length(which(Z.g.f[,f] == 1))
+    Expected.f <- data.frame(taxa_full=f,ExpectedLogOdds=log(setOR) *(causal / total),Index=as.numeric(str_remove(f,"family")))
+    ExpectedValues.f <- rbind(ExpectedValues.f,Expected.f)
+  }
+  
+  #Calculate expected values for Genus
+  ExpectedValues.g <- data.frame()
+  genus.names <- unique(formatted.data$taxa_full[which(grepl("genus",formatted.data$taxa_full))])
+  for (g in genus.names) {
+    causal <- length(which(paste0("species",which(Z.s.g[,g]==1)) %in% causal.s))
+    total <- length(which(Z.s.g[,g] == 1))
+    Expected.g <- data.frame(taxa_full=g,ExpectedLogOdds=log(setOR) *(causal / total),Index=as.numeric(str_remove(g,"genus")))
+    ExpectedValues.g <- rbind(ExpectedValues.g,Expected.g)
+  }
+  
+  #Calculate expected values for Species - should this be unaffect by other levels?? Check this!!!
+  ExpectedValues.s <- data.frame()
+  species.names <- unique(formatted.data$taxa_full[which(grepl("species",formatted.data$taxa_full))])
+  for (s in species.names) {
+    # causal <- length(which(paste0("species",which(Z.s.g[,s]==1)) %in% causal.s))
+    # total <- length(which(Z.s.g[,g] == 1))
+    Expected.s <- data.frame(taxa_full=s,ExpectedLogOdds=ifelse(s %in% causal.s,log(setOR),0),Index=as.numeric(str_remove(s,"species")))
+    ExpectedValues.s <- rbind(ExpectedValues.s,Expected.s)
+  }
+  
+  ExpectedValues <- rbind(ExpectedValues.p,ExpectedValues.c)
+  ExpectedValues <- rbind(ExpectedValues,ExpectedValues.o)
+  ExpectedValues <- rbind(ExpectedValues,ExpectedValues.f)
+  ExpectedValues <- rbind(ExpectedValues,ExpectedValues.g)
+  ExpectedValues <- rbind(ExpectedValues,ExpectedValues.s)
+  formatted.data <- tidylog::left_join(formatted.data,ExpectedValues,by="taxa_full")
+  
+  #Now make only the causal exposures causal
+  formatted.data <- formatted.data %>%
+    tidylog::mutate(expectedLogOdds = case_when(exposure=="Mixture" ~ NA,
+                                                # exposure!="Mixture" ~ ExpectedLogOdds))
+                                                exposure %in% causal.e ~ ExpectedLogOdds,
+                                                !exposure %in% causal.e ~ log(null)))
+  #Remove the intermediate ExpectedLogOdds variable
+  formatted.data <- formatted.data %>% 
+    dplyr::select(-c("ExpectedLogOdds"))
+  
+  
+  # Expected value for mixture =sum of individual effects
+  formatted.data <-  formatted.data %>%
+    # filter(Exposure!="Mixture") %>% 
+    tidylog::group_by(taxa_full,model,iteration) %>%
+    tidylog::mutate(mixture_sum = sum(expectedLogOdds,na.rm=T)) %>%
+    tidylog::mutate(expectedLogOdds=ifelse(is.na(expectedLogOdds),mixture_sum,expectedLogOdds)) %>%
+    ungroup() %>% 
+    select(-mixture_sum)
+  
+  #Create Causal/Non-causal indicator: If expected value > 0 C, else NC
+  formatted.data <- formatted.data %>%
+    mutate(indicator=ifelse(expectedLogOdds>0,"Associated","Not Associated"))
+  
+  associated.taxa <- c(causal.s,causal.g,causal.f,causal.o,causal.c,causal.p)
+  
+  return(formatted.data)
+  
+}
+
+#Plot Function ----
+plot_function <- function(data, 
+                          analysis_type = c("mixture", "individual"),
+                          output_dir = "/home/hhampson/Results/Microbiome Results",
+                          save_plots = FALSE,
+                          n_sample_iterations = 25,
+                          seed = 123) {
+  
+  analysis_type <- match.arg(analysis_type)
+  
+  # Set seed and sample iterations
+  set.seed(seed)
+  sampled_iterations <- sample(unique(data$iteration), n_sample_iterations)
+  data_sample <- data %>% filter(iteration %in% sampled_iterations)
+  
+  # Filter for analysis type
+  if (analysis_type == "mixture") {
+    plot_data <- data_sample %>% filter(exposure == "Mixture")
+    file_prefix <- "Mixture_Plot"
+  } else {
+    plot_data <- data_sample %>% filter(exposure != "Mixture")
+    file_prefix <- "Individual_Plot"
+  }
+  
+  # Format factors
+  plot_data <- plot_data %>%
+    mutate(
+      model = factor(model, levels = c("BaHZING", "RBaHZING", "ZING")),
+      Scenario = factor(paste0("Scenario ", Scenario), 
+                        levels = paste0("Scenario ", 1:9)),
+      domain = factor(domain, 
+                      levels = c("Species", "Genus", "Family", "Order", "Class", "Phylum"))
+    )
+  
+  # Split by association status
+  NA_data <- plot_data %>% filter(indicator == "Not Associated")
+  A_data <- plot_data %>% filter(indicator == "Associated")
+  
+  # Base theme
+  base_theme <- theme_bw() +
+    theme(
+      text = element_text(family = "Times", size = 20, color = "black"),
+      axis.text = element_text(family = "Times", size = 15),
+      axis.title.x = element_blank(),
+      axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      strip.text.x = element_text(size = 15, face = "bold"),
+      strip.text.y = element_text(size = 15, face = "bold")
+    )
+  
+  # OPTION 1: Gradient color by estimate
+  plot1 <- ggplot() +
+    geom_line(data = NA_data, alpha = 0.5, 
+              aes(model, estimate, group = group_number, color = estimate)) +
+    geom_point(data = NA_data, aes(model, estimate, color = estimate), alpha = 0.5) +
+    geom_line(data = A_data, alpha = 0.5, 
+              aes(model, estimate, group = group_number, color = estimate)) +
+    geom_point(data = A_data, aes(model, estimate, color = estimate), alpha = 0.5) +
+    geom_errorbar(data = NA_data, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_errorbar(data = A_data, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_point(data = NA_data, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    geom_point(data = A_data, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    facet_grid(Scenario ~ domain, scales = "free_y") +
+    base_theme +
+    theme(legend.position = "left") +
+    scale_colour_gradientn(
+      colours = c("darkblue", "#2166ac", "#f7f7f7", "#b2182b", "darkred"),
+      values = scales::rescale(c(-1, -0.5, 0, 0.5, 1)),
+      name = "Estimate") +
+    labs(y = "Estimate")
+  
+  # OPTION 2: Color by association status
+  combined_data <- bind_rows(
+    NA_data %>% mutate(status = "Not Associated"),
+    A_data %>% mutate(status = "Associated")
+  )
+  
+  plot2 <- ggplot(combined_data, aes(model, estimate, color = status)) +
+    geom_line(aes(group = group_number), alpha = 0.4) +
+    geom_errorbar(stat = "summary", fun.data = mean_sd,
+                  width = 0.2, linewidth = 0.8, alpha = 0.8) +
+    geom_point(stat = "summary", fun = mean, size = 3, 
+               shape = 21, fill = "white", stroke = 1.5) +
+    facet_grid(Scenario ~ domain, scales = "free_y") +
+    base_theme +
+    theme(legend.position = "right",
+          legend.title = element_text(size = 16, face = "bold"),
+          legend.text = element_text(size = 14)) +
+    scale_color_manual(
+      name = "Taxa Status",
+      values = c("Associated" = "firebrick4", "Not Associated" = "gray60")) +
+    labs(y = "Estimate")
+  
+  # OPTION 3: Categorical effect sizes
+  NA_cat <- NA_data %>%
+    mutate(effect_cat = factor(
+      case_when(
+        estimate >= 0.5 ~ "Strong Positive",
+        estimate >= 0.25 ~ "Moderate Positive",
+        estimate >= 0 ~ "Weak Positive",
+        estimate >= -0.25 ~ "Weak Negative",
+        TRUE ~ "Negative"),
+      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
+                 "Weak Negative", "Negative")))
+  
+  A_cat <- A_data %>%
+    mutate(effect_cat = factor(
+      case_when(
+        estimate >= 0.5 ~ "Strong Positive",
+        estimate >= 0.25 ~ "Moderate Positive",
+        estimate >= 0 ~ "Weak Positive",
+        estimate >= -0.25 ~ "Weak Negative",
+        TRUE ~ "Negative"),
+      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
+                 "Weak Negative", "Negative")))
+  
+  plot3 <- ggplot() +
+    geom_line(data = NA_cat, alpha = 0.5, 
+              aes(model, estimate, group = group_number, color = effect_cat)) +
+    geom_line(data = A_cat, alpha = 0.5, 
+              aes(model, estimate, group = group_number, color = effect_cat)) +
+    geom_errorbar(data = NA_cat, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_errorbar(data = A_cat, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_point(data = NA_cat, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    geom_point(data = A_cat, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    facet_grid(Scenario ~ domain, scales = "free_y") +
+    base_theme +
+    theme(legend.position = "right") +
+    scale_color_manual(
+      name = "Effect Size",
+      values = c("Strong Positive" = "#660000", "Moderate Positive" = "#cc0000",
+                 "Weak Positive" = "#e69f00", "Weak Negative" = "#cccccc",
+                 "Negative" = "#9a9a9a")) +
+    labs(y = "Estimate")
+  
+  # Save plots if requested
+  if (save_plots) {
+    png(file.path(output_dir, paste0(file_prefix, "_Option1.png")),
+        res = 300, height = 4000, width = 4000)
+    print(plot1)
+    dev.off()
+    
+    png(file.path(output_dir, paste0(file_prefix, "_Option2.png")),
+        res = 300, height = 4000, width = 4000)
+    print(plot2)
+    dev.off()
+    
+    png(file.path(output_dir, paste0(file_prefix, "_Option3.png")),
+        res = 300, height = 4000, width = 4000)
+    print(plot3)
+    dev.off()
+  }
+  
+  # Return list of plots
+  list(option1 = plot1, option2 = plot2, option3 = plot3)
+}
+
+
+#Plot Function Alternative Color Scheme ----
+# SCHEME 1: Slate Grey to Bordeaux (with grey at zero)
+create_estimate_plots_scheme1 <- function(data, 
+                                          analysis_type = "mixture",
+                                          output_dir = "/home/hhampson/Results/Microbiome Results",
+                                          save_plots = FALSE,
+                                          n_sample_iterations = 25,
+                                          seed = 123) {
+  
+  require(tidyverse)
+  require(ggplot2)
+  
+  # Validate analysis_type
+  if (!analysis_type %in% c("mixture", "individual")) {
+    stop("analysis_type must be either 'mixture' or 'individual'")
+  }
+  
+  # Set seed and sample iterations
+  set.seed(seed)
+  sampled_iterations <- sample(unique(data$iteration), n_sample_iterations)
+  data_sample <- data %>% filter(iteration %in% sampled_iterations)
+  
+  # Filter for analysis type
+  if (analysis_type == "mixture") {
+    plot_data <- data_sample %>% filter(exposure == "Mixture")
+    file_prefix <- "Mixture_Plot_Scheme1"
+  } else {
+    plot_data <- data_sample %>% filter(exposure != "Mixture")
+    file_prefix <- "Individual_Plot_Scheme1"
+  }
+  
+  # Format factors
+  plot_data <- plot_data %>%
+    mutate(
+      model = factor(model, levels = c("BaHZING", "RBaHZING", "ZING")),
+      Scenario = factor(paste0("Scenario ", Scenario), 
+                        levels = paste0("Scenario ", 1:9)),
+      domain = factor(domain, 
+                      levels = c("Species", "Genus", "Family", "Order", "Class", "Phylum"))
+    )
+  
+  # Split by association status
+  NA_data <- plot_data %>% filter(indicator == "Not Associated")
+  A_data <- plot_data %>% filter(indicator == "Associated")
+  
+  # Base theme
+  base_theme <- theme_bw() +
+    theme(
+      text = element_text(family = "Times", size = 20, color = "black"),
+      axis.text = element_text(family = "Times", size = 15),
+      axis.title.x = element_blank(),
+      axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      strip.text.x = element_text(size = 15, face = "bold"),
+      strip.text.y = element_text(size = 15, face = "bold")
+    )
+  
+  # Helper function for error bars
+  mean_sd <- function(x) {
+    mean_val <- mean(x)
+    sd_val <- sd(x)
+    data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
+  }
+  
+  # OPTION 1: Gradient color by estimate (with grey at zero)
+  plot1 <- ggplot() +
+    geom_line(data = NA_data, alpha = 0.1, 
+              aes(model, estimate, group = group_number, color = estimate),
+              linewidth = 0.3) +
+    geom_point(data = NA_data, aes(model, estimate, color = estimate), 
+               alpha = 0.3, size = 0.8) +
+    geom_line(data = A_data, alpha = 0.2, 
+              aes(model, estimate, group = group_number, color = estimate),
+              linewidth = 0.3) +
+    geom_point(data = A_data, aes(model, estimate, color = estimate), 
+               alpha = 0.4, size = 0.8) +
+    geom_errorbar(data = NA_data, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_errorbar(data = A_data, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_point(data = NA_data, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    geom_point(data = A_data, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    facet_grid(Scenario ~ domain, scales = "free_y") +
+    base_theme +
+    theme(legend.position = "left") +
+    scale_colour_gradientn(
+      colours = c("#335c67", "#5a8691", "#7fa5ad", "#c2dfe0", "#d3d3d3", "#fff3b0", "#e09f3e", "#9e2a2b", "#540b0e"),
+      values = scales::rescale(c(-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1)),
+      name = "Estimate") +
+    labs(y = "Estimate")
+  
+  # OPTION 2: Color by association status
+  combined_data <- bind_rows(
+    NA_data %>% mutate(status = "Not Associated"),
+    A_data %>% mutate(status = "Associated")
+  )
+  
+  plot2 <- ggplot(combined_data, aes(model, estimate, color = status)) +
+    geom_line(aes(group = group_number), alpha = 0.15, linewidth = 0.3) +
+    geom_point(aes(group = group_number), alpha = 0.3, size = 0.8) +
+    geom_errorbar(stat = "summary", fun.data = mean_sd,
+                  width = 0.2, linewidth = 0.8, alpha = 0.8) +
+    geom_point(stat = "summary", fun = mean, size = 3, 
+               shape = 21, fill = "white", stroke = 1.5) +
+    facet_grid(Scenario ~ domain, scales = "free_y") +
+    base_theme +
+    theme(legend.position = "right",
+          legend.title = element_text(size = 16, face = "bold"),
+          legend.text = element_text(size = 14)) +
+    scale_color_manual(
+      name = "Taxa Status",
+      values = c("Associated" = "#540b0e", "Not Associated" = "#335c67")) +
+    labs(y = "Estimate")
+  
+  # OPTION 3: Categorical effect sizes (with grey for near-zero)
+  NA_cat <- NA_data %>%
+    mutate(effect_cat = factor(
+      case_when(
+        estimate >= 0.5 ~ "Strong Positive",
+        estimate >= 0.25 ~ "Moderate Positive",
+        estimate > 0.05 ~ "Weak Positive",
+        estimate >= -0.05 ~ "Near Zero",
+        estimate >= -0.25 ~ "Weak Negative",
+        TRUE ~ "Negative"),
+      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
+                 "Near Zero", "Weak Negative", "Negative")))
+  
+  A_cat <- A_data %>%
+    mutate(effect_cat = factor(
+      case_when(
+        estimate >= 0.5 ~ "Strong Positive",
+        estimate >= 0.25 ~ "Moderate Positive",
+        estimate > 0.05 ~ "Weak Positive",
+        estimate >= -0.05 ~ "Near Zero",
+        estimate >= -0.25 ~ "Weak Negative",
+        TRUE ~ "Negative"),
+      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
+                 "Near Zero", "Weak Negative", "Negative")))
+  
+  plot3 <- ggplot() +
+    geom_line(data = NA_cat, alpha = 0.15, 
+              aes(model, estimate, group = group_number, color = effect_cat),
+              linewidth = 0.3) +
+    geom_line(data = A_cat, alpha = 0.2, 
+              aes(model, estimate, group = group_number, color = effect_cat),
+              linewidth = 0.3) +
+    geom_point(data = NA_cat, aes(model, estimate, color = effect_cat), 
+               alpha = 0.3, size = 0.8) +
+    geom_point(data = A_cat, aes(model, estimate, color = effect_cat), 
+               alpha = 0.4, size = 0.8) +
+    geom_errorbar(data = NA_cat, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_errorbar(data = A_cat, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_point(data = NA_cat, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    geom_point(data = A_cat, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    facet_grid(Scenario ~ domain, scales = "free_y") +
+    base_theme +
+    theme(legend.position = "right") +
+    scale_color_manual(
+      name = "Effect Size",
+      values = c("Strong Positive" = "#540b0e",
+                 "Moderate Positive" = "#9e2a2b",
+                 "Weak Positive" = "#e09f3e",
+                 "Near Zero" = "#d3d3d3",
+                 "Weak Negative" = "#7fa5ad",
+                 "Negative" = "#335c67")) +
+    labs(y = "Estimate")
+  
+  # Save plots if requested
+  if (save_plots) {
+    png(file.path(output_dir, paste0(file_prefix, "_Option1.png")),
+        res = 300, height = 4000, width = 4000)
+    print(plot1)
+    dev.off()
+    
+    png(file.path(output_dir, paste0(file_prefix, "_Option2.png")),
+        res = 300, height = 4000, width = 4000)
+    print(plot2)
+    dev.off()
+    
+    png(file.path(output_dir, paste0(file_prefix, "_Option3.png")),
+        res = 300, height = 4000, width = 4000)
+    print(plot3)
+    dev.off()
+  }
+  
+  # Return list of plots
+  list(option1 = plot1, option2 = plot2, option3 = plot3)
+}
+
+# SCHEME 2: Teal to Brown-Red (with grey at zero) - Extra smooth
+create_estimate_plots_scheme2 <- function(data, 
+                                          analysis_type = "mixture",
+                                          output_dir = "/home/hhampson/Results/Microbiome Results",
+                                          save_plots = FALSE,
+                                          n_sample_iterations = 25,
+                                          seed = 123) {
+  
+  require(tidyverse)
+  require(ggplot2)
+  
+  # Validate analysis_type
+  if (!analysis_type %in% c("mixture", "individual")) {
+    stop("analysis_type must be either 'mixture' or 'individual'")
+  }
+  
+  # Set seed and sample iterations
+  set.seed(seed)
+  sampled_iterations <- sample(unique(data$iteration), n_sample_iterations)
+  data_sample <- data %>% filter(iteration %in% sampled_iterations)
+  
+  # Filter for analysis type
+  if (analysis_type == "mixture") {
+    plot_data <- data_sample %>% filter(exposure == "Mixture")
+    file_prefix <- "Mixture_Plot_Scheme2"
+  } else {
+    plot_data <- data_sample %>% filter(exposure != "Mixture")
+    file_prefix <- "Individual_Plot_Scheme2"
+  }
+  
+  # Format factors
+  plot_data <- plot_data %>%
+    mutate(
+      model = factor(model, levels = c("BaHZING", "RBaHZING", "ZING")),
+      Scenario = factor(paste0("Scenario ", Scenario), 
+                        levels = paste0("Scenario ", 1:9)),
+      domain = factor(domain, 
+                      levels = c("Species", "Genus", "Family", "Order", "Class", "Phylum"))
+    )
+  
+  # Split by association status
+  NA_data <- plot_data %>% filter(indicator == "Not Associated")
+  A_data <- plot_data %>% filter(indicator == "Associated")
+  
+  # Base theme
+  base_theme <- theme_bw() +
+    theme(
+      text = element_text(family = "Times", size = 20, color = "black"),
+      axis.text = element_text(family = "Times", size = 15),
+      axis.title.x = element_blank(),
+      axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      strip.text.x = element_text(size = 15, face = "bold"),
+      strip.text.y = element_text(size = 15, face = "bold")
+    )
+  
+  # Helper function for error bars
+  mean_sd <- function(x) {
+    mean_val <- mean(x)
+    sd_val <- sd(x)
+    data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
+  }
+  
+  # OPTION 1: Gradient color by estimate (with grey at zero)
+  plot1 <- ggplot() +
+    geom_line(data = NA_data, alpha = 0.08, 
+              aes(model, estimate, group = group_number, color = estimate),
+              linewidth = 0.25) +
+    geom_point(data = NA_data, aes(model, estimate, color = estimate), 
+               alpha = 0.25, size = 0.7) +
+    geom_line(data = A_data, alpha = 0.15, 
+              aes(model, estimate, group = group_number, color = estimate),
+              linewidth = 0.25) +
+    geom_point(data = A_data, aes(model, estimate, color = estimate), 
+               alpha = 0.35, size = 0.7) +
+    geom_errorbar(data = NA_data, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_errorbar(data = A_data, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_point(data = NA_data, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    geom_point(data = A_data, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    facet_grid(Scenario ~ domain, scales = "free_y") +
+    base_theme +
+    theme(legend.position = "left") +
+    scale_colour_gradientn(
+      colours = c("#001219", "#005f73", "#0a9396", "#94d2bd", "#d3d3d3", "#e9d8a6", "#ee9b00", "#ca6702", "#ae2012", "#9b2226"),
+      values = scales::rescale(c(-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 0.9, 1)),
+      name = "Estimate") +
+    labs(y = "Estimate")
+  
+  # OPTION 2: Color by association status
+  combined_data <- bind_rows(
+    NA_data %>% mutate(status = "Not Associated"),
+    A_data %>% mutate(status = "Associated")
+  )
+  
+  plot2 <- ggplot(combined_data, aes(model, estimate, color = status)) +
+    geom_line(aes(group = group_number), alpha = 0.12, linewidth = 0.25) +
+    geom_point(aes(group = group_number), alpha = 0.25, size = 0.7) +
+    geom_errorbar(stat = "summary", fun.data = mean_sd,
+                  width = 0.2, linewidth = 0.8, alpha = 0.8) +
+    geom_point(stat = "summary", fun = mean, size = 3, 
+               shape = 21, fill = "white", stroke = 1.5) +
+    facet_grid(Scenario ~ domain, scales = "free_y") +
+    base_theme +
+    theme(legend.position = "right",
+          legend.title = element_text(size = 16, face = "bold"),
+          legend.text = element_text(size = 14)) +
+    scale_color_manual(
+      name = "Taxa Status",
+      values = c("Associated" = "#9b2226", "Not Associated" = "#005f73")) +
+    labs(y = "Estimate")
+  
+  # OPTION 3: Categorical effect sizes (with grey for near-zero)
+  NA_cat <- NA_data %>%
+    mutate(effect_cat = factor(
+      case_when(
+        estimate >= 0.5 ~ "Strong Positive",
+        estimate >= 0.25 ~ "Moderate Positive",
+        estimate > 0.05 ~ "Weak Positive",
+        estimate >= -0.05 ~ "Near Zero",
+        estimate >= -0.25 ~ "Weak Negative",
+        TRUE ~ "Negative"),
+      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
+                 "Near Zero", "Weak Negative", "Negative")))
+  
+  A_cat <- A_data %>%
+    mutate(effect_cat = factor(
+      case_when(
+        estimate >= 0.5 ~ "Strong Positive",
+        estimate >= 0.25 ~ "Moderate Positive",
+        estimate > 0.05 ~ "Weak Positive",
+        estimate >= -0.05 ~ "Near Zero",
+        estimate >= -0.25 ~ "Weak Negative",
+        TRUE ~ "Negative"),
+      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
+                 "Near Zero", "Weak Negative", "Negative")))
+  
+  plot3 <- ggplot() +
+    geom_line(data = NA_cat, alpha = 0.12, 
+              aes(model, estimate, group = group_number, color = effect_cat),
+              linewidth = 0.25) +
+    geom_line(data = A_cat, alpha = 0.15, 
+              aes(model, estimate, group = group_number, color = effect_cat),
+              linewidth = 0.25) +
+    geom_point(data = NA_cat, aes(model, estimate, color = effect_cat), 
+               alpha = 0.25, size = 0.7) +
+    geom_point(data = A_cat, aes(model, estimate, color = effect_cat), 
+               alpha = 0.35, size = 0.7) +
+    geom_errorbar(data = NA_cat, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_errorbar(data = A_cat, aes(model, estimate, group = model),
+                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
+    geom_point(data = NA_cat, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    geom_point(data = A_cat, aes(model, estimate, group = model),
+               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
+    facet_grid(Scenario ~ domain, scales = "free_y") +
+    base_theme +
+    theme(legend.position = "right") +
+    scale_color_manual(
+      name = "Effect Size",
+      values = c("Strong Positive" = "#9b2226",
+                 "Moderate Positive" = "#ca6702",
+                 "Weak Positive" = "#ee9b00",
+                 "Near Zero" = "#d3d3d3",
+                 "Weak Negative" = "#0a9396",
+                 "Negative" = "#005f73")) +
+    labs(y = "Estimate")
+  
+  # Save plots if requested
+  if (save_plots) {
+    png(file.path(output_dir, paste0(file_prefix, "_Option1.png")),
+        res = 300, height = 4000, width = 4000)
+    print(plot1)
+    dev.off()
+    
+    png(file.path(output_dir, paste0(file_prefix, "_Option2.png")),
+        res = 300, height = 4000, width = 4000)
+    print(plot2)
+    dev.off()
+    
+    png(file.path(output_dir, paste0(file_prefix, "_Option3.png")),
+        res = 300, height = 4000, width = 4000)
+    print(plot3)
+    dev.off()
+  }
+  
+  # Return list of plots
+  list(option1 = plot1, option2 = plot2, option3 = plot3)
+}
+
+
+
+# Error Bars Function ----
+mean_sd <- function(x) {
+  mean_val <- mean(x)
+  sd_val <- sd(x)
+  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
+}
