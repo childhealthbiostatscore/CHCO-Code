@@ -142,6 +142,13 @@ desc_table1_fixed %>%
   gtsave("MMP9_demographics.png", 
          vwidth = 1200, vheight = 800)
 
+# Save the table as Word document
+library(flextable)
+
+desc_table1_fixed %>%
+  as_flex_table() %>%
+  flextable::save_as_docx(path = "MMP9_demographics.docx")
+
 
 
 ##Analysis & Plotting 
@@ -731,7 +738,7 @@ graph5 <- ggplot(data_filtered %>% filter(!is.na(scopeptin)),
   theme_classic() +
   scale_color_manual(values = c("0-8 hours" = "#2E86AB", "3 months" = "#A23B72"),
                      name = "Time") +
-  labs(x = 'Serum Copeptin', y = 'MMP9 (eGFR adj)') +
+  labs(x = 'Serum Copeptin (pmol/L)', y = 'MMP9 (eGFR adj)') +
   theme(text = element_text(size = 16),
         legend.position = "bottom")
 
@@ -742,7 +749,7 @@ graph6 <- ggplot(data_filtered %>% filter(!is.na(sua)),
   theme_classic() +
   scale_color_manual(values = c("0-8 hours" = "#2E86AB", "3 months" = "#A23B72"),
                      name = "Time") +
-  labs(x = 'Serum Uric Acid', y = 'MMP9 (eGFR adj)') +
+  labs(x = 'Serum Uric Acid (mg/dL)', y = 'MMP9 (eGFR adj)') +
   theme(text = element_text(size = 16),
         legend.position = "bottom")
 
@@ -1294,6 +1301,5 @@ results_aki_fdr <- get_mixed_model_pvalues_combined_fdr(data_aki, "aki_0_24")
 results_t1d_none <- get_mixed_model_pvalues_none(data_t1d, "t1d_status")
 results_t1d_fdr <- get_mixed_model_pvalues_combined_fdr(data_t1d, "t1d_status")
 
-# COMPARISON FUNCTION
-compare_unadjusted_vs_fdr
+
 
