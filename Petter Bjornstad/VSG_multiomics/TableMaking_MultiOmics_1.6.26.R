@@ -165,9 +165,12 @@ library(gtsummary)
 library(dplyr)
 
 
-# Create Table 1 with age properly converted
+# Create Table 1 with updated formatting
 table1 <- patient_level %>%
-  mutate(age_numeric = as.numeric(as.character(age))) %>%
+  mutate(
+    age_numeric = as.numeric(as.character(age)),
+    microalbuminuria = ifelse(acr_u > 30, "Yes", "No")
+  ) %>%
   select(
     treatment,
     age_numeric,
@@ -179,7 +182,10 @@ table1 <- patient_level %>%
     sbp,
     dbp,
     eGFR_fas_cr_cysc,
+    gfr_raw_plasma,
+    gfr_bsa_plasma,
     acr_u,
+    microalbuminuria,
     epic_insulin_1,
     epic_sglti2_1,
     epic_glp1ra_1,
@@ -191,10 +197,23 @@ table1 <- patient_level %>%
   ) %>%
   tbl_summary(
     by = treatment,
-    type = list(age_numeric ~ "continuous"),
+    type = list(
+      age_numeric ~ "continuous",
+      acr_u ~ "continuous",
+      microalbuminuria ~ "categorical"
+    ),
     statistic = list(
       all_continuous() ~ "{mean} ({sd})",
+      acr_u ~ "{median} ({p25}, {p75})",
       all_categorical() ~ "{n} ({p}%)"
+    ),
+    digits = list(
+      age_numeric ~ 0,
+      hba1c.y ~ 1,
+      dbp ~ 0,
+      acr_u ~ 1,
+      gfr_raw_plasma ~ 0,
+      gfr_bsa_plasma ~ 0
     ),
     label = list(
       age_numeric ~ "Age, years",
@@ -206,7 +225,10 @@ table1 <- patient_level %>%
       sbp ~ "SBP, mmHg",
       dbp ~ "DBP, mmHg",
       eGFR_fas_cr_cysc ~ "eGFR, mL/min/1.73m²",
+      gfr_raw_plasma ~ "Measured GFR, mL/min",
+      gfr_bsa_plasma ~ "Measured GFR (BSA-adjusted), mL/min/1.73m²",
       acr_u ~ "UACR, mg/g",
+      microalbuminuria ~ "Microalbuminuria (UACR >30 mg/g)",
       epic_insulin_1 ~ "Insulin",
       epic_sglti2_1 ~ "SGLT2i",
       epic_glp1ra_1 ~ "GLP-1RA",
@@ -222,20 +244,14 @@ table1 <- patient_level %>%
   bold_labels()
 
 table1
-# Set output folder
+
+
+
 output_dir <- "C:/Users/netio/Documents/UofW/Projects/Long_Paper/"
-
-# Create folder if it doesn't exist
-if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
-
 # Export to Word
 table1 %>% 
   as_gt() %>% 
   gt::gtsave(paste0(output_dir, "Table1_VSG_vs_SMT.docx"))
-
-
-
-
 
 
 
