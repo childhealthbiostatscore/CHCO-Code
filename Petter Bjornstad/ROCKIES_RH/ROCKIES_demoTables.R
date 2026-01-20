@@ -108,8 +108,14 @@ dat <- harmonized_data %>% dplyr::select(-dob) %>%
 
 # Get scRNAseq participants from Seurat metadata
 load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
+# Get scRNAseq participants from Seurat metadata
+load('C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/No_Med_line700.Rdata')
 tmp_meta <- so_kpmp_sc@meta.data
 scrnaseq_ids <- tmp_meta %>% dplyr::select(record_id, group) %>% filter(!duplicated(record_id))
+
+# Remove co-enrolled participant (keep only first biopsy)
+scrnaseq_ids <- scrnaseq_ids %>% filter(record_id != "RH2-14-T")
+
 remove(so_kpmp_sc)
 
 dat_scrnaseq <- dat %>% 
@@ -285,15 +291,15 @@ table3 <- dat_results %>%
 ########################################################################
 # TABLE 4 & 5: GBM and Arteriosclerosis (from Step 2)
 ########################################################################
-########################################################################
-# TABLE 4 & 5: GBM and Arteriosclerosis (from Step 2)
-########################################################################
 
 cat("\n=== TABLE 4 & 5: GBM/Arteriosclerosis Cohort ===\n")
 
 # Load clinical data with GBM and arteriosclerosis
 dat_clinical <- data.table::fread("C:/Users/netio/Downloads/UACR_Allparticipants_forGBM.csv")
 dat_clinical <- dat_clinical[-stringr::str_which(dat_clinical$record_id, '-O')]
+
+dat_clinical <- dat_clinical %>% 
+  dplyr::select(-any_of(c("age", "sex", "race_ethnicity", "bmi", "hba1c", "acr_u", "group")))
 
 # Reload harmonized data to get demographics
 harmonized_data <- read.csv("C:/Users/netio/OneDrive - UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/harmonized_dataset.csv", na = '')
