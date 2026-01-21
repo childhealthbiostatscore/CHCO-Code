@@ -337,6 +337,18 @@ def clean_renal_heiritage():
     biopsy["visit"] = "baseline"
     
     # --------------------------------------------------------------------------
+    # Sphygmocor
+    # --------------------------------------------------------------------------
+    var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
+                                                  == "pwv", "field_name"]]
+    sphygmocor = pd.DataFrame(proj.export_records(fields=var))
+    sphygmocor.drop(["redcap_event_name", "redcap_repeat_instrument", "redcap_repeat_instance"], axis=1, inplace=True)
+    # Replace missing values
+    sphygmocor.replace(rep, np.nan, inplace=True)
+    sphygmocor.rename({"sphyg_date": "date", "sphyg_ht": "height"}, axis=1, inplace=True)
+    sphygmocor["procedure"] = "sphygmocor"
+    sphygmocor["visit"] = "baseline"
+    # --------------------------------------------------------------------------
     # Voxelwise
     # --------------------------------------------------------------------------
 
@@ -444,6 +456,9 @@ def clean_renal_heiritage():
     az_u_metab.dropna(thresh=5, axis=0, inplace=True)
     plasma_metab.dropna(thresh=10, axis=0, inplace=True)
     lip.dropna(thresh=10, axis=0, inplace=True)
+    sphygmocor.dropna(thresh=2, axis=0, inplace=True)
+    print("number of non-missing sphyg_yob values: ", sphygmocor["sphyg_yob"].notna().sum())
+
 
     # --------------------------------------------------------------------------
     # Merge
@@ -465,6 +480,9 @@ def clean_renal_heiritage():
     df = pd.concat([df, az_u_metab], join='outer', ignore_index=True)
     df = pd.concat([df, plasma_metab], join='outer', ignore_index=True)
     df = pd.concat([df, lip], join='outer', ignore_index=True)
+    df = pd.concat([df, sphygmocor], join='outer', ignore_index=True)
+    print("number of non-missing sphyg_yob values: ", df["sphyg_yob"].notna().sum())
+
     df = pd.merge(df, demo, on='record_id', how="outer")
     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
     df = df.copy()
@@ -485,4 +503,5 @@ def clean_renal_heiritage():
     # Drop empty columns
     df.dropna(how='all', axis=1, inplace=True)
     # Return final data
+    print("number of non-missing sphyg_yob values: ", df["sphyg_yob"].notna().sum())
     return df
