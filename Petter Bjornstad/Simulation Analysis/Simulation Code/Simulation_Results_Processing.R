@@ -85,8 +85,8 @@ sim.par.all <- sim.par.all %>%
 #Read in & Format all results
 all_formatted_results <- data.frame()
 temp_file <- tempfile(fileext = ".RDS") 
-for (scenario in 1:9) {
-  # for (scenario in c(1,2,4:9)) {
+# for (scenario in 1:9) {
+  for (scenario in c(1)) {
   s3$download_file(bucket,paste0("scn",scenario,"_iters1_to_1000.RDS"), temp_file)
   results <- readRDS(temp_file)
   formatted.results <- format.fxn(results)
