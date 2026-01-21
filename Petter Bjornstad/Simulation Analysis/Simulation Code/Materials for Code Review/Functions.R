@@ -195,7 +195,7 @@ format.fxn <- function(results.data){
 #Plot Function ----
 create_estimate_plots <- function(data, 
                                   analysis_type = "mixture",
-                                  output_dir = "/home/hhampson/Results/Microbiome Results",
+                                  output_dir = dir.results,
                                   save_plots = FALSE,
                                   n_sample_iterations = 25,
                                   seed = 123) {
@@ -296,7 +296,7 @@ create_estimate_plots <- function(data,
 # Function to calculate sensitivity measures and create heatmaps
 calculate_sensitivity_measures <- function(data,
                                            analysis_type = "individual",
-                                           output_dir = "/home/hhampson/Results/Microbiome Results",
+                                           output_dir = dir.results,
                                            save_plots = FALSE,
                                            save_csv = FALSE) {
   
@@ -474,7 +474,7 @@ calculate_sensitivity_measures <- function(data,
 #Bias ----
 calculate_bias_species <- function(data,
                                    analysis_type = "individual",
-                                   output_dir = "/home/hhampson/Results/Microbiome Results",
+                                   output_dir = dir.results,
                                    save_plots = FALSE,
                                    save_csv = FALSE) {
   
@@ -573,17 +573,24 @@ calculate_bias_species <- function(data,
   
   # HEATMAP 2: Associated Taxa Bias
   max_assoc <- max(abs(bias_results$Associated_Bias), na.rm = TRUE)
+  if (is.infinite(max_assoc) || max_assoc == 0) {
+    max_assoc <- 1  # Default scale if no associated taxa
+  }
   
   heatmap_associated <- ggplot(bias_results, 
                                aes(x = Scenario, y = model, fill = Associated_Bias)) +
     geom_tile(color = "white", linewidth = 0.5) +
+    geom_tile(data = filter(bias_results, is.na(Associated_Bias)), 
+              aes(x = Scenario, y = model), 
+              fill = "#f0f0f0", color = "white", linewidth = 0.5) +
     base_theme +
     theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
     scale_fill_gradientn(
       colours = c("#005f73", "#94d2bd", "#e9d8a6", "#ee9b00", "#9b2226"),
       values = scales::rescale(c(-max_assoc, -max_assoc/2, 0, max_assoc/2, max_assoc)),
       name = "Associated Bias\n(- = Underestimate\n+ = Overestimate)",
-      limits = c(-max_assoc, max_assoc)) +
+      limits = c(-max_assoc, max_assoc),
+      na.value = "#f0f0f0") +
     labs(x = "Scenario", y = "Model",
          title = "Bias for Associated Taxa (Systematic Error in Effect Estimates)")
   
