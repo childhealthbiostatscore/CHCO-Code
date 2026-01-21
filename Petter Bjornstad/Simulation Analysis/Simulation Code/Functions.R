@@ -795,11 +795,198 @@ create_estimate_plots_scheme2 <- function(data,
   list(option1 = plot1, option2 = plot2, option3 = plot3)
 }
 
-
-
-# Error Bars Function ----
-mean_sd <- function(x) {
-  mean_val <- mean(x)
-  sd_val <- sd(x)
-  data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
+# Sensitivity Measures ----
+# Function to calculate sensitivity measures and create heatmaps
+calculate_sensitivity_measures <- function(data,
+                                           analysis_type = "individual",
+                                           output_dir = "/home/hhampson/Results/Microbiome Results",
+                                           save_plots = FALSE,
+                                           save_csv = FALSE) {
+  
+  require(tidyverse)
+  require(reshape2)
+  
+  # Filter for analysis type
+  if (analysis_type == "individual") {
+    filtered_data <- data %>% filter(exposure != "Mixture")
+    file_prefix <- "Individual"
+  } else if (analysis_type == "mixture") {
+    filtered_data <- data %>% filter(exposure == "Mixture")
+    file_prefix <- "Mixture"
+  } else {
+    stop("analysis_type must be either 'individual' or 'mixture'")
+  }
+  
+  # Helper function to calculate metrics for one model
+  calc_metrics <- function(model_data, model_name, sig_var = "sig") {
+    model_data %>%
+      mutate(PosNeg = case_when(
+        indicator == "Associated" & !!sym(sig_var) == "*" ~ "True Positive",
+        indicator == "Associated" & !!sym(sig_var) != "*" ~ "False Negative",
+        indicator == "Not Associated" & !!sym(sig_var) == "*" ~ "False Positive",
+        indicator == "Not Associated" & !!sym(sig_var) != "*" ~ "True Negative")) %>%
+      group_by(domain, Scenario) %>%
+      summarise(
+        Specificity = length(which(PosNeg == "True Negative")) / 
+          (length(which(PosNeg == "True Negative")) + length(which(PosNeg == "False Positive"))),
+        Sensitivity = length(which(PosNeg == "True Positive")) / 
+          (length(which(PosNeg == "True Positive")) + length(which(PosNeg == "False Negative"))),
+        PPV = length(which(PosNeg == "True Positive")) / 
+          (length(which(PosNeg == "True Positive")) + length(which(PosNeg == "False Positive"))),
+        NPV = length(which(PosNeg == "True Negative")) / 
+          (length(which(PosNeg == "False Negative")) + length(which(PosNeg == "True Negative"))),
+        FDR = length(which(PosNeg == "False Positive")) / 
+          (length(which(PosNeg == "True Positive")) + length(which(PosNeg == "False Positive"))),
+        TypeI = 1 - Specificity,
+        TypeII = 1 - Sensitivity,
+        .groups = 'drop'
+      ) %>%
+      mutate(Model = model_name)
+  }
+  
+  # Calculate metrics for each model
+  BaH_ZING <- filtered_data %>%
+    filter(model == "BaHZING") %>%
+    calc_metrics("BaHZING")
+  
+  RBaH_ZING <- filtered_data %>%
+    filter(model == "RBaHZING") %>%
+    calc_metrics("RBaHZING")
+  
+  ZING <- filtered_data %>%
+    filter(model == "ZING") %>%
+    calc_metrics("ZING")
+  
+  ZING_fdr <- filtered_data %>%
+    filter(model == "ZING") %>%
+    calc_metrics("Adj.ZING", sig_var = "fdr.sig")
+  
+  # Combine all results
+  SensSpec <- rbind(BaH_ZING, RBaH_ZING, ZING, ZING_fdr)
+  
+  # Reshape to long format
+  melted_data <- melt(SensSpec, id.vars = c('Model', 'domain', 'Scenario'))
+  
+  # Factor ordering
+  model_order <- c('BaHZING', 'RBaHZING', 'ZING', 'Adj.ZING')
+  melted_data$Model <- factor(melted_data$Model, levels = model_order)
+  
+  taxa_order <- c("Species", "Genus", "Family", "Order", "Class", "Phylum")
+  melted_data$domain <- factor(melted_data$domain, levels = taxa_order)
+  
+  # Add scenario labels
+  melted_data <- melted_data %>%
+    mutate(Scenario = paste0("Scenario ", Scenario))
+  
+  scenario_order <- paste0("Scenario ", 1:9)
+  melted_data$Scenario <- factor(melted_data$Scenario, levels = scenario_order)
+  
+  # Create normalized value and mark NAs
+  melted_data <- melted_data %>%
+    mutate(
+      is_na = is.na(value) | is.nan(value) | is.infinite(value),
+      normalized_value = case_when(
+        is_na ~ NA_real_,
+        variable %in% c("FDR", "TypeI", "TypeII") ~ 1 - value,
+        TRUE ~ value
+      ),
+      display_text = case_when(
+        is_na ~ "N/A",
+        TRUE ~ sprintf("%.2f", value)
+      )
+    )
+  
+  # Create wide format for CSV
+  formatted_wide <- melted_data %>%
+    select(Model, domain, Scenario, variable, value) %>%
+    pivot_wider(names_from = domain, values_from = value) %>%
+    select(Model, Scenario, variable, Species, Genus, Family, Order, Class, Phylum)
+  
+  # Save CSV if requested
+  if (save_csv) {
+    write.csv(formatted_wide, 
+              file.path(output_dir, paste0("Sensitivity_Measures_", file_prefix, ".csv")),
+              row.names = FALSE)
+  }
+  
+  # Base theme for heatmaps
+  base_heatmap_theme <- theme_bw() +
+    theme(
+      text = element_text(family = "Times", size = 12),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+      axis.text.y = element_text(size = 10),
+      axis.title = element_text(size = 12, face = "bold"),
+      strip.text.x = element_text(size = 10, face = "bold"),
+      strip.text.y = element_text(size = 10, face = "bold"),
+      legend.position = "right",
+      legend.title = element_text(size = 11, face = "bold"),
+      legend.text = element_text(size = 10))
+  
+  # Create heatmap for HIGH IS GOOD metrics
+  high_good_data <- melted_data %>%
+    filter(variable %in% c("Specificity", "Sensitivity", "PPV", "NPV"))
+  
+  heatmap_high_good <- ggplot(high_good_data, 
+                              aes(x = domain, y = Model, fill = value)) +
+    geom_tile(color = "white", linewidth = 0.5) +
+    geom_tile(data = filter(high_good_data, is_na), 
+              aes(x = domain, y = Model), 
+              fill = "#f0f0f0", color = "white", linewidth = 0.5) +
+    geom_text(aes(label = display_text), 
+              color = "black", size = 3, family = "Times") +
+    facet_grid(variable ~ Scenario) +
+    base_heatmap_theme +
+    scale_fill_gradientn(
+      colours = c("#9b2226", "#ee9b00", "#e9d8a6", "#94d2bd", "#005f73"),
+      values = scales::rescale(c(0, 0.25, 0.5, 0.75, 1)),
+      name = "Value\n(Higher = Better)",
+      limits = c(0, 1),
+      na.value = "#f0f0f0") +
+    labs(x = "Taxonomic Level", y = "Model",
+         title = "Performance Metrics (Higher is Better)")
+  
+  # Create heatmap for LOW IS GOOD metrics
+  low_good_data <- melted_data %>%
+    filter(variable %in% c("FDR", "TypeI", "TypeII"))
+  
+  heatmap_low_good <- ggplot(low_good_data, 
+                             aes(x = domain, y = Model, fill = normalized_value)) +
+    geom_tile(color = "white", linewidth = 0.5) +
+    geom_tile(data = filter(low_good_data, is_na), 
+              aes(x = domain, y = Model), 
+              fill = "#f0f0f0", color = "white", linewidth = 0.5) +
+    geom_text(aes(label = display_text), 
+              color = "black", size = 3, family = "Times") +
+    facet_grid(variable ~ Scenario) +
+    base_heatmap_theme +
+    scale_fill_gradientn(
+      colours = c("#9b2226", "#ee9b00", "#e9d8a6", "#94d2bd", "#005f73"),
+      values = scales::rescale(c(0, 0.25, 0.5, 0.75, 1)),
+      name = "Performance\n(Lower = Better)",
+      limits = c(0, 1),
+      na.value = "#f0f0f0") +
+    labs(x = "Taxonomic Level", y = "Model",
+         title = "Error Metrics (Lower is Better)")
+  
+  # Save plots if requested
+  if (save_plots) {
+    png(file.path(output_dir, paste0(file_prefix, "_Metrics_Heatmap_HighGood.png")),
+        res = 300, width = 4000, height = 2000)
+    print(heatmap_high_good)
+    dev.off()
+    
+    png(file.path(output_dir, paste0(file_prefix, "_Metrics_Heatmap_LowGood.png")),
+        res = 300, width = 4000, height = 2000)
+    print(heatmap_low_good)
+    dev.off()
+  }
+  
+  # Return results
+  list(
+    long_format = melted_data,
+    wide_format = formatted_wide,
+    heatmap_high_good = heatmap_high_good,
+    heatmap_low_good = heatmap_low_good
+  )
 }
+
