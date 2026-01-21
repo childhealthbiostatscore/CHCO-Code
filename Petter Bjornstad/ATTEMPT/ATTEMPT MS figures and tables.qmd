@@ -46,6 +46,7 @@ library(grid)
 library(gtable)
 library(extrafont)
 library(readxl)
+library(growthcleanr)
 ```
 
 ```{r include = F}
@@ -181,6 +182,19 @@ for(subject in unique(visit_minus4_values$subject_id)) {
     attempt_dat[attempt_dat$subject_id == subject & attempt_dat$visit == 0, var] <- patient_values[[var]]
   }
 }
+
+# add BMI percentiles
+attempt_bmip_subset <- 
+  attempt_dat %>%
+  mutate(sex = case_when(sex == "Male" ~ 0, 
+                         sex == "Female" ~ 1),
+         agem = age*12) %>%
+  dplyr::select(subject_id, visit, agem, wt = weight, ht = height, bmi, sex)
+attempt_bmip <-
+  ext_bmiz(data = attempt_bmip_subset) %>%
+  dplyr::select(subject_id, visit, bmip)
+attempt_dat <- attempt_dat[, -"bmip"] %>%
+  left_join(attempt_bmip)
 ```
 
 ```{r}
@@ -2563,6 +2577,7 @@ kable(summary(arsenal::tableby(
     weight + 
     height + 
     bmi + 
+    bmip +
     hba1c + 
     kwt(emu_urine_acr_mean_mgg, "medianq1q3", digits = 1) +
     anova(creatinine_s_mgdl, digits = 2) +

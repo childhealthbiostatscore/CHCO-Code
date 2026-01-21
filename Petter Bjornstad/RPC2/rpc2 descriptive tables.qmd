@@ -19,12 +19,62 @@ library(ggplot2)
 library(ggrepel)
 library(ggpubr)
 library(readxl)
+library(aws.s3)
+library(jsonlite)
 source("/Users/choiyej/GitHub/YC_CHCO/R Functions/label_harmonized_function.R")
 ```
 
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+## Create an S3 client
+keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+
+Sys.setenv(
+  "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
+  "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
+  "AWS_DEFAULT_REGION" = "",
+  "AWS_REGION" = "",
+  "AWS_S3_ENDPOINT" = "s3.kopah.uw.edu"
+)
+```
+
+
+```{r}
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
+
+rpc2_dat <- harm_dat %>%
+  filter(study %in% c("RPC2")) %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit))
+```
+
+
+
 ```{r echo = F}
 # REDCap token for RPC2
-api_tok <- read.csv("/Volumes/Peds Endo/Petter Bjornstad/Data Harmonization/api_tokens.csv")
+api_tok <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/api_tokens.csv")
 
 rpc2_tok <- api_tok[api_tok$Study == "RPC2",]$Token
 # uri for REDCap
@@ -37,7 +87,7 @@ rpc2_lab <- rpc2_meta %>%
   filter(is.na(select_choices_or_calculations))
 rpc2_lab_names <- rpc2_lab$field_name
 
-rpc2_subset_epic <- read.csv("/Volumes/Peds Endo/Petter Bjornstad/Data Harmonization/Data Exports/rpc2_biopsy_meds.csv") %>%
+rpc2_subset_epic <- read.csv("/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/Data Harmonization/Data Exports/rpc2_biopsy_meds.csv") %>%
   dplyr::summarise(across(everything(), ~ ifelse(all(is.na(.x)), NA, first(na.omit(.x)))),
                    .by = subject_id) 
 
@@ -77,8 +127,8 @@ rpc2_dat <- rpc2 %>%
 ```
 
 ```{r echo = F}
-summary(arsenal::tableby(~age_current + gender + race + ethnicity + group + weight + height + bmi + 
-                           sys_bp + dys_bp + map + chol_base + hba1c + screen_egfr + kwt(screen_urine_acr, "Nmiss", "median", "q1q3"), data = rpc2_dat))
+summary(arsenal::tableby(~age + sex + race + ethnicity + group + weight + height + bmi + 
+                           sbp + dbp + map + chol_base + hba1c + eGFR_CKD_epi + kwt(acr_u, "Nmiss", "median", "q1q3"), data = rpc2_dat))
 ```
 
 ```{r echo = F}

@@ -386,7 +386,7 @@ def clean_crocodile():
     rct = rct[["record_id", "ff", "kfg", "deltapf", "cm", "pg",
                "glomerular_pressure", "rbf", "rvr", "ra", "re", 
                "pah_raw", "pah_sd", "pah_cv"] + list(rename.values())]
-    rct["procedure"] = "clamp"
+    rct["procedure"] = "renal_clearance_testing"
     rct["visit"] = "baseline"
 
     dictionary.loc[dictionary['variable_name'].isin(rct.columns), 'form_name'] = 'renal_clearance'

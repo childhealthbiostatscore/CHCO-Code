@@ -242,11 +242,11 @@ format.fxn <- function(results.data){
 
 #Plot Function ----
 create_estimate_plots <- function(data, 
-                                          analysis_type = "mixture",
-                                          output_dir = "/home/hhampson/Results/Microbiome Results",
-                                          save_plots = FALSE,
-                                          n_sample_iterations = 25,
-                                          seed = 123) {
+                                  analysis_type = "mixture",
+                                  output_dir = "/home/hhampson/Results/Microbiome Results",
+                                  save_plots = FALSE,
+                                  n_sample_iterations = 25,
+                                  seed = 123) {
   
   require(tidyverse)
   require(ggplot2)
