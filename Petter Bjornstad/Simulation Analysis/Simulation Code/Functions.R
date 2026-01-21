@@ -241,14 +241,20 @@ format.fxn <- function(results.data){
 }
 
 #Plot Function ----
-plot_function <- function(data, 
-                          analysis_type = c("mixture", "individual"),
-                          output_dir = "/home/hhampson/Results/Microbiome Results",
-                          save_plots = FALSE,
-                          n_sample_iterations = 25,
-                          seed = 123) {
+create_estimate_plots <- function(data, 
+                                          analysis_type = "mixture",
+                                          output_dir = "/home/hhampson/Results/Microbiome Results",
+                                          save_plots = FALSE,
+                                          n_sample_iterations = 25,
+                                          seed = 123) {
   
-  analysis_type <- match.arg(analysis_type)
+  require(tidyverse)
+  require(ggplot2)
+  
+  # Validate analysis_type
+  if (!analysis_type %in% c("mixture", "individual")) {
+    stop("analysis_type must be either 'mixture' or 'individual'")
+  }
   
   # Set seed and sample iterations
   set.seed(seed)
@@ -290,179 +296,6 @@ plot_function <- function(data,
       strip.text.y = element_text(size = 15, face = "bold")
     )
   
-  # OPTION 1: Gradient color by estimate
-  plot1 <- ggplot() +
-    geom_line(data = NA_data, alpha = 0.5, 
-              aes(model, estimate, group = group_number, color = estimate)) +
-    geom_point(data = NA_data, aes(model, estimate, color = estimate), alpha = 0.5) +
-    geom_line(data = A_data, alpha = 0.5, 
-              aes(model, estimate, group = group_number, color = estimate)) +
-    geom_point(data = A_data, aes(model, estimate, color = estimate), alpha = 0.5) +
-    geom_errorbar(data = NA_data, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_errorbar(data = A_data, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_point(data = NA_data, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    geom_point(data = A_data, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    facet_grid(Scenario ~ domain, scales = "free_y") +
-    base_theme +
-    theme(legend.position = "left") +
-    scale_colour_gradientn(
-      colours = c("darkblue", "#2166ac", "#f7f7f7", "#b2182b", "darkred"),
-      values = scales::rescale(c(-1, -0.5, 0, 0.5, 1)),
-      name = "Estimate") +
-    labs(y = "Estimate")
-  
-  # OPTION 2: Color by association status
-  combined_data <- bind_rows(
-    NA_data %>% mutate(status = "Not Associated"),
-    A_data %>% mutate(status = "Associated")
-  )
-  
-  plot2 <- ggplot(combined_data, aes(model, estimate, color = status)) +
-    geom_line(aes(group = group_number), alpha = 0.4) +
-    geom_errorbar(stat = "summary", fun.data = mean_sd,
-                  width = 0.2, linewidth = 0.8, alpha = 0.8) +
-    geom_point(stat = "summary", fun = mean, size = 3, 
-               shape = 21, fill = "white", stroke = 1.5) +
-    facet_grid(Scenario ~ domain, scales = "free_y") +
-    base_theme +
-    theme(legend.position = "right",
-          legend.title = element_text(size = 16, face = "bold"),
-          legend.text = element_text(size = 14)) +
-    scale_color_manual(
-      name = "Taxa Status",
-      values = c("Associated" = "firebrick4", "Not Associated" = "gray60")) +
-    labs(y = "Estimate")
-  
-  # OPTION 3: Categorical effect sizes
-  NA_cat <- NA_data %>%
-    mutate(effect_cat = factor(
-      case_when(
-        estimate >= 0.5 ~ "Strong Positive",
-        estimate >= 0.25 ~ "Moderate Positive",
-        estimate >= 0 ~ "Weak Positive",
-        estimate >= -0.25 ~ "Weak Negative",
-        TRUE ~ "Negative"),
-      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
-                 "Weak Negative", "Negative")))
-  
-  A_cat <- A_data %>%
-    mutate(effect_cat = factor(
-      case_when(
-        estimate >= 0.5 ~ "Strong Positive",
-        estimate >= 0.25 ~ "Moderate Positive",
-        estimate >= 0 ~ "Weak Positive",
-        estimate >= -0.25 ~ "Weak Negative",
-        TRUE ~ "Negative"),
-      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
-                 "Weak Negative", "Negative")))
-  
-  plot3 <- ggplot() +
-    geom_line(data = NA_cat, alpha = 0.5, 
-              aes(model, estimate, group = group_number, color = effect_cat)) +
-    geom_line(data = A_cat, alpha = 0.5, 
-              aes(model, estimate, group = group_number, color = effect_cat)) +
-    geom_errorbar(data = NA_cat, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_errorbar(data = A_cat, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_point(data = NA_cat, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    geom_point(data = A_cat, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    facet_grid(Scenario ~ domain, scales = "free_y") +
-    base_theme +
-    theme(legend.position = "right") +
-    scale_color_manual(
-      name = "Effect Size",
-      values = c("Strong Positive" = "#660000", "Moderate Positive" = "#cc0000",
-                 "Weak Positive" = "#e69f00", "Weak Negative" = "#cccccc",
-                 "Negative" = "#9a9a9a")) +
-    labs(y = "Estimate")
-  
-  # Save plots if requested
-  if (save_plots) {
-    png(file.path(output_dir, paste0(file_prefix, "_Option1.png")),
-        res = 300, height = 4000, width = 4000)
-    print(plot1)
-    dev.off()
-    
-    png(file.path(output_dir, paste0(file_prefix, "_Option2.png")),
-        res = 300, height = 4000, width = 4000)
-    print(plot2)
-    dev.off()
-    
-    png(file.path(output_dir, paste0(file_prefix, "_Option3.png")),
-        res = 300, height = 4000, width = 4000)
-    print(plot3)
-    dev.off()
-  }
-  
-  # Return list of plots
-  list(option1 = plot1, option2 = plot2, option3 = plot3)
-}
-
-
-#Plot Function Alternative Color Scheme ----
-# SCHEME 1: Slate Grey to Bordeaux (with grey at zero)
-create_estimate_plots_scheme1 <- function(data, 
-                                          analysis_type = "mixture",
-                                          output_dir = "/home/hhampson/Results/Microbiome Results",
-                                          save_plots = FALSE,
-                                          n_sample_iterations = 25,
-                                          seed = 123) {
-  
-  require(tidyverse)
-  require(ggplot2)
-  
-  # Validate analysis_type
-  if (!analysis_type %in% c("mixture", "individual")) {
-    stop("analysis_type must be either 'mixture' or 'individual'")
-  }
-  
-  # Set seed and sample iterations
-  set.seed(seed)
-  sampled_iterations <- sample(unique(data$iteration), n_sample_iterations)
-  data_sample <- data %>% filter(iteration %in% sampled_iterations)
-  
-  # Filter for analysis type
-  if (analysis_type == "mixture") {
-    plot_data <- data_sample %>% filter(exposure == "Mixture")
-    file_prefix <- "Mixture_Plot_Scheme1"
-  } else {
-    plot_data <- data_sample %>% filter(exposure != "Mixture")
-    file_prefix <- "Individual_Plot_Scheme1"
-  }
-  
-  # Format factors
-  plot_data <- plot_data %>%
-    mutate(
-      model = factor(model, levels = c("BaHZING", "RBaHZING", "ZING")),
-      Scenario = factor(paste0("Scenario ", Scenario), 
-                        levels = paste0("Scenario ", 1:9)),
-      domain = factor(domain, 
-                      levels = c("Species", "Genus", "Family", "Order", "Class", "Phylum"))
-    )
-  
-  # Split by association status
-  NA_data <- plot_data %>% filter(indicator == "Not Associated")
-  A_data <- plot_data %>% filter(indicator == "Associated")
-  
-  # Base theme
-  base_theme <- theme_bw() +
-    theme(
-      text = element_text(family = "Times", size = 20, color = "black"),
-      axis.text = element_text(family = "Times", size = 15),
-      axis.title.x = element_blank(),
-      axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
-      axis.text.x = element_text(angle = 45, hjust = 1),
-      strip.text.x = element_text(size = 15, face = "bold"),
-      strip.text.y = element_text(size = 15, face = "bold")
-    )
-  
   # Helper function for error bars
   mean_sd <- function(x) {
     mean_val <- mean(x)
@@ -470,42 +303,13 @@ create_estimate_plots_scheme1 <- function(data,
     data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
   }
   
-  # OPTION 1: Gradient color by estimate (with grey at zero)
-  plot1 <- ggplot() +
-    geom_line(data = NA_data, alpha = 0.1, 
-              aes(model, estimate, group = group_number, color = estimate),
-              linewidth = 0.3) +
-    geom_point(data = NA_data, aes(model, estimate, color = estimate), 
-               alpha = 0.3, size = 0.8) +
-    geom_line(data = A_data, alpha = 0.2, 
-              aes(model, estimate, group = group_number, color = estimate),
-              linewidth = 0.3) +
-    geom_point(data = A_data, aes(model, estimate, color = estimate), 
-               alpha = 0.4, size = 0.8) +
-    geom_errorbar(data = NA_data, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_errorbar(data = A_data, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_point(data = NA_data, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    geom_point(data = A_data, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    facet_grid(Scenario ~ domain, scales = "free_y") +
-    base_theme +
-    theme(legend.position = "left") +
-    scale_colour_gradientn(
-      colours = c("#335c67", "#5a8691", "#7fa5ad", "#c2dfe0", "#d3d3d3", "#fff3b0", "#e09f3e", "#9e2a2b", "#540b0e"),
-      values = scales::rescale(c(-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1)),
-      name = "Estimate") +
-    labs(y = "Estimate")
-  
-  # OPTION 2: Color by association status
+  # Color by association status
   combined_data <- bind_rows(
-    NA_data %>% mutate(status = "Not Associated"),
-    A_data %>% mutate(status = "Associated")
+    NA_data %>% mutate(status = "True Null"),
+    A_data %>% mutate(status = "True Association")
   )
   
-  plot2 <- ggplot(combined_data, aes(model, estimate, color = status)) +
+  plot <- ggplot(combined_data, aes(model, estimate, color = status)) +
     geom_line(aes(group = group_number), alpha = 0.15, linewidth = 0.3) +
     geom_point(aes(group = group_number), alpha = 0.3, size = 0.8) +
     geom_errorbar(stat = "summary", fun.data = mean_sd,
@@ -516,283 +320,24 @@ create_estimate_plots_scheme1 <- function(data,
     base_theme +
     theme(legend.position = "right",
           legend.title = element_text(size = 16, face = "bold"),
-          legend.text = element_text(size = 14)) +
+          legend.text = element_text(size = 14),
+          title = element_text(size=20,face="bold")) +
     scale_color_manual(
-      name = "Taxa Status",
-      values = c("Associated" = "#540b0e", "Not Associated" = "#335c67")) +
-    labs(y = "Estimate")
+      name = "Simulated Association",
+      values = c("True Association" = "#540b0e", "True Null" = "gray")) +
+    labs(y = "Model Estimate",
+         title = paste0(str_to_title(analysis_type)))
   
-  # OPTION 3: Categorical effect sizes (with grey for near-zero)
-  NA_cat <- NA_data %>%
-    mutate(effect_cat = factor(
-      case_when(
-        estimate >= 0.5 ~ "Strong Positive",
-        estimate >= 0.25 ~ "Moderate Positive",
-        estimate > 0.05 ~ "Weak Positive",
-        estimate >= -0.05 ~ "Near Zero",
-        estimate >= -0.25 ~ "Weak Negative",
-        TRUE ~ "Negative"),
-      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
-                 "Near Zero", "Weak Negative", "Negative")))
-  
-  A_cat <- A_data %>%
-    mutate(effect_cat = factor(
-      case_when(
-        estimate >= 0.5 ~ "Strong Positive",
-        estimate >= 0.25 ~ "Moderate Positive",
-        estimate > 0.05 ~ "Weak Positive",
-        estimate >= -0.05 ~ "Near Zero",
-        estimate >= -0.25 ~ "Weak Negative",
-        TRUE ~ "Negative"),
-      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
-                 "Near Zero", "Weak Negative", "Negative")))
-  
-  plot3 <- ggplot() +
-    geom_line(data = NA_cat, alpha = 0.15, 
-              aes(model, estimate, group = group_number, color = effect_cat),
-              linewidth = 0.3) +
-    geom_line(data = A_cat, alpha = 0.2, 
-              aes(model, estimate, group = group_number, color = effect_cat),
-              linewidth = 0.3) +
-    geom_point(data = NA_cat, aes(model, estimate, color = effect_cat), 
-               alpha = 0.3, size = 0.8) +
-    geom_point(data = A_cat, aes(model, estimate, color = effect_cat), 
-               alpha = 0.4, size = 0.8) +
-    geom_errorbar(data = NA_cat, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_errorbar(data = A_cat, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_point(data = NA_cat, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    geom_point(data = A_cat, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    facet_grid(Scenario ~ domain, scales = "free_y") +
-    base_theme +
-    theme(legend.position = "right") +
-    scale_color_manual(
-      name = "Effect Size",
-      values = c("Strong Positive" = "#540b0e",
-                 "Moderate Positive" = "#9e2a2b",
-                 "Weak Positive" = "#e09f3e",
-                 "Near Zero" = "#d3d3d3",
-                 "Weak Negative" = "#7fa5ad",
-                 "Negative" = "#335c67")) +
-    labs(y = "Estimate")
-  
-  # Save plots if requested
+  # Save plot if requested
   if (save_plots) {
-    png(file.path(output_dir, paste0(file_prefix, "_Option1.png")),
+    png(file.path(output_dir, paste0(file_prefix, ".png")),
         res = 300, height = 4000, width = 4000)
-    print(plot1)
-    dev.off()
-    
-    png(file.path(output_dir, paste0(file_prefix, "_Option2.png")),
-        res = 300, height = 4000, width = 4000)
-    print(plot2)
-    dev.off()
-    
-    png(file.path(output_dir, paste0(file_prefix, "_Option3.png")),
-        res = 300, height = 4000, width = 4000)
-    print(plot3)
+    print(plot)
     dev.off()
   }
   
-  # Return list of plots
-  list(option1 = plot1, option2 = plot2, option3 = plot3)
-}
-
-# SCHEME 2: Teal to Brown-Red (with grey at zero) - Extra smooth
-create_estimate_plots_scheme2 <- function(data, 
-                                          analysis_type = "mixture",
-                                          output_dir = "/home/hhampson/Results/Microbiome Results",
-                                          save_plots = FALSE,
-                                          n_sample_iterations = 25,
-                                          seed = 123) {
-  
-  require(tidyverse)
-  require(ggplot2)
-  
-  # Validate analysis_type
-  if (!analysis_type %in% c("mixture", "individual")) {
-    stop("analysis_type must be either 'mixture' or 'individual'")
-  }
-  
-  # Set seed and sample iterations
-  set.seed(seed)
-  sampled_iterations <- sample(unique(data$iteration), n_sample_iterations)
-  data_sample <- data %>% filter(iteration %in% sampled_iterations)
-  
-  # Filter for analysis type
-  if (analysis_type == "mixture") {
-    plot_data <- data_sample %>% filter(exposure == "Mixture")
-    file_prefix <- "Mixture_Plot_Scheme2"
-  } else {
-    plot_data <- data_sample %>% filter(exposure != "Mixture")
-    file_prefix <- "Individual_Plot_Scheme2"
-  }
-  
-  # Format factors
-  plot_data <- plot_data %>%
-    mutate(
-      model = factor(model, levels = c("BaHZING", "RBaHZING", "ZING")),
-      Scenario = factor(paste0("Scenario ", Scenario), 
-                        levels = paste0("Scenario ", 1:9)),
-      domain = factor(domain, 
-                      levels = c("Species", "Genus", "Family", "Order", "Class", "Phylum"))
-    )
-  
-  # Split by association status
-  NA_data <- plot_data %>% filter(indicator == "Not Associated")
-  A_data <- plot_data %>% filter(indicator == "Associated")
-  
-  # Base theme
-  base_theme <- theme_bw() +
-    theme(
-      text = element_text(family = "Times", size = 20, color = "black"),
-      axis.text = element_text(family = "Times", size = 15),
-      axis.title.x = element_blank(),
-      axis.title.y = element_text(family = "Times", size = 20, face = "bold"),
-      axis.text.x = element_text(angle = 45, hjust = 1),
-      strip.text.x = element_text(size = 15, face = "bold"),
-      strip.text.y = element_text(size = 15, face = "bold")
-    )
-  
-  # Helper function for error bars
-  mean_sd <- function(x) {
-    mean_val <- mean(x)
-    sd_val <- sd(x)
-    data.frame(y = mean_val, ymin = mean_val - sd_val, ymax = mean_val + sd_val)
-  }
-  
-  # OPTION 1: Gradient color by estimate (with grey at zero)
-  plot1 <- ggplot() +
-    geom_line(data = NA_data, alpha = 0.08, 
-              aes(model, estimate, group = group_number, color = estimate),
-              linewidth = 0.25) +
-    geom_point(data = NA_data, aes(model, estimate, color = estimate), 
-               alpha = 0.25, size = 0.7) +
-    geom_line(data = A_data, alpha = 0.15, 
-              aes(model, estimate, group = group_number, color = estimate),
-              linewidth = 0.25) +
-    geom_point(data = A_data, aes(model, estimate, color = estimate), 
-               alpha = 0.35, size = 0.7) +
-    geom_errorbar(data = NA_data, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_errorbar(data = A_data, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_point(data = NA_data, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    geom_point(data = A_data, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    facet_grid(Scenario ~ domain, scales = "free_y") +
-    base_theme +
-    theme(legend.position = "left") +
-    scale_colour_gradientn(
-      colours = c("#001219", "#005f73", "#0a9396", "#94d2bd", "#d3d3d3", "#e9d8a6", "#ee9b00", "#ca6702", "#ae2012", "#9b2226"),
-      values = scales::rescale(c(-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 0.9, 1)),
-      name = "Estimate") +
-    labs(y = "Estimate")
-  
-  # OPTION 2: Color by association status
-  combined_data <- bind_rows(
-    NA_data %>% mutate(status = "Not Associated"),
-    A_data %>% mutate(status = "Associated")
-  )
-  
-  plot2 <- ggplot(combined_data, aes(model, estimate, color = status)) +
-    geom_line(aes(group = group_number), alpha = 0.12, linewidth = 0.25) +
-    geom_point(aes(group = group_number), alpha = 0.25, size = 0.7) +
-    geom_errorbar(stat = "summary", fun.data = mean_sd,
-                  width = 0.2, linewidth = 0.8, alpha = 0.8) +
-    geom_point(stat = "summary", fun = mean, size = 3, 
-               shape = 21, fill = "white", stroke = 1.5) +
-    facet_grid(Scenario ~ domain, scales = "free_y") +
-    base_theme +
-    theme(legend.position = "right",
-          legend.title = element_text(size = 16, face = "bold"),
-          legend.text = element_text(size = 14)) +
-    scale_color_manual(
-      name = "Taxa Status",
-      values = c("Associated" = "#9b2226", "Not Associated" = "#005f73")) +
-    labs(y = "Estimate")
-  
-  # OPTION 3: Categorical effect sizes (with grey for near-zero)
-  NA_cat <- NA_data %>%
-    mutate(effect_cat = factor(
-      case_when(
-        estimate >= 0.5 ~ "Strong Positive",
-        estimate >= 0.25 ~ "Moderate Positive",
-        estimate > 0.05 ~ "Weak Positive",
-        estimate >= -0.05 ~ "Near Zero",
-        estimate >= -0.25 ~ "Weak Negative",
-        TRUE ~ "Negative"),
-      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
-                 "Near Zero", "Weak Negative", "Negative")))
-  
-  A_cat <- A_data %>%
-    mutate(effect_cat = factor(
-      case_when(
-        estimate >= 0.5 ~ "Strong Positive",
-        estimate >= 0.25 ~ "Moderate Positive",
-        estimate > 0.05 ~ "Weak Positive",
-        estimate >= -0.05 ~ "Near Zero",
-        estimate >= -0.25 ~ "Weak Negative",
-        TRUE ~ "Negative"),
-      levels = c("Strong Positive", "Moderate Positive", "Weak Positive", 
-                 "Near Zero", "Weak Negative", "Negative")))
-  
-  plot3 <- ggplot() +
-    geom_line(data = NA_cat, alpha = 0.12, 
-              aes(model, estimate, group = group_number, color = effect_cat),
-              linewidth = 0.25) +
-    geom_line(data = A_cat, alpha = 0.15, 
-              aes(model, estimate, group = group_number, color = effect_cat),
-              linewidth = 0.25) +
-    geom_point(data = NA_cat, aes(model, estimate, color = effect_cat), 
-               alpha = 0.25, size = 0.7) +
-    geom_point(data = A_cat, aes(model, estimate, color = effect_cat), 
-               alpha = 0.35, size = 0.7) +
-    geom_errorbar(data = NA_cat, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_errorbar(data = A_cat, aes(model, estimate, group = model),
-                  stat = "summary", fun.data = mean_sd, width = 0.1, linewidth = 0.5, color = "black") +
-    geom_point(data = NA_cat, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    geom_point(data = A_cat, aes(model, estimate, group = model),
-               stat = "summary", fun = mean, size = 2, shape = 16, color = "black") +
-    facet_grid(Scenario ~ domain, scales = "free_y") +
-    base_theme +
-    theme(legend.position = "right") +
-    scale_color_manual(
-      name = "Effect Size",
-      values = c("Strong Positive" = "#9b2226",
-                 "Moderate Positive" = "#ca6702",
-                 "Weak Positive" = "#ee9b00",
-                 "Near Zero" = "#d3d3d3",
-                 "Weak Negative" = "#0a9396",
-                 "Negative" = "#005f73")) +
-    labs(y = "Estimate")
-  
-  # Save plots if requested
-  if (save_plots) {
-    png(file.path(output_dir, paste0(file_prefix, "_Option1.png")),
-        res = 300, height = 4000, width = 4000)
-    print(plot1)
-    dev.off()
-    
-    png(file.path(output_dir, paste0(file_prefix, "_Option2.png")),
-        res = 300, height = 4000, width = 4000)
-    print(plot2)
-    dev.off()
-    
-    png(file.path(output_dir, paste0(file_prefix, "_Option3.png")),
-        res = 300, height = 4000, width = 4000)
-    print(plot3)
-    dev.off()
-  }
-  
-  # Return list of plots
-  list(option1 = plot1, option2 = plot2, option3 = plot3)
+  # Return plot
+  return(plot)
 }
 
 # Sensitivity Measures ----
@@ -829,16 +374,8 @@ calculate_sensitivity_measures <- function(data,
       summarise(
         Specificity = length(which(PosNeg == "True Negative")) / 
           (length(which(PosNeg == "True Negative")) + length(which(PosNeg == "False Positive"))),
-        Sensitivity = length(which(PosNeg == "True Positive")) / 
-          (length(which(PosNeg == "True Positive")) + length(which(PosNeg == "False Negative"))),
-        PPV = length(which(PosNeg == "True Positive")) / 
-          (length(which(PosNeg == "True Positive")) + length(which(PosNeg == "False Positive"))),
-        NPV = length(which(PosNeg == "True Negative")) / 
-          (length(which(PosNeg == "False Negative")) + length(which(PosNeg == "True Negative"))),
         FDR = length(which(PosNeg == "False Positive")) / 
           (length(which(PosNeg == "True Positive")) + length(which(PosNeg == "False Positive"))),
-        TypeI = 1 - Specificity,
-        TypeII = 1 - Sensitivity,
         .groups = 'drop'
       ) %>%
       mutate(Model = model_name)
@@ -887,12 +424,8 @@ calculate_sensitivity_measures <- function(data,
       is_na = is.na(value) | is.nan(value) | is.infinite(value),
       normalized_value = case_when(
         is_na ~ NA_real_,
-        variable %in% c("FDR", "TypeI", "TypeII") ~ 1 - value,
+        variable == "FDR" ~ 1 - value,
         TRUE ~ value
-      ),
-      display_text = case_when(
-        is_na ~ "N/A",
-        TRUE ~ sprintf("%.2f", value)
       )
     )
   
@@ -922,62 +455,58 @@ calculate_sensitivity_measures <- function(data,
       legend.title = element_text(size = 11, face = "bold"),
       legend.text = element_text(size = 10))
   
-  # Create heatmap for HIGH IS GOOD metrics
-  high_good_data <- melted_data %>%
-    filter(variable %in% c("Specificity", "Sensitivity", "PPV", "NPV"))
+  # Create heatmap for Specificity (HIGH IS GOOD)
+  spec_data <- melted_data %>%
+    filter(variable == "Specificity")
   
-  heatmap_high_good <- ggplot(high_good_data, 
-                              aes(x = domain, y = Model, fill = value)) +
+  heatmap_specificity <- ggplot(spec_data, 
+                                aes(x = domain, y = Model, fill = value)) +
     geom_tile(color = "white", linewidth = 0.5) +
-    geom_tile(data = filter(high_good_data, is_na), 
+    geom_tile(data = filter(spec_data, is_na), 
               aes(x = domain, y = Model), 
               fill = "#f0f0f0", color = "white", linewidth = 0.5) +
-    geom_text(aes(label = display_text), 
-              color = "black", size = 3, family = "Times") +
-    facet_grid(variable ~ Scenario) +
+    facet_grid(. ~ Scenario) +
     base_heatmap_theme +
     scale_fill_gradientn(
       colours = c("#9b2226", "#ee9b00", "#e9d8a6", "#94d2bd", "#005f73"),
       values = scales::rescale(c(0, 0.25, 0.5, 0.75, 1)),
-      name = "Value\n(Higher = Better)",
+      name = "Specificity\n(Higher = Better)",
       limits = c(0, 1),
       na.value = "#f0f0f0") +
     labs(x = "Taxonomic Level", y = "Model",
-         title = "Performance Metrics (Higher is Better)")
+         title = "Specificity")
   
-  # Create heatmap for LOW IS GOOD metrics
-  low_good_data <- melted_data %>%
-    filter(variable %in% c("FDR", "TypeI", "TypeII"))
+  # Create heatmap for FDR (LOW IS GOOD)
+  fdr_data <- melted_data %>%
+    filter(variable == "FDR")
   
-  heatmap_low_good <- ggplot(low_good_data, 
-                             aes(x = domain, y = Model, fill = normalized_value)) +
+  heatmap_fdr <- ggplot(fdr_data, 
+                        aes(x = domain, y = Model, fill = normalized_value)) +
     geom_tile(color = "white", linewidth = 0.5) +
-    geom_tile(data = filter(low_good_data, is_na), 
+    geom_tile(data = filter(fdr_data, is_na), 
               aes(x = domain, y = Model), 
               fill = "#f0f0f0", color = "white", linewidth = 0.5) +
-    geom_text(aes(label = display_text), 
-              color = "black", size = 3, family = "Times") +
-    facet_grid(variable ~ Scenario) +
+    facet_grid(. ~ Scenario) +
     base_heatmap_theme +
     scale_fill_gradientn(
-      colours = c("#9b2226", "#ee9b00", "#e9d8a6", "#94d2bd", "#005f73"),
+      colours = c("#005f73", "#94d2bd", "#e9d8a6", "#ee9b00", "#9b2226"),
       values = scales::rescale(c(0, 0.25, 0.5, 0.75, 1)),
-      name = "Performance\n(Lower = Better)",
+      name = "FDR\n(Lower = Better)",
       limits = c(0, 1),
-      na.value = "#f0f0f0") +
+      na.value = "#f0f0f0")+
     labs(x = "Taxonomic Level", y = "Model",
-         title = "Error Metrics (Lower is Better)")
+         title = "False Discovery Rate")
   
   # Save plots if requested
   if (save_plots) {
-    png(file.path(output_dir, paste0(file_prefix, "_Metrics_Heatmap_HighGood.png")),
-        res = 300, width = 4000, height = 2000)
-    print(heatmap_high_good)
+    png(file.path(output_dir, paste0(file_prefix, "_Specificity_Heatmap.png")),
+        res = 300, width = 5000, height = 1500)
+    print(heatmap_specificity)
     dev.off()
     
-    png(file.path(output_dir, paste0(file_prefix, "_Metrics_Heatmap_LowGood.png")),
-        res = 300, width = 4000, height = 2000)
-    print(heatmap_low_good)
+    png(file.path(output_dir, paste0(file_prefix, "_FDR_Heatmap.png")),
+        res = 300, width = 5000, height = 1500)
+    print(heatmap_fdr)
     dev.off()
   }
   
@@ -985,8 +514,164 @@ calculate_sensitivity_measures <- function(data,
   list(
     long_format = melted_data,
     wide_format = formatted_wide,
-    heatmap_high_good = heatmap_high_good,
-    heatmap_low_good = heatmap_low_good
+    heatmap_specificity = heatmap_specificity,
+    heatmap_fdr = heatmap_fdr
   )
 }
 
+#Bias ----
+calculate_bias_species <- function(data,
+                                   analysis_type = "individual",
+                                   output_dir = "/home/hhampson/Results/Microbiome Results",
+                                   save_plots = FALSE,
+                                   save_csv = FALSE) {
+  
+  require(tidyverse)
+  
+  # Filter for analysis type and species level only
+  if (analysis_type == "individual") {
+    filtered_data <- data %>% 
+      filter(exposure != "Mixture", domain == "Species")
+    file_prefix <- "Individual"
+  } else if (analysis_type == "mixture") {
+    filtered_data <- data %>% 
+      filter(exposure == "Mixture", domain == "Species")
+    file_prefix <- "Mixture"
+  } else {
+    stop("analysis_type must be either 'individual' or 'mixture'")
+  }
+  
+  # Calculate OVERALL BIAS (all taxa combined)
+  overall_bias <- filtered_data %>%
+    group_by(model, Scenario) %>%
+    summarise(
+      Overall_Bias = mean(estimate - expectedLogOdds, na.rm = TRUE),
+      .groups = 'drop'
+    )
+  
+  # Calculate BIAS FOR ASSOCIATED TAXA (systematic over/underestimation)
+  associated_bias <- filtered_data %>%
+    filter(indicator == "Associated") %>%
+    group_by(model, Scenario) %>%
+    summarise(
+      Associated_Bias = mean(estimate - expectedLogOdds, na.rm = TRUE),
+      .groups = 'drop'
+    )
+  
+  # Calculate ABSOLUTE BIAS FOR NOT ASSOCIATED TAXA (magnitude of false signals)
+  not_associated_bias <- filtered_data %>%
+    filter(indicator == "Not Associated") %>%
+    group_by(model, Scenario) %>%
+    summarise(
+      NotAssociated_AbsBias = mean(abs(estimate - expectedLogOdds), na.rm = TRUE),
+      NotAssociated_MSE = mean((estimate - expectedLogOdds)^2, na.rm = TRUE),
+      .groups = 'drop'
+    )
+  
+  # Combine all bias metrics
+  bias_results <- overall_bias %>%
+    left_join(associated_bias, by = c("model", "Scenario")) %>%
+    left_join(not_associated_bias, by = c("model", "Scenario"))
+  
+  # Factor ordering
+  model_order <- c('BaHZING', 'RBaHZING', 'ZING')
+  bias_results$model <- factor(bias_results$model, levels = model_order)
+  
+  # Add scenario labels
+  bias_results <- bias_results %>%
+    mutate(Scenario = paste0("Scenario ", Scenario))
+  
+  scenario_order <- paste0("Scenario ", 1:9)
+  bias_results$Scenario <- factor(bias_results$Scenario, levels = scenario_order)
+  
+  # Save CSV if requested
+  if (save_csv) {
+    write.csv(bias_results, 
+              file.path(output_dir, paste0("Bias_Species_", file_prefix, ".csv")),
+              row.names = FALSE)
+  }
+  
+  # Base theme for heatmaps
+  base_theme <- theme_bw() +
+    theme(
+      text = element_text(family = "Times", size = 12),
+      axis.text.y = element_text(size = 10),
+      axis.title = element_text(size = 12, face = "bold"),
+      strip.text.x = element_text(size = 10, face = "bold"),
+      strip.text.y = element_text(size = 10, face = "bold"),
+      legend.position = "right",
+      legend.title = element_text(size = 11, face = "bold"),
+      legend.text = element_text(size = 10))
+  
+  # HEATMAP 1: Overall Bias
+  max_overall <- max(abs(bias_results$Overall_Bias), na.rm = TRUE)
+  
+  heatmap_overall <- ggplot(bias_results, 
+                            aes(x = Scenario, y = model, fill = Overall_Bias)) +
+    geom_tile(color = "white", linewidth = 0.5) +
+    base_theme +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
+    scale_fill_gradientn(
+      colours = c("#005f73", "#94d2bd", "#e9d8a6", "#ee9b00", "#9b2226"),
+      values = scales::rescale(c(-max_overall, -max_overall/2, 0, max_overall/2, max_overall)),
+      name = "Overall Bias\n(- = Underestimate\n+ = Overestimate)",
+      limits = c(-max_overall, max_overall)) +
+    labs(x = "Scenario", y = "Model",
+         title = "Overall Bias at Species Level (All Taxa)")
+  
+  # HEATMAP 2: Associated Taxa Bias
+  max_assoc <- max(abs(bias_results$Associated_Bias), na.rm = TRUE)
+  
+  heatmap_associated <- ggplot(bias_results, 
+                               aes(x = Scenario, y = model, fill = Associated_Bias)) +
+    geom_tile(color = "white", linewidth = 0.5) +
+    base_theme +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
+    scale_fill_gradientn(
+      colours = c("#005f73", "#94d2bd", "#e9d8a6", "#ee9b00", "#9b2226"),
+      values = scales::rescale(c(-max_assoc, -max_assoc/2, 0, max_assoc/2, max_assoc)),
+      name = "Associated Bias\n(- = Underestimate\n+ = Overestimate)",
+      limits = c(-max_assoc, max_assoc)) +
+    labs(x = "Scenario", y = "Model",
+         title = "Bias for Associated Taxa (Systematic Error in Effect Estimates)")
+  
+  # HEATMAP 3: Not Associated Taxa Absolute Bias
+  heatmap_not_associated <- ggplot(bias_results, 
+                                   aes(x = Scenario, y = model, fill = NotAssociated_AbsBias)) +
+    geom_tile(color = "white", linewidth = 0.5) +
+    base_theme +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10)) +
+    scale_fill_gradientn(
+      colours = c("#005f73", "#94d2bd", "#e9d8a6", "#ee9b00", "#9b2226"),
+      values = scales::rescale(c(0, 0.25, 0.5, 0.75, 1)),
+      name = "Absolute Bias\n(Lower = Better)",
+      limits = c(0, max(bias_results$NotAssociated_AbsBias, na.rm = TRUE))) +
+    labs(x = "Scenario", y = "Model",
+         title = "Absolute Bias for Not Associated Taxa (Magnitude of False Signals)")
+  
+  # Save plots if requested
+  if (save_plots) {
+    png(file.path(output_dir, paste0(file_prefix, "_Bias_Overall_Heatmap.png")),
+        res = 300, width = 4000, height = 1500)
+    print(heatmap_overall)
+    dev.off()
+    
+    png(file.path(output_dir, paste0(file_prefix, "_Bias_Associated_Heatmap.png")),
+        res = 300, width = 4000, height = 1500)
+    print(heatmap_associated)
+    dev.off()
+    
+    png(file.path(output_dir, paste0(file_prefix, "_Bias_NotAssociated_Heatmap.png")),
+        res = 300, width = 4000, height = 1500)
+    print(heatmap_not_associated)
+    dev.off()
+  }
+  
+  # Return results
+  list(
+    bias_summary = bias_results,
+    heatmap_overall = heatmap_overall,
+    heatmap_associated = heatmap_associated,
+    heatmap_not_associated = heatmap_not_associated
+  )
+}
