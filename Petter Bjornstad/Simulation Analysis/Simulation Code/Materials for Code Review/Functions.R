@@ -22,16 +22,6 @@ format.fxn <- function(results.data){
     ) %>% 
     dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","sig","fdr.sig","iteration"))
   
-  # zing.data.prob <- results.data %>%
-  #   filter(model=="ZINB" | model =="Poisson") %>%
-  #   filter(component=="Probability") %>%
-  #   mutate(pval = as.numeric(pval)) %>%
-  #   dplyr::group_by(domain) %>%
-  #   mutate(fdr = p.adjust(pval, method = "fdr")) %>%
-  #   ungroup() %>%
-  #   mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) %>%
-  #   mutate(model="ZING") 
-  
   bayesian <- results.data %>%
     filter(component=="Means") %>%
     filter(model=="BaHZING" | model =="RBaHZING") %>%
@@ -44,52 +34,14 @@ format.fxn <- function(results.data){
                   ucl=bci_ucl) %>% 
     dplyr::select(c("taxa_full","exposure","estimate","lcl","ucl","component","model","domain","Scenario","sig","fdr.sig","iteration"))
   
-  # formatted.data.prob <- results.data %>%
-  #   filter(component=="Probability") %>%
-  #   filter(model=="BaHZING" | model =="RBaHZING") %>%
-  #   mutate(taxa_full=str_replace_all(taxa_full,"k__species","species")) %>% 
-  #   mutate(fdr=pval) %>% 
-  #   mutate(fdr.sig=ifelse(fdr<0.05,"*","N.S.")) 
-  
   formatted.data <- rbind(zing.data,  bayesian)
-  # formatted.data <- formatted.data %>% 
-  # dplyr::rename(sig=fdr.sig)
-  # formatted.data.prob <- rbind(zing.data.prob,formatted.data.prob)
-  # rm(zing.data,zing.data.prob)
   rm(zing.data,bayesian)
-  
-  # formatted.data <- formatted.data %>%
-  #   mutate(Taxa.Level=case_when(grepl("species",Taxa) ~ "Species",
-  #                               grepl("genus",Taxa) ~ "Genus",
-  #                               grepl("family",Taxa) ~ "Family",
-  #                               grepl("order",Taxa) ~ "Order",
-  #                               grepl("class",Taxa) ~ "Class",
-  #                               grepl("phylum",Taxa) ~ "Phylum"))
-  # #Remove columns not needed
-  # formatted.data <- formatted.data %>%
-  #   select(-Component)
-  
-  # # Define a function to assign replication numbers
-  # assign_replication_numbers <- function(group) {
-  #   group$Replication <- seq_len(nrow(group))
-  #   return(group)
-  # }
-  
-  # # Apply the function to each group
-  # formatted.data <- formatted.data %>%
-  #   tidylog::group_by(Taxa, Exposure, Model,iteration) %>%
-  #   group_modify(~ assign_replication_numbers(.x))
   
   #Group number for plotting
   formatted.data <- formatted.data %>%
     tidylog::group_by(taxa_full,exposure,iteration) %>%
     tidylog::mutate(group_number = cur_group_id()) %>%
     ungroup()
-  
-  # formatted.data.prob <- formatted.data.prob %>%
-  #   tidylog::group_by(taxa_full,exposure,iteration) %>%
-  #   tidylog::mutate(group_number = cur_group_id()) %>%
-  #   ungroup()
   
   sim.par <- sim.par.all[unique(formatted.data$Scenario),]
   par <- sim.par$P.s.scenario

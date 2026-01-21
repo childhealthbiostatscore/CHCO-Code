@@ -1,15 +1,5 @@
-#1. Set Directories ----
-# dir.dat <- c("/Users/hhampson/Library/Mobile Documents/com~apple~CloudDocs/BHRM_microbiome/Simulation Code 11_04/Simularion Results/Final")
-# dir.code <- c("/Users/hhampson/Library/Mobile Documents/com~apple~CloudDocs/BHRM_microbiome/Simulation Code 11_04/HPC Code")
-# dir.lib <- c("/Users/hhampson/Library/Mobile Documents/com~apple~CloudDocs/BHRM_microbiome/Simulation Code 11_04")
-# dir.results <- c("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/Hailey Hampson/1_Ongoing Projects/Microbiome Manuscript/Simulation Results/Processed Simulation Results")
 
-
-# 2. Load Libraries ----
-# Load Libraries
-# source("Libraries.R")
-
-# 3. Load Data ----
+# 1. Load Data ----
 #Load Taxa Z Matrices
 #Genus
 # temp_file <- tempfile(fileext = ".RDS") 
@@ -60,12 +50,9 @@ sim.par.all <- read.csv(fs::path(dir.code,"Simulation_Parameters.csv")) %>%
 
 #Read in & Format all results
 all_formatted_results <- data.frame()
-# temp_file <- tempfile(fileext = ".RDS") 
-for (scenario in 1:9) {
-  # for (scenario in c(1,2,4:9)) {
-  # s3$download_file(bucket,paste0("scn",scenario,"_iters1_to_1000.RDS"), temp_file)
-  # results <- readRDS(temp_file)
-  results <- readRDS(paste0("scn",scenario,"_iters1_to_1000.RDS"))
+# for (scenario in 1:9) {
+  for (scenario in 1) {
+  results <- readRDS(fs::path(dir.dat,paste0("scn",scenario,"_iters1_to_1000.RDS")))
   formatted.results <- format.fxn(results)
   all_formatted_results <- rbind(all_formatted_results,formatted.results)
 }
@@ -75,6 +62,6 @@ rm(formatted.results)
 # temp_file <- tempfile(fileext = ".RDS") 
 # s3$download_file(bucket,"taxa_structure.RDS", temp_file)
 # names <- readRDS(temp_file)
-names <- readRDS("taxa_structure.RDS")
+names <- readRDS(fs::path(dir.dat,"taxa_structure.RDS"))
 
 
