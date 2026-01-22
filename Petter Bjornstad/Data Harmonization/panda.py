@@ -214,9 +214,9 @@ def clean_panda():
         r"visit_|bl_|_yr|yr_|_clamp", "", regex=True)
     croc_labs.rename({"uacr": "acr_u", "a1c": "hba1c",
                 "na_u": "sodium_u", "na_s": "sodium_s",
-                "s_creat": "creat_s", "u_creat": "creat_u",
+                "s_creat": "creatinine_s", "u_creat": "creatinine_u",
                 "u_mab": "urine_mab_baseline", "u_glucose": "urine_glucose",
-                "u_na": "na_u"}, axis=1, inplace=True)
+                "u_na": "na_u", "triglyceride_clamp": "triglycerides", "protein": "tot_protein"}, axis=1, inplace=True)
     croc_labs["procedure"] = "croc_clamp"
     croc_labs["visit"] = croc_labs["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
     croc_labs["visit"] = croc_labs["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
