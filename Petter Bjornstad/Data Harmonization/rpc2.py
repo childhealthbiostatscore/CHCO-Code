@@ -176,6 +176,7 @@ def clean_rpc2_redcap():
          "v62_med_dispense_arm_1": "treatment_period_4", "v8_arm_1": "post_treatment"},
         inplace=True)
     screen = screen.rename(columns={"redcap_event_name": "visit", "screen_urine_acr": "acr_u"})
+    screen["microalbumin_u"] = pd.to_numeric(screen["microalbumin_u"], errors="coerce") * 10
     
     screen.drop(["time_of_screen_blood", "screen_egfr", "time_of_screen_urine", "screen_pregnant"], axis=1, inplace=True)
 
@@ -193,7 +194,7 @@ def clean_rpc2_redcap():
     labs.drop(["wbc", "rbc", "mcv", "mch", "rdw", "mpv", "immgran", "chol_fractions", "ua_color", "ua_norm", 
               "ua_specgrav", "ua_ph", "ua_leukest", "ua_nitrate", "ua_protein", "ua_glucose", "ua_ketone", 
               "ua_urobilinogen", "ua_bilirubin", "ua_blood", "urineculture", "uric_acid", "phys_date", "vitals_date"], axis=1, inplace=True)            
-                  
+    labs["microalbumin_u"] = pd.to_numeric(labs["microalbumin_u"], errors="coerce") * 10
     labs["procedure"] = "labs"
     labs["redcap_event_name"].replace(
         {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",

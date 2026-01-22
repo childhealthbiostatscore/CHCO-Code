@@ -1,5 +1,5 @@
 ---
-title: "RPC2 Descriptive analysis"
+title: "Jenny's grant tables"
 author: "Ye Ji Choi"
 date: "`r lubridate::today()`"
 format: 
@@ -11,38 +11,28 @@ format:
     embed-resources: true
 ---
 
-```{r libraries, echo=F, include = F}
-library(tidyverse)
-library(arsenal)
+```{r echo = F, include = F}
 library(dplyr)
-library(ggplot2)
-library(ggrepel)
-library(ggpubr)
-library(readxl)
-library(aws.s3)
+library(purrr)
 library(jsonlite)
-source("/Users/choiyej/GitHub/YC_CHCO/R Functions/label_harmonized_function.R")
+library(aws.s3)
+library(digest)
+library(arsenal)
+library(readxl)
 ```
 
-
-```{r}
+```{r echo = F, warning = F}
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") { # local version
   root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
-  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
-} else if (user == "rameshsh") { # hyak version
-  root_path <- ""
-  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
 } else if (user == "yejichoi") { # hyak version
-  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  root_path <- ""
   git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
-  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
 } else if (user == "pylell") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
-  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
 } else {
   stop("Unknown user: please specify root path for this user.")
 }
@@ -59,17 +49,7 @@ Sys.setenv(
 )
 ```
 
-
-```{r}
-harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
-
-rpc2_dat <- harm_dat %>%
-  filter(study %in% c("RPC2")) %>%
-  mutate(visit = case_when(visit == "screening" ~ "baseline", T ~ visit)) %>%
-  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
-                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
-                   .by = c(record_id, visit))
-
+```{r echo = F, warning = F}
 # read in biopsy master spreadsheet (updated real time)
 biopsy_master <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/Biopsy master tracker.xlsx", skip = 2) 
 colnames(biopsy_master) <- gsub(" ", "_", colnames(biopsy_master))  # Replace spaces with underscores
@@ -90,42 +70,43 @@ biopsy_master <- biopsy_master %>%
          Study = case_when(startsWith(Coenroll_ID__Same_visit_only, "RPC") & !is.na(Coenroll_ID__Same_visit_only) ~ "RPC2",
                             T ~ Study))
 
-biopsy_master_rpc2 <- biopsy_master %>%
-  filter(Study == "RPC2")
+biopsy_master_complete <- biopsy_master %>%
+  filter(scRNA_status == "Complete")
 ```
 
 
-```{r echo = F}
-summary(arsenal::tableby(visit ~ age + sex + race + ethnicity + group + weight + height + bmi + 
-                           sbp + dbp + map + chol_base + ldl + hdl + hba1c + triglycerides + 
-                           eGFR_CKD_epi + kwt(acr_u, "Nmiss", "median", "q1q3"), 
-                         data = subset(rpc2_dat, visit %in% c("baseline", "post_treatment") & record_id %in% biopsy_master_rpc2$record_id)))
+```{r echo = F, warning = F}
+# data pull
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na.strings = "")
 
-summary(arsenal::tableby(visit ~ age + sex + race + ethnicity + group + weight + height + bmi + 
-                           sbp + dbp + map + chol_base + ldl + hdl + hba1c + triglycerides + 
-                           eGFR_CKD_epi + kwt(acr_u, "Nmiss", "median", "q1q3"), 
-                         data = subset(rpc2_dat, visit %in% c("baseline", "post_treatment") & record_id %nin% biopsy_master_rpc2$record_id)))
-
+dat_subset <- harm_dat %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit)) %>%
+  filter(paste0(record_id, visit) %in% paste0(biopsy_master_complete$record_id, biopsy_master_complete$visit))
 ```
 
-```{r echo = F}
-# BOLD MRI
-summary(arsenal::tableby(~avg_asl + avg_adc + tkv + avg_bl_c + avg_bl_k, data = rpc2_dat))
+```{r echo = F, warning = F}
+sglt2i_subset <- dat_subset %>%
+  filter(group %in% c("Type 2 Diabetes", "Lean Control")) %>%
+  filter(visit == "baseline") %>%
+  filter(record_id != "CRC-55") %>%
+  mutate(group_sglt2i = case_when(group == "Type 2 Diabetes" & epic_sglti2_1 == "Yes" ~ "T2Di+",
+                                  group == "Type 2 Diabetes" & epic_sglti2_1 == "No" ~ "T2Di-",
+                                  group == "Lean Control" ~ "HC"))
+
+vsg_subset <- dat_subset %>%
+  filter(study == "IMPROVE" & 
+           visit %in% c("baseline", "12_months_post_surgery"))
 ```
 
-As of 1/28/25:
-11 unique participants with biopsy, 3 with repeat biopsy? (redcap)
-12 unique participants with biopsy, 9 with repeat biopsy? (spreadsheet)
+```{r echo = F, results = 'asis', warning = F}
+summary(arsenal::tableby(group_sglt2i ~ age + sex + bmi + hba1c + kwt(acr_u, "medianq1q3") + eGFR_CKD_epi + sbp + dbp,
+                 data = sglt2i_subset), digits = 1, total = F, test = F)
 
-```{r echo = F}
-# Baseline meds for those with biopsies
-med_vars <- rpc2_subset_epic %>%
-  select(ends_with("_1"), -kidneybx_1) %>%
-  names()
-
-# Construct the formula
-formula <- reformulate(med_vars)
-
-summary(arsenal::tableby(formula, data = rpc2_subset_epic))
+vsg_subset$visit <- factor(vsg_subset$visit, levels = c("baseline", "12_months_post_surgery"))
+summary(arsenal::tableby(visit ~ age + sex + bmi + hba1c + kwt(acr_u, "medianq1q3") + eGFR_CKD_epi + sbp + dbp,
+                 data = vsg_subset), digits = 1, total = F, test = F)
 ```
+
 
