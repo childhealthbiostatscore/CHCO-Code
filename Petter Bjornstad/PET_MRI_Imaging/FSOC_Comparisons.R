@@ -1787,1179 +1787,1128 @@ find_high_fsoc(dat)
 
 
 #### Updated analyses
-
-
 # ============================================================================
-# 11. VARIABLE IDENTIFICATION
-# ============================================================================
-# FSOC = Furosemide Stress Oxygen Consumption (from BOLD MRI R2*)
-#   Variables: fsoc_l_kidney, fsoc_r_kidney, fsoc_l_medulla, fsoc_r_medulla
-#   Already calculated as: pre-furosemide R2* - post-furosemide R2*
-#
-# K2 = TCA cycle metabolism (from C-11 acetate PET) - if available
-#
-# BOLD R2* baseline: bold_l_bl_medulla, bold_r_bl_medulla, etc.
-#   (Higher R2* = lower oxygenation / more deoxyhemoglobin)
+# DISCORDANT ANALYSIS WITH LEAN CONTROL REFERENCE CUTOFFS
 # ============================================================================
 
-identify_all_variables <- function(dat) {
-  available_vars <- names(dat)
-  
-  cat("\n========================================\n")
-  cat("VARIABLE IDENTIFICATION FOR PHENOTYPING\n")
-  cat("========================================\n\n")
-  
-  # K2 (PET-derived TCA metabolism)
-  k2_vars <- available_vars[grepl("^k2|_k2|cortical_k2|medullary_k2", 
-                                  available_vars, ignore.case = TRUE)]
-  
-  cat("--- K2 (PET TCA metabolism) variables ---\n")
-  if (length(k2_vars) > 0) {
-    for (v in k2_vars) {
-      n_nm <- sum(!is.na(dat[[v]]))
-      if (n_nm > 0) {
-        cat(sprintf("  %s: n=%d, range=[%.2f, %.2f]\n", 
-                    v, n_nm, min(dat[[v]], na.rm=T), max(dat[[v]], na.rm=T)))
-      }
-    }
-  } else {
-    cat("  No K2 variables found.\n")
-  }
-  
-  # BOLD R2* baseline
-  bold_vars <- available_vars[grepl("bold_.*_bl_|bold.*baseline", 
-                                    available_vars, ignore.case = TRUE)]
-  
-  cat("\n--- BOLD R2* baseline variables ---\n")
-  if (length(bold_vars) > 0) {
-    for (v in bold_vars) {
-      n_nm <- sum(!is.na(dat[[v]]))
-      if (n_nm > 0) {
-        cat(sprintf("  %s: n=%d, range=[%.2f, %.2f]\n", 
-                    v, n_nm, min(dat[[v]], na.rm=T), max(dat[[v]], na.rm=T)))
-      }
-    }
-  } else {
-    cat("  No BOLD baseline variables found.\n")
-  }
-  
-  # FSOC variables
-  fsoc_vars <- available_vars[grepl("fsoc_", available_vars, ignore.case = TRUE)]
-  
-  cat("\n--- FSOC variables ---\n")
-  if (length(fsoc_vars) > 0) {
-    for (v in fsoc_vars) {
-      n_nm <- sum(!is.na(dat[[v]]))
-      if (n_nm > 0) {
-        cat(sprintf("  %s: n=%d, range=[%.2f, %.2f]\n", 
-                    v, n_nm, min(dat[[v]], na.rm=T), max(dat[[v]], na.rm=T)))
-      }
-    }
-  } else {
-    cat("  No FSOC variables found.\n")
-  }
-  
-  return(list(k2 = k2_vars, bold = bold_vars, fsoc = fsoc_vars))
+# Load ggrepel if available, otherwise we'll use geom_text
+if (!requireNamespace("ggrepel", quietly = TRUE)) {
+  cat("Note: ggrepel package not installed. Using geom_text instead.\n")
+  cat("Install with: install.packages('ggrepel')\n")
+  use_repel <- FALSE
+} else {
+  library(ggrepel)
+  use_repel <- TRUE
 }
 
+# Define custom color palette for groups
+group_colors <- c(
+  "Type 2 Diabetes" = "#E41A1C",
+  "Type 1 Diabetes" = "#984EA3", 
+  "Lean Control" = "#4DAF4A",
+  "Obese Control" = "#377EB8"
+)
+
+# Phenotype colors
+phenotype_colors <- c(
+  "High K2 / Low FSOC" = "#E41A1C",
+  "High K2 / Normal FSOC" = "#FF7F00",
+  "Normal K2 / Low FSOC" = "#FFFF33",
+  "Normal K2 / Normal FSOC" = "#4DAF4A"
+)
+
 # ============================================================================
-# Calculate averaged BOLD baseline R2* if needed
+# STEP 1: CREATE LINKED DATASET (same as before)
 # ============================================================================
 
-calculate_bold_averages <- function(dat) {
-  dat <- dat %>%
+create_linked_k2_fsoc_dataset <- function(dat) {
+  
+  cat("\n========================================\n")
+  cat("CREATING LINKED K2-FSOC DATASET\n")
+  cat("========================================\n\n")
+  
+  # Identify available demographic variables
+  possible_demo_vars <- c("sex", "age", "bmi", "hba1c", "eGFR_CKD_epi", "gfr_fas_cr",
+                          "acr_u", "uacr", "diabetes_duration", "dm_duration",
+                          "sbp", "dbp", "weight", "height", "waist", "hip",
+                          "cholesterol", "ldl", "hdl", "triglycerides",
+                          "creatinine", "cystatin_c")
+  available_demo_vars <- possible_demo_vars[possible_demo_vars %in% names(dat)]
+  
+  # Extract K2 data
+  k2_select_vars <- c("record_id", "mrn", "group", available_demo_vars, "avg_c_k2", "avg_m_k2")
+  k2_select_vars <- unique(k2_select_vars[k2_select_vars %in% names(dat)])
+  
+  k2_data <- dat %>%
+    filter(!is.na(avg_c_k2) | !is.na(avg_m_k2)) %>%
+    filter(!is.na(mrn) & mrn != "") %>%
+    select(all_of(k2_select_vars)) %>%
+    rename(k2_record_id = record_id, k2_group = group) %>%
+    distinct(mrn, .keep_all = TRUE)
+  
+  cat("Subjects with K2 data and MRN:", nrow(k2_data), "\n")
+  
+  # Extract FSOC data
+  fsoc_select_vars <- c("record_id", "mrn", "group", 
+                        "fsoc_l_medulla", "fsoc_r_medulla", 
+                        "fsoc_l_kidney", "fsoc_r_kidney")
+  fsoc_select_vars <- fsoc_select_vars[fsoc_select_vars %in% names(dat)]
+  
+  fsoc_data <- dat %>%
+    filter(!is.na(fsoc_l_medulla) | !is.na(fsoc_r_medulla)) %>%
+    filter(!is.na(mrn) & mrn != "") %>%
+    select(all_of(fsoc_select_vars)) %>%
+    rename(fsoc_record_id = record_id, fsoc_group = group) %>%
+    distinct(mrn, .keep_all = TRUE)
+  
+  cat("Subjects with FSOC data and MRN:", nrow(fsoc_data), "\n")
+  
+  # Join by MRN
+  linked_data <- inner_join(k2_data, fsoc_data, by = "mrn")
+  
+  cat("\n*** LINKED SUBJECTS:", nrow(linked_data), "***\n")
+  
+  if (nrow(linked_data) == 0) return(NULL)
+  
+  # Calculate averaged FSOC
+  linked_data <- linked_data %>%
     mutate(
-      medullary_r2star_bl = case_when(
-        !is.na(bold_l_bl_medulla) & !is.na(bold_r_bl_medulla) ~ 
-          (bold_l_bl_medulla + bold_r_bl_medulla) / 2,
-        !is.na(bold_l_bl_medulla) ~ bold_l_bl_medulla,
-        !is.na(bold_r_bl_medulla) ~ bold_r_bl_medulla,
+      fsoc_medulla = case_when(
+        !is.na(fsoc_l_medulla) & !is.na(fsoc_r_medulla) ~ (fsoc_l_medulla + fsoc_r_medulla) / 2,
+        !is.na(fsoc_l_medulla) ~ fsoc_l_medulla,
+        !is.na(fsoc_r_medulla) ~ fsoc_r_medulla,
         TRUE ~ NA_real_
       ),
-      cortical_r2star_bl = case_when(
-        !is.na(bold_l_bl_cortex) & !is.na(bold_r_bl_cortex) ~ 
-          (bold_l_bl_cortex + bold_r_bl_cortex) / 2,
-        !is.na(bold_l_bl_cortex) ~ bold_l_bl_cortex,
-        !is.na(bold_r_bl_cortex) ~ bold_r_bl_cortex,
-        TRUE ~ NA_real_
-      )
+      group = k2_group
     )
-  return(dat)
+  
+  return(linked_data)
 }
 
 # ============================================================================
-# 12. PHENOTYPE CLASSIFICATION (High K2/R2*, Low FSOC)
+# STEP 2: PHENOTYPE WITH LEAN CONTROL CUTOFFS
 # ============================================================================
 
-create_fsoc_phenotypes <- function(dat, 
-                                   secondary_var = NULL,
-                                   fsoc_var = "medullary_fsoc_abs",
-                                   method = "control_reference",
-                                   control_group = "Lean Control",
-                                   n_sd = 1,
-                                   fsoc_cutoff = NULL,
-                                   secondary_cutoff = NULL) {
+run_lean_control_phenotype <- function(linked_data, 
+                                       k2_var = "avg_c_k2",
+                                       fsoc_var = "fsoc_medulla",
+                                       n_sd = 1) {
   
   cat("\n========================================\n")
-  cat("FSOC PHENOTYPE CLASSIFICATION\n")
+  cat("PHENOTYPE ANALYSIS: LEAN CONTROL REFERENCE\n")
   cat("========================================\n\n")
   
-  # Auto-detect secondary variable if not specified
-  if (is.null(secondary_var)) {
-    available_vars <- names(dat)
-    # Try K2 first, then BOLD baseline R2*
-    k2_candidates <- c("cortical_k2", "medullary_k2", "k2_cortex", "k2_medulla")
-    bold_candidates <- c("medullary_r2star_bl", "cortical_r2star_bl")
-    
-    secondary_var <- k2_candidates[k2_candidates %in% available_vars][1]
-    if (is.na(secondary_var)) {
-      secondary_var <- bold_candidates[bold_candidates %in% available_vars][1]
-    }
-    
-    if (is.na(secondary_var)) {
-      cat("ERROR: No K2 or BOLD baseline variable found.\n")
-      cat("Please specify secondary_var parameter.\n")
-      return(NULL)
-    }
+  # Filter to valid data
+  dat_valid <- linked_data %>%
+    filter(!is.na(.data[[k2_var]])) %>%
+    filter(!is.na(.data[[fsoc_var]]))
+  
+  cat("Total subjects with both K2 and FSOC:", nrow(dat_valid), "\n\n")
+  
+  # Identify Lean Controls
+  lean_controls <- dat_valid %>%
+    filter(grepl("Lean", group, ignore.case = TRUE))
+  
+  cat("Lean Control subjects:", nrow(lean_controls), "\n")
+  
+  if (nrow(lean_controls) < 2) {
+    cat("WARNING: Not enough Lean Controls. Using all non-diabetic controls.\n")
+    lean_controls <- dat_valid %>%
+      filter(grepl("Control", group, ignore.case = TRUE))
+    cat("Control subjects (all):", nrow(lean_controls), "\n")
   }
   
-  cat("Using FSOC variable:", fsoc_var, "\n")
-  cat("Using secondary variable:", secondary_var, "\n")
-  cat("Classification method:", method, "\n")
-  cat("Control group:", control_group, "\n\n")
+  # Calculate Lean Control statistics
+  lc_k2_mean <- mean(lean_controls[[k2_var]], na.rm = TRUE)
+  lc_k2_sd <- sd(lean_controls[[k2_var]], na.rm = TRUE)
+  lc_fsoc_mean <- mean(lean_controls[[fsoc_var]], na.rm = TRUE)
+  lc_fsoc_sd <- sd(lean_controls[[fsoc_var]], na.rm = TRUE)
   
-  # Filter to subjects with both measurements
-  dat_pheno <- dat %>%
-    filter(!is.na(group)) %>%
-    filter(!is.na(.data[[fsoc_var]])) %>%
-    filter(!is.na(.data[[secondary_var]])) %>%
-    filter(.data[[fsoc_var]] >= 0)  # Exclude negative FSOC
+  cat(sprintf("\nLean Control K2: mean = %.4f, SD = %.4f\n", lc_k2_mean, lc_k2_sd))
+  cat(sprintf("Lean Control FSOC: mean = %.2f, SD = %.2f\n", lc_fsoc_mean, lc_fsoc_sd))
   
-  cat("Subjects with both measurements:", nrow(dat_pheno), "\n")
+  # Set cutoffs
+  # High K2 = above Lean Control mean + n_sd * SD (elevated metabolism)
+  # Low FSOC = below Lean Control mean - n_sd * SD (impaired response)
+  k2_cutoff <- lc_k2_mean + n_sd * lc_k2_sd
+  fsoc_cutoff <- lc_fsoc_mean - n_sd * lc_fsoc_sd
   
-  # Check if control group exists
-  if (!control_group %in% unique(dat_pheno$group)) {
-    # Try alternative names
-    possible_controls <- c("Lean Control", "LC", "Lean_Control", "Control", "Healthy Control")
-    control_group <- possible_controls[possible_controls %in% unique(dat_pheno$group)][1]
-    if (is.na(control_group)) {
-      cat("WARNING: No control group found. Falling back to median method.\n")
-      method <- "median"
-    } else {
-      cat("Using control group:", control_group, "\n")
-    }
-  }
+  cat(sprintf("\nCUTOFFS (Lean Control mean ± %.1f SD):\n", n_sd))
+  cat(sprintf("  K2 cutoff: %.4f (above = High K2)\n", k2_cutoff))
+  cat(sprintf("  FSOC cutoff: %.2f (below = Low FSOC)\n", fsoc_cutoff))
   
-  # Determine cutoffs based on method
-  if (method == "control_reference") {
-    # Get control group data
-    control_data <- dat_pheno %>% filter(group == control_group)
-    
-    cat("\n--- Control Group Reference (", control_group, ") ---\n")
-    cat("N in control group:", nrow(control_data), "\n")
-    
-    # FSOC cutoff: Control mean - n_sd * SD
-    # Low FSOC = below this threshold (impaired response)
-    control_fsoc_mean <- mean(control_data[[fsoc_var]], na.rm = TRUE)
-    control_fsoc_sd <- sd(control_data[[fsoc_var]], na.rm = TRUE)
-    
-    if (is.null(fsoc_cutoff)) {
-      fsoc_cutoff <- control_fsoc_mean - n_sd * control_fsoc_sd
-    }
-    
-    cat(sprintf("Control FSOC: mean = %.3f, SD = %.3f\n", control_fsoc_mean, control_fsoc_sd))
-    cat(sprintf("FSOC cutoff (mean - %d SD): %.3f\n", n_sd, fsoc_cutoff))
-    
-    # Secondary variable cutoff: Control mean + n_sd * SD
-    # High K2/R2* = above this threshold (elevated metabolism/hypoxia)
-    control_sec_mean <- mean(control_data[[secondary_var]], na.rm = TRUE)
-    control_sec_sd <- sd(control_data[[secondary_var]], na.rm = TRUE)
-    
-    if (is.null(secondary_cutoff)) {
-      secondary_cutoff <- control_sec_mean + n_sd * control_sec_sd
-    }
-    
-    cat(sprintf("Control %s: mean = %.3f, SD = %.3f\n", secondary_var, control_sec_mean, control_sec_sd))
-    cat(sprintf("Secondary cutoff (mean + %d SD): %.3f\n", n_sd, secondary_cutoff))
-    
-  } else if (method == "median") {
-    if (is.null(fsoc_cutoff)) fsoc_cutoff <- median(dat_pheno[[fsoc_var]], na.rm = TRUE)
-    if (is.null(secondary_cutoff)) secondary_cutoff <- median(dat_pheno[[secondary_var]], na.rm = TRUE)
-    cat("Using median-based cutoffs\n")
-  } else if (method == "tertile") {
-    if (is.null(fsoc_cutoff)) fsoc_cutoff <- quantile(dat_pheno[[fsoc_var]], 0.33, na.rm = TRUE)
-    if (is.null(secondary_cutoff)) secondary_cutoff <- quantile(dat_pheno[[secondary_var]], 0.67, na.rm = TRUE)
-    cat("Using tertile-based cutoffs\n")
-  }
-  
-  cat(sprintf("\n  FINAL FSOC cutoff: %.3f (values BELOW = Low FSOC)\n", fsoc_cutoff))
-  cat(sprintf("  FINAL Secondary cutoff: %.3f (values ABOVE = High K2/R2*)\n\n", secondary_cutoff))
-  
-  # Create phenotype classifications
-  dat_pheno <- dat_pheno %>%
+  # Classify phenotypes
+  dat_valid <- dat_valid %>%
     mutate(
-      fsoc_level = ifelse(.data[[fsoc_var]] <= fsoc_cutoff, "Low FSOC", "High FSOC"),
-      secondary_level = ifelse(.data[[secondary_var]] >= secondary_cutoff, "High", "Low"),
+      k2_level = ifelse(.data[[k2_var]] > k2_cutoff, "High K2", "Normal K2"),
+      fsoc_level = ifelse(.data[[fsoc_var]] < fsoc_cutoff, "Low FSOC", "Normal FSOC"),
       
       phenotype_4 = case_when(
-        fsoc_level == "Low FSOC" & secondary_level == "High" ~ "Low FSOC / High K2-R2*",
-        fsoc_level == "Low FSOC" & secondary_level == "Low" ~ "Low FSOC / Low K2-R2*",
-        fsoc_level == "High FSOC" & secondary_level == "High" ~ "High FSOC / High K2-R2*",
-        fsoc_level == "High FSOC" & secondary_level == "Low" ~ "High FSOC / Low K2-R2*"
+        k2_level == "High K2" & fsoc_level == "Low FSOC" ~ "High K2 / Low FSOC",
+        k2_level == "High K2" & fsoc_level == "Normal FSOC" ~ "High K2 / Normal FSOC",
+        k2_level == "Normal K2" & fsoc_level == "Low FSOC" ~ "Normal K2 / Low FSOC",
+        k2_level == "Normal K2" & fsoc_level == "Normal FSOC" ~ "Normal K2 / Normal FSOC"
       ),
       
-      discordant = ifelse(fsoc_level == "Low FSOC" & secondary_level == "High",
+      # DISCORDANT = High K2 (elevated metabolism) + Low FSOC (impaired O2 response)
+      discordant = ifelse(k2_level == "High K2" & fsoc_level == "Low FSOC",
                           "Discordant", "Concordant")
     )
   
-  # Phenotype distribution
-  cat("PHENOTYPE DISTRIBUTION:\n")
-  pheno_table <- dat_pheno %>%
-    group_by(phenotype_4) %>%
-    summarise(n = n(), .groups = "drop") %>%
-    mutate(pct = round(100 * n / sum(n), 1))
-  print(as.data.frame(pheno_table))
+  # Results
+  cat("\n\n--- PHENOTYPE DISTRIBUTION ---\n")
+  print(table(dat_valid$phenotype_4))
   
-  # By disease group
-  cat("\nPHENOTYPE BY DISEASE GROUP:\n")
-  pheno_by_group <- dat_pheno %>%
-    count(group, phenotype_4) %>%
-    group_by(group) %>%
-    mutate(pct = round(100 * n / sum(n), 1))
-  print(as.data.frame(pheno_by_group))
+  cat("\n--- BY GROUP ---\n")
+  print(table(dat_valid$group, dat_valid$phenotype_4))
   
-  # Chi-square test
-  cat("\nCHI-SQUARE TEST: Phenotype vs Disease Group\n")
-  chi_test <- chisq.test(table(dat_pheno$group, dat_pheno$phenotype_4))
-  print(chi_test)
-  
-  # Discordant phenotype by group
-  cat("\nDISCORDANT PHENOTYPE BY GROUP:\n")
-  discordant_by_group <- dat_pheno %>%
+  cat("\n--- DISCORDANT SUMMARY ---\n")
+  disc_summary <- dat_valid %>%
     group_by(group) %>%
     summarise(
-      n_total = n(),
+      n = n(),
       n_discordant = sum(discordant == "Discordant"),
-      pct_discordant = round(100 * n_discordant / n_total, 1),
+      pct_discordant = round(100 * n_discordant / n, 1),
       .groups = "drop"
     )
-  print(as.data.frame(discordant_by_group))
+  print(as.data.frame(disc_summary))
+  
+  n_disc <- sum(dat_valid$discordant == "Discordant")
+  cat(sprintf("\nOVERALL: %d / %d (%.1f%%) are DISCORDANT\n", 
+              n_disc, nrow(dat_valid), 100 * n_disc / nrow(dat_valid)))
   
   return(list(
-    data = dat_pheno,
-    cutoffs = list(fsoc = fsoc_cutoff, secondary = secondary_cutoff),
-    secondary_var = secondary_var,
-    phenotype_table = pheno_table,
-    phenotype_by_group = pheno_by_group,
-    discordant_by_group = discordant_by_group,
-    chi_test = chi_test
+    data = dat_valid,
+    cutoffs = list(k2 = k2_cutoff, fsoc = fsoc_cutoff),
+    lean_control_stats = list(
+      k2_mean = lc_k2_mean, k2_sd = lc_k2_sd,
+      fsoc_mean = lc_fsoc_mean, fsoc_sd = lc_fsoc_sd
+    ),
+    n_sd = n_sd
   ))
 }
 
 # ============================================================================
-# PHENOTYPE VISUALIZATION
+# STEP 3: CLINICAL COMPARISON - DISCORDANT vs CONCORDANT
 # ============================================================================
 
-plot_phenotype_scatter <- function(pheno_results, fsoc_var = "medullary_fsoc_abs") {
-  
-  dat_pheno <- pheno_results$data
-  fsoc_cut <- pheno_results$cutoffs$fsoc
-  sec_cut <- pheno_results$cutoffs$secondary
-  sec_var <- pheno_results$secondary_var
-  
-  # Determine y-axis label
-  if (grepl("r2star", sec_var, ignore.case = TRUE)) {
-    y_label <- "Baseline R2* (s⁻¹)\n(Higher = more hypoxic)"
-  } else {
-    y_label <- "K2 - TCA metabolism (s⁻¹)"
-  }
-  
-  # Count subjects in each quadrant
-  n_discordant <- sum(dat_pheno$discordant == "Discordant", na.rm = TRUE)
-  n_total <- nrow(dat_pheno)
-  
-  p <- ggplot(dat_pheno, aes(x = .data[[fsoc_var]], y = .data[[sec_var]])) +
-    # Quadrant shading - highlight the "at risk" quadrant
-    annotate("rect", xmin = -Inf, xmax = fsoc_cut, ymin = sec_cut, ymax = Inf,
-             fill = "#FFCCCC", alpha = 0.4) +
-    annotate("rect", xmin = fsoc_cut, xmax = Inf, ymin = -Inf, ymax = sec_cut,
-             fill = "#CCFFCC", alpha = 0.3) +
-    annotate("rect", xmin = -Inf, xmax = fsoc_cut, ymin = -Inf, ymax = sec_cut,
-             fill = "#FFFFCC", alpha = 0.2) +
-    annotate("rect", xmin = fsoc_cut, xmax = Inf, ymin = sec_cut, ymax = Inf,
-             fill = "#CCE5FF", alpha = 0.2) +
-    # Points
-    geom_point(aes(color = group, shape = discordant), size = 3.5, alpha = 0.8) +
-    # Cutoff lines
-    geom_vline(xintercept = fsoc_cut, linetype = "dashed", color = "red", linewidth = 0.8) +
-    geom_hline(yintercept = sec_cut, linetype = "dashed", color = "red", linewidth = 0.8) +
-    # Quadrant labels
-    annotate("label", x = min(dat_pheno[[fsoc_var]], na.rm = TRUE), 
-             y = max(dat_pheno[[sec_var]], na.rm = TRUE),
-             label = "DISCORDANT\n(At Risk)", fontface = "bold", size = 3, 
-             color = "#CC0000", fill = "#FFEEEE", hjust = 0, vjust = 1) +
-    annotate("label", x = max(dat_pheno[[fsoc_var]], na.rm = TRUE), 
-             y = min(dat_pheno[[sec_var]], na.rm = TRUE),
-             label = "Normal\nResponse", fontface = "bold", size = 3, 
-             color = "#006600", fill = "#EEFFEE", hjust = 1, vjust = 0) +
-    # Theme
-    theme_bw(base_size = 12) +
-    theme(legend.position = "right", panel.grid.minor = element_blank()) +
-    labs(
-      x = "FSOC - Furosemide O₂ Consumption (s⁻¹)",
-      y = y_label,
-      title = "FSOC Phenotype Classification (Lean Control Reference)",
-      subtitle = paste0(
-        "Cutoffs based on Lean Control mean ± 1 SD | ",
-        "Discordant: n=", n_discordant, " (", round(100*n_discordant/n_total, 1), "%)\n",
-        "FSOC cutoff: ", round(fsoc_cut, 2), " | K2/R2* cutoff: ", round(sec_cut, 2)
-      ),
-      color = "Disease Group",
-      shape = "Phenotype"
-    ) +
-    scale_color_brewer(palette = "Set2") +
-    scale_shape_manual(values = c("Concordant" = 16, "Discordant" = 17),
-                       labels = c("Concordant", "Discordant (High K2/R2*, Low FSOC)"))
-  
-  return(p)
-}
-
-plot_discordant_by_group <- function(pheno_results) {
-  
-  discordant_df <- pheno_results$discordant_by_group
-  
-  p <- ggplot(discordant_df, aes(x = reorder(group, -pct_discordant), 
-                                 y = pct_discordant, fill = group)) +
-    geom_col(alpha = 0.8) +
-    geom_text(aes(label = paste0(n_discordant, "/", n_total)), vjust = -0.3, size = 3.5) +
-    theme_bw(base_size = 12) +
-    theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1)) +
-    labs(x = "Disease Group", y = "% Discordant (High K2/R2*, Low FSOC)",
-         title = "Prevalence of Discordant Phenotype by Group") +
-    scale_fill_brewer(palette = "Set2") +
-    scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
-  
-  return(p)
-}
-
-# ============================================================================
-# 12B. CLINICAL CHARACTERISTICS BY PHENOTYPE
-# ============================================================================
-
-compare_phenotype_characteristics <- function(pheno_results, dat_full = NULL) {
+compare_clinical_characteristics <- function(pheno_results, linked_data) {
   
   cat("\n========================================\n")
-  cat("CLINICAL CHARACTERISTICS BY PHENOTYPE\n")
+  cat("CLINICAL COMPARISON: DISCORDANT vs CONCORDANT\n")
   cat("========================================\n\n")
   
-  dat_pheno <- pheno_results$data
+  dat <- pheno_results$data
   
-  # If full dataset provided, merge additional variables
-  if (!is.null(dat_full)) {
-    merge_vars <- setdiff(names(dat_full), names(dat_pheno))
-    merge_vars <- c("record_id", merge_vars)
-    dat_pheno <- left_join(dat_pheno, dat_full[, merge_vars, drop = FALSE], by = "record_id")
+  # Count groups
+  n_disc <- sum(dat$discordant == "Discordant")
+  n_conc <- sum(dat$discordant == "Concordant")
+  
+  cat(sprintf("Discordant (High K2 / Low FSOC): n = %d\n", n_disc))
+  cat(sprintf("Concordant: n = %d\n\n", n_conc))
+  
+  if (n_disc < 1) {
+    cat("No discordant subjects found.\n")
+    return(NULL)
   }
   
-  available_vars <- names(dat_pheno)
-  
-  # Define clinical variables to compare
-  clinical_var_map <- list(
-    "Age" = c("age"),
-    "BMI" = c("bmi", "BMI"),
-    "Weight" = c("weight"),
-    "HbA1c" = c("hba1c", "HbA1c"),
-    "Fasting Glucose" = c("fasting_glucose", "glucose_fasting", "fbg"),
-    "Diabetes Duration" = c("diabetes_duration", "dm_duration"),
-    "eGFR (FAS)" = c("gfr_fas_cr", "eGFR_CKD_epi", "egfr"),
-    "mGFR (Iohexol)" = c("gfr_raw_plasma", "gfr_bsa_plasma"),
-    "ERPF" = c("erpf_raw_plasma", "erpf_bsa_plasma"),
-    "ACR" = c("acr_u", "uacr"),
-    "Filtration Fraction" = c("ff", "FF"),
-    "SBP" = c("sbp", "SBP", "map_sys"),
-    "DBP" = c("dbp", "DBP", "map_dia"),
-    "MAP" = c("map", "MAP"),
-    "Fat Mass (kg)" = c("dexa_fat_kg", "fat_mass"),
-    "Lean Mass (kg)" = c("dexa_lean_kg", "lean_mass"),
-    "Trunk Fat (kg)" = c("dexa_trunk_kg", "trunk_fat"),
-    "Body Fat %" = c("dexa_body_fat", "body_fat_pct"),
-    "Total Cholesterol" = c("cholesterol", "total_cholesterol"),
-    "LDL" = c("ldl", "LDL"),
-    "HDL" = c("hdl", "HDL"),
-    "Triglycerides" = c("triglycerides", "tg", "TG"),
-    "Medullary FSOC" = c("medullary_fsoc_abs"),
-    "Whole Kidney FSOC" = c("whole_kidney_fsoc_abs"),
-    "Cortical FSOC" = c("cortical_fsoc_abs"),
-    "Baseline R2* (Medulla)" = c("medullary_r2star_bl", "bold_medulla_bl"),
-    "Baseline R2* (Cortex)" = c("cortical_r2star_bl", "bold_cortex_bl")
+  # Define variables to compare with labels
+  var_labels <- c(
+    "age" = "Age (years)",
+    "bmi" = "BMI (kg/m²)",
+    "hba1c" = "HbA1c (%)",
+    "eGFR_CKD_epi" = "eGFR (mL/min/1.73m²)",
+    "acr_u" = "ACR (mg/g)",
+    "diabetes_duration" = "Diabetes Duration (years)",
+    "sbp" = "Systolic BP (mmHg)",
+    "dbp" = "Diastolic BP (mmHg)",
+    "weight" = "Weight (kg)",
+    "cholesterol" = "Total Cholesterol",
+    "ldl" = "LDL Cholesterol",
+    "hdl" = "HDL Cholesterol",
+    "triglycerides" = "Triglycerides",
+    "avg_c_k2" = "Cortical K2 (s⁻¹)",
+    "avg_m_k2" = "Medullary K2 (s⁻¹)",
+    "fsoc_medulla" = "Medullary FSOC (s⁻¹)"
   )
   
   # Find which variables exist
-  vars_to_compare <- list()
-  for (var_name in names(clinical_var_map)) {
-    possible_names <- clinical_var_map[[var_name]]
-    found_var <- possible_names[possible_names %in% available_vars][1]
-    if (!is.na(found_var)) {
-      vars_to_compare[[var_name]] <- found_var
-    }
-  }
+  available_vars <- names(var_labels)[names(var_labels) %in% names(dat)]
   
-  cat("Variables found for comparison:", length(vars_to_compare), "\n")
-  cat(paste(names(vars_to_compare), collapse = ", "), "\n\n")
+  cat("Variables available for comparison:", length(available_vars), "\n\n")
   
-  # Check if we have discordant subjects
-  n_discord <- sum(dat_pheno$discordant == "Discordant", na.rm = TRUE)
-  n_concord <- sum(dat_pheno$discordant == "Concordant", na.rm = TRUE)
+  # Build comparison table
+  results <- data.frame()
   
-  # =========================================
-  # COMPARISON 1: Discordant vs Concordant
-  # =========================================
-  cat("-------------------------------------------\n")
-  cat("COMPARISON 1: DISCORDANT vs CONCORDANT\n")
-  cat("-------------------------------------------\n\n")
-  
-  cat(sprintf("Discordant: n = %d\n", n_discord))
-  cat(sprintf("Concordant: n = %d\n\n", n_concord))
-  
-  results_binary <- data.frame()
-  
-  if (n_discord >= 2 & n_concord >= 2) {
-    # Proceed with comparison
-    for (var_name in names(vars_to_compare)) {
-      var_col <- vars_to_compare[[var_name]]
+  for (var in available_vars) {
+    disc_vals <- dat[[var]][dat$discordant == "Discordant"]
+    conc_vals <- dat[[var]][dat$discordant == "Concordant"]
+    
+    disc_vals <- disc_vals[!is.na(disc_vals)]
+    conc_vals <- conc_vals[!is.na(conc_vals)]
+    
+    if (length(disc_vals) >= 1 & length(conc_vals) >= 1 & is.numeric(dat[[var]])) {
       
-      discord_vals <- dat_pheno[[var_col]][dat_pheno$discordant == "Discordant"]
-      concord_vals <- dat_pheno[[var_col]][dat_pheno$discordant == "Concordant"]
-      
-      discord_vals <- discord_vals[!is.na(discord_vals)]
-      concord_vals <- concord_vals[!is.na(concord_vals)]
-      
-      if (length(discord_vals) >= 2 & length(concord_vals) >= 2) {
-        wilcox_p <- tryCatch({
-          wilcox.test(discord_vals, concord_vals)$p.value
+      # Wilcoxon test (if enough data)
+      p_val <- NA
+      if (length(disc_vals) >= 2 & length(conc_vals) >= 2) {
+        p_val <- tryCatch({
+          wilcox.test(disc_vals, conc_vals, exact = FALSE)$p.value
         }, error = function(e) NA)
-        
-        results_binary <- rbind(results_binary, data.frame(
-          Variable = var_name,
-          Discordant_mean = round(mean(discord_vals), 2),
-          Discordant_sd = round(sd(discord_vals), 2),
-          Concordant_mean = round(mean(concord_vals), 2),
-          Concordant_sd = round(sd(concord_vals), 2),
-          Difference = round(mean(discord_vals) - mean(concord_vals), 2),
-          P_value = round(wilcox_p, 4)
-        ))
       }
-    }
-    
-    if (nrow(results_binary) > 0) {
-      results_binary <- results_binary %>% 
-        arrange(P_value) %>%
-        mutate(Sig = case_when(
-          P_value < 0.001 ~ "***",
-          P_value < 0.01 ~ "**",
-          P_value < 0.05 ~ "*",
-          TRUE ~ ""
-        ))
-      print(as.data.frame(results_binary))
-    }
-  } else {
-    cat("** NOT ENOUGH SUBJECTS IN ONE OR BOTH GROUPS FOR COMPARISON **\n")
-    cat("Consider using a less strict cutoff (e.g., n_sd = 0.5) or median-based method.\n\n")
-  }
-  
-  # Sex distribution (with error handling)
-  cat("\n\nSEX DISTRIBUTION:\n")
-  sex_table <- dat_pheno %>% count(discordant, sex)
-  print(as.data.frame(sex_table))
-  
-  if (n_discord >= 1 & n_concord >= 1 & length(unique(dat_pheno$sex)) >= 2) {
-    sex_fisher <- tryCatch({
-      fisher.test(table(dat_pheno$discordant, dat_pheno$sex))
-    }, error = function(e) NULL)
-    
-    if (!is.null(sex_fisher)) {
-      cat(sprintf("\nFisher's exact test p-value: %.4f\n", sex_fisher$p.value))
-    }
-  }
-  
-  # Disease group distribution
-  cat("\n\nDISEASE GROUP DISTRIBUTION:\n")
-  group_table <- dat_pheno %>% count(discordant, group)
-  print(as.data.frame(group_table))
-  
-  if (n_discord >= 1 & n_concord >= 1 & length(unique(dat_pheno$group)) >= 2) {
-    group_fisher <- tryCatch({
-      fisher.test(table(dat_pheno$discordant, dat_pheno$group))
-    }, error = function(e) NULL)
-    
-    if (!is.null(group_fisher)) {
-      cat(sprintf("\nFisher's exact test p-value: %.4f\n", group_fisher$p.value))
-    }
-  }
-  
-  # =========================================
-  # COMPARISON 2: All 4 Phenotype Groups
-  # =========================================
-  cat("\n\n-------------------------------------------\n")
-  cat("COMPARISON 2: ALL PHENOTYPE GROUPS (Kruskal-Wallis)\n")
-  cat("-------------------------------------------\n\n")
-  
-  pheno_n <- dat_pheno %>% count(phenotype_4)
-  print(as.data.frame(pheno_n))
-  
-  results_4group <- data.frame(Variable = character(), KW_pvalue = numeric())
-  
-  # Only run if we have at least 2 groups with data
-  n_groups_with_data <- sum(pheno_n$n >= 2)
-  
-  if (n_groups_with_data >= 2) {
-    for (var_name in names(vars_to_compare)) {
-      var_col <- vars_to_compare[[var_name]]
       
-      kw_p <- tryCatch({
-        kruskal.test(dat_pheno[[var_col]] ~ dat_pheno$phenotype_4)$p.value
-      }, error = function(e) NA)
-      
-      results_4group <- rbind(results_4group, data.frame(
-        Variable = var_name,
-        KW_pvalue = round(kw_p, 4)
+      results <- rbind(results, data.frame(
+        Variable = var_labels[var],
+        Discordant_n = length(disc_vals),
+        Discordant_mean = mean(disc_vals),
+        Discordant_sd = sd(disc_vals),
+        Concordant_n = length(conc_vals),
+        Concordant_mean = mean(conc_vals),
+        Concordant_sd = sd(conc_vals),
+        Difference = mean(disc_vals) - mean(conc_vals),
+        P_value = p_val,
+        stringsAsFactors = FALSE
       ))
     }
-    
-    results_4group <- results_4group %>% arrange(KW_pvalue)
-    
-    cat("\nKruskal-Wallis test results (sorted by p-value):\n")
-    print(as.data.frame(results_4group %>% filter(!is.na(KW_pvalue)) %>% head(15)))
-  } else {
-    cat("Not enough groups with sufficient sample size for comparison.\n")
   }
   
-  return(list(
-    binary_comparison = results_binary,
-    fourgroup_comparison = results_4group,
-    sex_distribution = sex_table,
-    group_distribution = group_table
-  ))
+  if (nrow(results) > 0) {
+    results <- results %>%
+      mutate(
+        Discordant = sprintf("%.2f ± %.2f", Discordant_mean, Discordant_sd),
+        Concordant = sprintf("%.2f ± %.2f", Concordant_mean, Concordant_sd),
+        P_value_fmt = ifelse(is.na(P_value), "-", 
+                             ifelse(P_value < 0.001, "<0.001",
+                                    sprintf("%.3f", P_value))),
+        Sig = case_when(
+          is.na(P_value) ~ "",
+          P_value < 0.01 ~ "**",
+          P_value < 0.05 ~ "*",
+          P_value < 0.1 ~ "†",
+          TRUE ~ ""
+        )
+      ) %>%
+      arrange(P_value)
+    
+    # Print nice table
+    cat("\n--- CLINICAL CHARACTERISTICS TABLE ---\n\n")
+    print_table <- results %>%
+      select(Variable, Discordant, Concordant, P_value_fmt, Sig)
+    print(as.data.frame(print_table), row.names = FALSE)
+    
+    cat("\n* p < 0.05, ** p < 0.01, † p < 0.10\n")
+  }
+  
+  # Sex distribution
+  if ("sex" %in% names(dat)) {
+    cat("\n\n--- SEX DISTRIBUTION ---\n")
+    sex_table <- table(dat$discordant, dat$sex)
+    print(sex_table)
+    
+    if (min(dim(sex_table)) >= 2 & all(sex_table > 0)) {
+      fisher_p <- tryCatch({
+        fisher.test(sex_table)$p.value
+      }, error = function(e) NA)
+      if (!is.na(fisher_p)) cat(sprintf("Fisher's exact test p = %.4f\n", fisher_p))
+    }
+  }
+  
+  # Group distribution
+  cat("\n\n--- GROUP DISTRIBUTION ---\n")
+  print(table(dat$discordant, dat$group))
+  
+  return(results)
 }
 
 # ============================================================================
-# VISUALIZATION: Clinical Characteristics Forest Plot
+# STEP 6D: DISCORDANT vs ALL OTHERS COMBINED
 # ============================================================================
 
-plot_phenotype_characteristics <- function(comparison_results) {
+compare_discordant_vs_others <- function(pheno_results) {
   
-  binary_df <- comparison_results$binary_comparison
+  cat("\n========================================\n")
+  cat("DISCORDANT vs ALL OTHERS COMBINED\n")
+  cat("========================================\n\n")
   
-  # Filter to variables with sufficient data and reasonable effect sizes
-  plot_df <- binary_df %>%
-    filter(!is.na(P_value)) %>%
+  dat <- pheno_results$data
+  
+  n_disc <- sum(dat$discordant == "Discordant")
+  n_others <- sum(dat$discordant == "Concordant")
+  
+  cat(sprintf("Discordant (High K2 / Low FSOC): n = %d\n", n_disc))
+  cat(sprintf("All Others Combined: n = %d\n", n_others))
+  cat(sprintf("  - High K2 / Normal FSOC: n = %d\n", sum(dat$phenotype_4 == "High K2 / Normal FSOC")))
+  cat(sprintf("  - Normal K2 / Low FSOC: n = %d\n", sum(dat$phenotype_4 == "Normal K2 / Low FSOC")))
+  cat(sprintf("  - Normal K2 / Normal FSOC: n = %d\n\n", sum(dat$phenotype_4 == "Normal K2 / Normal FSOC")))
+  
+  if (n_disc < 1) {
+    cat("No discordant subjects found.\n")
+    return(NULL)
+  }
+  
+  # Define variables to compare
+  var_labels <- c(
+    "age" = "Age (years)",
+    "bmi" = "BMI (kg/m²)",
+    "hba1c" = "HbA1c (%)",
+    "eGFR_CKD_epi" = "eGFR (mL/min/1.73m²)",
+    "acr_u" = "ACR (mg/g)",
+    "diabetes_duration" = "Diabetes Duration (years)",
+    "sbp" = "Systolic BP (mmHg)",
+    "dbp" = "Diastolic BP (mmHg)",
+    "weight" = "Weight (kg)",
+    "avg_c_k2" = "Cortical K2 (s⁻¹)",
+    "avg_m_k2" = "Medullary K2 (s⁻¹)",
+    "fsoc_medulla" = "Medullary FSOC (s⁻¹)"
+  )
+  
+  available_vars <- names(var_labels)[names(var_labels) %in% names(dat)]
+  
+  results <- data.frame()
+  
+  for (var in available_vars) {
+    if (!is.numeric(dat[[var]])) next
+    
+    disc_vals <- dat[[var]][dat$discordant == "Discordant"]
+    other_vals <- dat[[var]][dat$discordant == "Concordant"]
+    
+    disc_vals <- disc_vals[!is.na(disc_vals)]
+    other_vals <- other_vals[!is.na(other_vals)]
+    
+    if (length(disc_vals) >= 1 & length(other_vals) >= 1) {
+      
+      # Wilcoxon test
+      p_val <- NA
+      if (length(disc_vals) >= 2 & length(other_vals) >= 2) {
+        p_val <- tryCatch({
+          wilcox.test(disc_vals, other_vals, exact = FALSE)$p.value
+        }, error = function(e) NA)
+      }
+      
+      # Effect size (Cohen's d)
+      pooled_sd <- sqrt(((length(disc_vals)-1)*sd(disc_vals)^2 + 
+                           (length(other_vals)-1)*sd(other_vals)^2) / 
+                          (length(disc_vals) + length(other_vals) - 2))
+      cohens_d <- ifelse(pooled_sd > 0, 
+                         (mean(disc_vals) - mean(other_vals)) / pooled_sd, 
+                         NA)
+      
+      results <- rbind(results, data.frame(
+        Variable = var_labels[var],
+        Discordant_n = length(disc_vals),
+        Discordant_mean = mean(disc_vals),
+        Discordant_sd = sd(disc_vals),
+        Others_n = length(other_vals),
+        Others_mean = mean(other_vals),
+        Others_sd = sd(other_vals),
+        Difference = mean(disc_vals) - mean(other_vals),
+        Cohens_d = cohens_d,
+        P_value = p_val,
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  if (nrow(results) > 0) {
+    results <- results %>%
+      mutate(
+        Discordant = sprintf("%.2f ± %.2f", Discordant_mean, Discordant_sd),
+        Others = sprintf("%.2f ± %.2f", Others_mean, Others_sd),
+        Effect = sprintf("%.2f", Cohens_d),
+        P_value_fmt = ifelse(is.na(P_value), "-", 
+                             ifelse(P_value < 0.001, "<0.001",
+                                    sprintf("%.3f", P_value))),
+        Sig = case_when(
+          is.na(P_value) ~ "",
+          P_value < 0.01 ~ "**",
+          P_value < 0.05 ~ "*",
+          P_value < 0.1 ~ "†",
+          TRUE ~ ""
+        ),
+        Effect_size = case_when(
+          is.na(Cohens_d) ~ "",
+          abs(Cohens_d) >= 0.8 ~ "Large",
+          abs(Cohens_d) >= 0.5 ~ "Medium",
+          abs(Cohens_d) >= 0.2 ~ "Small",
+          TRUE ~ "Negligible"
+        )
+      ) %>%
+      arrange(P_value)
+    
+    cat("\n--- DISCORDANT vs ALL OTHERS ---\n\n")
+    print_tbl <- results %>%
+      select(Variable, Discordant, Others, Effect, Effect_size, P_value_fmt, Sig)
+    names(print_tbl) <- c("Variable", "Discordant (n=7)", "All Others (n=36)", 
+                          "Cohen's d", "Effect Size", "p-value", "")
+    print(as.data.frame(print_tbl), row.names = FALSE)
+    
+    cat("\n* p < 0.05, ** p < 0.01, † p < 0.10\n")
+    cat("Cohen's d: |d| >= 0.8 Large, >= 0.5 Medium, >= 0.2 Small\n")
+  }
+  
+  return(results)
+}
+
+# ============================================================================
+# STEP 6E: FOREST PLOT - DISCORDANT VS OTHERS
+# ============================================================================
+
+plot_discordant_vs_others_forest <- function(comparison_results) {
+  
+  if (is.null(comparison_results) || nrow(comparison_results) == 0) {
+    return(NULL)
+  }
+  
+  plot_data <- comparison_results %>%
+    filter(!is.na(Cohens_d)) %>%
     mutate(
-      # Standardized difference (Cohen's d approximation)
-      pooled_sd = sqrt((Discordant_sd^2 + Concordant_sd^2) / 2),
-      effect_size = Difference / pooled_sd,
-      Variable = factor(Variable, levels = rev(Variable))  # Reverse for plotting
+      Variable = factor(Variable, levels = rev(Variable)),
+      significant = !is.na(P_value) & P_value < 0.05,
+      direction = ifelse(Cohens_d > 0, "Higher in Discordant", "Lower in Discordant")
     ) %>%
-    filter(abs(effect_size) < 5)  # Remove extreme outliers
+    filter(abs(Cohens_d) < 5)
   
-  # Create forest plot
-  p <- ggplot(plot_df, aes(x = effect_size, y = Variable)) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
-    geom_point(aes(size = -log10(P_value), color = P_value < 0.05), alpha = 0.7) +
-    geom_segment(aes(x = 0, xend = effect_size, y = Variable, yend = Variable,
-                     color = P_value < 0.05), alpha = 0.5) +
-    scale_color_manual(values = c("FALSE" = "grey60", "TRUE" = "#E41A1C"),
-                       labels = c("p ≥ 0.05", "p < 0.05"),
-                       name = "Significance") +
-    scale_size_continuous(range = c(2, 6), name = "-log10(p)") +
-    theme_bw(base_size = 11) +
+  if (nrow(plot_data) == 0) return(NULL)
+  
+  p <- ggplot(plot_data, aes(x = Cohens_d, y = Variable)) +
+    # Reference lines
+    geom_vline(xintercept = 0, linetype = "solid", color = "grey40", linewidth = 0.5) +
+    geom_vline(xintercept = c(-0.8, -0.5, 0.5, 0.8), linetype = "dotted", color = "grey70") +
+    # Effect size bars
+    geom_segment(aes(x = 0, xend = Cohens_d, y = Variable, yend = Variable,
+                     color = direction), linewidth = 2, alpha = 0.8) +
+    # Points
+    geom_point(aes(fill = direction, size = -log10(P_value + 0.001)), 
+               shape = 21, color = "black", stroke = 0.8) +
+    # Significance labels
+    geom_text(aes(label = Sig, x = Cohens_d + sign(Cohens_d) * 0.15), 
+              hjust = 0.5, vjust = 0.5, size = 5, fontface = "bold") +
+    # Scales
+    scale_fill_manual(values = c("Higher in Discordant" = "#E41A1C", 
+                                 "Lower in Discordant" = "#4DAF4A"),
+                      name = "Direction") +
+    scale_color_manual(values = c("Higher in Discordant" = "#E41A1C", 
+                                  "Lower in Discordant" = "#4DAF4A"),
+                       guide = "none") +
+    scale_size_continuous(range = c(4, 10), name = "-log10(p)") +
+    # Theme
+    theme_bw(base_size = 12) +
     theme(
       legend.position = "right",
-      axis.text.y = element_text(size = 9)
+      panel.grid.major.y = element_blank(),
+      axis.text.y = element_text(size = 11),
+      plot.title = element_text(face = "bold")
     ) +
     labs(
-      x = "Standardized Difference (Discordant - Concordant)",
+      x = "Cohen's d (Standardized Effect Size)",
       y = "",
-      title = "Clinical Characteristics: Discordant vs Concordant Phenotype",
-      subtitle = "Positive values = higher in discordant group"
+      title = "Discordant vs All Others: Clinical Characteristics",
+      subtitle = "Positive values = higher in Discordant | Dotted lines at d = ±0.5, ±0.8",
+      caption = "* p < 0.05, ** p < 0.01, † p < 0.10"
+    ) +
+    coord_cartesian(xlim = c(-2.5, 2.5))
+  
+  return(p)
+}
+
+# ============================================================================
+# STEP 4: VISUALIZATION - SCATTER PLOT
+# ============================================================================
+
+plot_phenotype_scatter_lc <- function(pheno_results, 
+                                      k2_var = "avg_c_k2",
+                                      fsoc_var = "fsoc_medulla") {
+  
+  dat <- pheno_results$data
+  k2_cut <- pheno_results$cutoffs$k2
+  fsoc_cut <- pheno_results$cutoffs$fsoc
+  lc_stats <- pheno_results$lean_control_stats
+  n_sd <- pheno_results$n_sd
+  
+  n_disc <- sum(dat$discordant == "Discordant")
+  n_total <- nrow(dat)
+  
+  # Set axis limits with some padding
+  x_range <- range(dat[[fsoc_var]], na.rm = TRUE)
+  y_range <- range(dat[[k2_var]], na.rm = TRUE)
+  x_pad <- diff(x_range) * 0.1
+  y_pad <- diff(y_range) * 0.1
+  
+  p <- ggplot(dat, aes(x = .data[[fsoc_var]], y = .data[[k2_var]])) +
+    # Quadrant shading
+    annotate("rect", 
+             xmin = -Inf, xmax = fsoc_cut, ymin = k2_cut, ymax = Inf,
+             fill = "#FF6B6B", alpha = 0.25) +
+    annotate("rect", 
+             xmin = fsoc_cut, xmax = Inf, ymin = -Inf, ymax = k2_cut,
+             fill = "#4ECDC4", alpha = 0.25) +
+    annotate("rect", 
+             xmin = -Inf, xmax = fsoc_cut, ymin = -Inf, ymax = k2_cut,
+             fill = "#FFE66D", alpha = 0.2) +
+    annotate("rect", 
+             xmin = fsoc_cut, xmax = Inf, ymin = k2_cut, ymax = Inf,
+             fill = "#95E1D3", alpha = 0.2) +
+    # Cutoff lines
+    geom_vline(xintercept = fsoc_cut, linetype = "dashed", color = "#E63946", linewidth = 1) +
+    geom_hline(yintercept = k2_cut, linetype = "dashed", color = "#E63946", linewidth = 1) +
+    # Lean Control reference lines (mean)
+    geom_vline(xintercept = lc_stats$fsoc_mean, linetype = "dotted", color = "blue", linewidth = 0.7) +
+    geom_hline(yintercept = lc_stats$k2_mean, linetype = "dotted", color = "blue", linewidth = 0.7) +
+    # Points
+    geom_point(aes(fill = group, shape = discordant), 
+               size = 5, alpha = 0.85, color = "black", stroke = 0.5) +
+    # Labels - use ggrepel if available
+    {if (use_repel) {
+      geom_text_repel(aes(label = k2_record_id), 
+                      size = 2.5, max.overlaps = 20,
+                      box.padding = 0.3, point.padding = 0.2)
+    } else {
+      geom_text(aes(label = k2_record_id), 
+                hjust = -0.15, vjust = -0.4, size = 2.5)
+    }} +
+    # Quadrant annotations
+    annotate("text", 
+             x = x_range[1] + x_pad, y = y_range[2] - y_pad,
+             label = paste0("DISCORDANT\n(High K2 / Low FSOC)\nn = ", 
+                            sum(dat$phenotype_4 == "High K2 / Low FSOC")),
+             fontface = "bold", size = 3.5, color = "#C92A2A", hjust = 0, vjust = 1) +
+    annotate("text", 
+             x = x_range[2] - x_pad, y = y_range[1] + y_pad,
+             label = paste0("NORMAL\n(Normal K2 / Normal FSOC)\nn = ", 
+                            sum(dat$phenotype_4 == "Normal K2 / Normal FSOC")),
+             fontface = "bold", size = 3.5, color = "#2B8A3E", hjust = 1, vjust = 0) +
+    # Scales
+    scale_fill_manual(values = group_colors, name = "Group") +
+    scale_color_manual(values = group_colors, name = "Group") +
+    scale_shape_manual(values = c("Concordant" = 21, "Discordant" = 24),
+                       name = "Phenotype") +
+    guides(fill = guide_legend(override.aes = list(shape = 21, size = 4)),
+           color = "none") +
+    # Theme
+    theme_bw(base_size = 12) +
+    theme(
+      legend.position = "right",
+      panel.grid.minor = element_blank(),
+      plot.title = element_text(face = "bold"),
+      plot.subtitle = element_text(size = 10)
+    ) +
+    labs(
+      x = expression("Medullary FSOC (s"^-1*")"),
+      y = expression("Cortical K2 - TCA Metabolism (s"^-1*")"),
+      title = "K2 vs FSOC Phenotype Classification",
+      subtitle = paste0(
+        "Cutoffs: Lean Control mean ± ", n_sd, " SD\n",
+        "K2 cutoff: ", round(k2_cut, 4), " | FSOC cutoff: ", round(fsoc_cut, 2), "\n",
+        "Discordant: ", n_disc, "/", n_total, " (", round(100*n_disc/n_total, 1), "%)"
+      ),
+      caption = "Blue dotted lines = Lean Control means; Red dashed lines = cutoffs"
     )
   
   return(p)
 }
 
 # ============================================================================
-# VISUALIZATION: Boxplots of Key Variables by Phenotype
+# STEP 5: VISUALIZATION - CLINICAL COMPARISON BAR PLOT
 # ============================================================================
 
-plot_key_variables_by_phenotype <- function(pheno_results, vars_to_plot = NULL) {
+plot_clinical_comparison <- function(comparison_results, pheno_results) {
   
-  dat_pheno <- pheno_results$data
-  available_vars <- names(dat_pheno)
-  
-  # Default variables to plot
-  if (is.null(vars_to_plot)) {
-    default_vars <- c("gfr_fas_cr", "hba1c", "acr_u", "bmi", "sbp", 
-                      "dexa_fat_kg", "medullary_fsoc_abs")
-    vars_to_plot <- default_vars[default_vars %in% available_vars]
+  if (is.null(comparison_results) || nrow(comparison_results) == 0) {
+    cat("No comparison results to plot.\n")
+    return(NULL)
   }
+  
+  # Prepare data for plotting
+  plot_data <- comparison_results %>%
+    filter(!is.na(Difference)) %>%
+    mutate(
+      # Calculate effect size (standardized difference)
+      pooled_sd = sqrt((Discordant_sd^2 + Concordant_sd^2) / 2),
+      effect_size = ifelse(pooled_sd > 0, Difference / pooled_sd, 0),
+      # For display
+      Variable = factor(Variable, levels = rev(Variable)),
+      significant = P_value < 0.05,
+      direction = ifelse(Difference > 0, "Higher in Discordant", "Lower in Discordant")
+    ) %>%
+    filter(abs(effect_size) < 5)  # Remove extreme outliers
+  
+  if (nrow(plot_data) == 0) {
+    cat("No valid data for comparison plot.\n")
+    return(NULL)
+  }
+  
+  p <- ggplot(plot_data, aes(x = effect_size, y = Variable)) +
+    geom_vline(xintercept = 0, linetype = "solid", color = "grey50", linewidth = 0.5) +
+    geom_vline(xintercept = c(-0.5, 0.5), linetype = "dotted", color = "grey70") +
+    geom_segment(aes(x = 0, xend = effect_size, y = Variable, yend = Variable,
+                     color = direction), linewidth = 1.5, alpha = 0.7) +
+    geom_point(aes(fill = direction, size = -log10(P_value + 0.001)), 
+               shape = 21, color = "black", stroke = 0.5) +
+    geom_text(aes(label = Sig), hjust = -0.5, vjust = 0.5, size = 4) +
+    scale_fill_manual(values = c("Higher in Discordant" = "#E63946", 
+                                 "Lower in Discordant" = "#457B9D"),
+                      name = "Direction") +
+    scale_color_manual(values = c("Higher in Discordant" = "#E63946", 
+                                  "Lower in Discordant" = "#457B9D"),
+                       guide = "none") +
+    scale_size_continuous(range = c(3, 8), name = "-log10(p)") +
+    theme_bw(base_size = 11) +
+    theme(
+      legend.position = "right",
+      panel.grid.major.y = element_blank(),
+      axis.text.y = element_text(size = 10)
+    ) +
+    labs(
+      x = "Standardized Difference (Cohen's d)",
+      y = "",
+      title = "Clinical Characteristics: Discordant vs Concordant",
+      subtitle = "Positive = higher in Discordant group | Dotted lines = |d| = 0.5 (medium effect)",
+      caption = "* p < 0.05, ** p < 0.01, † p < 0.10"
+    ) +
+    coord_cartesian(xlim = c(-2.5, 2.5))
+  
+  return(p)
+}
+
+# ============================================================================
+# STEP 6: BOXPLOTS OF KEY VARIABLES
+# ============================================================================
+
+plot_key_variables_boxplot <- function(pheno_results) {
+  
+  dat <- pheno_results$data
+  
+  # Variables to plot
+  vars_to_plot <- c("avg_c_k2", "avg_m_k2", "fsoc_medulla", "bmi", "hba1c", "eGFR_CKD_epi", "age")
+  vars_to_plot <- vars_to_plot[vars_to_plot %in% names(dat)]
+  
+  var_labels <- c(
+    "avg_c_k2" = "Cortical K2",
+    "avg_m_k2" = "Medullary K2", 
+    "fsoc_medulla" = "Medullary FSOC",
+    "bmi" = "BMI",
+    "hba1c" = "HbA1c",
+    "eGFR_CKD_epi" = "eGFR",
+    "age" = "Age"
+  )
   
   plots <- list()
   
   for (var in vars_to_plot) {
-    # Skip if too many NAs
-    if (sum(!is.na(dat_pheno[[var]])) < 10) next
+    if (sum(!is.na(dat[[var]])) < 3) next
     
-    # Clean variable name for title
-    var_label <- gsub("_", " ", var)
-    var_label <- tools::toTitleCase(var_label)
-    
-    # Kruskal-Wallis p-value
-    kw_p <- tryCatch({
-      kruskal.test(dat_pheno[[var]] ~ dat_pheno$phenotype_4)$p.value
+    # Wilcoxon p-value
+    p_val <- tryCatch({
+      wilcox.test(dat[[var]] ~ dat$discordant, exact = FALSE)$p.value
     }, error = function(e) NA)
     
-    p <- ggplot(dat_pheno, aes(x = phenotype_4, y = .data[[var]], fill = phenotype_4)) +
-      geom_boxplot(alpha = 0.7, outlier.shape = NA) +
-      geom_jitter(width = 0.2, alpha = 0.4, size = 1.5) +
+    p_label <- ifelse(is.na(p_val), "", 
+                      ifelse(p_val < 0.001, "p < 0.001",
+                             sprintf("p = %.3f", p_val)))
+    
+    p <- ggplot(dat, aes(x = discordant, y = .data[[var]], fill = discordant)) +
+      geom_boxplot(alpha = 0.7, outlier.shape = NA, width = 0.6) +
+      geom_jitter(aes(color = group), width = 0.15, size = 2.5, alpha = 0.8) +
+      scale_fill_manual(values = c("Concordant" = "#4ECDC4", "Discordant" = "#FF6B6B")) +
+      scale_color_manual(values = group_colors) +
       theme_bw(base_size = 10) +
-      theme(
-        legend.position = "none",
-        axis.text.x = element_text(angle = 45, hjust = 1, size = 8)
-      ) +
-      labs(
-        x = "",
-        y = var_label,
-        title = var_label,
-        subtitle = ifelse(!is.na(kw_p), sprintf("KW p = %.3f", kw_p), "")
-      ) +
-      scale_fill_manual(values = c(
-        "Low FSOC / High K2-R2*" = "#E41A1C",
-        "Low FSOC / Low K2-R2*" = "#377EB8",
-        "High FSOC / High K2-R2*" = "#FF7F00",
-        "High FSOC / Low K2-R2*" = "#4DAF4A"
-      ))
+      theme(legend.position = "none",
+            axis.title.x = element_blank()) +
+      labs(y = var_labels[var], subtitle = p_label)
     
     plots[[var]] <- p
   }
   
-  if (length(plots) >= 4) {
-    combined <- wrap_plots(plots, ncol = 2) +
-      plot_annotation(title = "Key Variables by FSOC-K2/R2* Phenotype")
-  } else if (length(plots) > 0) {
-    combined <- wrap_plots(plots, ncol = length(plots))
-  } else {
-    return(NULL)
+  if (length(plots) >= 2) {
+    combined <- wrap_plots(plots, ncol = 3) +
+      plot_annotation(
+        title = "Key Variables by Phenotype (Discordant vs Concordant)",
+        theme = theme(plot.title = element_text(face = "bold", size = 14))
+      )
+    return(combined)
   }
   
-  return(combined)
+  return(NULL)
 }
 
 # ============================================================================
-# 12C. SENSITIVITY ANALYSIS: DIFFERENT CUTOFF THRESHOLDS
+# STEP 6B: COMPARISON ACROSS ALL 4 PHENOTYPE GROUPS
 # ============================================================================
 
-run_cutoff_sensitivity <- function(dat, 
-                                   secondary_var,
-                                   fsoc_var = "medullary_fsoc_abs",
-                                   control_group = "Lean Control",
-                                   sd_values = c(0.5, 1, 1.5, 2)) {
+compare_all_phenotypes <- function(pheno_results) {
   
   cat("\n========================================\n")
-  cat("SENSITIVITY ANALYSIS: CUTOFF THRESHOLDS\n")
+  cat("COMPARISON ACROSS ALL 4 PHENOTYPE GROUPS\n")
   cat("========================================\n\n")
   
+  dat <- pheno_results$data
+  
+  # Show group sizes
+  cat("PHENOTYPE GROUP SIZES:\n")
+  pheno_counts <- dat %>% count(phenotype_4) %>% arrange(desc(n))
+  print(as.data.frame(pheno_counts))
+  
+  # Define variables to compare
+  var_labels <- c(
+    "age" = "Age (years)",
+    "bmi" = "BMI (kg/m²)",
+    "hba1c" = "HbA1c (%)",
+    "eGFR_CKD_epi" = "eGFR (mL/min/1.73m²)",
+    "acr_u" = "ACR (mg/g)",
+    "diabetes_duration" = "Diabetes Duration (years)",
+    "sbp" = "Systolic BP (mmHg)",
+    "dbp" = "Diastolic BP (mmHg)",
+    "avg_c_k2" = "Cortical K2 (s⁻¹)",
+    "avg_m_k2" = "Medullary K2 (s⁻¹)",
+    "fsoc_medulla" = "Medullary FSOC (s⁻¹)"
+  )
+  
+  available_vars <- names(var_labels)[names(var_labels) %in% names(dat)]
+  
+  # Build comparison table
   results <- data.frame()
   
-  for (n_sd in sd_values) {
+  for (var in available_vars) {
+    if (!is.numeric(dat[[var]])) next
     
-    pheno_temp <- create_fsoc_phenotypes(
-      dat, 
-      secondary_var = secondary_var,
-      fsoc_var = fsoc_var,
-      method = "control_reference",
-      control_group = control_group,
-      n_sd = n_sd
-    )
+    # Get values for each phenotype group
+    high_high <- dat[[var]][dat$phenotype_4 == "High K2 / Low FSOC"]
+    high_norm <- dat[[var]][dat$phenotype_4 == "High K2 / Normal FSOC"]
+    norm_low <- dat[[var]][dat$phenotype_4 == "Normal K2 / Low FSOC"]
+    norm_norm <- dat[[var]][dat$phenotype_4 == "Normal K2 / Normal FSOC"]
     
-    if (!is.null(pheno_temp)) {
-      n_total <- nrow(pheno_temp$data)
-      n_discordant <- sum(pheno_temp$data$discordant == "Discordant")
-      
-      # Get counts by phenotype
-      pheno_counts <- pheno_temp$data %>%
-        count(phenotype_4) %>%
-        pivot_wider(names_from = phenotype_4, values_from = n, values_fill = 0)
-      
-      results <- rbind(results, data.frame(
-        SD_threshold = n_sd,
-        FSOC_cutoff = round(pheno_temp$cutoffs$fsoc, 3),
-        K2_cutoff = round(pheno_temp$cutoffs$secondary, 3),
-        N_total = n_total,
-        N_discordant = n_discordant,
-        Pct_discordant = round(100 * n_discordant / n_total, 1)
-      ))
-    }
+    # Kruskal-Wallis test across all groups
+    kw_p <- tryCatch({
+      kruskal.test(dat[[var]] ~ dat$phenotype_4)$p.value
+    }, error = function(e) NA)
+    
+    # Pairwise: Discordant vs Normal (the key comparison)
+    disc_vs_norm_p <- tryCatch({
+      disc <- dat[[var]][dat$phenotype_4 == "High K2 / Low FSOC"]
+      norm <- dat[[var]][dat$phenotype_4 == "Normal K2 / Normal FSOC"]
+      if (length(disc) >= 2 & length(norm) >= 2) {
+        wilcox.test(disc, norm, exact = FALSE)$p.value
+      } else NA
+    }, error = function(e) NA)
+    
+    results <- rbind(results, data.frame(
+      Variable = var_labels[var],
+      `High_K2_Low_FSOC` = sprintf("%.2f ± %.2f", 
+                                   mean(high_high, na.rm = TRUE), 
+                                   sd(high_high, na.rm = TRUE)),
+      n1 = sum(!is.na(high_high)),
+      `High_K2_Norm_FSOC` = sprintf("%.2f ± %.2f", 
+                                    mean(high_norm, na.rm = TRUE), 
+                                    sd(high_norm, na.rm = TRUE)),
+      n2 = sum(!is.na(high_norm)),
+      `Norm_K2_Low_FSOC` = sprintf("%.2f ± %.2f", 
+                                   mean(norm_low, na.rm = TRUE), 
+                                   sd(norm_low, na.rm = TRUE)),
+      n3 = sum(!is.na(norm_low)),
+      `Norm_K2_Norm_FSOC` = sprintf("%.2f ± %.2f", 
+                                    mean(norm_norm, na.rm = TRUE), 
+                                    sd(norm_norm, na.rm = TRUE)),
+      n4 = sum(!is.na(norm_norm)),
+      KW_p = kw_p,
+      Disc_vs_Norm_p = disc_vs_norm_p,
+      stringsAsFactors = FALSE
+    ))
   }
   
-  cat("\n\n========================================\n")
-  cat("SENSITIVITY ANALYSIS SUMMARY\n")
-  cat("========================================\n\n")
-  print(as.data.frame(results))
-  
-  # Recommendation
-  cat("\n\nRECOMMENDATION:\n")
-  if (any(results$N_discordant >= 5)) {
-    best_sd <- results$SD_threshold[which(results$N_discordant >= 5)[1]]
-    cat(sprintf("Use n_sd = %.1f to get at least 5 discordant subjects for meaningful comparison.\n", best_sd))
-  } else if (any(results$N_discordant >= 3)) {
-    best_sd <- results$SD_threshold[which(results$N_discordant >= 3)[1]]
-    cat(sprintf("Use n_sd = %.1f to get at least 3 discordant subjects (limited power).\n", best_sd))
-  } else {
-    cat("No threshold yields sufficient discordant subjects.\n")
-    cat("Consider: (1) using median-based cutoffs, or (2) analyzing K2 and FSOC as continuous variables.\n")
+  if (nrow(results) > 0) {
+    results <- results %>%
+      mutate(
+        KW_p_fmt = ifelse(is.na(KW_p), "-", 
+                          ifelse(KW_p < 0.001, "<0.001", sprintf("%.3f", KW_p))),
+        Disc_vs_Norm_fmt = ifelse(is.na(Disc_vs_Norm_p), "-",
+                                  ifelse(Disc_vs_Norm_p < 0.001, "<0.001", 
+                                         sprintf("%.3f", Disc_vs_Norm_p))),
+        Sig = case_when(
+          is.na(KW_p) ~ "",
+          KW_p < 0.01 ~ "**",
+          KW_p < 0.05 ~ "*",
+          KW_p < 0.1 ~ "†",
+          TRUE ~ ""
+        )
+      ) %>%
+      arrange(KW_p)
+    
+    cat("\n--- CLINICAL CHARACTERISTICS BY PHENOTYPE GROUP ---\n\n")
+    print_tbl <- results %>%
+      select(Variable, 
+             `High_K2_Low_FSOC`, 
+             `High_K2_Norm_FSOC`, 
+             `Norm_K2_Low_FSOC`, 
+             `Norm_K2_Norm_FSOC`, 
+             KW_p_fmt, Sig)
+    names(print_tbl) <- c("Variable", "High K2/Low FSOC\n(Discordant)", 
+                          "High K2/Norm FSOC", "Norm K2/Low FSOC", 
+                          "Norm K2/Norm FSOC\n(Normal)", "KW p", "")
+    print(as.data.frame(print_tbl), row.names = FALSE)
+    
+    cat("\n* p < 0.05, ** p < 0.01, † p < 0.10 (Kruskal-Wallis test)\n")
+    
+    cat("\n\n--- DISCORDANT vs NORMAL (pairwise comparison) ---\n\n")
+    print_tbl2 <- results %>%
+      select(Variable, `High_K2_Low_FSOC`, `Norm_K2_Norm_FSOC`, Disc_vs_Norm_fmt)
+    names(print_tbl2) <- c("Variable", "Discordant", "Normal", "p-value")
+    print(as.data.frame(print_tbl2), row.names = FALSE)
   }
   
   return(results)
 }
 
 # ============================================================================
-# 12D. CONTINUOUS ANALYSIS: K2 vs FSOC CORRELATION
+# STEP 6C: BOXPLOTS BY ALL 4 PHENOTYPE GROUPS
 # ============================================================================
 
-analyze_k2_fsoc_continuous <- function(dat, 
-                                       k2_var,
-                                       fsoc_var = "medullary_fsoc_abs") {
+plot_by_phenotype_group <- function(pheno_results) {
   
-  cat("\n========================================\n")
-  cat("K2 vs FSOC: CONTINUOUS ANALYSIS\n")
-  cat("========================================\n\n")
+  dat <- pheno_results$data
   
-  dat_clean <- dat %>%
-    filter(!is.na(group)) %>%
-    filter(!is.na(.data[[fsoc_var]])) %>%
-    filter(!is.na(.data[[k2_var]])) %>%
-    filter(.data[[fsoc_var]] >= 0)
+  # Variables to plot
+  vars_to_plot <- c("avg_c_k2", "avg_m_k2", "fsoc_medulla", "bmi", "hba1c", "eGFR_CKD_epi")
+  vars_to_plot <- vars_to_plot[vars_to_plot %in% names(dat)]
   
-  cat("N subjects:", nrow(dat_clean), "\n\n")
+  var_labels <- c(
+    "avg_c_k2" = "Cortical K2 (s⁻¹)",
+    "avg_m_k2" = "Medullary K2 (s⁻¹)", 
+    "fsoc_medulla" = "Medullary FSOC (s⁻¹)",
+    "bmi" = "BMI (kg/m²)",
+    "hba1c" = "HbA1c (%)",
+    "eGFR_CKD_epi" = "eGFR (mL/min/1.73m²)"
+  )
   
-  # Overall correlation
-  cor_overall <- cor.test(dat_clean[[fsoc_var]], dat_clean[[k2_var]], 
-                          method = "spearman", exact = FALSE)
+  # Shorten phenotype labels for plotting
+  dat <- dat %>%
+    mutate(phenotype_short = case_when(
+      phenotype_4 == "High K2 / Low FSOC" ~ "High K2\nLow FSOC",
+      phenotype_4 == "High K2 / Normal FSOC" ~ "High K2\nNorm FSOC",
+      phenotype_4 == "Normal K2 / Low FSOC" ~ "Norm K2\nLow FSOC",
+      phenotype_4 == "Normal K2 / Normal FSOC" ~ "Norm K2\nNorm FSOC"
+    ))
   
-  cat("OVERALL CORRELATION (Spearman):\n")
-  cat(sprintf("  rho = %.3f, p = %.4f\n\n", cor_overall$estimate, cor_overall$p.value))
+  # Order phenotypes
+  dat$phenotype_short <- factor(dat$phenotype_short, 
+                                levels = c("High K2\nLow FSOC", "High K2\nNorm FSOC",
+                                           "Norm K2\nLow FSOC", "Norm K2\nNorm FSOC"))
   
-  # By group
-  cat("CORRELATION BY GROUP:\n")
-  cor_by_group <- dat_clean %>%
-    group_by(group) %>%
-    summarise(
-      n = n(),
-      rho = cor(.data[[fsoc_var]], .data[[k2_var]], method = "spearman", use = "complete.obs"),
-      .groups = "drop"
+  plots <- list()
+  
+  for (var in vars_to_plot) {
+    if (sum(!is.na(dat[[var]])) < 3) next
+    
+    # Kruskal-Wallis p-value
+    kw_p <- tryCatch({
+      kruskal.test(dat[[var]] ~ dat$phenotype_4)$p.value
+    }, error = function(e) NA)
+    
+    p_label <- ifelse(is.na(kw_p), "", 
+                      ifelse(kw_p < 0.001, "KW p < 0.001",
+                             sprintf("KW p = %.3f", kw_p)))
+    
+    p <- ggplot(dat, aes(x = phenotype_short, y = .data[[var]], fill = phenotype_short)) +
+      geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+      geom_jitter(aes(color = group), width = 0.2, size = 2, alpha = 0.8) +
+      scale_fill_manual(values = c(
+        "High K2\nLow FSOC" = "#E41A1C",
+        "High K2\nNorm FSOC" = "#FF7F00",
+        "Norm K2\nLow FSOC" = "#FFFF33",
+        "Norm K2\nNorm FSOC" = "#4DAF4A"
+      )) +
+      scale_color_manual(values = group_colors) +
+      theme_bw(base_size = 9) +
+      theme(legend.position = "none",
+            axis.title.x = element_blank(),
+            axis.text.x = element_text(size = 7)) +
+      labs(y = var_labels[var], subtitle = p_label)
+    
+    plots[[var]] <- p
+  }
+  
+  if (length(plots) >= 2) {
+    # Create a legend plot
+    legend_dat <- data.frame(
+      group = names(group_colors),
+      x = 1:4, y = 1
     )
-  print(as.data.frame(cor_by_group))
+    
+    combined <- wrap_plots(plots, ncol = 3) +
+      plot_annotation(
+        title = "Clinical Variables by K2-FSOC Phenotype Group",
+        subtitle = "Colors: Red=T2D, Purple=T1D, Green=Lean Control, Blue=Obese Control",
+        theme = theme(plot.title = element_text(face = "bold", size = 14))
+      )
+    return(combined)
+  }
   
-  # Linear regression: FSOC ~ K2 + covariates
-  cat("\n\nLINEAR REGRESSION: FSOC ~ K2 + age + sex + group\n")
+  return(NULL)
+}
+
+# ============================================================================
+# STEP 7: RUN COMPLETE ANALYSIS
+# ============================================================================
+
+cat("\n################################################################\n")
+cat("# DISCORDANT ANALYSIS WITH LEAN CONTROL CUTOFFS               #\n")
+cat("################################################################\n")
+
+# Create linked dataset
+linked_data <- create_linked_k2_fsoc_dataset(dat)
+
+if (!is.null(linked_data) && nrow(linked_data) > 0) {
   
-  formula_str <- paste(fsoc_var, "~", k2_var, "+ age + sex + group")
-  model <- lm(as.formula(formula_str), data = dat_clean)
+  # Show linked data
+  cat("\n\nLINKED DATA:\n")
+  print(linked_data %>% 
+          select(k2_record_id, fsoc_record_id, group, avg_c_k2, avg_m_k2, fsoc_medulla) %>%
+          arrange(group))
   
-  cat("\nModel summary:\n")
-  print(summary(model)$coefficients)
-  cat(sprintf("\nR-squared: %.3f\n", summary(model)$r.squared))
+  # =========================================
+  # Run with 1 SD cutoff
+  # =========================================
+  cat("\n\n############################################\n")
+  cat("# ANALYSIS WITH 1 SD CUTOFF               #\n")
+  cat("############################################\n")
+  
+  pheno_1sd <- run_lean_control_phenotype(linked_data, n_sd = 1)
   
   # Scatter plot
-  p <- ggplot(dat_clean, aes(x = .data[[k2_var]], y = .data[[fsoc_var]])) +
-    geom_point(aes(color = group), size = 3, alpha = 0.7) +
-    geom_smooth(method = "lm", se = TRUE, color = "grey30", linetype = "dashed") +
-    geom_smooth(aes(color = group), method = "lm", se = FALSE, linewidth = 0.8) +
-    theme_bw(base_size = 12) +
-    theme(legend.position = "bottom") +
-    labs(
-      x = paste0(k2_var, " (K2 - TCA metabolism)"),
-      y = paste0(fsoc_var, " (Furosemide O2 Consumption)"),
-      title = "K2 vs FSOC Relationship",
-      subtitle = sprintf("Overall: rho = %.2f, p = %.3f", cor_overall$estimate, cor_overall$p.value),
-      color = "Disease Group"
-    ) +
-    scale_color_brewer(palette = "Set2")
+  p_scatter_1sd <- plot_phenotype_scatter_lc(pheno_1sd)
+  print(p_scatter_1sd)
+  ggsave(file.path(OUTPUT_DIR, "phenotype_scatter_LC_1sd.pdf"), p_scatter_1sd, width = 11, height = 9)
   
-  return(list(
-    correlation_overall = cor_overall,
-    correlation_by_group = cor_by_group,
-    model = model,
-    plot = p
-  ))
-}
-
-# ============================================================================
-# 13. FSOC CUTOFF ANALYSIS
-# ============================================================================
-
-analyze_fsoc_cutoffs <- function(dat, fsoc_var = "medullary_fsoc_abs") {
+  # Clinical comparison
+  comparison_1sd <- compare_clinical_characteristics(pheno_1sd, linked_data)
   
-  cat("\n========================================\n")
-  cat("FSOC CUTOFF ANALYSIS:", fsoc_var, "\n")
-  cat("========================================\n\n")
-  
-  dat_clean <- dat %>%
-    filter(!is.na(group), !is.na(.data[[fsoc_var]]), .data[[fsoc_var]] >= 0)
-  
-  cat("N subjects:", nrow(dat_clean), "\n\n")
-  
-  # Distribution statistics
-  fsoc_values <- dat_clean[[fsoc_var]]
-  
-  cat("DISTRIBUTION STATISTICS:\n")
-  stats_df <- data.frame(
-    Stat = c("Mean", "SD", "Median", "IQR", "Min", "Max", "Q1", "Q3"),
-    Value = c(
-      round(mean(fsoc_values), 3), round(sd(fsoc_values), 3),
-      round(median(fsoc_values), 3), round(IQR(fsoc_values), 3),
-      round(min(fsoc_values), 3), round(max(fsoc_values), 3),
-      round(quantile(fsoc_values, 0.25), 3), round(quantile(fsoc_values, 0.75), 3)
-    )
-  )
-  print(stats_df)
-  
-  # By disease group
-  cat("\nBY DISEASE GROUP:\n")
-  stats_by_group <- dat_clean %>%
-    group_by(group) %>%
-    summarise(
-      n = n(),
-      mean = round(mean(.data[[fsoc_var]]), 3),
-      sd = round(sd(.data[[fsoc_var]]), 3),
-      median = round(median(.data[[fsoc_var]]), 3),
-      Q1 = round(quantile(.data[[fsoc_var]], 0.25), 3),
-      Q3 = round(quantile(.data[[fsoc_var]], 0.75), 3),
-      .groups = "drop"
-    )
-  print(as.data.frame(stats_by_group))
-  
-  # Tertile analysis
-  cat("\nTERTILE ANALYSIS:\n")
-  t1 <- quantile(fsoc_values, 1/3)
-  t2 <- quantile(fsoc_values, 2/3)
-  cat(sprintf("Tertile cutoffs: T1 < %.3f, T2 < %.3f, T3 >= %.3f\n", t1, t2, t2))
-  
-  dat_clean <- dat_clean %>%
-    mutate(fsoc_tertile = cut(.data[[fsoc_var]],
-                              breaks = c(-Inf, t1, t2, Inf),
-                              labels = c("Low (T1)", "Medium (T2)", "High (T3)")))
-  
-  tertile_table <- dat_clean %>%
-    count(group, fsoc_tertile) %>%
-    group_by(group) %>%
-    mutate(pct = round(100 * n / sum(n), 1))
-  print(as.data.frame(tertile_table))
-  
-  # Chi-square
-  cat("\nChi-square: Tertile vs Group\n")
-  chi_test <- chisq.test(table(dat_clean$group, dat_clean$fsoc_tertile))
-  print(chi_test)
-  
-  return(list(
-    stats = stats_df,
-    stats_by_group = stats_by_group,
-    tertile_cutoffs = c(t1, t2),
-    data_with_tertiles = dat_clean
-  ))
-}
-
-# ============================================================================
-# 14. CONTINUOUS ASSOCIATION ANALYSIS
-# ============================================================================
-
-analyze_fsoc_continuous <- function(dat, fsoc_var = "medullary_fsoc_abs") {
-  
-  cat("\n========================================\n")
-  cat("FSOC CONTINUOUS ASSOCIATIONS\n")
-  cat("========================================\n\n")
-  
-  dat_clean <- dat %>%
-    filter(!is.na(group), !is.na(.data[[fsoc_var]]), .data[[fsoc_var]] >= 0)
-  
-  available_vars <- names(dat_clean)
-  
-  # Define outcomes to test
-  outcomes <- list(
-    "eGFR" = c("eGFR_CKD_epi", "gfr_fas_cr"),
-    "mGFR" = c("gfr_raw_plasma", "gfr_bsa_plasma"),
-    "HbA1c" = c("hba1c"),
-    "ACR" = c("acr_u")
-  )
-  
-  results <- list()
-  
-  for (outcome_name in names(outcomes)) {
-    var_found <- outcomes[[outcome_name]][outcomes[[outcome_name]] %in% available_vars][1]
-    
-    if (!is.na(var_found)) {
-      cat("\n---", outcome_name, "---\n")
-      
-      # Prepare outcome
-      if (outcome_name == "ACR") {
-        dat_model <- dat_clean %>% mutate(outcome = log(.data[[var_found]] + 1))
-      } else {
-        dat_model <- dat_clean %>% mutate(outcome = .data[[var_found]])
-      }
-      
-      # Spearman correlation
-      cor_test <- cor.test(dat_model[[fsoc_var]], dat_model$outcome, 
-                           method = "spearman", exact = FALSE)
-      cat(sprintf("Spearman rho = %.3f, p = %.4f\n", cor_test$estimate, cor_test$p.value))
-      
-      # Linear model (adjusted)
-      formula_adj <- as.formula(paste("outcome ~", fsoc_var, "+ age + sex + group"))
-      model_adj <- lm(formula_adj, data = dat_model)
-      coef_adj <- summary(model_adj)$coefficients
-      
-      if (fsoc_var %in% rownames(coef_adj)) {
-        cat(sprintf("Adjusted beta = %.4f, p = %.4f\n",
-                    coef_adj[fsoc_var, "Estimate"], coef_adj[fsoc_var, "Pr(>|t|)"]))
-      }
-      
-      results[[outcome_name]] <- list(correlation = cor_test, model = model_adj)
+  # Clinical comparison plot
+  if (!is.null(comparison_1sd) && nrow(comparison_1sd) > 0) {
+    p_clinical_1sd <- plot_clinical_comparison(comparison_1sd, pheno_1sd)
+    if (!is.null(p_clinical_1sd)) {
+      print(p_clinical_1sd)
+      ggsave(file.path(OUTPUT_DIR, "clinical_comparison_LC_1sd.pdf"), p_clinical_1sd, width = 10, height = 7)
     }
   }
   
-  return(results)
-}
-
-# ============================================================================
-# 15. VISUALIZATION FUNCTIONS
-# ============================================================================
-
-plot_fsoc_distribution <- function(dat, fsoc_var = "medullary_fsoc_abs") {
-  
-  dat_clean <- dat %>%
-    filter(!is.na(group), !is.na(.data[[fsoc_var]]), .data[[fsoc_var]] >= 0)
-  
-  median_val <- median(dat_clean[[fsoc_var]])
-  
-  p1 <- ggplot(dat_clean, aes(x = .data[[fsoc_var]])) +
-    geom_histogram(aes(y = after_stat(density)), bins = 30, 
-                   fill = "#66C2A5", color = "white", alpha = 0.7) +
-    geom_density(color = "#1B7837", linewidth = 1) +
-    geom_vline(xintercept = median_val, linetype = "dashed", color = "#E7298A", linewidth = 1) +
-    theme_bw(base_size = 12) +
-    labs(x = "FSOC (s⁻¹)", y = "Density", title = "Overall Distribution",
-         subtitle = paste0("Median = ", round(median_val, 2)))
-  
-  p2 <- ggplot(dat_clean, aes(x = .data[[fsoc_var]], fill = group)) +
-    geom_density(alpha = 0.5) +
-    geom_vline(xintercept = median_val, linetype = "dashed", color = "grey40") +
-    theme_bw(base_size = 12) +
-    theme(legend.position = "bottom") +
-    labs(x = "FSOC (s⁻¹)", y = "Density", title = "By Disease Group") +
-    scale_fill_brewer(palette = "Set2")
-  
-  p3 <- ggplot(dat_clean, aes(x = group, y = .data[[fsoc_var]], fill = group)) +
-    geom_boxplot(alpha = 0.7, outlier.shape = NA) +
-    geom_jitter(width = 0.2, alpha = 0.4, size = 1.5) +
-    geom_hline(yintercept = median_val, linetype = "dashed", color = "#E7298A") +
-    theme_bw(base_size = 12) +
-    theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1)) +
-    labs(x = "Disease Group", y = "FSOC (s⁻¹)", title = "Boxplot by Group") +
-    scale_fill_brewer(palette = "Set2")
-  
-  combined <- (p1 | p2) / p3 +
-    plot_annotation(title = paste0("FSOC Distribution: ", fsoc_var))
-  
-  return(combined)
-}
-
-# ============================================================================
-# 16. RUN ALL ANALYSES
-# ============================================================================
-
-cat("\n########################################################\n")
-cat("# STARTING PHENOTYPE AND CUTOFF ANALYSES               #\n")
-cat("########################################################\n\n")
-
-# Step 1: Identify variables
-vars_found <- identify_all_variables(dat)
-
-# Step 2: Calculate BOLD averages if needed
-if (any(grepl("bold_.*_bl_", names(dat), ignore.case = TRUE))) {
-  dat <- calculate_bold_averages(dat)
-  cat("\nBOLD baseline averages calculated.\n")
-}
-
-# Step 3: Run phenotype analysis
-# Try K2 first, then BOLD baseline R2*
-k2_vars <- vars_found$k2
-if (length(k2_vars) > 0) {
-  secondary_var <- k2_vars[1]
-  cat("\nUsing K2 variable for phenotyping:", secondary_var, "\n")
-} else if ("medullary_r2star_bl" %in% names(dat)) {
-  secondary_var <- "medullary_r2star_bl"
-  cat("\nUsing baseline R2* for phenotyping:", secondary_var, "\n")
-} else {
-  secondary_var <- NULL
-  cat("\nNo K2 or R2* baseline variable found for phenotyping.\n")
-}
-
-if (!is.null(secondary_var)) {
-  # =====================================================
-  # PHENOTYPE ANALYSIS WITH LEAN CONTROL REFERENCE
-  # =====================================================
-  
-  pheno_results <- create_fsoc_phenotypes(
-    dat, 
-    secondary_var = secondary_var,
-    method = "control_reference",
-    control_group = "Lean Control",
-    n_sd = 1
-  )
-  
-  if (!is.null(pheno_results)) {
-    # Check if we have any discordant subjects
-    n_discordant <- sum(pheno_results$data$discordant == "Discordant", na.rm = TRUE)
-    
-    if (n_discordant == 0) {
-      cat("\n** NO DISCORDANT SUBJECTS WITH 1 SD CUTOFF **\n")
-      cat("Running sensitivity analysis with different thresholds...\n\n")
-      
-      # Run sensitivity analysis
-      sensitivity_results <- run_cutoff_sensitivity(
-        dat, 
-        secondary_var = secondary_var,
-        control_group = "Lean Control",
-        sd_values = c(0.5, 0.75, 1, 1.5)
-      )
-      
-      # Save sensitivity results
-      write.csv(sensitivity_results, 
-                file.path(OUTPUT_DIR, "phenotype_sensitivity_analysis.csv"), row.names = FALSE)
-      
-      # If any threshold gives discordant subjects, re-run with that threshold
-      if (any(sensitivity_results$N_discordant >= 3)) {
-        best_sd <- sensitivity_results$SD_threshold[which(sensitivity_results$N_discordant >= 3)[1]]
-        cat(sprintf("\n** Re-running phenotype analysis with n_sd = %.2f **\n\n", best_sd))
-        
-        pheno_results <- create_fsoc_phenotypes(
-          dat, 
-          secondary_var = secondary_var,
-          method = "control_reference",
-          control_group = "Lean Control",
-          n_sd = best_sd
-        )
-      }
-    }
-    
-    # Scatter plot
-    p_scatter <- plot_phenotype_scatter(pheno_results)
-    print(p_scatter)
-    ggsave(file.path(OUTPUT_DIR, "fsoc_phenotype_scatter.pdf"), p_scatter, width = 10, height = 8)
-    
-    # Discordant by group
-    p_discordant <- plot_discordant_by_group(pheno_results)
-    print(p_discordant)
-    ggsave(file.path(OUTPUT_DIR, "discordant_phenotype_by_group.pdf"), p_discordant, width = 8, height = 6)
-    
-    # Clinical characteristics comparison
-    cat("\n\n--- Comparing Clinical Characteristics by Phenotype ---\n")
-    char_comparison <- compare_phenotype_characteristics(pheno_results, dat_full = dat)
-    
-    # Export comparison results if we have data
-    if (nrow(char_comparison$fourgroup_comparison) > 0) {
-      write.csv(char_comparison$fourgroup_comparison,
-                file.path(OUTPUT_DIR, "phenotype_group_comparison.csv"), row.names = FALSE)
-    }
-    
-    # Export phenotype data
-    write.csv(pheno_results$data %>% 
-                dplyr::select(record_id, group, sex, age, medullary_fsoc_abs, 
-                              all_of(secondary_var), phenotype_4, discordant),
-              file.path(OUTPUT_DIR, "fsoc_phenotypes.csv"), row.names = FALSE)
-    
-    # =====================================================
-    # CONTINUOUS ANALYSIS: K2 vs FSOC
-    # =====================================================
-    cat("\n\n--- Running K2 vs FSOC Continuous Analysis ---\n")
-    k2_fsoc_continuous <- analyze_k2_fsoc_continuous(dat, k2_var = secondary_var)
-    
-    print(k2_fsoc_continuous$plot)
-    ggsave(file.path(OUTPUT_DIR, "k2_vs_fsoc_scatter.pdf"), k2_fsoc_continuous$plot, 
-           width = 9, height = 7)
-  }
-}
-
-if (!is.null(pheno_results)) {
-  # Visualizations
-  p_scatter <- plot_phenotype_scatter(pheno_results)
-  print(p_scatter)
-  ggsave(file.path(OUTPUT_DIR, "fsoc_phenotype_scatter.pdf"), p_scatter, width = 10, height = 8)
-  
-  p_discordant <- plot_discordant_by_group(pheno_results)
-  print(p_discordant)
-  ggsave(file.path(OUTPUT_DIR, "discordant_phenotype_by_group.pdf"), p_discordant, width = 8, height = 6)
-  
-  # =====================================================
-  # NEW: Clinical characteristics comparison
-  # =====================================================
-  cat("\n\n--- Comparing Clinical Characteristics by Phenotype ---\n")
-  char_comparison <- compare_phenotype_characteristics(pheno_results, dat_full = dat)
-  
-  # Forest plot of differences
-  p_forest <- plot_phenotype_characteristics(char_comparison)
-  print(p_forest)
-  ggsave(file.path(OUTPUT_DIR, "phenotype_characteristics_forest.pdf"), p_forest, 
-         width = 10, height = 8)
-  
-  # Boxplots of key variables
-  p_boxplots <- plot_key_variables_by_phenotype(pheno_results)
-  if (!is.null(p_boxplots)) {
-    print(p_boxplots)
-    ggsave(file.path(OUTPUT_DIR, "phenotype_key_variables_boxplots.pdf"), p_boxplots, 
-           width = 12, height = 10)
+  # Boxplots
+  p_box_1sd <- plot_key_variables_boxplot(pheno_1sd)
+  if (!is.null(p_box_1sd)) {
+    print(p_box_1sd)
+    ggsave(file.path(OUTPUT_DIR, "boxplots_discordant_LC_1sd.pdf"), p_box_1sd, width = 12, height = 8)
   }
   
-  # Export comparison results
-  write.csv(char_comparison$binary_comparison, 
-            file.path(OUTPUT_DIR, "phenotype_discordant_vs_concordant.csv"), row.names = FALSE)
-  write.csv(char_comparison$fourgroup_comparison,
-            file.path(OUTPUT_DIR, "phenotype_4group_comparison.csv"), row.names = FALSE)
+  # =========================================
+  # Compare all 4 phenotype groups
+  # =========================================
+  cat("\n\n############################################\n")
+  cat("# COMPARISON ACROSS ALL 4 PHENOTYPES      #\n")
+  cat("############################################\n")
+  
+  comparison_4groups <- compare_all_phenotypes(pheno_1sd)
+  
+  # Boxplots by 4 phenotype groups
+  p_4groups <- plot_by_phenotype_group(pheno_1sd)
+  if (!is.null(p_4groups)) {
+    print(p_4groups)
+    ggsave(file.path(OUTPUT_DIR, "boxplots_4_phenotype_groups.pdf"), p_4groups, width = 12, height = 8)
+  }
+  
+  # =========================================
+  # Discordant vs All Others Combined
+  # =========================================
+  cat("\n\n############################################\n")
+  cat("# DISCORDANT vs ALL OTHERS COMBINED       #\n")
+  cat("############################################\n")
+  
+  comparison_disc_vs_others <- compare_discordant_vs_others(pheno_1sd)
+  
+  # Forest plot
+  p_forest <- plot_discordant_vs_others_forest(comparison_disc_vs_others)
+  if (!is.null(p_forest)) {
+    print(p_forest)
+    ggsave(file.path(OUTPUT_DIR, "forest_discordant_vs_others.pdf"), p_forest, width = 10, height = 7)
+  }
+  
+  # =========================================
+  # Run with 0.5 SD cutoff (more inclusive)
+  # =========================================
+  cat("\n\n############################################\n")
+  cat("# ANALYSIS WITH 0.5 SD CUTOFF             #\n")
+  cat("############################################\n")
+  
+  pheno_05sd <- run_lean_control_phenotype(linked_data, n_sd = 0.5)
+  
+  p_scatter_05sd <- plot_phenotype_scatter_lc(pheno_05sd)
+  print(p_scatter_05sd)
+  ggsave(file.path(OUTPUT_DIR, "phenotype_scatter_LC_05sd.pdf"), p_scatter_05sd, width = 11, height = 9)
+  
+  comparison_05sd <- compare_clinical_characteristics(pheno_05sd, linked_data)
+  
+  if (!is.null(comparison_05sd) && nrow(comparison_05sd) > 0) {
+    p_clinical_05sd <- plot_clinical_comparison(comparison_05sd, pheno_05sd)
+    if (!is.null(p_clinical_05sd)) {
+      print(p_clinical_05sd)
+      ggsave(file.path(OUTPUT_DIR, "clinical_comparison_LC_05sd.pdf"), p_clinical_05sd, width = 10, height = 7)
+    }
+  }
+  
+  # =========================================
+  # Export results
+  # =========================================
   
   # Export phenotype data
-  write.csv(pheno_results$data %>% 
-              select(record_id, group, sex, age, medullary_fsoc_abs, 
-                     all_of(secondary_var), phenotype_4, discordant),
-            file.path(OUTPUT_DIR, "fsoc_phenotypes.csv"), row.names = FALSE)
+  export_vars <- c("mrn", "k2_record_id", "fsoc_record_id", "group", 
+                   "avg_c_k2", "avg_m_k2", "fsoc_medulla",
+                   "k2_level", "fsoc_level", "phenotype_4", "discordant")
+  export_vars <- export_vars[export_vars %in% names(pheno_1sd$data)]
+  
+  # Add available clinical vars
+  clinical_vars <- c("age", "sex", "bmi", "hba1c", "eGFR_CKD_epi", "acr_u", "diabetes_duration")
+  clinical_vars <- clinical_vars[clinical_vars %in% names(pheno_1sd$data)]
+  export_vars <- c(export_vars, clinical_vars)
+  
+  write.csv(pheno_1sd$data %>% select(all_of(unique(export_vars))),
+            file.path(OUTPUT_DIR, "phenotypes_LC_cutoff.csv"), row.names = FALSE)
+  
+  # Export comparison table
+  if (!is.null(comparison_1sd)) {
+    write.csv(comparison_1sd %>% select(Variable, Discordant, Concordant, P_value_fmt, Sig),
+              file.path(OUTPUT_DIR, "clinical_comparison_table.csv"), row.names = FALSE)
+  }
+  
+  # Export 4-group comparison
+  if (!is.null(comparison_4groups)) {
+    write.csv(comparison_4groups,
+              file.path(OUTPUT_DIR, "clinical_comparison_4groups.csv"), row.names = FALSE)
+  }
+  
+  # Export discordant vs others comparison
+  if (!is.null(comparison_disc_vs_others)) {
+    write.csv(comparison_disc_vs_others %>% 
+                select(Variable, Discordant, Others, Effect, Effect_size, P_value_fmt, Sig),
+              file.path(OUTPUT_DIR, "clinical_discordant_vs_others.csv"), row.names = FALSE)
+  }
+  
+  # =========================================
+  # Summary
+  # =========================================
+  cat("\n\n========================================\n")
+  cat("ANALYSIS COMPLETE\n")
+  cat("========================================\n\n")
+  
+  cat("Files saved to:", OUTPUT_DIR, "\n")
+  cat("  - phenotype_scatter_LC_1sd.pdf\n")
+  cat("  - phenotype_scatter_LC_05sd.pdf\n")
+  cat("  - clinical_comparison_LC_1sd.pdf\n")
+  cat("  - clinical_comparison_LC_05sd.pdf\n")
+  cat("  - boxplots_discordant_LC_1sd.pdf\n")
+  cat("  - boxplots_4_phenotype_groups.pdf\n")
+  cat("  - forest_discordant_vs_others.pdf\n")
+  cat("  - phenotypes_LC_cutoff.csv\n")
+  cat("  - clinical_comparison_table.csv\n")
+  cat("  - clinical_comparison_4groups.csv\n")
+  cat("  - clinical_discordant_vs_others.csv\n")
+  
+} else {
+  cat("\nERROR: Could not create linked dataset.\n")
 }
-}
-
-# Step 4: Cutoff analysis
-cat("\n\n--- Running FSOC Cutoff Analysis ---\n")
-cutoff_med <- analyze_fsoc_cutoffs(dat, "medullary_fsoc_abs")
-cutoff_wk <- analyze_fsoc_cutoffs(dat, "whole_kidney_fsoc_abs")
-
-# Step 5: Continuous associations
-cat("\n\n--- Running Continuous Association Analysis ---\n")
-continuous_results <- analyze_fsoc_continuous(dat, "medullary_fsoc_abs")
-
-# Step 6: Distribution plots
-p_dist <- plot_fsoc_distribution(dat, "medullary_fsoc_abs")
-print(p_dist)
-ggsave(file.path(OUTPUT_DIR, "fsoc_distribution.pdf"), p_dist, width = 12, height = 10)
-
-# Export results
-write.csv(cutoff_med$stats_by_group, file.path(OUTPUT_DIR, "fsoc_stats_by_group.csv"), row.names = FALSE)
-
-cat("\n########################################################\n")
-cat("# ANALYSES COMPLETE                                    #\n")
-cat("########################################################\n")
-cat("\nFiles saved to:", OUTPUT_DIR, "\n")
-
-
-
-
-
-
-
-
-
-
