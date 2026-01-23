@@ -138,7 +138,7 @@ def clean_attempt():
                                                   == "safety_labs", "field_name"]]
     labs = pd.DataFrame(proj.export_records(fields=var))
     labs.replace(rep, np.nan, inplace=True)
-    labs.rename({"hgb": "hemoglobin", "hct": "hematocrit", "plt": "pltct", "creat": "creat_s", "redcap_event_name": "visit"}, axis=1, inplace=True)
+    labs.rename({"hgb": "hemoglobin", "hct": "hematocrit", "plt": "pltct", "creat": "creatinine_s", "redcap_event_name": "visit"}, axis=1, inplace=True)
     labs["visit"].replace({"screening_visit_arm_1": "baseline", "visit_2_arm_1": "baseline", "visit_3_arm_1": "4_months_post"}, inplace=True)
     
     # --------------------------------------------------------------------------

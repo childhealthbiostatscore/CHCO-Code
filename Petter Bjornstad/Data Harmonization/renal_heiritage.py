@@ -456,7 +456,7 @@ def clean_renal_heiritage():
     az_u_metab.dropna(thresh=5, axis=0, inplace=True)
     plasma_metab.dropna(thresh=10, axis=0, inplace=True)
     lip.dropna(thresh=10, axis=0, inplace=True)
-    sphygmocor.dropna(thresh=2, axis=0, inplace=True)
+    sphygmocor.dropna(thresh=4, axis=0, inplace=True)
     print("number of non-missing sphyg_yob values: ", sphygmocor["sphyg_yob"].notna().sum())
 
 

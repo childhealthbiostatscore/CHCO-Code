@@ -1597,6 +1597,110 @@ write.csv(t1_df, "/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics
 table1(~ alt+ast+ggt+bmi+a1c+hepatocyte_ballooning_score+lobular_inflammation_grade+steatosis_grade+fibrosis_stage| steatosis_cat, data=dat)
 
 
+# Function that chooses appropriate test based on variable type
+pvalue <- function(x, ...) {
+    y <- unlist(x)
+    g <- factor(rep(1:length(x), times=sapply(x, length)))
+    
+    if (length(levels(g)) < 2) {
+        return(NA)
+    }
+    
+    # Check if variable is numeric (continuous) or factor (categorical)
+    if (is.numeric(y)) {
+        # Wilcoxon rank-sum test for continuous variables
+        p <- wilcox.test(y ~ g)$p.value
+    } else {
+        # Fisher's exact test for categorical variables
+        p <- fisher.test(table(y, g))$p.value
+    }
+    
+    # Format p-value
+    if (p < 0.001) {
+        return("< 0.001")
+    } else {
+        return(format.pval(p, digits=3, eps=0.001))
+    }
+}
+
+# Use same way as before
+table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c | steatosis_cat, 
+       data=dat,
+       overall = FALSE,
+       extra.col = list(`P-value` = pvalue))
+
+t1 <- table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
+             +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+both+glp1_exclusive+sglt2_exclusive+neither + alt + ast + ggt + lobular_inflammation_percent + hepatocyte_ballooning_score+steatosis_grade+fibrosis_stage+fibrosis_cat| steatosis_cat, data=dat)
+
+
+library(table1)
+# Updated P-value function that handles missing data properly
+pvalue <- function(x, ...) {
+  y <- unlist(x)
+  g <- factor(rep(1:length(x), times=sapply(x, length)))
+  
+  # Remove NAs from both y and g together
+  complete_cases <- complete.cases(y, g)
+  y <- y[complete_cases]
+  g <- droplevels(g[complete_cases])
+  
+  # Check if we have exactly 2 groups after removing NAs
+  if (length(levels(g)) != 2) {
+    return(NA)
+  }
+  
+  # Check if we have enough data in each group
+  if (any(table(g) < 2)) {
+    return(NA)
+  }
+  
+  # Perform test based on variable type
+  tryCatch({
+    if (is.numeric(y)) {
+      # Wilcoxon rank-sum test for continuous variables
+      p <- wilcox.test(y ~ g)$p.value
+    } else {
+      # Fisher's exact test for categorical variables
+      p <- fisher.test(table(y, g))$p.value
+    }
+    
+    # Format p-value
+    if (p < 0.001) {
+      return("< 0.001")
+    } else {
+      return(sprintf("%0.3f", p))
+    }
+  }, error = function(e) {
+    return(NA)
+  })
+}
+
+# Now run your table1 code
+table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg + a1c + 
+         metformin + insulin + glp1agonist + sglt2 + diagnosis_of_MASLD + diagnosis_of_diabetes + 
+         alt + ast + ggt + 
+         lobular_inflammation_percent + hepatocyte_ballooning_score + fibrosis_stage | steatosis_cat, 
+       data = dat,
+       overall = "Overall",
+       render.continuous = render.continuous,
+       render.categorical = render.categorical,
+       extra.col = list(`P-value` = pvalue))
+
+# Create the table
+table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg + a1c + 
+         metformin + insulin + glp1agonist + sglt2 + diagnosis_of_MASLD + diagnosis_of_diabetes + 
+          alt + ast + ggt + 
+         lobular_inflammation_percent + hepatocyte_ballooning_score + fibrosis_stage | steatosis_cat, 
+       data = dat,
+       overall = "Overall",
+       render.continuous = render.continuous,
+       render.categorical = render.categorical,
+       extra.col = list(`P-value` = pvalue))
+
+
+t1 <- table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
+             +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+both+glp1_exclusive+sglt2_exclusive+neither + alt + ast + ggt + lobular_inflammation_percent + hepatocyte_ballooning_score+steatosis_grade+fibrosis_stage+fibrosis_cat| steatosis_cat, data=dat)
+
 
 dat$hepatocyte_ballooning_score <- as.numeric(dat$hepatocyte_ballooning_score)
 dat$steatosis_grade <- as.numeric(dat$steatosis_grade)
@@ -1658,6 +1762,69 @@ render.categorical <- function(x) {
 table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
              +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+glp1agonist+ sglt2+ alt + ast + ggt + lobular_inflammation_percent + hepatocyte_ballooning_score+fibrosis_stage| steatosis_cat, data=dat,render.continuous = render.continuous)
 
+
+# Custom rendering for continuous variables (median [IQR])
+render.continuous <- function(x) {
+  med <- median(x, na.rm = TRUE)
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+  sprintf("%0.1f [%0.1f, %0.1f]", med, q1, q3)
+}
+
+# Custom rendering for categorical variables (% for specific level)
+render.categorical <- function(x) {
+  tbl <- table(x)
+  pct <- prop.table(tbl) * 100
+  
+  # Check which level to report based on what's present
+  if ("Female" %in% names(tbl)) {
+    sprintf("%0.1f%%", pct["Female"])
+  } else if ("Hispanic or Latino" %in% names(tbl)) {
+    sprintf("%0.1f%%", pct["Hispanic or Latino"])
+  } else if ("Yes" %in% names(tbl)) {
+    sprintf("%0.1f%%", pct["Yes"])
+  } else {
+    # Fallback: show all levels
+    sapply(names(tbl), function(lvl) sprintf("%d (%0.1f%%)", tbl[lvl], pct[lvl]))
+  }
+}
+
+# P-value function for both continuous and categorical variables
+pvalue <- function(x, ...) {
+  y <- unlist(x)
+  g <- factor(rep(1:length(x), times=sapply(x, length)))
+  
+  if (length(levels(g)) < 2) {
+    return(NA)
+  }
+  
+  # Check if variable is numeric (continuous) or factor (categorical)
+  if (is.numeric(y)) {
+    # Wilcoxon rank-sum test for continuous variables
+    p <- wilcox.test(y ~ g)$p.value
+  } else {
+    # Fisher's exact test for categorical variables
+    p <- fisher.test(table(y, g))$p.value
+  }
+  
+  # Format p-value
+  if (p < 0.001) {
+    return("< 0.001")
+  } else {
+    return(format.pval(p, digits=3, eps=0.001))
+  }
+}
+
+table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
+             +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+glp1agonist+ sglt2+ alt + ast + ggt + lobular_inflammation_percent + hepatocyte_ballooning_score+fibrosis_stage| steatosis_cat, data=dat,render.continuous = render.continuous)
+
+# Create table with custom rendering and p-values
+table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
+             +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+glp1agonist+ sglt2+ alt + ast + ggt + lobular_inflammation_percent + hepatocyte_ballooning_score+fibrosis_stage| steatosis_cat, data=dat,
+       overall = FALSE,
+       render.continuous = render.continuous,
+       render.categorical = render.categorical,
+       extra.col = list(`P-value` = pvalue))
 
 t1 <- table1(~ age_surgery + nih_sex + nih_ethnicity + bmi + tg +a1c
              +metformin + insulin + diagnosis_of_MASLD+ diagnosis_of_diabetes+both+glp1_exclusive+sglt2_exclusive+neither + alt + ast + ggt + lobular_inflammation_percent + hepatocyte_ballooning_score+steatosis_grade+fibrosis_stage+fibrosis_cat| steatosis_cat, data=dat)

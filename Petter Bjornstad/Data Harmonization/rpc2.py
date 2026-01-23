@@ -404,7 +404,7 @@ def clean_rpc2_redcap():
     mask_fsoc = datecheck["date"].replace("", np.nan).notna()
     sub_fsoc = datecheck[mask_fsoc][fields]
     # list of record_ids that have failed screening
-    drop_ids = ["RPC-10", "RPC-12", "RPC-14", "RPC-19", "RPC-22", "RPC-23", "RPC-24", 
+    drop_ids = ["RPC-09", "RPC-10", "RPC-12", "RPC-14", "RPC-19", "RPC-22", "RPC-23", "RPC-24", 
                 "RPC-30", "RPC-32", "RPC-33", "RPC-34", "RPC-35", "RPC-36", "RPC-39", 
                 "RPC-40", "RPC-42"]  
     df = df[~df['record_id'].isin(drop_ids)]
