@@ -1885,7 +1885,7 @@ create_linked_k2_fsoc_dataset <- function(dat) {
   
   if (nrow(linked_data) == 0) return(NULL)
   
-  # Calculate averaged FSOC
+  # Calculate averaged FSOC and log-transform ACR
   linked_data <- linked_data %>%
     mutate(
       fsoc_medulla = case_when(
@@ -1894,7 +1894,9 @@ create_linked_k2_fsoc_dataset <- function(dat) {
         !is.na(fsoc_r_medulla) ~ fsoc_r_medulla,
         TRUE ~ NA_real_
       ),
-      group = k2_group
+      group = k2_group,
+      # Log10 transform ACR
+      log_acr = ifelse(!is.na(acr_u) & acr_u > 0, log10(acr_u), NA_real_)
     )
   
   return(linked_data)
@@ -2007,7 +2009,7 @@ compare_clinical_characteristics <- function(pheno_results, linked_data, min_n =
     return(NULL)
   }
   
-  # UPDATED: Removed lipids, Added DEXA and mGFR
+  # UPDATED: Removed lipids, Added DEXA and mGFR, use log10 ACR
   var_labels <- c(
     "age" = "Age (years)",
     "bmi" = "BMI (kg/m²)",
@@ -2015,7 +2017,7 @@ compare_clinical_characteristics <- function(pheno_results, linked_data, min_n =
     "eGFR_CKD_epi" = "eGFR (mL/min/1.73m²)",
     "gfr_raw_plasma" = "mGFR raw (mL/min)",
     "gfr_bsa_plasma" = "mGFR BSA (mL/min/1.73m²)",
-    "acr_u" = "ACR (mg/g)",
+    "log_acr" = "log₁₀(ACR) (mg/g)",
     "diabetes_duration" = "Diabetes Duration (years)",
     "sbp" = "Systolic BP (mmHg)",
     "dbp" = "Diastolic BP (mmHg)",
@@ -2141,7 +2143,7 @@ compare_discordant_vs_others <- function(pheno_results, min_n = 2) {
     return(NULL)
   }
   
-  # UPDATED: Removed lipids, Added DEXA and mGFR
+  # UPDATED: Removed lipids, Added DEXA and mGFR, use log10 ACR
   var_labels <- c(
     "age" = "Age (years)",
     "bmi" = "BMI (kg/m²)",
@@ -2149,7 +2151,7 @@ compare_discordant_vs_others <- function(pheno_results, min_n = 2) {
     "eGFR_CKD_epi" = "eGFR (mL/min/1.73m²)",
     "gfr_raw_plasma" = "mGFR raw (mL/min)",
     "gfr_bsa_plasma" = "mGFR BSA (mL/min/1.73m²)",
-    "acr_u" = "ACR (mg/g)",
+    "log_acr" = "log₁₀(ACR) (mg/g)",
     "diabetes_duration" = "Diabetes Duration (years)",
     "sbp" = "Systolic BP (mmHg)",
     "dbp" = "Diastolic BP (mmHg)",
@@ -2528,7 +2530,7 @@ compare_all_phenotypes <- function(pheno_results, min_n = 2) {
   pheno_counts <- dat %>% count(phenotype_4) %>% arrange(desc(n))
   print(as.data.frame(pheno_counts))
   
-  # UPDATED: Removed lipids, Added DEXA and mGFR
+  # UPDATED: Removed lipids, Added DEXA and mGFR, use log10 ACR
   var_labels <- c(
     "age" = "Age (years)",
     "bmi" = "BMI (kg/m²)",
@@ -2536,7 +2538,7 @@ compare_all_phenotypes <- function(pheno_results, min_n = 2) {
     "eGFR_CKD_epi" = "eGFR (mL/min/1.73m²)",
     "gfr_raw_plasma" = "mGFR raw (mL/min)",
     "gfr_bsa_plasma" = "mGFR BSA (mL/min/1.73m²)",
-    "acr_u" = "ACR (mg/g)",
+    "log_acr" = "log₁₀(ACR) (mg/g)",
     "diabetes_duration" = "Diabetes Duration (years)",
     "sbp" = "Systolic BP (mmHg)",
     "dbp" = "Diastolic BP (mmHg)",
