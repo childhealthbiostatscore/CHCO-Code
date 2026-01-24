@@ -70,6 +70,12 @@ rpc2_dat <- harm_dat %>%
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit))
 
+hc_dat <- harm_dat %>%
+  filter(study == "CROCODILE" & group == "Lean Control") %>%
+  dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
+                   across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
+                   .by = c(record_id, visit))
+
 # read in biopsy master spreadsheet (updated real time)
 biopsy_master <- read_excel("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/Biopsy master tracker.xlsx", skip = 2) 
 colnames(biopsy_master) <- gsub(" ", "_", colnames(biopsy_master))  # Replace spaces with underscores
@@ -96,16 +102,212 @@ biopsy_master_rpc2 <- biopsy_master %>%
 
 
 ```{r echo = F}
-summary(arsenal::tableby(visit ~ age + sex + race + ethnicity + group + weight + height + bmi + 
-                           sbp + dbp + map + chol_base + ldl + hdl + hba1c + triglycerides + 
-                           eGFR_CKD_epi + kwt(acr_u, "Nmiss", "median", "q1q3"), 
-                         data = subset(rpc2_dat, visit %in% c("baseline", "post_treatment") & record_id %in% biopsy_master_rpc2$record_id)))
+# biopsy in at least baseline
+rpc_bx_dat <- subset(rpc2_dat, visit %in% c("baseline", "post_treatment") & record_id %in% biopsy_master_rpc2$record_id)
 
 summary(arsenal::tableby(visit ~ age + sex + race + ethnicity + group + weight + height + bmi + 
-                           sbp + dbp + map + chol_base + ldl + hdl + hba1c + triglycerides + 
-                           eGFR_CKD_epi + kwt(acr_u, "Nmiss", "median", "q1q3"), 
-                         data = subset(rpc2_dat, visit %in% c("baseline", "post_treatment") & record_id %nin% biopsy_master_rpc2$record_id)))
+                           sbp + dbp + map + chol_base + ldl + hdl + hba1c + kwt(triglycerides, "Nmiss", "medianq1q3") + 
+                           eGFR_CKD_epi + kwt(acr_u, "Nmiss", "median", "q1q3") + 
+                           gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma +
+                           avg_pcascl + avg_c_adc + total_kidney_volume_ml + avg_c_r2 + avg_k_r2, 
+                         data = rpc_bx_dat),
+        digits = 1)
 
+summary(arsenal::paired(visit ~ age  + weight + height + bmi + 
+                           sbp + dbp + map + chol_base + ldl + hdl + hba1c + signed.rank(triglycerides, "Nmiss", "medianq1q3") + 
+                           eGFR_CKD_epi + signed.rank(acr_u, "Nmiss", "median", "q1q3") + 
+                           gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma +
+                           avg_pcascl + avg_c_adc + total_kidney_volume_ml + avg_c_r2 + avg_k_r2, 
+                         data = rpc_bx_dat, id = record_id),
+        digits = 1)
+
+rpc_bx_dat_hc <- rpc2_dat %>%
+  filter(visit %in% c("baseline", "post_treatment")) %>%
+  rbind(hc_dat) %>%
+  mutate(rpc2_group = case_when(group == "Lean Control" ~ "HC",
+                                visit == "baseline" ~ "PRE",
+                                visit == "post_treatment" ~ "POST"))
+rpc_bx_dat_hc$rpc2_group = factor(rpc_bx_dat_hc$rpc2_group, levels = c("PRE", "POST", "HC"))
+```
+
+```{r}
+rpc_bx_dat_hc %>%
+  ggplot(aes(x = rpc2_group, y = avg_pcascl, fill = rpc2_group)) +
+  geom_boxplot(size = 1.4, outliers = F) + 
+  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
+  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 20)) +
+  labs(x = NULL, y = "pCASL") +
+  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
+  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+
+rpc_bx_dat_hc %>%
+  ggplot(aes(x = rpc2_group, y = avg_c_adc, fill = rpc2_group)) +
+  geom_boxplot(size = 1.4, outliers = F) + 
+  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
+  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 20)) +
+  labs(x = NULL, y = "Cortical ADC") +
+  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
+  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+
+rpc_bx_dat_hc %>%
+  ggplot(aes(x = rpc2_group, y = total_kidney_volume_ml, fill = rpc2_group)) +
+  geom_boxplot(size = 1.4, outliers = F) + 
+  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
+  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 20)) +
+  labs(x = NULL, y = "TKV") +
+  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
+  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+
+rpc_bx_dat_hc %>%
+  ggplot(aes(x = rpc2_group, y = avg_c_r2, fill = rpc2_group)) +
+  geom_boxplot(size = 1.4, outliers = F) + 
+  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
+  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 20)) +
+  labs(x = NULL, y = "Cortical R2*") +
+  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
+  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+
+rpc_bx_dat_hc %>%
+  ggplot(aes(x = rpc2_group, y = avg_k_r2, fill = rpc2_group)) +
+  geom_boxplot(size = 1.4, outliers = F) + 
+  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
+  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 20)) +
+  labs(x = NULL, y = "Kidney R2*") +
+  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
+  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+```
+
+```{r}
+rpc_bx_dat_hc %>%
+  ggplot(aes(x = rpc2_group, y = gfr_raw_plasma, fill = rpc2_group)) +
+  geom_boxplot(size = 1.4, outliers = F) + 
+  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
+  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 20)) +
+  labs(x = NULL, y = "mGFR") +
+  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
+  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+
+View(subset(rpc_bx_dat_hc, !is.na(gfr_raw_plasma)))
+rpc_bx_dat_hc %>%
+  ggplot(aes(x = rpc2_group, y = gfr_bsa_plasma, fill = rpc2_group)) +
+  geom_boxplot(size = 1.4, outliers = F) + 
+  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
+  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 20)) +
+  labs(x = NULL, y = "mGFR (BSA)") +
+  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
+  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+
+rpc_bx_dat_hc %>%
+  ggplot(aes(x = rpc2_group, y = erpf_raw_plasma, fill = rpc2_group)) +
+  geom_boxplot(size = 1.4, outliers = F) + 
+  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
+  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 20)) +
+  labs(x = NULL, y = "ERPF") +
+  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
+  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+
+rpc_bx_dat_hc %>%
+  ggplot(aes(x = rpc2_group, y = erpf_bsa_plasma, fill = rpc2_group)) +
+  geom_boxplot(size = 1.4, outliers = F) + 
+  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
+  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 20)) +
+  labs(x = NULL, y = "ERPF (BSA)") +
+  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
+  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+
+rpc_bx_dat_hc %>%
+  ggplot(aes(x = rpc2_group, y = glomerular_pressure, fill = rpc2_group)) +
+  geom_boxplot(size = 1.4, outliers = F) + 
+  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
+  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 20)) +
+  labs(x = NULL, y = "Pglo") +
+  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
+  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+
+rpc_bx_dat_hc %>%
+  ggplot(aes(x = rpc2_group, y = ff, fill = rpc2_group)) +
+  geom_boxplot(size = 1.4, outliers = F) + 
+  geom_line(aes(group = record_id),  color = "#595758", size = 0.3) +
+  geom_jitter(size = 2.5, width = 0, color = "#595758", alpha = 0.5) +
+  theme_minimal(base_size = 15) +
+  theme(panel.grid = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 20)) +
+  labs(x = NULL, y = "Filtration fraction") +
+  # scale_color_manual(values = c("#b5c99a", "#87986a", "#4b8faa"))+
+  scale_fill_manual(values = c("#cfe1b9", "#97a97c", "#89c2d9"))+
+  geom_vline(xintercept = 2.5, linetype = "dashed", color = "#595758")
+```
+
+```{r echo = F}
+# regardless of biopsy
+rpc_nonbx_dat <- subset(rpc2_dat, visit %in% c("baseline", "post_treatment"))
+
+summary(arsenal::tableby(visit ~ age  + sex + weight + height + bmi + 
+                           sbp + dbp + map + chol_base + ldl + hdl + hba1c + kwt(triglycerides, "Nmiss", "medianq1q3") + 
+                           eGFR_CKD_epi + kwt(acr_u, "Nmiss", "median", "q1q3") + 
+                           gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma +
+                           glomerular_pressure + ff + 
+                           avg_pcascl + avg_c_adc + total_kidney_volume_ml + avg_c_r2 + avg_k_r2, 
+                         data = rpc_nonbx_dat), digits = 1)
+
+summary(arsenal::paired(visit ~ age  + weight + height + bmi + 
+                           sbp + dbp + map + chol_base + ldl + hdl + hba1c + signed.rank(triglycerides, "Nmiss", "medianq1q3") + 
+                           eGFR_CKD_epi + signed.rank(acr_u, "Nmiss", "median", "q1q3") + 
+                           gfr_raw_plasma + gfr_bsa_plasma + erpf_raw_plasma + erpf_bsa_plasma +
+                          glomerular_pressure + ff + 
+                           avg_pcascl + avg_c_adc + total_kidney_volume_ml + avg_c_r2 + avg_k_r2, 
+                         data = rpc_nonbx_dat, id = record_id), digits = 1)
 ```
 
 ```{r echo = F}

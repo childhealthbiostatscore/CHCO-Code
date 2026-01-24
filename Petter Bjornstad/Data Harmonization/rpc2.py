@@ -275,7 +275,7 @@ def clean_rpc2_redcap():
     # --------------------------------------------------------------------------
     # Renal Clearance testing
     # --------------------------------------------------------------------------
-    var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
+    var = ["subject_id", "totprot_base", "map"] + [v for v in meta.loc[meta["form_name"]
                                                == "study_visit_renal_clearance_testing", "field_name"]]
     rct = pd.DataFrame(proj.export_records(fields=var))
     rct.replace(rep, np.nan, inplace=True)
@@ -293,25 +293,24 @@ def clean_rpc2_redcap():
               axis=1, inplace=True)
 
     # # Calculate variables
-    # rct_vars = ["gfr_raw_plasma", "erpf_raw_plasma",
-    #             "totprot_base", "map"]
-    # rct[rct_vars] = rct[rct_vars].apply(pd.to_numeric, errors='coerce')
-    # rct["erpf_raw_plasma_seconds"] = rct["erpf_raw_plasma"] / 60
-    # rct["gfr_raw_plasma_seconds"] = rct["gfr_raw_plasma"] / 60
-    # # Filtration Fraction
-    # rct["ff"] = rct["gfr_raw_plasma"] / rct["erpf_raw_plasma"]
-    # # Kfg for group (T1D/T2D kfg: 0.1012, Control kfg: 0.1733)
-    # rct["kfg"] = np.select(
-    #     [rct["diabetes_hx"].eq("1"), rct["diabetes_hx"].eq("0")], [0.1012, 0.1733])
-    # # Filtration pressure across glomerular capillaries
-    # rct["deltapf"] = (rct["gfr_raw_plasma"] / 60) / rct["kfg"]
-    # # Plasma protein mean concentration
-    # rct["cm"] = (rct["totprot_base"] / rct["ff"]) * \
-    #     np.log(1 / (1 - rct["ff"]))
-    # # Pi G (Oncotic pressure)
-    # rct["pg"] = 5 * (rct["cm"] - 2)
-    # # Glomerular Pressure
-    # rct["glomerular_pressure"] = rct["pg"] + rct["deltapf"] + 10
+    rct_vars = ["gfr_raw_plasma", "erpf_raw_plasma",
+                "totprot_base", "map"]
+    rct[rct_vars] = rct[rct_vars].apply(pd.to_numeric, errors='coerce')
+    rct["erpf_raw_plasma_seconds"] = rct["erpf_raw_plasma"] / 60
+    rct["gfr_raw_plasma_seconds"] = rct["gfr_raw_plasma"] / 60
+    # Filtration Fraction
+    rct["ff"] = rct["gfr_raw_plasma"] / rct["erpf_raw_plasma"]
+    # Kfg for group (T1D/T2D kfg: 0.1012, Control kfg: 0.1733)
+    rct["kfg"] = 0.1012
+    # Filtration pressure across glomerular capillaries
+    rct["deltapf"] = (rct["gfr_raw_plasma"] / 60) / rct["kfg"]
+    # Plasma protein mean concentration
+    rct["cm"] = (rct["totprot_base"] / rct["ff"]) * \
+        np.log(1 / (1 - rct["ff"]))
+    # Pi G (Oncotic pressure)
+    rct["pg"] = 5 * (rct["cm"] - 2)
+    # Glomerular Pressure
+    rct["glomerular_pressure"] = rct["pg"] + rct["deltapf"] + 10
     # # Renal Blood Flow
     # rct["rbf"] = (rct["erpf_raw_plasma"]) / (1 - rct["hct_210"] / 100)
     # rct["rbf_seconds"] = (rct["erpf_raw_plasma_seconds"]
@@ -326,9 +325,9 @@ def clean_rpc2_redcap():
     #              rct["rbf_seconds"]) * 1328
     # rct.loc[~(rct['ra'] > 0), 'ra'] = np.nan
     # Reduce rct dataset
-    # rct = rct[["subject_id", "ff", "kfg", "deltapf", "cm", "pg",
-    #            "glomerular_pressure",
-    #            "pah_raw", "pah_sd", "pah_cv"] + list(rename.values())]
+    rct = rct[["subject_id", "redcap_event_name", "ff", "kfg", "deltapf", "cm", "pg",
+               "glomerular_pressure",
+               "pah_raw", "pah_sd", "pah_cv"] + list(rename.values())]
     rct["procedure"] = "renal_clearance_testing"
     
     rct["redcap_event_name"].replace(
@@ -404,9 +403,10 @@ def clean_rpc2_redcap():
     mask_fsoc = datecheck["date"].replace("", np.nan).notna()
     sub_fsoc = datecheck[mask_fsoc][fields]
     # list of record_ids that have failed screening
-    drop_ids = ["RPC-09", "RPC-10", "RPC-12", "RPC-14", "RPC-19", "RPC-22", "RPC-23", "RPC-24", 
-                "RPC-30", "RPC-32", "RPC-33", "RPC-34", "RPC-35", "RPC-36", "RPC-39", 
-                "RPC-40", "RPC-42"]  
+    drop_ids = ["RPC-06", "RPC-09", "RPC-10", "RPC-11", "RPC-12", "RPC-14", "RPC-15", 
+                "RPC-18", "RPC-19", "RPC-20", "RPC-22", "RPC-23", "RPC-24", 
+                "RPC-28", "RPC-30", "RPC-31", "RPC-32", "RPC-33", "RPC-34", 
+                "RPC-35", "RPC-36", "RPC-39", "RPC-40", "RPC-42", "RPC-43"]  
     df = df[~df['record_id'].isin(drop_ids)]
 
 
