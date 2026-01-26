@@ -2015,47 +2015,47 @@ ideas_fxn <- function(so, exp_group, ref_group, covariates, var_type, id, method
 #     )
 # }
 # 
-# # #Cell Chat Functions----
-# # filter_by_celltype_size <- function(seurat_obj, celltype_col = "celltype", min_cells = 50) {
-# #   # Get celltype 
-# #   celltypes <- seurat_obj@meta.data[[celltype_col]]
-# #   
-# #   # Count
-# #   cell_counts <- table(celltypes)
-# #   keep_celltypes <- names(cell_counts[cell_counts >= min_cells])
-# #   
-# #   # Subset
-# #   keep_cells <- rownames(seurat_obj@meta.data)[celltypes %in% keep_celltypes]
-# #   seurat_obj_filtered <- subset(seurat_obj, cells = keep_cells)
-# #   
-# #   return(seurat_obj_filtered)
-# # }
-# # 
-# # 
-# # run_cellchat_pipeline <- function(seurat_obj, group_name, group.by = "celltype", assay = "RNA", min_cells = 10) {
-# #   # future::plan("multisession", workers = n_cores)
-# #   
-# #   cellchat <- createCellChat(object = seurat_obj, group.by = group.by, assay = assay)
-# #   cellchat <- addMeta(cellchat, meta = seurat_obj@meta.data)
-# #   cellchat <- setIdent(cellchat, ident.use = group.by)
-# #   
-# #   CellChatDB <- CellChatDB.human
-# #   cellchat@DB <- CellChatDB
-# #   
-# #   cellchat <- subsetData(cellchat)
-# #   cellchat <- identifyOverExpressedGenes(cellchat)
-# #   cellchat <- identifyOverExpressedInteractions(cellchat)
-# #   cellchat <- computeCommunProb(cellchat, type = "triMean")
-# #   cellchat <- filterCommunication(cellchat, min.cells = min_cells)
-# #   cellchat <- computeCommunProbPathway(cellchat)
-# #   cellchat <- aggregateNet(cellchat)
-# #   
-# #   saveRDS(cellchat, file = paste0("cellchat_", group_name, ".rds"))
-# #   return(cellchat)
-# # }
-# # 
-# # 
-# # get_group_size <- function(cellchat_obj) {
-# #   return(as.numeric(table(cellchat_obj@idents)))
-# # }
-# # 
+#Cell Chat Functions----
+filter_by_celltype_size <- function(seurat_obj, celltype_col = "celltype", min_cells = 50) {
+  # Get celltype
+  celltypes <- seurat_obj@meta.data[[celltype_col]]
+
+  # Count
+  cell_counts <- table(celltypes)
+  keep_celltypes <- names(cell_counts[cell_counts >= min_cells])
+
+  # Subset
+  keep_cells <- rownames(seurat_obj@meta.data)[celltypes %in% keep_celltypes]
+  seurat_obj_filtered <- subset(seurat_obj, cells = keep_cells)
+
+  return(seurat_obj_filtered)
+}
+
+
+run_cellchat_pipeline <- function(seurat_obj, group_name, group.by = "celltype", assay = "RNA", min_cells = 10) {
+  # future::plan("multisession", workers = n_cores)
+
+  cellchat <- createCellChat(object = seurat_obj, group.by = group.by, assay = assay)
+  cellchat <- addMeta(cellchat, meta = seurat_obj@meta.data)
+  cellchat <- setIdent(cellchat, ident.use = group.by)
+
+  CellChatDB <- CellChatDB.human
+  cellchat@DB <- CellChatDB
+
+  cellchat <- subsetData(cellchat)
+  cellchat <- identifyOverExpressedGenes(cellchat)
+  cellchat <- identifyOverExpressedInteractions(cellchat)
+  cellchat <- computeCommunProb(cellchat, type = "triMean")
+  cellchat <- filterCommunication(cellchat, min.cells = min_cells)
+  cellchat <- computeCommunProbPathway(cellchat)
+  cellchat <- aggregateNet(cellchat)
+
+  saveRDS(cellchat, file = paste0("cellchat_", group_name, ".rds"))
+  return(cellchat)
+}
+
+
+get_group_size <- function(cellchat_obj) {
+  return(as.numeric(table(cellchat_obj@idents)))
+}
+
