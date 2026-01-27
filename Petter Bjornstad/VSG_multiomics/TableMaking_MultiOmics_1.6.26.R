@@ -788,8 +788,6 @@ fig <- create_study_design_figure(
   n_hc = nrow(hc),
   n_vsg = nrow(vsg),
   n_smt = nrow(smt),
-  n_vsg_paired = n_vsg_paired,
-  n_smt_paired = n_smt_paired,
   save_path = paste0(output_dir, "Figure0_Study_Design.pdf"),
   width = 14,
   height = 12
