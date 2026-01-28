@@ -807,26 +807,50 @@ plot_fsoc_by_group_sex <- function(dat) {
 # ============================================================================
 # 8. DESCRIPTIVE STATISTICS (TABLE 1)
 # ============================================================================
-
 create_table1 <- function(dat) {
   dat %>%
-    select(group, age, sex, weight,
-           whole_kidney_fsoc_abs, medullary_fsoc_abs,
-           dexa_fat_kg, dexa_lean_kg) %>%
+    # Filter to subjects with at least one FSOC measurement
+    filter(!is.na(whole_kidney_fsoc_abs) | !is.na(medullary_fsoc_abs)) %>%
+    # Also filter out invalid FSOC values (matching other analyses in script)
+    filter(is.na(whole_kidney_fsoc_abs) | whole_kidney_fsoc_abs < 15) %>%
+    filter(is.na(medullary_fsoc_abs) | medullary_fsoc_abs >= 0) %>%
+    select(group, age, sex, bmi, hba1c, diabetes_duration,
+           eGFR_CKD_epi, acr_u,
+           whole_kidney_fsoc_abs, medullary_fsoc_abs) %>%
     tbl_summary(
       by = group,
       statistic = list(
         all_continuous() ~ "{mean} ({sd})",
-        all_categorical() ~ "{n} ({p}%)"
+        all_categorical() ~ "{n} ({p}%)",
+        # Override UACR to show median (IQR)
+        acr_u ~ "{median} ({p25}, {p75})"
       ),
-      digits = all_continuous() ~ 2
+      digits = list(
+        all_continuous() ~ 1,
+        acr_u ~ 1
+      ),
+      label = list(
+        age ~ "Age, years",
+        sex ~ "Sex",
+        bmi ~ "BMI, kg/m²",
+        hba1c ~ "HbA1c, %",
+        diabetes_duration ~ "Diabetes Duration, years",
+        eGFR_CKD_epi ~ "eGFR, mL/min/1.73m²",
+        acr_u ~ "UACR, mg/g",
+        whole_kidney_fsoc_abs ~ "Whole Kidney FSOC, s⁻¹",
+        medullary_fsoc_abs ~ "Medullary FSOC, s⁻¹"
+      ),
+      missing_text = "Missing"
     ) %>%
-    add_p() %>%
+    add_p(
+      test = list(
+        acr_u ~ "kruskal.test"
+      )
+    ) %>%
     add_overall() %>%
-    modify_header(label ~ "**Variable**") %>%
+    modify_header(label ~ "**Characteristic**") %>%
     bold_labels()
 }
-
 # ============================================================================
 # 9. EXPORT RESULTS
 # ============================================================================
