@@ -218,6 +218,19 @@ bucket <- "harmonized.dataset" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
 s3$download_file(bucket, "harmonized_dataset.csv", temp_file)
 harm_meta_data2 <- read.csv(temp_file)
+
+#Load SE Annotations
+gc()
+bucket <- "scrna" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "Kidney organoids/cluster_annotations_SE.csv", temp_file)
+se_annotations <- read.csv(temp_file)
+se_annotations <- se_annotations %>% 
+  janitor::clean_names()
+annot_key <- se_annotations %>% 
+  dplyr::select(c("cluster_number","putative_assignment")) %>% 
+  dplyr::rename(cell_type = putative_assignment) %>% 
+  mutate(cell_type=str_to_lower(str_replace_all(cell_type," ","_")))
 ```
 
 # 2. Pre-Processing & Qualtiy Control
@@ -618,7 +631,209 @@ rm(sce,counts_layer)
 # sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
 ```
 
-## b. Annotate Organoid Data - Bottom Up
+## b. Annotate Organoid Data from SE & Beno-approved annotations
+```{r}
+#Annotate cell types
+#Start by clustering
+#Select combined conc. only
+so_combined <- sc_org
+
+#Remove ID IT_19
+so_combined <- subset(so_combined,record_id!="IT_19")
+
+# PCA
+so_combined <- NormalizeData(so_combined)
+so_combined <- ScaleData(so_combined, features = VariableFeatures(so_combined))
+so_combined <- FindVariableFeatures(object = so_combined)
+so_combined <- RunPCA(so_combined, features = VariableFeatures(object = so_combined),assay="RNA")
+# ElbowPlot(so_combined)
+
+# # Find neighbors and clusters 
+so_combined <- FindNeighbors(so_combined, assay = "RNA", dims = 1:20) #20 based on elbow plot
+so_combined <- FindClusters(so_combined, resolution = 0.5)
+
+# Perform UMAP
+so_combined <- RunUMAP(so_combined, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
+so_combined@reductions
+DimPlot(so_combined, reduction = "umap", raster = F)
+Idents(so_combined) <- "seurat_clusters"  # or whatever the column is named
+
+# Verify you have 25 clusters
+print(paste("Number of clusters:", length(unique(Idents(so_combined)))))
+print(table(Idents(so_combined)))  # Show distribution of cells per cluster
+DimPlot(so_combined, reduction = "umap", raster = T)
+
+DimPlot(so_combined, reduction = "umap", raster = T, group.by = "record_id")
+
+# Find markers for all clusters
+all_markers <- FindAllMarkers(so_combined, 
+                              only.pos = TRUE,     # Only positive markers
+                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
+                              logfc.threshold = 0.25,  # Minimum log fold change
+                              test.use = "wilcox")  # Wilcoxon test
+
+# Verify all 25 clusters are included
+print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
+print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
+
+# Get top 40 markers per cluster
+top_40_markers <- get_top_markers(all_markers, top_n = 40)
+# write.csv(top_40_markers,"/home/hhampson/Results/combined_gluc_top_40_markers_res_05_clusters_19_outlier_removed.csv")
+
+# Create dot plot with top 10 markers (might be crowded)
+dotplot_40 <- create_marker_dotplot(so_combined, all_markers, top_n = 40,
+                                    title = "Top 40 Marker Genes by Cluster; Combined Glucose Treatment")
+print(dotplot_40)
+
+# png("/home/hhampson/Results/dotplot_avg_exp_top40_gluc_combined_cluster18_res05_outlier_removed.png",res=300,width=10000,height=2500)
+# print(dotplot_40)
+# dev.off()
+
+#Annotate clusters with SE annotations
+# Check metadata columns
+colnames(so_combined@meta.data)
+
+# View the seurat_clusters column
+head(so_combined@meta.data$seurat_clusters)
+
+# View your annotation key to confirm structure
+print(annot_key)
+
+# Create named vector from your dataframe
+cluster_annotations <- setNames(annot_key$cell_type, annot_key$cluster_number)
+
+# First, check what cluster numbers actually exist in your Seurat object
+table(so_combined$seurat_clusters)
+
+# Check the class/type
+class(so_combined$seurat_clusters)
+levels(so_combined$seurat_clusters)
+
+# Create the annotations vector
+cluster_annotations <- setNames(annot_key$cell_type, 
+                                as.character(annot_key$cluster_number))
+
+# Method 1: Use AddMetaData with a named vector
+cell_type_vector <- cluster_annotations[as.character(so_combined$seurat_clusters)]
+names(cell_type_vector) <- colnames(so_combined)
+
+so_combined <- AddMetaData(so_combined, 
+                           metadata = cell_type_vector, 
+                           col.name = "cell_type")
+
+# Verify it worked
+table(so_combined$cell_type)
+table(so_combined$cell_type, so_combined$seurat_clusters)
+
+# Set cell_type as the active identity for plotting
+Idents(so_combined) <- "cell_type"
+
+# Create a nice UMAP with cell type labels
+DimPlot(so_combined, reduction = "umap", raster = TRUE, label = TRUE, repel = TRUE)
+
+# Also visualize by sample/condition
+DimPlot(so_combined, reduction = "umap", raster = TRUE, group.by = "record_id")
+
+# Check your metadata to confirm what columns you have for NEBULA
+colnames(so_combined@meta.data)
+
+# Create abbreviated cell type names
+cell_type_abbrev <- c(
+  "developing_kidney_epithelium" = "DKE",
+  "developing_muscle" = "DMus",
+  "developing_pec" = "DPEC",
+  "distal_tubular_epithelial_cells_" = "DT",
+  "early_endothelial_cells_vsmc" = "EEC",
+  "mesangial_cells_smooth_muscle" = "Mes",
+  "mesangial_cells_vsmcs" = "MesV",
+  "mixed_pec_general_neural" = "PEC_N",
+  "muscle_vsmc" = "MusV",
+  "neural" = "Neur",
+  "non_specific_kidney_epithelium" = "NsKE",
+  "proliferating_mitotic_cells" = "Prolif",
+  "proliferating_podocyte_epithelial_cells" = "ProlPod",
+  "stromal" = "Strom"
+)
+# Add abbreviated cell types directly to metadata slot
+so_combined@meta.data$cell_type_abbrev <- cell_type_abbrev[so_combined$cell_type]
+
+# Verify it worked
+table(so_combined@meta.data$cell_type_abbrev)
+
+# Set as active identity
+Idents(so_combined) <- "cell_type_abbrev"
+
+# Plot with abbreviated labels
+DimPlot(so_combined, reduction = "umap", raster = TRUE, label = TRUE, repel = TRUE, label.size = 6)+
+   theme(legend.position = "none")
+# Save the plot
+ggsave("/home/hhampson/Results/UMAP_celltype_abbreviated.png", width = 10, height = 10, dpi = 300)
+
+p <- DimPlot(so_combined, reduction = "umap", raster = TRUE, label = FALSE) +
+  labs(title = "Cell Type Annotations",
+       color = "Cell Type")+ theme(legend.position = "none")
+
+# Add bold labels
+p <- LabelClusters(p, id = "ident", fontface = "bold", size = 6, repel = TRUE)
+
+print(p)
+ggsave("/home/hhampson/Results/UMAP_celltype_bold_labels.png", p, width = 10, height = 10, dpi = 300)
+
+
+# Create corrected legend with proper order
+abbrev_legend <- data.frame(
+  Full_Name = names(cell_type_abbrev),
+  Abbreviation = unname(cell_type_abbrev)
+)
+
+# Sort by full name
+abbrev_legend <- abbrev_legend[order(abbrev_legend$Full_Name), ]
+rownames(abbrev_legend) <- NULL
+
+# Print the legend
+print(abbrev_legend)
+
+# Save the corrected legend
+write.csv(abbrev_legend, "/home/hhampson/Results/celltype_abbreviations_legend_corrected.csv", row.names = FALSE)
+
+# Create formatted version
+abbrev_legend_formatted <- abbrev_legend %>%
+  mutate(Legend = paste0(Abbreviation, " = ", Full_Name))
+
+# Print formatted
+cat("\nCell Type Abbreviations:\n")
+cat(paste(abbrev_legend_formatted$Legend, collapse = "\n"))
+
+# Save as text
+writeLines(abbrev_legend_formatted$Legend, "/home/hhampson/Results/celltype_abbreviations_legend_corrected.txt")
+
+# Create a new variable with "Abbreviation = Full Name" format
+so_combined@meta.data$cell_type_legend <- paste0(
+  so_combined@meta.data$cell_type_abbrev, 
+  " = ", 
+  so_combined@meta.data$cell_type
+)
+
+# Set as active identity
+Idents(so_combined) <- "cell_type_legend"
+
+# Create plot with combined legend
+p <- DimPlot(so_combined, reduction = "umap", raster = TRUE, label = FALSE) +
+  labs(title = "Cell Type Annotations",
+       color = "Cell Type") +
+  theme(legend.text = element_text(size = 8),
+        legend.key.size = unit(0.4, "cm"))
+
+# Save the plot
+ggsave("/home/hhampson/Results/UMAP_celltype_with_full_legend.png", p, width = 16, height = 8, dpi = 300)
+
+print(p)
+
+
+
+```
+
+## c. Annotate Organoid Data - Bottom Up
 
 ###i. Separate 15 and 30 glucose conc.
 ```{r}
@@ -2090,7 +2305,1069 @@ if("Proliferating" %in% broad_summary$broad_category) cat("✓ Actively dividing
 ```
 
 
-#3. Analysis
+#3. Organoid Analysis
+## a. Perform differential expression between T2D & LC in organoid samples (pooled by glucose conc.)
+### i. Pre-Analysis Steps
+```{r}
+# Verify dimensions
+nrow(so_combined) # genes 7383
+ncol(so_combined) # cells 137604
+
+# Check your metadata
+table(so_combined$group)
+table(so_combined$treatment)
+table(so_combined$cell_type_abbrev)
+head(so_combined@meta.data[, c("group", "cell_type_abbrev", "record_id", "treatment")])
+
+# Make sure group is a factor with LC as reference
+so_combined$group <- factor(so_combined$group)
+so_combined$group <- relevel(so_combined$group, ref = "Lean Control")  # Adjust "Lean Control" to match your actual level name
+
+# Prepare data for cell type distribution plot
+celltype_counts <- so_combined@meta.data %>%
+  group_by(group, cell_type_abbrev) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(group) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ungroup()
+
+# Create stacked barchart
+png(file.path("/home/hhampson/Results/Barchart_Celltypes_by_Group.png"), 
+    res = 300, width = 2000, height = 2000)
+ggplot(celltype_counts, aes(x = group, y = proportion, fill = cell_type_abbrev)) +
+  geom_col(width = 0.6) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  theme_minimal() +
+  labs(
+    title = "Cell Type Distribution by Treatment Group",
+    x = "Group",
+    y = "Proportion of Cells",
+    fill = "Cell Type"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+dev.off()
+```
+
+### ii. Analysis 
+```{r}
+# Get cell types to analyze (you may want to exclude off-target populations)
+celltypes <- unique(so_combined$cell_type_abbrev)
+# Optional: filter out specific populations
+# celltypes <- celltypes[!celltypes %in% c("Neur", "DMus")]
+
+# Loop through each cell type
+for (cell_name in celltypes) {
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  
+  # Subset to current cell type
+  so_celltype <- subset(so_combined, cell_type_abbrev == cell_name)
+  DefaultAssay(so_celltype) <- "RNA"
+  
+  StartGenes <- nrow(so_celltype)
+  Cells <- ncol(so_celltype)
+  
+  cat("Genes:", StartGenes, "| Cells:", Cells, "\n")
+  
+  # Find highly variable genes
+  so_celltype <- FindVariableFeatures(so_celltype, 
+                                       selection.method = "vst", 
+                                       nfeatures = 2000)
+  hvgs <- VariableFeatures(so_celltype)
+  
+  cat("HVGs:", length(hvgs), "\n")
+  
+  # Get counts for HVGs
+  counts_hvg <- round(GetAssayData(so_celltype, layer = "counts"))
+  genes_list <- hvgs
+  
+  # Set up parallel processing
+  cl <- makeCluster(10)
+  registerDoParallel(cl)
+  
+  start_time <- Sys.time()
+  
+  # Run NEBULA for each gene in parallel
+  nebula_results_list <- foreach(g = genes_list, 
+                                  .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_hvg[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype, features = g)@meta.data
+      
+      formula <- as.formula("~ group")
+      pred_gene <- model.matrix(formula, data = meta_gene)
+      library <- meta_gene$pooled_offset
+      
+      data_g_gene <- group_cell(count = count_gene, 
+                                 id = meta_gene$record_id, 
+                                 pred = pred_gene, 
+                                 offset = library)
+      
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, 
+                            id = meta_gene$record_id, 
+                            pred = pred_gene, 
+                            offset = library)
+      }
+      
+      # Run NEBULA with offset
+      result <- nebula(count = data_g_gene$count, 
+                       id = data_g_gene$id, 
+                       pred = data_g_gene$pred, 
+                       ncore = 1, 
+                       reml = TRUE,
+                       model = "NBLMM",
+                       output_re = TRUE,
+                       covariance = TRUE,
+                       offset = data_g_gene$offset)
+      
+      list(gene = g, result = result)
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  cat("Time elapsed:", end_time - start_time, "\n")
+  
+  # Process results
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)
+  
+  # Check convergence
+  nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      data.frame(Gene = gene_name, Convergence_Code = converged)
+    }
+  )
+  
+  # Extract summaries
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  
+  # Identify non-converged genes
+  nonconverge_genes <- unique(
+    nebula_converged$Gene[nebula_converged$Convergence_Code %in% c(-40, -50, -60)]
+  )
+  
+  # Format results
+  full_results <- as.data.frame(nebula_summaries)
+  colnames(full_results) <- c("logFC_Intercept", "logFC", "se_Intercept", 
+                               "se", "p_Intercept", "p_value", 
+                               "gene_id", "gene")
+  
+  full_results$Variable <- "T2DvsLC"
+  full_results$Celltype <- cell_name
+  
+  # Calculate number of genes filtered out for low expression
+  full_results$low_exp <- length(genes_list) - nrow(full_results)
+  
+  # Filter non-converged genes
+  full_results <- full_results %>% 
+    filter(!gene %in% nonconverge_genes)
+  
+  # Calculate non-convergence rate
+  full_results$nebula_nonconverged_percent <- 
+    paste0(round((1 - (length(genes_list) - length(nonconverge_genes)) / 
+                    length(genes_list)) * 100, 3), "%")
+  
+  full_results$Cells <- Cells
+  full_results$Genes <- nrow(full_results)
+  
+  # FDR correction
+  full_results$fdr <- p.adjust(full_results$p_value, method = "fdr")
+  full_results$PValue10 <- -log10(pmax(full_results$p_value, 1e-10))
+  
+  # Save results
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  output_file <- file.path(paste0("/home/hhampson/Results?NEBULA_T2DvsLC_", cell_name_clean, 
+                                  "_unadjusted_2000.csv"))
+  write.csv(full_results, output_file, row.names = FALSE)
+  
+  cat("Results saved:", output_file, "\n\n")
+  
+  # Create volcano plot
+  full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$logFC > 0, "#990000",
+                               ifelse(full_results$fdr < 0.05 & full_results$logFC < 0, "#003366", "gray"))
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cells <- Cells  # Already defined earlier in the loop
+  Nonconvergence_Rate <- unique(full_results$nebula_nonconverged_percent)[1]
+  low_exp <- unique(full_results$low_exp)[1]
+  
+  # Get min/max for x-axis
+  max_fc <- max(full_results$logFC)
+  min_fc <- min(full_results$logFC)
+  
+  # Create the volcano plot using ggplot
+  volcano_plot <- ggplot(full_results, aes(x = logFC, y = PValue10, color = color)) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title = paste("Type 2 Diabetes vs. Lean Controls -", cell_name),
+      subtitle = "Organoids, Unadjusted (REML, Log Normal, Offset)",
+      x = "Log Fold Change",
+      y = "-log10(P-Value)",
+      color = "FC Direction",
+      caption = paste0("FDR < 0.05, Genes = ", Genes, 
+                      ", Cells = ", Cells, 
+                      ", Non-Convergence Rate: ", Nonconvergence_Rate,
+                      ", Genes Filtered for Low Expression: ", low_exp)
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    ) +
+    xlim(-3, 3) +
+    geom_text(data = significant_df, aes(label = gene),
+              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+  
+  # Save volcano plot
+  plot_file <- file.path(paste0("/home/hhampson/Results/Plot_Organoid_NEBULA_", cell_name_clean, 
+                                "_T2DvsLC_unadjusted_2000.png"))
+  png(plot_file, width = 3000, height = 2100, res = 300)
+  print(volcano_plot)
+  dev.off()
+  
+  cat("Plot saved:", plot_file, "\n\n")
+}
+
+cat("\n=== NEBULA Analysis Complete ===\n")
+
+
+```
+
+## b. Perform differential expression between T2D & LC in organoid samples (pooled by glucose conc. with glucose treatment interaction effect term in model)
+### i. Pre-Analysis Steps
+```{r}
+# Verify dimensions
+nrow(so_combined) # genes 7383
+ncol(so_combined) # cells 137604
+
+# Check your metadata
+table(so_combined$group)
+table(so_combined$treatment)
+table(so_combined$cell_type_abbrev)
+head(so_combined@meta.data[, c("group", "cell_type_abbrev", "record_id", "treatment")])
+
+# Make sure group is a factor with LC as reference
+so_combined$group <- factor(so_combined$group)
+so_combined$group <- relevel(so_combined$group, ref = "Lean Control")
+
+# Make sure treatment is a factor
+so_combined$treatment <- factor(so_combined$treatment)
+
+# Prepare data for cell type distribution plot
+celltype_counts <- so_combined@meta.data %>%
+  group_by(group, treatment, cell_type_abbrev) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(group, treatment) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ungroup()
+
+# Create stacked barchart by group and treatment
+png("/home/hhampson/Results/Barchart_Celltypes_by_Group_Treatment.png", 
+    res = 300, width = 2500, height = 2000)
+ggplot(celltype_counts, aes(x = interaction(group, treatment), y = proportion, fill = cell_type_abbrev)) +
+  geom_col(width = 0.6) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  theme_minimal() +
+  labs(
+    title = "Cell Type Distribution by Treatment Group and Glucose Concentration",
+    x = "Group x Treatment",
+    y = "Proportion of Cells",
+    fill = "Cell Type"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+dev.off()
+
+```
+
+### ii. Analysis
+```{r}
+# Get cell types to analyze
+celltypes <- unique(so_combined$cell_type_abbrev)
+
+# Loop through each cell type
+for (cell_name in celltypes) {
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  
+  # Subset to current cell type
+  so_celltype <- subset(so_combined, cell_type_abbrev == cell_name)
+  DefaultAssay(so_celltype) <- "RNA"
+  
+  StartGenes <- nrow(so_celltype)
+  Cells <- ncol(so_celltype)
+  
+  cat("Genes:", StartGenes, "| Cells:", Cells, "\n")
+  
+  # Find highly variable genes
+  so_celltype <- FindVariableFeatures(so_celltype, 
+                                       selection.method = "vst", 
+                                       nfeatures = 2000)
+  hvgs <- VariableFeatures(so_celltype)
+  
+  cat("HVGs:", length(hvgs), "\n")
+  
+  # Get counts for HVGs
+  counts_hvg <- round(GetAssayData(so_celltype, layer = "counts"))
+  genes_list <- hvgs
+  
+  # Set up parallel processing
+  cl <- makeCluster(10)
+  registerDoParallel(cl)
+  
+  start_time <- Sys.time()
+  
+  # Run NEBULA for each gene in parallel
+  nebula_results_list <- foreach(g = genes_list, 
+                                  .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_hvg[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype, features = g)@meta.data
+      
+      # MODEL WITH INTERACTION: group + treatment + group:treatment
+      formula <- as.formula("~ group + treatment + group:treatment")
+      pred_gene <- model.matrix(formula, data = meta_gene)
+      library <- meta_gene$pooled_offset
+      
+      # Create data structure manually
+      data_g_gene <- list(count = count_gene, 
+                          id = meta_gene$record_id, 
+                          pred = pred_gene, 
+                          offset = library)
+      
+      # Run NEBULA with offset
+      result <- nebula(count = data_g_gene$count, 
+                       id = data_g_gene$id, 
+                       pred = data_g_gene$pred, 
+                       ncore = 1, 
+                       reml = TRUE,
+                       model = "NBLMM",
+                       output_re = TRUE,
+                       covariance = TRUE,
+                       offset = data_g_gene$offset)
+      
+      list(gene = g, result = result)
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  cat("Time elapsed:", end_time - start_time, "\n")
+  
+  # Process results
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)
+  
+  # Check convergence
+  nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      data.frame(Gene = gene_name, Convergence_Code = converged)
+    }
+  )
+  
+  # Extract summaries
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  
+  # Identify non-converged genes
+  nonconverge_genes <- unique(
+    nebula_converged$Gene[nebula_converged$Convergence_Code %in% c(-40, -50, -60)]
+  )
+  
+  # Format results - DON'T rename columns yet, keep original names
+  full_results <- as.data.frame(nebula_summaries)
+  
+  # Add metadata columns
+  full_results$Variable <- "T2DvsLC_with_treatment_interaction"
+  full_results$Celltype <- cell_name
+  
+  # Calculate number of genes filtered out for low expression
+  full_results$low_exp <- length(genes_list) - nrow(full_results)
+  
+  # Filter non-converged genes
+  full_results <- full_results %>% 
+    filter(!Gene %in% nonconverge_genes)
+  
+  # Calculate non-convergence rate
+  full_results$nebula_nonconverged_percent <- 
+    paste0(round((1 - (length(genes_list) - length(nonconverge_genes)) / 
+                    length(genes_list)) * 100, 3), "%")
+  
+  full_results$Cells <- Cells
+  full_results$Genes <- nrow(full_results)
+  
+  # FDR correction for each coefficient
+  # Identify which columns are p-values (start with "p_")
+  pval_cols <- grep("^p_", names(full_results), value = TRUE)
+  
+  for (pval_col in pval_cols) {
+    fdr_col_name <- paste0("fdr_", gsub("^p_", "", pval_col))
+    full_results[[fdr_col_name]] <- p.adjust(full_results[[pval_col]], method = "fdr")
+    
+    # Also create -log10 p-value columns
+    pval10_col_name <- paste0("PValue10_", gsub("^p_", "", pval_col))
+    full_results[[pval10_col_name]] <- -log10(pmax(full_results[[pval_col]], 1e-10))
+  }
+  
+  # Save results with all coefficients
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  output_file <- file.path("/home/hhampson/Results", 
+                           paste0("NEBULA_T2DvsLC_interaction_", cell_name_clean, 
+                                  "_unadjusted_2000.csv"))
+  write.csv(full_results, output_file, row.names = FALSE)
+  
+  cat("Results saved:", output_file, "\n")
+  
+  # Create volcano plots for each coefficient
+  # Find logFC and p-value columns for group effect
+  group_logfc_col <- grep("^logFC_group", names(full_results), value = TRUE)[1]
+  group_pval_col <- grep("^p_group", names(full_results), value = TRUE)[1]
+  group_fdr_col <- grep("^fdr_group", names(full_results), value = TRUE)[1]
+  group_pval10_col <- grep("^PValue10_group", names(full_results), value = TRUE)[1]
+  
+  if (!is.na(group_logfc_col) && !is.na(group_pval10_col)) {
+    # Create volcano plot for main group effect
+    full_results$color_group <- ifelse(full_results[[group_fdr_col]] < 0.05 & full_results[[group_logfc_col]] > 0, "#990000",
+                                       ifelse(full_results[[group_fdr_col]] < 0.05 & full_results[[group_logfc_col]] < 0, "#003366", "gray"))
+    
+    significant_df_group <- full_results[full_results[[group_fdr_col]] < 0.05, ]
+    
+    Genes <- length(unique(full_results$Gene))
+    Nonconvergence_Rate <- unique(full_results$nebula_nonconverged_percent)[1]
+    low_exp <- unique(full_results$low_exp)[1]
+    
+    volcano_plot_group <- ggplot(full_results, aes(x = .data[[group_logfc_col]], y = .data[[group_pval10_col]], color = color_group)) +
+      geom_point(alpha = 0.7) +
+      scale_color_identity() +
+      theme_minimal() +
+      labs(
+        title = paste("Type 2 Diabetes vs. Lean Controls (Main Effect) -", cell_name),
+        subtitle = "Organoids, With Treatment Interaction (REML, Log Normal, Offset)",
+        x = "Log Fold Change",
+        y = "-log10(P-Value)",
+        color = "FC Direction",
+        caption = paste0("FDR < 0.05, Genes = ", Genes, 
+                        ", Cells = ", Cells, 
+                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
+                        ", Genes Filtered for Low Expression: ", low_exp)
+      ) +
+      theme(
+        plot.title = element_text(hjust = 0),
+        axis.text.x = element_text(angle = 0, hjust = 1)
+      ) +
+      xlim(-3, 3) +
+      geom_text(data = significant_df_group, aes(label = Gene),
+                vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+    
+    plot_file_group <- file.path("/home/hhampson/Results", 
+                                 paste0("Plot_Organoid_NEBULA_", cell_name_clean, 
+                                        "_T2DvsLC_interaction_maineffect_2000.png"))
+    png(plot_file_group, width = 3000, height = 2100, res = 300)
+    print(volcano_plot_group)
+    dev.off()
+    
+    cat("Main effect plot saved:", plot_file_group, "\n")
+  }
+  
+  # Create volcano plot for interaction effect
+  interaction_logfc_col <- grep("^logFC_.*:.*treatment", names(full_results), value = TRUE)[1]
+  interaction_pval_col <- grep("^p_.*:.*treatment", names(full_results), value = TRUE)[1]
+  interaction_fdr_col <- grep("^fdr_.*:.*treatment", names(full_results), value = TRUE)[1]
+  interaction_pval10_col <- grep("^PValue10_.*:.*treatment", names(full_results), value = TRUE)[1]
+  
+  if (!is.na(interaction_logfc_col) && !is.na(interaction_pval10_col)) {
+    full_results$color_interaction <- ifelse(full_results[[interaction_fdr_col]] < 0.05 & full_results[[interaction_logfc_col]] > 0, "#990000",
+                                             ifelse(full_results[[interaction_fdr_col]] < 0.05 & full_results[[interaction_logfc_col]] < 0, "#003366", "gray"))
+    
+    significant_df_interaction <- full_results[full_results[[interaction_fdr_col]] < 0.05, ]
+    
+    volcano_plot_interaction <- ggplot(full_results, aes(x = .data[[interaction_logfc_col]], y = .data[[interaction_pval10_col]], color = color_interaction)) +
+      geom_point(alpha = 0.7) +
+      scale_color_identity() +
+      theme_minimal() +
+      labs(
+        title = paste("T2D x Treatment Interaction Effect -", cell_name),
+        subtitle = "Organoids, Interaction Term (REML, Log Normal, Offset)",
+        x = "Log Fold Change (Interaction)",
+        y = "-log10(P-Value)",
+        color = "FC Direction",
+        caption = paste0("FDR < 0.05, Genes = ", Genes, 
+                        ", Cells = ", Cells, 
+                        ", Non-Convergence Rate: ", Nonconvergence_Rate,
+                        ", Genes Filtered for Low Expression: ", low_exp)
+      ) +
+      theme(
+        plot.title = element_text(hjust = 0),
+        axis.text.x = element_text(angle = 0, hjust = 1)
+      ) +
+      xlim(-3, 3) +
+      geom_text(data = significant_df_interaction, aes(label = Gene),
+                vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+    
+    plot_file_interaction <- file.path("/home/hhampson/Results", 
+                                       paste0("Plot_Organoid_NEBULA_", cell_name_clean, 
+                                              "_T2DvsLC_interaction_effect_2000.png"))
+    png(plot_file_interaction, width = 3000, height = 2100, res = 300)
+    print(volcano_plot_interaction)
+    dev.off()
+    
+    cat("Interaction effect plot saved:", plot_file_interaction, "\n\n")
+  }
+}
+
+cat("\n=== NEBULA Analysis Complete ===\n")
+
+```
+
+## c. Perform differential expression between 15 & 30 glucose conc. treatment  in organoid samples (pooled by diabetes group)
+### i. Pre-Analysis Steps
+```{r}
+# Verify dimensions
+nrow(so_combined) # genes 7383
+ncol(so_combined) # cells 137604
+
+# Check your metadata
+table(so_combined$group)
+table(so_combined$treatment)
+table(so_combined$cell_type_abbrev)
+head(so_combined@meta.data[, c("group", "cell_type_abbrev", "record_id", "treatment")])
+
+# Make sure treatment is a factor with 15mM as reference
+so_combined$treatment <- factor(so_combined$treatment)
+so_combined$treatment <- relevel(so_combined$treatment, ref = "15")  # Adjust to match your actual level name (might be "15mM")
+
+# Calculate pooled offset if not already done
+if (!"pooled_offset" %in% colnames(so_combined@meta.data)) {
+  so_combined$pooled_offset <- log(so_combined$nCount_RNA + 1)
+}
+
+# Prepare data for cell type distribution plot
+celltype_counts <- so_combined@meta.data %>%
+  group_by(treatment, cell_type_abbrev) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(treatment) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ungroup()
+
+# Create stacked barchart
+png("/home/hhampson/Results/Barchart_Celltypes_by_Treatment.png", 
+    res = 300, width = 2000, height = 2000)
+ggplot(celltype_counts, aes(x = treatment, y = proportion, fill = cell_type_abbrev)) +
+  geom_col(width = 0.6) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  theme_minimal() +
+  labs(
+    title = "Cell Type Distribution by Glucose Treatment",
+    x = "Treatment",
+    y = "Proportion of Cells",
+    fill = "Cell Type"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+dev.off()
+
+```
+
+### ii. Analysis 
+```{r}
+# Get cell types to analyze
+celltypes <- unique(so_combined$cell_type_abbrev)
+
+# Loop through each cell type
+for (cell_name in celltypes) {
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  
+  # Subset to current cell type
+  so_celltype <- subset(so_combined, cell_type_abbrev == cell_name)
+  DefaultAssay(so_celltype) <- "RNA"
+  
+  StartGenes <- nrow(so_celltype)
+  Cells <- ncol(so_celltype)
+  
+  cat("Genes:", StartGenes, "| Cells:", Cells, "\n")
+  
+  # Find highly variable genes
+  so_celltype <- FindVariableFeatures(so_celltype, 
+                                       selection.method = "vst", 
+                                       nfeatures = 2000)
+  hvgs <- VariableFeatures(so_celltype)
+  
+  cat("HVGs:", length(hvgs), "\n")
+  
+  # Get counts for HVGs
+  counts_hvg <- round(GetAssayData(so_celltype, layer = "counts"))
+  genes_list <- hvgs
+  
+  # Set up parallel processing
+  cl <- makeCluster(10)
+  registerDoParallel(cl)
+  
+  start_time <- Sys.time()
+  
+  # Run NEBULA for each gene in parallel
+  nebula_results_list <- foreach(g = genes_list, 
+                                  .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_hvg[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype, features = g)@meta.data
+      
+      # MODEL: comparing treatment (30mM vs 15mM)
+      formula <- as.formula("~ treatment")
+      pred_gene <- model.matrix(formula, data = meta_gene)
+      library <- meta_gene$pooled_offset
+      
+      # Create data structure manually
+      data_g_gene <- list(count = count_gene, 
+                          id = meta_gene$record_id, 
+                          pred = pred_gene, 
+                          offset = library)
+      
+      # Run NEBULA with offset
+      result <- nebula(count = data_g_gene$count, 
+                       id = data_g_gene$id, 
+                       pred = data_g_gene$pred, 
+                       ncore = 1, 
+                       reml = TRUE,
+                       model = "NBLMM",
+                       output_re = TRUE,
+                       covariance = TRUE,
+                       offset = data_g_gene$offset)
+      
+      list(gene = g, result = result)
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  cat("Time elapsed:", end_time - start_time, "\n")
+  
+  # Process results
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)
+  
+  # Check convergence
+  nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      data.frame(Gene = gene_name, Convergence_Code = converged)
+    }
+  )
+  
+  # Extract summaries
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  
+  # Identify non-converged genes
+  nonconverge_genes <- unique(
+    nebula_converged$Gene[nebula_converged$Convergence_Code %in% c(-40, -50, -60)]
+  )
+  
+  # Format results
+  full_results <- as.data.frame(nebula_summaries)
+  colnames(full_results) <- c("logFC_Intercept", "logFC", "se_Intercept", 
+                               "se", "p_Intercept", "p_value", 
+                               "gene_id", "gene", "Gene")
+  
+  full_results$Variable <- "30mMvs15mM"
+  full_results$Celltype <- cell_name
+  
+  # Calculate number of genes filtered out for low expression
+  full_results$low_exp <- length(genes_list) - nrow(full_results)
+  
+  # Filter non-converged genes
+  full_results <- full_results %>% 
+    filter(!gene %in% nonconverge_genes)
+  
+  # Calculate non-convergence rate
+  full_results$nebula_nonconverged_percent <- 
+    paste0(round((1 - (length(genes_list) - length(nonconverge_genes)) / 
+                    length(genes_list)) * 100, 3), "%")
+  
+  full_results$Cells <- Cells
+  full_results$Genes <- nrow(full_results)
+  
+  # FDR correction
+  full_results$fdr <- p.adjust(full_results$p_value, method = "fdr")
+  full_results$PValue10 <- -log10(pmax(full_results$p_value, 1e-10))
+  
+  # Save results
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  output_file <- file.path("/home/hhampson/Results", 
+                           paste0("NEBULA_30mMvs15mM_", cell_name_clean, 
+                                  "_unadjusted_2000.csv"))
+  write.csv(full_results, output_file, row.names = FALSE)
+  
+  cat("Results saved:", output_file, "\n\n")
+  
+  # Create volcano plot
+  full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$logFC > 0, "#990000",
+                               ifelse(full_results$fdr < 0.05 & full_results$logFC < 0, "#003366", "gray"))
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cells <- Cells  # Already defined earlier in the loop
+  Nonconvergence_Rate <- unique(full_results$nebula_nonconverged_percent)[1]
+  low_exp <- unique(full_results$low_exp)[1]
+  
+  # Get min/max for x-axis
+  max_fc <- max(full_results$logFC)
+  min_fc <- min(full_results$logFC)
+  
+  # Create the volcano plot using ggplot
+  volcano_plot <- ggplot(full_results, aes(x = logFC, y = PValue10, color = color)) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title = paste("30mM vs. 15mM Glucose Treatment -", cell_name),
+      subtitle = "Organoids, Unadjusted (REML, Log Normal, Offset)",
+      x = "Log Fold Change",
+      y = "-log10(P-Value)",
+      color = "FC Direction",
+      caption = paste0("FDR < 0.05, Genes = ", Genes, 
+                      ", Cells = ", Cells, 
+                      ", Non-Convergence Rate: ", Nonconvergence_Rate,
+                      ", Genes Filtered for Low Expression: ", low_exp)
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    ) +
+    xlim(-3, 3) +
+    geom_text(data = significant_df, aes(label = gene),
+              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+  
+  # Save volcano plot
+  plot_file <- file.path("/home/hhampson/Results", 
+                         paste0("Plot_Organoid_NEBULA_", cell_name_clean, 
+                                "_30mMvs15mM_unadjusted_2000.png"))
+  png(plot_file, width = 3000, height = 2100, res = 300)
+  print(volcano_plot)
+  dev.off()
+  
+  cat("Plot saved:", plot_file, "\n\n")
+}
+
+cat("\n=== NEBULA Analysis Complete ===\n")
+
+```
+
+
+#4. Biopsy Analysis
+## a. Perform differential expression between T2D & LC in Biopsy samples
+### i. Pre-Analysis Steps
+```{r}
+# Verify dimensions
+nrow(so_kpmp_sc) # genes
+ncol(so_kpmp_sc) # cells
+
+# Check your metadata
+table(so_kpmp_sc$group)
+table(so_kpmp_sc$cell_type_abbrev)
+head(so_kpmp_sc@meta.data[, c("group", "cell_type_abbrev", "kit_id")])
+
+# Make sure group is a factor with LC as reference
+so_kpmp_sc$group <- factor(so_kpmp_sc$group)
+so_kpmp_sc$group <- relevel(so_kpmp_sc$group, ref = "Lean_Control")  # Adjust to match your actual level name
+
+# Calculate pooled offset if not already done
+if (!"pooled_offset" %in% colnames(so_kpmp_sc@meta.data)) {
+  so_kpmp_sc$pooled_offset <- log(so_kpmp_sc$nCount_RNA + 1)
+}
+
+# Prepare data for cell type distribution plot
+celltype_counts <- so_kpmp_sc@meta.data %>%
+  group_by(group, cell_type_abbrev) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(group) %>%
+  mutate(proportion = n / sum(n)) %>%
+  ungroup()
+
+# Create stacked barchart
+png("/home/hhampson/Results/Barchart_Celltypes_by_Group_Biopsy.png", 
+    res = 300, width = 2000, height = 2000)
+ggplot(celltype_counts, aes(x = group, y = proportion, fill = cell_type_abbrev)) +
+  geom_col(width = 0.6) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  theme_minimal() +
+  labs(
+    title = "Cell Type Distribution by Diabetes Status",
+    x = "Group",
+    y = "Proportion of Cells",
+    fill = "Cell Type"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "right"
+  )
+dev.off()
+
+```
+
+### ii. Analysis 
+```{r}
+# Get cell types to analyze
+celltypes <- unique(so_kpmp_sc$cell_type_abbrev)
+
+# Loop through each cell type
+for (cell_name in celltypes) {
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  
+  # Subset to current cell type
+  so_celltype <- subset(so_kpmp_sc, cell_type_abbrev == cell_name)
+  DefaultAssay(so_celltype) <- "RNA"
+  
+  StartGenes <- nrow(so_celltype)
+  Cells <- ncol(so_celltype)
+  
+  cat("Genes:", StartGenes, "| Cells:", Cells, "\n")
+  
+  # Find highly variable genes
+  so_celltype <- FindVariableFeatures(so_celltype, 
+                                       selection.method = "vst", 
+                                       nfeatures = 2000)
+  hvgs <- VariableFeatures(so_celltype)
+  
+  cat("HVGs:", length(hvgs), "\n")
+  
+  # Get counts for HVGs
+  counts_hvg <- round(GetAssayData(so_celltype, layer = "counts"))
+  genes_list <- hvgs
+  
+  # Set up parallel processing
+  cl <- makeCluster(10)
+  registerDoParallel(cl)
+  
+  start_time <- Sys.time()
+  
+  # Run NEBULA for each gene in parallel
+  nebula_results_list <- foreach(g = genes_list, 
+                                  .packages = c("nebula", "Matrix")) %dopar% {
+    tryCatch({
+      count_gene <- counts_hvg[g, , drop = FALSE]
+      meta_gene <- subset(so_celltype, features = g)@meta.data
+      
+      formula <- as.formula("~ group")
+      pred_gene <- model.matrix(formula, data = meta_gene)
+      library <- meta_gene$pooled_offset
+      
+      # Create data structure manually
+      data_g_gene <- list(count = count_gene, 
+                          id = meta_gene$kit_id, 
+                          pred = pred_gene, 
+                          offset = library)
+      
+      # Run NEBULA with offset
+      result <- nebula(count = data_g_gene$count, 
+                       id = data_g_gene$id, 
+                       pred = data_g_gene$pred, 
+                       ncore = 1, 
+                       reml = TRUE,
+                       model = "NBLMM",
+                       output_re = TRUE,
+                       covariance = TRUE,
+                       offset = data_g_gene$offset)
+      
+      list(gene = g, result = result)
+      
+    }, error = function(e) {
+      NULL
+    })
+  }
+  
+  stopCluster(cl)
+  end_time <- Sys.time()
+  cat("Time elapsed:", end_time - start_time, "\n")
+  
+  # Process results
+  nebula_results_list <- Filter(Negate(is.null), nebula_results_list)
+  names(nebula_results_list) <- sapply(nebula_results_list, function(x) x$gene)
+  nebula_results_list <- lapply(nebula_results_list, function(x) x$result)
+  
+  # Check convergence
+  nebula_converged <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      converged <- nebula_results_list[[gene_name]]$convergence
+      data.frame(Gene = gene_name, Convergence_Code = converged)
+    }
+  )
+  
+  # Extract summaries
+  nebula_summaries <- map_dfr(
+    names(nebula_results_list),
+    function(gene_name) {
+      df <- nebula_results_list[[gene_name]]$summary
+      df <- df %>% mutate(Gene = gene_name)
+      return(df)
+    }
+  )
+  
+  # Identify non-converged genes
+  nonconverge_genes <- unique(
+    nebula_converged$Gene[nebula_converged$Convergence_Code %in% c(-40, -50, -60)]
+  )
+  
+  # Format results
+  full_results <- as.data.frame(nebula_summaries)
+  colnames(full_results) <- c("logFC_Intercept", "logFC", "se_Intercept", 
+                               "se", "p_Intercept", "p_value", 
+                               "gene_id", "gene", "Gene")
+  
+  full_results$Variable <- "T2DvsLC"
+  full_results$Celltype <- cell_name
+  
+  # Calculate number of genes filtered out for low expression
+  full_results$low_exp <- length(genes_list) - nrow(full_results)
+  
+  # Filter non-converged genes
+  full_results <- full_results %>% 
+    filter(!gene %in% nonconverge_genes)
+  
+  # Calculate non-convergence rate
+  full_results$nebula_nonconverged_percent <- 
+    paste0(round((1 - (length(genes_list) - length(nonconverge_genes)) / 
+                    length(genes_list)) * 100, 3), "%")
+  
+  full_results$Cells <- Cells
+  full_results$Genes <- nrow(full_results)
+  
+  # FDR correction
+  full_results$fdr <- p.adjust(full_results$p_value, method = "fdr")
+  full_results$PValue10 <- -log10(pmax(full_results$p_value, 1e-10))
+  
+  # Save results
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  output_file <- file.path("/home/hhampson/Results", 
+                           paste0("NEBULA_Biopsy_T2DvsLC_", cell_name_clean, 
+                                  "_unadjusted_2000.csv"))
+  write.csv(full_results, output_file, row.names = FALSE)
+  
+  cat("Results saved:", output_file, "\n\n")
+  
+  # Create volcano plot
+  full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$logFC > 0, "#990000",
+                               ifelse(full_results$fdr < 0.05 & full_results$logFC < 0, "#003366", "gray"))
+  
+  # Identify significant points (fdr < 0.05)
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Cells <- Cells  # Already defined earlier in the loop
+  Nonconvergence_Rate <- unique(full_results$nebula_nonconverged_percent)[1]
+  low_exp <- unique(full_results$low_exp)[1]
+  
+  # Get min/max for x-axis
+  max_fc <- max(full_results$logFC)
+  min_fc <- min(full_results$logFC)
+  
+  # Create the volcano plot using ggplot
+  volcano_plot <- ggplot(full_results, aes(x = logFC, y = PValue10, color = color)) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title = paste("Type 2 Diabetes vs. Lean Controls -", cell_name),
+      subtitle = "Biopsy, Unadjusted (REML, Log Normal, Offset)",
+      x = "Log Fold Change",
+      y = "-log10(P-Value)",
+      color = "FC Direction",
+      caption = paste0("FDR < 0.05, Genes = ", Genes, 
+                      ", Cells = ", Cells, 
+                      ", Non-Convergence Rate: ", Nonconvergence_Rate,
+                      ", Genes Filtered for Low Expression: ", low_exp)
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    ) +
+    xlim(-3, 3) +
+    geom_text(data = significant_df, aes(label = gene),
+              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+  
+  # Save volcano plot
+  plot_file <- file.path("/home/hhampson/Results", 
+                         paste0("Plot_Biopsy_NEBULA_", cell_name_clean, 
+                                "_T2DvsLC_unadjusted_2000.png"))
+  png(plot_file, width = 3000, height = 2100, res = 300)
+  print(volcano_plot)
+  dev.off()
+  
+  cat("Plot saved:", plot_file, "\n\n")
+}
+
+cat("\n=== NEBULA Analysis Complete ===\n")
+
+```
+
+
+
+#Old Method
 ##15 Glucose
 ```{r}
 #Run analysis - Differentially Expressed Genes by Diabetes Status
