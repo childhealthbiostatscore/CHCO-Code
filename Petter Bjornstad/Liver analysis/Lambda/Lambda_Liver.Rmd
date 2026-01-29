@@ -1542,7 +1542,7 @@ label(dat$tg) <-  "Triglycerides (mg/dL)"
 label(dat$creatinine) <-  "Creatinine (mg/dL)"
 label(dat$steatosis_grade) <- "Steatosis Grade"
 label(dat$fibrosis_stage) <- "Fibrosis Stage"
-label(dat$lobular_inflammation_percent) <- "Lobular Inflammation Percent (%)"
+label(dat$lobular_inflammation_percent) <- "Lobular Inflammation"
 label(dat$sglt2_exclusive) <- "Exclusive SGLT2 Inhibitors (Yes/No)"
 label(dat$glp1_exclusive) <- "Exclusive GLP-1 Receptor Agonists (Yes/No)"
 #label(dat$group2) <- "Disease Group"
@@ -1561,6 +1561,33 @@ label(dat$steatosis_cat) <- "Steatosis Category"
 label(dat$hepatocyte_ballooning_score) <- "Hepatocyte Ballooning Score"
 
 # c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage")
+
+#Fisher exact test for categorical variables
+# Binary/categorical variables
+cat_vars <- c("nih_sex","nih_ethnicity","metformin","insulin","diagnosis_of_MASLD","diagnosis_of_diabetes","glp1agonist",
+              "sglt2","lobular_inflammation_percent","fibrosis_stage")
+all_results <- data.frame()
+for (binary in cat_vars){
+test <- fisher.test(table(dat$steatosis_cat, dat[[binary]]))
+pval <- test$p.value
+or <- test$estimate[[1]]
+results <- data.frame(var = binary, estimate=or,pval=pval)
+all_results <- rbind(all_results,results)
+}
+
+#wilcox test for continuous
+# Continuous variables
+cont_vars <- c("age_surgery","bmi","tg","a1c","alt","ast","ggt","hepatocyte_ballooning_score")
+all_results2 <- data.frame()
+for(continuous in cont_vars){
+formula <- as.formula(paste(continuous, "~ steatosis_cat"))
+test2 <- wilcox.test(formula, data = dat)
+pval <- test2$p.value
+results2 <- data.frame(var = continuous,pval=pval)
+all_results2 <- rbind(all_results2,results2)
+}
+
+
 
 #Table 1. 
 table1(~ age_surgery + nih_sex + nih_race + nih_ethnicity + bmi + tg + a1c+
@@ -25540,7 +25567,8 @@ netVisual_aggregate(
 ```{r}
 # Assuming you have a steatosis grouping variable in your metadata
 so_Hep <- subset(so_liver_sn,celltype2=="Hep")
-DefaultAssay(so_Hep) <- "RNA" 
+so_Hep[["RNA"]] <- as(so_Hep[["RNA"]], Class = "Assay")
+DefaultAssay(so_Hep) <- "RNA"
 colnames(so_Hep@meta.data)
 
 # Split by steatosis level (adjust the column name as needed)
@@ -25555,7 +25583,17 @@ Hep_low  <- filter_by_celltype_size(Hep_low, min_cells = 30)
 Hep_high$celltype <- droplevels(factor(Hep_high$celltype))
 Hep_low$celltype  <- droplevels(factor(Hep_low$celltype))
 
-# Run CellChat on both groups
+# # **CONVERT TO V4 FORMAT AFTER SUBSETTING**
+# Hep_high[["RNA"]] <- as(Hep_high[["RNA"]], Class = "Assay")
+# Hep_low[["RNA"]]  <- as(Hep_low[["RNA"]], Class = "Assay")
+# 
+# # Run CellChat on both groups
+# cellchats <- list(
+#   Hep_high = run_cellchat_pipeline(Hep_high, "Hep_high"),
+#   Hep_low  = run_cellchat_pipeline(Hep_low,  "Hep_low")
+# )
+
+# Now run
 cellchats <- list(
   Hep_high = run_cellchat_pipeline(Hep_high, "Hep_high"),
   Hep_low  = run_cellchat_pipeline(Hep_low,  "Hep_low")
