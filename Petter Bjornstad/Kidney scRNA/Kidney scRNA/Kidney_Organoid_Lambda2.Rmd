@@ -2357,7 +2357,8 @@ dev.off()
 ### ii. Analysis 
 ```{r}
 # Get cell types to analyze (you may want to exclude off-target populations)
-celltypes <- unique(so_combined$cell_type_abbrev)
+# celltypes <- unique(so_combined$cell_type_abbrev)
+celltypes <- unique(so_combined$cell_type_abbrev)[12:14]
 # Optional: filter out specific populations
 # celltypes <- celltypes[!celltypes %in% c("Neur", "DMus")]
 
@@ -2648,40 +2649,48 @@ for (cell_name in celltypes) {
   start_time <- Sys.time()
   
   # Run NEBULA for each gene in parallel
-  nebula_results_list <- foreach(g = genes_list, 
-                                  .packages = c("nebula", "Matrix")) %dopar% {
-    tryCatch({
-      count_gene <- counts_hvg[g, , drop = FALSE]
-      meta_gene <- subset(so_celltype, features = g)@meta.data
-      
-      # MODEL WITH INTERACTION: group + treatment + group:treatment
-      formula <- as.formula("~ group + treatment + group:treatment")
-      pred_gene <- model.matrix(formula, data = meta_gene)
-      library <- meta_gene$pooled_offset
-      
-      # Create data structure manually
-      data_g_gene <- list(count = count_gene, 
-                          id = meta_gene$record_id, 
-                          pred = pred_gene, 
-                          offset = library)
-      
-      # Run NEBULA with offset
-      result <- nebula(count = data_g_gene$count, 
-                       id = data_g_gene$id, 
-                       pred = data_g_gene$pred, 
-                       ncore = 1, 
-                       reml = TRUE,
-                       model = "NBLMM",
-                       output_re = TRUE,
-                       covariance = TRUE,
-                       offset = data_g_gene$offset)
-      
-      list(gene = g, result = result)
-      
-    }, error = function(e) {
-      NULL
-    })
-  }
+# Run NEBULA for each gene in parallel
+nebula_results_list <- foreach(g = genes_list, 
+                                .packages = c("nebula", "Matrix")) %dopar% {
+  tryCatch({
+    count_gene <- counts_hvg[g, , drop = FALSE]
+    meta_gene <- subset(so_celltype, features = g)@meta.data
+    
+    # MODEL WITH INTERACTION: group + treatment + group:treatment
+    formula <- as.formula("~ group + treatment + group:treatment")
+    pred_gene <- model.matrix(formula, data = meta_gene)
+    library <- meta_gene$pooled_offset
+    
+    # CRITICAL: Sort by record_id to group cells from same subject
+    sort_order <- order(meta_gene$record_id)
+    count_gene_sorted <- count_gene[, sort_order, drop = FALSE]
+    meta_gene_sorted <- meta_gene[sort_order, ]
+    pred_gene_sorted <- pred_gene[sort_order, , drop = FALSE]
+    library_sorted <- library[sort_order]
+    
+    # Create data structure with sorted data
+    data_g_gene <- list(count = count_gene_sorted, 
+                        id = meta_gene_sorted$record_id, 
+                        pred = pred_gene_sorted, 
+                        offset = library_sorted)
+    
+    # Run NEBULA with offset
+    result <- nebula(count = data_g_gene$count, 
+                     id = data_g_gene$id, 
+                     pred = data_g_gene$pred, 
+                     ncore = 1, 
+                     reml = TRUE,
+                     model = "NBLMM",
+                     output_re = TRUE,
+                     covariance = TRUE,
+                     offset = data_g_gene$offset)
+    
+    list(gene = g, result = result)
+    
+  }, error = function(e) {
+    NULL
+  })
+}
   
   stopCluster(cl)
   end_time <- Sys.time()
@@ -2944,7 +2953,7 @@ for (cell_name in celltypes) {
   
   # Get counts for HVGs
   counts_hvg <- round(GetAssayData(so_celltype, layer = "counts"))
-  genes_list <- hvgs
+  genes_list <- hvgs  # Changed from hvgs[1] - you want all genes, not just the first!
   
   # Set up parallel processing
   cl <- makeCluster(10)
@@ -2964,11 +2973,18 @@ for (cell_name in celltypes) {
       pred_gene <- model.matrix(formula, data = meta_gene)
       library <- meta_gene$pooled_offset
       
-      # Create data structure manually
-      data_g_gene <- list(count = count_gene, 
-                          id = meta_gene$record_id, 
-                          pred = pred_gene, 
-                          offset = library)
+      # CRITICAL: Sort by record_id to group cells from same subject
+      sort_order <- order(meta_gene$record_id)
+      count_gene_sorted <- count_gene[, sort_order, drop = FALSE]
+      meta_gene_sorted <- meta_gene[sort_order, ]
+      pred_gene_sorted <- pred_gene[sort_order, , drop = FALSE]
+      library_sorted <- library[sort_order]
+      
+      # Create data structure with sorted data
+      data_g_gene <- list(count = count_gene_sorted, 
+                          id = meta_gene_sorted$record_id, 
+                          pred = pred_gene_sorted, 
+                          offset = library_sorted)
       
       # Run NEBULA with offset
       result <- nebula(count = data_g_gene$count, 
@@ -3111,6 +3127,8 @@ for (cell_name in celltypes) {
 
 cat("\n=== NEBULA Analysis Complete ===\n")
 
+
+
 ```
 
 
@@ -3124,21 +3142,16 @@ ncol(so_kpmp_sc) # cells
 
 # Check your metadata
 table(so_kpmp_sc$group)
-table(so_kpmp_sc$cell_type_abbrev)
-head(so_kpmp_sc@meta.data[, c("group", "cell_type_abbrev", "kit_id")])
+table(so_kpmp_sc$celltype_LR)
+head(so_kpmp_sc@meta.data[, c("group", "celltype_LR", "kit_id")])
 
 # Make sure group is a factor with LC as reference
 so_kpmp_sc$group <- factor(so_kpmp_sc$group)
 so_kpmp_sc$group <- relevel(so_kpmp_sc$group, ref = "Lean_Control")  # Adjust to match your actual level name
 
-# Calculate pooled offset if not already done
-if (!"pooled_offset" %in% colnames(so_kpmp_sc@meta.data)) {
-  so_kpmp_sc$pooled_offset <- log(so_kpmp_sc$nCount_RNA + 1)
-}
-
 # Prepare data for cell type distribution plot
 celltype_counts <- so_kpmp_sc@meta.data %>%
-  group_by(group, cell_type_abbrev) %>%
+  group_by(group, celltype_LR) %>%
   summarise(n = n(), .groups = "drop") %>%
   group_by(group) %>%
   mutate(proportion = n / sum(n)) %>%
@@ -3147,7 +3160,7 @@ celltype_counts <- so_kpmp_sc@meta.data %>%
 # Create stacked barchart
 png("/home/hhampson/Results/Barchart_Celltypes_by_Group_Biopsy.png", 
     res = 300, width = 2000, height = 2000)
-ggplot(celltype_counts, aes(x = group, y = proportion, fill = cell_type_abbrev)) +
+ggplot(celltype_counts, aes(x = group, y = proportion, fill = celltype_LR)) +
   geom_col(width = 0.6) +
   scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
   theme_minimal() +
@@ -3171,7 +3184,7 @@ dev.off()
 ### ii. Analysis 
 ```{r}
 # Get cell types to analyze
-celltypes <- unique(so_kpmp_sc$cell_type_abbrev)
+celltypes <- unique(so_kpmp_sc$celltype_LR)[-15]
 
 # Loop through each cell type
 for (cell_name in celltypes) {
@@ -3179,13 +3192,28 @@ for (cell_name in celltypes) {
   cat("\n=== Processing:", cell_name, "===\n")
   
   # Subset to current cell type
-  so_celltype <- subset(so_kpmp_sc, cell_type_abbrev == cell_name)
+  so_celltype <- subset(so_kpmp_sc, celltype_LR == cell_name)
   DefaultAssay(so_celltype) <- "RNA"
   
   StartGenes <- nrow(so_celltype)
   Cells <- ncol(so_celltype)
   
   cat("Genes:", StartGenes, "| Cells:", Cells, "\n")
+  
+  # CHECK: Skip if cell type doesn't have both groups
+  group_table <- table(so_celltype$group)
+  if (length(group_table) < 2) {
+    cat("Skipping - only has", names(group_table), "group level\n\n")
+    next
+  }
+  cat("Group distribution:", paste(names(group_table), "=", group_table, collapse=", "), "\n")
+  
+  # Also check kit_id distribution
+  kit_table <- table(so_celltype$kit_id)
+  if (length(kit_table) < 2) {
+    cat("Skipping - only has 1 sample\n\n")
+    next
+  }
   
   # Find highly variable genes
   so_celltype <- FindVariableFeatures(so_celltype, 
@@ -3197,7 +3225,7 @@ for (cell_name in celltypes) {
   
   # Get counts for HVGs
   counts_hvg <- round(GetAssayData(so_celltype, layer = "counts"))
-  genes_list <- hvgs
+  genes_list <- hvgs[1:100]  # Changed from hvgs[1] - you want all genes!
   
   # Set up parallel processing
   cl <- makeCluster(10)
@@ -3216,11 +3244,29 @@ for (cell_name in celltypes) {
       pred_gene <- model.matrix(formula, data = meta_gene)
       library <- meta_gene$pooled_offset
       
-      # Create data structure manually
-      data_g_gene <- list(count = count_gene, 
-                          id = meta_gene$kit_id, 
-                          pred = pred_gene, 
-                          offset = library)
+      # CRITICAL: Sort by kit_id to group cells from same subject
+      sort_order <- order(meta_gene$kit_id)
+      count_gene_sorted <- count_gene[, sort_order, drop = FALSE]
+      meta_gene_sorted <- meta_gene[sort_order, ]
+      pred_gene_sorted <- pred_gene[sort_order, , drop = FALSE]
+      library_sorted <- library[sort_order]
+      
+      # CHECK: Make sure there's variation in predictors
+      if (length(unique(meta_gene_sorted$group)) < 2) {
+        return(NULL)
+      }
+      
+      # Check for zero variance in any predictor column
+      pred_variances <- apply(pred_gene_sorted, 2, var)
+      if (any(pred_variances == 0)) {
+        return(NULL)
+      }
+      
+      # Create data structure with sorted data
+      data_g_gene <- list(count = count_gene_sorted, 
+                          id = meta_gene_sorted$kit_id, 
+                          pred = pred_gene_sorted, 
+                          offset = library_sorted)
       
       # Run NEBULA with offset
       result <- nebula(count = data_g_gene$count, 
@@ -3360,6 +3406,8 @@ for (cell_name in celltypes) {
   
   cat("Plot saved:", plot_file, "\n\n")
 }
+
+cat("\n=== NEBULA Analysis Complete ===\n")
 
 cat("\n=== NEBULA Analysis Complete ===\n")
 
