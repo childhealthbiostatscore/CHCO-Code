@@ -2053,7 +2053,7 @@ filter_by_celltype_size <- function(seurat_obj, celltype_col = "celltype", min_c
 #   saveRDS(cellchat, file = paste0("cellchat_", group_name, ".rds"))
 #   return(cellchat)
 # }
-# 
+
 
 get_group_size <- function(cellchat_obj) {
   return(as.numeric(table(cellchat_obj@idents)))
@@ -2085,25 +2085,25 @@ get_group_size <- function(cellchat_obj) {
 #   return(cellchat)
 # }
 
-
+# 
 run_cellchat_pipeline <- function(seurat_obj, group_name, group.by = "celltype", assay = "RNA", min_cells = 10) {
-  
+
   # Extract data and metadata manually
   data.input <- GetAssayData(seurat_obj, assay = assay, layer = "data")
   meta <- seurat_obj@meta.data
-  
+
   # Add samples column if not present
   if(!"samples" %in% colnames(meta)) {
-    meta$samples <- as.factor(meta$Kit_Lot)  
+    meta$samples <- as.factor(meta$Kit_Lot)
   }
-  
+
   # Create CellChat from matrix instead of Seurat object
   cellchat <- createCellChat(object = data.input, meta = meta, group.by = group.by)
   cellchat <- setIdent(cellchat, ident.use = group.by)
-  
+
   CellChatDB <- CellChatDB.human
   cellchat@DB <- CellChatDB
-  
+
   cellchat <- subsetData(cellchat)
   cellchat <- identifyOverExpressedGenes(cellchat, do.fast = FALSE)
   cellchat <- identifyOverExpressedInteractions(cellchat)
@@ -2111,8 +2111,8 @@ run_cellchat_pipeline <- function(seurat_obj, group_name, group.by = "celltype",
   cellchat <- filterCommunication(cellchat, min.cells = min_cells)
   cellchat <- computeCommunProbPathway(cellchat)
   cellchat <- aggregateNet(cellchat)
-  
-  saveRDS(cellchat, file = paste0("cellchat_", group_name, ".rds"))
+
+  saveRDS(cellchat, file = paste0("/home/hhampson/Results/cellchat_", group_name, ".rds"))
   return(cellchat)
 }
 
