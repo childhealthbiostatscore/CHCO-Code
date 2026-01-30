@@ -3184,7 +3184,7 @@ dev.off()
 ### ii. Analysis 
 ```{r}
 # Get cell types to analyze
-celltypes <- unique(so_kpmp_sc$celltype_LR)[-15]
+celltypes <- unique(so_kpmp_sc$celltype_LR)[-15] #Remove nonspecific because non in Lean controls & not enough cells
 
 # Loop through each cell type
 for (cell_name in celltypes) {
@@ -3215,6 +3215,10 @@ for (cell_name in celltypes) {
     next
   }
   
+  # Make sure group is a factor with correct reference level
+  so_celltype$group <- factor(so_celltype$group)
+  so_celltype$group <- relevel(so_celltype$group, ref = "Lean_Control")
+  
   # Find highly variable genes
   so_celltype <- FindVariableFeatures(so_celltype, 
                                        selection.method = "vst", 
@@ -3225,7 +3229,7 @@ for (cell_name in celltypes) {
   
   # Get counts for HVGs
   counts_hvg <- round(GetAssayData(so_celltype, layer = "counts"))
-  genes_list <- hvgs[1:100]  # Changed from hvgs[1] - you want all genes!
+  genes_list <- hvgs  
   
   # Set up parallel processing
   cl <- makeCluster(10)
@@ -3239,34 +3243,22 @@ for (cell_name in celltypes) {
     tryCatch({
       count_gene <- counts_hvg[g, , drop = FALSE]
       meta_gene <- subset(so_celltype, features = g)@meta.data
-      
-      formula <- as.formula("~ group")
-      pred_gene <- model.matrix(formula, data = meta_gene)
+      pred_gene <- model.matrix(~group, data = meta_gene)
       library <- meta_gene$pooled_offset
       
-      # CRITICAL: Sort by kit_id to group cells from same subject
-      sort_order <- order(meta_gene$kit_id)
-      count_gene_sorted <- count_gene[, sort_order, drop = FALSE]
-      meta_gene_sorted <- meta_gene[sort_order, ]
-      pred_gene_sorted <- pred_gene[sort_order, , drop = FALSE]
-      library_sorted <- library[sort_order]
+      # Use group_cell to properly structure data (handles sorting automatically)
+      data_g_gene <- group_cell(count = count_gene, 
+                                id = meta_gene$kit_id, 
+                                pred = pred_gene, 
+                                offset = library)
       
-      # CHECK: Make sure there's variation in predictors
-      if (length(unique(meta_gene_sorted$group)) < 2) {
-        return(NULL)
+      # If group_cell returns NULL, create data structure manually
+      if (is.null(data_g_gene)) {
+        data_g_gene <- list(count = count_gene, 
+                            id = meta_gene$kit_id, 
+                            pred = pred_gene, 
+                            offset = library)
       }
-      
-      # Check for zero variance in any predictor column
-      pred_variances <- apply(pred_gene_sorted, 2, var)
-      if (any(pred_variances == 0)) {
-        return(NULL)
-      }
-      
-      # Create data structure with sorted data
-      data_g_gene <- list(count = count_gene_sorted, 
-                          id = meta_gene_sorted$kit_id, 
-                          pred = pred_gene_sorted, 
-                          offset = library_sorted)
       
       # Run NEBULA with offset
       result <- nebula(count = data_g_gene$count, 
@@ -3316,36 +3308,37 @@ for (cell_name in celltypes) {
   
   # Identify non-converged genes
   nonconverge_genes <- unique(
-    nebula_converged$Gene[nebula_converged$Convergence_Code %in% c(-40, -50, -60)]
+    nebula_converged$Gene[nebula_converged$Convergence_Code == -40]
   )
   
   # Format results
   full_results <- as.data.frame(nebula_summaries)
-  colnames(full_results) <- c("logFC_Intercept", "logFC", "se_Intercept", 
-                               "se", "p_Intercept", "p_value", 
-                               "gene_id", "gene", "Gene")
-  
-  full_results$Variable <- "T2DvsLC"
-  full_results$Celltype <- cell_name
   
   # Calculate number of genes filtered out for low expression
-  full_results$low_exp <- length(genes_list) - nrow(full_results)
+  low_exp <- length(genes_list) - nrow(full_results)
   
   # Filter non-converged genes
   full_results <- full_results %>% 
     filter(!gene %in% nonconverge_genes)
   
   # Calculate non-convergence rate
-  full_results$nebula_nonconverged_percent <- 
+  nebula_nonconverged_percent <- 
     paste0(round((1 - (length(genes_list) - length(nonconverge_genes)) / 
                     length(genes_list)) * 100, 3), "%")
   
+  # FDR correction
+  full_results <- full_results %>%
+    mutate(fdr = p.adjust(`p_groupType_2_Diabetes`, method = "fdr"))
+  
+  full_results$PValue10 <- -log10(pmax(full_results$`p_groupType_2_Diabetes`, 1e-10))
+  
+  # Add metadata columns
+  full_results$Variable <- "T2DvsLC"
+  full_results$Celltype <- cell_name
+  full_results$low_exp <- low_exp
+  full_results$nebula_nonconverged_percent <- nebula_nonconverged_percent
   full_results$Cells <- Cells
   full_results$Genes <- nrow(full_results)
-  
-  # FDR correction
-  full_results$fdr <- p.adjust(full_results$p_value, method = "fdr")
-  full_results$PValue10 <- -log10(pmax(full_results$p_value, 1e-10))
   
   # Save results
   cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
@@ -3357,23 +3350,17 @@ for (cell_name in celltypes) {
   cat("Results saved:", output_file, "\n\n")
   
   # Create volcano plot
-  full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$logFC > 0, "#990000",
-                               ifelse(full_results$fdr < 0.05 & full_results$logFC < 0, "#003366", "gray"))
+  full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` > 0, "#990000",
+                               ifelse(full_results$fdr < 0.05 & full_results$`logFC_groupType_2_Diabetes` < 0, "#003366", "gray"))
   
   # Identify significant points (fdr < 0.05)
   significant_df <- full_results[full_results$fdr < 0.05, ]
   
   Genes <- length(unique(full_results$gene))
-  Cells <- Cells  # Already defined earlier in the loop
-  Nonconvergence_Rate <- unique(full_results$nebula_nonconverged_percent)[1]
-  low_exp <- unique(full_results$low_exp)[1]
-  
-  # Get min/max for x-axis
-  max_fc <- max(full_results$logFC)
-  min_fc <- min(full_results$logFC)
+  Nonconvergence_Rate <- nebula_nonconverged_percent
   
   # Create the volcano plot using ggplot
-  volcano_plot <- ggplot(full_results, aes(x = logFC, y = PValue10, color = color)) +
+  volcano_plot <- ggplot(full_results, aes(x = `logFC_groupType_2_Diabetes`, y = PValue10, color = color)) +
     geom_point(alpha = 0.7) +
     scale_color_identity() +
     theme_minimal() +
@@ -3407,11 +3394,10 @@ for (cell_name in celltypes) {
   cat("Plot saved:", plot_file, "\n\n")
 }
 
-cat("\n=== NEBULA Analysis Complete ===\n")
-
-cat("\n=== NEBULA Analysis Complete ===\n")
 
 ```
+
+
 
 
 
