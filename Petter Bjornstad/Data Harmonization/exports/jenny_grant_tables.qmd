@@ -27,9 +27,11 @@ user <- Sys.info()[["user"]]
 if (user == "choiyej") { # local version
   root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
 } else if (user == "yejichoi") { # hyak version
-  root_path <- ""
+  root_path <- "/mmfs1/gscratch/togo/yejichoi"
   git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
 } else if (user == "pylell") {
   root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
@@ -38,8 +40,6 @@ if (user == "choiyej") { # local version
 }
 
 ## Create an S3 client
-keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
-
 Sys.setenv(
   "AWS_ACCESS_KEY_ID" = keys$MY_ACCESS_KEY,
   "AWS_SECRET_ACCESS_KEY" = keys$MY_SECRET_KEY,
@@ -110,3 +110,40 @@ summary(arsenal::tableby(visit ~ age + sex + bmi + hba1c + kwt(acr_u, "medianq1q
 ```
 
 
+# hyak
+
+```{r}
+library(edgeR)
+library(Seurat)
+```
+
+```{r}
+pb90 <- s3readRDS("data_clean/pb90_processed.rds", "scrna", region = "")
+pb90 <- subset(pb90, KPMP_celltype_general == "PT")
+# pseudobulk expression
+pb90_pb <- AggregateExpression(pb90, 
+                               group.by = c("kit_id", "group"), 
+                               return.seurat = T)
+
+pb90_pb_counts <- GetAssayData(pb90_pb, layer = "counts")
+
+# median number of counts per gene after pseudobulking in PT
+gene_median_counts <- apply(pb90_pb_counts, 1, median, na.rm = TRUE)
+
+# Assuming 'counts' is your pseudobulk count matrix (genes x samples)
+# and 'group' is your condition vector (e.g., "Control", "DKD")
+dge <- DGEList(counts = pb90_pb_counts, group = pb90_pb$group)
+dge <- calcNormFactors(dge)
+dge <- estimateDisp(dge)
+# BCV is the square root of the common dispersion
+bcv_common <- sqrt(dge$common.dispersion)
+bcv_gene   <- sqrt(dge$tagwise.dispersion)
+# Or look at the trended/tagwise estimates
+plotBCV(dge)
+
+pb90_bcv_list <- list("gene_median_counts" = gene_median_counts, 
+                      "bcv_common" = bcv_common, 
+                      "bcv_gene" = bcv_gene)
+
+s3saveRDS(pb90_bcv_list, "data_clean/pb90_pseudobulk_bcv.rds", "scrna", region = "")
+```
