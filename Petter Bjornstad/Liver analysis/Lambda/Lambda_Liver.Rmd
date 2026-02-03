@@ -1542,7 +1542,7 @@ label(dat$tg) <-  "Triglycerides (mg/dL)"
 label(dat$creatinine) <-  "Creatinine (mg/dL)"
 label(dat$steatosis_grade) <- "Steatosis Grade"
 label(dat$fibrosis_stage) <- "Fibrosis Stage"
-label(dat$lobular_inflammation_percent) <- "Lobular Inflammation Percent (%)"
+label(dat$lobular_inflammation_percent) <- "Lobular Inflammation"
 label(dat$sglt2_exclusive) <- "Exclusive SGLT2 Inhibitors (Yes/No)"
 label(dat$glp1_exclusive) <- "Exclusive GLP-1 Receptor Agonists (Yes/No)"
 #label(dat$group2) <- "Disease Group"
@@ -1561,6 +1561,33 @@ label(dat$steatosis_cat) <- "Steatosis Category"
 label(dat$hepatocyte_ballooning_score) <- "Hepatocyte Ballooning Score"
 
 # c("alt","ast","ggt","bmi","a1c","hepatocyte_ballooning_score","lobular_inflammation_grade","steatosis_grade","fibrosis_stage")
+
+#Fisher exact test for categorical variables
+# Binary/categorical variables
+cat_vars <- c("nih_sex","nih_ethnicity","metformin","insulin","diagnosis_of_MASLD","diagnosis_of_diabetes","glp1agonist",
+              "sglt2","lobular_inflammation_percent","fibrosis_stage")
+all_results <- data.frame()
+for (binary in cat_vars){
+test <- fisher.test(table(dat$steatosis_cat, dat[[binary]]))
+pval <- test$p.value
+or <- test$estimate[[1]]
+results <- data.frame(var = binary, estimate=or,pval=pval)
+all_results <- rbind(all_results,results)
+}
+
+#wilcox test for continuous
+# Continuous variables
+cont_vars <- c("age_surgery","bmi","tg","a1c","alt","ast","ggt","hepatocyte_ballooning_score")
+all_results2 <- data.frame()
+for(continuous in cont_vars){
+formula <- as.formula(paste(continuous, "~ steatosis_cat"))
+test2 <- wilcox.test(formula, data = dat)
+pval <- test2$p.value
+results2 <- data.frame(var = continuous,pval=pval)
+all_results2 <- rbind(all_results2,results2)
+}
+
+
 
 #Table 1. 
 table1(~ age_surgery + nih_sex + nih_race + nih_ethnicity + bmi + tg + a1c+
@@ -9789,13 +9816,15 @@ s3$download_file(bucket, "Liver transcriptomics/tca_cycle_genes.csv", temp_file)
 tca1 <-  read.csv(temp_file)
 gc()
 tca1 <- tca1$genesymbol
-tca2 <- c(
-  "ACO1", "ACO2", "IDH1", "IDH2", "IDH3A", "IDH3B", "IDH3G", "OGDH", "OGDHL",
-  "SUCLA2", "SUCLG1", "SUCLG2", "SDHA", "SDHB", "SDHC", "SDHD", "FH", "MDH1",
-  "MDH2", "FAS", "CS"
-) #21 genes
+tca <- tca1
+# tca2 <- c(
+#   "ACO1", "ACO2", "IDH1", "IDH2", "IDH3A", "IDH3B", "IDH3G", "OGDH", "OGDHL",
+#   "SUCLA2", "SUCLG1", "SUCLG2", "SDHA", "SDHB", "SDHC", "SDHD", "FH", "MDH1",
+#   "MDH2", "FAS", "CS"
+# ) #21 genes
+# 
 
-tca <- unique(c(tca1,tca2))
+# tca <- unique(c(tca1,tca2))
 
 
 #Lambda
@@ -9806,12 +9835,13 @@ s3$download_file(bucket, "Liver transcriptomics/ox_phos_genes.csv", temp_file)
 ox_phos1 <-  read.csv(temp_file)
 gc()
 ox_phos1 <- ox_phos1$genesymbol
+ox_phos <- ox_phos1
 #Local
 # ox_phos1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/ox_phos_genes.csv")$genesymbol
-ox_phos2 <- c(
-  "NDUFS6",  "SDHB", "SDHC", "SDHD",
-  "UQCRC1", "UQCRC2", "COX4I1", "COX4I2", "ATP5PF") #47 genes
-ox_phos <- unique(c(ox_phos1,ox_phos2))
+# ox_phos2 <- c(
+#   "NDUFS6",  "SDHB", "SDHC", "SDHD",
+#   "UQCRC1", "UQCRC2", "COX4I1", "COX4I2", "ATP5PF") #47 genes
+# ox_phos <- unique(c(ox_phos1,ox_phos2))
 
 #Lambda
 gc()
@@ -9821,10 +9851,11 @@ s3$download_file(bucket, "Liver transcriptomics/beta_oxidation_genes.csv", temp_
 beta_ox1 <-  read.csv(temp_file)
 gc()
 beta_ox1 <- beta_ox1$genesymbol
+beta_ox <- beta_ox1
 #Local
 # beta_ox1 <- read.csv("/Users/hhampson/Library/CloudStorage/OneDrive-UW/Biostatistics Core Shared Drive/RH_ROCKIES/Gene Sets/beta_oxidation_genes.csv")$genesymbol
-beta_ox2 <- c("ACOT8","ACAA2","ECI2","SLC25A17","SLC27A2","CPT1A","CPT1B","CPT2","CRAT","ALDH1L2","ECI1","DECR1","ECH1","ECHS1","EHHADH","MTLN","AKT1","AKT2","ETFA","ETFB","ETFDH","ABCD1","TYSND1","ABCD2","MLYCD","AMACR","ETFBKMT","DECR2","GCDH","MCAT","ACAA1","HSD17B10","HADHA","HADHB","HADH","ACACB","HSD17B4","ACADL","ACADM","ACADS","IRS1","ACADVL","IVD","ACAT1","LEP","PLIN5","ACOX1","PEX7","PPARA","PPARD","CROT","AUH","ECHDC2","ACOXL","ECHDC1","BDH2","ABCD3","ABCD4","PEX2","PEX5","SCP2","TWIST1","ACAD10","ACOX2","ACOX3","SESN2","LONP2","ACAD11","MFSD2A","ABCB11","IRS2","ADIPOQ") #47 genes
-beta_ox <- unique(c(beta_ox1,beta_ox2))
+# beta_ox2 <- c("ACOT8","ACAA2","ECI2","SLC25A17","SLC27A2","CPT1A","CPT1B","CPT2","CRAT","ALDH1L2","ECI1","DECR1","ECH1","ECHS1","EHHADH","MTLN","AKT1","AKT2","ETFA","ETFB","ETFDH","ABCD1","TYSND1","ABCD2","MLYCD","AMACR","ETFBKMT","DECR2","GCDH","MCAT","ACAA1","HSD17B10","HADHA","HADHB","HADH","ACACB","HSD17B4","ACADL","ACADM","ACADS","IRS1","ACADVL","IVD","ACAT1","LEP","PLIN5","ACOX1","PEX7","PPARA","PPARD","CROT","AUH","ECHDC2","ACOXL","ECHDC1","BDH2","ABCD3","ABCD4","PEX2","PEX5","SCP2","TWIST1","ACAD10","ACOX2","ACOX3","SESN2","LONP2","ACAD11","MFSD2A","ABCB11","IRS2","ADIPOQ") #47 genes
+# beta_ox <- unique(c(beta_ox1,beta_ox2))
 
 ```
 
@@ -25537,10 +25568,331 @@ netVisual_aggregate(
 ```
 
 ###ii.Cell Chat by Group
+####All cells
+```{r}
+# Start with ALL liver cells, not just hepatocytes
+so_liver <- so_liver_sn  # Use the full object
+so_liver[["RNA"]] <- as(so_liver[["RNA"]], Class = "Assay")
+DefaultAssay(so_liver) <- "RNA"
+
+# Split by steatosis level
+liver_high <- subset(so_liver, subset = steatosis_cat == "High Steatosis (2+3)")
+liver_low  <- subset(so_liver, subset = steatosis_cat == "Low Steatosis (0+1)")
+
+# Filter by cell type size for each group
+liver_high <- filter_by_celltype_size(liver_high, min_cells = 30)  
+liver_low  <- filter_by_celltype_size(liver_low, min_cells = 30)
+
+# Fix factor levels (use celltype2 for all cell types)
+liver_high$celltype_LR <- droplevels(factor(liver_high$celltype_LR))
+liver_low$celltype_LR  <- droplevels(factor(liver_low$celltype_LR))
+
+# Run CellChat on ALL cell types
+cellchats <- list(
+  liver_high = run_cellchat_pipeline(liver_high, "liver_high", group.by = "celltype_LR"),
+  liver_low  = run_cellchat_pipeline(liver_low,  "liver_low", group.by = "celltype_LR")
+)
+
+# Merge CellChat objects for comparison
+cellchat_merged <- mergeCellChat(cellchats, add.names = names(cellchats))
+
+# Get all unique pathways from both conditions
+pathways_high <- cellchats[['liver_high']]@netP$pathways
+pathways_low  <- cellchats[['liver_low']]@netP$pathways
+all_pathways <- sort(union(pathways_high, pathways_low))
+
+# Get cell types present in both conditions
+celltypes_high <- levels(cellchats[['liver_high']]@idents)
+celltypes_low  <- levels(cellchats[['liver_low']]@idents)
+common_celltypes <- intersect(celltypes_high, celltypes_low)
+
+print(paste("Cell types in analysis:", paste(common_celltypes, collapse = ", ")))
+print(paste("Total pathways detected:", length(all_pathways)))
+
+# Get the data from both conditions
+data_high <- netVisual_bubble(cellchats[['liver_high']], 
+                              sources.use = common_celltypes,
+                              targets.use = common_celltypes,
+                              signaling = all_pathways,
+                              remove.isolate = FALSE,
+                              return.data = TRUE)
+
+data_low <- netVisual_bubble(cellchats[['liver_low']], 
+                             sources.use = common_celltypes,
+                             targets.use = common_celltypes,
+                             signaling = all_pathways,
+                             remove.isolate = FALSE,
+                             return.data = TRUE)
+
+
+# First check if it's a list and extract the data frame
+if (is.list(data_high) && !is.data.frame(data_high)) {
+  data_high_df <- data_high$communication
+  data_low_df <- data_low$communication
+} else {
+  data_high_df <- data_high
+  data_low_df <- data_low
+}
+# Add condition labels
+data_high_df$condition <- "High Steatosis (2+3)"
+data_low_df$condition <- "Low Steatosis (0+1)"
+
+# Combine data
+combined_data <- rbind(data_low_df, data_high_df)
+
+# Remove NAs
+combined_data <- combined_data[!is.na(combined_data$prob), ]
+
+# Convert to characters
+combined_data$pathway_name <- as.character(combined_data$pathway_name)
+combined_data$source.target <- as.character(combined_data$source.target)
+
+
+# Reorder condition factor to put Low on top, High on bottom
+combined_data$condition <- factor(combined_data$condition, 
+                                  levels = c("Low Steatosis (0+1)", "High Steatosis (2+3)"))
+
+#Define ocean sunset colors
+ocean_sunset <- c("#001219", "#005f73", "#0a9396", "#94d2bd", 
+                  "#e9d8a6", "#ee9b00", "#ca6702", "#bb3e03", 
+                  "#ae2012", "#9b2226")
+# Create plot with smoother gradient and no borders
+p_custom <- ggplot(combined_data, aes(x = source.target, y = pathway_name, 
+                                      size = prob, color = prob)) +
+  geom_point(alpha = 1, shape = 16, stroke = 0) +
+  scale_size_continuous(name = "Communication\nProbability", range = c(1, 10)) +
+  scale_color_gradientn(colors = ocean_sunset,
+                        name = "Communication\nProbability") +
+  facet_wrap(~condition, ncol = 1) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        axis.title.x = element_text(size = 10, face = "bold"),
+        axis.title.y = element_text(size = 10, face = "bold"),
+        strip.text = element_text(size = 12, face = "bold"),
+        legend.position = "right") +
+  labs(title = "Cell-Cell Communication Networks",
+       x = "Cell-Cell Interactions (Source -> Target)",
+       y = "Signaling Pathway")
+
+print(p_custom)
+
+png("/home/hhampson/Results/Cell_Cell_BubblePlot.png",res=300,height=2000,width=2500)
+print(p_custom)
+dev.off()
+
+# Create plot with x and y flipped
+p_custom2 <- ggplot(combined_data, aes(x = pathway_name, y = source.target, 
+                                      size = prob, color = prob)) +
+  geom_point(alpha = 1, shape = 16, stroke = 0) +
+  scale_size_continuous(name = "Communication\nProbability", range = c(1, 10)) +
+  scale_color_gradientn(colors = ocean_sunset,
+                        name = "Communication\nProbability") +
+  facet_wrap(~condition, ncol = 1) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        axis.title.x = element_text(size = 10, face = "bold"),
+        axis.title.y = element_text(size = 10, face = "bold"),
+        strip.text = element_text(size = 12, face = "bold"),
+        legend.position = "right") +
+  labs(title = "Cell-Cell Communication Networks",
+       x = "Signaling Pathway",
+       y = "Cell-Cell Interactions (Source -> Target)")
+
+print(p_custom2)
+
+png("/home/hhampson/Results/Cell_Cell_BubblePlot2.png",res=300,height=2800,width=2000)
+print(p_custom2)
+dev.off()
+```
+#Figures
+```{r}
+# # ===== FIGURE 1: Comparison bubble plots (stacked vertically) =====
+# p_high <- netVisual_bubble(cellchats[['liver_high']], 
+#                           sources.use = common_celltypes,
+#                           targets.use = common_celltypes,
+#                           signaling = all_pathways,
+#                           remove.isolate = FALSE,
+#                           return.data = FALSE,
+#                           title.name = "High Steatosis (2+3)")
+# 
+# p_low <- netVisual_bubble(cellchats[['liver_low']], 
+#                          sources.use = common_celltypes,
+#                          targets.use = common_celltypes,
+#                          signaling = all_pathways,
+#                          remove.isolate = FALSE,
+#                          return.data = FALSE,
+#                          title.name = "Low Steatosis (0+1)")
+# 
+# # Stack vertically for easy comparison
+# library(patchwork)
+# combined_bubble <- p_low / p_high + 
+#   plot_layout(heights = c(1, 1))
+
+ggsave(fs::path(dir.results, "cellchat_steatosis_comparison_bubble.pdf"), 
+       combined_bubble, 
+       width = 14, 
+       height = 20)
+
+# ===== FIGURE 2: Overall interaction statistics =====
+pdf(fs::path(dir.results, "cellchat_interaction_summary.pdf"), width = 10, height = 5)
+
+# Total number of interactions
+compareInteractions(cellchat_merged, show.legend = TRUE, group = c(1,2))
+
+# Total interaction strength
+compareInteractions(cellchat_merged, show.legend = TRUE, group = c(1,2), measure = "weight")
+
+dev.off()
+
+# ===== FIGURE 3: Differential interactions by cell type =====
+pdf(fs::path(dir.results, "cellchat_diff_interactions.pdf"), width = 10, height = 8)
+
+# Number of interactions
+netVisual_diffInteraction(cellchat_merged, weight.scale = TRUE)
+
+# Interaction strength
+netVisual_diffInteraction(cellchat_merged, weight.scale = TRUE, measure = "weight")
+
+dev.off()
+
+# ===== FIGURE 4: Circle plots for overall network =====
+pdf(fs::path(dir.results, "cellchat_circle_plots.pdf"), width = 12, height = 6)
+
+par(mfrow = c(1,2), xpd = TRUE)
+
+# High steatosis
+netVisual_circle(cellchats[['liver_high']]@net$count, 
+                 vertex.weight = as.numeric(table(cellchats[['liver_high']]@idents)),
+                 weight.scale = TRUE, 
+                 label.edge = FALSE,
+                 title.name = "High Steatosis - Number of Interactions")
+
+# Low steatosis
+netVisual_circle(cellchats[['liver_low']]@net$count, 
+                 vertex.weight = as.numeric(table(cellchats[['liver_low']]@idents)),
+                 weight.scale = TRUE, 
+                 label.edge = FALSE,
+                 title.name = "Low Steatosis - Number of Interactions")
+
+dev.off()
+
+# ===== FIGURE 5: Heatmaps of interactions =====
+pdf(fs::path(dir.results, "cellchat_heatmaps.pdf"), width = 10, height = 8)
+
+# High steatosis
+netVisual_heatmap(cellchats[['liver_high']], 
+                  color.heatmap = "Reds",
+                  title.name = "High Steatosis")
+
+# Low steatosis  
+netVisual_heatmap(cellchats[['liver_low']], 
+                  color.heatmap = "Blues",
+                  title.name = "Low Steatosis")
+
+dev.off()
+
+# ===== FIGURE 6: Identify pathway changes =====
+# Find pathways that differ between conditions
+high_specific <- setdiff(pathways_high, pathways_low)
+low_specific <- setdiff(pathways_low, pathways_high)
+common_pathways <- intersect(pathways_high, pathways_low)
+
+# Print summary
+cat("\n===== PATHWAY SUMMARY =====\n")
+cat("High steatosis specific pathways (n=", length(high_specific), "):\n", sep="")
+print(high_specific)
+cat("\nLow steatosis specific pathways (n=", length(low_specific), "):\n", sep="")
+print(low_specific)
+cat("\nCommon pathways (n=", length(common_pathways), "):\n", sep="")
+print(common_pathways)
+
+# Save pathway lists
+pathway_summary <- data.frame(
+  Category = c(rep("High-specific", length(high_specific)),
+               rep("Low-specific", length(low_specific)),
+               rep("Common", length(common_pathways))),
+  Pathway = c(high_specific, low_specific, common_pathways)
+)
+write.csv(pathway_summary, 
+          fs::path(dir.results, "cellchat_pathway_summary.csv"), 
+          row.names = FALSE)
+
+# ===== FIGURE 7: Chord diagrams for select pathways =====
+# Select top pathways by information flow
+gg1 <- rankNet(cellchats[['liver_high']], mode = "comparison", 
+               stacked = TRUE, do.stat = FALSE)
+gg2 <- rankNet(cellchats[['liver_low']], mode = "comparison", 
+               stacked = TRUE, do.stat = FALSE)
+
+# Get top 10 pathways by overall strength
+top_pathways <- union(
+  head(names(sort(cellchats[['liver_high']]@netP$prob %>% apply(3, sum), decreasing = TRUE)), 10),
+  head(names(sort(cellchats[['liver_low']]@netP$prob %>% apply(3, sum), decreasing = TRUE)), 10)
+)
+
+# Create chord diagrams for top pathways
+pdf(fs::path(dir.results, "cellchat_chord_diagrams_top_pathways.pdf"), width = 12, height = 6)
+
+for(pw in top_pathways) {
+  par(mfrow = c(1,2), xpd = TRUE)
+  
+  # High steatosis
+  if(pw %in% pathways_high) {
+    netVisual_aggregate(cellchats[['liver_high']], 
+                       signaling = pw,
+                       layout = "chord",
+                       title.name = paste0(pw, " - High Steatosis"))
+  } else {
+    plot.new()
+    title(main = paste0(pw, " - Not detected in High"))
+  }
+  
+  # Low steatosis  
+  if(pw %in% pathways_low) {
+    netVisual_aggregate(cellchats[['liver_low']], 
+                       signaling = pw,
+                       layout = "chord",
+                       title.name = paste0(pw, " - Low Steatosis"))
+  } else {
+    plot.new()
+    title(main = paste0(pw, " - Not detected in Low"))
+  }
+}
+
+dev.off()
+
+# ===== FIGURE 8: Signaling role analysis =====
+pdf(fs::path(dir.results, "cellchat_signaling_roles.pdf"), width = 12, height = 6)
+
+# Identify signaling roles
+cellchats[['liver_high']] <- netAnalysis_computeCentrality(cellchats[['liver_high']])
+cellchats[['liver_low']] <- netAnalysis_computeCentrality(cellchats[['liver_low']])
+
+# Plot signaling roles
+par(mfrow = c(1,2))
+netAnalysis_signalingRole_scatter(cellchats[['liver_high']], 
+                                  title = "High Steatosis")
+netAnalysis_signalingRole_scatter(cellchats[['liver_low']], 
+                                  title = "Low Steatosis")
+
+dev.off()
+
+# ===== SAVE RDS objects =====
+saveRDS(cellchats, fs::path(dir.results, "cellchats_list.rds"))
+saveRDS(cellchat_merged, fs::path(dir.results, "cellchat_merged.rds"))
+
+cat("\n===== ANALYSIS COMPLETE =====\n")
+cat("All figures saved to:", dir.results, "\n")
+```
+
+####Hepatocytes
 ```{r}
 # Assuming you have a steatosis grouping variable in your metadata
 so_Hep <- subset(so_liver_sn,celltype2=="Hep")
-DefaultAssay(so_Hep) <- "RNA" 
+so_Hep[["RNA"]] <- as(so_Hep[["RNA"]], Class = "Assay")
+DefaultAssay(so_Hep) <- "RNA"
 colnames(so_Hep@meta.data)
 
 # Split by steatosis level (adjust the column name as needed)
@@ -25555,7 +25907,17 @@ Hep_low  <- filter_by_celltype_size(Hep_low, min_cells = 30)
 Hep_high$celltype <- droplevels(factor(Hep_high$celltype))
 Hep_low$celltype  <- droplevels(factor(Hep_low$celltype))
 
-# Run CellChat on both groups
+# # **CONVERT TO V4 FORMAT AFTER SUBSETTING**
+# Hep_high[["RNA"]] <- as(Hep_high[["RNA"]], Class = "Assay")
+# Hep_low[["RNA"]]  <- as(Hep_low[["RNA"]], Class = "Assay")
+# 
+# # Run CellChat on both groups
+# cellchats <- list(
+#   Hep_high = run_cellchat_pipeline(Hep_high, "Hep_high"),
+#   Hep_low  = run_cellchat_pipeline(Hep_low,  "Hep_low")
+# )
+
+# Now run
 cellchats <- list(
   Hep_high = run_cellchat_pipeline(Hep_high, "Hep_high"),
   Hep_low  = run_cellchat_pipeline(Hep_low,  "Hep_low")
@@ -25673,6 +26035,49 @@ for(pw in common_pathways) {
     title.name = paste(pw, "- Low Steatosis")
   )
 }
+
+# Get all unique pathways from both conditions
+all_pathways <- sort(union(pathways_high, pathways_low))
+
+# Plot High steatosis with ALL pathways (will show blanks for missing ones)
+p_high <- netVisual_bubble(cellchats[['Hep_high']], 
+                          sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                          targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                          signaling = all_pathways,  # Force all pathways
+                          remove.isolate = FALSE,
+                          return.data = FALSE,
+                          title.name = "High Steatosis (2+3)")
+
+# Plot Low steatosis with same pathway list
+p_low <- netVisual_bubble(cellchats[['Hep_low']], 
+                         sources.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                         targets.use = c("Hep-1","Hep-2","Hep-3","Hep-4","Hep-5","dHep"),
+                         signaling = all_pathways,  # Same pathway list
+                         remove.isolate = FALSE,
+                         return.data = FALSE,
+                         title.name = "Low Steatosis (0+1)")
+
+# Stack them vertically for easy comparison
+library(patchwork)
+combined_plot <- p_low / p_high + 
+  plot_layout(heights = c(1, 1))
+
+# Save
+ggsave(fs::path("/home/hhampson/Results/steatosis_comparison_stacked.pdf"), 
+       combined_plot, 
+       width = 12, 
+       height = 16)
+
+# Or use cowplot for more control
+library(cowplot)
+combined_plot2 <- plot_grid(p_low, p_high, 
+          ncol = 1, 
+          align = "v",
+          labels = c("A", "B"))
+ggsave(fs::path("/home/hhampson/Results/steatosis_comparison_stacked2.pdf"), 
+       combined_plot2, 
+       width = 12, 
+       height = 16)
 ```
 
 ###iii. Permutation Test for Differences
