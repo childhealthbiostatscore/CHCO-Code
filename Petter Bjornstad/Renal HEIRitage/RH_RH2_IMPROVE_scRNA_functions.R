@@ -15,7 +15,7 @@ library(jsonlite)
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") { # local version
-  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive"
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
   git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
   keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
 } else if (user == "rameshsh") { # hyak version

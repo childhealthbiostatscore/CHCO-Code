@@ -125,22 +125,22 @@ bic_folders <- get_filtered_subfolders(folder_path)
 
 bic_folders_clean <- bic_folders %>%
   filter(level1_folder %nin% c("Bjornstad_GZBU_231527", "Kendrick_BC_161572", "Kelsey_HIP_070988")) %>%
-  mutate(bic_id = gsub("ATTEMPT[_.]|ATTEMPTR.|_192947|_171874|_170820|_170802|_161752|_191282|_180704|_18-704|_200277|_212999|_1611752|_213019", 
-                       "", 
-                       level2_folder)) %>%
+  dplyr::mutate(bic_id = gsub("ATTEMPT[_.]|ATTEMPTR.|_192947|_171874|_170820|_170802|_161752|_191282|_180704|_18-704|_200277|_212999|_1611752|_213019", 
+                              "", 
+                              level2_folder)) %>%
   filter(!grepl("[._]twix", bic_id, ignore.case = T)) %>%
-  mutate(study = case_when(bic_id == "RH2.04.O" ~ "RENAL-HEIRitage",
-                           grepl("ATTEMPT", level1_path) ~ "ATTEMPT",
-                           grepl("CFE", level1_path) ~ "COFFEE",
-                           grepl("CRC", level1_path) ~ "CROCODILE",
-                           grepl("CS", level1_path) ~ "CASPER",
-                           grepl("Bjornstad_HEIR", level1_path) ~ "RENAL-HEIR",
-                           grepl("IMPROVE", level1_path) ~ "IMPROVE",
-                           grepl("PENGUIN", level1_path) ~ "PENGUIN",
-                           grepl("RH2", level1_path) ~ "RENAL-HEIRitage",
-                           grepl("PANTHER", level1_path) ~ "PANTHER",
-                           grepl("RPC2", level1_path) ~ "RPC2",
-                           grepl("PANDA", level1_path) ~ "PANDA",
+  dplyr::mutate(study = case_when(bic_id == "RH2.04.O" ~ "RENAL-HEIRitage",
+                                  grepl("ATTEMPT", level1_path) ~ "ATTEMPT",
+                                  grepl("CFE", level1_path) ~ "COFFEE",
+                                  grepl("CRC", level1_path) ~ "CROCODILE",
+                                  grepl("CS", level1_path) ~ "CASPER",
+                                  grepl("Bjornstad_HEIR", level1_path) ~ "RENAL-HEIR",
+                                  grepl("IMPROVE", level1_path) ~ "IMPROVE",
+                                  grepl("PENGUIN", level1_path) ~ "PENGUIN",
+                                  grepl("RH2", level1_path) ~ "RENAL-HEIRitage",
+                                  grepl("PANTHER", level1_path) ~ "PANTHER",
+                                  grepl("RPC2", level1_path) ~ "RPC2",
+                                  grepl("PANDA", level1_path) ~ "PANDA",
   ),
   
   record_number = case_when(study == "ATTEMPT" ~ sub("^([0-9]+)[._].*", "\\1", bic_id),
@@ -176,13 +176,14 @@ write.csv(bic_folders_clean, file.path(root_path, "Data Harmonization/Data Clean
 harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
 
 mri_dat <- harm_dat %>%
-  mutate(visit = case_when(study == "ATTEMPT" & visit == "screening" ~ "baseline", T ~ visit)) %>%
+  dplyr::mutate(visit = case_when(study == "ATTEMPT" & visit == "screening" ~ "baseline", T ~ visit)) %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) %>%
-  mutate(record_number = case_when(study == "ATTEMPT" ~ as.character(sub("^([0-9]+)[._].*", "\\1", record_id)),
+  dplyr::mutate(record_number = case_when(study == "ATTEMPT" ~ as.character(sub("^([0-9]+)[._].*", "\\1", record_id)),
                                    T ~ stringr::str_extract(record_id, "(?<=[._\\- ])[0-9]+(?=$|[._\\- ])")),
-         visit_id = case_when(visit == "v2_gfr_mri_arm_1" ~ 1,
+                record_number = as.numeric(record_number),
+                visit_id = case_when(visit == "v2_gfr_mri_arm_1" ~ 1,
                               visit == "v7_gfr_mri_arm_1" ~ 2,
                               visit == "baseline" ~ 1,
                               visit == "4_months_post" ~ 2,
@@ -190,14 +191,11 @@ mri_dat <- harm_dat %>%
                               visit == "12_months_post_surgery" ~ 3,
                               visit == "year_1" ~ 2,
                               visit == "year_2" ~ 3),
-         record_number = as.numeric(record_number),
-         data_in_redcap = case_when(if_all(
+         data_in_redcap = case_when(dplyr::if_all(
            c(avg_c_r2, avg_k_r2, avg_m_r2,
              total_kidney_volume_ml,
              avg_c_t1, avg_k_t1,
-             avg_c_adc, avg_pcascl),
-           is.na
-         ) ~ FALSE,
+             avg_c_adc, avg_pcascl), is.na) ~ FALSE,
          TRUE ~ TRUE
          )
   ) %>%
