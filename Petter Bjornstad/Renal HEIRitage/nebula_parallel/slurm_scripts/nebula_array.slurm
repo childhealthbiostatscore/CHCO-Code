@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=nebula_array
-#SBATCH --array=1-40%10             # Run 168 jobs, max 7 concurrent
+#SBATCH --array=1-18%10             # Run 168 jobs, max 7 concurrent
 #SBATCH --time=03:00:00             # 3 hour per job (30min + buffer)
 #SBATCH --mem=200G                  # Memory per job
 #SBATCH --cpus-per-task=25          # CPUs (nebula uses 15 cores)

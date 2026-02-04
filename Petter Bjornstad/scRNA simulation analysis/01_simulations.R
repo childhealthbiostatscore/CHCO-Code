@@ -82,24 +82,38 @@ write_csv_s3 <- function(file, x) {
 
 # --- fixed simulation settings ---
 n_genes <- 2000
-n_simulations <- 500
+n_simulations <- 50
+
+# parameters from ATTEMPT
+attempt <- s3readRDS("Kidney transcriptomics/Single cell RNA seq/PB_attempt_harmony_rpca_RM_kpmpV1labelled_Sept2024.RDS", "scrna", region = "")
+attempt_sce <- as.SingleCellExperiment(attempt)
+attempt_params <- splatter::splatEstimate(attempt_sce)
 
 # --- variable factor simulation settings ---
-study_design <- c("paired", "unpaired") #nGroups
-n_subjects <- c(5, 10 , 20) # nBatches
-cells_per_subject <- c(1000, 3000, 6000) #batchCells
-btw_subject_var <- c(0.001, 0.01, 0.1, 0.2) # batch.facScale
-gene_wise_disp <- c(0.1, 0.2, 0.4, 0.6) # bcv.common
-effect_size <- c(0.01, 0.05, 0.1, 0.2, 0.3) # de.prob
+study_design <- "paired" # paired only
+prop_de <- c(0, 0.05, 0.15) # cde.prob (Proportion of DE genes (genes that have significant interactions, would be related to power.)
+genes_es <- c(0.01, 0.2, 0.4) # de.facLoc; de.facScale (Mean effect size for DE genes)
+interaction_es <- c(0.01, 0.2, 0.4) #cde.facLoc, cde.facScale (Mean effect size for interaction genes)
+ind_var <- c(2, 1, 0.5) # similarity.scale (Individual-level variation)
+cells_per_subject <- c(500, 3000, 6000) # nCells (Cells per individual)
+ind_cell_cor <- c(0.05, 0.5) # batch.facScale (Correlation among cells within individual)
+timepoint_cor <- c(2, 1, 0.5) # cde.fac (Correlation among time points within individual)
+n_subjects <- c(5, 10 , 20) # subjects per group (Number of individuals per group)
+n_groups <- 2
+n_samples <- c(n_subjects * n_groups) # nBatches
+# gene_wise_disp <- c(0.1, 0.2, 0.4, 0.6) # bcv.common
 
 # ---- parameter grid (all combinations) ----
 grid <- expand.grid(
   study_design      = study_design,
-  n_subjects        = n_subjects,
+  prop_de = prop_de,
+  genes_es = genes_es, 
+  interaction_es = interaction_es, 
+  ind_var = ind_var,
+  ind_cell_cor = ind_cell_cor, 
+  timepoint_cor = timepoint_cor, 
   cells_per_subject = cells_per_subject,
-  btw_subject_var   = btw_subject_var,
-  gene_wise_disp    = gene_wise_disp,
-  effect_size       = effect_size,
+  n_samples = n_samples,
   KEEP.OUT.ATTRS    = FALSE,
   stringsAsFactors  = FALSE
 )
