@@ -170,7 +170,7 @@ for (folder in names(folders)) {
     
     processed_df_subset <- processed_df %>%
       dplyr::select(logFC = 2, pval = 6, 10, 9) %>%
-      mutate(cell = cell, run = folder) %>%
+      dplyr::mutate(cell = cell, run = folder) %>%
       filter(Gene %in% gene_list & pval < 0.05) 
 
     gene_search <- rbind(gene_search, processed_df_subset)
@@ -214,7 +214,7 @@ make_leadingedge_long <- function(
       logFC = all_of(logfc_col_glpn_hc),
       pval  = all_of(pval_col_glpn_hc)
     ) %>%
-    mutate(comparison = comp1_label)
+    dplyr::mutate(comparison = comp1_label)
   
   # pull stats for comparison 2
   d2 <- de_glpy_glpn %>%
@@ -223,7 +223,7 @@ make_leadingedge_long <- function(
       logFC = all_of(logfc_col_glpy_glpn),
       pval  = all_of(pval_col_glpy_glpn)
     ) %>%
-    mutate(comparison = comp2_label)
+    dplyr::mutate(comparison = comp2_label)
   
   # join leadingEdge genes to both comparisons, then keep genes with both comps
   out <- lead %>%
@@ -289,7 +289,7 @@ sig_df_clean <- sig_df_summary_comp %>%
     names_to = "Direction",
     values_to = "Count"
   ) %>%
-  mutate(
+  dplyr::mutate(
     Count = ifelse(Direction == "Negative", -Count, Count),
     celltype = factor(celltype, levels = rev(unique(celltype)))  # keeps nice top-to-bottom order
   )
@@ -410,18 +410,18 @@ for (cell in names(celltype_groups)) {
     pivot_wider(
       names_from = comparison,
       values_from = logFC) %>%
-    mutate(
+    dplyr::mutate(
       reversed = sign(`DKD GLP- vs. HC`) != sign(`DKD GLP+ vs. GLP-`)
     ) %>% ungroup() %>%
     group_by(pathway) %>%
-    summarise(n_genes = sum(!is.na(reversed)),
+    dplyr::summarise(n_genes = sum(!is.na(reversed)),
               n_reversed = sum(reversed, na.rm = TRUE),
               pct_reversed = 100 * n_reversed / n_genes,
               .groups = "drop")
   
   plot_df <- plot_df %>%
-    left_join(pathway_rev_summary %>% select(pathway, pct_reversed), by = "pathway") %>%
-    mutate(pathway_lab = paste0(gsub("HALLMARK ", "", gsub("_", " ", pathway)), "\n(", sprintf("%.1f", pct_reversed), "% Reversed)"))
+    left_join(pathway_rev_summary %>% dplyr::select(pathway, pct_reversed), by = "pathway") %>%
+    dplyr::mutate(pathway_lab = paste0(gsub("HALLMARK ", "", gsub("_", " ", pathway)), "\n(", sprintf("%.1f", pct_reversed), "% Reversed)"))
   
   # plot
   n_pages <- ceiling(length(unique(plot_df$pathway)) / 6)
@@ -565,11 +565,11 @@ for (cell in names(celltype_groups)) {
   # count reversed genes (FIXED grouping!)
   # -------------------------
   pathway_rev_summary <- plot_df %>%
-    select(pathway, Gene, comparison, logFC) %>%
+    dplyr::select(pathway, Gene, comparison, logFC) %>%
     pivot_wider(names_from = comparison, values_from = logFC) %>%
-    mutate(reversed = sign(`T2D GLP- vs. HC`) != sign(`T2D GLP+ vs. GLP-`)) %>%
+    dplyr::mutate(reversed = sign(`T2D GLP- vs. HC`) != sign(`T2D GLP+ vs. GLP-`)) %>%
     group_by(pathway) %>%
-    summarise(
+    dplyr::summarise(
       n_genes = sum(!is.na(reversed)),
       n_reversed = sum(reversed, na.rm = TRUE),
       pct_reversed = 100 * n_reversed / n_genes,
@@ -577,8 +577,8 @@ for (cell in names(celltype_groups)) {
     )
   
   plot_df <- plot_df %>%
-    left_join(pathway_rev_summary %>% select(pathway, pct_reversed), by = "pathway") %>%
-    mutate(pathway_lab = paste0(gsub("HALLMARK ", "", gsub("_", " ", pathway)), "\n(", sprintf("%.1f", pct_reversed), "% Reversed)"))
+    left_join(pathway_rev_summary %>% dplyr::select(pathway, pct_reversed), by = "pathway") %>%
+    dplyr::mutate(pathway_lab = paste0(gsub("HALLMARK ", "", gsub("_", " ", pathway)), "\n(", sprintf("%.1f", pct_reversed), "% Reversed)"))
   
   n_pages <- ceiling(length(unique(plot_df$pathway)) / 6)
   
@@ -645,17 +645,17 @@ for (cell in names(celltype_groups)) {
   
   glpn_hc_df_sig <- glpn_hc_df %>%
     dplyr::select(logFC = logFC_glp_t2dobGLP_N, p.val = p_glp_t2dobGLP_N, fdr, Gene) %>%
-    mutate(celltype = cell, comparison = "T2D GLP (-) vs HC")
+    dplyr::mutate(celltype = cell, comparison = "T2D GLP (-) vs HC")
   glpy_glpn_df_sig <- glpy_glpn_df %>% 
     dplyr::select(logFC = logFC_glp_t2dobGLP_Y, p.val = p_glp_t2dobGLP_Y, fdr, Gene) %>%
-    mutate(celltype = cell, comparison = "T2D GLP (+) vs T2D GLP(-)")  
+    dplyr::mutate(celltype = cell, comparison = "T2D GLP (+) vs T2D GLP(-)")  
   
   t2d_glp_comp <- rbind(glpn_hc_df_sig, glpy_glpn_df_sig) %>%
-    mutate(
+    dplyr::mutate(
       sgn = if_else(p.val < 0.05, sign(logFC), NA_real_)
     ) %>%
     group_by(Gene, celltype) %>%
-    mutate(
+    dplyr::mutate(
       sgn_glpn_hc   = sgn[comparison == "T2D GLP (-) vs HC"][1],
       sgn_glpy_glpn = sgn[comparison == "T2D GLP (+) vs T2D GLP(-)"][1],
       direction = case_when(
@@ -670,7 +670,7 @@ for (cell in names(celltype_groups)) {
     ) %>%
     ungroup() %>%
     filter(!is.na(direction)) %>%
-    select(-sgn, -sgn_glpn_hc, -sgn_glpy_glpn) %>%
+    dplyr::select(-sgn, -sgn_glpn_hc, -sgn_glpy_glpn) %>%
     distinct(Gene, celltype, .keep_all = T)
   
   t2d_glp_rev_combined <- rbind(t2d_glp_rev_combined, t2d_glp_comp)
@@ -680,9 +680,9 @@ for (cell in names(celltype_groups)) {
 t2d_glp_dir_summary <- t2d_glp_rev_combined %>%
   group_by(celltype, direction) %>%
   dplyr::summarise(n = n()) %>%
-  mutate(total_n = sum(n)) %>%
+  dplyr::mutate(total_n = sum(n)) %>%
   arrange(desc(total_n)) %>% ungroup() %>%
-  mutate(celltype = factor(celltype, levels = unique(celltype)),
+  dplyr::mutate(celltype = factor(celltype, levels = unique(celltype)),
          percentage = n/total_n)
 
 # Reversed vs. not-reversed
@@ -735,9 +735,9 @@ t2d_glp_rev_summary <- t2d_glp_rev_combined %>%
   filter(direction == "Reversed") %>%
   group_by(celltype, rev_direction) %>%
   dplyr::summarise(n = n()) %>%
-  mutate(total_n = sum(n)) %>%
+  dplyr::mutate(total_n = sum(n)) %>%
   arrange(desc(total_n)) %>% ungroup() %>%
-  mutate(celltype = factor(celltype, levels = unique(celltype)))
+  dplyr::mutate(celltype = factor(celltype, levels = unique(celltype)))
 
 t2d_glp_rev_summary %>%
   ggplot(aes(x = celltype, y = n, fill = rev_direction)) +
@@ -762,7 +762,30 @@ ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/Pathway comparisons/
        width = 7, height = 5)
 ```
 
+### Reversal scores
+```{r}
+# Reversal Score = (N reversed genes) / (N disease genes with GLP+ vs. GLP- data) × 100
+# number of reversed genes
+t2d_glp_rev_scores <- t2d_glp_rev_combined %>%
+  dplyr::summarise(n = n(), 
+                   .by = c(celltype, comparison, direction)) %>%
+  group_by(celltype, comparison) %>%
+  dplyr::summarise(
+    n_reversed = sum(n[direction == "Reversed"]),
+    n_total = sum(n),
+    reversal_score = (n_reversed / n_total)*100,
+    .groups = "drop"
+  ) %>%
+  arrange(desc(reversal_score)) %>%
+  dplyr::mutate(celltype = factor(celltype, levels = celltype))
+
+t2d_glp_rev_scores %>%
+  ggplot(aes(x = celltype, y = reversal_score)) +
+  geom_col()
+```
+
 ### Pathways of reversed transcripts
+
 ```{r}
 rev_reactome_df <- data.frame()
 
@@ -780,13 +803,13 @@ for (cell in names(celltype_groups)) {
   enh_genes_reactome <- enrichr(enh_genes, databases = "Reactome_Pathways_2024") 
   
   sup_genes_reactome_df <- sup_genes_reactome$Reactome_Pathways_2024 %>%
-    mutate(bg = "Suppressed",
+    dplyr::mutate(bg = "Suppressed",
            n_genes = as.numeric(gsub("/.*", "", Overlap)),
            celltype = cell,
            neg_logp = -log10(P.value))
   
   enh_genes_reactome_df <- enh_genes_reactome$Reactome_Pathways_2024 %>%
-    mutate(bg = "Enhanced",
+    dplyr::mutate(bg = "Enhanced",
            n_genes = as.numeric(gsub("/.*", "", Overlap)),
            celltype = cell,
            neg_logp = -log10(P.value))
@@ -797,7 +820,7 @@ for (cell in names(celltype_groups)) {
 rev_reactome_sig <- rev_reactome_df %>%
   filter(P.value < 0.05) %>%
   group_by(Term, bg) %>%
-  mutate(n = n()) %>%
+  dplyr::mutate(n = n()) %>%
   filter(n > 5)
 
 rev_reactome_sig %>%
@@ -836,7 +859,7 @@ ggsave(file.path(root_path, "Renal HERITAGE/Results/Figures/Pathway comparisons/
 rev_reactome_celltypes <- rev_reactome_df %>%
   filter(P.value < 0.05) %>%
   group_by(Term, bg) %>%
-  mutate(n = n()) %>%
+  dplyr::mutate(n = n()) %>%
   filter(celltype %in% c("EC", "Immune", "VSMC_P_FIB"))
 
 rev_reactome_celltypes %>%
@@ -942,12 +965,12 @@ for (cell in names(celltype_groups)) {
     separate_rows(Gene, sep = ";") %>%
     dplyr::select(Gene, logFC = logFC_glp_t2dobGLP_N,
                   p.val = p_glp_t2dobGLP_N, fdr) %>%
-      mutate(comparison = "T2D GLP- vs. HC"),
+      dplyr::mutate(comparison = "T2D GLP- vs. HC"),
     glpy_glpn_df %>%
     separate_rows(Gene, sep = ";") %>%
     dplyr::select(Gene, logFC = logFC_glp_t2dobGLP_Y,
                   p.val = p_glp_t2dobGLP_Y, fdr) %>%
-      mutate(comparison = "T2D GLP+ vs. GLP-")
+      dplyr::mutate(comparison = "T2D GLP+ vs. GLP-")
   ) %>%
     left_join(rev_reactome_sig_combined) %>%
     filter(!is.na(pathway))
@@ -964,14 +987,14 @@ for (cell in names(celltype_groups)) {
   # count reversed genes
   # -------------------------
   pathway_rev_summary <- plot_df %>%
-    select(pathway, Gene, comparison, logFC) %>%
+    dplyr::select(pathway, Gene, comparison, logFC) %>%
     pivot_wider(names_from = comparison, values_from = logFC) %>%
-    mutate(reversal_direction = case_when(`T2D GLP+ vs. GLP-` > 0 ~ "Enhanced", T ~ "Suppressed")) %>%
+    dplyr::mutate(reversal_direction = case_when(`T2D GLP+ vs. GLP-` > 0 ~ "Enhanced", T ~ "Suppressed")) %>%
     distinct(pathway, reversal_direction)
   
   plot_df <- plot_df %>%
-    left_join(pathway_rev_summary %>% select(pathway, reversal_direction), by = "pathway") %>%
-    mutate(pathway_lab = paste0(pathway, "\n(", reversal_direction, ")"))
+    left_join(pathway_rev_summary %>% dplyr::select(pathway, reversal_direction), by = "pathway") %>%
+    dplyr::mutate(pathway_lab = paste0(pathway, "\n(", reversal_direction, ")"))
   
   n_pages <- ceiling(length(unique(plot_df$pathway)) / 4)
   
