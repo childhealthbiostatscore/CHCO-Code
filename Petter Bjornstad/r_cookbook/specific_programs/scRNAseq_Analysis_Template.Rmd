@@ -1,0 +1,89 @@
+---
+title: "scRNAseq Analysis Template" #Change to title of project
+author: "Author Name" #Change to author name
+date: "2025-04-22"
+output: html_document
+---
+
+# 1.Set Up
+## a. Install & Load Packages
+```{r}
+#Install Packages
+# CRAN packages
+install.packages(c("dplyr", "ggplot2", "Matrix", "patchwork", "lme4", "boot", "cowplot"))
+
+# glmmTMB (CRAN but sometimes finicky)
+install.packages("glmmTMB")
+
+# Bioconductor packages
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("edgeR",force=T)
+BiocManager::install("SingleCellExperiment")
+
+# Seurat (latest from CRAN or GitHub)
+install.packages("Seurat")
+
+# Volcano plot package
+install.packages("EnhancedVolcano")  # From Bioconductor mirror on CRAN
+
+#Load Packages
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(Matrix)
+library(patchwork)
+library(cowplot)
+library(lme4)
+library(glmmTMB)
+library(edgeR)
+library(boot)
+library(EnhancedVolcano)
+
+#Install additional packages for specific projects
+```
+
+## b. Load Data
+```{r}
+so <- readRDS("filepath/seurat_object.RDS")
+
+```
+
+## c. Quality Control & Pre-Processing
+```{r}
+#1. Filter out rare genes
+ncol(seurat_object) # Number of cells before filtering
+nrow(seurat_object) # Number of genes before filtering
+
+#Filter out rare genes expressed in less than "gene_pct" of cells
+expr_matrix <- as.matrix(GetAssayData(seurat_object, assay = "RNA", layer = "counts"))
+
+# Calculate the proportion of cells expressing each gene
+num_cells_per_gene <- rowSums(expr_matrix > 0)  # Count nonzero cells per gene
+total_cells <- ncol(expr_matrix)  # Total number of cells
+gene_proportion <- num_cells_per_gene / total_cells  # Fraction of cells expressing each gene
+
+# Keep genes expressed in at least "gene_pct" of cells
+gene_pct = 0.05 #5%, change based on biopsy type & data
+genes_to_keep <- names(gene_proportion[gene_proportion >= gene_pct])
+seurat_object<- subset(seurat_object, features = genes_to_keep)
+
+#Check cells & genes remaining
+ncol(seurat_object) # Number of cells remaining after filtering
+nrow(seurat_object) # Number of genes remaining after filtering
+
+#2. Filter out mitochondrial genes
+#Check the number of Mitochondrial genes to start
+sum(grepl("^MT-", rownames(seurat_object))) 
+
+# Identify mitochondrial genes (human: start with "MT-")
+mito_genes <- grep("^MT-", rownames(seurat_object), value = TRUE)
+seurat_object <- subset(seurat_object, features = setdiff(rownames(seurat_object), mito_genes))
+
+#Check the number of Mitochondrial genes after filtering to ensure filtering step was successful
+sum(grepl("^MT-", rownames(seurat_object))) #Should be 0
+
+#3. 
+```
+
+
