@@ -4086,80 +4086,333 @@ plot_fgsea <- function(fgsea_res,
     )
 }
 ##c. Transposed fgsea function ----
+# plot_fgsea_transpose <- function(fgsea_res,
+#                                  top_n = 30,
+#                                  title = "Top Enriched Pathways",
+#                                  xlimit = 3,
+#                                  xnudge = xlimit/100,
+#                                  text1 = 6.5,
+#                                  text2 = 18,
+#                                  text3 = 20) {
+#   
+#   fgsea_res <- fgsea_res %>%
+#     arrange(pval) %>%
+#     head(top_n) %>%
+#     mutate(
+#       direction = case_when((NES < 0 & pval <= 0.05 ~ "Negative (p < 0.05)"), 
+#                             (NES > 0 & pval <= 0.05 ~ "Positive (p < 0.05)"),
+#                             (NES < 0 & pval > 0.05 ~ "Negative (N.S.)"), 
+#                             (NES > 0 & pval > 0.05 ~ "Positive (N.S.)")),
+#       face = case_when((NES < 0 & pval <= 0.05 ~ "plain"), 
+#                        (NES > 0 & pval <= 0.05 ~ "plain"),
+#                        (NES < 0 & pval > 0.05 ~ "plain"), 
+#                        (NES > 0 & pval > 0.05 ~ "plain")),
+#       pathway_clean = str_remove(pathway, "^KEGG_"), 
+#       pathway_clean = str_remove(pathway_clean, "^REACTOME_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOBP_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOMF_"), 
+#       pathway_clean = str_replace_all(pathway_clean, "_", " "),
+#       pathway_clean = str_to_sentence(pathway_clean),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
+#       pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
+#       pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
+#       pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
+#       pathway_clean = paste0(pathway_clean, " (", size, ")")
+#     ) %>%
+#     arrange(pval)
+#   
+#   fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, -abs(fgsea_res$NES))
+#   
+#   fgsea_res %>%
+#     ggplot(aes(x = abs(NES), y = fct_rev(pathway_clean), label = pathway_clean)) +
+#     geom_point(aes(size = -log10(pval), color = direction, alpha = 0.8)) +
+#     # geom_vline(xintercept = 2, linetype = "dashed") +
+#     geom_text(aes(group = pathway_clean, color = direction, fontface = face), 
+#               hjust = 0, size = text1, nudge_x = xnudge) +
+#     scale_size_binned() +
+#     scale_color_manual(values = c("Positive (p < 0.05)" = "#963b32", "Negative (p < 0.05)" = "#1f566f", 
+#                                   "Positive (N.S.)" = "#f1bcb6", "Negative (N.S.)" = "#b3d6e5")) +
+#     # scale_color_manual(values = c("Positive" = "#963b32", "Negative" = "#1f566f",
+#     #                               "Positive p > 0.05" = "#f1bcb6", "Negative p > 0.05" = "#b3d6e5")) +
+#     scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
+#     scale_y_discrete(expand = expansion(add = 1)) +
+#     labs(
+#       x = "NES",
+#       y = "Pathways",
+#       color = "Direction",
+#       size = "-log(p-value)",
+#       title = title
+#     ) +
+#     guides(alpha = "none") +
+#     theme_bw() +
+#     theme(
+#       axis.text.y = element_blank(),
+#       panel.grid = element_blank(),
+#       axis.text.x = element_text(size = text3),
+#       axis.title = element_text(size = text3),
+#       axis.ticks.y = element_blank(), 
+#       legend.position = c(0.9, 0.2),
+#       legend.background = element_blank(),
+#       legend.box.background = element_rect(color = "black"),
+#       legend.title = element_text(size = text2),
+#       legend.text = element_text(size = text2),
+#       title = element_text(size = text3)
+#     )
+# }
+# 
+# plot_fgsea_transpose <- function(fgsea_res,
+#                                  top_n = 30,
+#                                  title = "Top Enriched Pathways",
+#                                  xlimit = 3,
+#                                  xnudge = xlimit/100,
+#                                  text1 = 6.5,
+#                                  text2 = 18,
+#                                  text3 = 20) {
+#   
+#   fgsea_res <- fgsea_res %>%
+#     arrange(pval) %>%
+#     head(top_n) %>%
+#     mutate(
+#       direction = case_when(
+#         NES > 0 & padj <= 0.05 ~ "Positive (padj < 0.05)",
+#         NES < 0 & padj <= 0.05 ~ "Negative (padj < 0.05)",
+#         NES > 0 & pval <= 0.05 ~ "Positive (p < 0.05)",
+#         NES < 0 & pval <= 0.05 ~ "Negative (p < 0.05)",
+#         NES > 0 & pval > 0.05 ~ "Positive (N.S.)",
+#         NES < 0 & pval > 0.05 ~ "Negative (N.S.)"
+#       ),
+#       face = "plain",
+#       pathway_clean = str_remove(pathway, "^KEGG_"), 
+#       pathway_clean = str_remove(pathway_clean, "^REACTOME_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOBP_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOMF_"), 
+#       pathway_clean = str_replace_all(pathway_clean, "_", " "),
+#       pathway_clean = str_to_sentence(pathway_clean),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
+#       pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
+#       pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
+#       pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
+#       pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
+#       pathway_clean = paste0(pathway_clean, " (", size, ")")
+#     ) %>%
+#     arrange(pval)
+#   
+#   fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, -abs(fgsea_res$NES))
+#   
+#   fgsea_res %>%
+#     ggplot(aes(x = abs(NES), y = fct_rev(pathway_clean), label = pathway_clean)) +
+#     geom_point(aes(size = -log10(pval), color = direction, alpha = 0.8)) +
+#     geom_text(aes(group = pathway_clean, color = direction, fontface = face), 
+#               hjust = 0, size = text1, nudge_x = xnudge) +
+#     scale_size_binned() +
+#     scale_color_manual(values = c(
+#       "Positive (padj < 0.05)" = "#6B1A13",
+#       "Positive (p < 0.05)" = "#963b32",
+#       "Positive (N.S.)" = "#f1bcb6",
+#       "Negative (padj < 0.05)" = "#0D3B50",
+#       "Negative (p < 0.05)" = "#1f566f",
+#       "Negative (N.S.)" = "#b3d6e5"
+#     )) +
+#     scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
+#     scale_y_discrete(expand = expansion(add = 1)) +
+#     labs(
+#       x = "NES",
+#       y = "Pathways",
+#       color = "Direction",
+#       size = "-log(p-value)",
+#       title = title
+#     ) +
+#     guides(alpha = "none") +
+#     theme_bw() +
+#     theme(
+#       axis.text.y = element_blank(),
+#       panel.grid = element_blank(),
+#       axis.text.x = element_text(size = text3),
+#       axis.title = element_text(size = text3),
+#       axis.ticks.y = element_blank(), 
+#       legend.position = c(0.9, 0.2),
+#       legend.background = element_blank(),
+#       legend.box.background = element_rect(color = "black"),
+#       legend.title = element_text(size = text2),
+#       legend.text = element_text(size = text2),
+#       title = element_text(size = text3)
+#     )
+# }
+
+# plot_fgsea_transpose <- function(fgsea_res,
+#                                  top_n = 20,
+#                                  title = "Top Enriched Pathways",
+#                                  xlimit = 3,
+#                                  text2 = 12,
+#                                  text3 = 14) {
+#   
+#   fgsea_res <- fgsea_res %>%
+#     filter(pval < 0.05) %>%
+#     arrange(pval) %>%
+#     head(top_n) %>%
+#     mutate(
+#       direction = ifelse(NES > 0, "Positive", "Negative"),
+#       pathway_clean = str_remove(pathway, "^KEGG_"), 
+#       pathway_clean = str_remove(pathway_clean, "^REACTOME_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOBP_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOMF_"), 
+#       pathway_clean = str_remove(pathway_clean, "^HALLMARK_"),
+#       pathway_clean = str_replace_all(pathway_clean, "_", " "),
+#       pathway_clean = str_to_title(pathway_clean)
+#     )
+#   
+#   if (nrow(fgsea_res) == 0) return(NULL)
+#   
+#   fgsea_res %>%
+#     ggplot(aes(x = abs(NES), y = reorder(pathway_clean, abs(NES)), 
+#                fill = NES, alpha = abs(NES))) +
+#     geom_col(width = 0.7) +
+#     scale_fill_gradient2(
+#       low = "#1565C0", mid = "white", high = "#C62828", midpoint = 0,
+#       name = "NES"
+#     ) +
+#     scale_alpha_continuous(range = c(0.5, 1), guide = "none") +
+#     scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0.02))) +
+#     labs(
+#       x = "NES",
+#       y = NULL,
+#       title = title
+#     ) +
+#     theme_minimal() +
+#     theme(
+#       axis.text.y = element_text(size = text2),
+#       axis.text.x = element_text(size = text3),
+#       axis.title = element_text(size = text3),
+#       panel.grid.major.y = element_blank(),
+#       panel.grid.minor = element_blank(),
+#       legend.position = "top",
+#       legend.text = element_text(size = text2),
+#       legend.title = element_text(size = text2),
+#       plot.title = element_text(hjust = 0.5, size = text3 + 2, face = "bold")
+#     )
+# }
+
+# plot_fgsea_transpose <- function(fgsea_res,
+#                                  top_n = 20,
+#                                  title = "Top Enriched Pathways",
+#                                  xlimit = 3,
+#                                  text2 = 12,
+#                                  text3 = 14) {
+#   
+#   fgsea_res <- fgsea_res %>%
+#     filter(pval < 0.05) %>%
+#     arrange(pval) %>%
+#     head(top_n) %>%
+#     mutate(
+#       direction = ifelse(NES > 0, "Positive", "Negative"),
+#       pathway_clean = str_remove(pathway, "^KEGG_"), 
+#       pathway_clean = str_remove(pathway_clean, "^REACTOME_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOBP_"), 
+#       pathway_clean = str_remove(pathway_clean, "^GOMF_"), 
+#       pathway_clean = str_remove(pathway_clean, "^HALLMARK_"),
+#       pathway_clean = str_replace_all(pathway_clean, "_", " "),
+#       pathway_clean = str_to_title(pathway_clean)
+#     )
+#   
+#   if (nrow(fgsea_res) == 0) return(NULL)
+#   
+#   fgsea_res %>%
+#     ggplot(aes(x = abs(NES), y = reorder(pathway_clean, abs(NES)), 
+#                fill = NES, alpha = abs(NES))) +
+#     geom_col(width = 0.7) +
+#     geom_text(aes(x = abs(NES) / 2, label = size), 
+#               color = "white", fontface = "bold", size = 4) +
+#     scale_fill_gradient2(
+#       low = "#1565C0", mid = "white", high = "#C62828", midpoint = 0,
+#       name = "NES"
+#     ) +
+#     scale_alpha_continuous(range = c(0.5, 1), guide = "none") +
+#     scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0.02))) +
+#     labs(
+#       x = "NES",
+#       y = NULL,
+#       title = title
+#     ) +
+#     theme_minimal() +
+#     theme(
+#       axis.text.y = element_text(size = text2),
+#       axis.text.x = element_text(size = text3),
+#       axis.title = element_text(size = text3),
+#       panel.grid.major.y = element_blank(),
+#       panel.grid.minor = element_blank(),
+#       legend.position = "top",
+#       legend.text = element_text(size = text2),
+#       legend.title = element_text(size = text2),
+#       plot.title = element_text(hjust = 0.5, size = text3 + 2, face = "bold")
+#     )
+# }
+
 plot_fgsea_transpose <- function(fgsea_res,
-                                 top_n = 30,
+                                 top_n = 20,
                                  title = "Top Enriched Pathways",
                                  xlimit = 3,
-                                 xnudge = xlimit/100,
-                                 text1 = 6.5,
-                                 text2 = 18,
-                                 text3 = 20) {
+                                 max_label_length = 50,
+                                 text2 = 12,
+                                 text3 = 14) {
   
   fgsea_res <- fgsea_res %>%
+    filter(pval < 0.05) %>%
     arrange(pval) %>%
     head(top_n) %>%
     mutate(
-      direction = case_when((NES < 0 & pval <= 0.05 ~ "Negative (p < 0.05)"), 
-                            (NES > 0 & pval <= 0.05 ~ "Positive (p < 0.05)"),
-                            (NES < 0 & pval > 0.05 ~ "Negative (N.S.)"), 
-                            (NES > 0 & pval > 0.05 ~ "Positive (N.S.)")),
-      face = case_when((NES < 0 & pval <= 0.05 ~ "plain"), 
-                       (NES > 0 & pval <= 0.05 ~ "plain"),
-                       (NES < 0 & pval > 0.05 ~ "plain"), 
-                       (NES > 0 & pval > 0.05 ~ "plain")),
+      direction = ifelse(NES > 0, "Positive", "Negative"),
       pathway_clean = str_remove(pathway, "^KEGG_"), 
       pathway_clean = str_remove(pathway_clean, "^REACTOME_"), 
       pathway_clean = str_remove(pathway_clean, "^GOBP_"), 
       pathway_clean = str_remove(pathway_clean, "^GOMF_"), 
+      pathway_clean = str_remove(pathway_clean, "^HALLMARK_"),
       pathway_clean = str_replace_all(pathway_clean, "_", " "),
-      pathway_clean = str_to_sentence(pathway_clean),
-      pathway_clean = str_replace_all(pathway_clean, "\\bi\\b", "I"),
-      pathway_clean = str_replace_all(pathway_clean, "\\bii\\b", "II"),
-      pathway_clean = str_replace_all(pathway_clean, "\\biii\\b", "III"),
-      pathway_clean = str_replace_all(pathway_clean, "\\biv\\b", "IV"),
-      pathway_clean = str_replace_all(pathway_clean, "\\bv\\b", "V"),
-      pathway_clean = str_replace_all(pathway_clean, regex("\\(immune\\)", ignore_case = TRUE), "(IMMUNE)"),
-      pathway_clean = capitalize_acronyms(pathway_clean, acronyms),
-      pathway_clean = replace_mixed_case(pathway_clean, special_mixed, special_replacements),
-      pathway_clean = paste0(pathway_clean, " (", size, ")")
-    ) %>%
-    arrange(pval)
+      pathway_clean = str_to_title(pathway_clean),
+      pathway_clean = str_trunc(pathway_clean, max_label_length)
+    )
   
-  fgsea_res$pathway_clean <- reorder(fgsea_res$pathway_clean, -abs(fgsea_res$NES))
+  if (nrow(fgsea_res) == 0) return(NULL)
   
   fgsea_res %>%
-    ggplot(aes(x = abs(NES), y = fct_rev(pathway_clean), label = pathway_clean)) +
-    geom_point(aes(size = -log10(pval), color = direction, alpha = 0.8)) +
-    # geom_vline(xintercept = 2, linetype = "dashed") +
-    geom_text(aes(group = pathway_clean, color = direction, fontface = face), 
-              hjust = 0, size = text1, nudge_x = xnudge) +
-    scale_size_binned() +
-    scale_color_manual(values = c("Positive (p < 0.05)" = "#963b32", "Negative (p < 0.05)" = "#1f566f", 
-                                  "Positive (N.S.)" = "#f1bcb6", "Negative (N.S.)" = "#b3d6e5")) +
-    # scale_color_manual(values = c("Positive" = "#963b32", "Negative" = "#1f566f",
-    #                               "Positive p > 0.05" = "#f1bcb6", "Negative p > 0.05" = "#b3d6e5")) +
-    scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0))) +
-    scale_y_discrete(expand = expansion(add = 1)) +
+    ggplot(aes(x = abs(NES), y = reorder(pathway_clean, abs(NES)), 
+               fill = NES, alpha = abs(NES))) +
+    geom_col(width = 0.7) +
+    geom_text(aes(x = abs(NES) / 2, label = size), 
+              color = "white", fontface = "bold", size = 4) +
+    # scale_fill_gradient2(
+    #   low = "#1565C0", mid = "white", high = "#C62828", midpoint = 0,
+    #   name = "NES"
+    # ) +
+    scale_fill_gradient2(
+      low = "#1565C0", mid = "white", high = "#C62828", midpoint = 0,
+      name = "NES",
+      guide = guide_colorbar(barwidth = 10, barheight = 0.5)
+    ) +
+    scale_alpha_continuous(range = c(0.5, 1), guide = "none") +
+    scale_x_continuous(limits = c(0, xlimit), expand = expansion(mult = c(0, 0.02))) +
     labs(
       x = "NES",
-      y = "Pathways",
-      color = "Direction",
-      size = "-log(p-value)",
+      y = NULL,
       title = title
     ) +
-    guides(alpha = "none") +
-    theme_bw() +
+    theme_minimal() +
     theme(
-      axis.text.y = element_blank(),
-      panel.grid = element_blank(),
+      axis.text.y = element_text(size = text2),
       axis.text.x = element_text(size = text3),
       axis.title = element_text(size = text3),
-      axis.ticks.y = element_blank(), 
-      legend.position = c(0.9, 0.2),
-      legend.background = element_blank(),
-      legend.box.background = element_rect(color = "black"),
-      legend.title = element_text(size = text2),
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor = element_blank(),
+      legend.position = "top",
       legend.text = element_text(size = text2),
-      title = element_text(size = text3)
+      legend.title = element_text(size = text2),
+      plot.title = element_text(hjust = 0.5, size = text3 + 2, face = "bold"),
+      plot.margin = margin(t = 10, r = 20, b = 10, l = 10)
     )
 }

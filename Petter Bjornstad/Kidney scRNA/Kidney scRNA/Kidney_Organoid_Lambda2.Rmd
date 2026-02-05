@@ -87,6 +87,10 @@ library(emmeans)
 library(pheatmap)
 library(enrichplot)
 library(enrichR)
+# BiocManager::install("speckle")
+library(speckle)
+library(limma)
+
 dbs <- c("GO_Biological_Process_2023", 
          "KEGG_2021_Human",
          # "Reactome_2022", 
@@ -231,6 +235,16 @@ annot_key <- se_annotations %>%
   dplyr::select(c("cluster_number","putative_assignment")) %>% 
   dplyr::rename(cell_type = putative_assignment) %>% 
   mutate(cell_type=str_to_lower(str_replace_all(cell_type," ","_")))
+
+# Download Reactome GMT
+temp_file <- tempfile(fileext = ".gmt")
+s3$download_file("gsea", "gmt_files/c2.cp.reactome.v2024.1.Hs.symbols.gmt", temp_file)
+reactome_sets <- gmtPathways(temp_file)
+cat("Loaded", length(reactome_sets), "Reactome gene sets\n")
+
+# Output directory
+dir.gsea <- "/home/hhampson/Results/GSEA_T2DvsLC_Reactome"
+dir.create(dir.gsea, recursive = TRUE)
 ```
 
 # 2. Pre-Processing & Qualtiy Control
@@ -646,7 +660,7 @@ so_combined <- NormalizeData(so_combined)
 so_combined <- ScaleData(so_combined, features = VariableFeatures(so_combined))
 so_combined <- FindVariableFeatures(object = so_combined)
 so_combined <- RunPCA(so_combined, features = VariableFeatures(object = so_combined),assay="RNA")
-# ElbowPlot(so_combined)
+ElbowPlot(so_combined)
 
 # # Find neighbors and clusters 
 so_combined <- FindNeighbors(so_combined, assay = "RNA", dims = 1:20) #20 based on elbow plot
@@ -767,7 +781,7 @@ Idents(so_combined) <- "cell_type_abbrev"
 DimPlot(so_combined, reduction = "umap", raster = TRUE, label = TRUE, repel = TRUE, label.size = 6)+
    theme(legend.position = "none")
 # Save the plot
-ggsave("/home/hhampson/Results/UMAP_celltype_abbreviated.png", width = 10, height = 10, dpi = 300)
+# ggsave("/home/hhampson/Results/UMAP_celltype_abbreviated.png", width = 10, height = 10, dpi = 300)
 
 p <- DimPlot(so_combined, reduction = "umap", raster = TRUE, label = FALSE) +
   labs(title = "Cell Type Annotations",
@@ -777,7 +791,7 @@ p <- DimPlot(so_combined, reduction = "umap", raster = TRUE, label = FALSE) +
 p <- LabelClusters(p, id = "ident", fontface = "bold", size = 6, repel = TRUE)
 
 print(p)
-ggsave("/home/hhampson/Results/UMAP_celltype_bold_labels.png", p, width = 10, height = 10, dpi = 300)
+# ggsave("/home/hhampson/Results/UMAP_celltype_bold_labels.png", p, width = 10, height = 10, dpi = 300)
 
 
 # Create corrected legend with proper order
@@ -794,7 +808,7 @@ rownames(abbrev_legend) <- NULL
 print(abbrev_legend)
 
 # Save the corrected legend
-write.csv(abbrev_legend, "/home/hhampson/Results/celltype_abbreviations_legend_corrected.csv", row.names = FALSE)
+# write.csv(abbrev_legend, "/home/hhampson/Results/celltype_abbreviations_legend_corrected.csv", row.names = FALSE)
 
 # Create formatted version
 abbrev_legend_formatted <- abbrev_legend %>%
@@ -805,7 +819,7 @@ cat("\nCell Type Abbreviations:\n")
 cat(paste(abbrev_legend_formatted$Legend, collapse = "\n"))
 
 # Save as text
-writeLines(abbrev_legend_formatted$Legend, "/home/hhampson/Results/celltype_abbreviations_legend_corrected.txt")
+# writeLines(abbrev_legend_formatted$Legend, "/home/hhampson/Results/celltype_abbreviations_legend_corrected.txt")
 
 # Create a new variable with "Abbreviation = Full Name" format
 so_combined@meta.data$cell_type_legend <- paste0(
@@ -825,7 +839,7 @@ p <- DimPlot(so_combined, reduction = "umap", raster = TRUE, label = FALSE) +
         legend.key.size = unit(0.4, "cm"))
 
 # Save the plot
-ggsave("/home/hhampson/Results/UMAP_celltype_with_full_legend.png", p, width = 16, height = 8, dpi = 300)
+# ggsave("/home/hhampson/Results/UMAP_celltype_with_full_legend.png", p, width = 16, height = 8, dpi = 300)
 
 print(p)
 
@@ -837,9 +851,9 @@ print(p)
 
 ###i. Separate 15 and 30 glucose conc.
 ```{r}
-so_15 <- subset(sc_org,treatment=="15")
-so_30 <- subset(sc_org,treatment=="30")
-so_combined <- sc_org
+# so_15 <- subset(sc_org,treatment=="15")
+# so_30 <- subset(sc_org,treatment=="30")
+# so_combined <- sc_org
 ```
 
 ###i. Combined
@@ -2339,7 +2353,7 @@ ggplot(celltype_counts, aes(x = group, y = proportion, fill = cell_type_abbrev))
   scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
   theme_minimal() +
   labs(
-    title = "Cell Type Distribution by Treatment Group",
+    title = "Cell Type Distribution by Disease Group",
     x = "Group",
     y = "Proportion of Cells",
     fill = "Cell Type"
@@ -2352,13 +2366,30 @@ ggplot(celltype_counts, aes(x = group, y = proportion, fill = cell_type_abbrev))
     legend.position = "right"
   )
 dev.off()
+
+# --- Propeller test: T2D vs LC ---
+# propeller needs: clusters, sample, group stored in metadata
+# Make sure "group" and "record_id" are columns in so_combined metadata
+propeller_group <- propeller(
+  clusters = so_combined$cell_type_abbrev,
+  sample = so_combined$record_id,
+  group = so_combined$group,
+  transform = "logit"
+)
+
+cat("\n=== Propeller Results: T2D vs Lean Control ===\n")
+print(propeller_group)
+
+# Save results
+write.csv(propeller_group, "/home/hhampson/Results/Propeller_T2DvsLC_results.csv")
+
 ```
 
 ### ii. Analysis 
 ```{r}
 # Get cell types to analyze (you may want to exclude off-target populations)
 # celltypes <- unique(so_combined$cell_type_abbrev)
-celltypes <- unique(so_combined$cell_type_abbrev)[12:14]
+celltypes <- unique(so_combined$cell_type_abbrev)
 # Optional: filter out specific populations
 # celltypes <- celltypes[!celltypes %in% c("Neur", "DMus")]
 
@@ -2556,6 +2587,424 @@ for (cell_name in celltypes) {
 
 cat("\n=== NEBULA Analysis Complete ===\n")
 
+#Load in all the celltype results & make a nice figure
+# Initialize empty list to store results
+all_results <- list()
+celltypes <- unique(so_combined$cell_type_abbrev)
+for (cell_name in celltypes) {
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path(paste0("/home/hhampson/Results/Results?NEBULA_T2DvsLC_", cell_name_clean, 
+                                  "_unadjusted_2000.csv"))
+ # Check if file exists before reading
+  if (file.exists(input_file)) {
+    file <- read.csv(input_file)
+    file$cell_type <- cell_name  # Add cell type column
+    all_results[[cell_name]] <- file
+    cat("Loaded:", cell_name, "- Genes:", nrow(file), "\n")
+  } else {
+    cat("File not found:", input_file, "\n")
+  }
+
+  
+  # Combine all results into one dataframe
+combined_results <- bind_rows(all_results)
+
+# Count positive and negative DE genes per cell type
+# Assuming you have logFC and p_adj columns
+de_summary <- combined_results %>%
+  filter(fdr < 0.05) %>%  # Adjust column name as needed
+  mutate(direction = ifelse(logFC > 0, "Positive", "Negative")) %>%  # Adjust column name
+  group_by(cell_type, direction) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  mutate(count = ifelse(direction == "Negative", -count, count))
+
+# Create the plot
+ggplot(de_summary, aes(x = count, y = reorder(cell_type, abs(count)), fill = direction)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Negative" = "#A8C9D9", "Positive" = "#E89A9A")) +
+  geom_vline(xintercept = 0, color = "black", size = 0.5) +
+  geom_hline(yintercept = 9.5, linetype = "dotted", color = "black", size = 0.5) +
+  labs(x = "Number of DE genes", 
+       y = NULL,
+       fill = NULL) +
+  theme_minimal() +
+ theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.length.x = unit(0.2, "cm"),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  ) +
+  scale_x_continuous(breaks = c(-500,-250, 0, 250,500),
+                     labels = c(500,250, 0, 250, 500),
+                     limits = c(-600, 600))
+
+# Save the plot
+ggsave("/home/hhampson/Results/DE_genes_by_celltype_barplot.png", 
+       width = 8, height = 6, dpi = 300)
+}
+```
+
+### iii. GSEA 
+#### a. Reactome
+```{r}
+celltypes <- unique(so_combined$cell_type_abbrev)
+
+for (cell_name in celltypes) {
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path(paste0("/home/hhampson/Results/Results?NEBULA_T2DvsLC_", 
+                                  cell_name_clean, "_unadjusted_2000.csv"))
+  
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  full_results <- read.csv(input_file)
+  
+  # Create ranked gene list
+  rankings <- full_results$logFC
+  names(rankings) <- full_results$gene
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  cat("Ranked genes:", length(rankings), "| LogFC range:", 
+      round(min(rankings), 3), "to", round(max(rankings), 3), "\n")
+  
+  # Run fgsea
+  set.seed(1234)
+  reactome_res <- fgsea(pathways = reactome_sets,
+                        stats = rankings,
+                        scoreType = 'std',
+                        minSize = 3,
+                        maxSize = 500,
+                        nproc = 1,
+                        nPermSimple = 10000)
+  
+  cat("Significant pathways (padj < 0.05):", sum(reactome_res[, padj < 0.05]), "\n")
+  cat("Significant pathways (pval < 0.05):", sum(reactome_res[, pval < 0.05]), "\n")
+  
+  # Save results
+  saveRDS(reactome_res, file.path(dir.gsea, paste0(cell_name_clean, "_T2DvsLC_Reactome.rds")))
+  
+  # Plot
+  n_sig <- sum(reactome_res$pval < 0.05)
+  
+if (n_sig > 0) {
+    plot_height <- min(10, max(4, 3 + 0.3 * min(n_sig, 20)))
+    max_nes <- ceiling(max(abs(reactome_res$NES[reactome_res$pval < 0.05])) + 0.5)
+    
+    p <- plot_fgsea_transpose(reactome_res, 
+                              title = paste0(cell_name, " Top 20 REACTOME (T2D vs LC)"),
+                              xlimit = max_nes)
+    
+    ggsave(file.path(dir.gsea, paste0(cell_name_clean, "_T2DvsLC_Reactome.png")),
+           plot = p, width = 16, height = plot_height, dpi = 300)
+  } else {
+    cat("No significant pathways (pval < 0.05) for", cell_name, "\n")
+  }
+  
+  cat("Saved:", cell_name, "\n")
+}
+
+cat("\n=== GSEA Reactome Analysis Complete ===\n")
+
+```
+
+#### b. KEGG
+```{r}
+# Download KEGG GMT
+temp_file_kegg <- tempfile(fileext = ".gmt")
+s3$download_file("gsea", "gmt_files/c2.cp.kegg_legacy.v2024.1.Hs.symbols.gmt", temp_file_kegg)
+kegg_sets <- gmtPathways(temp_file_kegg)
+cat("Loaded", length(kegg_sets), "KEGG gene sets\n")
+
+# Output directory
+dir.gsea.kegg <- "/home/hhampson/Results/GSEA_T2DvsLC_KEGG"
+dir.create(dir.gsea.kegg, recursive = TRUE)
+
+celltypes <- unique(so_combined$cell_type_abbrev)
+for (cell_name in celltypes) {
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path(paste0("/home/hhampson/Results/Results?NEBULA_T2DvsLC_", 
+                                  cell_name_clean, "_unadjusted_2000.csv"))
+  
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  full_results <- read.csv(input_file)
+  
+  # Create ranked gene list
+  rankings <- full_results$logFC
+  names(rankings) <- full_results$gene
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  cat("Ranked genes:", length(rankings), "| LogFC range:", 
+      round(min(rankings), 3), "to", round(max(rankings), 3), "\n")
+  
+  # Run fgsea
+  set.seed(1234)
+  kegg_res <- fgsea(pathways = kegg_sets,
+                    stats = rankings,
+                    scoreType = 'std',
+                    minSize = 3,
+                    maxSize = 500,
+                    nproc = 1,
+                    nPermSimple = 10000)
+  
+  cat("Significant pathways (padj < 0.05):", sum(kegg_res[, padj < 0.05]), "\n")
+  cat("Significant pathways (pval < 0.05):", sum(kegg_res[, pval < 0.05]), "\n")
+  
+  # Save results
+  saveRDS(kegg_res, file.path(dir.gsea.kegg, paste0(cell_name_clean, "_T2DvsLC_KEGG.rds")))
+  
+  # Plot - function handles pval filtering internally
+  n_sig <- sum(kegg_res$pval < 0.05)
+  
+if (n_sig > 0) {
+    plot_height <- min(10, max(4, 3 + 0.3 * min(n_sig, 20)))
+    max_nes <- ceiling(max(abs(kegg_res$NES[kegg_res$pval < 0.05])) + 0.5)
+    
+    p <- plot_fgsea_transpose(kegg_res, 
+                              title = paste0(cell_name, " Top 20 KEGG (T2D vs LC)"),
+                              xlimit = max_nes)
+    
+    ggsave(file.path(dir.gsea.kegg, paste0(cell_name_clean, "_T2DvsLC_KEGG.png")),
+           plot = p, width = 16, height = plot_height, dpi = 300)
+  } else {
+    cat("No significant pathways (pval < 0.05) for", cell_name, "\n")
+  }
+  
+  cat("Saved:", cell_name, "\n")
+}
+
+cat("\n=== GSEA KEGG Analysis Complete ===\n")
+
+```
+
+#### c. GO
+```{r}
+# Download GO GMT
+temp_file_go <- tempfile(fileext = ".gmt")
+s3$download_file("gsea", "gmt_files/c5.go.v2024.1.Hs.symbols.gmt", temp_file_go)
+go_sets <- gmtPathways(temp_file_go)
+cat("Loaded", length(go_sets), "GO gene sets\n")
+
+# Output directory
+dir.gsea.go <- "/home/hhampson/Results/GSEA_T2DvsLC_GO"
+dir.create(dir.gsea.go, recursive = TRUE)
+
+celltypes <- unique(so_combined$cell_type_abbrev)
+
+for (cell_name in celltypes) {
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path(paste0("/home/hhampson/Results/Results?NEBULA_T2DvsLC_", 
+                                  cell_name_clean, "_unadjusted_2000.csv"))
+  
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  full_results <- read.csv(input_file)
+  
+  # Create ranked gene list
+  rankings <- full_results$logFC
+  names(rankings) <- full_results$gene
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  cat("Ranked genes:", length(rankings), "| LogFC range:", 
+      round(min(rankings), 3), "to", round(max(rankings), 3), "\n")
+  
+  # Run fgsea
+  set.seed(1234)
+  go_res <- fgsea(pathways = go_sets,
+                  stats = rankings,
+                  scoreType = 'std',
+                  minSize = 5,
+                  maxSize = 500,
+                  nproc = 1,
+                  nPermSimple = 10000)
+  
+  cat("Significant pathways (padj < 0.05):", sum(go_res[, padj < 0.05]), "\n")
+  cat("Significant pathways (pval < 0.05):", sum(go_res[, pval < 0.05]), "\n")
+  
+  # Save results
+  saveRDS(go_res, file.path(dir.gsea.go, paste0(cell_name_clean, "_T2DvsLC_GO.rds")))
+  
+  # Plot
+  n_sig <- sum(go_res$pval < 0.05)
+  
+if (n_sig > 0) {
+    plot_height <- min(10, max(4, 3 + 0.3 * min(n_sig, 20)))
+    
+    # Dynamic xlimit based on actual data
+    max_nes <- ceiling(max(abs(go_res$NES[go_res$pval < 0.05])) + 0.5)
+    
+    p <- plot_fgsea_transpose(go_res, 
+                              title = paste0(cell_name, " Top 20 GO (T2D vs LC)"),
+                              xlimit = max_nes)
+    
+    ggsave(file.path(dir.gsea.go, paste0(cell_name_clean, "_T2DvsLC_GO.png")),
+           plot = p, width = 16, height = plot_height, dpi = 300)
+  } else {
+    cat("No significant pathways (pval < 0.05) for", cell_name, "\n")
+  }
+  
+  cat("Saved:", cell_name, "\n")
+}
+
+cat("\n=== GSEA GO Analysis Complete ===\n")
+
+
+
+```
+
+### iv. Combine Plots
+```{r}
+library(fgsea)
+library(tidyverse)
+library(patchwork)
+library(ggrepel)
+
+# celltypes <- unique(so_combined$cell_type_abbrev)
+#Do cell types in order of most to lease degs
+celltypes <- c("Prolif","DMus","EEC","Neur","DPEC","DT","Mes","MesV","DKE","PEC_N","Strom","MusV","NsKE","ProlPod")
+
+# Open PDF - one page per cell type
+pdf("/home/hhampson/Results/T2DvsLC_Volcano_GSEA_AllCelltypes.pdf", width = 22, height = 10)
+
+for (cell_name in celltypes) {
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path(paste0("/home/hhampson/Results/Results?NEBULA_T2DvsLC_", 
+                                  cell_name_clean, "_unadjusted_2000.csv"))
+  
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  full_results <- read.csv(input_file)
+  
+  # ---- VOLCANO PLOT ----
+  full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$logFC > 0, "#990000",
+                               ifelse(full_results$fdr < 0.05 & full_results$logFC < 0, "#003366", "gray"))
+  
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Nonconvergence_Rate <- unique(full_results$nebula_nonconverged_percent)[1]
+  low_exp <- unique(full_results$low_exp)[1]
+  n_cells <- unique(full_results$Cells)[1]
+  
+  volcano_plot <- ggplot(full_results, aes(x = logFC, y = PValue10, color = color)) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title = paste0(cell_name, " - T2D vs LC"),
+      subtitle = paste0("Genes = ", Genes, " | Cells = ", n_cells, 
+                        " | Non-Conv: ", Nonconvergence_Rate),
+      x = "Log Fold Change",
+      y = "-log10(P-Value)"
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5, size = 10)
+    ) +
+    xlim(-3, 3) +
+    geom_text_repel(data = significant_df, aes(label = gene),
+                    size = 2.5, color = "black", max.overlaps = 15,
+                    box.padding = 0.3, segment.alpha = 0.5)
+  
+  # ---- GSEA (Reactome) ----
+  rankings <- full_results$logFC
+  names(rankings) <- full_results$gene
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  set.seed(1234)
+  reactome_res <- fgsea(pathways = reactome_sets,
+                        stats = rankings,
+                        scoreType = 'std',
+                        minSize = 3,
+                        maxSize = 500,
+                        nproc = 1,
+                        nPermSimple = 10000)
+  
+  # Prepare GSEA plot data
+  gsea_plot_data <- reactome_res %>%
+    filter(pval < 0.05) %>%
+    arrange(pval) %>%
+    head(20) %>%
+    mutate(
+      direction = ifelse(NES > 0, "Positive", "Negative"),
+      pathway_clean = str_remove(pathway, "^REACTOME_"),
+      pathway_clean = str_replace_all(pathway_clean, "_", " "),
+      pathway_clean = str_to_title(pathway_clean),
+      pathway_clean = str_trunc(pathway_clean, 50)
+    )
+  
+  if (nrow(gsea_plot_data) > 0) {
+    max_nes <- ceiling(max(abs(gsea_plot_data$NES)) + 0.5)
+    
+    gsea_plot <- ggplot(gsea_plot_data, aes(x = abs(NES), y = reorder(pathway_clean, abs(NES)),
+                                             fill = NES, alpha = abs(NES))) +
+      geom_col(width = 0.7) +
+      geom_text(aes(x = abs(NES) / 2, label = size),
+                color = "white", fontface = "bold", size = 3.5) +
+      scale_fill_gradient2(
+        low = "#1565C0", mid = "white", high = "#C62828", midpoint = 0,
+        name = "NES",
+        guide = guide_colorbar(barwidth = 8, barheight = 0.5)
+      ) +
+      scale_alpha_continuous(range = c(0.5, 1), guide = "none") +
+      scale_x_continuous(limits = c(0, max_nes), expand = expansion(mult = c(0, 0.02))) +
+      labs(
+        title = paste0(cell_name, " - Top 20 Reactome (p < 0.05)"),
+        x = "NES",
+        y = NULL
+      ) +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.text.y = element_text(size = 9),
+        axis.text.x = element_text(size = 11),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "top"
+      )
+    
+    # Combine side by side
+    combined <- volcano_plot + gsea_plot + plot_layout(widths = c(1, 1.3))
+    print(combined)
+    
+  } else {
+    # No significant GSEA - just print volcano with a note
+    gsea_plot <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, label = "No significant Reactome\npathways (p < 0.05)",
+               size = 6, hjust = 0.5) +
+      theme_void() +
+      labs(title = paste0(cell_name, " - Reactome")) +
+      theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+    
+    combined <- volcano_plot + gsea_plot + plot_layout(widths = c(1, 1.3))
+    print(combined)
+  }
+  
+  cat("Printed page for:", cell_name, "\n")
+}
+
+dev.off()
+cat("\n=== PDF Complete ===\n")
 
 ```
 
@@ -2868,6 +3317,115 @@ nebula_results_list <- foreach(g = genes_list,
 
 cat("\n=== NEBULA Analysis Complete ===\n")
 
+#Load in all the celltype results & make a nice figure for interaction term
+# Initialize empty list to store results
+all_results_interaction <- list()
+celltypes <- unique(so_combined$cell_type_abbrev)
+
+for (cell_name in celltypes) {
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path("/home/hhampson/Results", 
+                          paste0("NEBULA_T2DvsLC_interaction_", cell_name_clean, 
+                                 "_unadjusted_2000.csv"))
+  
+  # Check if file exists before reading
+  if (file.exists(input_file)) {
+    file <- read.csv(input_file)
+    file$cell_type <- cell_name  # Add cell type column
+    all_results_interaction[[cell_name]] <- file
+    cat("Loaded:", cell_name, "- Genes:", nrow(file), "\n")
+  } else {
+    cat("File not found:", input_file, "\n")
+  }
+}
+
+# Combine all results into one dataframe
+combined_results_interaction <- bind_rows(all_results_interaction)
+
+# Count positive and negative DE genes per cell type for INTERACTION term
+de_summary_interaction <- combined_results_interaction %>%
+  filter(`fdr_groupType 2 Diabetes:treatment30` < 0.05) %>%
+  mutate(direction = ifelse(`logFC_groupType 2 Diabetes:treatment30` > 0, "Positive", "Negative")) %>%
+  group_by(cell_type, direction) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  mutate(count = ifelse(direction == "Negative", -count, count))
+
+# Create the plot for interaction term
+p_interaction <- ggplot(de_summary_interaction, aes(x = count, y = reorder(cell_type, abs(count)), fill = direction)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Negative" = "#A8C9D9", "Positive" = "#E89A9A")) +
+  geom_vline(xintercept = 0, color = "black", size = 0.5) +
+  geom_hline(yintercept = 9.5, linetype = "dotted", color = "black", size = 0.5) +
+  labs(x = "Number of DE genes (Interaction: T2D x Treatment)", 
+       y = NULL,
+       fill = NULL) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.length.x = unit(0.2, "cm"),
+    axis.line.x = element_line(color = "black"),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  ) +
+  scale_x_continuous(breaks = c(-500, -250, 0, 250, 500),
+                     labels = c(500, 250, 0, 250, 500),
+                     limits = c(-600, 600))
+
+# Save the interaction plot
+ggsave("/home/hhampson/Results/DE_genes_by_celltype_interaction_barplot.png", 
+       plot = p_interaction,
+       width = 8, height = 6, dpi = 300)
+
+# Count positive and negative DE genes per cell type for TREATMENT30 main effect
+de_summary_treatment <- combined_results_interaction %>%
+  filter(fdr_treatment30 < 0.05) %>%
+  mutate(direction = ifelse(logFC_treatment30 > 0, "Positive", "Negative")) %>%
+  group_by(cell_type, direction) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  mutate(count = ifelse(direction == "Negative", -count, count))
+
+# Create the plot for treatment30 main effect
+p_treatment <- ggplot(de_summary_treatment, aes(x = count, y = reorder(cell_type, abs(count)), fill = direction)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Negative" = "#A8C9D9", "Positive" = "#E89A9A")) +
+  geom_vline(xintercept = 0, color = "black", size = 0.5) +
+  geom_hline(yintercept = 9.5, linetype = "dotted", color = "black", size = 0.5) +
+  labs(x = "Number of DE genes (Treatment: 30mM vs 15mM)", 
+       y = NULL,
+       fill = NULL) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.length.x = unit(0.2, "cm"),
+    axis.line.x = element_line(color = "black"),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  ) +
+  scale_x_continuous(breaks = c(-500, -250, 0, 250, 500),
+                     labels = c(500, 250, 0, 250, 500),
+                     limits = c(-600, 600))
+
+# Save the treatment plot
+ggsave("/home/hhampson/Results/DE_genes_by_celltype_treatment30_barplot.png", 
+       plot = p_treatment,
+       width = 8, height = 6, dpi = 300)
+
+# Print summaries
+cat("\n=== Interaction Term Summary ===\n")
+print(de_summary_interaction %>% arrange(desc(abs(count))))
+
+cat("\n=== Treatment30 Main Effect Summary ===\n")
+print(de_summary_treatment %>% arrange(desc(abs(count))))
 ```
 
 ## c. Perform differential expression between 15 & 30 glucose conc. treatment  in organoid samples (pooled by diabetes group)
@@ -3131,6 +3689,201 @@ cat("\n=== NEBULA Analysis Complete ===\n")
 
 ```
 
+### iv. Combine Plots
+```{r}
+#Load in all the celltype results & make a nice figure
+# Initialize empty list to store results
+all_results <- list()
+celltypes <- unique(so_combined$cell_type_abbrev)
+for (cell_name in celltypes) {
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path(paste0("/home/hhampson/Results/NEBULA_30mMvs15mM_", cell_name_clean, 
+                                  "_unadjusted_2000.csv"))
+ # Check if file exists before reading
+  if (file.exists(input_file)) {
+    file <- read.csv(input_file)
+    file$cell_type <- cell_name  # Add cell type column
+    all_results[[cell_name]] <- file
+    cat("Loaded:", cell_name, "- Genes:", nrow(file), "\n")
+  } else {
+    cat("File not found:", input_file, "\n")
+  }
+
+  
+  # Combine all results into one dataframe
+combined_results <- bind_rows(all_results)
+
+# Count positive and negative DE genes per cell type
+# Assuming you have logFC and p_adj columns
+de_summary <- combined_results %>%
+  filter(fdr < 0.05) %>%  # Adjust column name as needed
+  mutate(direction = ifelse(logFC > 0, "Positive", "Negative")) %>%  # Adjust column name
+  group_by(cell_type, direction) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  mutate(count = ifelse(direction == "Negative", -count, count))
+
+# Create the plot
+ggplot(de_summary, aes(x = count, y = reorder(cell_type, abs(count)), fill = direction)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Negative" = "#A8C9D9", "Positive" = "#E89A9A")) +
+  geom_vline(xintercept = 0, color = "black", size = 0.5) +
+  geom_hline(yintercept = 11.5, linetype = "dotted", color = "black", size = 0.5) +
+  labs(x = "Number of DE genes", 
+       y = NULL,
+       fill = NULL) +
+  theme_minimal() +
+ theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.length.x = unit(0.2, "cm"),
+    legend.position = "top",
+    legend.text = element_text(size = 12)
+  ) +
+  scale_x_continuous(breaks = c(-500,-250, 0, 250,500),
+                     labels = c(500,250, 0, 250, 500),
+                     limits = c(-800, 800))
+
+# Save the plot
+ggsave("/home/hhampson/Results/DE_genes_by_celltype_barplot_treatment.png", 
+       width = 8, height = 6, dpi = 300)
+}
+
+# celltypes <- unique(so_combined$cell_type_abbrev)
+#Do cell types in order of most to lease degs
+celltypes <- c("Neur","Strom","EEC","DPEC","MesV","Prolif","DKE","Mees","DMus","PEC_N","DT","ProlPod","NsKE","MusV")
+
+# Open PDF - one page per cell type
+pdf("/home/hhampson/Results/30vs15_Volcano_GSEA_AllCelltypes.pdf", width = 22, height = 10)
+
+for (cell_name in celltypes) {
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path(paste0("/home/hhampson/Results/NEBULA_30mMvs15mM_", 
+                                  cell_name_clean, "_unadjusted_2000.csv"))
+  
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  full_results <- read.csv(input_file)
+  
+  # ---- VOLCANO PLOT ----
+  full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$logFC > 0, "#990000",
+                               ifelse(full_results$fdr < 0.05 & full_results$logFC < 0, "#003366", "gray"))
+  
+  significant_df <- full_results[full_results$fdr < 0.05, ]
+  
+  Genes <- length(unique(full_results$gene))
+  Nonconvergence_Rate <- unique(full_results$nebula_nonconverged_percent)[1]
+  low_exp <- unique(full_results$low_exp)[1]
+  n_cells <- unique(full_results$Cells)[1]
+  
+  volcano_plot <- ggplot(full_results, aes(x = logFC, y = PValue10, color = color)) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title = paste0(cell_name, " - 30mM vs 15mM"),
+      subtitle = paste0("Genes = ", Genes, " | Cells = ", n_cells, 
+                        " | Non-Conv: ", Nonconvergence_Rate),
+      x = "Log Fold Change",
+      y = "-log10(P-Value)"
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5, size = 10)
+    ) +
+    xlim(-2, 2) +
+    geom_text_repel(data = significant_df, aes(label = gene),
+                    size = 2.5, color = "black", max.overlaps = 15,
+                    box.padding = 0.3, segment.alpha = 0.5)
+  
+  # ---- GSEA (Reactome) ----
+  rankings <- full_results$logFC
+  names(rankings) <- full_results$gene
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  set.seed(1234)
+  reactome_res <- fgsea(pathways = reactome_sets,
+                        stats = rankings,
+                        scoreType = 'std',
+                        minSize = 3,
+                        maxSize = 500,
+                        nproc = 1,
+                        nPermSimple = 10000)
+  
+  # Prepare GSEA plot data
+  gsea_plot_data <- reactome_res %>%
+    filter(pval < 0.05) %>%
+    arrange(pval) %>%
+    head(20) %>%
+    mutate(
+      direction = ifelse(NES > 0, "Positive", "Negative"),
+      pathway_clean = str_remove(pathway, "^REACTOME_"),
+      pathway_clean = str_replace_all(pathway_clean, "_", " "),
+      pathway_clean = str_to_title(pathway_clean),
+      pathway_clean = str_trunc(pathway_clean, 50)
+    )
+  
+  if (nrow(gsea_plot_data) > 0) {
+    max_nes <- ceiling(max(abs(gsea_plot_data$NES)) + 0.5)
+    
+    gsea_plot <- ggplot(gsea_plot_data, aes(x = abs(NES), y = reorder(pathway_clean, abs(NES)),
+                                             fill = NES, alpha = abs(NES))) +
+      geom_col(width = 0.7) +
+      geom_text(aes(x = abs(NES) / 2, label = size),
+                color = "white", fontface = "bold", size = 3.5) +
+      scale_fill_gradient2(
+        low = "#1565C0", mid = "white", high = "#C62828", midpoint = 0,
+        name = "NES",
+        guide = guide_colorbar(barwidth = 8, barheight = 0.5)
+      ) +
+      scale_alpha_continuous(range = c(0.5, 1), guide = "none") +
+      scale_x_continuous(limits = c(0, max_nes), expand = expansion(mult = c(0, 0.02))) +
+      labs(
+        title = paste0(cell_name, " - Top 20 Reactome (p < 0.05)"),
+        x = "NES",
+        y = NULL
+      ) +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.text.y = element_text(size = 9),
+        axis.text.x = element_text(size = 11),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "top"
+      )
+    
+    # Combine side by side
+    combined <- volcano_plot + gsea_plot + plot_layout(widths = c(1, 1.3))
+    print(combined)
+    
+  } else {
+    # No significant GSEA - just print volcano with a note
+    gsea_plot <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, label = "No significant Reactome\npathways (p < 0.05)",
+               size = 6, hjust = 0.5) +
+      theme_void() +
+      labs(title = paste0(cell_name, " - Reactome")) +
+      theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+    
+    combined <- volcano_plot + gsea_plot + plot_layout(widths = c(1, 1.3))
+    print(combined)
+  }
+  
+  cat("Printed page for:", cell_name, "\n")
+}
+
+dev.off()
+cat("\n=== PDF Complete ===\n")
+
+```
 
 #4. Biopsy Analysis
 ## a. Perform differential expression between T2D & LC in Biopsy samples
