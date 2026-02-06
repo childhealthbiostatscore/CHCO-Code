@@ -189,7 +189,6 @@ def clean_ultra():
     # mri["visit"] = mri["redcap_repeat_instance"]
     # mri["visit"] = mri["visit"].replace({0: "screening", "": "screening", 1: "baseline", "1": "baseline",2: "3_motnhs", "2": "3_months", 3: "6_months", "3": "6_months", 4:"12_months", "4": "12_months"})
 
-    
     # --------------------------------------------------------------------------
     # Missingness
     # --------------------------------------------------------------------------
@@ -199,7 +198,7 @@ def clean_ultra():
     phys.dropna(thresh=3, axis=0, inplace=True)
     screen.dropna(thresh=3, axis=0, inplace=True)
     demo.dropna(thresh=3, axis=0, inplace=True)
-    
+    mri.dropna(thresh=4, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge
