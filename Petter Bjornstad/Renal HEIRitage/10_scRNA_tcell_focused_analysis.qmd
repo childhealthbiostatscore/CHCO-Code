@@ -1,0 +1,515 @@
+---
+title: "10_scRNA T Cell focused analysis"
+author: "Ye Ji Choi"
+format: html
+---
+
+```{r}
+library(dplyr)
+library(aws.s3)
+library(jsonlite)
+library(ggplot2)
+library(ggforce)
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+library(msigdbr)
+library(ggpubr)
+```
+
+```{r}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") { # local version
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json")
+} else if (user == "rameshsh") { # hyak version
+  root_path <- ""
+  git_path <- "/mmfs1/gscratch/togo/rameshsh/CHCO-Code/Petter Bjornstad"
+} else if (user == "yejichoi") { # hyak version
+  root_path <- "/mmfs1/gscratch/togo/yejichoi/"
+  git_path <- "/mmfs1/gscratch/togo/yejichoi/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/yejichoi/keys.json")
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad"
+  keys <- fromJSON("/mmfs1/home/pylell/keys.json")
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_functions.R"))
+source(file.path(git_path, "Renal HEIRitage/RH_RH2_IMPROVE_scRNA_functions.R"))
+
+entrez_map <- AnnotationDbi::select(
+ org.Hs.eg.db,
+ keys   = keys(org.Hs.eg.db, keytype = "ENTREZID"),
+ columns = c("SYMBOL", "GENENAME", "ALIAS"),
+ keytype = "ENTREZID"
+)
+
+
+s3write_using_region <- function(FUN, ..., object, bucket, region = NULL, opts = NULL, filename = NULL) {
+  if (missing(bucket)) {
+    bucket <- get_bucketname(object)
+  }
+  object <- get_objectkey(object)
+  
+  tmp <- if (is.character(filename)) {
+    file.path(tempdir(TRUE), filename)
+  } else {
+    # if object has an extension, keep it; otherwise make a generic tmp
+    ext <- tools::file_ext(object)
+    if (nzchar(ext)) tempfile(fileext = paste0(".", ext)) else tempfile()
+  }
+  
+  on.exit(unlink(tmp), add = TRUE)
+  
+  # Add region to opts if provided
+  if (!is.null(region)) {
+    if (is.null(opts)) {
+      opts <- list(region = region)
+    } else {
+      opts$region <- region
+    }
+  }
+  
+  FUN(tmp, ...)
+  
+  if (is.null(opts)) {
+    r <- put_object(file = tmp, bucket = bucket, object = object)
+  } else {
+    r <- do.call("put_object", c(list(file = tmp, bucket = bucket, object = object), opts))
+  }
+  
+  return(invisible(r))
+}
+
+immune_so <- s3readRDS("data_clean/subset/pb90_ckd_analysis/pb90_ckd_analysis_subset_Immune.rds", "scrna", region = "")
+tcell_so <- subset(immune_so, KPMP_celltype %in% c("CD4+ T", "CD8+ T", "cycT"))
+```
+
+```{r}
+# Pull in nebula results
+folders <- c(
+  # Category A: Disease Signatures (vs. HC)
+  "nonDKD_30_GLP_N_vs_HC" = "nondkd30_glpn_hc", # Category A: Disease signature - diabetes/metabolic without DKD
+  "DKD_30_GLP_N_vs_HC" = "dkd30_glpn_hc", # Category A: Disease signature - early DKD
+  # "DKD_100_GLP_N_vs_HC" = "dkd100_glpn_hc", # Category A: Disease signature - advanced DKD
+  "DKD_30_vs_HC" = "dkd30_hc", # Category A: Disease signature - early DKD (alternative to comparison 2)
+  # "DKD_100_vs_HC" = "dkd100_hc", # Category A: Disease signature - advanced DKD (alternative to comparison 3)
+  "T2D_GLP_N_vs_HC" = "t2d_glpn_hc", # Category A: Disease signature - all T2D patients not on GLP-1RA
+  
+  # Category B: Treatment Effects (GLP+ vs. GLP-)
+  "GLP_Y_vs_GLP_N" = "glpy_glpn", # Category B: Overall GLP-1RA treatment effect
+  "nonDKD_30_GLP_Y_vs_nonDKD_30_GLP_N" = "nondkd_30_glpy_glpn", # Category B: GLP-1RA effect in patients WITHOUT DKD
+  "DKD_30_GLP_Y_vs_DKD_30_GLP_N" = "dkd_30_glpy_glpn", # Category B: GLP-1RA effect in patients WITH early DKD
+  # "DKD_100_GLP_Y_vs_DKD_100_GLP_N" = "dkd_100_glpy_glpn", # Category B: GLP-1RA effect in patients WITH advanced DKD
+  "T2D_GLP_Y_vs_T2D_GLP_N" = "t2d_glpyn", # Category B: GLP-1RA effect in all T2D patients (similar to comparison 7)
+
+  # Category C: Normalization Assessment (GLP+ vs. HC)
+  "nonDKD_30_GLP_Y_vs_HC" = "nondkd30_glpy_hc", # Category C: Normalization - GLP+ without DKD vs. HC
+  "DKD_30_GLP_Y_vs_HC" = "dkd30_glpy_hc", # Category C: Normalization - GLP+ with early DKD vs. HC
+  # "DKD_100_GLP_Y_vs_HC" = "dkd100_glpy_hc", # Category C: Normalization - GLP+ with advanced DKD vs. HC
+  
+  # Category D: DKD Progression (within T2D/obesity)
+  "DKD_vs_nonDKD_30" = "dkd30" # Category D: DKD effect within T2D/obesity (GLP-1RA agnostic)
+  # "DKD_vs_nonDKD_100" = "dkd100" # Category D: Advanced DKD effect within T2D/obesity
+)
+
+# Define common parameters
+celltype_groups <- list(
+  # Immune = c("MAC", "MON", "cDC", "pDC", "CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  # Immune_Myeloid = c("MAC", "MON", "cDC", "pDC"),
+  # Immune_Lymphoid = c("CD4+ T", "CD8+ T", "B", "NK", "cycT"),
+  T_cells <- c("CD4+ T", "CD8+ T", "cycT")
+)
+
+
+# Create dataframe with comparison information
+comparison_df <- data.frame(
+  run = c(
+    # Category A: Disease Signatures (vs. HC)
+    "nonDKD_30_GLP_N_vs_HC",
+    "DKD_30_GLP_N_vs_HC",
+    "DKD_30_vs_HC",
+    "T2D_GLP_N_vs_HC",
+    
+    # Category B: Treatment Effects (GLP+ vs. GLP-)
+    "GLP_Y_vs_GLP_N",
+    "nonDKD_30_GLP_Y_vs_nonDKD_30_GLP_N",
+    "DKD_30_GLP_Y_vs_DKD_30_GLP_N",
+    "T2D_GLP_Y_vs_T2D_GLP_N",
+    
+    # Category C: Normalization Assessment (GLP+ vs. HC)
+    "nonDKD_30_GLP_Y_vs_HC",
+    "DKD_30_GLP_Y_vs_HC",
+    
+    # Category D: DKD Progression (within T2D/obesity)
+    "DKD_vs_nonDKD_30"
+  ),
+  
+  category = c(
+    # Category A
+    "A", "A", "A", "A",
+    # Category B
+    "B", "B", "B", "B",
+    # Category C
+    "C", "C",
+    # Category D
+    "D"
+  ),
+  
+  description = c(
+    # Category A
+    "Disease Signatures (vs. HC)",
+    "Disease Signatures (vs. HC)",
+    "Disease Signatures (vs. HC)",
+    "Disease Signatures (vs. HC)",
+    
+    # Category B
+    "Treatment Effects (GLP+ vs. GLP-)",
+    "Treatment Effects (GLP+ vs. GLP-)",
+    "Treatment Effects (GLP+ vs. GLP-)",
+    "Treatment Effects (GLP+ vs. GLP-)",
+    
+    # Category C
+    "Normalization Assessment (GLP+ vs. HC)",
+    "Normalization Assessment (GLP+ vs. HC)",
+    
+    # Category D
+    "DKD Progression (within T2D/obesity)"
+  ),
+  
+  folder_name = c(
+    # Category A
+    "nondkd30_glpn_hc",
+    "dkd30_glpn_hc",
+    "dkd30_hc",
+    "t2d_glpn_hc",
+    
+    # Category B
+    "glpy_glpn",
+    "nondkd_30_glpy_glpn",
+    "dkd_30_glpy_glpn",
+    "t2d_glpyn",
+    
+    # Category C
+    "nondkd30_glpy_hc",
+    "dkd30_glpy_hc",
+    
+    # Category D
+    "dkd30"
+  ),
+  
+  stringsAsFactors = FALSE
+)
+```
+
+```{r eval = F}
+# load all the necessary files (processed df and pathways)
+gsea_results <- list()
+for (folder in names(folders)) {
+  for (cell in names(celltype_groups)) {
+    
+    var_name <- paste0(tolower(cell), "_", folders[folder])
+    var_name <- gsub("/", "_", var_name)
+    
+    processed_path <- file.path(
+      root_path,
+      paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")
+    )
+    
+    if (!file.exists(processed_path)) {
+      message("Processed DF not found, skipping: ", var_name)
+      next
+    }
+    
+    processed_df <- read.csv(processed_path)
+    assign(var_name, processed_df, envir = .GlobalEnv)
+    
+    file_path <- file.path(root_path, paste0("Renal HERITAGE/Results/GSEA/hallmark_", folders[[folder]], "_", tolower(gsub("/", "_", cell)), "_gsea.RDS"))
+    
+    # Check if file exists and read it
+    if (file.exists(file_path)) {
+      # Create a unique name for this combination
+      result_name <- paste0(folders[[folder]], "_", tolower(gsub("/", "_", cell)))
+      
+      # Read the RDS file
+      gsea_results[[result_name]] <- readRDS(file_path)
+    } else {
+      message(paste0("File not found: ", file_path))
+    }
+  }
+}
+```
+
+```{r eval = F}
+gene_search <- data.frame()
+for (folder in names(folders)) {
+  for (cell in names(celltype_groups)) {
+    
+    var_name <- paste0(tolower(cell), "_", folders[folder])
+    var_name <- gsub("/", "_", var_name)
+    
+    processed_path <- file.path(
+      root_path,
+      paste0("Renal HERITAGE/Results/nebula/csv/full/", var_name, "_kpmp.csv")
+    )
+    
+    if (!file.exists(processed_path)) {
+      message("Processed DF not found, skipping: ", var_name)
+      next
+    }
+    
+    processed_df <- read.csv(processed_path)
+    
+    processed_df_subset <- processed_df %>%
+      dplyr::select(logFC = 2, pval = 6, 10, 9) %>%
+      mutate(cell = cell, run = folder) %>%
+      left_join(comparison_df, by = join_by(run))
+    
+    gene_search <- rbind(gene_search, processed_df_subset)
+      
+  }
+}
+
+gene_search <- gene_search %>%
+  arrange(Gene, cell)
+
+# write.csv(gene_search, file.path(root_path, "Renal HERITAGE/Results/Summary csv/tcell_findings.csv"), row.names = F, na =)
+```
+
+# Module scores
+
+```{r}
+treg_markers <- c(
+  # Core identity
+  "FOXP3",      # Master regulator - MOST IMPORTANT (but often low in scRNA-seq)
+  "IL2RA",      # CD25 - high expression is hallmark of Tregs
+  "CTLA4",      # Key suppressive molecule
+  "IL7R",
+  "CD25",
+  "CD127",
+  # Secondary markers (you have some of these)
+  "IKZF2",      # Helios - stability marker
+  "TGFB1",      # Suppressive cytokine
+  "TIGIT",      # Inhibitory receptor
+  
+  # Additional to check:
+  "TNFRSF18",   # GITR - often expressed
+  "TNFRSF4",    # OX40 (CD134)
+  "LAG3",       # CD223 - inhibitory
+  "ENTPD1",     # CD39 - ectonucleotidase
+  "NT5E",       # CD73 - works with CD39
+  "IL10",       # Suppressive cytokine
+  "ICOS",       # Costimulatory - activated Tregs
+  "TNFRSF9",    # CD137 (4-1BB)
+  "BATF",       # Transcription factor
+  "IRF4",       # Transcription factor
+  "STAT5A",     # IL-2 signaling
+  "STAT5B"      # IL-2 signaling
+)
+memory_markers <- c(
+	"CD44", 
+	"CD45RO" = "PTPRC", 
+	"IL2RB"
+)
+naive_markers <- c(
+  "CCR7",       # Lymph node homing
+  "SELL",       # CD62L - L-selectin
+  "TCF7",       # TCF1 - maintains stemness
+  "LEF1",       # LEF1 - maintains stemness
+  "IL7R"        # CD127 - survival factor receptor
+)
+activation_markers <- c(
+  "CD69",       # Early activation / tissue retention
+  "CD38",       # Activation / metabolic
+  "HLA-DRA",    # Antigen presentation (CD4+)
+  "ICOS",       # Costimulation
+  "CD25" = "IL2RA",  # IL-2 receptor
+  "TNFRSF4",    # OX40
+  "TNFRSF9",    # 4-1BB
+  "CD40LG"      # CD40L
+)
+core_exhaustion_markers <- c(
+  "PDCD1",      # PD-1 (CD279) - most well-known exhaustion marker
+  "LAG3",       # LAG-3 (CD223) - binds MHC-II, inhibitory
+  "HAVCR2",     # TIM-3 (CD366) - inhibitory receptor
+  "TIGIT",      # TIGIT - inhibitory receptor, competes with CD226
+  "CTLA4",      # CTLA-4 (CD152) - inhibitory checkpoint (also on Tregs!)
+  "TOX", 
+  "TOX2"
+)
+proinflammatory_cytokines <- c(
+  # Th1 cytokines
+  "IFNG",       # IFN-gamma - Th1 signature, antiviral, macrophage activation
+  "TNF",        # TNF-alpha - pro-inflammatory, cell death
+  "IL2",        # IL-2 - T-cell growth factor
+  "LTA",        # Lymphotoxin-alpha (TNF-beta)
+  "LTB",        # Lymphotoxin-beta
+  
+  # Inflammatory interleukins
+  "IL1A",       # IL-1 alpha
+  "IL1B",       # IL-1 beta - pyrogenic, inflammation
+  "IL6",        # IL-6 - acute phase response, B-cell activation
+  "IL12A",      # IL-12 p35 subunit
+  "IL12B",      # IL-12 p40 subunit (shared with IL-23)
+  "IL15",       # IL-15 - T and NK cell survival
+  "IL18",       # IL-18 - induces IFN-gamma
+  
+  # Th17 cytokines (pro-inflammatory, profibrotic)
+  "IL17A",      # IL-17A - neutrophil recruitment, inflammation
+  "IL17F",      # IL-17F - similar to IL-17A
+  "IL21",       # IL-21 - B-cell and T-cell activation
+  "IL22",       # IL-22 - epithelial cell activation
+  "IL23A",      # IL-23 p19 subunit
+  
+  # Other inflammatory
+  "IL26",       # IL-26 - Th17-associated
+  "CSF2"        # GM-CSF - granulocyte-macrophage colony-stimulating factor
+)
+antiinflammatory_cytokines <- c(
+  "IL10",       # IL-10 - immunosuppressive, Treg signature
+  "TGFB1",      # TGF-beta 1 - immunosuppressive, profibrotic
+  "TGFB2",      # TGF-beta 2
+  "TGFB3",      # TGF-beta 3
+  "IL35" = "EBI3",  # IL-35 (EBI3 subunit) - Treg-secreted
+  "IL27",       # IL-27 - anti-inflammatory
+  "IL1RN"       # IL-1 receptor antagonist - blocks IL-1
+)
+
+markers_list <- list(treg_markers,
+                     memory_markers,
+                     naive_markers,
+                     activation_markers,
+                     core_exhaustion_markers,
+                     proinflammatory_cytokines,
+                     antiinflammatory_cytokines)
+
+```
+
+```{r}
+# Memory signature
+tcell_so <- AddModuleScore(
+  tcell_so,
+  features = list(memory_markers),
+  name = "Memory_signature"
+)
+
+# Naive signature
+tcell_so <- AddModuleScore(
+  tcell_so,
+  features = list(naive_markers),
+  name = "Naive_signature"
+)
+
+FeaturePlot(tcell_so, 
+            features = c("Memory_signature1", "Naive_signature1"), 
+            ncol = 2,
+            cols = c("lightgrey", "red"))
+
+# Violin plots by cluster
+VlnPlot(tcell_so, 
+        features = c("Memory_signature1", "Naive_signature1"),
+        group.by = "seurat_clusters",
+        ncol = 2,
+        pt.size = 0)
+
+scatter_data <- data.frame(
+  Memory = tcell_so$Memory_signature1,
+  Naive = tcell_so$Naive_signature1,
+  Cluster = tcell_so$seurat_clusters,
+  Treatment = tcell_so$glp_t2dob  # if you have treatment groups
+)
+
+ggplot(scatter_data, aes(x = Naive, y = Memory, color = Treatment)) +
+  geom_point(alpha = 0.3, size = 1) +
+  theme_classic() +
+  labs(title = "Memory vs Naive Signature Scores",
+       x = "Naive Signature Score",
+       y = "Memory Signature Score") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50")
+
+summary(tcell_so$Memory_signature1)
+summary(tcell_so$Naive_signature1)
+
+# Classify cells
+tcell_so$memory_naive_final <- case_when(
+  # Naive: right side of plot, memory low
+  tcell_so$Naive_signature1 > 0 & tcell_so$Memory_signature1 < 0 ~ "Naive",
+  
+  # Memory: top of plot, naive low
+  tcell_so$Memory_signature1 > 0 & tcell_so$Naive_signature1 < 0 ~ "Memory",
+  
+  # Effector-like: bottom-left quadrant
+  tcell_so$Memory_signature1 < 0 & tcell_so$Naive_signature1 < 0 ~ "Effector-like",
+  
+  # True intermediate: both positive (rare)
+  tcell_so$Memory_signature1 > 0 & tcell_so$Naive_signature1 > 0 ~ "Intermediate"
+)
+
+# Check distribution
+table(tcell_so$memory_naive_final) 
+# Effector-like  Intermediate        Memory         Naive 
+#           210          1071           987           229 
+# too many intermediate
+```
+
+```{r}
+# Where are intermediate cells in score space?
+ggplot(tcell_so@meta.data, 
+       aes(x = Naive_signature1, y = Memory_signature1, color = memory_naive_v2)) +
+  geom_point(alpha = 0.5, size = 0.8) +
+  theme_classic() +
+  geom_hline(yintercept = c(-0.1, 0.1), linetype = "dashed") +
+  geom_vline(xintercept = c(-0.1, 0.1), linetype = "dashed") +
+  labs(title = "Score Distribution by Classification")
+
+# Which clusters are intermediate?
+table(tcell_so$seurat_clusters, tcell_so$memory_naive_v2)
+
+# Show as proportions
+prop.table(table(tcell_so$seurat_clusters, tcell_so$memory_naive_v2), 
+           margin = 1) %>%
+  round(2)
+
+
+# Calculate dominant phenotype per cluster
+cluster_props <- prop.table(
+  table(tcell_so$seurat_clusters, tcell_so$memory_naive_final),
+  margin = 1
+)
+
+# Show heatmap
+library(pheatmap)
+pheatmap(cluster_props,
+         cluster_rows = FALSE,
+         cluster_cols = FALSE,
+         display_numbers = TRUE,
+         number_format = "%.2f",
+         main = "Cluster Composition: Memory/Naive",
+         fontsize_number = 8)
+
+# Assign each cluster to dominant phenotype
+# (only if >50% of cells in cluster have that phenotype)
+cluster_assignment <- apply(cluster_props, 1, function(x) {
+  max_prop <- max(x, na.rm = T)
+  if(max_prop > 0.5) {
+    return(names(which.max(x)))
+  } else {
+    return("Mixed")
+  }
+})
+
+print(cluster_assignment)
+
+# Add to metadata
+tcell_so$cluster_memory_naive <- cluster_assignment[as.character(tcell_so$seurat_clusters)]
+
+# Check results
+table(tcell_so$cluster_memory_naive)
+DimPlot(tcell_so, group.by = "cluster_memory_naive", label = TRUE)
+```
+
