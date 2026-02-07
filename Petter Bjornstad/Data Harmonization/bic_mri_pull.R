@@ -173,6 +173,7 @@ bic_folders_clean <- bic_folders %>%
 write.csv(bic_folders_clean, file.path(root_path, "Data Harmonization/Data Clean/MRI/bic_folders_list.csv"), row.names = F)
 
 # pull in data from harmonized dataset
+bic_folders_clean <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/MRI/bic_folders_list.csv"))
 harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/harmonized_dataset.csv"), na = "")
 
 mri_dat <- harm_dat %>%
@@ -212,7 +213,7 @@ panda_uw_mri_ids <- harm_dat %>%
   pull(record_id)
 
 panther_manual_ids <- c("PAN_202_T",
-                        "PAN_203_O",
+                        "PAN_203_O", # for 1 year follow up
                         "PAN_204_T",
                         "PAN_205_O",
                         "PAN_207_O",
@@ -220,13 +221,15 @@ panther_manual_ids <- c("PAN_202_T",
                         "PAN_209_O",
                         "PAN_210_O",
                         "PAN_211_O",
-                        "PAN_208_O" # for year 1 follow up
+                        "PAN_208_O"
                         )
 
 mri_dat_combined <- full_join(mri_dat, bic_folders_clean, 
                               by = join_by(record_number, study, visit_id)) %>%
   filter(!(study == "PANDA" & visit != "baseline")) %>%
-  mutate(data_in_bic = case_when(record_id %in% panther_manual_ids & visit == "baseline" ~ TRUE,
+  mutate(data_in_bic = case_when(record_id == "PAN_203_O" & visit == "baseline" ~ FALSE,
+                                 record_id == "PAN_203_O" & visit == "year_1" ~ TRUE,
+                                 record_id %in% panther_manual_ids & visit == "baseline" ~ TRUE,
                                  record_id %in% panda_uw_mri_ids ~ TRUE,
                                  is.na(bic_id) ~ FALSE, 
                                  bic_id == "IT2D_14" ~ FALSE, # comment in REDCap - pt unable to be scanned
