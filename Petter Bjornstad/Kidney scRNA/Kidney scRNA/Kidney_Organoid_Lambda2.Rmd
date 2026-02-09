@@ -257,13 +257,15 @@ genes_all <- nrow(so_kpmp_sc) # 31332 genes before processing
 print(paste0(cells_all," cells and ",genes_all," genes before processing in PB90"))
 
 #Set ids for organoid samples
-ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
+# ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
+ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T") #Remove IT 19, this organoid didnt work
 
 #Filter to organoid samples only
 so_kpmp_sc <- subset(so_kpmp_sc,record_id %in% ids)
 cells_org <-  ncol(so_kpmp_sc) #14348 cells before processing
 genes_org <- nrow(so_kpmp_sc) #31332 genes before processing
-print(paste0(cells_org," cells and ",genes_org," genes after filtering to 7 participants with organoid data"))
+print(paste0(cells_org," cells and ",genes_org," genes after filtering to 6 participants with organoid data"))
+#"11386 cells and 31332 genes after filtering to 6 participants with organoid data"
 
 #Format meta data
 harm_meta_data <- harm_meta_data %>%   
@@ -296,7 +298,8 @@ rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
 so_kpmp_sc <- AddMetaData(so_kpmp_sc, meta_kidney_sc)
 
 #Check number of unique ids
-length(unique(so_kpmp_sc$kit_id)) #should be 7, "KL-0014631" "KL-0014639" "KL-0014642" "KL-0019100" "KL-0019103" "KL-0022163" "KL-0027475"
+length(unique(so_kpmp_sc$kit_id)) #should be 6, "KL-0014631" "KL-0014639" "KL-0014642" "KL-0019100" "KL-0019103" "KL-0022163" "KL-0027475"
+#"KL-0014631" "KL-0014639" "KL-0014642" "KL-0019100" "KL-0019103" "KL-0022163" now, removed IT 19
 
 #Remove metadatasets
 rm(meta_kidney_sc,meta)
@@ -338,15 +341,15 @@ remove(expr_matrix)
 # Keep genes expressed in at least "5%" of cells
 genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
 so_kpmp_sc <- subset(so_kpmp_sc, features = genes_to_keep)
-ncol(so_kpmp_sc) #14348 Cells
-nrow(so_kpmp_sc) #9249 genes
+ncol(so_kpmp_sc) #14348 Cells, 11386 cells now
+nrow(so_kpmp_sc) #9249 genes, 9209 genes now
 
 #Remove mitochondrial genes (those starting with "MT-")
 mito_genes <- grep("^MT-", rownames(so_kpmp_sc), value = TRUE)
 so_kpmp_sc <- subset(so_kpmp_sc, features = setdiff(rownames(so_kpmp_sc), mito_genes))
 sum(grepl("^MT-", rownames(so_kpmp_sc))) #should be 0
-ncol(so_kpmp_sc) #14348 cells
-nrow(so_kpmp_sc) #9236 genes
+ncol(so_kpmp_sc) #14348 cells, 11,386
+nrow(so_kpmp_sc) #9236 genes, 9196 genes
 
 #Remove ribosomal Genes
 # Identify ribosomal genes
@@ -361,8 +364,8 @@ ribo_genes <- c(
 )
 so_kpmp_sc <- subset(so_kpmp_sc, features = setdiff(rownames(so_kpmp_sc), ribo_genes))
 length(which(rownames(so_kpmp_sc) %in% ribo_genes)) #should be 0
-ncol(so_kpmp_sc) #14348 cells
-nrow(so_kpmp_sc) #9160 genes
+ncol(so_kpmp_sc) #14348 cells, 11386
+nrow(so_kpmp_sc) #9160 genes, 9120
 
 #Renormalize & Scale after filtering
 so_kpmp_sc <- NormalizeData(so_kpmp_sc)
@@ -548,6 +551,7 @@ length(unique(sc_org$record_id)) #should be 7
 #Remove metadatasets
 rm(meta_kidney_sc,meta)
 
+
 #Create medication & disease status groups of interest
 sc_org@meta.data <- sc_org@meta.data %>%
   mutate(glp1_sglt2=ifelse(epic_glp1ra_1=="Yes" & epic_sglti2_1=="Yes","Yes","No")) %>%
@@ -572,6 +576,11 @@ DefaultAssay(sc_org) <- "RNA"
 nrow(sc_org) #62,754 genes before filtering
 ncol(sc_org) #194,063 cells before filtering
 
+length(unique(sc_org$record_id)) #should be 6
+nrow(sc_org) #62,754 genes before filtering, now 62,754
+ncol(sc_org) #194,063 cells before filtering, now 171,662 
+
+
 #Filter out cells that express less than 500 genes or more than 5000 genes and cells that have more than 50% of gene expression coming from mitochondrial genes
 sc_org <- subset(sc_org,
                  subset = nFeature_RNA > 500 &
@@ -592,15 +601,15 @@ remove(expr_matrix)
 genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
 # genes_to_keep <- names(gene_proportion)
 sc_org <- subset(sc_org, features = genes_to_keep)
-ncol(sc_org) #156387 Cells
-nrow(sc_org) # 7472 genes
+ncol(sc_org) #156387 Cells, 137604
+nrow(sc_org) # 7472 genes, 7497
 
 #Remove mitochondrial genes (those starting with "MT-")
 mito_genes <- grep("^MT-", rownames(sc_org), value = TRUE)
 sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), mito_genes))
 sum(grepl("^MT-", rownames(sc_org))) #0
-ncol(sc_org) #156387 cells
-nrow(sc_org) #7457 genes
+ncol(sc_org) #156387 cells, 137604
+nrow(sc_org) #7457 genes, 7482
 
 #Remove ribosomal Genes
 # Identify ribosomal genes
@@ -617,6 +626,11 @@ sc_org <- subset(sc_org, features = setdiff(rownames(sc_org), ribo_genes))
 length(which(rownames(sc_org) %in% ribo_genes)) #0
 ncol(sc_org) #156387 cells
 nrow(sc_org) #7383 genes
+
+#Remove ID IT_19
+sc_org <- subset(sc_org,record_id!="IT_19")
+nrow(sc_org)
+ncol(sc_org)
 
 #Renormalize & Scale after filtering
 sc_org <- NormalizeData(sc_org)
@@ -652,8 +666,9 @@ rm(sce,counts_layer)
 #Select combined conc. only
 so_combined <- sc_org
 
-#Remove ID IT_19
-so_combined <- subset(so_combined,record_id!="IT_19")
+# #Remove ID IT_19
+# so_combined <- subset(so_combined,record_id!="IT_19")
+unique(so_combined$record_id) #"RH-50-T" "RH-62-T" "CRC-03"  "CRC-11"  "CRC-10"  "RH-72-T"
 
 # PCA
 so_combined <- NormalizeData(so_combined)
@@ -2869,6 +2884,659 @@ cat("\n=== GSEA GO Analysis Complete ===\n")
 ```
 
 ### iv. Combine Plots
+####a. DiD Plot
+```{r}
+library(tidyverse)
+
+# Cell types to analyze
+celltypes <- c("Prolif","DMus","EEC","Neur","DPEC","DT","Mes","MesV","DKE","PEC_N","Strom","MusV","NsKE","ProlPod")
+
+# Initialize list to store category counts
+all_category_counts <- list()
+
+# Process each cell type
+for (cell_name in celltypes) {
+  
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path("/home/hhampson/Results", 
+                          paste0("NEBULA_T2DvsLC_interaction_", cell_name_clean, 
+                                 "_unadjusted_2000.csv"))
+  
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  full_results <- read.csv(input_file)
+  
+  # Categorize based on DiD
+  did_categories <- full_results %>%
+    mutate(
+      # DiD and treatment direction
+      DiD = `logFC_groupType.2.Diabetes.treatment30`,
+      DiD_fdr = `fdr_groupType.2.Diabetes.treatment30`,
+      Treatment_effect = logFC_treatment30,
+      Treatment_fdr = fdr_treatment30,
+      
+      # Four DiD categories
+      did_category = case_when(
+        DiD_fdr < 0.05 & DiD > 0 & Treatment_effect > 0 ~ 
+          "Glucose upregulates MORE in T2D",
+        DiD_fdr < 0.05 & DiD > 0 & Treatment_effect < 0 ~ 
+          "Glucose downregulates LESS in T2D",
+        DiD_fdr < 0.05 & DiD < 0 & Treatment_effect > 0 ~ 
+          "Glucose upregulates MORE in LC",
+        DiD_fdr < 0.05 & DiD < 0 & Treatment_effect < 0 ~ 
+          "Glucose downregulates LESS in LC",
+        TRUE ~ "Not Significant"
+      )
+    )
+  
+  # Count categories
+  category_counts <- did_categories %>%
+    dplyr::count(did_category) %>%
+    mutate(celltype = cell_name)
+  
+  all_category_counts[[cell_name]] <- category_counts
+}
+
+# Combine all results
+combined_counts <- bind_rows(all_category_counts)
+
+#[1] "Prolif"  "DMus"    "EEC"     "Neur"    "DPEC"    "DT"      "Mes"     "MesV"    "DKE"     "PEC_N"   "Strom"   "MusV"    "NsKE"   
+# [14] "ProlPod"
+
+# Order cell types by total significant DiD genes
+celltype_order <- combined_counts %>%
+  filter(did_category != "Not Significant") %>%
+  group_by(celltype) %>%
+  summarize(total_sig = sum(n)) %>%
+  arrange(desc(total_sig)) %>%
+  pull(celltype)
+
+celltype_order <- c(celltype_order,"MusV","NsKE")
+
+combined_counts$celltype <- factor(combined_counts$celltype, levels = celltype_order)
+
+# Define category order and colors
+combined_counts$did_category <- factor(combined_counts$did_category, 
+                                       levels = c("Glucose upregulates MORE in T2D",
+                                                  "Glucose downregulates LESS in T2D",
+                                                  "Glucose upregulates MORE in LC",
+                                                  "Glucose downregulates LESS in LC",
+                                                  "Not Significant"))
+
+category_colors <- c(
+  "Glucose upregulates MORE in T2D" = "#DC143C",        # Dark red (matching "All Three Effects")
+  "Glucose downregulates LESS in T2D" = "#FFA07A",      # Light pink/salmon (matching "Interaction + Treatment")
+  "Glucose upregulates MORE in LC" = "#4682B4",         # Dark blue (matching "Group + Treatment")
+  "Glucose downregulates LESS in LC" = "#B0C4DE",       # Light blue (matching "Treatment Only")
+  "Not Significant" = "#D3D3D3"                         # Light gray
+)
+
+# Create stacked bar plot
+p <- ggplot(combined_counts, aes(x = celltype, y = n, fill = did_category)) +
+  geom_bar(stat = "identity", width = 0.8) +
+  scale_fill_manual(
+    values = category_colors,
+    name = "DiD Pattern",
+    labels = c(
+      "Glucose upregulates MORE in T2D" = "Upregulates MORE in T2D",
+      "Glucose downregulates LESS in T2D" = "Downregulates LESS in T2D",
+      "Glucose upregulates MORE in LC" = "Upregulates MORE in LC",
+      "Glucose downregulates LESS in LC" = "Downregulates LESS in LC",
+      "Not Significant" = "Not Significant"
+    )
+  ) +
+  labs(
+    title = "Differential Glucose Response Patterns: T2D vs LC (Difference-in-Differences)",
+    subtitle = "Genes categorized by glucose treatment interaction effect",
+    x = "Cell Type",
+    y = "Number of Genes",
+    caption = "FDR < 0.05"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 11),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.title = element_text(size = 11),
+    legend.position = "right",
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text = element_text(size = 10),
+    panel.grid.major.x = element_blank(),
+    plot.caption = element_text(hjust = 1, size = 9)
+  )
+
+print(p)
+
+# Save plot
+ggsave("/home/hhampson/Results/DiD_CategoryCounts_StackedBar_AllCelltypes.png", 
+       plot = p, width = 12, height = 8, dpi = 300)
+
+# Also create summary table
+summary_table <- combined_counts %>%
+  pivot_wider(names_from = did_category, values_from = n, values_fill = 0) %>%
+  arrange(desc(`Glucose upregulates MORE in T2D`))
+
+write.csv(summary_table, 
+          "/home/hhampson/Results/DiD_CategoryCounts_Summary.csv", 
+          row.names = FALSE)
+
+
+# Create stacked bar plot (only significant interactions)
+p <- ggplot(sig_counts, aes(x = celltype, y = n, fill = did_category)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  scale_fill_manual(
+    values = category_colors,
+    name = "Interaction Pattern"
+  ) +
+  labs(
+    title = "Genes with Significant Interaction Effects",
+    subtitle = "Diabetes-specific glucose responses by cell type",
+    x = "Cell Type",
+    y = "Number of Genes",
+    caption = "FDR < 0.05 for interaction term"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 11),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 10),
+    axis.title = element_text(size = 11),
+    legend.position = "right",
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text = element_text(size = 10),
+    panel.grid.major.x = element_blank(),
+    plot.caption = element_text(hjust = 1, size = 9)
+  )
+
+print(p)
+
+# Save plot
+ggsave("/home/hhampson/Results/DiD_SignificantOnly_StackedBar_AllCelltypes.png", 
+       plot = p, width = 10, height = 7, dpi = 300)
+
+# Also create summary table
+summary_table <- sig_counts %>%
+  pivot_wider(names_from = did_category, values_from = n, values_fill = 0) %>%
+  arrange(desc(`Glucose upregulates MORE in T2D`))
+
+write.csv(summary_table, 
+          "/home/hhampson/Results/DiD_SignificantOnly_Summary.csv", 
+          row.names = FALSE)
+
+cat("\n=== Significant-only stacked bar plot complete ===\n")
+
+```
+
+####b. DiD Volcano Plot + GSEA
+#####1. Method 1
+```{r}
+library(fgsea)
+library(tidyverse)
+library(patchwork)
+library(ggrepel)
+
+# Cell types to analyze
+# celltypes <- c("Prolif","DMus","EEC","Neur","DPEC","DT","Mes","MesV","DKE","PEC_N","Strom","MusV","NsKE","ProlPod")
+celltypes <- celltype_order 
+# Color scheme
+category_colors <- c(
+  "Glucose upregulates MORE in T2D" = "#DC143C",
+  "Glucose downregulates LESS in T2D" = "#FFA07A",
+  "Glucose upregulates MORE in LC" = "#4682B4",
+  "Glucose downregulates LESS in LC" = "#B0C4DE",
+  "Not Significant" = "#D3D3D3"
+)
+
+# Open PDF - one page per cell type
+pdf("/home/hhampson/Results/DiD_Volcano_GSEA_AllCelltypes.pdf", 
+    width = 22, height = 10)
+
+for (cell_name in celltypes) {
+  
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path("/home/hhampson/Results", 
+                          paste0("NEBULA_T2DvsLC_interaction_", cell_name_clean, 
+                                 "_unadjusted_2000.csv"))
+  
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  full_results <- read.csv(input_file)
+  
+  # ---- CATEGORIZE GENES ----
+  did_results <- full_results %>%
+    mutate(
+      # DiD = interaction coefficient
+      DiD = `logFC_groupType.2.Diabetes.treatment30`,
+      DiD_pval = `p_groupType.2.Diabetes.treatment30`,
+      DiD_fdr = `fdr_groupType.2.Diabetes.treatment30`,
+      DiD_pval10 = `PValue10_groupType.2.Diabetes.treatment30`,
+      
+      # Treatment main effect
+      Treatment_effect = logFC_treatment30,
+      
+      # Four DiD categories
+      did_category = case_when(
+        DiD_fdr < 0.05 & DiD > 0 & Treatment_effect > 0 ~ 
+          "Glucose upregulates MORE in T2D",
+        DiD_fdr < 0.05 & DiD > 0 & Treatment_effect < 0 ~ 
+          "Glucose downregulates LESS in T2D",
+        DiD_fdr < 0.05 & DiD < 0 & Treatment_effect > 0 ~ 
+          "Glucose upregulates MORE in LC",
+        DiD_fdr < 0.05 & DiD < 0 & Treatment_effect < 0 ~ 
+          "Glucose downregulates LESS in LC",
+        TRUE ~ "Not Significant"
+      ),
+      
+      # Assign colors
+      color = case_when(
+        did_category == "Glucose upregulates MORE in T2D" ~ "#DC143C",
+        did_category == "Glucose downregulates LESS in T2D" ~ "#FFA07A",
+        did_category == "Glucose upregulates MORE in LC" ~ "#4682B4",
+        did_category == "Glucose downregulates LESS in LC" ~ "#B0C4DE",
+        TRUE ~ "#D3D3D3"
+      )
+    )
+  
+  # ---- VOLCANO PLOT ----
+  
+  # Dynamic axis limits
+  did_range <- range(did_results$DiD, na.rm = TRUE)
+  did_padding <- diff(did_range) * 0.1
+  xlim_min <- did_range[1] - did_padding
+  xlim_max <- did_range[2] + did_padding
+  
+  pval_max <- max(did_results$DiD_pval10, na.rm = TRUE)
+  ylim_max <- pval_max * 1.05
+  
+  # Label significant genes
+  sig_genes <- did_results %>% 
+    filter(DiD_fdr < 0.05)
+  
+  # Count genes in each category
+  n_up_t2d <- sum(did_results$did_category == "Glucose upregulates MORE in T2D")
+  n_down_less_t2d <- sum(did_results$did_category == "Glucose downregulates LESS in T2D")
+  n_up_lc <- sum(did_results$did_category == "Glucose upregulates MORE in LC")
+  n_down_less_lc <- sum(did_results$did_category == "Glucose downregulates LESS in LC")
+  
+  volcano_plot <- ggplot(did_results, aes(x = DiD, y = DiD_pval10, color = color)) +
+    geom_point(alpha = 0.7, size = 2) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title = paste0(cell_name, " - Glucose Treatment Interaction (DiD)"),
+      subtitle = paste0("T2D up: ", n_up_t2d, " | T2D resistant: ", n_down_less_t2d, 
+                        " | LC up: ", n_up_lc, " | LC resistant: ", n_down_less_lc),
+      x = "Difference-in-Differences (logFC)\n[Treatment Effect in T2D] - [Treatment Effect in LC]",
+      y = "-log10(P-Value)"
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5, size = 10),
+      axis.title = element_text(size = 11),
+      axis.text = element_text(size = 10)
+    ) +
+    xlim(xlim_min, xlim_max) +
+    ylim(0, ylim_max) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black", alpha = 0.3, linewidth = 0.5) +
+    geom_text_repel(data = sig_genes, aes(label = Gene),
+                    size = 2.5, color = "black", max.overlaps = 10,
+                    box.padding = 0.3, segment.alpha = 0.5)
+  
+  # ---- GSEA (Reactome) ----
+  
+  # Rank genes by DiD (interaction coefficient)
+  rankings <- did_results$DiD
+  names(rankings) <- did_results$Gene
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  set.seed(1234)
+  reactome_res <- fgsea(pathways = reactome_sets,
+                        stats = rankings,
+                        scoreType = 'std',
+                        minSize = 3,
+                        maxSize = 500,
+                        nproc = 1,
+                        nPermSimple = 10000)
+  
+  # Prepare GSEA plot data
+  gsea_plot_data <- reactome_res %>%
+    filter(pval < 0.05) %>%
+    arrange(pval) %>%
+    head(20) %>%
+    mutate(
+      pathway_clean = str_remove(pathway, "^REACTOME_"),
+      pathway_clean = str_replace_all(pathway_clean, "_", " "),
+      pathway_clean = str_to_title(pathway_clean),
+      pathway_clean = str_trunc(pathway_clean, 50),
+      
+      # Color pathways by direction (similar to volcano)
+      pathway_color = case_when(
+        NES > 0 ~ "darkred",  # Positive NES = enriched in T2D-specific up response
+        NES < 0 ~ "#4682B4"   # Negative NES = enriched in LC-specific up response
+      )
+    )
+  
+  if (nrow(gsea_plot_data) > 0) {
+    # Dynamic NES axis limit
+    max_nes <- max(abs(gsea_plot_data$NES), na.rm = TRUE)
+    nes_limit <- max_nes * 1.05
+    
+    gsea_plot <- ggplot(gsea_plot_data, aes(x = abs(NES), y = reorder(pathway_clean, abs(NES)),
+                                             fill = pathway_color, alpha = abs(NES))) +
+      geom_col(width = 0.7) +
+      geom_text(aes(x = abs(NES) / 2, label = size),
+                color = "white", fontface = "bold", size = 3.5) +
+      scale_fill_identity() +
+      scale_alpha_continuous(range = c(0.6, 1), guide = "none") +
+      scale_x_continuous(limits = c(0, nes_limit), expand = expansion(mult = c(0, 0.01))) +
+      labs(
+        title = paste0(cell_name, " - Top 20 Reactome Pathways (p < 0.05)"),
+        subtitle = "Pathways enriched in differential glucose responses",
+        x = "Normalized Enrichment Score (NES)",
+        y = NULL
+      ) +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5, size = 10),
+        axis.text.y = element_text(size = 9),
+        axis.text.x = element_text(size = 11),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank()
+      ) +
+      # Add legend
+      annotate("rect", xmin = nes_limit * 0.7, xmax = nes_limit * 0.75,
+               ymin = 19, ymax = 19.5, fill = "darkred", alpha = 0.7) +
+      annotate("text", x = nes_limit * 0.77, y = 19.25,
+               label = "Stronger in T2D response", hjust = 0, size = 3) +
+      annotate("rect", xmin = nes_limit * 0.7, xmax = nes_limit * 0.75,
+               ymin = 18, ymax = 18.5, fill = "#4682B4", alpha = 0.7) +
+      annotate("text", x = nes_limit * 0.77, y = 18.25,
+               label = "Stronger in LC response", hjust = 0, size = 3)
+    
+    # Combine side by side
+    combined <- volcano_plot + gsea_plot + plot_layout(widths = c(1, 1.3))
+    print(combined)
+    
+  } else {
+    # No significant GSEA
+    gsea_plot <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+               label = "No significant Reactome\npathways (p < 0.05)",
+               size = 6, hjust = 0.5) +
+      theme_void() +
+      labs(title = paste0(cell_name, " - Reactome Pathways")) +
+      theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+    
+    combined <- volcano_plot + gsea_plot + plot_layout(widths = c(1, 1.3))
+    print(combined)
+  }
+  
+  cat("Printed page for:", cell_name, "\n")
+}
+
+dev.off()
+cat("\n=== DiD volcano + GSEA plots complete ===\n")
+
+```
+
+#####2. Method 2
+```{r}
+library(fgsea)
+library(tidyverse)
+library(patchwork)
+library(ggrepel)
+
+# Cell types to analyze
+# celltypes <- c("Prolif","DMus","EEC","Neur","DPEC","DT","Mes","MesV","DKE","PEC_N","Strom","MusV","NsKE","ProlPod")
+celltypes <- celltype_order 
+
+# Color scheme
+category_colors <- c(
+  "Glucose upregulates MORE in T2D" = "#DC143C",
+  "Glucose downregulates LESS in T2D" = "#FFA07A",
+  "Glucose upregulates MORE in LC" = "#4682B4",
+  "Glucose downregulates LESS in LC" = "#B0C4DE"
+)
+
+# Open PDF
+pdf("/home/hhampson/Results/DiD_DGSEA_Comparative_AllCelltypes.pdf", 
+    width = 22, height = 10)
+
+for (cell_name in celltypes) {
+  
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path("/home/hhampson/Results", 
+                          paste0("NEBULA_T2DvsLC_interaction_", cell_name_clean, 
+                                 "_unadjusted_2000.csv"))
+  
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  full_results <- read.csv(input_file)
+  
+  # ---- CATEGORIZE GENES ----
+  did_results <- full_results %>%
+    mutate(
+      DiD = `logFC_groupType.2.Diabetes.treatment30`,
+      DiD_pval = `p_groupType.2.Diabetes.treatment30`,
+      DiD_fdr = `fdr_groupType.2.Diabetes.treatment30`,
+      DiD_pval10 = `PValue10_groupType.2.Diabetes.treatment30`,
+      Treatment_effect = logFC_treatment30,
+      Group_effect = logFC_groupType.2.Diabetes,
+      
+      # Calculate treatment effect in each group separately
+      # Treatment in T2D = Treatment main + Interaction
+      Treatment_T2D = Treatment_effect + DiD,
+      # Treatment in LC = Treatment main effect only
+      Treatment_LC = Treatment_effect,
+      
+      did_category = case_when(
+        DiD_fdr < 0.05 & DiD > 0 & Treatment_effect > 0 ~ 
+          "Glucose upregulates MORE in T2D",
+        DiD_fdr < 0.05 & DiD > 0 & Treatment_effect < 0 ~ 
+          "Glucose downregulates LESS in T2D",
+        DiD_fdr < 0.05 & DiD < 0 & Treatment_effect > 0 ~ 
+          "Glucose upregulates MORE in LC",
+        DiD_fdr < 0.05 & DiD < 0 & Treatment_effect < 0 ~ 
+          "Glucose downregulates LESS in LC",
+        TRUE ~ "Not Significant"
+      ),
+      
+      color = case_when(
+        did_category == "Glucose upregulates MORE in T2D" ~ "#DC143C",
+        did_category == "Glucose downregulates LESS in T2D" ~ "#FFA07A",
+        did_category == "Glucose upregulates MORE in LC" ~ "#4682B4",
+        did_category == "Glucose downregulates LESS in LC" ~ "#B0C4DE",
+        TRUE ~ "#D3D3D3"
+      )
+    )
+  
+  # ---- VOLCANO PLOT ----
+  did_range <- range(did_results$DiD, na.rm = TRUE)
+  did_padding <- diff(did_range) * 0.1
+  xlim_min <- did_range[1] - did_padding
+  xlim_max <- did_range[2] + did_padding
+  
+  pval_max <- max(did_results$DiD_pval10, na.rm = TRUE)
+  ylim_max <- pval_max * 1.05
+  
+  sig_genes <- did_results %>% filter(DiD_fdr < 0.05)
+  
+  n_up_t2d <- sum(did_results$did_category == "Glucose upregulates MORE in T2D")
+  n_down_less_t2d <- sum(did_results$did_category == "Glucose downregulates LESS in T2D")
+  n_up_lc <- sum(did_results$did_category == "Glucose upregulates MORE in LC")
+  n_down_less_lc <- sum(did_results$did_category == "Glucose downregulates LESS in LC")
+  
+  volcano_plot <- ggplot(did_results, aes(x = DiD, y = DiD_pval10, color = color)) +
+    geom_point(alpha = 0.7, size = 2) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title = paste0(cell_name, " - Glucose Treatment Interaction (DiD)"),
+      subtitle = paste0("T2D up: ", n_up_t2d, " | T2D resistant: ", n_down_less_t2d, 
+                        " | LC up: ", n_up_lc, " | LC resistant: ", n_down_less_lc),
+      x = "Difference-in-Differences (logFC)",
+      y = "-log10(P-Value)"
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5, size = 10),
+      axis.title = element_text(size = 11),
+      axis.text = element_text(size = 10)
+    ) +
+    xlim(xlim_min, xlim_max) +
+    ylim(0, ylim_max) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black", alpha = 0.3, linewidth = 0.5) +
+    geom_text_repel(data = sig_genes, aes(label = Gene),
+                    size = 2.5, color = "black", max.overlaps = 15,
+                    box.padding = 0.3, segment.alpha = 0.5)
+  
+  # ---- DGSEA: Comparative Enrichment ----
+  
+  # Rank genes by treatment effect in T2D
+  rankings_T2D <- did_results$Treatment_T2D
+  names(rankings_T2D) <- did_results$Gene
+  rankings_T2D <- sort(rankings_T2D, decreasing = TRUE)
+  
+  # Rank genes by treatment effect in LC
+  rankings_LC <- did_results$Treatment_LC
+  names(rankings_LC) <- did_results$Gene
+  rankings_LC <- sort(rankings_LC, decreasing = TRUE)
+  
+  # Run GSEA for T2D
+  set.seed(1234)
+  gsea_T2D <- fgsea(pathways = reactome_sets,
+                    stats = rankings_T2D,
+                    scoreType = 'std',
+                    minSize = 3,
+                    maxSize = 500,
+                    nproc = 1,
+                    nPermSimple = 10000)
+  
+  # Run GSEA for LC
+  set.seed(1234)
+  gsea_LC <- fgsea(pathways = reactome_sets,
+                   stats = rankings_LC,
+                   scoreType = 'std',
+                   minSize = 3,
+                   maxSize = 500,
+                   nproc = 1,
+                   nPermSimple = 10000)
+  
+  # Merge results and calculate differential enrichment
+  dgsea_results <- gsea_T2D %>%
+    dplyr::select(pathway, NES_T2D = NES, pval_T2D = pval, padj_T2D = padj) %>%
+    left_join(
+      gsea_LC %>% dplyr::select(pathway, NES_LC = NES, pval_LC = pval, padj_LC = padj),
+      by = "pathway"
+    ) %>%
+    mutate(
+      # Calculate difference in NES
+      diff_NES = NES_T2D - NES_LC,
+      
+      # Both must be significant OR difference must be large
+      is_significant = (padj_T2D < 0.05 | padj_LC < 0.05) & abs(diff_NES) > 0.5,
+      
+      # Calculate mean NES direction
+      mean_NES = (NES_T2D + NES_LC) / 2,
+      
+      # Categorize based on which group has stronger enrichment and direction
+      pathway_category = case_when(
+        diff_NES > 0 & mean_NES > 0 ~ "Glucose upregulates MORE in T2D",
+        diff_NES > 0 & mean_NES < 0 ~ "Glucose downregulates LESS in T2D",
+        diff_NES < 0 & mean_NES > 0 ~ "Glucose upregulates MORE in LC",
+        diff_NES < 0 & mean_NES < 0 ~ "Glucose downregulates LESS in LC",
+        TRUE ~ "Unclear"
+      )
+    )
+  
+  # Prepare plot data
+  gsea_plot_data <- dgsea_results %>%
+    filter(is_significant) %>%
+    arrange(desc(abs(diff_NES))) %>%
+    head(20) %>%
+    mutate(
+      pathway_clean = str_remove(pathway, "^REACTOME_"),
+      pathway_clean = str_replace_all(pathway_clean, "_", " "),
+      pathway_clean = str_to_title(pathway_clean),
+      pathway_clean = str_trunc(pathway_clean, 50),
+      
+      # Assign colors
+      pathway_color = case_when(
+        pathway_category == "Glucose upregulates MORE in T2D" ~ "#DC143C",
+        pathway_category == "Glucose downregulates LESS in T2D" ~ "#FFA07A",
+        pathway_category == "Glucose upregulates MORE in LC" ~ "#4682B4",
+        pathway_category == "Glucose downregulates LESS in LC" ~ "#B0C4DE",
+        TRUE ~ "#999999"
+      )
+    )
+  
+  if (nrow(gsea_plot_data) > 0) {
+    max_diff <- max(abs(gsea_plot_data$diff_NES), na.rm = TRUE)
+    diff_limit <- max_diff * 1.05
+    
+    gsea_plot <- ggplot(gsea_plot_data, 
+                        aes(x = abs(diff_NES), y = reorder(pathway_clean, abs(diff_NES)),
+                            fill = pathway_color, alpha = abs(diff_NES))) +
+      geom_col(width = 0.7) +
+      scale_fill_identity() +
+      scale_alpha_continuous(range = c(0.6, 1), guide = "none") +
+      scale_x_continuous(limits = c(0, diff_limit), expand = expansion(mult = c(0, 0.01))) +
+      labs(
+        title = paste0(cell_name, " - Top 20 Differential Pathways (DGSEA)"),
+        subtitle = "Comparing enrichment in T2D vs LC glucose responses",
+        x = "Differential Enrichment (|NES_T2D - NES_LC|)",
+        y = NULL
+      ) +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5, size = 10),
+        axis.text.y = element_text(size = 9),
+        axis.text.x = element_text(size = 11),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor = element_blank()
+      )
+    
+    # Combine
+    combined <- volcano_plot + gsea_plot + plot_layout(widths = c(1, 1.3))
+    print(combined)
+    
+  } else {
+    gsea_plot <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+               label = "No significantly differential\npathways",
+               size = 6, hjust = 0.5) +
+      theme_void() +
+      labs(title = paste0(cell_name, " - DGSEA")) +
+      theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+    
+    combined <- volcano_plot + gsea_plot + plot_layout(widths = c(1, 1.3))
+    print(combined)
+  }
+  
+  cat("Printed page for:", cell_name, "\n")
+}
+
+dev.off()
+cat("\n=== DGSEA comparative enrichment plots complete ===\n")
+
+```
+
+####c. Volcano Plots Mixed
 ```{r}
 library(fgsea)
 library(tidyverse)
@@ -3424,8 +4092,188 @@ print(de_summary_interaction %>% arrange(desc(abs(count))))
 cat("\n=== groupType.2.Diabetes Main Effect Summary ===\n")
 print(de_summary_treatment %>% arrange(desc(abs(count))))
 ```
+### iii. Joint Analysis
+```{r}
 
-###iii. Combined Plots
+library(tidyverse)
+library(ggrepel)
+
+# Cell types to analyze
+celltypes <- c("Prolif","DMus","EEC","Neur","DPEC","DT","Mes","MesV","DKE","PEC_N","Strom","MusV","NsKE","ProlPod")
+
+# Open PDF
+pdf("/home/hhampson/Results/T2DvsLC_DiD_FourCategory_Volcano_AllCelltypes.pdf", 
+    width = 14, height = 10)
+
+for (cell_name in celltypes) {
+  
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path("/home/hhampson/Results", 
+                          paste0("NEBULA_T2DvsLC_interaction_", cell_name_clean, 
+                                 "_unadjusted_2000.csv"))
+  
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  full_results <- read.csv(input_file)
+  
+  # Categorize into 4 groups based on DiD AND treatment direction
+  did_results <- full_results %>%
+    mutate(
+      # DiD = interaction coefficient
+      DiD = `logFC_groupType.2.Diabetes.treatment30`,
+      DiD_pval = `p_groupType.2.Diabetes.treatment30`,
+      DiD_fdr = `fdr_groupType.2.Diabetes.treatment30`,
+      DiD_pval10 = `PValue10_groupType.2.Diabetes.treatment30`,
+      
+      # Treatment main effect (overall glucose response)
+      Treatment_effect = logFC_treatment30,
+      Treatment_fdr = fdr_treatment30,
+      
+      # Four-way categorization
+      did_category = case_when(
+        # Positive DiD (Treatment effect stronger in T2D)
+        DiD_fdr < 0.05 & DiD > 0 & Treatment_effect > 0 ~ 
+          "Glucose upregulates MORE in T2D",
+        DiD_fdr < 0.05 & DiD > 0 & Treatment_effect < 0 ~ 
+          "Glucose downregulates LESS in T2D",
+        
+        # Negative DiD (Treatment effect stronger in LC)
+        DiD_fdr < 0.05 & DiD < 0 & Treatment_effect > 0 ~ 
+          "Glucose upregulates MORE in LC",
+        DiD_fdr < 0.05 & DiD < 0 & Treatment_effect < 0 ~ 
+          "Glucose downregulates LESS in LC",
+        
+        TRUE ~ "Not Significant"
+      ),
+      
+      # Four distinct colors - Red/Orange for positive DiD, Blue/Purple for negative DiD
+      color = case_when(
+        did_category == "Glucose upregulates MORE in T2D" ~ "#D32F2F",      # Red
+        did_category == "Glucose downregulates LESS in T2D" ~ "#FF9800",     # Orange
+        did_category == "Glucose upregulates MORE in LC" ~ "#1976D2",        # Blue
+        did_category == "Glucose downregulates LESS in LC" ~ "#7B1FA2",      # Purple
+        TRUE ~ "gray"
+      )
+    )
+  
+  # Dynamic axis limits
+  did_range <- range(did_results$DiD, na.rm = TRUE)
+  did_padding <- diff(did_range) * 0.1
+  xlim_min <- did_range[1] - did_padding
+  xlim_max <- did_range[2] + did_padding
+  
+  pval_max <- max(did_results$DiD_pval10, na.rm = TRUE)
+  ylim_max <- pval_max * 1.05
+  
+  # Label significant genes (all 4 categories)
+  sig_genes <- did_results %>% 
+    filter(DiD_fdr < 0.05)
+  
+  # Count genes in each category
+  category_counts <- did_results %>%
+    filter(DiD_fdr < 0.05) %>%
+    dplyr::count(did_category)
+  
+  # Create volcano plot
+  p <- ggplot(did_results, aes(x = DiD, y = DiD_pval10, color = color)) +
+    geom_point(alpha = 0.7, size = 2) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title = paste0(cell_name, " - Glucose Treatment Effect: T2D vs LC"),
+      subtitle = "How does high glucose (30 vs 15mM) affect gene expression differently in T2D vs LC?",
+      x = "Difference-in-Differences (logFC)\n[Treatment Effect in T2D] - [Treatment Effect in LC]",
+      y = "-log10(P-Value)"
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      plot.subtitle = element_text(hjust = 0.5, size = 11),
+      axis.title.x = element_text(size = 11, margin = margin(t = 10)),
+      axis.title.y = element_text(size = 11),
+      axis.text = element_text(size = 10),
+      legend.position = "none"
+    ) +
+    xlim(xlim_min, xlim_max) +
+    ylim(0, ylim_max) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black", alpha = 0.3, linewidth = 0.5) +
+    geom_text_repel(data = sig_genes, aes(label = Gene),
+                    size = 2.5, color = "black", max.overlaps = 15,
+                    box.padding = 0.3, segment.alpha = 0.5)
+  
+  # Add 4-category legend
+  legend_y_start <- ylim_max * 0.95
+  legend_spacing <- ylim_max * 0.06
+  legend_x_start <- xlim_max * 0.45
+  legend_width <- (xlim_max - xlim_min) * 0.05
+  
+  # Legend entries
+  p <- p +
+    # 1. Glucose upregulates MORE in T2D (RED)
+    annotate("rect", 
+             xmin = legend_x_start, xmax = legend_x_start + legend_width,
+             ymin = legend_y_start - legend_spacing * 0, 
+             ymax = legend_y_start - legend_spacing * 0 + ylim_max * 0.04,
+             fill = "#D32F2F", alpha = 0.7, color = "black", linewidth = 0.3) +
+    annotate("text", 
+             x = legend_x_start + legend_width * 1.3, 
+             y = legend_y_start - legend_spacing * 0 + ylim_max * 0.02,
+             label = "Glucose upregulates MORE in T2D", 
+             hjust = 0, size = 3.5, fontface = "bold") +
+    
+    # 2. Glucose downregulates LESS in T2D (ORANGE)
+    annotate("rect", 
+             xmin = legend_x_start, xmax = legend_x_start + legend_width,
+             ymin = legend_y_start - legend_spacing * 1, 
+             ymax = legend_y_start - legend_spacing * 1 + ylim_max * 0.04,
+             fill = "#FF9800", alpha = 0.7, color = "black", linewidth = 0.3) +
+    annotate("text", 
+             x = legend_x_start + legend_width * 1.3, 
+             y = legend_y_start - legend_spacing * 1 + ylim_max * 0.02,
+             label = "Glucose downregulates LESS in T2D (resistant)", 
+             hjust = 0, size = 3.5, fontface = "bold") +
+    
+    # 3. Glucose upregulates MORE in LC (BLUE)
+    annotate("rect", 
+             xmin = legend_x_start, xmax = legend_x_start + legend_width,
+             ymin = legend_y_start - legend_spacing * 2, 
+             ymax = legend_y_start - legend_spacing * 2 + ylim_max * 0.04,
+             fill = "#1976D2", alpha = 0.7, color = "black", linewidth = 0.3) +
+    annotate("text", 
+             x = legend_x_start + legend_width * 1.3, 
+             y = legend_y_start - legend_spacing * 2 + ylim_max * 0.02,
+             label = "Glucose upregulates MORE in LC", 
+             hjust = 0, size = 3.5, fontface = "bold") +
+    
+    # 4. Glucose downregulates LESS in LC (PURPLE)
+    annotate("rect", 
+             xmin = legend_x_start, xmax = legend_x_start + legend_width,
+             ymin = legend_y_start - legend_spacing * 3, 
+             ymax = legend_y_start - legend_spacing * 3 + ylim_max * 0.04,
+             fill = "#7B1FA2", alpha = 0.7, color = "black", linewidth = 0.3) +
+    annotate("text", 
+             x = legend_x_start + legend_width * 1.3, 
+             y = legend_y_start - legend_spacing * 3 + ylim_max * 0.02,
+             label = "Glucose downregulates LESS in LC (resistant)", 
+             hjust = 0, size = 3.5, fontface = "bold")
+  
+  print(p)
+  
+  # Print category counts
+  cat("\nCategory counts for", cell_name, ":\n")
+  print(category_counts)
+  cat("\n")
+}
+
+dev.off()
+
+cat("\n=== DiD 4-category volcano plots complete ===\n")
+
+```
+###iv. Combined Plots
 ####a. Volcano + GSEA
 ```{r}
 library(fgsea)
@@ -4118,7 +4966,7 @@ for (cell_name in celltypes) {
       count_gene <- counts_hvg[g, , drop = FALSE]
       meta_gene <- subset(so_celltype, features = g)@meta.data
       
-      # MODEL: comparing treatment (30mM vs 15mM)
+      # MODEL: comparing treatment (30 vs 15mM)
       formula <- as.formula("~ treatment")
       pred_gene <- model.matrix(formula, data = meta_gene)
       library <- meta_gene$pooled_offset
@@ -4193,7 +5041,7 @@ for (cell_name in celltypes) {
                                "se", "p_Intercept", "p_value", 
                                "gene_id", "gene", "Gene")
   
-  full_results$Variable <- "30mMvs15mM"
+  full_results$Variable <- "30vs15mM"
   full_results$Celltype <- cell_name
   
   # Calculate number of genes filtered out for low expression
@@ -4218,7 +5066,7 @@ for (cell_name in celltypes) {
   # Save results
   cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
   output_file <- file.path("/home/hhampson/Results", 
-                           paste0("NEBULA_30mMvs15mM_", cell_name_clean, 
+                           paste0("NEBULA_30vs15mM_", cell_name_clean, 
                                   "_unadjusted_2000.csv"))
   write.csv(full_results, output_file, row.names = FALSE)
   
@@ -4246,7 +5094,7 @@ for (cell_name in celltypes) {
     scale_color_identity() +
     theme_minimal() +
     labs(
-      title = paste("30mM vs. 15mM Glucose Treatment -", cell_name),
+      title = paste("30 vs. 15mM Glucose Treatment -", cell_name),
       subtitle = "Organoids, Unadjusted (REML, Log Normal, Offset)",
       x = "Log Fold Change",
       y = "-log10(P-Value)",
@@ -4267,7 +5115,7 @@ for (cell_name in celltypes) {
   # Save volcano plot
   plot_file <- file.path("/home/hhampson/Results", 
                          paste0("Plot_Organoid_NEBULA_", cell_name_clean, 
-                                "_30mMvs15mM_unadjusted_2000.png"))
+                                "_30vs15mM_unadjusted_2000.png"))
   png(plot_file, width = 3000, height = 2100, res = 300)
   print(volcano_plot)
   dev.off()
@@ -4289,7 +5137,7 @@ all_results <- list()
 celltypes <- unique(so_combined$cell_type_abbrev)
 for (cell_name in celltypes) {
   cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
-  input_file <- file.path(paste0("/home/hhampson/Results/NEBULA_30mMvs15mM_", cell_name_clean, 
+  input_file <- file.path(paste0("/home/hhampson/Results/NEBULA_30vs15mM_", cell_name_clean, 
                                   "_unadjusted_2000.csv"))
  # Check if file exists before reading
   if (file.exists(input_file)) {
@@ -4353,7 +5201,7 @@ pdf("/home/hhampson/Results/30vs15_Volcano_GSEA_AllCelltypes.pdf", width = 22, h
 
 for (cell_name in celltypes) {
   cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
-  input_file <- file.path(paste0("/home/hhampson/Results/NEBULA_30mMvs15mM_", 
+  input_file <- file.path(paste0("/home/hhampson/Results/NEBULA_30vs15mM_", 
                                   cell_name_clean, "_unadjusted_2000.csv"))
   
   if (!file.exists(input_file)) {
@@ -4386,7 +5234,7 @@ volcano_plot <- ggplot(full_results, aes(x = logFC, y = PValue10, color = color)
   scale_color_identity() +
   theme_minimal() +
   labs(
-    title = paste0(cell_name, " - 30mM vs 15mM"),
+    title = paste0(cell_name, " - 30 vs 15mM"),
     subtitle = paste0("Genes = ", Genes, " | Cells = ", n_cells, 
                       " | Non-Conv: ", Nonconvergence_Rate),
     x = "Log Fold Change",
