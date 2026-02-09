@@ -335,12 +335,14 @@ BASELINE$visit_days <- BASELINE$days
 BASELINE_keep <- BASELINE %>% select(releaseid,visit,bmi,visit_days,bmipct,wastcirc,height,weight)
 #BASELINE_keep$height <- NA
 #BASELINE_keep$weight <- NA
+BASELINE_keep$bsa_dubois <- 0.007184 * (BASELINE_keep$height^0.725) * (BASELINE_keep$weight^0.425)
 
 # TODAY VISIT - BMI 
 VISIT <- read.csv("./Clinical data/TODAY/VISIT.csv")
 VISIT$visit <- VISIT$mvisit
 VISIT$visit_days <- VISIT$days
 VISIT_keep <- VISIT %>% select(releaseid,visit,bmi,height,weight,visit_days,bmipct,wastcirc)
+VISIT_keep$bsa_dubois <- 0.007184 * (VISIT_keep$height^0.725) * (VISIT_keep$weight^0.425)
 
 # TODAY CBL - eIS
 CBL <- read.csv("./Clinical data/TODAY/CBL.csv")
@@ -374,6 +376,7 @@ VISIT_TODAY2_KEEP$weight <- VISIT_TODAY2_KEEP$WEIGHT
 VISIT_TODAY2_KEEP$HEIGHT <- NULL
 VISIT_TODAY2_KEEP$WEIGHT <- NULL
 VISIT_TODAY2_KEEP$wastcirc <- NA
+VISIT_TODAY2_KEEP$bsa_dubois <- 0.007184 * (VISIT_TODAY2_KEEP$height^0.725) * (VISIT_TODAY2_KEEP$weight^0.425)
 
 # TODAY2 CBL - eIS and coDI
 CBL_TODAY2 <- read.csv("./Clinical data/TODAY2/CBL.csv")
