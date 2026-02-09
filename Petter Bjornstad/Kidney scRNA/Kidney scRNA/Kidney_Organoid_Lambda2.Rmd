@@ -257,13 +257,15 @@ genes_all <- nrow(so_kpmp_sc) # 31332 genes before processing
 print(paste0(cells_all," cells and ",genes_all," genes before processing in PB90"))
 
 #Set ids for organoid samples
-ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
+# ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T","IT_19")
+ids <- c("CRC-10","CRC-11","CRC-03","RH-50-T","RH-72-T","RH-62-T") #Remove IT 19, this organoid didnt work
 
 #Filter to organoid samples only
 so_kpmp_sc <- subset(so_kpmp_sc,record_id %in% ids)
 cells_org <-  ncol(so_kpmp_sc) #14348 cells before processing
 genes_org <- nrow(so_kpmp_sc) #31332 genes before processing
-print(paste0(cells_org," cells and ",genes_org," genes after filtering to 7 participants with organoid data"))
+print(paste0(cells_org," cells and ",genes_org," genes after filtering to 6 participants with organoid data"))
+#"11386 cells and 31332 genes after filtering to 6 participants with organoid data"
 
 #Format meta data
 harm_meta_data <- harm_meta_data %>%   
@@ -296,7 +298,8 @@ rownames(meta_kidney_sc) <- rownames(so_kpmp_sc@meta.data)
 so_kpmp_sc <- AddMetaData(so_kpmp_sc, meta_kidney_sc)
 
 #Check number of unique ids
-length(unique(so_kpmp_sc$kit_id)) #should be 7, "KL-0014631" "KL-0014639" "KL-0014642" "KL-0019100" "KL-0019103" "KL-0022163" "KL-0027475"
+length(unique(so_kpmp_sc$kit_id)) #should be 6, "KL-0014631" "KL-0014639" "KL-0014642" "KL-0019100" "KL-0019103" "KL-0022163" "KL-0027475"
+#"KL-0014631" "KL-0014639" "KL-0014642" "KL-0019100" "KL-0019103" "KL-0022163" now, removed IT 19
 
 #Remove metadatasets
 rm(meta_kidney_sc,meta)
@@ -338,15 +341,15 @@ remove(expr_matrix)
 # Keep genes expressed in at least "5%" of cells
 genes_to_keep <- names(gene_proportion[gene_proportion >= 0.05])
 so_kpmp_sc <- subset(so_kpmp_sc, features = genes_to_keep)
-ncol(so_kpmp_sc) #14348 Cells
-nrow(so_kpmp_sc) #9249 genes
+ncol(so_kpmp_sc) #14348 Cells, 11386 cells now
+nrow(so_kpmp_sc) #9249 genes, 9209 genes now
 
 #Remove mitochondrial genes (those starting with "MT-")
 mito_genes <- grep("^MT-", rownames(so_kpmp_sc), value = TRUE)
 so_kpmp_sc <- subset(so_kpmp_sc, features = setdiff(rownames(so_kpmp_sc), mito_genes))
 sum(grepl("^MT-", rownames(so_kpmp_sc))) #should be 0
-ncol(so_kpmp_sc) #14348 cells
-nrow(so_kpmp_sc) #9236 genes
+ncol(so_kpmp_sc) #14348 cells, 11,386
+nrow(so_kpmp_sc) #9236 genes, 9196 genes
 
 #Remove ribosomal Genes
 # Identify ribosomal genes
@@ -361,8 +364,8 @@ ribo_genes <- c(
 )
 so_kpmp_sc <- subset(so_kpmp_sc, features = setdiff(rownames(so_kpmp_sc), ribo_genes))
 length(which(rownames(so_kpmp_sc) %in% ribo_genes)) #should be 0
-ncol(so_kpmp_sc) #14348 cells
-nrow(so_kpmp_sc) #9160 genes
+ncol(so_kpmp_sc) #14348 cells, 11386
+nrow(so_kpmp_sc) #9160 genes, 9120
 
 #Renormalize & Scale after filtering
 so_kpmp_sc <- NormalizeData(so_kpmp_sc)
@@ -548,6 +551,7 @@ length(unique(sc_org$record_id)) #should be 7
 #Remove metadatasets
 rm(meta_kidney_sc,meta)
 
+
 #Create medication & disease status groups of interest
 sc_org@meta.data <- sc_org@meta.data %>%
   mutate(glp1_sglt2=ifelse(epic_glp1ra_1=="Yes" & epic_sglti2_1=="Yes","Yes","No")) %>%
@@ -572,9 +576,6 @@ DefaultAssay(sc_org) <- "RNA"
 nrow(sc_org) #62,754 genes before filtering
 ncol(sc_org) #194,063 cells before filtering
 
-#Filter out IT_19
-#Remove ID IT_19
-sc_org <- subset(sc_org,record_id!="IT_19")
 length(unique(sc_org$record_id)) #should be 6
 nrow(sc_org) #62,754 genes before filtering, now 62,754
 ncol(sc_org) #194,063 cells before filtering, now 171,662 
@@ -626,6 +627,11 @@ length(which(rownames(sc_org) %in% ribo_genes)) #0
 ncol(sc_org) #156387 cells
 nrow(sc_org) #7383 genes
 
+#Remove ID IT_19
+sc_org <- subset(sc_org,record_id!="IT_19")
+nrow(sc_org)
+ncol(sc_org)
+
 #Renormalize & Scale after filtering
 sc_org <- NormalizeData(sc_org)
 sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
@@ -660,8 +666,9 @@ rm(sce,counts_layer)
 #Select combined conc. only
 so_combined <- sc_org
 
-#Remove ID IT_19
-so_combined <- subset(so_combined,record_id!="IT_19")
+# #Remove ID IT_19
+# so_combined <- subset(so_combined,record_id!="IT_19")
+unique(so_combined$record_id) #"RH-50-T" "RH-62-T" "CRC-03"  "CRC-11"  "CRC-10"  "RH-72-T"
 
 # PCA
 so_combined <- NormalizeData(so_combined)
