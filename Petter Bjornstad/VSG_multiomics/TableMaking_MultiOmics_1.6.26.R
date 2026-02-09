@@ -814,8 +814,6 @@ table1_full %>%
 
 
 
-
-##Final with data availability
 #Updated
 
 # Study Design Overview Figure - VSG vs SMT vs Healthy Controls
@@ -921,21 +919,19 @@ healthy@meta.data$pre_post <- "healthy"
 
 cat("=== PARTICIPANT VERIFICATION ===\n\n")
 
-# VSG participants (baseline only)
-vsg_ids <- improve@meta.data %>%
-  filter(pre_post == "pre") %>%
+# VSG participants (all)
+vsg_ids_all <- improve@meta.data %>%
   distinct(record_id) %>%
   pull(record_id)
-cat("VSG (IMPROVE) baseline participants:", length(vsg_ids), "\n")
-cat("IDs:", paste(sort(vsg_ids), collapse = ", "), "\n\n")
+cat("VSG (IMPROVE) total participants:", length(vsg_ids_all), "\n")
+cat("IDs:", paste(sort(vsg_ids_all), collapse = ", "), "\n\n")
 
-# SMT participants (baseline only)
-smt_ids <- rh@meta.data %>%
-  filter(pre_post == "pre") %>%
+# SMT participants (all)
+smt_ids_all <- rh@meta.data %>%
   distinct(record_id) %>%
   pull(record_id)
-cat("SMT (RENAL HEIR) baseline participants:", length(smt_ids), "\n")
-cat("IDs:", paste(sort(smt_ids), collapse = ", "), "\n\n")
+cat("SMT (RENAL HEIR) total participants:", length(smt_ids_all), "\n")
+cat("IDs:", paste(sort(smt_ids_all), collapse = ", "), "\n\n")
 
 # Healthy controls
 hc_ids <- healthy@meta.data %>%
@@ -944,7 +940,7 @@ hc_ids <- healthy@meta.data %>%
 cat("Healthy Controls:", length(hc_ids), "\n")
 cat("IDs:", paste(sort(hc_ids), collapse = ", "), "\n\n")
 
-cat("TOTAL UNIQUE PARTICIPANTS:", length(vsg_ids) + length(smt_ids) + length(hc_ids), "\n")
+cat("TOTAL UNIQUE PARTICIPANTS:", length(vsg_ids_all) + length(smt_ids_all) + length(hc_ids), "\n")
 
 # ============================================================================
 # SECTION 4: CREATE PATIENT-LEVEL DATA FOR ALL GROUPS
@@ -953,14 +949,14 @@ cat("TOTAL UNIQUE PARTICIPANTS:", length(vsg_ids) + length(smt_ids) + length(hc_
 # Combine all three groups
 combined_all <- merge(improve, y = list(rh, healthy))
 
-# Get baseline/single timepoint data for each group
+# Get ALL participants (not filtered by timepoint) for total counts
+# Then prioritize baseline data for demographics when available
 patient_level_all <- combined_all@meta.data %>%
-  filter(
-    (treatment == "VSG" & pre_post == "pre") |
-      (treatment == "Standard" & pre_post == "pre") |
-      (treatment == "Healthy")
-  ) %>%
-  distinct(record_id, .keep_all = TRUE)
+  group_by(record_id) %>%
+  # For each participant, prefer baseline if available, otherwise take what they have
+  arrange(record_id, desc(pre_post == "pre" | pre_post == "healthy")) %>%
+  slice(1) %>%
+  ungroup()
 
 # Merge with harmonized data (for T2D groups)
 dat_subset <- dat %>%
@@ -1172,10 +1168,10 @@ hc <- patient_level_all %>% filter(treatment == "Healthy")
 vsg <- patient_level_all %>% filter(treatment == "VSG")
 smt <- patient_level_all %>% filter(treatment == "Standard")
 
-# Build demographics tribble - BASELINE characteristics WITH SAMPLE BREAKDOWN
+# Build demographics tribble - ALL PARTICIPANTS WITH SAMPLE BREAKDOWN
 demographics <- tribble(
   ~Variable,                              ~HC,                                      ~VSG,                                     ~SMT,
-  "N (baseline)",                         as.character(nrow(hc)),                   as.character(nrow(vsg)),                  as.character(nrow(smt)),
+  "N (total)",                            as.character(nrow(hc)),                   as.character(nrow(vsg)),                  as.character(nrow(smt)),
   "  Baseline only",                      as.character(hc_breakdown$baseline_only), as.character(vsg_breakdown$baseline_only), as.character(smt_breakdown$baseline_only),
   "  Follow-up only",                     as.character(hc_breakdown$followup_only), as.character(vsg_breakdown$followup_only), as.character(smt_breakdown$followup_only),
   "  Paired (pre + post)",                as.character(hc_breakdown$paired),        as.character(vsg_breakdown$paired),       as.character(smt_breakdown$paired),
@@ -1345,5 +1341,3 @@ print(fig)
 table1_full %>% 
   as_gt() %>% 
   gt::gtsave(paste0(output_dir, "Table1_HC_VSG_SMT.docx"))
-
-
