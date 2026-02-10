@@ -86,6 +86,9 @@ so_subset$DCT_celltype <- ifelse(
 so_subset <- subset(so_subset, subset = record_id != 'CRC-55')
 so_subset <- subset(so_subset, subset = group == 'Type_2_Diabetes')
 
+# IMPORTANT: Re-set dir.results after load() since the .RData file may overwrite it
+dir.results <- 'C:/Users/netio/Documents/UofW/Projects/pioglitazone/'
+
 # ============================================================================
 # MEDICATION DATA & PIOGLITAZONE GROUP ASSIGNMENT
 # ============================================================================
