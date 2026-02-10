@@ -491,14 +491,20 @@ cat("Figure 3 saved!\n")
 # =====================================================================
 ########################################################################
 
-dat_fig4 <- dat_clinical %>%
+dat_fig4_clin <- dat_clinical %>%
   as.data.frame() %>%
   filter(`GBM thickness` != '' & !is.na(`GBM thickness`)) %>%
   mutate(GBM_Status = ifelse(`GBM thickness` == "yes",
-                             "GBM\nThickening", "No GBM\nThickening"))
-dat_fig4 <- merge(dat_fig4, dat_pet_slim, by = "record_id", all.x = FALSE)
+                             "GBM\nThickening", "No GBM\nThickening")) %>%
+  dplyr::select(record_id, GBM_Status)
+
+# Drop any existing PET columns from clinical before merging
+dat_fig4_clin <- dat_fig4_clin[, !(names(dat_fig4_clin) %in% pet_col_names), drop = FALSE]
+dat_fig4 <- merge(dat_fig4_clin, dat_pet_slim, by = "record_id")
 
 cat("Figure 4 data:", nrow(dat_fig4), "rows\n")
+cat("  Columns:", paste(names(dat_fig4), collapse = ", "), "\n")
+cat("  GBM groups:\n"); print(table(dat_fig4$GBM_Status))
 
 fig4_colors <- c("No GBM\nThickening" = cols$gbm_no, "GBM\nThickening" = cols$gbm_yes)
 
@@ -524,14 +530,19 @@ cat("Figure 4 saved!\n")
 # =====================================================================
 ########################################################################
 
-dat_fig5 <- dat_clinical %>%
+dat_fig5_clin <- dat_clinical %>%
   as.data.frame() %>%
   filter(arteriosclerosis != '' & !is.na(arteriosclerosis)) %>%
   mutate(Arterio_Status = ifelse(arteriosclerosis == "yes",
-                                 "Arteriosclerosis", "No\nArteriosclerosis"))
-dat_fig5 <- merge(dat_fig5, dat_pet_slim, by = "record_id", all.x = FALSE)
+                                 "Arteriosclerosis", "No\nArteriosclerosis")) %>%
+  dplyr::select(record_id, Arterio_Status)
+
+dat_fig5_clin <- dat_fig5_clin[, !(names(dat_fig5_clin) %in% pet_col_names), drop = FALSE]
+dat_fig5 <- merge(dat_fig5_clin, dat_pet_slim, by = "record_id")
 
 cat("Figure 5 data:", nrow(dat_fig5), "rows\n")
+cat("  Columns:", paste(names(dat_fig5), collapse = ", "), "\n")
+cat("  Arterio groups:\n"); print(table(dat_fig5$Arterio_Status))
 
 fig5_colors <- c("No\nArteriosclerosis" = cols$arterio_no,
                  "Arteriosclerosis" = cols$arterio_yes)
