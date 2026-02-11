@@ -332,6 +332,144 @@ plot_two_group <- function(data, group_var, value_var,
 # =====================================================================
 ########################################################################
 
+# =====================================================================
+# Panel A: Study Design Diagram (generated in R)
+# =====================================================================
+
+fig1a <- ggplot() +
+  xlim(0, 16) + ylim(0, 10) +
+  annotate("text", x = 8, y = 9.7, label = "ROCKIES Trial Design (NCT04027530)",
+           size = 4.5, fontface = "bold", family = "sans") +
+  annotate("text", x = 8, y = 9.25,
+           label = "Randomized, Double-Blind, Placebo-Controlled Crossover",
+           size = 3.2, fontface = "italic", family = "sans", color = "gray30") +
+  # Screening box
+  annotate("rect", xmin = 0.3, xmax = 2.5, ymin = 5.7, ymax = 7.3,
+           fill = "#F0F0F0", color = "gray40", linewidth = 0.6) +
+  annotate("text", x = 1.4, y = 6.8, label = "Screening &\nRandomization",
+           size = 2.8, fontface = "bold", lineheight = 0.9) +
+  annotate("text", x = 1.4, y = 6.1, label = "n = 20\nT2D adults",
+           size = 2.4, color = "gray30", lineheight = 0.9) +
+  # Arrow to R
+  annotate("segment", x = 2.5, xend = 3.3, y = 6.5, yend = 6.5,
+           arrow = arrow(length = unit(0.15, "cm"), type = "closed"), linewidth = 0.7) +
+  # Randomization circle
+  annotate("point", x = 3.5, y = 6.5, size = 8, shape = 21,
+           fill = "#2C3E50", color = "#2C3E50") +
+  annotate("text", x = 3.5, y = 6.5, label = "R",
+           size = 3.5, fontface = "bold", color = "white") +
+  # --- Sequence 1 (top): Ertu -> Washout -> Placebo ---
+  annotate("segment", x = 3.5, xend = 4.2, y = 6.9, yend = 8.0, linewidth = 0.6) +
+  annotate("rect", xmin = 4.2, xmax = 7.0, ymin = 7.4, ymax = 8.6,
+           fill = "#E74C3C", color = "#C0392B", linewidth = 0.6, alpha = 0.15) +
+  annotate("rect", xmin = 4.2, xmax = 7.0, ymin = 7.4, ymax = 8.6,
+           fill = NA, color = "#C0392B", linewidth = 0.6) +
+  annotate("text", x = 5.6, y = 8.25, label = "Ertugliflozin 15 mg",
+           size = 2.8, fontface = "bold", color = "#C0392B") +
+  annotate("text", x = 5.6, y = 7.75, label = "4 weeks", size = 2.5, color = "#C0392B") +
+  annotate("point", x = 6.7, y = 7.55, size = 2, shape = 17, color = "#C0392B") +
+  annotate("segment", x = 7.0, xend = 7.8, y = 8.0, yend = 8.0,
+           arrow = arrow(length = unit(0.12, "cm"), type = "closed"),
+           linewidth = 0.5, color = "gray40") +
+  annotate("rect", xmin = 7.8, xmax = 9.8, ymin = 7.4, ymax = 8.6,
+           fill = "#F9F9F9", color = "gray50", linewidth = 0.5, linetype = "dashed") +
+  annotate("text", x = 8.8, y = 8.25, label = "Washout",
+           size = 2.6, fontface = "italic", color = "gray40") +
+  annotate("text", x = 8.8, y = 7.75, label = "6 weeks", size = 2.4, color = "gray40") +
+  annotate("segment", x = 9.8, xend = 10.6, y = 8.0, yend = 8.0,
+           arrow = arrow(length = unit(0.12, "cm"), type = "closed"),
+           linewidth = 0.5, color = "gray40") +
+  annotate("rect", xmin = 10.6, xmax = 13.4, ymin = 7.4, ymax = 8.6,
+           fill = "#4A90D9", color = "#2E6DA4", linewidth = 0.6, alpha = 0.15) +
+  annotate("rect", xmin = 10.6, xmax = 13.4, ymin = 7.4, ymax = 8.6,
+           fill = NA, color = "#2E6DA4", linewidth = 0.6) +
+  annotate("text", x = 12.0, y = 8.25, label = "Matching Placebo",
+           size = 2.8, fontface = "bold", color = "#2E6DA4") +
+  annotate("text", x = 12.0, y = 7.75, label = "4 weeks", size = 2.5, color = "#2E6DA4") +
+  annotate("point", x = 13.1, y = 7.55, size = 2, shape = 17, color = "#2E6DA4") +
+  # --- Sequence 2 (bottom): Placebo -> Washout -> Ertu ---
+  annotate("segment", x = 3.5, xend = 4.2, y = 6.1, yend = 5.0, linewidth = 0.6) +
+  annotate("rect", xmin = 4.2, xmax = 7.0, ymin = 4.4, ymax = 5.6,
+           fill = "#4A90D9", color = "#2E6DA4", linewidth = 0.6, alpha = 0.15) +
+  annotate("rect", xmin = 4.2, xmax = 7.0, ymin = 4.4, ymax = 5.6,
+           fill = NA, color = "#2E6DA4", linewidth = 0.6) +
+  annotate("text", x = 5.6, y = 5.25, label = "Matching Placebo",
+           size = 2.8, fontface = "bold", color = "#2E6DA4") +
+  annotate("text", x = 5.6, y = 4.75, label = "4 weeks", size = 2.5, color = "#2E6DA4") +
+  annotate("point", x = 6.7, y = 4.55, size = 2, shape = 17, color = "#2E6DA4") +
+  annotate("segment", x = 7.0, xend = 7.8, y = 5.0, yend = 5.0,
+           arrow = arrow(length = unit(0.12, "cm"), type = "closed"),
+           linewidth = 0.5, color = "gray40") +
+  annotate("rect", xmin = 7.8, xmax = 9.8, ymin = 4.4, ymax = 5.6,
+           fill = "#F9F9F9", color = "gray50", linewidth = 0.5, linetype = "dashed") +
+  annotate("text", x = 8.8, y = 5.25, label = "Washout",
+           size = 2.6, fontface = "italic", color = "gray40") +
+  annotate("text", x = 8.8, y = 4.75, label = "6 weeks", size = 2.4, color = "gray40") +
+  annotate("segment", x = 9.8, xend = 10.6, y = 5.0, yend = 5.0,
+           arrow = arrow(length = unit(0.12, "cm"), type = "closed"),
+           linewidth = 0.5, color = "gray40") +
+  annotate("rect", xmin = 10.6, xmax = 13.4, ymin = 4.4, ymax = 5.6,
+           fill = "#E74C3C", color = "#C0392B", linewidth = 0.6, alpha = 0.15) +
+  annotate("rect", xmin = 10.6, xmax = 13.4, ymin = 4.4, ymax = 5.6,
+           fill = NA, color = "#C0392B", linewidth = 0.6) +
+  annotate("text", x = 12.0, y = 5.25, label = "Ertugliflozin 15 mg",
+           size = 2.8, fontface = "bold", color = "#C0392B") +
+  annotate("text", x = 12.0, y = 4.75, label = "4 weeks", size = 2.5, color = "#C0392B") +
+  annotate("point", x = 13.1, y = 4.55, size = 2, shape = 17, color = "#C0392B") +
+  # --- End-of-Period Assessments box ---
+  annotate("segment", x = 13.4, xend = 14.0, y = 8.0, yend = 6.9, linewidth = 0.5, color = "gray40") +
+  annotate("segment", x = 13.4, xend = 14.0, y = 5.0, yend = 6.1, linewidth = 0.5, color = "gray40") +
+  annotate("rect", xmin = 13.8, xmax = 15.8, ymin = 5.0, ymax = 8.0,
+           fill = "#F5F5DC", color = "#8B7D3C", linewidth = 0.6) +
+  annotate("text", x = 14.8, y = 7.65, label = "End-of-Period",
+           size = 2.5, fontface = "bold", color = "#5D4E37") +
+  annotate("text", x = 14.8, y = 7.3, label = "Assessments",
+           size = 2.5, fontface = "bold", color = "#5D4E37") +
+  annotate("text", x = 14.8, y = 6.4,
+           label = "\u2022 \u00B9\u00B9C-Acetate PET/CT\n\u2022 OGTT\n\u2022 mGFR (iohexol)\n\u2022 ERPF (PAH)\n\u2022 24-hr urine",
+           size = 2.1, lineheight = 1.1, hjust = 0.5, color = "#5D4E37") +
+  # --- Labels ---
+  annotate("text", x = 3.9, y = 8.5, label = "Sequence 1",
+           size = 2.3, fontface = "italic", color = "gray50") +
+  annotate("text", x = 3.9, y = 4.5, label = "Sequence 2",
+           size = 2.3, fontface = "italic", color = "gray50") +
+  annotate("text", x = 5.6, y = 3.7, label = "Period 1",
+           size = 2.8, fontface = "bold", color = "gray40") +
+  annotate("text", x = 8.8, y = 3.7, label = "Washout",
+           size = 2.8, fontface = "bold", color = "gray40") +
+  annotate("text", x = 12.0, y = 3.7, label = "Period 2",
+           size = 2.8, fontface = "bold", color = "gray40") +
+  # Timeline
+  annotate("segment", x = 4.2, xend = 13.4, y = 3.3, yend = 3.3, linewidth = 0.6, color = "gray50") +
+  annotate("segment", x = 4.2, xend = 4.2, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
+  annotate("segment", x = 7.0, xend = 7.0, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
+  annotate("segment", x = 7.8, xend = 7.8, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
+  annotate("segment", x = 9.8, xend = 9.8, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
+  annotate("segment", x = 10.6, xend = 10.6, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
+  annotate("segment", x = 13.4, xend = 13.4, y = 3.15, yend = 3.45, linewidth = 0.4, color = "gray50") +
+  annotate("text", x = 4.2, y = 2.9, label = "Wk 0", size = 2.2, color = "gray50") +
+  annotate("text", x = 7.0, y = 2.9, label = "Wk 4", size = 2.2, color = "gray50") +
+  annotate("text", x = 9.8, y = 2.9, label = "Wk 10", size = 2.2, color = "gray50") +
+  annotate("text", x = 13.4, y = 2.9, label = "Wk 14", size = 2.2, color = "gray50") +
+  annotate("point", x = 5.0, y = 2.3, size = 2, shape = 17, color = "gray40") +
+  annotate("text", x = 5.5, y = 2.3, label = "= End-of-period assessment visit",
+           size = 2.2, hjust = 0, color = "gray40") +
+  theme_void() +
+  theme(plot.margin = margin(5, 5, 5, 5))
+
+# =====================================================================
+# Panel B: PET Methodology Diagram (external PNG)
+# =====================================================================
+library(png)
+
+pet_img <- readPNG("C:/Users/netio/Downloads/Kidney C11 Acetate PET Diagram.png")
+
+fig1b <- ggplot() +
+  annotation_raster(pet_img, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
+  xlim(0, 1) + ylim(0, 1) +
+  theme_void() +
+  theme(plot.margin = margin(5, 5, 5, 5))
+
 # --- Panel C: Cortical k2 vs HOMA-IR (placebo) ---
 fig1c <- plot_corr(rockies_plac, "homa_ir", "cortical_k2",
                    "HOMA-IR",
@@ -378,15 +516,24 @@ fig1j <- plot_delta_corr(rockies_long, "id", "treatment",
                          expression("Medullary k"[2]*" (min"^{-1}*")"), "J")
 
 # --- Assemble Figure 1 ---
-fig1 <- (fig1c | fig1d | fig1e) /
-  (fig1f | fig1g | fig1h) /
-  (fig1i | fig1j | plot_spacer()) +
+# Row 1: A (study design) and B (PET diagram)
+# Row 2: C, D, E (placebo correlations)
+# Row 3: G, H and placeholder for F
+# Row 4: I, J (delta correlations)
+
+row1 <- (fig1a + labs(tag = "A")) | (fig1b + labs(tag = "B"))
+row2 <- fig1c | fig1d | fig1e
+row3 <- fig1f | fig1g | fig1h
+row4 <- fig1i | fig1j | plot_spacer()
+
+fig1 <- row1 / row2 / row3 / row4 +
+  plot_layout(heights = c(2.5, 2, 2, 2)) +
   plot_annotation(
     title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
     theme = theme(plot.title = element_text(size = 12, face = "bold", hjust = 0.5))
   )
 
-save_fig(fig1, "Figure1_ROCKIES", width = 14, height = 13)
+save_fig(fig1, "Figure1_ROCKIES", width = 16, height = 18)
 
 # Save individual panels for Illustrator
 save_fig(fig1c, "Figure1C_cortical_k2_vs_HOMAIR", width = 5, height = 4.5)
@@ -565,35 +712,53 @@ cat("Figure 5 saved!\n")
 
 ########################################################################
 # =====================================================================
-#  FIGURES 6-7: scRNAseq VOLCANO PLOTS (need NEBULA results)
+#  FIGURES 6-7: scRNAseq — TCA Cycle & OxPhos Gene Expression
+#  These are bar plots (log2 FC, colored by direction, * for sig)
+#  Generated by existing scripts — load PNGs for combined figure
 # =====================================================================
 ########################################################################
 
-plot_volcano <- function(de_results, gene_list, title, tag, padj_thresh = 0.05) {
+# If you already have Figures 6 and 7 saved from your existing scripts,
+# load them here for reference. Update paths as needed:
+
+# fig6_path <- paste0(base_path, "Figure6_TCA_barplots.png")
+# fig7_path <- paste0(base_path, "Figure7_OxPhos_barplots.png")
+
+# If you want to regenerate them here in the same style, use this template:
+# It expects a data frame with columns: gene, log2FC, padj
+
+plot_gene_bars <- function(de_results, gene_list, title, tag, padj_thresh = 0.05) {
   df <- de_results %>%
     filter(gene %in% gene_list) %>%
     mutate(
-      sig = case_when(
-        padj < padj_thresh & log2FC > 0  ~ "Up",
-        padj < padj_thresh & log2FC < 0  ~ "Down",
-        TRUE ~ "NS"),
-      label = ifelse(padj < padj_thresh, gene, NA_character_))
+      Regulation = ifelse(log2FC >= 0, "Up-regulated", "Down-regulated"),
+      Regulation = factor(Regulation, levels = c("Down-regulated", "Up-regulated")),
+      sig_label  = ifelse(padj < padj_thresh, "*", ""),
+      gene       = factor(gene, levels = gene[order(match(gene, gene_list))])
+    )
   
-  ggplot(df, aes(log2FC, -log10(pvalue))) +
-    geom_point(aes(color = sig), size = 2, alpha = 0.7) +
-    ggrepel::geom_text_repel(aes(label = label), size = 2.5, max.overlaps = 15) +
-    geom_hline(yintercept = -log10(padj_thresh), linetype = "dashed", color = "gray50") +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
-    scale_color_manual(values = c("Up" = cols$up, "Down" = cols$down, "NS" = cols$ns)) +
-    labs(x = expression(bold("log"[2]*" FC")),
-         y = expression(bold("-log"[10]*" p")), title = title, tag = tag) +
-    theme_rockies + theme(legend.position = "bottom")
+  ggplot(df, aes(x = gene, y = log2FC, fill = Regulation)) +
+    geom_col(width = 0.7) +
+    geom_text(aes(label = sig_label),
+              vjust = ifelse(df$log2FC >= 0, -0.3, 1.3),
+              size = 5, fontface = "bold") +
+    geom_hline(yintercept = 0, linewidth = 0.4) +
+    scale_fill_manual(values = c("Down-regulated" = "#E74C3C",
+                                 "Up-regulated" = "#4A90D9")) +
+    labs(x = NULL, y = "Log2 Fold Change", title = title, tag = tag) +
+    theme_rockies +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      legend.text = element_text(size = 8)
+    )
 }
 
-tca_genes <- c("CS","ACO1","ACO2","IDH1","IDH2","IDH3A","IDH3B","IDH3G",
-               "OGDH","OGDHL","DLST","DLD","SUCLG1","SUCLG2","SUCLA2",
-               "SDHA","SDHB","SDHC","SDHD","FH","MDH1","MDH2","PCK1",
-               "PCK2","PC","ACLY","DLAT","PDHA1","PDHB")
+tca_genes <- c("ACO1","ACO2","CS","DHTKD1","DLAT","DLD","DLST","FH",
+               "IDH1","IDH2","IDH3A","IDH3B","IDH3G","MDH1","MDH2",
+               "MPC1","OGDH","OGDHL","PDHA1","PDHB","SDHA","SDHB",
+               "SDHC","SDHD","SUCLA2","SUCLG1","SUCLG2")
 
 oxphos_genes <- c("NDUFA1","NDUFA2","NDUFA3","NDUFA4","NDUFA5","NDUFA6",
                   "NDUFA7","NDUFA8","NDUFA9","NDUFA10","NDUFA11","NDUFA12","NDUFA13",
@@ -608,25 +773,41 @@ oxphos_genes <- c("NDUFA1","NDUFA2","NDUFA3","NDUFA4","NDUFA5","NDUFA6",
                   "ATP5F1E","ATP5MC1","ATP5MC2","ATP5MC3","ATP5MF","ATP5MG","ATP5PB",
                   "ATP5PD","ATP5PF","ATP5PO")
 
-# Uncomment when NEBULA results available:
+# Uncomment when NEBULA results are available:
 # nebula_pt_all  <- read.csv("path/to/nebula_total_PT.csv")
 # nebula_pt_s1s2 <- read.csv("path/to/nebula_PT_S1S2.csv")
 # nebula_pt_s3   <- read.csv("path/to/nebula_PT_S3.csv")
 # nebula_apt     <- read.csv("path/to/nebula_aPT.csv")
 #
-# fig6 <- (plot_volcano(nebula_pt_all, tca_genes, "Total PT", "A") |
-#           plot_volcano(nebula_pt_s1s2, tca_genes, "PT-S1/S2", "B")) /
-#          (plot_volcano(nebula_pt_s3, tca_genes, "PT-S3", "C") |
-#           plot_volcano(nebula_apt, tca_genes, "aPT", "D")) +
-#   plot_annotation(title = "Figure 6. TCA Cycle Genes in PT Cells")
-# save_fig(fig6, "Figure6_TCA_Volcanos", width = 12, height = 10)
+# # Figure 6: TCA Cycle
+# fig6a <- plot_gene_bars(nebula_pt_all,  tca_genes, "PT",      "A")
+# fig6b <- plot_gene_bars(nebula_pt_s1s2, tca_genes, "PT-S1/S2","B")
+# fig6c <- plot_gene_bars(nebula_pt_s3,   tca_genes, "PT-S3",   "C")
+# fig6d <- plot_gene_bars(nebula_apt,     tca_genes, "aPT",     "D")
 #
-# fig7 <- (plot_volcano(nebula_pt_all, oxphos_genes, "Total PT", "A") |
-#           plot_volcano(nebula_pt_s1s2, oxphos_genes, "PT-S1/S2", "B")) /
-#          (plot_volcano(nebula_pt_s3, oxphos_genes, "PT-S3", "C") |
-#           plot_volcano(nebula_apt, oxphos_genes, "aPT", "D")) +
-#   plot_annotation(title = "Figure 7. OxPhos Genes in PT Cells")
-# save_fig(fig7, "Figure7_OxPhos_Volcanos", width = 12, height = 10)
+# fig6 <- (fig6a) / (fig6b | fig6c | fig6d) +
+#   plot_layout(heights = c(1.2, 1)) +
+#   plot_annotation(
+#     title = "Figure 6. TCA Cycle Gene Expression in Proximal Tubule Cells",
+#     subtitle = "TCA cycle gene expression in proximal tubule cells",
+#     theme = theme(plot.title = element_text(size = 13, face = "bold"),
+#                   plot.subtitle = element_text(size = 10)))
+# save_fig(fig6, "Figure6_TCA_barplots", width = 14, height = 10)
+#
+# # Figure 7: OxPhos
+# fig7a <- plot_gene_bars(nebula_pt_all,  oxphos_genes, "PT",      "A")
+# fig7b <- plot_gene_bars(nebula_pt_s1s2, oxphos_genes, "PT-S1/S2","B")
+# fig7c <- plot_gene_bars(nebula_pt_s3,   oxphos_genes, "PT-S3",   "C")
+# fig7d <- plot_gene_bars(nebula_apt,     oxphos_genes, "aPT",     "D")
+#
+# fig7 <- (fig7a) / (fig7b | fig7c | fig7d) +
+#   plot_layout(heights = c(1.2, 1)) +
+#   plot_annotation(
+#     title = "Figure 7. OxPhos Gene Expression in Proximal Tubule Cells",
+#     subtitle = "Oxidative phosphorylation gene expression in proximal tubule cells",
+#     theme = theme(plot.title = element_text(size = 13, face = "bold"),
+#                   plot.subtitle = element_text(size = 10)))
+# save_fig(fig7, "Figure7_OxPhos_barplots", width = 16, height = 10)
 
 ########################################################################
 # STATUS
@@ -649,6 +830,211 @@ cat("  FIGURE 2 (T2D vs Controls):    --> GENERATED\n")
 cat("  FIGURE 3 (UACR Correlations):  --> GENERATED\n")
 cat("  FIGURE 4 (GBM Thickening):     --> GENERATED\n")
 cat("  FIGURE 5 (Arteriosclerosis):   --> GENERATED\n")
-cat("  FIGURE 6 (TCA Volcanos):       --> NEED NEBULA results\n")
-cat("  FIGURE 7 (OxPhos Volcanos):    --> NEED NEBULA results\n")
+cat("  FIGURE 6 (TCA Barplots):       --> Use existing script / plot_gene_bars()\n")
+cat("  FIGURE 7 (OxPhos Barplots):     --> Use existing script / plot_gene_bars()\n")
 cat("================================================================\n")
+
+
+
+
+
+
+###combine the files 
+
+
+########################################################################
+# ROCKIES Publication - Combined PDF (All Figures, One Page Each)
+# Run AFTER the main figure generation script
+########################################################################
+
+library(tidyverse)
+library(patchwork)
+library(png)
+
+base_path <- 'C:/Users/netio/Documents/UofW/Rockies/publication_figures/'
+
+# Page dimensions (letter-ish, landscape for wider figures)
+pg_w <- 16
+pg_h <- 18
+
+########################################################################
+# Open multi-page PDF
+########################################################################
+
+tryCatch({
+  cairo_pdf(paste0(base_path, "ROCKIES_All_Figures_Combined.pdf"),
+            width = pg_w, height = pg_h, onefile = TRUE)
+  pdf_device <- "cairo"
+}, error = function(e) {
+  pdf(paste0(base_path, "ROCKIES_All_Figures_Combined.pdf"),
+      width = pg_w, height = pg_h, onefile = TRUE)
+  pdf_device <- "standard"
+})
+
+########################################################################
+# PAGE 1: Figure 1 — ROCKIES Trial
+########################################################################
+
+# Row 1: A (study design) + B (PET diagram)
+row1 <- (fig1a + labs(tag = "A")) | (fig1b + labs(tag = "B"))
+
+# Row 2: Placebo correlations
+row2 <- fig1c | fig1d | fig1e
+
+# Row 3: Paired plots (+ placeholder for F)
+row3 <- fig1f | fig1g | fig1h
+
+# Row 4: Delta correlations
+row4 <- fig1i | fig1j | plot_spacer()
+
+fig1_full <- row1 / row2 / row3 / row4 +
+  plot_layout(heights = c(2.5, 2, 2, 2)) +
+  plot_annotation(
+    title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
+    theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+  )
+
+print(fig1_full)
+
+########################################################################
+# PAGE 2: Figure 2 — T2D vs Healthy Controls
+########################################################################
+
+fig2_full <- (fig2b | fig2c | fig2d) +
+  plot_annotation(
+    title = "Figure 2. Elevated Kidney Oxidative Metabolism in Type 2 Diabetes",
+    subtitle = "18 T2D (RENAL-HEIRitage) vs 11 Healthy Controls (CROCODILE)",
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+
+print(fig2_full)
+
+########################################################################
+# PAGE 3: Figure 3 — UACR Correlations
+########################################################################
+
+fig3_full <- (fig3a | fig3b) / (fig3c | fig3d) +
+  plot_annotation(
+    title = "Figure 3. Kidney Oxidative Metabolism Correlates with Albuminuria",
+    subtitle = "Spearman correlations in 40 participants (CROCODILE + RENAL-HEIRitage)",
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+
+print(fig3_full)
+
+########################################################################
+# PAGE 4: Figure 4 — GBM Thickening
+########################################################################
+
+fig4_full <- (fig4a | fig4b | fig4c) +
+  plot_annotation(
+    title = "Figure 4. Kidney Oxidative Metabolism and Glomerular Basement Membrane Thickening",
+    subtitle = paste0("GBM Thickening (n=", sum(dat_fig4$GBM_Status == "GBM\nThickening"),
+                      ") vs No GBM Thickening (n=", sum(dat_fig4$GBM_Status == "No GBM\nThickening"), ")"),
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+
+print(fig4_full)
+
+########################################################################
+# PAGE 5: Figure 5 — Arteriosclerosis
+########################################################################
+
+fig5_full <- (fig5a | fig5b | fig5c) +
+  plot_annotation(
+    title = "Figure 5. Kidney Oxidative Metabolism and Arteriosclerosis",
+    subtitle = paste0("Arteriosclerosis (n=", sum(dat_fig5$Arterio_Status == "Arteriosclerosis"),
+                      ") vs No Arteriosclerosis (n=", sum(dat_fig5$Arterio_Status == "No\nArteriosclerosis"), ")"),
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+
+print(fig5_full)
+
+########################################################################
+# PAGES 6-7: Figures 6 & 7 — scRNAseq (if available)
+# If these exist as saved PNGs from your existing script, load them.
+# Otherwise these pages are skipped.
+########################################################################
+
+# Try loading existing Figure 6 PNG
+fig6_png_path <- paste0(base_path, "Figure6_TCA_Cycle.png")
+if (file.exists(fig6_png_path)) {
+  fig6_img <- readPNG(fig6_png_path)
+  fig6_page <- ggplot() +
+    annotation_raster(fig6_img, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
+    xlim(0, 1) + ylim(0, 1) +
+    theme_void() +
+    ggtitle("Figure 6. TCA Cycle Gene Expression in Proximal Tubule Cells") +
+    theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+  print(fig6_page)
+  cat("Figure 6 page added from PNG\n")
+} else {
+  # If fig6a-d objects exist (generated by plot_gene_bars), use them
+  if (exists("fig6a") & exists("fig6b") & exists("fig6c") & exists("fig6d")) {
+    fig6_page <- (fig6a) / (fig6b | fig6c | fig6d) +
+      plot_layout(heights = c(1.2, 1)) +
+      plot_annotation(
+        title = "Figure 6. TCA Cycle Gene Expression in Proximal Tubule Cells",
+        theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+      )
+    print(fig6_page)
+    cat("Figure 6 page added from plot objects\n")
+  } else {
+    cat("Figure 6 skipped — no PNG or plot objects found\n")
+  }
+}
+
+# Try loading existing Figure 7 PNG
+fig7_png_path <- paste0(base_path, "Figure7_OxPhos.png")
+if (file.exists(fig7_png_path)) {
+  fig7_img <- readPNG(fig7_png_path)
+  fig7_page <- ggplot() +
+    annotation_raster(fig7_img, xmin = 0, xmax = 1, ymin = 0, ymax = 1) +
+    xlim(0, 1) + ylim(0, 1) +
+    theme_void() +
+    ggtitle("Figure 7. OxPhos Gene Expression in Proximal Tubule Cells") +
+    theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+  print(fig7_page)
+  cat("Figure 7 page added from PNG\n")
+} else {
+  if (exists("fig7a") & exists("fig7b") & exists("fig7c") & exists("fig7d")) {
+    fig7_page <- (fig7a) / (fig7b | fig7c | fig7d) +
+      plot_layout(heights = c(1.2, 1)) +
+      plot_annotation(
+        title = "Figure 7. OxPhos Gene Expression in Proximal Tubule Cells",
+        theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+      )
+    print(fig7_page)
+    cat("Figure 7 page added from plot objects\n")
+  } else {
+    cat("Figure 7 skipped — no PNG or plot objects found\n")
+  }
+}
+
+########################################################################
+# Close PDF
+########################################################################
+
+dev.off()
+
+cat("\n========================================================\n")
+cat("  Combined PDF saved:\n")
+cat("  ", paste0(base_path, "ROCKIES_All_Figures_Combined.pdf"), "\n")
+cat("========================================================\n")
+
+
+
+
+
