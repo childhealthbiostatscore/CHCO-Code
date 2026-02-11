@@ -171,11 +171,18 @@ session <- boto3$session$Session(
 ## Create an S3 client with the session
 s3 <- session$client("s3", endpoint_url = "https://s3.kopah.uw.edu")
 
-#Load kidney scRNAseq PB90
+# #Load kidney scRNAseq PB90
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
+# so_kpmp_sc <- readRDS(temp_file)
+
+#Load cleaned kidney biopsy data
 gc()
 bucket <- "scrna" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-s3$download_file(bucket, "Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", temp_file)
+s3$download_file(bucket, "Kidney organoids/cleaned_biopsy.rds", temp_file)
 so_kpmp_sc <- readRDS(temp_file)
 
 #Load harmonized data for biopsy
@@ -190,31 +197,39 @@ temp_file <- tempfile(fileext = ".gmt")
 s3$download_file("gsea", "gmt_files/c8.all.v2025.1.Hs.symbols.gmt", temp_file)
 c8 <- GSA.read.gmt(temp_file)
 
-#Load formatted organoid data
+# #Load formatted organoid data
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
+# s3$download_file(bucket, "Kidney organoids/organoids_processed_matrix.rds", temp_file)
+# sc_org <- readRDS(temp_file)
+
+# #Load cleaned organoid data
 gc()
 bucket <- "scrna" # bucket name in Kopah
 temp_file <- tempfile(fileext = ".rds") # need to create a temporary file
-s3$download_file(bucket, "Kidney organoids/organoids_processed_matrix.rds", temp_file)
+s3$download_file(bucket, "Kidney organoids/cleaned_organoid.rds", temp_file)
 sc_org <- readRDS(temp_file)
 
-#Load kidney cell type annotations
-gc()
-bucket <- "scrna" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-s3$download_file(bucket, "Kidney organoids/top_20_markers_15.csv", temp_file)
-annot_15 <- read.csv(temp_file)
-annot_15 <- annot_15 %>% 
-  dplyr::select(c("cluster","Celltype")) %>% 
-  distinct()
-  
-gc()
-bucket <- "scrna" # bucket name in Kopah
-temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
-s3$download_file(bucket, "Kidney organoids/top_20_markers_30.csv", temp_file)
-annot_30 <- read.csv(temp_file)
-annot_30 <- annot_30 %>% 
-  dplyr::select(c("cluster","Celltype")) %>% 
-  distinct()
+# 
+# #Load kidney cell type annotations
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+# s3$download_file(bucket, "Kidney organoids/top_20_markers_15.csv", temp_file)
+# annot_15 <- read.csv(temp_file)
+# annot_15 <- annot_15 %>% 
+#   dplyr::select(c("cluster","Celltype")) %>% 
+#   distinct()
+#   
+# gc()
+# bucket <- "scrna" # bucket name in Kopah
+# temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+# s3$download_file(bucket, "Kidney organoids/top_20_markers_30.csv", temp_file)
+# annot_30 <- read.csv(temp_file)
+# annot_30 <- annot_30 %>% 
+#   dplyr::select(c("cluster","Celltype")) %>% 
+#   distinct()
 
 #Load metadata for organoids
 gc()
@@ -450,6 +465,9 @@ final_counts <- table(so_kpmp_sc$celltype_LR)
 print(final_counts)
 print(prop.table(final_counts) * 100)
 rm(counts_layer)
+
+#Save cleaned biopsy Seurat object
+# saveRDS(so_kpmp_sc, file = "/home/hhampson/Data/cleaned_biopsy.rds")
 ```
 
 ### ii. Organoid Data
@@ -657,9 +675,25 @@ rm(sce,counts_layer)
 # #Merge gene names
 # sc_org <- NormalizeData(sc_org)
 # sc_org <- ScaleData(sc_org, features = VariableFeatures(sc_org))
+
+# #Save cleaned organoid data
+# saveRDS(sc_org, file = "/home/hhampson/Data/cleaned_organoid.rds")
 ```
 
-## b. Annotate Organoid Data from SE & Beno-approved annotations
+## b. Descriptive Statistics
+```{r}
+dat <- so_kpmp_sc@meta.data %>%
+  group_by(record_id) %>%
+  summarise(across(everything(), ~ .x[1])) %>%
+  ungroup()
+dat_full <- so_kpmp_sc@meta.data
+
+table1(~ age_surgery + nih_sex + nih_race + nih_ethnicity + bmi + tg + a1c+
+         diagnosis_of_diabetes | group, data=dat)
+
+```
+
+## c. Annotate Organoid Data from SE & Beno-approved annotations
 ```{r}
 #Annotate cell types
 #Start by clustering
@@ -728,6 +762,10 @@ head(so_combined@meta.data$seurat_clusters)
 # View your annotation key to confirm structure
 print(annot_key)
 
+#Fix key - keep clusters 0 and 10 distinct
+annot_key <- annot_key %>% 
+  mutate(cell_type=ifelse(cluster_number==10,"developing_kidney_epithelium2",cell_type))
+
 # Create named vector from your dataframe
 cluster_annotations <- setNames(annot_key$cell_type, annot_key$cluster_number)
 
@@ -769,6 +807,7 @@ colnames(so_combined@meta.data)
 # Create abbreviated cell type names
 cell_type_abbrev <- c(
   "developing_kidney_epithelium" = "DKE",
+  "developing_kidney_epithelium2" = "DKE2",
   "developing_muscle" = "DMus",
   "developing_pec" = "DPEC",
   "distal_tubular_epithelial_cells_" = "DT",
@@ -796,7 +835,7 @@ Idents(so_combined) <- "cell_type_abbrev"
 DimPlot(so_combined, reduction = "umap", raster = TRUE, label = TRUE, repel = TRUE, label.size = 6)+
    theme(legend.position = "none")
 # Save the plot
-# ggsave("/home/hhampson/Results/UMAP_celltype_abbreviated.png", width = 10, height = 10, dpi = 300)
+ggsave("/home/hhampson/Results/UMAP_celltype_abbreviated_v2.png", width = 10, height = 10, dpi = 300)
 
 p <- DimPlot(so_combined, reduction = "umap", raster = TRUE, label = FALSE) +
   labs(title = "Cell Type Annotations",
@@ -806,7 +845,7 @@ p <- DimPlot(so_combined, reduction = "umap", raster = TRUE, label = FALSE) +
 p <- LabelClusters(p, id = "ident", fontface = "bold", size = 6, repel = TRUE)
 
 print(p)
-# ggsave("/home/hhampson/Results/UMAP_celltype_bold_labels.png", p, width = 10, height = 10, dpi = 300)
+ggsave("/home/hhampson/Results/UMAP_celltype_bold_labels_v2.png", p, width = 10, height = 10, dpi = 300)
 
 
 # Create corrected legend with proper order
@@ -823,7 +862,7 @@ rownames(abbrev_legend) <- NULL
 print(abbrev_legend)
 
 # Save the corrected legend
-# write.csv(abbrev_legend, "/home/hhampson/Results/celltype_abbreviations_legend_corrected.csv", row.names = FALSE)
+write.csv(abbrev_legend, "/home/hhampson/Results/celltype_abbreviations_legend_corrected_v2.csv", row.names = FALSE)
 
 # Create formatted version
 abbrev_legend_formatted <- abbrev_legend %>%
@@ -834,7 +873,7 @@ cat("\nCell Type Abbreviations:\n")
 cat(paste(abbrev_legend_formatted$Legend, collapse = "\n"))
 
 # Save as text
-# writeLines(abbrev_legend_formatted$Legend, "/home/hhampson/Results/celltype_abbreviations_legend_corrected.txt")
+writeLines(abbrev_legend_formatted$Legend, "/home/hhampson/Results/celltype_abbreviations_legend_corrected_v2.txt")
 
 # Create a new variable with "Abbreviation = Full Name" format
 so_combined@meta.data$cell_type_legend <- paste0(
@@ -854,1483 +893,13 @@ p <- DimPlot(so_combined, reduction = "umap", raster = TRUE, label = FALSE) +
         legend.key.size = unit(0.4, "cm"))
 
 # Save the plot
-# ggsave("/home/hhampson/Results/UMAP_celltype_with_full_legend.png", p, width = 16, height = 8, dpi = 300)
+ggsave("/home/hhampson/Results/UMAP_celltype_with_full_legend_v2.png", p, width = 16, height = 8, dpi = 300)
 
 print(p)
 
+#Save cleaned & annotated organoid data
+# saveRDS(so_combined, file = "/home/hhampson/Data/annotated_cleaned_organoid.rds")
 
-
-```
-
-## c. Annotate Organoid Data - Bottom Up
-
-###i. Separate 15 and 30 glucose conc.
-```{r}
-# so_15 <- subset(sc_org,treatment=="15")
-# so_30 <- subset(sc_org,treatment=="30")
-# so_combined <- sc_org
-```
-
-###i. Combined
-####a. Low Res
-```{r}
-#Select combined conc. only
-so_combined <- sc_org
-
-# PCA
-so_combined <- NormalizeData(so_combined)
-so_combined <- ScaleData(so_combined, features = VariableFeatures(so_combined))
-so_combined <- FindVariableFeatures(object = so_combined)
-so_combined <- RunPCA(so_combined, features = VariableFeatures(object = so_combined),assay="RNA")
-# ElbowPlot(so_combined)
-
-# # Find neighbors and clusters 
-so_combined <- FindNeighbors(so_combined, assay = "RNA", dims = 1:20) #20 based on elbow plot
-# so_combined <- FindClusters(so_combined, resolution = 0.5)
-# so_combined <- FindClusters(so_combined, resolution = 1)
-so_combined <- FindClusters(so_combined, resolution = 0.2)
-
-# Perform UMAP
-so_combined <- RunUMAP(so_combined, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
-so_combined@reductions
-DimPlot(so_combined, reduction = "umap", raster = F)
-Idents(so_combined) <- "seurat_clusters"  # or whatever the column is named
-
-
-# Verify you have 25 clusters
-print(paste("Number of clusters:", length(unique(Idents(so_combined)))))
-print(table(Idents(so_combined)))  # Show distribution of cells per cluster
-DimPlot(so_combined, reduction = "umap", raster = T)
-
-# Find markers for all clusters
-all_markers <- FindAllMarkers(so_combined, 
-                              only.pos = TRUE,     # Only positive markers
-                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
-                              logfc.threshold = 0.25,  # Minimum log fold change
-                              test.use = "wilcox")  # Wilcoxon test
-
-# Verify all 25 clusters are included
-print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
-print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
-
-# # Get top 20 markers per cluster
-# top_20_markers <- get_top_markers(all_markers, top_n = 20)
-# write.csv(top_20_markers,"/home/hhampson/Results/combined_gluc_top_20_markers_res_02_clusters_8.csv")
-# 
-# # Create dot plot with top 10 markers (might be crowded)
-# dotplot_20 <- create_marker_dotplot(so_combined, all_markers, top_n = 20,
-#                                     title = "Top 20 Marker Genes by Cluster; Combined Glucose Treatment")
-# print(dotplot_20)
-# 
-# png("/home/hhampson/Results/dotplot_avg_exp_top20_gluc_combined_cluster8_res02.png.png",res=300,width=10000,height=2500)
-# print(dotplot_20)
-# dev.off()
-
-# Get top 40 markers per cluster
-top_40_markers <- get_top_markers(all_markers, top_n = 40)
-write.csv(top_40_markers,"/home/hhampson/Results/combined_gluc_top_40_markers_res_02_clusters_8.csv")
-
-# Create dot plot with top 10 markers (might be crowded)
-dotplot_40 <- create_marker_dotplot(so_combined, all_markers, top_n = 40,
-                                    title = "Top 40 Marker Genes by Cluster; Combined Glucose Treatment")
-print(dotplot_40)
-
-png("/home/hhampson/Results/dotplot_avg_exp_top40_gluc_combined_cluster8_res02.png.png",res=300,width=10000,height=2500)
-print(dotplot_40)
-dev.off()
-
-#Break dot plot down by sets of clusters 
-
-# #Unlabeled cluster UMAP
-# png("/home/hhampson/Results/UMAP_combined_unlabeled_res_02_clusters8.png",res=300,width=2000,height=2000)
-# DimPlot(so_combined, reduction = "umap", raster = T)+ 
-#   ggtitle("Combined Diabetes Status + Combined Treatment Group",
-#           subtitle = "Res = 0.2, Clusters = 8")
-# dev.off()
-# 
-# #By treatment group
-# png("/home/hhampson/Results/UMAP_combined_unlabeled_res_02_clusters8_by_treatment.png",res=300,width=2000,height=2000)
-# DimPlot(so_combined, reduction = "umap", group.by = "treatment", raster = T)+ 
-#   ggtitle("Combined Diabetes Status by Treatment Group",
-#           subtitle = "Res = 0.2, Clusters = 8")
-# dev.off()
-# 
-# #By diabetes group
-# png("/home/hhampson/Results/UMAP_combined_unlabeled_res_02_clusters8_by_diabetes.png",res=300,width=2000,height=2000)
-# DimPlot(so_combined, reduction = "umap", group.by = "group", raster = T)+ 
-#   ggtitle("Combined Treatment by Diabetes Status",
-#           subtitle = "Res = 0.2, Clusters = 8")
-# dev.off()
-```
-####b. Medium Res
-```{r}
-#Select combined conc. only
-so_combined <- sc_org
-
-#Remove ID IT_19
-so_combined <- subset(so_combined,record_id!="IT_19")
-
-# PCA
-so_combined <- NormalizeData(so_combined)
-so_combined <- ScaleData(so_combined, features = VariableFeatures(so_combined))
-so_combined <- FindVariableFeatures(object = so_combined)
-so_combined <- RunPCA(so_combined, features = VariableFeatures(object = so_combined),assay="RNA")
-# ElbowPlot(so_combined)
-
-# # Find neighbors and clusters 
-so_combined <- FindNeighbors(so_combined, assay = "RNA", dims = 1:20) #20 based on elbow plot
-# so_combined <- FindClusters(so_combined, resolution = 0.5)
-# so_combined <- FindClusters(so_combined, resolution = 1)
-so_combined <- FindClusters(so_combined, resolution = 0.35)
-
-# Perform UMAP
-so_combined <- RunUMAP(so_combined, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
-so_combined@reductions
-DimPlot(so_combined, reduction = "umap", raster = F)
-Idents(so_combined) <- "seurat_clusters"  # or whatever the column is named
-
-
-# Verify you have 25 clusters
-print(paste("Number of clusters:", length(unique(Idents(so_combined)))))
-print(table(Idents(so_combined)))  # Show distribution of cells per cluster
-DimPlot(so_combined, reduction = "umap", raster = T)
-
-DimPlot(so_combined, reduction = "umap", raster = T, group.by = "record_id")
-
-png("/home/hhampson/Results/UMAP_combined_unlabeled_res_035_clusters11_removed_outlier.png",res=300,width=2000,height=2000)
-DimPlot(so_combined, reduction = "umap", raster = T)+  ggtitle("Combined Treatment by Cluster",
-          subtitle = "Res = 0.35, Clusters = 11")
-dev.off()
-
-png("/home/hhampson/Results/UMAP_combined_unlabeled_res_035_clusters11_removed_outlier_by_record_ID.png",res=300,width=2000,height=2000)
-DimPlot(so_combined, reduction = "umap", raster = T, group.by="record_id")+  ggtitle("Combined Treatment by Record ID",
-          subtitle = "Res = 0.35, Clusters = 11")
-dev.off()
-
-
-# Find markers for all clusters
-all_markers <- FindAllMarkers(so_combined, 
-                              only.pos = TRUE,     # Only positive markers
-                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
-                              logfc.threshold = 0.25,  # Minimum log fold change
-                              test.use = "wilcox")  # Wilcoxon test
-
-# Verify all 25 clusters are included
-print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
-print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
-
-# # Get top 20 markers per cluster
-# top_20_markers <- get_top_markers(all_markers, top_n = 20)
-# write.csv(top_20_markers,"/home/hhampson/Results/combined_gluc_top_20_markers_res_035_clusters_13.csv")
-# 
-# # Create dot plot with top 10 markers (might be crowded)
-# dotplot_20 <- create_marker_dotplot(so_combined, all_markers, top_n = 20,
-#                                     title = "Top 20 Marker Genes by Cluster; Combined Glucose Treatment")
-# print(dotplot_20)
-# 
-# png("/home/hhampson/Results/dotplot_avg_exp_top20_gluc_combined_cluster13_res035.png.png",res=300,width=10000,height=2500)
-# print(dotplot_20)
-# dev.off()
-
-# Get top 20 markers per cluster
-top_40_markers <- get_top_markers(all_markers, top_n = 40)
-write.csv(top_40_markers,"/home/hhampson/Results/combined_gluc_top_40_markers_res_035_clusters_13.csv")
-
-# Create dot plot with top 10 markers (might be crowded)
-dotplot_40 <- create_marker_dotplot(so_combined, all_markers, top_n = 40,
-                                    title = "Top 40 Marker Genes by Cluster; Combined Glucose Treatment")
-print(dotplot_40)
-
-png("/home/hhampson/Results/dotplot_avg_exp_top40_gluc_combined_cluster13_res035.png.png",res=300,width=10000,height=2500)
-print(dotplot_40)
-dev.off()
-
-#Unlabeled cluster UMAP
-png("/home/hhampson/Results/UMAP_combined_unlabeled_res_035_clusters13.png",res=300,width=2000,height=2000)
-DimPlot(so_combined, reduction = "umap", raster = T)+ 
-  ggtitle("Combined Diabetes Status + Combined Treatment Group",
-          subtitle = "Res = 0.35, Clusters = 13")
-dev.off()
-
-#By treatment group
-png("/home/hhampson/Results/UMAP_combined_unlabeled_res_035_clusters13_by_treatment.png",res=300,width=2000,height=2000)
-DimPlot(so_combined, reduction = "umap", group.by = "treatment", raster = T)+ 
-  ggtitle("Combined Diabetes Status by Treatment Group",
-          subtitle = "Res = 0.35, Clusters = 13")
-dev.off()
-
-#By diabetes group
-png("/home/hhampson/Results/UMAP_combined_unlabeled_res_035_clusters13_by_diabetes.png",res=300,width=2000,height=2000)
-DimPlot(so_combined, reduction = "umap", group.by = "group", raster = T)+ 
-  ggtitle("Combined Treatment by Diabetes Status",
-          subtitle = "Res = 0.35, Clusters = 13")
-dev.off()
-```
-
-####c. High Res
-```{r}
-#Select combined conc. only
-so_combined <- sc_org
-
-#Remove ID IT_19
-so_combined <- subset(so_combined,record_id!="IT_19")
-
-# PCA
-so_combined <- NormalizeData(so_combined)
-so_combined <- ScaleData(so_combined, features = VariableFeatures(so_combined))
-so_combined <- FindVariableFeatures(object = so_combined)
-so_combined <- RunPCA(so_combined, features = VariableFeatures(object = so_combined),assay="RNA")
-# ElbowPlot(so_combined)
-
-# # Find neighbors and clusters 
-so_combined <- FindNeighbors(so_combined, assay = "RNA", dims = 1:20) #20 based on elbow plot
-so_combined <- FindClusters(so_combined, resolution = 0.5)
-# so_combined <- FindClusters(so_combined, resolution = 1)
-# so_combined <- FindClusters(so_combined, resolution = 0.35)
-
-# Perform UMAP
-so_combined <- RunUMAP(so_combined, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
-so_combined@reductions
-DimPlot(so_combined, reduction = "umap", raster = F)
-Idents(so_combined) <- "seurat_clusters"  # or whatever the column is named
-
-# Verify you have 25 clusters
-print(paste("Number of clusters:", length(unique(Idents(so_combined)))))
-print(table(Idents(so_combined)))  # Show distribution of cells per cluster
-DimPlot(so_combined, reduction = "umap", raster = T)
-
-DimPlot(so_combined, reduction = "umap", raster = T, group.by = "record_id")
-
-# png("/home/hhampson/Results/UMAP_combined_unlabeled_res_05_clusters18_removed_outlier.png",res=300,width=2000,height=2000)
-# DimPlot(so_combined, reduction = "umap", raster = T)+  ggtitle("Combined Treatment by Cluster",
-#           subtitle = "Res = 0.5, Clusters = 18")
-# dev.off()
-# 
-# png("/home/hhampson/Results/UMAP_combined_unlabeled_res_05_clusters18_removed_outlier_by_record_ID.png",res=300,width=2000,height=2000)
-# DimPlot(so_combined, reduction = "umap", raster = T, group.by="record_id")+  ggtitle("Combined Treatment by Record ID",
-#           subtitle = "Res = 0.5, Clusters = 18")
-# dev.off()
-
-# Find markers for all clusters
-all_markers <- FindAllMarkers(so_combined, 
-                              only.pos = TRUE,     # Only positive markers
-                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
-                              logfc.threshold = 0.25,  # Minimum log fold change
-                              test.use = "wilcox")  # Wilcoxon test
-
-# Verify all 25 clusters are included
-print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
-print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
-
-# # Get top 20 markers per cluster
-# top_20_markers <- get_top_markers(all_markers, top_n = 20)
-# write.csv(top_20_markers,"/home/hhampson/Results/combined_gluc_top_20_markers_res_05_clusters_19_outlier_removed.csv")
-# 
-# # Create dot plot with top 10 markers (might be crowded)
-# dotplot_20 <- create_marker_dotplot(so_combined, all_markers, top_n = 20,
-#                                     title = "Top 20 Marker Genes by Cluster; Combined Glucose Treatment")
-# print(dotplot_20)
-# 
-# png("/home/hhampson/Results/dotplot_avg_exp_top20_gluc_combined_cluster18_res05_outlier_removed.png",res=300,width=10000,height=2500)
-# print(dotplot_20)
-# dev.off()
-
-# Get top 40 markers per cluster
-top_40_markers <- get_top_markers(all_markers, top_n = 40)
-write.csv(top_40_markers,"/home/hhampson/Results/combined_gluc_top_40_markers_res_05_clusters_19_outlier_removed.csv")
-
-# Create dot plot with top 10 markers (might be crowded)
-dotplot_40 <- create_marker_dotplot(so_combined, all_markers, top_n = 40,
-                                    title = "Top 40 Marker Genes by Cluster; Combined Glucose Treatment")
-print(dotplot_40)
-
-png("/home/hhampson/Results/dotplot_avg_exp_top40_gluc_combined_cluster18_res05_outlier_removed.png",res=300,width=10000,height=2500)
-print(dotplot_40)
-dev.off()
-
-# Create split dot plots - adjust clusters_per_plot as needed
-# For 19 clusters split into ~4 plots, use 5 clusters per plot
-dotplots_split <- create_marker_dotplot_split(
-  so_combined, 
-  all_markers, 
-  top_n = 40,
-  title = "Top 40 Marker Genes by Cluster; Combined Glucose Treatment",
-  clusters_per_plot = 1
-)
-
-# Print each plot individually (they'll be larger)
-for (i in seq_along(dotplots_split)) {
-  print(dotplots_split[[i]])
-}
-
-# Or save them to files with larger dimensions
-for (i in seq_along(dotplots_split)) {
-  ggsave(
-    filename = paste0("dotplot_part_", i, ".png"),
-    plot = dotplots_split[[i]],
-    width = 16,
-    height = 10,
-    dpi = 300
-  )
-}
-
-
-
-#Unlabeled cluster UMAP
-png("/home/hhampson/Results/UMAP_combined_unlabeled_res_05_clusters18.png",res=300,width=2000,height=2000)
-DimPlot(so_combined, reduction = "umap", raster = T)+ 
-  ggtitle("Combined Diabetes Status + Combined Treatment Group",
-          subtitle = "Res = 0.5, Clusters = 18")
-dev.off()
-
-#By treatment group
-png("/home/hhampson/Results/UMAP_combined_unlabeled_res_05_clusters19_by_treatment.png",res=300,width=2000,height=2000)
-DimPlot(so_combined, reduction = "umap", group.by = "treatment", raster = T)+ 
-  ggtitle("Combined Diabetes Status by Treatment Group",
-          subtitle = "Res = 0.5, Clusters = 19")
-dev.off()
-
-#By diabetes group
-png("/home/hhampson/Results/UMAP_combined_unlabeled_res_05_clusters19_by_diabetes.png",res=300,width=2000,height=2000)
-DimPlot(so_combined, reduction = "umap", group.by = "group", raster = T)+ 
-  ggtitle("Combined Treatment by Diabetes Status",
-          subtitle = "Res = 0.5, Clusters = 19")
-dev.off()
-
-#Label clusters with cluster number
-#Unlabeled cluster UMAP
-png("/home/hhampson/Results/UMAP_combined_labeled_res_05_clusters18.png",res=300,width=2000,height=2000)
-DimPlot(so_combined, reduction = "umap", raster = T,label = T)+ 
-  ggtitle("Combined Diabetes Status + Combined Treatment Group",
-          subtitle = "Res = 0.5, Clusters = 18")
-dev.off()
-```
-
-####d. NOX5 Expression
-```{r}
-#Select combined conc. only
-so_combined <- sc_org
-
-#Remove ID IT_19
-so_combined <- subset(so_combined,record_id!="IT_19")
-
-# Get current feature names
-current_names <- rownames(so_combined)
-
-# Option A: Keep just gene symbols, make unique if needed
-gene_symbols <- str_extract(current_names, "^[^-]+") %>% str_trim()
-new_names <- make.unique(gene_symbols, sep = "-")
-
-# Option B: Keep full name but fix formatting (replace problematic characters)
-# new_names <- str_replace_all(current_names, " - ", "_") %>%
-#              str_replace_all("_", "-")  # preemptively do what Seurat would do
-
-# Check for duplicates that would be created
-if (any(duplicated(new_names))) {
-  message(paste("Making", sum(duplicated(new_names)), "duplicate names unique"))
-}
-
-# Rebuild the assay with clean names
-counts <- GetAssayData(so_combined, slot = "counts")
-rownames(counts) <- new_names
-
-# Create fresh assay and replace
-so_combined[["RNA"]] <- CreateAssayObject(counts = counts)
-
-# Now normalize - should work without warnings
-so_combined <- NormalizeData(so_combined)
-
-# PCA
-so_combined <- NormalizeData(so_combined)
-so_combined <- ScaleData(so_combined, features = VariableFeatures(so_combined))
-so_combined <- FindVariableFeatures(object = so_combined)
-so_combined <- RunPCA(so_combined, features = VariableFeatures(object = so_combined),assay="RNA")
-# ElbowPlot(so_combined)
-
-# # Find neighbors and clusters 
-so_combined <- FindNeighbors(so_combined, assay = "RNA", dims = 1:20) #20 based on elbow plot
-so_combined <- FindClusters(so_combined, resolution = 0.5)
-# so_combined <- FindClusters(so_combined, resolution = 1)
-# so_combined <- FindClusters(so_combined, resolution = 0.35)
-
-# Perform UMAP
-so_combined <- RunUMAP(so_combined, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
-so_combined@reductions
-DimPlot(so_combined, reduction = "umap", raster = F)
-Idents(so_combined) <- "seurat_clusters"  # or whatever the column is named
-
-# Verify you have 25 clusters
-print(paste("Number of clusters:", length(unique(Idents(so_combined)))))
-print(table(Idents(so_combined)))  # Show distribution of cells per cluster
-DimPlot(so_combined, reduction = "umap", raster = T)
-
-DimPlot(so_combined, reduction = "umap", raster = T, group.by = "record_id")
-
-FeaturePlot(so_combined, 
-            features = "NOX5",raster=T) +
-  # scale_color_viridis_c() +
-  ggtitle("NOX5 Expression")
-
-FeaturePlot(so_combined, 
-            features = "NOX5-1",raster=T) +
-  # scale_color_viridis_c() +
-  ggtitle("NOX5 Expression")
-
-# Check the exact feature name after cleaning
-grep("NOX5", rownames(so_combined), value = TRUE)
-
-# Basic dotplot
-DotPlot(so_combined, features = "NOX5") + 
-  RotatedAxis()
-
-# If you have multiple NOX5 entries (NOX5, NOX5-1, etc.)
-nox5_features <- grep("^NOX5", rownames(so_combined), value = TRUE)
-DotPlot(so_combined, features = nox5_features) + 
-  RotatedAxis()
-
-# Prettier version
-DotPlot(so_combined, features = "NOX5") + 
-  RotatedAxis() +
-  theme(axis.text.x = element_text(size = 10),
-        axis.text.y = element_text(size = 10)) +
-  ggtitle("NOX5 Expression Across Clusters")
-
-nox5_1 <- grep("NOX5-1", rownames(so_combined), value = TRUE)
-FeaturePlot(so_combined, features = nox5_1, raster = TRUE)
-```
-
-###ii. 15 Glucose
-####I. Find Markers
-####a. Low Res
-```{r}
-#Select 15 conc. only
-so_15 <- subset(sc_org,treatment=="15")
-
-# PCA
-so_15 <- NormalizeData(so_15)
-so_15 <- ScaleData(so_15, features = VariableFeatures(so_15))
-so_15 <- FindVariableFeatures(object = so_15)
-so_15 <- RunPCA(so_15, features = VariableFeatures(object = so_15),assay="RNA")
-# ElbowPlot(so_15)
-
-# # Find neighbors and clusters 
-so_15 <- FindNeighbors(so_15, assay = "RNA", dims = 1:20) #20 based on elbow plot
-# so_15 <- FindClusters(so_15, resolution = 0.5)
-# so_15 <- FindClusters(so_15, resolution = 1)
-so_15 <- FindClusters(so_15, resolution = 0.2)
-
-# Perform UMAP
-so_15 <- RunUMAP(so_15, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
-so_15@reductions
-DimPlot(so_15, reduction = "umap", raster = F)
-Idents(so_15) <- "seurat_clusters"  # or whatever the column is named
-
-
-# Verify you have 25 clusters
-print(paste("Number of clusters:", length(unique(Idents(so_15)))))
-print(table(Idents(so_15)))  # Show distribution of cells per cluster
-DimPlot(so_15, reduction = "umap", raster = T)
-
-# Find markers for all clusters
-all_markers <- FindAllMarkers(so_15, 
-                              only.pos = TRUE,     # Only positive markers
-                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
-                              logfc.threshold = 0.25,  # Minimum log fold change
-                              test.use = "wilcox")  # Wilcoxon test
-
-# Verify all 25 clusters are included
-print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
-print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
-
-# Get top 20 markers per cluster
-top_20_markers <- get_top_markers(all_markers, top_n = 20)
-write.csv(top_20_markers,"/home/hhampson/Results/15_gluc_top_20_markers_res_02_clusters_8.csv")
-
-# Create dot plot with top 10 markers (might be crowded)
-dotplot_20 <- create_marker_dotplot(so_15, all_markers, top_n = 20,
-                                    title = "Top 20 Marker Genes by Cluster; 15 mM Glucose Treatment")
-print(dotplot_20)
-
-png("/home/hhampson/Results/dotplot_avg_exp_top20_gluc15_cluster8_res02.png.png",res=300,width=10000,height=2500)
-print(dotplot_20)
-dev.off()
-
-#Unlabeled cluster UMAP
-png("/home/hhampson/Results/UMAP_15_unlabeled_res_02_clusters8.png",res=300,width=2000,height=2000)
-DimPlot(so_15, reduction = "umap", raster = T)+ 
-  ggtitle("15 mM Glucose Treatment",
-          subtitle = "Res = 0.2, Clusters = 8")
-dev.off()
-
-#By treatment group
-png("/home/hhampson/Results/UMAP_15_unlabeled_res_02_clusters8_by_diabetes.png",res=300,width=2000,height=2000)
-DimPlot(so_15, reduction = "umap", group.by = "group", raster = T)+ 
-  ggtitle("15 mM Glucose Treatment by Diabetes Status",
-          subtitle = "Res = 0.2, Clusters = 8")
-dev.off()
-```
-
-#####II. Annotate
-```{r}
-cell_type_annotations_res02 <- c(
-  "0" = "Nephron Progenitors/Early Epithelial",
-  "1" = "Neuronal Cells (off-target)",
-  "2" = "Mature Proximal Tubule",
-  "3" = "Podocytes + Stromal (mixed)",
-  "4" = "Neural Crest/Melanocyte-like (off-target)",
-  "5" = "Muscle/Myogenic Cells (off-target)",
-  "6" = "Proliferating Progenitor Cells",
-  "7" = "Thick Ascending Limb (TAL)",
-  "8" = "Collecting Duct Principal Cells"
-)
-
-# Add cell type annotations to metadata
-so_15@meta.data$celltype <- cell_type_annotations_res02[as.character(Idents(so_15))]
-
-
-# Create UMAP with cell type labels
-DimPlot(so_15, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("15 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.2, Clusters = 8")
-
-#Save annotated UMAP
-png("/home/hhampson/Results/Annotated_UMAP_15_res_02_clusters8.png",res=300,width=3700,height=3000)
-DimPlot(so_15, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-  theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("15 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.2, Clusters = 8")
-dev.off()
-
-```
-
-####b. Mod Res
-```{r}
-#Select 15 conc. only
-so_15 <- subset(sc_org,treatment=="15")
-
-# PCA
-so_15 <- NormalizeData(so_15)
-so_15 <- ScaleData(so_15, features = VariableFeatures(so_15))
-so_15 <- FindVariableFeatures(object = so_15)
-so_15 <- RunPCA(so_15, features = VariableFeatures(object = so_15),assay="RNA")
-# ElbowPlot(so_15)
-
-# # Find neighbors and clusters 
-so_15 <- FindNeighbors(so_15, assay = "RNA", dims = 1:20) #20 based on elbow plot
-# so_15 <- FindClusters(so_15, resolution = 0.5)
-# so_15 <- FindClusters(so_15, resolution = 1)
-so_15 <- FindClusters(so_15, resolution = 0.35)
-
-# Perform UMAP
-so_15 <- RunUMAP(so_15, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
-so_15@reductions
-DimPlot(so_15, reduction = "umap", raster = F)
-Idents(so_15) <- "seurat_clusters"  # or whatever the column is named
-
-
-# Verify you have 25 clusters
-print(paste("Number of clusters:", length(unique(Idents(so_15)))))
-print(table(Idents(so_15)))  # Show distribution of cells per cluster
-DimPlot(so_15, reduction = "umap", raster = T)
-
-# Find markers for all clusters
-all_markers <- FindAllMarkers(so_15, 
-                              only.pos = TRUE,     # Only positive markers
-                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
-                              logfc.threshold = 0.25,  # Minimum log fold change
-                              test.use = "wilcox")  # Wilcoxon test
-
-# Verify all 25 clusters are included
-print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
-print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
-
-# Get top 20 markers per cluster
-top_20_markers <- get_top_markers(all_markers, top_n = 20)
-write.csv(top_20_markers,"/home/hhampson/Results/15_gluc_top_20_markers_res_035_clusters_11.csv")
-
-# Create dot plot with top 10 markers (might be crowded)
-dotplot_20 <- create_marker_dotplot(so_15, all_markers, top_n = 20,
-                                    title = "Top 20 Marker Genes by Cluster; 15 mM Glucose Treatment")
-print(dotplot_20)
-
-png("/home/hhampson/Results/dotplot_avg_exp_top20_gluc15_cluster11_res035.png.png",res=300,width=10000,height=2500)
-print(dotplot_20)
-dev.off()
-
-#Unlabeled cluster UMAP
-png("/home/hhampson/Results/UMAP_15_unlabeled_res_035_clusters11.png",res=300,width=2000,height=2000)
-DimPlot(so_15, reduction = "umap", raster = T)+ 
-  ggtitle("15 mM Glucose Treatment",
-          subtitle = "Res = 0.35, Clusters = 11")
-dev.off()
-
-#By treatment group
-png("/home/hhampson/Results/UMAP_15_unlabeled_res_035_clusters11_by_diabetes.png",res=300,width=2000,height=2000)
-DimPlot(so_15, reduction = "umap", group.by = "group", raster = T)+ 
-  ggtitle("15 mM Glucose Treatment by Diabetes Status",
-          subtitle = "Res = 0.35, Clusters = 11")
-dev.off()
-```
-#####II. Annotate
-```{r}
-# Add cell type annotations to metadata
-cell_type_annotations_res035 <- c(
-  "0" = "Stromal/Interstitial Cells",
-  "1" = "Mature Proximal Tubule",
-  "2" = "Developing Proximal Tubule",
-  "3" = "Podocytes",
-  "4" = "Muscle/Myogenic Cells (off-target)",
-  "5" = "Differentiating Neurons (off-target)",
-  "6" = "Neural Progenitors (off-target)",
-  "7" = "Neural Crest/Melanocyte (off-target)",
-  "8" = "Proliferating Nephron Progenitors",
-  "9" = "Thick Ascending Limb (TAL)",
-  "10" = "Proliferating Cells",
-  "11" = "Collecting Duct Principal Cells"
-)
-
-# Add cell type annotations to metadata
-# so_15 <- AddMetaData(
-#   object = so_15,
-#   metadata = cell_type_annotations[as.character(Idents(so_15))],
-#   col.name = "celltype"
-# )
-so_15@meta.data$celltype <- cell_type_annotations_res035[as.character(Idents(so_15))]
-
-
-# Create UMAP with cell type labels
-DimPlot(so_15, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("15 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.35, Clusters = 11")
-
-#Save annotated UMAP
-png("/home/hhampson/Results/Annotated_UMAP_15_res_035_clusters11.png",res=300,width=3700,height=3000)
-DimPlot(so_15, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-  theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("15 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.35, Clusters = 11")
-dev.off()
-
-```
-####c. High Res
-```{r}
-#Select 15 conc. only
-so_15 <- subset(sc_org,treatment=="15")
-
-# PCA
-so_15 <- NormalizeData(so_15)
-so_15 <- ScaleData(so_15, features = VariableFeatures(so_15))
-so_15 <- FindVariableFeatures(object = so_15)
-so_15 <- RunPCA(so_15, features = VariableFeatures(object = so_15),assay="RNA")
-# ElbowPlot(so_15)
-
-# # Find neighbors and clusters 
-so_15 <- FindNeighbors(so_15, assay = "RNA", dims = 1:20) #20 based on elbow plot
-so_15 <- FindClusters(so_15, resolution = 0.5)
-# so_15 <- FindClusters(so_15, resolution = 1)
-# so_15 <- FindClusters(so_15, resolution = 0.2)
-
-# Perform UMAP
-so_15 <- RunUMAP(so_15, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
-so_15@reductions
-DimPlot(so_15, reduction = "umap", raster = F)
-Idents(so_15) <- "seurat_clusters"  # or whatever the column is named
-
-
-# Verify you have 25 clusters
-print(paste("Number of clusters:", length(unique(Idents(so_15)))))
-print(table(Idents(so_15)))  # Show distribution of cells per cluster
-DimPlot(so_15, reduction = "umap", raster = T)
-
-# Find markers for all clusters
-all_markers <- FindAllMarkers(so_15, 
-                              only.pos = TRUE,     # Only positive markers
-                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
-                              logfc.threshold = 0.25,  # Minimum log fold change
-                              test.use = "wilcox")  # Wilcoxon test
-
-# Verify all 25 clusters are included
-print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
-print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
-
-# Get top 20 markers per cluster
-top_20_markers <- get_top_markers(all_markers, top_n = 20)
-write.csv(top_20_markers,"/home/hhampson/Results/15_gluc_top_20_markers_res_05_clusters_16.csv")
-
-# Create dot plot with top 10 markers (might be crowded)
-dotplot_20 <- create_marker_dotplot(so_15, all_markers, top_n = 20,
-                                    title = "Top 20 Marker Genes by Cluster; 15 mM Glucose Treatment")
-print(dotplot_20)
-
-png("/home/hhampson/Results/dotplot_avg_exp_top20_gluc15_cluster16_res05.png.png",res=300,width=10000,height=2500)
-print(dotplot_20)
-dev.off()
-
-#Unlabeled cluster UMAP
-png("/home/hhampson/Results/UMAP_15_unlabeled_res_05_clusters16.png",res=300,width=2000,height=2000)
-DimPlot(so_15, reduction = "umap", raster = T)+ 
-  ggtitle("15 mM Glucose Treatment",
-          subtitle = "Res = 0.5, Clusters = 16")
-dev.off()
-
-#By treatment group
-png("/home/hhampson/Results/UMAP_15_unlabeled_res_05_clusters16_by_diabetes.png",res=300,width=2000,height=2000)
-DimPlot(so_15, reduction = "umap", group.by = "group", raster = T)+ 
-  ggtitle("15 mM Glucose Treatment by Diabetes Status",
-          subtitle = "Res = 0.5, Clusters = 16")
-dev.off()
-```
-#### II. Annotate
-```{r}
-cell_type_annotations_res05 <- c(
-  "0" = "Developing Proximal Tubule",
-  "1" = "Mature Proximal Tubule",
-  "2" = "Stromal/Interstitial Cells",
-  "3" = "Podocytes",
-  "4" = "Neural Crest/Melanocyte-like (off-target)",
-  "5" = "Neural Progenitors (off-target)",
-  "6" = "Proliferating Nephron Progenitors",
-  "7" = "Neural Progenitors/Neuroblasts (off-target)",
-  "8" = "Muscle/Myogenic Cells (off-target)",
-  "9" = "Thick Ascending Limb (TAL)",
-  "10" = "Distal Convoluted Tubule (DCT)",
-  "11" = "Collecting Duct Principal Cells",
-  "12" = "Proliferating Epithelial/Nephron",
-  "13" = "Proliferating Stromal/Mesenchymal",
-  "14" = "Endothelial Cells",
-  "15" = "Specialized Stromal Subtype",
-  "16" = "Mesangial/Vascular Smooth Muscle"
-)
-
-# Add cell type annotations to metadata
-# so_15$celltype <- cell_type_annotations[as.character(Idents(so_15))]
-so_15@meta.data$celltype <- cell_type_annotations_res05[as.character(Idents(so_15))]
-
-# Create UMAP with cell type labels
-DimPlot(so_15, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("15 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.5, Clusters = 16")
-
-
-#Save annotated UMAP
-png("/home/hhampson/Results/Annotated_UMAP_15_res_05_clusters16.png",res=300,width=3700,height=3000)
-DimPlot(so_15, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("15 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.5, Clusters = 16")
-dev.off()
-```
-
-
-###iii. 30 Glucose
-#####I. Find Markers
-####a. Low Res
-```{r}
-#Select 30 conc. only
-so_30 <- subset(sc_org,treatment=="30")
-
-# PCA
-so_30 <- NormalizeData(so_30)
-so_30 <- ScaleData(so_30, features = VariableFeatures(so_30))
-so_30 <- FindVariableFeatures(object = so_30)
-so_30 <- RunPCA(so_30, features = VariableFeatures(object = so_30),assay="RNA")
-# ElbowPlot(so_30)
-
-# # Find neighbors and clusters 
-so_30 <- FindNeighbors(so_30, assay = "RNA", dims = 1:20) #20 based on elbow plot
-# so_30 <- FindClusters(so_30, resolution = 0.5)
-# so_30 <- FindClusters(so_30, resolution = 1)
-so_30 <- FindClusters(so_30, resolution = 0.2)
-
-# Perform UMAP
-so_30 <- RunUMAP(so_30, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
-so_30@reductions
-DimPlot(so_30, reduction = "umap", raster = F)
-Idents(so_30) <- "seurat_clusters"  # or whatever the column is named
-
-
-# Verify you have 25 clusters
-print(paste("Number of clusters:", length(unique(Idents(so_30)))))
-print(table(Idents(so_30)))  # Show distribution of cells per cluster
-DimPlot(so_30, reduction = "umap", raster = T)
-
-# Find markers for all clusters
-all_markers <- FindAllMarkers(so_30, 
-                              only.pos = TRUE,     # Only positive markers
-                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
-                              logfc.threshold = 0.25,  # Minimum log fold change
-                              test.use = "wilcox")  # Wilcoxon test
-
-# Verify all 25 clusters are included
-print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
-print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
-
-# Get top 20 markers per cluster
-top_20_markers <- get_top_markers(all_markers, top_n = 20)
-write.csv(top_20_markers,"/home/hhampson/Results/30_gluc_top_20_markers_res_02_clusters_8.csv")
-
-# Create dot plot with top 10 markers (might be crowded)
-dotplot_20 <- create_marker_dotplot(so_30, all_markers, top_n = 20,
-                                    title = "Top 20 Marker Genes by Cluster; 30 mM Glucose Treatment")
-print(dotplot_20)
-
-png("/home/hhampson/Results/dotplot_avg_exp_top20_gluc30_cluster8_res02.png.png",res=300,width=10000,height=2500)
-print(dotplot_20)
-dev.off()
-
-#Unlabeled cluster UMAP
-png("/home/hhampson/Results/UMAP_30_unlabeled_res_02_clusters8.png",res=300,width=2000,height=2000)
-DimPlot(so_30, reduction = "umap", raster = T)+ 
-  ggtitle("30 mM Glucose Treatment",
-          subtitle = "Res = 0.2, Clusters = 8")
-dev.off()
-
-#By treatment group
-png("/home/hhampson/Results/UMAP_30_unlabeled_res_02_clusters8_by_diabetes.png",res=300,width=2000,height=2000)
-DimPlot(so_30, reduction = "umap", group.by = "group", raster = T)+ 
-  ggtitle("30 mM Glucose Treatment by Diabetes Status",
-          subtitle = "Res = 0.2, Clusters = 8")
-dev.off()
-```
-######II. Annotate
-```{r}
-# Add cell type annotations to metadata
-cell_type_annotations_res02 <- c(
-  "0" = "Podocytes + Stromal (mixed)",
-  "1" = "Neuronal Cells (off-target)",
-  "2" = "Muscle/Myogenic Cells (off-target)",
-  "3" = "Proliferating Nephron Progenitors",
-  "4" = "Stromal/Interstitial Cells",
-  "5" = "Mature Proximal Tubule",
-  "6" = "Neural Crest/Melanocyte-like (off-target)",
-  "7" = "Thick Ascending Limb (TAL)",
-  "8" = "Collecting Duct Principal Cells"
-)
-
-# Add cell type annotations to metadata
-so_30@meta.data$celltype <- cell_type_annotations_res02[as.character(Idents(so_30))]
-
-
-# Create UMAP with cell type labels
-DimPlot(so_30, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("30 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.2, Clusters = 8")
-
-#Save annotated UMAP
-png("/home/hhampson/Results/Annotated_UMAP_30_res_02_clusters8.png",res=300,width=3700,height=3000)
-DimPlot(so_30, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-  theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("30 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.2, Clusters = 8")
-dev.off()
-```
-####b. Mod Res
-```{r}
-#Select 30 conc. only
-so_30 <- subset(sc_org,treatment=="30")
-
-# PCA
-so_30 <- NormalizeData(so_30)
-so_30 <- ScaleData(so_30, features = VariableFeatures(so_30))
-so_30 <- FindVariableFeatures(object = so_30)
-so_30 <- RunPCA(so_30, features = VariableFeatures(object = so_30),assay="RNA")
-# ElbowPlot(so_30)
-
-# # Find neighbors and clusters 
-so_30 <- FindNeighbors(so_30, assay = "RNA", dims = 1:20) #20 based on elbow plot
-so_30 <- FindClusters(so_30, resolution = 0.35)
-# so_30 <- FindClusters(so_30, resolution = 1)
-
-# Perform UMAP
-so_30 <- RunUMAP(so_30, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
-so_30@reductions
-DimPlot(so_30, reduction = "umap", raster = F)
-Idents(so_30) <- "seurat_clusters"  # or whatever the column is named
-
-
-# Verify you have 25 clusters
-print(paste("Number of clusters:", length(unique(Idents(so_30)))))
-print(table(Idents(so_30)))  # Show distribution of cells per cluster
-DimPlot(so_30, reduction = "umap", raster = T)
-
-# Find markers for all clusters
-all_markers <- FindAllMarkers(so_30, 
-                              only.pos = TRUE,     # Only positive markers
-                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
-                              logfc.threshold = 0.25,  # Minimum log fold change
-                              test.use = "wilcox")  # Wilcoxon test
-
-# Verify all 25 clusters are included
-print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
-print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
-
-# Get top 20 markers per cluster
-top_20_markers <- get_top_markers(all_markers, top_n = 20)
-# write.csv(top_20_markers,"/home/hhampson/Results/top_20_markers_30_res_035_clusters_13.csv")
-
-
-# Create dot plot with top 10 markers (might be crowded)
-dotplot_20 <- create_marker_dotplot(so_30, all_markers, top_n = 20,
-                                    title = "Top 20 Marker Genes by Cluster; 30 mM Glucose Treatment")
-print(dotplot_20)
-# png(fs::path(dir.results,"dotplot_avg_expression.png"),
-    # width = 10,
-    # height = 10,
-    # units = "in",
-    # res = 300,
-    # bg = "white")
-# print(dotplot_20)
-# dev.off()
-png("/home/hhampson/Results/dotplot_avg_exp_top20_gluc30_cluster13_res035.png",res=300,width=10000,height=2500)
-print(dotplot_20)
-dev.off()
-
-#Unlabeled cluster UMAP
-png("/home/hhampson/Results/UMAP_30_unlabeled_res_035_clusters13.png",res=300,width=2000,height=2000)
-DimPlot(so_30, reduction = "umap", raster = T)+ 
-  ggtitle("30 mM Glucose Treatment",
-          subtitle = "Res = 0.35, Clusters = 13")
-dev.off()
-
-#By treatment group
-png("/home/hhampson/Results/UMAP_30_unlabeled_res_035_clusters13_by_diabetes.png",res=300,width=2000,height=2000)
-DimPlot(so_30, reduction = "umap", group.by = "group", raster = T)+ 
-  ggtitle("30 mM Glucose Treatment by Diabetes Status",
-          subtitle = "Res = 0.35, Clusters = 13")
-dev.off()
-```
-
-###### I. Annotate
-```{r}
-# Add cell type annotations to metadata
-cell_type_annotations_res035 <- c(
-  "0" = "Neuronal Cells - Mature (off-target)",
-  "1" = "Stromal/Interstitial Cells",
-  "2" = "Proliferating Nephron Progenitors",
-  "3" = "Podocytes - Activated/Contractile",
-  "4" = "Podocytes - Classic",
-  "5" = "Mature Proximal Tubule",
-  "6" = "Neural Crest/Melanocyte-like (off-target)",
-  "7" = "Distal Convoluted Tubule (DCT)",
-  "8" = "Muscle/Myogenic Cells - Mature (off-target)",
-  "9" = "Thick Ascending Limb (TAL)",
-  "10" = "Proliferating Cells",
-  "11" = "Collecting Duct Principal Cells",
-  "12" = "Neuronal Cells - Highly Differentiated (off-target)",
-  "13" = "Specialized Proximal Tubule/Epithelial"
-)
-
-# Add cell type annotations to metadata
-so_30@meta.data$celltype <- cell_type_annotations_res035[as.character(Idents(so_30))]
-
-
-# Create UMAP with cell type labels
-DimPlot(so_30, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("30 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.35, Clusters = 11")
-
-#Save annotated UMAP
-png("/home/hhampson/Results/Annotated_UMAP_30_res_035_clusters11.png",res=300,width=3700,height=3000)
-DimPlot(so_30, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-  theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("30 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.35, Clusters = 11")
-dev.off()
-```
-
-
-####c. High Res
-```{r}
-#Select 30 conc. only
-so_30 <- subset(sc_org,treatment=="30")
-
-# PCA
-so_30 <- NormalizeData(so_30)
-so_30 <- ScaleData(so_30, features = VariableFeatures(so_30))
-so_30 <- FindVariableFeatures(object = so_30)
-so_30 <- RunPCA(so_30, features = VariableFeatures(object = so_30),assay="RNA")
-# ElbowPlot(so_30)
-
-# # Find neighbors and clusters 
-so_30 <- FindNeighbors(so_30, assay = "RNA", dims = 1:20) #20 based on elbow plot
-so_30 <- FindClusters(so_30, resolution = 0.5)
-# so_30 <- FindClusters(so_30, resolution = 1)
-# so_30 <- FindClusters(so_30, resolution = 0.2)
-
-# Perform UMAP
-so_30 <- RunUMAP(so_30, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
-so_30@reductions
-DimPlot(so_30, reduction = "umap", raster = F)
-Idents(so_30) <- "seurat_clusters"  # or whatever the column is named
-
-
-# Verify you have 25 clusters
-print(paste("Number of clusters:", length(unique(Idents(so_30)))))
-print(table(Idents(so_30)))  # Show distribution of cells per cluster
-DimPlot(so_30, reduction = "umap", raster = T)
-
-# Find markers for all clusters
-all_markers <- FindAllMarkers(so_30, 
-                              only.pos = TRUE,     # Only positive markers
-                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
-                              logfc.threshold = 0.25,  # Minimum log fold change
-                              test.use = "wilcox")  # Wilcoxon test
-
-# Verify all 25 clusters are included
-print(paste("Clusters with markers found:", length(unique(all_markers$cluster))))
-print(paste("Clusters in marker analysis:", paste(sort(unique(all_markers$cluster)), collapse = ", ")))
-
-# Get top 20 markers per cluster
-top_20_markers <- get_top_markers(all_markers, top_n = 20)
-write.csv(top_20_markers,"/home/hhampson/Results/30_gluc_top_20_markers_res_05_clusters_16.csv")
-
-# Create dot plot with top 10 markers (might be crowded)
-dotplot_20 <- create_marker_dotplot(so_30, all_markers, top_n = 20,
-                                    title = "Top 20 Marker Genes by Cluster; 30 mM Glucose Treatment")
-print(dotplot_20)
-
-png("/home/hhampson/Results/dotplot_avg_exp_top20_gluc30_cluster16_res05.png.png",res=300,width=10000,height=2500)
-print(dotplot_20)
-dev.off()
-
-#Unlabeled cluster UMAP
-png("/home/hhampson/Results/UMAP_30_unlabeled_res_05_clusters16.png",res=300,width=2000,height=2000)
-DimPlot(so_30, reduction = "umap", raster = T)+ 
-  ggtitle("30 mM Glucose Treatment",
-          subtitle = "Res = 0.5, Clusters = 16")
-dev.off()
-
-#By treatment group
-png("/home/hhampson/Results/UMAP_30_unlabeled_res_05_clusters16_by_diabetes.png",res=300,width=2000,height=2000)
-DimPlot(so_30, reduction = "umap", group.by = "group", raster = T)+ 
-  ggtitle("30 mM Glucose Treatment by Diabetes Status",
-          subtitle = "Res = 0.5, Clusters = 16")
-dev.off()
-```
-
-#####I. Annotate
-```{r}
-cell_type_annotations_res05 <- c(
-  "0" = "Stromal/Interstitial Cells",
-  "1" = "Podocytes - Classic",
-  "2" = "Mature Proximal Tubule",
-  "3" = "Neural Crest/Melanocyte-like (off-target)",
-  "4" = "Podocytes - Mesenchymal-like",
-  "5" = "Endothelial Cells",
-  "6" = "Muscle/Myogenic Cells - Mature (off-target)",
-  "7" = "Distal Convoluted Tubule (DCT)",
-  "8" = "Proliferating Nephron Progenitors",
-  "9" = "Thick Ascending Limb (TAL)",
-  "10" = "Neural Progenitors (off-target)",
-  "11" = "Podocytes - Activated/Contractile",
-  "12" = "Neuronal Cells - Mature (off-target)",
-  "13" = "Proliferating Cells",
-  "14" = "Collecting Duct Principal Cells",
-  "15" = "Neuronal Cells - Highly Differentiated (off-target)",
-  "16" = "Specialized Proximal Tubule/Epithelial"
-)
-
-# Add cell type annotations to metadata
-so_30@meta.data$celltype <- cell_type_annotations_res05[as.character(Idents(so_30))]
-
-
-# Create UMAP with cell type labels
-DimPlot(so_30, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("30 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.5, Clusters = 16")
-
-#Save annotated UMAP
-png("/home/hhampson/Results/Annotated_UMAP_30_res_05_clusters16.png",res=300,width=3700,height=3000)
-DimPlot(so_30, 
-        reduction = "umap", 
-        group.by = "celltype",
-        label = TRUE,
-        label.size = 3,
-        repel = TRUE) + 
-  theme(legend.position = "right",
-        legend.text = element_text(size = 10))+
-  ggtitle("30 mM Glucose Treatment - Cell Types",
-          subtitle = "Res = 0.5, Clusters = 16")
-dev.off()
-
-```
-
-
-```{r}
-#Select 30 conc. only
-so_30 <- subset(sc_org,treatment=="30")
-
-# PCA
-so_30 <- NormalizeData(so_30)
-so_30 <- ScaleData(so_30, features = VariableFeatures(so_30))
-so_30 <- FindVariableFeatures(object = so_30)
-so_30 <- RunPCA(so_30, features = VariableFeatures(object = so_30),assay="RNA")
-# ElbowPlot(so_30)
-
-# # Find neighbors and clusters (again using integrated data)
-so_30 <- FindNeighbors(so_30, assay = "RNA", dims = 1:20)
-so_30 <- FindClusters(so_30, resolution = 0.5)
-
-# Perform UMAP 
-so_30 <- RunUMAP(so_30, dims = 1:30)
-so_30@reductions
-DimPlot(so_30, reduction = "umap", raster = T)
-
-
-# Find markers for all clusters
-all_markers <- FindAllMarkers(so_30, 
-                              only.pos = TRUE,     # Only positive markers
-                              min.pct = 0.25,      # Must be expressed in at least 25% of cells
-                              logfc.threshold = 0.25,  # Minimum log fold change
-                              test.use = "wilcox")  # Wilcoxon test
-marker_summary <- all_markers %>%
-  group_by(cluster) %>%
-  summarise(
-    n_markers = n(),
-    avg_logfc = mean(avg_log2FC),
-    top_marker = gene[which.max(avg_log2FC)],
-    .groups = 'drop'
-  )
-print(marker_summary)
-
-# Get top 20 markers per cluster
-top_20_markers <- get_top_markers(all_markers, top_n = 20)
-
-# Get top 10 markers per cluster
-top_10_markers <- get_top_markers(all_markers, top_n = 10)
-
-# Get top 5 markers per cluster for cleaner visualization
-top_5_markers <- get_top_markers(all_markers, top_n = 5)
-
-# Print top 5 markers for each cluster
-for (cluster_id in unique(top_5_markers$cluster)) {
-  cluster_markers <- top_5_markers %>% filter(cluster == cluster_id)
-  cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
-}
-
-# Print top 20 markers for each cluster
-for (cluster_id in unique(top_20_markers$cluster)) {
-  cluster_markers <- top_20_markers %>% filter(cluster == cluster_id)
-  cat(paste("Cluster", cluster_id, ":", paste(cluster_markers$gene, collapse = ", "), "\n"))
-}
-
-
-
-# Create dot plot with top 20 markers
-dotplot_5 <- create_marker_dotplot(so_30, all_markers, top_n = 5,
-                                   title = "Top 5 Marker Genes by Cluster")
-print(dotplot_5)
-
-# Create dot plot with top 10 markers (might be crowded)
-dotplot_20 <- create_marker_dotplot(so_30, all_markers, top_n = 20,
-                                    title = "Top 20 Marker Genes by Cluster")
-print(dotplot_20)
-# png(fs::path(dir.results,"dotplot_avg_expression.png"),
-    # width = 10,
-    # height = 10,
-    # units = "in",
-    # res = 300,
-    # bg = "white")
-# print(dotplot_20)
-# dev.off()
-png("/home/hhampson/Results/dotplot_avg_exp_top20_30.png",res=300,width=6000,height=3000)
-print(dotplot_20)
-dev.off()
-
-# write.csv(top_20_markers,"/home/hhampson/Results/top_20_markers_30.csv")
-
-# Create heatmap
-# This scales all genes to ensure marker genes are included
-heatmap_result <- fix_scaling_and_create_heatmap(so_30, all_markers, top_n = 20)
-# so_30 <- heatmap_result$so_30  # Update with properly scaled data
-heatmap_plot_fixed <- heatmap_result$heatmap
-print(heatmap_plot_fixed)
-# png(fs::path(dir.results,"heatmap_avg_expression.png"), 
-#     width = 30, 
-#     height = 10, 
-#     units = "in",
-#     res = 300,
-#     bg = "white")
-png("/Home/hhampson/Results/heatmap_avg_exp_top20.png",res=300,width=2500,height=2500)
-print(heatmap_plot_fixed)
-dev.off()
-```
-
-```{r}
-literature_annotations <- data.frame(
-  cluster = 0:16,
-  celltype = c(
-    "Podocyte",              # Cluster 0 - PODXL, NPHS markers
-    "Podocyte",              # Cluster 1 - PODXL, NPHS markers  
-    "Proximal_Tubule",       # Cluster 2 - LRP2-like, tubular markers
-    "Thin_Limb",             # Cluster 3 - thin limb/loop markers
-    "Mature_Podocyte",       # Cluster 4 - PODXL, ACTN1
-    "Mesenchymal",           # Cluster 5 - SFRP2, stromal markers
-    "Proliferating",         # Cluster 6 - MKI67, cell cycle
-    "Stromal",               # Cluster 7 - FREM1, COL1A1
-    "Fibroblast",            # Cluster 8 - COL1A1, stromal
-    "Endothelial",           # Cluster 9 - endothelial markers
-    "Early_Tubule",          # Cluster 10 - early tubular epithelial
-    "Distal_Tubule",         # Cluster 11 - distal tubular markers
-    "Collecting_Duct",       # Cluster 12 - collecting duct
-    "Off_Target_Neural",     # Cluster 13 - neuronal markers
-    "Off_Target_Muscle",     # Cluster 14 - muscle-like
-    "Nephron_Progenitor",    # Cluster 15 - progenitor cells
-    "Unknown"                # Cluster 16 - unclear identity
-  ),
-  stringsAsFactors = FALSE
-)
-
-# Add simplified categories for easier visualization
-literature_annotations$broad_category <- case_when(
-  literature_annotations$celltype %in% c("Podocyte", "Mature_Podocyte") ~ "Podocyte",
-  literature_annotations$celltype %in% c("Proximal_Tubule", "Thin_Limb", "Early_Tubule", "Distal_Tubule") ~ "Tubular_Epithelial",
-  literature_annotations$celltype == "Collecting_Duct" ~ "Collecting_Duct",
-  literature_annotations$celltype == "Nephron_Progenitor" ~ "Nephron_Progenitor", 
-  literature_annotations$celltype %in% c("Mesenchymal", "Stromal", "Fibroblast") ~ "Mesenchymal_Stromal",
-  literature_annotations$celltype == "Proliferating" ~ "Proliferating",
-  literature_annotations$celltype == "Endothelial" ~ "Endothelial",
-  grepl("Off_Target", literature_annotations$celltype) ~ "Off_Target",
-  TRUE ~ "Unknown"
-)
-
-# Display the annotations
-cat("REVISED Literature-based cell type annotations (includes tubular cells!):\n")
-print(literature_annotations)
-
-cat("\n=== REVISION NOTES ===\n")
-cat("Updated annotations to properly identify TUBULAR CELLS:\n")
-cat("- Cluster 2: Proximal_Tubule (likely PT-like cells)\n")
-cat("- Cluster 3: Thin_Limb (thin limb of Henle)\n") 
-cat("- Cluster 10: Early_Tubule (early tubular epithelial)\n")
-cat("- Cluster 11: Distal_Tubule (distal tubular cells)\n")
-cat("- Cluster 12: Collecting_Duct (collecting duct)\n")
-cat("This creates a 'Tubular_Epithelial' category with multiple tubular cell types!\n")
-
-# Add annotations to Seurat object
-so_15@meta.data$literature_celltype <- literature_annotations$celltype[match(so_15@meta.data$seurat_clusters, literature_annotations$cluster)]
-so_15@meta.data$broad_category <- literature_annotations$broad_category[match(so_15@meta.data$seurat_clusters, literature_annotations$broad_category)]
-
-# Create UMAP visualizations
-create_literature_umap_plots <- function(seurat_obj) {
-  
-  plots <- list()
-  
-  # 1. Original clusters
-  plots$original <- DimPlot(seurat_obj, 
-                            group.by = "seurat_clusters",
-                            label = TRUE,
-                            label.size = 4,
-                            reduction = "umap") +
-    ggtitle("Original Seurat Clusters") +
-    theme_minimal()
-  
-  # 2. Literature-based detailed cell types
-  plots$detailed <- DimPlot(seurat_obj, 
-                            group.by = "literature_celltype",
-                            label = TRUE,
-                            label.size = 2.5,
-                            reduction = "umap") +
-    ggtitle("Literature-Based Cell Types (Detailed)") +
-    theme_minimal() +
-    theme(legend.position = "bottom",
-          legend.text = element_text(size = 8))
-  
-  # 3. Broad categories (cleaner view)
-  plots$broad <- DimPlot(seurat_obj, 
-                         group.by = "broad_category",
-                         label = TRUE,
-                         label.size = 3,
-                         reduction = "umap") +
-    ggtitle("Literature-Based Cell Types (Broad Categories)") +
-    theme_minimal() +
-    theme(legend.position = "bottom")
-  
-  # 4. Split by broad category
-  plots$split <- DimPlot(seurat_obj, 
-                         group.by = "broad_category",
-                         split.by = "broad_category",
-                         ncol = 3,
-                         reduction = "umap") +
-    ggtitle("Cell Types (Split View)") +
-    theme_minimal() +
-    theme(legend.position = "none")
-  
-  return(plots)
-}
-
-# Create the plots
-umap_plots <- create_literature_umap_plots(so_15)
-
-# Display the plots
-cat("\n=== LITERATURE-BASED CELL TYPE MAPPING ===\n")
-
-print(umap_plots$original)
-print(umap_plots$detailed) 
-print(umap_plots$broad)
-print(umap_plots$split)
-
-print(umap_plots$original)
-print(umap_plots$detailed) 
-png(fs::path(dir.results,"Annotated_UMAP.png"), 
-    width = 10, 
-    height = 10, 
-    units = "in",
-    res = 300,
-    bg = "white")
-print(umap_plots$detailed) 
-dev.off()
-
-print(umap_plots$broad)
-print(umap_plots$split)
-
-# Create summary statistics
-cat("\n=== CELL TYPE SUMMARY ===\n")
-
-# Detailed cell types
-detailed_summary <- so_15@meta.data %>%
-  group_by(literature_celltype) %>%
-  summarise(n_cells = n(), .groups = 'drop') %>%
-  mutate(percentage = round(n_cells / sum(n_cells) * 100, 1)) %>%
-  arrange(desc(n_cells))
-
-cat("Detailed cell types:\n")
-print(detailed_summary)
-
-# Broad categories
-broad_summary <- so_15@meta.data %>%
-  group_by(broad_category) %>%
-  summarise(n_cells = n(), .groups = 'drop') %>%
-  mutate(percentage = round(n_cells / sum(n_cells) * 100, 1)) %>%
-  arrange(desc(n_cells))
-
-cat("\nBroad categories:\n")
-print(broad_summary)
-
-# Create a mapping reference table
-mapping_reference <- literature_annotations %>%
-  left_join(
-    so_15@meta.data %>% 
-      group_by(seurat_clusters) %>% 
-      summarise(n_cells = n(), .groups = 'drop') %>%
-      rename(cluster = seurat_clusters),
-    by = "cluster"
-  ) %>%
-  mutate(percentage = round(n_cells / sum(n_cells) * 100, 1)) %>%
-  arrange(cluster)
-
-cat("\n=== CLUSTER TO CELL TYPE MAPPING ===\n")
-print(mapping_reference)
-
-# Create a publication-ready combined plot
-combined_plot <- umap_plots$original + umap_plots$broad + 
-  plot_layout(ncol = 2) +
-  plot_annotation(title = "Cluster Identification: Original vs Literature-Based Cell Types")
-
-print(combined_plot)
-
-# Save the plots
-ggsave("literature_celltype_umap_detailed.png", umap_plots$detailed, width = 12, height = 8, dpi = 300)
-ggsave("literature_celltype_umap_broad.png", umap_plots$broad, width = 10, height = 8, dpi = 300)
-ggsave("literature_celltype_combined.png", combined_plot, width = 16, height = 8, dpi = 300)
-
-# Save the mapping table
-write.csv(mapping_reference, "literature_celltype_mapping.csv", row.names = FALSE)
-
-cat("\n=== RESULTS SAVED ===\n")
-cat("- UMAP plots saved as PNG files\n")
-cat("- Mapping table saved as CSV\n")
-cat("- Cell type annotations stored in so_15@meta.data$literature_celltype\n")
-cat("- Broad categories stored in so_15@meta.data$broad_category\n")
-
-# Show key findings
-cat("\n=== KEY FINDINGS ===\n")
-cat("Major cell types identified in organoid:\n")
-for(i in 1:nrow(broad_summary)) {
-  cat(paste0("- ", broad_summary$broad_category[i], ": ", 
-             broad_summary$n_cells[i], " cells (", 
-             broad_summary$percentage[i], "%)\n"))
-}
-
-cat("\nThis organoid contains:\n")
-if("Podocyte" %in% broad_summary$broad_category) cat("✓ Glomerular development (Podocytes)\n")
-if("Nephron_Progenitor" %in% broad_summary$broad_category) cat("✓ Nephron progenitor cells\n")
-if("Mesenchymal_Stromal" %in% broad_summary$broad_category) cat("✓ Stromal/mesenchymal support cells\n")
-if("Epithelial" %in% broad_summary$broad_category) cat("✓ Epithelial differentiation\n")
-if("Off_Target" %in% broad_summary$broad_category) cat("! Off-target cell types (common in organoids)\n")
-if("Proliferating" %in% broad_summary$broad_category) cat("✓ Actively dividing cells\n")
 ```
 
 
@@ -4919,6 +3488,41 @@ ggplot(celltype_counts, aes(x = treatment, y = proportion, fill = cell_type_abbr
     legend.position = "right"
   )
 dev.off()
+
+# --- Propeller test: T2D vs LC ---
+# propeller needs: clusters, sample, group stored in metadata
+# Make sure "group" and "record_id" are columns in so_combined metadata
+# Option 1: Keep only cell types present in ALL 6 samples
+cell_types_in_all <- names(which(colSums(prop_table > 0) == 6))
+print(cell_types_in_all)  # Should show 11 cell types
+
+so_filtered <- subset(so_combined, subset = cell_type_abbrev %in% cell_types_in_all)
+
+# Now run propeller on filtered data
+# Check if propeller.ttest works for paired data
+props <- getTransformedProps(
+  clusters = so_combined$cell_type_abbrev,
+  sample = so_combined$record_id,
+  transform = "logit"
+)
+
+# Check structure
+str(props)
+print(props$Samples)
+
+# Create sample info dataframe
+sample_info <- so_combined@meta.data %>%
+  dplyr::select(record_id, treatment) %>%
+  distinct() %>%
+  arrange(record_id)
+
+print(sample_info)
+
+cat("\n=== Propeller Results: T2D vs Lean Control ===\n")
+print(propeller_group)
+
+# Save results
+write.csv(propeller_group, "/home/hhampson/Results/Propeller_T2DvsLC_results.csv")
 
 ```
 
