@@ -582,55 +582,87 @@ save_fig(fig2, "Figure2_T2D_vs_Controls", width = 12, height = 5)
 cat("Figure 2 saved!\n")
 
 ########################################################################
-# =====================================================================
-#  FIGURE 3: UACR CORRELATIONS — k2, F, k2/F
-# =====================================================================
+# Figure 3 update: use log10(UACR) on x-axis
+# 
+# Replace the fig3b/fig3c/fig3d lines in your main script with these.
+# The Spearman correlation is computed on the ORIGINAL acr_u values
+# (rank-based, so log transform doesn't change rho/p),
+# but the x-axis is displayed as log10(UACR).
 ########################################################################
 
-dat_fig3 <- dat_with_pet %>%
-  filter(!is.na(avg_c_k2) & is.finite(avg_c_k2)) %>%
-  filter(group %in% c('Lean Control', 'Obese Control', 'Type 2 Diabetes')) %>%
-  filter(record_id != 'CRC-55')
+# --- Add log10 UACR to the data ---
+dat_fig3 <- dat_fig3 %>%
+  mutate(log10_uacr = log10(acr_u))
 
-cat("Figure 3 data:", nrow(dat_fig3), "rows\n")
+# --- Updated plot_corr that uses log10 x but computes rho on raw x ---
+plot_corr_log <- function(data, xvar_raw, xvar_log, yvar, xlab, ylab, tag,
+                          point_col = cols$corr_point, method = "spearman") {
+  df <- data.frame(x_raw = data[[xvar_raw]], 
+                   x_log = data[[xvar_log]], 
+                   y = data[[yvar]])
+  df <- df[!is.na(df$x_raw) & !is.na(df$x_log) & !is.na(df$y) & 
+             is.finite(df$x_log), ]
+  
+  # Spearman on original values (rank-based, same result either way)
+  ct <- cor.test(df$x_raw, df$y, method = method)
+  lab <- paste0(ifelse(method == "spearman", "rho", "r"), "=",
+                formatC(ct$estimate, format = "f", digits = 2),
+                ", p=", ifelse(ct$p.value < 0.001, "<0.001",
+                               formatC(ct$p.value, format = "f", digits = 3)))
+  
+  ggplot(df, aes(x_log, y)) +
+    geom_point(size = 2.5, alpha = 0.7, color = point_col) +
+    geom_smooth(method = "lm", se = TRUE, color = "black",
+                linewidth = 0.8, fill = "gray85", formula = y ~ x) +
+    annotate("text", x = min(df$x_log) + diff(range(df$x_log)) * 0.02,
+             y = max(df$y) - diff(range(df$y)) * 0.02,
+             label = lab, hjust = 0, size = 3, fontface = "italic") +
+    labs(x = xlab, y = ylab, tag = tag) +
+    theme_rockies
+}
 
-cor_vars <- c("avg_c_k2", "avg_c_f", "avg_c_k2_f")
-cor_results <- map_dfr(cor_vars, function(v) {
-  ct <- cor.test(dat_fig3$acr_u, dat_fig3[[v]], method = "spearman", use = "complete.obs")
-  tibble(var = v, rho = ct$estimate, pval = ct$p.value)
-}) %>% mutate(
-  label = formatC(rho, format = "f", digits = 2),
-  sig = case_when(pval < 0.01 ~ "**", pval < 0.05 ~ "*", TRUE ~ ""),
-  var_label = factor(case_when(
-    var == "avg_c_k2"   ~ "Cortical k2",
-    var == "avg_c_f"    ~ "Cortical F",
-    var == "avg_c_k2_f" ~ "k2/F"
-  ), levels = c("Cortical k2", "Cortical F", "k2/F"))
-)
+# --- Panels B-D with log10(UACR) ---
+fig3b <- plot_corr_log(dat_fig3, "acr_u", "log10_uacr", "avg_c_k2",
+                       expression(bold("log"[10]*"(UACR) (mg/g)")),
+                       expression(bold("Cortical k"[2]*" (min"^{-1}*")")),
+                       "B", point_col = cols$corr_point)
 
+fig3c <- plot_corr_log(dat_fig3, "acr_u", "log10_uacr", "avg_c_f",
+                       expression(bold("log"[10]*"(UACR) (mg/g)")),
+                       expression(bold("Cortical F (ml/g/min)")),
+                       "C", point_col = cols$corr_point)
+
+fig3d <- plot_corr_log(dat_fig3, "acr_u", "log10_uacr", "avg_c_k2_f",
+                       expression(bold("log"[10]*"(UACR) (mg/g)")),
+                       expression(bold("Cortical k"[2]*"/F")),
+                       "D", point_col = cols$corr_point)
+
+# --- Also update Panel A heatmap to note log10 on x-axis label ---
 fig3a <- ggplot(cor_results, aes(x = "UACR", y = var_label, fill = rho)) +
   geom_tile(color = "white", linewidth = 1) +
   geom_text(aes(label = paste0(label, sig)), size = 4, fontface = "bold") +
   scale_fill_gradient2(low = cols$control, mid = "white", high = cols$t2d,
-                       midpoint = 0, limits = c(-0.6, 0.6), name = "Spearman\nrho") +
+                       midpoint = 0, limits = c(-0.6, 0.6),
+                       name = "Spearman\nrho") +
   labs(x = NULL, y = NULL, tag = "A") +
-  theme_rockies + theme(legend.position = "right")
+  theme_rockies +
+  theme(legend.position = "right",
+        axis.text.x = element_text(face = "bold"))
 
-fig3b <- plot_corr(dat_fig3, "acr_u", "avg_c_k2", "UACR (mg/g)",
-                   expression(bold("Cortical k"[2]*" (min"^{-1}*")")), "B")
-fig3c <- plot_corr(dat_fig3, "acr_u", "avg_c_f", "UACR (mg/g)",
-                   expression(bold("Cortical F (ml/g/min)")), "C")
-fig3d <- plot_corr(dat_fig3, "acr_u", "avg_c_k2_f", "UACR (mg/g)",
-                   expression(bold("Cortical k"[2]*"/F")), "D")
-
+# --- Reassemble Figure 3 ---
 fig3 <- (fig3a | fig3b) / (fig3c | fig3d) +
   plot_annotation(
     title = "Figure 3. Kidney Oxidative Metabolism Correlates with Albuminuria",
-    theme = theme(plot.title = element_text(size = 12, face = "bold", hjust = 0.5))
+    subtitle = "Spearman correlations in 40 participants (CROCODILE + RENAL-HEIRitage)",
+    theme = theme(
+      plot.title    = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
   )
 
-save_fig(fig3, "Figure3_UACR_Correlations", width = 11, height = 9)
-cat("Figure 3 saved!\n")
+# Save standalone
+save_fig(fig3, "Figure3_UACR_Correlation", width = 12, height = 8)
+cat("Figure 3 updated with log10(UACR)\n")
 
 ########################################################################
 # =====================================================================
@@ -1037,4 +1069,329 @@ cat("========================================================\n")
 
 
 
+
+
+
+
+
+
+
+
+###Figures 6 and 7 updated
+########################################################################
+# ROCKIES Publication - Combined PDF (All Figures, One Page Each)
+# Regenerates Figures 6 & 7 from CSV data
+# Run AFTER the main figure generation script (Figures 1-5)
+########################################################################
+
+library(tidyverse)
+library(patchwork)
+library(cowplot)
+library(data.table)
+library(png)
+library(grid)
+library(gridExtra)
+
+base_path <- 'C:/Users/netio/Documents/UofW/Rockies/publication_figures/'
+scrna_path <- 'C:/Users/netio/Documents/UofW/Rockies/Hailey_Dotplots/'
+
+pg_w <- 16
+pg_h <- 18
+
+########################################################################
+# FUNCTION: Build a bar plot for one cell type / pathway
+########################################################################
+
+plot_gene_bars <- function(data_file, celltype, panel_tag) {
+  
+  dt <- fread(data_file)
+  
+  if ("logFC_groupType_2_Diabetes" %in% names(dt))
+    setnames(dt, "logFC_groupType_2_Diabetes", "logFC")
+  if ("p_groupType_2_Diabetes" %in% names(dt))
+    setnames(dt, "p_groupType_2_Diabetes", "pvalue")
+  
+  dt <- dt %>%
+    mutate(
+      direction = factor(
+        ifelse(logFC < 0, "Down-regulated", "Up-regulated"),
+        levels = c("Up-regulated", "Down-regulated")
+      ),
+      Significance = ifelse(pvalue < 0.05, "*", "")
+    )
+  
+  max_abs <- max(abs(dt$logFC), na.rm = TRUE)
+  dt <- dt %>%
+    mutate(ast_y     = ifelse(logFC >= 0, logFC + max_abs * 0.08,
+                              logFC - max_abs * 0.08),
+           ast_vjust = ifelse(logFC >= 0, 0, 1))
+  
+  p <- ggplot(dt, aes(x = gene, y = logFC, fill = direction)) +
+    geom_col(color = "black", linewidth = 0.3, width = 0.7) +
+    geom_text(aes(y = ast_y, label = Significance, vjust = ast_vjust),
+              size = 5, show.legend = FALSE) +
+    geom_hline(yintercept = 0, linewidth = 0.4) +
+    scale_fill_manual(
+      name   = "Regulation",
+      values = c("Up-regulated" = "#4575b4", "Down-regulated" = "#d73027"),
+      drop   = FALSE
+    ) +
+    scale_y_continuous(expand = expansion(mult = c(0.12, 0.15))) +
+    labs(x = NULL, y = "Log2 Fold Change", subtitle = celltype, tag = panel_tag) +
+    theme_classic(base_size = 11) +
+    theme(
+      text              = element_text(color = "black"),
+      axis.text.x       = element_text(angle = 90, hjust = 1, vjust = 0.5,
+                                       size = 9, color = "black"),
+      axis.text.y       = element_text(size = 10, color = "black"),
+      axis.title        = element_text(size = 11, face = "bold"),
+      axis.title.y      = element_text(margin = margin(r = 8)),
+      axis.line         = element_line(linewidth = 0.5),
+      plot.subtitle     = element_text(size = 12, face = "bold", hjust = 0.5,
+                                       margin = margin(b = 8)),
+      plot.tag          = element_text(size = 14, face = "bold"),
+      plot.tag.position = c(0.01, 0.98),
+      plot.margin       = margin(10, 10, 15, 10),
+      legend.position   = "none",
+      panel.background  = element_rect(fill = "white", color = NA),
+      plot.background   = element_rect(fill = "white", color = NA)
+    )
+  
+  return(p)
+}
+
+########################################################################
+# HELPER: find the right CSV for a given pathway + cell type
+########################################################################
+
+find_csv <- function(pathway, celltype) {
+  celltype_safe <- str_replace_all(str_replace_all(celltype, "/", "_"), "-", "_")
+  all_csv <- list.files(scrna_path, pattern = "\\.csv$", full.names = TRUE)
+  hits <- all_csv[str_detect(all_csv, fixed(pathway)) &
+                    str_detect(all_csv, fixed(celltype_safe))]
+  if (length(hits) == 0) {
+    hits <- all_csv[str_detect(tolower(all_csv), tolower(pathway)) &
+                      str_detect(all_csv, fixed(celltype_safe))]
+  }
+  if (length(hits) == 0) {
+    warning("No CSV found for ", pathway, " / ", celltype)
+    return(NULL)
+  }
+  return(hits[1])
+}
+
+########################################################################
+# Standalone legend as a ggplot (not extracted grob)
+# This is placed as a full patchwork panel so boxes render properly
+########################################################################
+
+legend_panel <- ggplot(data.frame(
+  x = c("Up-regulated", "Down-regulated"),
+  y = c(1, 1),
+  fill = factor(c("Up-regulated", "Down-regulated"),
+                levels = c("Up-regulated", "Down-regulated"))
+), aes(x, y, fill = fill)) +
+  geom_col(width = 0.5, color = "black", linewidth = 0.5) +
+  scale_fill_manual(
+    name   = "Regulation",
+    values = c("Up-regulated" = "#4575b4", "Down-regulated" = "#d73027")
+  ) +
+  theme_void() +
+  theme(
+    legend.position   = "bottom",
+    legend.direction  = "horizontal",
+    legend.text       = element_text(size = 12, color = "black", margin = margin(l = 4, r = 12)),
+    legend.title      = element_text(size = 12, face = "bold", color = "black"),
+    legend.key.size   = unit(0.7, "cm"),
+    legend.key        = element_rect(colour = "black", linewidth = 0.5),
+    legend.margin     = margin(t = 5, b = 5),
+    plot.background   = element_rect(fill = "white", color = NA)
+  ) +
+  guides(fill = guide_legend(
+    override.aes = list(colour = "black", linewidth = 0.5)
+  ))
+
+# Extract just the legend grob
+legend_grob <- get_legend(legend_panel)
+
+# Wrap it as a patchwork-compatible element
+legend_wrap <- wrap_elements(full = legend_grob)
+
+########################################################################
+# HELPER: assemble 4-panel figure with shared bottom legend
+########################################################################
+
+build_figure <- function(plots, title_text, save_name) {
+  
+  combined <- (plots[["PT"]]) /
+    (plots[["PT-S1/S2"]] | plots[["PT-S3"]] | plots[["aPT"]]) /
+    legend_wrap +
+    plot_layout(heights = c(5, 4, 0.5)) +
+    plot_annotation(
+      title = title_text,
+      theme = theme(
+        plot.title = element_text(size = 14, face = "bold",
+                                  hjust = 0.5, color = "black")
+      )
+    )
+  
+  ggsave(paste0(base_path, save_name, ".pdf"), plot = combined,
+         width = 14, height = 11, units = "in", device = cairo_pdf, dpi = 300)
+  ggsave(paste0(base_path, save_name, ".png"), plot = combined,
+         width = 14, height = 11, units = "in", dpi = 300)
+  cat(save_name, "saved (PDF + PNG)\n")
+  
+  return(combined)
+}
+
+########################################################################
+# BUILD FIGURE 6: TCA Cycle
+########################################################################
+
+celltypes <- c("PT", "PT-S1/S2", "PT-S3", "aPT")
+tags       <- c("A", "B", "C", "D")
+
+tca_plots <- list()
+for (i in seq_along(celltypes)) {
+  csv <- find_csv("TCA", celltypes[i])
+  if (!is.null(csv)) {
+    tca_plots[[celltypes[i]]] <- plot_gene_bars(csv, celltypes[i], tags[i])
+  }
+}
+
+fig6_final <- build_figure(
+  tca_plots,
+  title_text = "Figure 6. TCA Cycle Gene Expression in Proximal Tubule Cells",
+  save_name  = "Figure6_TCA_Cycle"
+)
+
+########################################################################
+# BUILD FIGURE 7: OxPhos
+########################################################################
+
+oxphos_plots <- list()
+for (i in seq_along(celltypes)) {
+  csv <- find_csv("OX_PHOS", celltypes[i])
+  if (!is.null(csv)) {
+    oxphos_plots[[celltypes[i]]] <- plot_gene_bars(csv, celltypes[i], tags[i])
+  }
+}
+
+fig7_final <- build_figure(
+  oxphos_plots,
+  title_text = "Figure 7. OxPhos Gene Expression in Proximal Tubule Cells",
+  save_name  = "Figure7_OxPhos"
+)
+
+########################################################################
+# OPEN COMBINED MULTI-PAGE PDF
+########################################################################
+
+out_file <- paste0(base_path, "ROCKIES_All_Figures_Combined.pdf")
+
+tryCatch({
+  cairo_pdf(out_file, width = pg_w, height = pg_h, onefile = TRUE)
+  cat("Using cairo_pdf device\n")
+}, error = function(e) {
+  pdf(out_file, width = pg_w, height = pg_h, onefile = TRUE)
+  cat("Using standard pdf device\n")
+})
+
+########################################################################
+# PAGE 1: Figure 1
+########################################################################
+row1 <- (fig1a + labs(tag = "A")) | (fig1b + labs(tag = "B"))
+row2 <- fig1c | fig1d | fig1e
+row3 <- fig1f | fig1g | fig1h
+row4 <- fig1i | fig1j | plot_spacer()
+
+fig1_full <- row1 / row2 / row3 / row4 +
+  plot_layout(heights = c(4, 2, 2, 2)) +
+  plot_annotation(
+    title = "Figure 1. SGLT2 Inhibition Reduces Kidney Oxidative Metabolism in the ROCKIES Trial",
+    theme = theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+  )
+print(fig1_full)
+
+########################################################################
+# PAGE 2: Figure 2
+########################################################################
+fig2_full <- (fig2b | fig2c | fig2d) +
+  plot_annotation(
+    title = "Figure 2. Elevated Kidney Oxidative Metabolism in Type 2 Diabetes",
+    subtitle = "18 T2D (RENAL-HEIRitage) vs 11 Healthy Controls (CROCODILE)",
+    theme = theme(
+      plot.title    = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+print(fig2_full)
+
+########################################################################
+# PAGE 3: Figure 3
+########################################################################
+fig3_full <- (fig3a | fig3b) / (fig3c | fig3d) +
+  plot_annotation(
+    title = "Figure 3. Kidney Oxidative Metabolism Correlates with Albuminuria",
+    subtitle = "Spearman correlations in 40 participants (CROCODILE + RENAL-HEIRitage)",
+    theme = theme(
+      plot.title    = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+print(fig3_full)
+
+########################################################################
+# PAGE 4: Figure 4
+########################################################################
+fig4_full <- (fig4a | fig4b | fig4c) +
+  plot_annotation(
+    title = "Figure 4. Kidney Oxidative Metabolism and Glomerular Basement Membrane Thickening",
+    subtitle = paste0(
+      "GBM Thickening (n=", sum(dat_fig4$GBM_Status == "GBM\nThickening"),
+      ") vs No GBM Thickening (n=", sum(dat_fig4$GBM_Status == "No GBM\nThickening"), ")"
+    ),
+    theme = theme(
+      plot.title    = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+print(fig4_full)
+
+########################################################################
+# PAGE 5: Figure 5
+########################################################################
+fig5_full <- (fig5a | fig5b | fig5c) +
+  plot_annotation(
+    title = "Figure 5. Kidney Oxidative Metabolism and Arteriosclerosis",
+    subtitle = paste0(
+      "Arteriosclerosis (n=", sum(dat_fig5$Arterio_Status == "Arteriosclerosis"),
+      ") vs No Arteriosclerosis (n=", sum(dat_fig5$Arterio_Status == "No\nArteriosclerosis"), ")"
+    ),
+    theme = theme(
+      plot.title    = element_text(size = 14, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray30")
+    )
+  )
+print(fig5_full)
+
+########################################################################
+# PAGE 6: Figure 6 — TCA Cycle
+########################################################################
+print(fig6_final)
+
+########################################################################
+# PAGE 7: Figure 7 — OxPhos
+########################################################################
+print(fig7_final)
+
+########################################################################
+# Close PDF
+########################################################################
+dev.off()
+
+cat("\n========================================================\n")
+cat("  Combined PDF saved:\n")
+cat("  ", out_file, "\n")
+cat("========================================================\n")
 
