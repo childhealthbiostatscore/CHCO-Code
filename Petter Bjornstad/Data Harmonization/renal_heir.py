@@ -202,6 +202,8 @@ def clean_renal_heir():
                
     dxa["procedure"] = "dxa"
     dxa["visit"] = "baseline"
+    dictionary.loc[dictionary['variable_name'].isin(dxa), 'form_name'] = 'dxa'
+
 
     # --------------------------------------------------------------------------
     # Clamp

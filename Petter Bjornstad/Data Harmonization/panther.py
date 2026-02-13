@@ -260,6 +260,8 @@ def clean_panther():
                 "leanmass_kg": "dexa_lean_kg", "trunkmass_kg": "dexa_trunk_kg"}, axis=1, inplace=True)
     dxa.drop(["dexa_age"], axis=1, inplace=True)
     dxa["procedure"] = "dexa"
+    dictionary.loc[dictionary['variable_name'].isin(dxa.columns), 'form_name'] = 'dxa'
+
 
     # --------------------------------------------------------------------------
     # Renal Clearance Testing

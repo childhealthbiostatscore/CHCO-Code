@@ -49,6 +49,8 @@ def clean_casper():
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+
     # --------------------------------------------------------------------------
     # Demographics
     # --------------------------------------------------------------------------
@@ -223,6 +225,8 @@ def clean_casper():
                axis=1, inplace=True)
     dxa["procedure"] = "dxa"
     dxa["visit"] = "baseline"
+    dictionary.loc[dictionary['variable_name'].isin(dxa.columns), 'form_name'] = 'dxa'
+
 
     # --------------------------------------------------------------------------
     # Outcomes

@@ -143,8 +143,14 @@ def clean_crocodile():
     # Replace missing values
     epic_med.replace(rep, np.nan, inplace=True)
     # Replace 0/1 values with yes/no
+    print("First 5 valid values in epic_ever_sglt2i_1 before replacement:")
+    print(epic_med["epic_ever_sglt2i_1"].dropna().head())
+    print("Data type of first epic_ever_sglt2i_1 value:")   
+    print(epic_med["epic_ever_sglt2i_1"].dropna().head().apply(type))
     epic_med.iloc[:, 1:] = epic_med.iloc[:, 1:].replace(
         {0: "No", "0": "No", 2: "No", "2": "No", 1: "Yes", "1": "Yes"})
+    print("First 5 valid values in epic_ever_sglt2i_1 after replacement:")
+    print(epic_med["epic_ever_sglt2i_1"].dropna().head())
     epic_med["procedure"] = "epic_medications"
     epic_med["visit"] = "baseline"
 
