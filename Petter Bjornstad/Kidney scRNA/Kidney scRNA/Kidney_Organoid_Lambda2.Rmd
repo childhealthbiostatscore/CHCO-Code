@@ -712,6 +712,22 @@ label(dat$group) <- "Diabetes Status (T2D vs. LC)"
 
 table1(~ age + sex + race_ethnicity_condensed + bmi + triglycerides + hba1c + acr_u + eGFR_fas_cr+epic_glp1ra_1+epic_sglti2_1 | group, data=dat)
 
+
+# Continuous variables - t-tests
+continuous_vars <- c("age", "bmi", "triglycerides", "hba1c", "acr_u", "eGFR_fas_cr")
+
+for (var in continuous_vars) {
+  t_test <- t.test(dat[[var]] ~ dat$group)
+  cat(var, "p-value:", round(t_test$p.value, 4), "\n")
+}
+
+# Categorical variables - chi-square tests
+categorical_vars <- c("sex", "race_ethnicity_condensed", "epic_glp1ra_1", "epic_sglti2_1")
+
+for (var in categorical_vars) {
+  chi_test <- chisq.test(table(dat[[var]], dat$group))
+  cat(var, "p-value:", round(chi_test$p.value, 4), "\n")
+}
 ```
 
 ## c. Annotate Organoid Data from SE & Beno-approved annotations
@@ -2624,6 +2640,116 @@ cell_type_order <- de_summary_interaction %>%
 print(cell_type_order)
 ```
 ####2. Targeted Celltypes
+###i. Plot Interaction Term - Volcano Plot
+```{r}
+
+celltypes <- c("ProlPod","DT","EEC","MesV")
+# Open PDF
+pdf("/home/hhampson/Results/T2DvsLC_Interaction_Volcano_AllCelltypes.pdf", 
+    width = 8, height = 8)
+for (cell_name in celltypes) {
+  
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path("/home/hhampson/Results", 
+                          paste0("NEBULA_T2DvsLC_interaction_", cell_name_clean, 
+                                 "_unadjusted_2000.csv"))
+  
+  # "~/Results/NEBULA_T2DvsLC_interaction_ProlPod_unadjusted_2000.csv"
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  full_results <- read.csv(input_file)
+  
+  # Simple categorization based on interaction term
+  results <- full_results %>%
+    mutate(
+      # Interaction coefficient
+      Interaction = `logFC_groupType.2.Diabetes.treatment30`,
+      Interaction_pval = `p_groupType.2.Diabetes.treatment30`,
+      Interaction_fdr = `fdr_groupType.2.Diabetes.treatment30`,
+      Interaction_pval10 = `PValue10_groupType.2.Diabetes.treatment30`,
+      
+      # Two categories
+      category = case_when(
+        Interaction_fdr < 0.05 & Interaction > 0 ~ "More reactive in T2D",
+        Interaction_fdr < 0.05 & Interaction < 0 ~ "Less reactive in T2D",
+        TRUE ~ "Not Significant"
+      ),
+      
+      # Two colors
+      color = case_when(
+        category == "More reactive in T2D" ~ "#990000",  # Dark red
+        category == "Less reactive in T2D" ~ "#003366",   # Dark blue
+        TRUE ~ "#D3D3D3"                                  # Gray
+      )
+    )
+  
+  # Dynamic axis limits
+  interaction_range <- range(results$Interaction, na.rm = TRUE)
+  interaction_padding <- diff(interaction_range) * 0.1
+  # xlim_min <- interaction_range[1] - interaction_padding
+  xlim_min <- -3
+  # xlim_max <- interaction_range[2] + interaction_padding
+  xlim_max <- 3
+  
+  pval_max <- max(results$Interaction_pval10, na.rm = TRUE)
+  ylim_max <- pval_max * 1.05
+  
+  # Significant genes for labeling
+  sig_genes <- results %>% 
+    filter(Interaction_fdr < 0.05)
+  
+  # Count genes in each category
+  category_counts <- results %>%
+    filter(Interaction_fdr < 0.05) %>%
+    dplyr::count(category)
+  
+  n_more_t2d <- sum(results$category == "More reactive in T2D")
+  n_less_t2d <- sum(results$category == "Less reactive in T2D")
+  
+  # Create volcano plot with legend
+  p <- ggplot(results, aes(x = Interaction, y = Interaction_pval10, color = color)) +
+    geom_point(alpha = 0.7, size = 2) +
+    scale_color_identity(
+      name = "Gene Category",
+      breaks = c("#990000", "#003366", "#D3D3D3"),
+      labels = c("More reactive in T2D", "Less reactive in T2D", "Not Significant"),
+      guide = "legend"
+    ) +
+    theme_minimal() +
+    labs(
+      title = paste0(cell_name, " - Effect of Glucose Treatment on T2D vs LC"),
+      x = "Interaction Term (logFC)",
+      y = "-log10(P-Value)"
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      axis.title = element_text(size = 11),
+      axis.text = element_text(size = 10),
+      legend.position = "top",
+      legend.title = element_text(size = 11, face = "bold"),
+      legend.text = element_text(size = 10),
+      legend.margin = margin(b = 10)
+    ) +
+    xlim(xlim_min, xlim_max) +
+    ylim(0, ylim_max) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black", alpha = 0.3, linewidth = 0.5) +
+    geom_text_repel(data = sig_genes, aes(label = Gene),
+                    size = 2.5, color = "black", max.overlaps = 20,
+                    box.padding = 0.3, segment.alpha = 0.5)
+  
+  print(p)
+  
+  cat("Category counts for", cell_name, ":\n")
+  print(category_counts)
+  cat("\n")
+}
+dev.off()
+
+```
 
 ```{r}
 # Get cell types to analyze
@@ -3002,7 +3128,7 @@ cell_type_order <- de_summary_interaction %>%
 
 print(cell_type_order)
 ```
-### iii. Joint Analysis
+### ii. Joint Analysis
 ```{r}
 
 library(tidyverse)
@@ -5499,7 +5625,8 @@ dev.off()
 ### ii. Analysis 
 ```{r}
 # Get cell types to analyze
-celltypes <- unique(so_kpmp_sc$celltype_LR)[-15] #Remove nonspecific because non in Lean controls & not enough cells
+# celltypes <- unique(so_kpmp_sc$celltype_LR)[-15] #Remove nonspecific because non in Lean controls & not enough cells
+celltypes <- c("POD","DCT","EC","VSMC_Pericyte")
 
 # Loop through each cell type
 for (cell_name in celltypes) {
@@ -5709,7 +5836,86 @@ for (cell_name in celltypes) {
   cat("Plot saved:", plot_file, "\n\n")
 }
 
+#Load in all the celltype results & make a nice figure
+library(dplyr)
+library(ggplot2)
+library(janitor)
+library(tidyr)
 
+# Initialize empty list to store results
+all_results <- list()
+celltypes <- c("POD","DCT","EC","VSMC_Pericyte")
+
+for (cell_name in celltypes) {
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path("/home/hhampson/Results", 
+                           paste0("NEBULA_Biopsy_T2DvsLC_", cell_name_clean, 
+                                  "_unadjusted_2000.csv"))
+  
+  # Check if file exists before reading
+  if (file.exists(input_file)) {
+    file <- read.csv(input_file)
+    file$cell_type <- cell_name  # Add cell type column
+    all_results[[cell_name]] <- file
+    cat("Loaded:", cell_name, "- Genes:", nrow(file), "\n")
+  } else {
+    cat("File not found:", input_file, "\n")
+  }
+}
+
+# Combine all results into one dataframe
+combined_results <- bind_rows(all_results)
+
+# Count positive and negative DE genes per cell type
+de_summary <- combined_results %>%
+  janitor::clean_names() %>% 
+  filter(fdr < 0.05) %>%
+  mutate(direction = ifelse(log_fc_group_type_2_diabetes > 0, "Positive", "Negative")) %>%
+  group_by(cell_type, direction) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  mutate(count = ifelse(direction == "Negative", -count, count))
+
+# Ensure all cell types are in the summary, even with 0 DEGs
+all_celltypes_df <- expand.grid(
+  cell_type = celltypes,
+  direction = c("Positive", "Negative")
+)
+
+de_summary <- all_celltypes_df %>%
+  left_join(de_summary, by = c("cell_type", "direction")) %>%
+  mutate(count = ifelse(is.na(count), 0, count))
+
+# Calculate total absolute DEGs per cell type for ordering
+# Calculate total absolute DEGs per cell type for ordering
+cell_type_order <- de_summary %>%
+  group_by(cell_type) %>%
+  summarise(total_degs = sum(abs(count))) %>%
+  arrange(total_degs) %>%  # Changed from desc() to ascending
+  pull(cell_type)
+
+# Create the plot
+ggplot(de_summary, aes(x = count, y = factor(cell_type, levels = cell_type_order), fill = direction)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Negative" = "#A8C9D9", "Positive" = "#E89A9A")) +
+  geom_vline(xintercept = 0, color = "black", size = 0.5) +
+  labs(x = "Number of DE genes", 
+       y = NULL,
+       fill = NULL) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.length.x = unit(0.2, "cm"),
+    legend.position = "top",
+    legend.text = element_text(size = 12))
+
+# Save the plot
+ggsave("/home/hhampson/Results/DE_genes_by_celltype_barplot_biopsy.png", 
+       width = 8, height = 6, dpi = 300)
 ```
 
 ### iii. Combined Plots
