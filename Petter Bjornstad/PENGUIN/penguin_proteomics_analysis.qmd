@@ -131,12 +131,12 @@ penguin <- label_harmonized(dat, dict)
 
 # Table 1a: Compare by Group (ADPKD vs HC)
 tab_control <- arsenal::tableby.control(
-  numeric.stats = c("meansd", "range"),
+  numeric.stats = c("meansd"),
   cat.stats = c("countpct"),
   stats.labels = list(meansd = "Mean (SD)", countpct = "N (%)")
 )
 
-tab1a <- arsenal::tableby(group ~ age + sex + bmi + ethnicity + hba1c + eGFR_CKD_epi + glomerular_pressure + ra + re, 
+tab1a <- arsenal::tableby(group ~ age + sex + bmi + ethnicity + hba1c + eGFR_CKD_epi + gfr_bsa_plasma + gfr_raw_plasma + erpf_raw_plasma + erpf_bsa_plasma + rbf + glomerular_pressure + ra + re, 
                          data = penguin, 
                          control = tab_control)
 
@@ -149,6 +149,11 @@ summary(tab1a,
           ethnicity = "Ethnicity",
           hba1c = "HbA1c (%)", 
           eGFR_CKD_epi = "eGFR (mL/min/1.73m^2)", 
+          gfr_bsa_plasma = "mGFR (mL/min; BSA-adjusted, plasma)",
+          gfr_raw_plasma = "mGFR (mL/min; raw, plasma)",
+          erpf_raw_plasma = "ERPF (mL/min; raw, plasma)",
+          erpf_bsa_plasma = "ERPF (mL/min; BSA-adjusted, plasma)",
+          rbf = "RBF (mL/min)",
           glomerular_pressure = "Glomerular pressure (mmHg)", 
           ra = "Afferent arteriolar resistance	(dyne*s*cm^-5)", 
           re = "Efferent arteriolar resistance	(dyne*s*cm^-5)"
@@ -493,7 +498,7 @@ kbl(en_coefs_unadj, caption = "Proteomic Features Selected by Elastic Net (Unadj
 #### Adjusted Analysis
 ##### * Differential expression (adjusted)
 ```{r}
-clinical_vars_to_include <- c("age", "bmi", "acr_u", "glomerular_pressure", "re")
+clinical_vars_to_include <- c("age", "bmi", "acr_u")#, #"glomerular_pressure", "re")
 
 penguin_clean <- dat %>%
   mutate(group = factor(group, levels = c("HC", "ADPKD"))) %>%
@@ -688,6 +693,8 @@ library(corrplot)
 imaging_data <- read.csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/PENGUIN/Data_Cleaned/imaging_data.csv")
 
 # Define clinical variable categories
+clamp <- c('p1_raw_m', 'p1_raw_leanm', 'p1_gc_m', 'p1_gc_leanm', 'p2_raw_m', 'p2_raw_leanm', 'p2_gc_m', 'p2_gc_leanm')
+
 kidney_function <- c('eGFR_CKD_epi', 'eGFR_fas_cr', 'eGFR_fas_cr_cysc', 'acr_u', 'ht_adj_tkv', 'gfr_raw_plasma', 'gfr_bsa_plasma', 'erpf_raw_plasma', 'erpf_bsa_plasma', 'glomerular_pressure', 'ra', 're')
 
 pet_cortex <- c('rc_f','rc_k2', 'rc_vb', 'rc_k1', 'lc_f', 'lc_k2', 'lc_vb', 'lc_k1')
@@ -728,6 +735,8 @@ combined_data_all <- proteomics_data %>%
 # Separate by group
 combined_data_adpkd <- combined_data_all %>% filter(group.x == "ADPKD")
 combined_data_hc <- combined_data_all %>% filter(group.x == "HC")
+
+combined_data_all <- combined_data_all %>% rename(group = group.x)
 
 message(paste("Number of ADPKD patients:", nrow(combined_data_adpkd)))
 message(paste("Number of HC subjects:", nrow(combined_data_hc)))
@@ -887,7 +896,7 @@ plot_group_comparison_heatmap <- function(assoc_adpkd, assoc_hc, category_name) 
       
       # ADPKD heatmap with P-value significance annotations
       p1 <- pheatmap(cor_adpkd,
-                     main = paste0("\n\nADPKD: ", category_name, "\n(* p<0.05, ** p<0.01)"),
+                     main = paste0("\n\n\n\nADPKD: ", category_name, "\n(* p<0.05, ** p<0.01)"),
                      color = colorRampPalette(c("blue", "white", "red"))(100),
                      breaks = seq(-1, 1, length.out = 101),
                      cluster_rows = FALSE,
@@ -895,17 +904,15 @@ plot_group_comparison_heatmap <- function(assoc_adpkd, assoc_hc, category_name) 
                      display_numbers = pval_adpkd,
                      fontsize_number = 12,
                      number_color = "black",
-                     fontsize = 7,
-                     fontsize_row = 5,
-                     fontsize_col = 5,
+                     fontsize = 10,
+                     fontsize_row = 9,
+                     fontsize_col = 9,
                      #angle_col = 45,
-                     cellwidth = 7,
-                     cellheight = 4,
                      silent = TRUE)
       
       # HC heatmap with P-value significance annotations
       p2 <- pheatmap(cor_hc,
-                     main = paste0("\n\nHC: ", category_name, "\n(* p<0.05, ** p<0.01)"),
+                     main = paste0("\n\n\n\nHC: ", category_name, "\n(* p<0.05, ** p<0.01)"),
                      color = colorRampPalette(c("blue", "white", "red"))(100),
                      breaks = seq(-1, 1, length.out = 101),
                      cluster_rows = FALSE,
@@ -913,12 +920,10 @@ plot_group_comparison_heatmap <- function(assoc_adpkd, assoc_hc, category_name) 
                      display_numbers = pval_hc,
                      fontsize_number = 12,
                      number_color = "black",
-                     fontsize = 7,
-                     fontsize_row = 5,
-                     fontsize_col = 5,
+                     fontsize = 10,
+                     fontsize_row = 9,
+                     fontsize_col = 9,
                      #angle_col = 45,
-                     cellwidth = 7,
-                     cellheight = 4,
                      silent = TRUE)
       
       # ADPKD heatmap with FDR significance annotations
@@ -931,12 +936,10 @@ plot_group_comparison_heatmap <- function(assoc_adpkd, assoc_hc, category_name) 
                      display_numbers = fdr_adpkd,
                      fontsize_number = 12,
                      number_color = "black",
-                     fontsize = 7,
-                     fontsize_row = 5,
-                     fontsize_col = 5,
+                     fontsize = 10,
+                     fontsize_row = 9,
+                     fontsize_col = 9,
                      #angle_col = 45,
-                     cellwidth = 8,
-                     cellheight = 5,
                      silent = TRUE)
       
       # HC heatmap with FDR significance annotations
@@ -949,12 +952,10 @@ plot_group_comparison_heatmap <- function(assoc_adpkd, assoc_hc, category_name) 
                      display_numbers = fdr_hc,
                      fontsize_number = 12,
                      number_color = "black",
-                     fontsize = 7,
-                     fontsize_row = 5,
-                     fontsize_col = 5,
+                     fontsize = 10,
+                     fontsize_row = 9,
+                     fontsize_col = 9,
                      #angle_col = 45,
-                     cellwidth = 8,
-                     cellheight = 5,
                      silent = TRUE)
       
       # Display P-value heatmaps
@@ -985,12 +986,12 @@ plot_group_comparison_heatmap <- function(assoc_adpkd, assoc_hc, category_name) 
           kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
                         fixed_thead = T,
                         font_size = 12) %>%
-          scroll_box(width = "100%", height = "800px"))
+          scroll_box(width = "100%", height = "800px"))}
         
-        message(paste("Total significant associations (P < 0.05): ADPKD =", nrow(sig_adpkd_pval), 
-                      ", HC =", nrow(sig_hc_pval)))
-      } else {
-        message("No significant associations at P < 0.05 in either group")
+        #message(paste("Total significant associations (P < 0.05): ADPKD =", nrow(sig_adpkd_pval), 
+                      #", HC =", nrow(sig_hc_pval)))
+     # } else {
+       # message("No significant associations at P < 0.05 in either group")
       }
       
       # Table of all significant correlations (FDR < 0.05)
@@ -1019,21 +1020,197 @@ plot_group_comparison_heatmap <- function(assoc_adpkd, assoc_hc, category_name) 
         
         message(paste("Total significant associations (FDR < 0.05): ADPKD =", nrow(sig_adpkd_table), 
                       ", HC =", nrow(sig_hc_table)))
-      } else {
-        message("No significant associations at FDR < 0.05 in either group")
-      }
+     # } else {
+        #message("No significant associations at FDR < 0.05 in #either group")
+     # }
       
-    } else {
-      message("No common proteins/variables for comparison")
+    #} else {
+     # message("No common proteins/variables for comparison")
+   # }
+  #} else {
+   # message(paste("Insufficient data for", category_name, #"comparison"))
+  }
+  }
+}
+
+# Function to create a single heatmap for combined data
+plot_combined_heatmap <- function(assoc_combined, category_name) {
+  
+  if (nrow(assoc_combined) > 0) {
+    
+    # Create correlation matrix
+    cor_combined <- assoc_combined %>%
+      dplyr::select(Target, Clinical_Variable, Correlation) %>%
+      tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Correlation, values_fill = NA) %>%
+      tibble::column_to_rownames("Target") %>%
+      as.matrix()
+    
+    # P-value annotation matrix (* p<0.05, ** p<0.01)
+    pval_combined <- assoc_combined %>%
+      dplyr::select(Target, Clinical_Variable, P_Value) %>%
+      dplyr::mutate(Sig = ifelse(P_Value < 0.01, "**", ifelse(P_Value < 0.05, "*", ""))) %>%
+      dplyr::select(-P_Value) %>%
+      tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Sig, values_fill = "") %>%
+      tibble::column_to_rownames("Target") %>%
+      as.matrix()
+    
+    # FDR annotation matrix
+    fdr_combined <- assoc_combined %>%
+      dplyr::select(Target, Clinical_Variable, FDR) %>%
+      dplyr::mutate(Sig = ifelse(FDR < 0.05, "*", "")) %>%
+      dplyr::select(-FDR) %>%
+      tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Sig, values_fill = "") %>%
+      tibble::column_to_rownames("Target") %>%
+      as.matrix()
+    
+    # Heatmap with P-value annotations
+    p1 <- pheatmap(cor_combined,
+                   main = paste0("\n\n\nCombined: ", category_name, "\n(* p<0.05, ** p<0.01)"),
+                   color = colorRampPalette(c("blue", "white", "red"))(100),
+                   breaks = seq(-1, 1, length.out = 101),
+                   cluster_rows = FALSE,
+                   cluster_cols = FALSE,
+                   display_numbers = pval_combined,
+                   fontsize_number = 12,
+                   number_color = "black",
+                   fontsize = 10,
+                   fontsize_row = 9,
+                   fontsize_col = 9,
+                   silent = TRUE)
+    
+    # Heatmap with FDR annotations
+    p2 <- pheatmap(cor_combined,
+                   main = paste0("\nCombined: ", category_name, "\n(* FDR<0.05)"),
+                   color = colorRampPalette(c("blue", "white", "red"))(100),
+                   breaks = seq(-1, 1, length.out = 101),
+                   cluster_rows = FALSE,
+                   cluster_cols = FALSE,
+                   display_numbers = fdr_combined,
+                   fontsize_number = 12,
+                   number_color = "black",
+                   fontsize = 10,
+                   fontsize_row = 9,
+                   fontsize_col = 9,
+                   silent = TRUE)
+    
+    # Display heatmaps
+    grid.arrange(p1[[4]])
+    grid.arrange(p2[[4]])
+    
+    # Table of significant associations (P < 0.05)
+    sig_pval <- assoc_combined %>%
+      dplyr::filter(P_Value < 0.05) %>%
+      dplyr::select(Target, Clinical_Variable, Correlation, P_Value, FDR, N) %>%
+      dplyr::arrange(P_Value)
+    
+    if (nrow(sig_pval) > 0) {
+      print(kbl(sig_pval,
+                caption = paste0("All Significant Protein-", category_name, " Associations (P < 0.05)"),
+                digits = 3) %>%
+        kable_paper("striped", full_width = F) %>%
+        kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                      fixed_thead = T,
+                      font_size = 12) %>%
+        scroll_box(width = "100%", height = "800px"))
     }
+    
+    # Table of significant associations (FDR < 0.05)
+    sig_fdr <- assoc_combined %>%
+      dplyr::filter(FDR < 0.05) %>%
+      dplyr::select(Target, Clinical_Variable, Correlation, P_Value, FDR, N) %>%
+      dplyr::arrange(FDR)
+    
+    if (nrow(sig_fdr) > 0) {
+      print(kbl(sig_fdr,
+                caption = paste0("All Significant Protein-", category_name, " Associations (FDR < 0.05)"),
+                digits = 3) %>%
+        kable_paper("striped", full_width = F) %>%
+        kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                      fixed_thead = T,
+                      font_size = 12) %>%
+        scroll_box(width = "100%", height = "800px"))
+      
+      message(paste("Total significant associations (FDR < 0.05):", nrow(sig_fdr)))
+    } else {
+      message("No significant associations at FDR < 0.05")
+    }
+    
   } else {
-    message(paste("Insufficient data for", category_name, "comparison"))
+    message(paste("Insufficient data for", category_name))
   }
 }
 
 ```
+#### Clamp
+```{r, fig.width=16, fig.height=14}
+# ADPKD associations
+assoc_clamp <- compute_associations(combined_data_adpkd, proteins_of_interest, clamp)
+
+if (nrow(assoc_clamp) > 0) {
+  sig_clamp <- assoc_clamp %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_clamp) > 0) {
+    kbl(sig_clamp, caption = "Significant Protein Associations with Clamp - ADPKD (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "1600px")
+  } else {
+    message("No significant associations found with clamp variables at FDR < 0.05 in ADPKD")
+  }
+} else {
+  message("No associations computed for clamp variables in ADPKD (insufficient data)")
+}
+
+# HC associations (for shared variables only)
+assoc_clamp_hc <- compute_associations(combined_data_hc, proteins_of_interest, clamp)
+
+if (nrow(assoc_clamp_hc) > 0) {
+  sig_clamp_hc <- assoc_clamp_hc %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_clamp_hc) > 0) {
+    kbl(sig_clamp_hc, caption = "Significant Protein Associations with Clamp - HC (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "1600px")
+  } else {
+    message("No significant associations found with clamp variables at FDR < 0.05 in HC")
+  }
+} else {
+  message("No associations computed for clamp variables in HC (insufficient data)")
+}
+
+library(gridExtra)
+
+plot_group_comparison_heatmap(assoc_clamp, assoc_clamp_hc, "Clamp")
+
+# Combined associations
+assoc_clamp_all <- compute_associations(combined_data_all, proteins_of_interest, clamp)
+if (nrow(assoc_clamp_all) > 0) {
+  sig_clamp_all <- assoc_clamp_all %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_clamp_all) > 0) {
+    kbl(sig_clamp_all, caption = "Significant Protein Associations with Clamp - Combined (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with clamp variables at FDR < 0.05 in combined data")
+  }
+} else {
+  message("No associations computed for clamp variables in combined data (insufficient data)")
+}
+
+plot_combined_heatmap(assoc_clamp_all, "Clamp")
+
+
+
+```
+
 #### Kidney Function
-```{r}
+```{r, fig.width=16, fig.height=14}
 # ADPKD associations
 assoc_kidney <- compute_associations(combined_data_adpkd, proteins_of_interest, kidney_function)
 
@@ -1075,9 +1252,31 @@ if (nrow(assoc_kidney_hc) > 0) {
 library(gridExtra)
 
 plot_group_comparison_heatmap(assoc_kidney, assoc_kidney_hc, "Kidney Function")
+
+
+# Combined associations
+assoc_kidney_all <- compute_associations(combined_data_all, proteins_of_interest, kidney_function)
+if (nrow(assoc_kidney_all) > 0) {
+  sig_kidney_all <- assoc_kidney_all %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_kidney_all) > 0) {
+    kbl(sig_kidney_all, caption = "Significant Protein Associations with Kidney Function - Combined (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with kidney function variables at FDR < 0.05 in combined data")
+  }
+} else {
+  message("No associations computed for kidney function variables in combined data (insufficient data)")
+}
+
+plot_combined_heatmap(assoc_kidney_all, "Kidney Function")
+
 ```
 #### PET Cortex
-```{r}
+```{r, fig.width=16, fig.height=14}
 # ADPKD associations
 assoc_pet_cortex <- compute_associations(combined_data_adpkd, proteins_of_interest, pet_cortex)
 
@@ -1119,9 +1318,29 @@ if (nrow(assoc_pet_cortex_hc) > 0) {
 library(gridExtra)
 
 plot_group_comparison_heatmap(assoc_pet_cortex, assoc_pet_cortex_hc, "PET Cortex")
+
+# Combined associations
+assoc_pet_c_all <- compute_associations(combined_data_all, proteins_of_interest, pet_cortex)
+if (nrow(assoc_pet_c_all) > 0) {
+  sig_pet_c_all <- assoc_pet_c_all %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_pet_c_all) > 0) {
+    kbl(sig_pet_c_all, caption = "Significant Protein Associations with PET Cprtex - Combined (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with PET cortex variables at FDR < 0.05 in combined data")
+  }
+} else {
+  message("No associations computed for PET cortex variables in combined data (insufficient data)")
+}
+
+plot_combined_heatmap(assoc_pet_c_all, "PET Cortex")
 ```
 #### PET Medulla
-```{r}
+```{r, fig.width=16, fig.height=14}
 # ADPKD associations
 assoc_pet_medulla <- compute_associations(combined_data_adpkd, proteins_of_interest, pet_medulla)
 
@@ -1163,9 +1382,29 @@ if (nrow(assoc_pet_medulla_hc) > 0) {
 library(gridExtra)
 
 plot_group_comparison_heatmap(assoc_pet_medulla, assoc_pet_medulla_hc, "PET Medulla")
+
+# Combined associations
+assoc_pet_m_all <- compute_associations(combined_data_all, proteins_of_interest, pet_medulla)
+if (nrow(assoc_pet_m_all) > 0) {
+  sig_pet_m_all <- assoc_pet_m_all %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_pet_m_all) > 0) {
+    kbl(sig_pet_m_all, caption = "Significant Protein Associations with PET Medulla - Combined (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with PET medulla variables at FDR < 0.05 in combined data")
+  }
+} else {
+  message("No associations computed for PET medulla variables in combined data (insufficient data)")
+}
+
+plot_combined_heatmap(assoc_pet_m_all, "PET Medulla")
 ```
 #### MRI Cyst Measures
-```{r}
+```{r, fig.width=16, fig.height=14}
 assoc_mri <- compute_associations(combined_data_adpkd, proteins_of_interest, mri_cyst)
 
 if (nrow(assoc_mri) > 0) {
@@ -1205,9 +1444,29 @@ if (nrow(assoc_mri_hc) > 0) {
 
 library(gridExtra)
 plot_group_comparison_heatmap(assoc_mri, assoc_mri_hc, "MRI Cyst Measures")
+
+# Combined associations
+assoc_mri_all <- compute_associations(combined_data_all, proteins_of_interest, mri_cyst)
+if (nrow(assoc_mri_all) > 0) {
+  sig_mri_all <- assoc_mri_all %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_mri_all) > 0) {
+    kbl(sig_mri_all, caption = "Significant Protein Associations with MRI Cyst - Combined (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with MRI Cyst variables at FDR < 0.05 in combined data")
+  }
+} else {
+  message("No associations computed for MRI Cyst variables in combined data (insufficient data)")
+}
+
+plot_combined_heatmap(assoc_mri_all, "PET Medulla")
 ```
 #### Voxel K1 Measures
-```{r}
+```{r, fig.width=16, fig.height=14}
 assoc_voxel_k1 <- compute_associations(combined_data_adpkd, proteins_of_interest, voxel_k1)
 
 if (nrow(assoc_voxel_k1) > 0) {
@@ -1249,9 +1508,29 @@ if (nrow(assoc_voxel_k1_hc) > 0) {
 library(gridExtra)
 
 plot_group_comparison_heatmap(assoc_voxel_k1, assoc_voxel_k1_hc, "Voxel K1 Measures")
+
+# Combined associations
+assoc_voxel_k1_all <- compute_associations(combined_data_all, proteins_of_interest, voxel_k1)
+if (nrow(assoc_voxel_k1_all) > 0) {
+  sig_voxel_k1_all <- assoc_voxel_k1_all %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_voxel_k1_all) > 0) {
+    kbl(sig_voxel_k1_all, caption = "Significant Protein Associations with Voxel K1 - Combined (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with Voxel K1 variables at FDR < 0.05 in combined data")
+  }
+} else {
+  message("No associations computed for Voxel K1 variables in combined data (insufficient data)")
+}
+
+plot_combined_heatmap(assoc_voxel_k1_all, "Voxel K1")
 ```
 #### Voxel K2 Measures
-```{r}
+```{r, fig.width=16, fig.height=14}
 # ADPKD associations
 assoc_voxel_k2 <- compute_associations(combined_data_adpkd, proteins_of_interest, voxel_k2)
 
@@ -1292,6 +1571,27 @@ if (nrow(assoc_voxel_k2_hc) > 0) {
 
 library(gridExtra)
 plot_group_comparison_heatmap(assoc_voxel_k2, assoc_voxel_k2_hc, "Voxel K2 Measures")
+
+
+# Combined associations
+assoc_voxel_k2_all <- compute_associations(combined_data_all, proteins_of_interest, voxel_k2)
+if (nrow(assoc_voxel_k2_all) > 0) {
+  sig_voxel_k2_all <- assoc_voxel_k2_all %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_voxel_k2_all) > 0) {
+    kbl(sig_voxel_k2_all, caption = "Significant Protein Associations with Voxel K2 - Combined (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with Voxel K2 variables at FDR < 0.05 in combined data")
+  }
+} else {
+  message("No associations computed for Voxel K2 variables in combined data (insufficient data)")
+}
+
+plot_combined_heatmap(assoc_voxel_k2_all, "Voxel K2")
 ```
 ### SUMMARY
 #### Group Comparison: ADPKD vs HC
@@ -1362,24 +1662,43 @@ if (nrow(interaction_results) > 0) {
   interaction_results <- interaction_results %>%
     dplyr::left_join(analytes %>% dplyr::select(AptName, Target), by = c("Protein" = "AptName"))
   
+  # Display all Z-test results
+  all_interactions <- interaction_results %>%
+    dplyr::arrange(P_Interaction) %>%
+    dplyr::select(Target, Clinical_Variable, Cor_ADPKD, P_ADPKD, N_ADPKD,
+                  Cor_HC, P_HC, N_HC, Cor_Difference, P_Interaction, FDR_Interaction)
+
+  print(kbl(all_interactions,
+      caption = "Fisher's Z-Test: All Protein-Clinical Correlation Comparisons (ADPKD vs HC)",
+      digits = 3) %>%
+    kable_paper("striped", full_width = F) %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                  fixed_thead = T,
+                  font_size = 12) %>%
+    scroll_box(width = "100%", height = "800px"))
+
   # Display significant interactions
   sig_interactions <- interaction_results %>%
     dplyr::filter(FDR_Interaction < 0.10) %>%
-    dplyr::arrange(FDR_Interaction)
-  
+    dplyr::arrange(FDR_Interaction) %>%
+    dplyr::select(Target, Clinical_Variable, Cor_ADPKD, P_ADPKD, N_ADPKD,
+                  Cor_HC, P_HC, N_HC, Cor_Difference, P_Interaction, FDR_Interaction)
+
   if (nrow(sig_interactions) > 0) {
-    kbl(sig_interactions, 
+    print(kbl(sig_interactions,
         caption = "Significant Group Differences in Protein-Clinical Associations (FDR < 0.10)",
         digits = 3) %>%
-      kable_paper() %>%
-      scroll_box(width = "100%", height = "500px")
-    
+      kable_paper("striped", full_width = F) %>%
+      kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                    fixed_thead = T,
+                    font_size = 12) %>%
+      scroll_box(width = "100%", height = "500px"))
+
     message(paste("Found", nrow(sig_interactions), "protein-clinical associations that differ significantly between ADPKD and HC"))
   } else {
     message("No significant group differences in correlations at FDR < 0.10")
   }
-  
-  # Summary of all interactions
+
   message(paste("Total interaction tests:", nrow(interaction_results)))
   message(paste("Interactions with nominal p < 0.05:", sum(interaction_results$P_Interaction < 0.05)))
 }

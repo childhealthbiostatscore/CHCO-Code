@@ -185,9 +185,16 @@ def clean_ultra():
              
     mri.columns = mri.columns.str.replace(
         r"mri_|visit_", "", regex=True)
+    mri.columns = mri.columns.str.replace(
+        r"radial_", "rs", regex=True)
+    mri.columns = mri.columns.str.replace(
+        r"circum_", "cs", regex=True)
+    mri.columns = mri.columns.str.replace(
+        r"long_", "ls", regex=True)
+    mri.rename({"lvsv": "lv_stroke_volume", "rvsv" : "rv_stroke_volume", "rvco": "rv_cardiac_output", 
+                "lvco": "lv_cardiac_output", "myo_mass_dias" : "myo_mass_diast", 
+                "lv_myo_thickness_dias" : "lv_myo_thickness_diast", "af_pwv_xcor3": "af_pwv_xcor3"}, axis=1, inplace=True)
     mri["procedure"] = "cardio_abdominal_mri"
-    # mri["visit"] = mri["redcap_repeat_instance"]
-    # mri["visit"] = mri["visit"].replace({0: "screening", "": "screening", 1: "baseline", "1": "baseline",2: "3_motnhs", "2": "3_months", 3: "6_months", "3": "6_months", 4:"12_months", "4": "12_months"})
 
     # --------------------------------------------------------------------------
     # Missingness

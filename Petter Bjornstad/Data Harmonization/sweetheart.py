@@ -45,8 +45,8 @@ def clean_sweetheart():
     # Get project metadata
     meta = pd.DataFrame(proj.metadata)
     # Columns to drop
-    #redcap_cols = ["redcap_event_name",
-                   #"redcap_repeat_instrument", "redcap_repeat_instance"]
+    redcap_cols = ["redcap_event_name",
+                   "redcap_repeat_instrument", "redcap_repeat_instance"]
     # Replace missing values
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
@@ -186,14 +186,22 @@ def clean_sweetheart():
 
     var = ["record_id"] + [v for v in meta.loc[meta["form_name"]
                                                                == "imaging", "field_name"]]
-    screen = pd.DataFrame(proj.export_records(fields=var))
+    imaging = pd.DataFrame(proj.export_records(fields=var))
 
-    screen.replace(rep, np.nan, inplace=True)  # Replace missing values
+    imaging.replace(rep, np.nan, inplace=True)  # Replace missing values
+
+    imaging.columns = imaging.columns.str.replace(
+        r"imaging_|_of_imaging", "", regex=True)
     
-    screen.columns = screen.columns.str.replace(
-        r"screen_|_of_screen", "", regex=True)
-    
-    screen["procedure"] = "imaging"
+
+    imaging.rename({"lv_myo_mass_dias" : "lv_myo_mass_diast", "lv_myo_thickness_dias": "lv_myo_thickness_diast", 
+                    "radial_peak" : "grs", "circum_peak" : "gcs", "long_peak": "gls", "af_pwv_xcor3": "af_pwv", "rvco": "rv_cardiac_output", "lvco": "lv_cardiac_output"}, axis=1, inplace=True)
+    # imaging.drop(redcap_cols + ["imaging_cardio", "imaging_abdo",
+    #                         "imaging_aortic", "study_visit_imaging"],
+    #          axis=1, inplace=True)
+
+    imaging["procedure"] = "cardio_abdominal_mri"
+
 
 
 
@@ -207,7 +215,7 @@ def clean_sweetheart():
     demo.dropna(thresh=3, axis=0, inplace=True)
     phys.dropna(thresh=3, axis=0, inplace=True)
     screen.dropna(thresh=3, axis=0, inplace=True)
-    
+    imaging.dropna(thresh=3, axis=0, inplace=True)
 
     # --------------------------------------------------------------------------
     # Merge
@@ -215,6 +223,7 @@ def clean_sweetheart():
 
     df = pd.concat([phys, med], join='outer', ignore_index=True)
     df = pd.concat([df, screen], join='outer', ignore_index=True)
+    df = pd.concat([df, imaging], join='outer', ignore_index=True)
     df = pd.merge(df, demo, how="outer")
     df = df.loc[:, ~df.columns.str.startswith('redcap_')]
     df = df.copy()

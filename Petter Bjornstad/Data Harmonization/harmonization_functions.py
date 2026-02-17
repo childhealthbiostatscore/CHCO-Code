@@ -149,19 +149,35 @@ def add_id_column(df, study_name):
 
 def create_study_id_columns(harmonized):
     import os
+    import pandas as pd
     study_list = [('CASPER', 'casper_id'), ('COFFEE', 'coffee_id'), ('CROCODILE','croc_id'), ('IMPROVE','improve_id'), ('PENGUIN','penguin_id'), ('RENAL-HEIR','rh_id'), ('RENAL-HEIRitage','rh2_id'), ('PANTHER','panther_id'), ('PANDA','panda_id'), ('ATTEMPT','attempt_id'), ('RPC2','rpc2_id'), ('SWEETHEART', 'swht_id'), ('ULTRA', 'ultra_id')]
 
     for study, id in study_list: 
         study_mrns = harmonized.loc[harmonized['study'] == study, ['mrn', 'record_id']]
         study_id_map = dict(zip(study_mrns['mrn'], study_mrns['record_id']))
         harmonized[id] = harmonized.apply(lambda row: study_id_map[row['mrn']] if row['mrn'] in study_id_map else '', axis=1)
-
+    #add uuid column from ~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/mrn_uuid_map.csv
+    uuid_map = pd.read_csv("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/mrn_uuid_map.csv")
+    uuid_dict = dict(zip(uuid_map['mrn'], uuid_map['uuid']))
+    harmonized['uuid'] = harmonized['mrn'].map(uuid_dict)
+    #print how many uuid values were successfully mapped (i.e. not null)
+    num_mapped = harmonized['uuid'].notnull().sum()
+    print(f"Successfully mapped {num_mapped} MRNs to UUIDs.")
     # ---- Create and Save ID Linkage Matrix ----
     linkage_df = (
         harmonized
-        .dropna(subset=['mrn', 'study', 'record_id'])
+        .dropna(subset=['mrn', 'uuid','study', 'record_id'])
         .drop_duplicates(subset=['mrn', 'study'])
         .pivot(index='mrn', columns='study', values='record_id')
+        .fillna('')
+        .reset_index()
+    )
+    #linkage matrix with just uuid (no mrn)
+    linkage_deidentified_df = (
+        harmonized
+        .dropna(subset=['uuid', 'study', 'record_id'])
+        .drop_duplicates(subset=['uuid', 'study'])
+        .pivot(index='uuid', columns='study', values='record_id')
         .fillna('')
         .reset_index()
     )
@@ -180,7 +196,10 @@ def create_study_id_columns(harmonized):
     else:
         sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
     output_path = (base_data_path + "Data Harmonization/id_linkage_matrix.csv")
+    output_path_deid = (base_data_path + "Data Harmonization/id_linkage_matrix_deidentified.csv")
+
     linkage_df.to_csv(output_path, index=False)
+    linkage_deidentified_df.to_csv(output_path_deid, index=False)
     return harmonized
 
 def biopsy_merge(harmonized):

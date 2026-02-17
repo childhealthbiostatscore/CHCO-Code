@@ -18,6 +18,8 @@ NUMERIC_COLS = [
     'gfr_raw_plasma', 'gfr_bsa_plasma', 'erpf_raw_plasma', 
     'erpf_bsa_plasma', 'glomerular_pressure', 'ra', 're',
 
+    'p1_raw_m', 'p1_raw_leanm', 'p1_gc_m', 'p1_gc_leanm', 'p2_raw_m', 'p2_raw_leanm', 'p2_gc_m', 'p2_gc_leanm',
+
     # PET
     'rc_f','rc_k2', 'rc_vb', 'rc_k1', 
     'rm_f', 'rm_k2', 'rm_vb', 'rm_k1', 
@@ -60,6 +62,9 @@ COLUMNS_TO_FILL = [
     'eGFR_CKD_epi', 'eGFR_fas_cr', 'eGFR_fas_cr_cysc', 'acr_u',
     'gfr_raw_plasma', 'gfr_bsa_plasma', 'erpf_raw_plasma', 
     'erpf_bsa_plasma', 'glomerular_pressure', 'ra', 're',
+
+    'p1_raw_m', 'p1_raw_leanm', 'p1_gc_m', 'p1_gc_leanm', 'p2_raw_m', 'p2_raw_leanm', 'p2_gc_m', 'p2_gc_leanm',
+
     #PET
     'rc_f','rc_k2', 'rc_vb', 'rc_k1',
     'rm_f', 'rm_k2', 'rm_vb', 'rm_k1',
