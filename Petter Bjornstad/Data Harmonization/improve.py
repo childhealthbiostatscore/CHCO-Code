@@ -311,7 +311,7 @@ def clean_improve():
                 "bodcomp_date": "date"}, axis=1, inplace=True)
     dxa["procedure"] = "dxa"
 
-    dictionary.loc[dictionary['variable_name'].isin(dxa.columns), 'form_name'] = 'body_composition_dxa_bod_pod'
+    dictionary.loc[dictionary['variable_name'].isin(dxa.columns), 'form_name'] = 'dxa'
 
 
     # --------------------------------------------------------------------------

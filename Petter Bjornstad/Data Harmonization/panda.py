@@ -48,6 +48,8 @@ def clean_panda():
     rep = [-97, -98, -99, -997, -998, -999, -9997, -9998, -9999, -99999, -9999.0]
     rep = rep + [str(r) for r in rep] + [""]
 
+    dictionary = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/data_dictionary_master.csv")
+
     # --------------------------------------------------------------------------
     # Demographics
     # --------------------------------------------------------------------------
@@ -273,6 +275,8 @@ def clean_panda():
     dxa["visit"] = dxa["redcap_event_name"].apply(lambda x: re.search(r"annual_visit_(\d+)", x))
     dxa["visit"] = dxa["visit"].apply(lambda x: f"year_{x.group(1)}" if x else "baseline")
     dxa.drop(["redcap_event_name"], axis=1, inplace=True)
+    dictionary.loc[dictionary['variable_name'].isin(dxa.columns), 'form_name'] = 'dxa'
+
 
     # --------------------------------------------------------------------------
     # Kidney Biopsy

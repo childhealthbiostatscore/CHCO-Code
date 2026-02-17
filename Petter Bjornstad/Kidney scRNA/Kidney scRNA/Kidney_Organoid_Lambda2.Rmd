@@ -268,6 +268,13 @@ cat("Loaded", length(reactome_sets), "Reactome gene sets\n")
 # Output directory
 dir.gsea <- "/home/hhampson/Results/GSEA_T2DvsLC_Reactome"
 # dir.create(dir.gsea, recursive = TRUE)
+
+#Load Metadata cleaned
+gc()
+bucket <- "harmonized.dataset" # bucket name in Kopah
+temp_file <- tempfile(fileext = ".csv") # need to create a temporary file
+s3$download_file(bucket, "hailey_subset_data.csv", temp_file)
+dat <- read.csv(temp_file)
 ```
 
 # 2. Pre-Processing & Qualtiy Control
@@ -690,15 +697,37 @@ rm(sce,counts_layer)
 
 ## b. Descriptive Statistics
 ```{r}
-dat <- so_kpmp_sc@meta.data %>%
-  group_by(record_id) %>%
-  summarise(across(everything(), ~ .x[1])) %>%
-  ungroup()
-dat_full <- so_kpmp_sc@meta.data
+#Table 1
+label(dat$age) <- "Age (years)"
+label(dat$sex) <- "Sex"
+label(dat$race_ethnicity_condensed) <- "Ethnicity"
+label(dat$bmi) <- "BMI (kg/m^2)"
+label(dat$triglycerides) <- "Triglycerides (mg/dL)"
+label(dat$hba1c) <- "HbA1c (%)"
+label(dat$acr_u) <- "Urine Albumin-Creatinine Ratio (mg/g)"
+label(dat$eGFR_fas_cr) <- "eGFR by Full Age Spectrum (mL/min/1.73m^2)"
+label(dat$epic_glp1ra_1) <- "GLP-1 Receptor Agonist (Yes vs. No)"
+label(dat$epic_sglti2_1) <- "SGLT-2 Inhibitor (Yes vs. No)"
+label(dat$group) <- "Diabetes Status (T2D vs. LC)"
 
-table1(~ age_surgery + nih_sex + nih_race + nih_ethnicity + bmi + tg + a1c+
-         diagnosis_of_diabetes | group, data=dat)
+table1(~ age + sex + race_ethnicity_condensed + bmi + triglycerides + hba1c + acr_u + eGFR_fas_cr+epic_glp1ra_1+epic_sglti2_1 | group, data=dat)
 
+
+# Continuous variables - t-tests
+continuous_vars <- c("age", "bmi", "triglycerides", "hba1c", "acr_u", "eGFR_fas_cr")
+
+for (var in continuous_vars) {
+  t_test <- t.test(dat[[var]] ~ dat$group)
+  cat(var, "p-value:", round(t_test$p.value, 4), "\n")
+}
+
+# Categorical variables - chi-square tests
+categorical_vars <- c("sex", "race_ethnicity_condensed", "epic_glp1ra_1", "epic_sglti2_1")
+
+for (var in categorical_vars) {
+  chi_test <- chisq.test(table(dat[[var]], dat$group))
+  cat(var, "p-value:", round(chi_test$p.value, 4), "\n")
+}
 ```
 
 ## c. Annotate Organoid Data from SE & Beno-approved annotations
@@ -974,6 +1003,210 @@ print(propeller_group)
 
 # Save results
 write.csv(propeller_group, "/home/hhampson/Results/Propeller_T2DvsLC_results.csv")
+
+```
+
+####a. Find Markers - Sanity Check
+```{r}
+# Quick marker analysis across all cell types
+# Verify dimensions
+nrow(so_combined) # genes 7383
+ncol(so_combined) # cells 137604
+
+# Check your metadata
+table(so_combined$group)
+table(so_combined$treatment)
+table(so_combined$cell_type_abbrev)
+head(so_combined@meta.data[, c("group", "cell_type_abbrev", "record_id", "treatment")])
+
+# Make sure group is a factor with LC as reference
+so_combined$group <- factor(so_combined$group)
+so_combined$group <- relevel(so_combined$group, ref = "Lean Control")  # Adjust "Lean Control" to match your actual level name
+
+
+# Assuming your identity is set to cell type
+Idents(so_combined) <- so_combined$cell_type_abbrev  # adjust if your column name differs
+
+# Get unique cell types
+# cell_types <- unique(Idents(so_combined))
+# celltypes <- unique(so_combined$cell_type_abbrev)
+celltypes <- c("ProlPod","EEC","MesV","DT")
+
+# Run FindMarkers for each cell type (T2D vs LC comparison)
+marker_results <- list()
+
+for (ct in celltypes) {
+  # Subset to current cell type
+  subset_obj <- subset(so_combined, idents = ct)
+  
+  # Run FindMarkers comparing groups
+  # Adjust the 'ident.1' and 'ident.2' based on your group column
+  markers <- FindMarkers(subset_obj, 
+                         ident.1 = "Type 2 Diabetes", 
+                         ident.2 = "Lean Control",
+                         group.by = "group",  # adjust to your group column name
+                         test.use = "wilcox",
+                         min.pct = 0.1)
+  
+  markers$gene <- rownames(markers)
+  markers$celltype <- ct
+  marker_results[[ct]] <- markers
+}
+
+# Combine results
+all_markers <- do.call(rbind, marker_results)
+rownames(all_markers) <- NULL
+
+# Quick summary
+head(all_markers[order(all_markers$p_val_adj), ], 20)
+
+library(ggplot2)
+library(ggrepel)
+
+for (ct in celltypes) {
+  markers_ct <- all_markers[all_markers$celltype == ct, ]
+  
+  # Define significance and color
+  markers_ct$color <- ifelse(markers_ct$p_val_adj < 0.05 & markers_ct$avg_log2FC > 0, "#990000",
+                             ifelse(markers_ct$p_val_adj < 0.05 & markers_ct$avg_log2FC < 0, "#003366", "gray"))
+  
+  significant_df <- markers_ct[markers_ct$p_val_adj < 0.05, ]
+  
+  Genes <- nrow(markers_ct)
+  
+  volcano_plot <- ggplot(markers_ct, aes(x = avg_log2FC, y = -log10(p_val_adj), color = color)) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title = paste("Type 2 Diabetes vs. Lean Controls -", ct),
+      subtitle = "FindMarkers Sanity Check",
+      x = "Log Fold Change",
+      y = "-log10(Adjusted P-Value)",
+      caption = paste0("FDR < 0.05, Genes = ", Genes)
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    ) +
+    xlim(-3, 3) +
+    geom_text(data = significant_df, aes(label = gene),
+              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+  
+  volcano_plots[[ct]] <- volcano_plot
+  
+  # Save plot
+  plot_file <- file.path("/home/hhampson/Results",
+                         paste0("VolcanoPlot_FindMarkers_", gsub(" ", "_", ct), ".png"))
+  png(plot_file, width = 2500, height = 2500, res = 300)
+  print(volcano_plot)
+  dev.off()
+}
+
+```
+
+```{r}
+library(Seurat)
+library(ggplot2)
+
+Idents(so_combined) <- so_combined$cell_type_abbrev
+celltypes <- c("ProlPod","EEC","MesV","DT")
+marker_results <- list()
+significant_counts <- list()
+
+for (ct in celltypes) {
+  subset_obj <- subset(so_combined, idents = ct)
+  
+  # Step 1: Find top 2000 HVGs and filter
+  subset_obj <- FindVariableFeatures(subset_obj, 
+                                     selection.method = "vst", 
+                                     nfeatures = 2000)
+  hvgs <- VariableFeatures(subset_obj)
+  
+  cat("HVGs:", length(hvgs), "\n")
+  
+  # Get counts for HVGs
+  counts_hvg <- round(GetAssayData(subset_obj, layer = "counts"))
+  genes_list <- hvgs
+  
+  # Step 2: Run FindMarkers on HVGs only
+  cell_types <- unique(Idents(subset_obj))
+  
+  markers <- FindMarkers(subset_obj, 
+                         ident.1 = "Type 2 Diabetes", 
+                         ident.2 = "Lean Control",
+                         group.by = "group",
+                         test.use = "wilcox",
+                         min.pct = 0.1,
+                         features = genes_list)  # Only use HVGs
+  
+  markers$gene <- rownames(markers)
+  markers$celltype <- ct
+  marker_results[[ct]] <- markers
+  
+  # Count significant genes
+  sig_genes <- markers[markers$p_val_adj < 0.05, ]
+  significant_counts[[ct]] <- nrow(sig_genes)
+  
+  cat(ct, "- Significant genes (FDR < 0.05):", nrow(sig_genes), "\n")
+}
+
+# Combine all results
+all_markers <- do.call(rbind, marker_results)
+rownames(all_markers) <- NULL
+
+# Summary statistics
+cat("\n===== SUMMARY =====\n")
+cat("Total HVGs analyzed:", length(genes_list), "\n")
+cat("Total cell types:", length(cell_types), "\n")
+cat("Total significant genes across all cell types:", sum(unlist(significant_counts)), "\n")
+cat("\nSignificant genes by cell type:\n")
+print(as.data.frame(significant_counts))
+
+# Step 3: Create volcano plots
+volcano_plots <- list()
+
+for (ct in celltypes) {
+  markers_ct <- all_markers[all_markers$celltype == ct, ]
+  
+  markers_ct$color <- ifelse(markers_ct$p_val_adj < 0.05 & markers_ct$avg_log2FC > 0, "#990000",
+                             ifelse(markers_ct$p_val_adj < 0.05 & markers_ct$avg_log2FC < 0, "#003366", "gray"))
+  
+  significant_df <- markers_ct[markers_ct$p_val_adj < 0.05, ]
+  
+  Genes <- nrow(markers_ct)
+  Sig_Genes <- nrow(significant_df)
+  
+  volcano_plot <- ggplot(markers_ct, aes(x = avg_log2FC, y = -log10(p_val_adj), color = color)) +
+    geom_point(alpha = 0.7) +
+    scale_color_identity() +
+    theme_minimal() +
+    labs(
+      title = paste("Type 2 Diabetes vs. Lean Controls -", ct),
+      subtitle = "FindMarkers on Top 2000 HVGs",
+      x = "Log Fold Change",
+      y = "-log10(Adjusted P-Value)",
+      caption = paste0("FDR < 0.05, Genes = ", Genes, ", Significant = ", Sig_Genes)
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    ) +
+    xlim(-3, 3) +
+    geom_text(data = significant_df, aes(label = gene),
+              vjust = 1, hjust = 1, size = 3, check_overlap = TRUE, color = "black")
+  
+  volcano_plots[[ct]] <- volcano_plot
+  
+  # Save plot
+  plot_file <- file.path("/home/hhampson/Results",
+                         paste0("VolcanoPlot_FindMarkers_HVG2000_", gsub(" ", "_", ct), ".png"))
+  png(plot_file, width = 2500, height = 2500, res = 300)
+  print(volcano_plot)
+  dev.off()
+}
+
+cat("\nVolcano plots saved!\n")
 
 ```
 
@@ -2407,6 +2640,116 @@ cell_type_order <- de_summary_interaction %>%
 print(cell_type_order)
 ```
 ####2. Targeted Celltypes
+###i. Plot Interaction Term - Volcano Plot
+```{r}
+
+celltypes <- c("ProlPod","DT","EEC","MesV")
+# Open PDF
+pdf("/home/hhampson/Results/T2DvsLC_Interaction_Volcano_AllCelltypes.pdf", 
+    width = 8, height = 8)
+for (cell_name in celltypes) {
+  
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path("/home/hhampson/Results", 
+                          paste0("NEBULA_T2DvsLC_interaction_", cell_name_clean, 
+                                 "_unadjusted_2000.csv"))
+  
+  # "~/Results/NEBULA_T2DvsLC_interaction_ProlPod_unadjusted_2000.csv"
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  full_results <- read.csv(input_file)
+  
+  # Simple categorization based on interaction term
+  results <- full_results %>%
+    mutate(
+      # Interaction coefficient
+      Interaction = `logFC_groupType.2.Diabetes.treatment30`,
+      Interaction_pval = `p_groupType.2.Diabetes.treatment30`,
+      Interaction_fdr = `fdr_groupType.2.Diabetes.treatment30`,
+      Interaction_pval10 = `PValue10_groupType.2.Diabetes.treatment30`,
+      
+      # Two categories
+      category = case_when(
+        Interaction_fdr < 0.05 & Interaction > 0 ~ "More reactive in T2D",
+        Interaction_fdr < 0.05 & Interaction < 0 ~ "Less reactive in T2D",
+        TRUE ~ "Not Significant"
+      ),
+      
+      # Two colors
+      color = case_when(
+        category == "More reactive in T2D" ~ "#990000",  # Dark red
+        category == "Less reactive in T2D" ~ "#003366",   # Dark blue
+        TRUE ~ "#D3D3D3"                                  # Gray
+      )
+    )
+  
+  # Dynamic axis limits
+  interaction_range <- range(results$Interaction, na.rm = TRUE)
+  interaction_padding <- diff(interaction_range) * 0.1
+  # xlim_min <- interaction_range[1] - interaction_padding
+  xlim_min <- -3
+  # xlim_max <- interaction_range[2] + interaction_padding
+  xlim_max <- 3
+  
+  pval_max <- max(results$Interaction_pval10, na.rm = TRUE)
+  ylim_max <- pval_max * 1.05
+  
+  # Significant genes for labeling
+  sig_genes <- results %>% 
+    filter(Interaction_fdr < 0.05)
+  
+  # Count genes in each category
+  category_counts <- results %>%
+    filter(Interaction_fdr < 0.05) %>%
+    dplyr::count(category)
+  
+  n_more_t2d <- sum(results$category == "More reactive in T2D")
+  n_less_t2d <- sum(results$category == "Less reactive in T2D")
+  
+  # Create volcano plot with legend
+  p <- ggplot(results, aes(x = Interaction, y = Interaction_pval10, color = color)) +
+    geom_point(alpha = 0.7, size = 2) +
+    scale_color_identity(
+      name = "Gene Category",
+      breaks = c("#990000", "#003366", "#D3D3D3"),
+      labels = c("More reactive in T2D", "Less reactive in T2D", "Not Significant"),
+      guide = "legend"
+    ) +
+    theme_minimal() +
+    labs(
+      title = paste0(cell_name, " - Effect of Glucose Treatment on T2D vs LC"),
+      x = "Interaction Term (logFC)",
+      y = "-log10(P-Value)"
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      axis.title = element_text(size = 11),
+      axis.text = element_text(size = 10),
+      legend.position = "top",
+      legend.title = element_text(size = 11, face = "bold"),
+      legend.text = element_text(size = 10),
+      legend.margin = margin(b = 10)
+    ) +
+    xlim(xlim_min, xlim_max) +
+    ylim(0, ylim_max) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black", alpha = 0.3, linewidth = 0.5) +
+    geom_text_repel(data = sig_genes, aes(label = Gene),
+                    size = 2.5, color = "black", max.overlaps = 20,
+                    box.padding = 0.3, segment.alpha = 0.5)
+  
+  print(p)
+  
+  cat("Category counts for", cell_name, ":\n")
+  print(category_counts)
+  cat("\n")
+}
+dev.off()
+
+```
 
 ```{r}
 # Get cell types to analyze
@@ -2785,7 +3128,7 @@ cell_type_order <- de_summary_interaction %>%
 
 print(cell_type_order)
 ```
-### iii. Joint Analysis
+### ii. Joint Analysis
 ```{r}
 
 library(tidyverse)
@@ -3628,6 +3971,146 @@ for (cell_name in celltypes) {
 
 dev.off()
 cat("\n=== DiD volcano + GSEA plots complete ===\n")
+
+
+```
+
+######a. Pathway Exploration
+```{r}
+
+# Extract top 10 genes per significant pathway
+library(dplyr)
+library(tidyr)
+
+# Initialize list to store results across all cell types
+all_pathway_genes <- list()
+
+# Loop through each cell type
+for (cell_name in celltypes) {
+  
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path("/home/hhampson/Results", 
+                          paste0("NEBULA_T2DvsLC_interaction_", cell_name_clean, 
+                                 "_unadjusted_2000.csv"))
+  
+  if (!file.exists(input_file)) {
+    cat("File not found:", input_file, "\n")
+    next
+  }
+  
+  cat("\n=== Processing:", cell_name, "===\n")
+  full_results <- read.csv(input_file)
+  
+  # ---- CATEGORIZE GENES ----
+  did_results <- full_results %>%
+    mutate(
+      DiD = `logFC_groupType.2.Diabetes.treatment30`,
+      DiD_pval = `p_groupType.2.Diabetes.treatment30`,
+      DiD_fdr = `fdr_groupType.2.Diabetes.treatment30`,
+      Treatment_effect = logFC_treatment30
+    )
+  
+  # Rank genes by DiD
+  rankings <- did_results$DiD
+  names(rankings) <- did_results$Gene
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  # Run GSEA
+  set.seed(1234)
+  reactome_res <- fgsea(pathways = reactome_sets,
+                        stats = rankings,
+                        scoreType = 'std',
+                        minSize = 3,
+                        maxSize = 500,
+                        nproc = 1,
+                        nPermSimple = 10000)
+  
+  # Get significant pathways
+  sig_pathways <- reactome_res %>%
+    filter(pval < 0.05) %>%
+    arrange(pval) %>%
+    head(20)
+  
+  # For each significant pathway, extract top 10 genes
+  pathway_genes_list <- list()
+  
+  for (i in seq_len(nrow(sig_pathways))) {
+    pathway_name <- sig_pathways$pathway[i]
+    pathway_genes <- reactome_sets[[pathway_name]]
+    nes_value <- sig_pathways$NES[i]
+    pval_value <- sig_pathways$pval[i]
+    
+    # Get the logFC and DiD values for genes in this pathway
+    pathway_data <- did_results %>%
+      filter(Gene %in% pathway_genes) %>%
+      mutate(
+        abs_DiD = abs(DiD),
+        logFC_direction = ifelse(DiD > 0, "Positive (T2D)", "Negative (LC)")
+      ) %>%
+      arrange(desc(abs_DiD)) %>%
+      head(10) %>%
+      dplyr::select(Gene, DiD, logFC_direction, DiD_fdr) %>%
+      mutate(
+        Pathway = str_remove(pathway_name, "^REACTOME_"),
+        Pathway = str_replace_all(Pathway, "_", " "),
+        Cell_Type = cell_name,
+        NES = round(nes_value, 3),
+        Pathway_Pval = round(pval_value, 4),
+        Direction = ifelse(nes_value > 0, "Stronger in T2D", "Weaker in T2D (Stronger in LC)"),
+        Gene_Rank = row_number()
+      ) %>%
+      dplyr::select(Cell_Type, Pathway, Direction, NES, Pathway_Pval, Gene_Rank, 
+             Gene, DiD, logFC_direction, DiD_fdr)
+    
+    pathway_genes_list[[i]] <- pathway_data
+  }
+  
+  # Combine all pathways for this cell type
+  if (length(pathway_genes_list) > 0) {
+    cell_pathway_df <- do.call(rbind, pathway_genes_list)
+    all_pathway_genes[[cell_name]] <- cell_pathway_df
+  }
+}
+
+# Combine all cell types into one master dataframe
+master_pathway_genes <- do.call(rbind, all_pathway_genes)
+rownames(master_pathway_genes) <- NULL
+
+# Display summary
+head(master_pathway_genes, 30)
+
+# Save to CSV
+write.csv(master_pathway_genes, 
+          "/home/hhampson/Results/Pathway_Top10Genes_Summary.csv",
+          row.names = FALSE)
+
+cat("\n=== Summary saved to: /home/hhampson/Results/Pathway_Top10Genes_Summary.csv ===\n")
+cat("Total rows:", nrow(master_pathway_genes), "\n")
+cat("Cell types:", n_distinct(master_pathway_genes$Cell_Type), "\n")
+cat("Pathways:", n_distinct(master_pathway_genes$Pathway), "\n")
+
+# Create a wider view: one row per pathway with genes concatenated
+pathway_summary <- master_pathway_genes %>%
+  group_by(Cell_Type, Pathway, Direction, NES, Pathway_Pval) %>%
+  summarise(
+    Top_Genes = paste(Gene, collapse = ", "),
+    Gene_LogFCs = paste(round(DiD, 3), collapse = ", "),
+    N_Genes = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(Cell_Type, desc(abs(NES)))
+
+# Save wider version
+write.csv(pathway_summary,
+          "/home/hhampson/Results/Pathway_Summary_Concatenated.csv",
+          row.names = FALSE)
+
+cat("\nWider summary saved to: /home/hhampson/Results/Pathway_Summary_Concatenated.csv\n")
+
+# Print a formatted view for a specific cell type
+cat("\n=== Example: First cell type pathway summary ===\n")
+first_cell <- unique(pathway_summary$Cell_Type)[1]
+print(pathway_summary %>% filter(Cell_Type == first_cell) %>% head(5))
 
 
 ```
@@ -5054,7 +5537,44 @@ cat("\n=== PDF Complete ===\n")
 ```
 
 #4. Biopsy Analysis
-## a. Perform differential expression between T2D & LC in Biopsy samples
+## a. Visualize
+```{r}
+#Start by clustering
+unique(so_kpmp_sc$record_id) #"RH-50-T" "RH-62-T" "CRC-03"  "CRC-11"  "CRC-10"  "RH-72-T"
+
+# PCA
+so_kpmp_sc <- NormalizeData(so_kpmp_sc)
+so_kpmp_sc <- ScaleData(so_kpmp_sc, features = VariableFeatures(so_kpmp_sc))
+so_kpmp_sc <- FindVariableFeatures(object = so_kpmp_sc)
+so_kpmp_sc <- RunPCA(so_kpmp_sc, features = VariableFeatures(object = so_kpmp_sc),assay="RNA")
+ElbowPlot(so_kpmp_sc)
+
+# # Find neighbors and clusters 
+so_kpmp_sc <- FindNeighbors(so_kpmp_sc, assay = "RNA", dims = 1:20) #20 based on elbow plot
+so_kpmp_sc <- FindClusters(so_kpmp_sc, resolution = 0.5)
+
+# Perform UMAP
+so_kpmp_sc <- RunUMAP(so_kpmp_sc, dims = 1:30) #25 to 50 dimensions for organoid, start with 30
+so_kpmp_sc@reductions
+DimPlot(so_kpmp_sc, reduction = "umap", raster = F)
+Idents(so_kpmp_sc) <- "seurat_clusters"  # or whatever the column is named
+
+# Verify you have 25 clusters
+print(paste("Number of clusters:", length(unique(Idents(so_kpmp_sc)))))
+print(table(Idents(so_kpmp_sc)))  # Show distribution of cells per cluster
+DimPlot(so_kpmp_sc, reduction = "umap", raster = T)
+
+DimPlot(so_kpmp_sc, reduction = "umap", raster = T, group.by = "record_id")
+
+Idents(so_kpmp_sc) <- "celltype_LR"
+unique(so_kpmp_sc$celltype_LR)
+plot <- DimPlot(so_kpmp_sc, reduction = "umap", raster = T, label = TRUE, repel = TRUE, label.size = 6)
+
+ggsave("/home/hhampson/Results/UMAP_celltype_biopsy.png", plot, width = 10, height = 10, dpi = 300)
+
+```
+
+## b. Perform differential expression between T2D & LC in Biopsy samples
 ### i. Pre-Analysis Steps
 ```{r}
 # Verify dimensions
@@ -5105,7 +5625,8 @@ dev.off()
 ### ii. Analysis 
 ```{r}
 # Get cell types to analyze
-celltypes <- unique(so_kpmp_sc$celltype_LR)[-15] #Remove nonspecific because non in Lean controls & not enough cells
+# celltypes <- unique(so_kpmp_sc$celltype_LR)[-15] #Remove nonspecific because non in Lean controls & not enough cells
+celltypes <- c("POD","DCT","EC","VSMC_Pericyte")
 
 # Loop through each cell type
 for (cell_name in celltypes) {
@@ -5315,7 +5836,86 @@ for (cell_name in celltypes) {
   cat("Plot saved:", plot_file, "\n\n")
 }
 
+#Load in all the celltype results & make a nice figure
+library(dplyr)
+library(ggplot2)
+library(janitor)
+library(tidyr)
 
+# Initialize empty list to store results
+all_results <- list()
+celltypes <- c("POD","DCT","EC","VSMC_Pericyte")
+
+for (cell_name in celltypes) {
+  cell_name_clean <- str_replace_all(cell_name, "[/ -]", "_")
+  input_file <- file.path("/home/hhampson/Results", 
+                           paste0("NEBULA_Biopsy_T2DvsLC_", cell_name_clean, 
+                                  "_unadjusted_2000.csv"))
+  
+  # Check if file exists before reading
+  if (file.exists(input_file)) {
+    file <- read.csv(input_file)
+    file$cell_type <- cell_name  # Add cell type column
+    all_results[[cell_name]] <- file
+    cat("Loaded:", cell_name, "- Genes:", nrow(file), "\n")
+  } else {
+    cat("File not found:", input_file, "\n")
+  }
+}
+
+# Combine all results into one dataframe
+combined_results <- bind_rows(all_results)
+
+# Count positive and negative DE genes per cell type
+de_summary <- combined_results %>%
+  janitor::clean_names() %>% 
+  filter(fdr < 0.05) %>%
+  mutate(direction = ifelse(log_fc_group_type_2_diabetes > 0, "Positive", "Negative")) %>%
+  group_by(cell_type, direction) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  mutate(count = ifelse(direction == "Negative", -count, count))
+
+# Ensure all cell types are in the summary, even with 0 DEGs
+all_celltypes_df <- expand.grid(
+  cell_type = celltypes,
+  direction = c("Positive", "Negative")
+)
+
+de_summary <- all_celltypes_df %>%
+  left_join(de_summary, by = c("cell_type", "direction")) %>%
+  mutate(count = ifelse(is.na(count), 0, count))
+
+# Calculate total absolute DEGs per cell type for ordering
+# Calculate total absolute DEGs per cell type for ordering
+cell_type_order <- de_summary %>%
+  group_by(cell_type) %>%
+  summarise(total_degs = sum(abs(count))) %>%
+  arrange(total_degs) %>%  # Changed from desc() to ascending
+  pull(cell_type)
+
+# Create the plot
+ggplot(de_summary, aes(x = count, y = factor(cell_type, levels = cell_type_order), fill = direction)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Negative" = "#A8C9D9", "Positive" = "#E89A9A")) +
+  geom_vline(xintercept = 0, color = "black", size = 0.5) +
+  labs(x = "Number of DE genes", 
+       y = NULL,
+       fill = NULL) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 12),
+    axis.ticks.x = element_line(color = "black"),
+    axis.ticks.length.x = unit(0.2, "cm"),
+    legend.position = "top",
+    legend.text = element_text(size = 12))
+
+# Save the plot
+ggsave("/home/hhampson/Results/DE_genes_by_celltype_barplot_biopsy.png", 
+       width = 8, height = 6, dpi = 300)
 ```
 
 ### iii. Combined Plots
@@ -5669,13 +6269,6 @@ for (pair in comparative_pairs) {
 ##b. Combined Plots
 ###i. DEGs
 ```{r}
-library(ggplot2)
-library(dplyr)
-library(pheatmap)
-library(patchwork)
-library(stringr)
-library(ggrepel)
-
 # Define comparative cell type pairs
 comparative_pairs <- list(
   list(biopsy = "POD", organoid = "ProlPod", label = "Podocytes"),
@@ -5686,6 +6279,7 @@ comparative_pairs <- list(
 
 # Set significance threshold once
 fdr_threshold <- 0.1
+
 
 # Loop through each comparative pair
 for (pair in comparative_pairs) {
@@ -5724,31 +6318,40 @@ for (pair in comparative_pairs) {
   
   biopsy_res_filtered <- biopsy_res %>%
     filter(!(abs(logFC_groupType_2_Diabetes - biopsy_mean) > 2 * biopsy_sd &
-             p_groupType_2_Diabetes >= 0.05)) %>%
+               p_groupType_2_Diabetes >= 0.05)) %>%
     mutate(
       pval10 = -log10(pmax(p_groupType_2_Diabetes, 1e-10)),
       sig = fdr < fdr_threshold,
-      color = ifelse(sig & logFC_groupType_2_Diabetes > 0, "#DC143C",
-                     ifelse(sig & logFC_groupType_2_Diabetes < 0, "#4682B4", "#D3D3D3"))
+      color = ifelse(sig & logFC_groupType_2_Diabetes > 0, "#990000",
+                     ifelse(sig & logFC_groupType_2_Diabetes < 0, "#003366", "#D3D3D3"))
     )
   
   biopsy_sig <- biopsy_res_filtered %>% filter(sig)
+  
+  # Calculate dynamic x-axis range for biopsy
+  biopsy_x_range <- max(abs(biopsy_res_filtered$logFC_groupType_2_Diabetes), na.rm = TRUE) * 1.1
   
   volcano_biopsy <- ggplot(biopsy_res_filtered,
                            aes(logFC_groupType_2_Diabetes, pval10, color = color)) +
     geom_point(alpha = 0.7, size = 2) +
     scale_color_identity() +
+    scale_x_continuous(limits = c(-biopsy_x_range, biopsy_x_range)) +
     theme_minimal() +
     labs(
       title = paste0("Biopsy - ", label, " (FDR < ", fdr_threshold, ")"),
       x = "logFC (T2D vs LC)",
       y = "-log10(P-value)"
     ) +
-    geom_vline(xintercept = 0, linetype = "dashed") +
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    ) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
     geom_text_repel(data = biopsy_sig,
                     aes(label = gene),
                     size = 2.5,
-                    max.overlaps = 15)
+                    max.overlaps = 15,
+                    color = "black")
   
   # ===============================
   # ORGANOID VOLCANO
@@ -5759,31 +6362,40 @@ for (pair in comparative_pairs) {
   
   organoid_res_filtered <- organoid_res %>%
     filter(!(abs(logFC_group - organoid_mean) > 2 * organoid_sd &
-             p_group >= 0.05)) %>%
+               p_group >= 0.05)) %>%
     mutate(
       pval10 = -log10(pmax(p_group, 1e-10)),
       sig = fdr < fdr_threshold,
-      color = ifelse(sig & logFC_group > 0, "#DC143C",
-                     ifelse(sig & logFC_group < 0, "#4682B4", "#D3D3D3"))
+      color = ifelse(sig & logFC_group > 0, "#990000",
+                     ifelse(sig & logFC_group < 0, "#003366", "#D3D3D3"))
     )
   
   organoid_sig <- organoid_res_filtered %>% filter(sig)
+  
+  # Calculate dynamic x-axis range for organoid
+  organoid_x_range <- max(abs(organoid_res_filtered$logFC_group), na.rm = TRUE) * 1.1
   
   volcano_organoid <- ggplot(organoid_res_filtered,
                              aes(logFC_group, pval10, color = color)) +
     geom_point(alpha = 0.7, size = 2) +
     scale_color_identity() +
+    scale_x_continuous(limits = c(-organoid_x_range, organoid_x_range)) +
     theme_minimal() +
     labs(
       title = paste0("Organoid - ", label, " (FDR < ", fdr_threshold, ")"),
       x = "logFC (T2D vs LC)",
       y = "-log10(P-value)"
     ) +
-    geom_vline(xintercept = 0, linetype = "dashed") +
+    theme(
+      plot.title = element_text(hjust = 0),
+      axis.text.x = element_text(angle = 0, hjust = 1)
+    ) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
     geom_text_repel(data = organoid_sig,
                     aes(label = gene),
                     size = 2.5,
-                    max.overlaps = 15)
+                    max.overlaps = 15,
+                    color = "black")
   
   # ===============================
   # HEATMAP OF SHARED SIGNIFICANT GENES
@@ -5798,6 +6410,8 @@ for (pair in comparative_pairs) {
     cat("No shared significant genes\n")
     combined_all <- volcano_biopsy + volcano_organoid +
       plot_layout(ncol = 2)
+    
+    plot_width <- 16
     
   } else {
     
@@ -5818,7 +6432,7 @@ for (pair in comparative_pairs) {
     max_val <- max(abs(heatmap_data))
     breaks  <- seq(-max_val, max_val, length.out = 101)
     colors_heatmap <- colorRampPalette(
-      c("#4682B4", "white", "#DC143C")
+      c("#003366", "white", "#990000")
     )(100)
     
     cluster_rows_flag <- nrow(heatmap_data) > 1
@@ -5842,7 +6456,9 @@ for (pair in comparative_pairs) {
     combined_all <- volcano_biopsy +
       volcano_organoid +
       wrap_elements(heatmap_grob) +
-      plot_layout(ncol = 3, widths = c(1, 1, 0.9))
+      plot_layout(ncol = 3, widths = c(1, 1, 0.33))
+    
+    plot_width <- 18
   }
   
   # ===============================
@@ -5855,7 +6471,7 @@ for (pair in comparative_pairs) {
                       organoid_celltype, "_",
                       biopsy_celltype, ".png"),
     plot = combined_all,
-    width = 20,
+    width = plot_width,
     height = 6,
     dpi = 300
   )
@@ -5863,8 +6479,8 @@ for (pair in comparative_pairs) {
   cat("Completed:", label, "\n\n")
 }
 
-
 ```
+
 ###ii. Pathways
 ```{r}
 

@@ -185,6 +185,8 @@ def clean_penguin():
                axis=1, inplace=True)
     dxa["procedure"] = "dxa"
     dxa["visit"] = "baseline"
+    dictionary.loc[dictionary['variable_name'].isin(dxa.columns), 'form_name'] = 'dxa'
+
 
     # --------------------------------------------------------------------------
     # Clamp

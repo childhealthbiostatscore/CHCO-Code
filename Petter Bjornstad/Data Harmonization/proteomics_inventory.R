@@ -10,7 +10,6 @@ harm_dat <- read.csv(
   file.path(root_path, "Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/soma_olink_harmonized_dataset.csv"),
   na.strings = ""
 )
-# Count of proteomics
 ## Pull in proteomics
 
 

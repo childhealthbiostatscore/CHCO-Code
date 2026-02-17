@@ -1,6 +1,6 @@
 ---
 title: "PENGUIN Proteomics Analysis"
-author: "Ye Ji Choi"
+author: "Ye Ji Choi, Shivani Ramesh"
 date: "`r lubridate::today()`"
 format: 
   html:
@@ -10,7 +10,7 @@ format:
     code-fold: true
     embed-resources: true
 ---
-
+### PROTEOMICS
 ```{r libraries, echo=F, include = F}
 library(SomaDataIO)
 library(purrr)
@@ -35,51 +35,85 @@ library(ppcor)
 library(correlation)
 library(grid)
 library(forestploter)
-```
+library(BiocManager)
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+#library(clusterProfiler) # Added for GSEA
+BiocManager::install("clusterProfiler")
+#library(ReactomePA)    # Added for Reactome Pathway Analysis
+BiocManager::install("ReactomePA")
+library(patchwork)
+BiocManager::install("org.Hs.eg.db")
 
+```
+#### Data Loading and Preparation
 ```{r load-data, echo = F, include = F}
+user <- Sys.info()[["user"]]
+
+if (user == "choiyej") {
+  root_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-SharedLibraries-UW/Laura Pyle - Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "pylell") {
+  root_path <- "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+  git_path <- "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+} else if (user == "shivaniramesh") {
+  root_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive"
+  git_path <- "/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/CHCO-Code/Petter Bjornstad"
+} else {
+  stop("Unknown user: please specify root path for this user.")
+}
+
 # Load SOMAScan data
-load("/Volumes/Peds Endo/Petter Bjornstad/Data Harmonization/Combined SomaScan/analytes.Rdata")
+load(file = file.path(root_path, "Data Harmonization/Combined SomaScan/analytes.Rdata"))
 
 # Load elastic net function
-source("/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/TODAY proteomics metabolomics/Proteomics analyses/easy_elasticnet.R")
+source(file.path(git_path, 'TODAY proteomics metabolomics/Proteomics analyses/Elastic net/easy_elasticnet.R'))
 
 # Load correlation function
-source("/Users/choiyej/GitHub/YC_CHCO/R Functions/correlation_function.R")
+source(file.path(git_path,"Resources/YC/R Functions/correlation_function.R"))
 
 # Load dictionary function and file
-source("/Users/choiyej/GitHub/YC_CHCO/R Functions/label_harmonized_function.R")
+source(file.path(git_path,"Resources/YC/R Functions/label_harmonized_function.R"))
 ```
 
 ```{r prep-data, echo = F, include = F}
-# Load clinical data
-harm_dat <- read.csv("/Volumes/Peds Endo/Petter Bjornstad/Data Harmonization/Data Clean/soma_harmonized_dataset.csv", na.strings = "")
+harm_dat <- read.csv(file.path(root_path, "Data Harmonization/Data Clean/soma_harmonized_dataset.csv"), na.strings = "")
 
-dat <- harm_dat %>% filter((study == "PENGUIN" | study == "CROCODILE") & group != "Type 1 Diabetes" & group != "Type 2 Diabetes") %>%
+dat <- harm_dat %>% 
+  filter((study == "PENGUIN" | study == "CROCODILE") & group != "Type 1 Diabetes" & group != "Type 2 Diabetes") %>%
   dplyr::summarise(across(where(negate(is.numeric)), ~ ifelse(all(is.na(.x)), NA_character_, last(na.omit(.x)))),
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) %>%
-  # filter(participation_status!="Removed"|is.na(participation_status)) %>%
   dplyr::mutate(race_ethnicity_condensed = case_when(race == "White" & 
-                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
-                                              race == "Black or African American" & 
-                                                ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
-                                              ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
-                                              T ~ "Not Hispanic or Latino Other"),
-         combined_tkv = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual),
-         combined_ht_tkv = coalesce(ht_adj_tkv, ht_adj_tkv_manual),
-         group = case_when(group == "PKD" ~ "ADPKD", 
-                           group == "Lean Control" ~ "HC")) %>%
+                                                      ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino White",
+                                                    race == "Black or African American" & 
+                                                      ethnicity == "Not Hispanic or Latino" ~ "Not Hispanic or Latino Black",
+                                                    ethnicity == "Hispanic or Latino" ~ "Hispanic or Latino",
+                                                    T ~ "Not Hispanic or Latino Other"),
+                combined_tkv = coalesce(total_kidney_volume_ml, total_kidney_volume_ml_manual),
+                combined_ht_tkv = coalesce(ht_adj_tkv, ht_adj_tkv_manual),
+                group = case_when(group == "PKD" ~ "ADPKD", 
+                                  group == "Lean Control" ~ "HC")) %>%
   arrange(record_id) %>%
   filter(!is.na(seq.10000.28))
 
-analytes <- analytes %>% dplyr::mutate(Target_nodup = paste0(Target, " (", AptName, ")"))
+# Metadata clean-up: Identify the Entrez column dynamically to avoid "not found" errors
+entrez_col <- grep("Entrez", names(analytes), ignore.case = TRUE, value = TRUE)[1]
 
-# Load and modify dictionary file
-dict <- read.csv("/Volumes/Peds Endo/Petter Bjornstad/Data Harmonization/data_dictionary_master.csv") %>%
-  dplyr::select(variable_name, label)
+if (length(entrez_col) == 0 || is.na(entrez_col)) {
+  warning("No Entrez column found in analytes metadata. Pathway analysis will fail.")
+} else {
+  message(paste("Using column", entrez_col, "for Entrez IDs"))
+  analytes <- analytes %>% 
+    dplyr::mutate(Target_nodup = paste0(Target, " (", AptName, ")"),
+                  # Extract first Entrez ID if multiple are present
+                  Entrez_clean = sapply(strsplit(as.character(.data[[entrez_col]]), ";"), `[`, 1))
+}
 
-dict <- label_harmonized_dict(dat, dict) %>%
+dict_raw <- read.csv(file.path(root_path, "Data Harmonization/data_dictionary_master.csv")) %>%
+  dplyr::select(variable_name, label, any_of("units"), any_of("notes"))
+
+dict <- label_harmonized_dict(dat, dict_raw) %>%
   dplyr::mutate(total_kidney_volume_ml_manual = "Total Kidney Volume (mL; manual)",
                 ht_adj_tkv_manual = "Height Adjusted Total Kidney Volume (mL/m; manual)",
                 combined_tkv = "Collapsed Total Kidney Volume (mL)", 
@@ -93,14 +127,111 @@ analytes_dict <- analytes %>%
   t()
 
 dict <- cbind(dict, analytes_dict)
-
-# Label data
 penguin <- label_harmonized(dat, dict)
-```
 
+# Table 1a: Compare by Group (ADPKD vs HC)
+tab_control <- arsenal::tableby.control(
+  numeric.stats = c("meansd", "range"),
+  cat.stats = c("countpct"),
+  stats.labels = list(meansd = "Mean (SD)", countpct = "N (%)")
+)
+
+tab1a <- arsenal::tableby(group ~ age + sex + bmi + ethnicity + hba1c + eGFR_CKD_epi + glomerular_pressure + ra + re, 
+                         data = penguin, 
+                         control = tab_control)
+
+summary(tab1a, 
+        title = "Table 1a: Participant Demographics by Group", 
+        labelTranslations = list(
+          age = "Age (Years)",
+          sex = "Sex",
+          bmi = "BMI (kg/m^2)",
+          ethnicity = "Ethnicity",
+          hba1c = "HbA1c (%)", 
+          eGFR_CKD_epi = "eGFR (mL/min/1.73m^2)", 
+          glomerular_pressure = "Glomerular pressure (mmHg)", 
+          ra = "Afferent arteriolar resistance	(dyne*s*cm^-5)", 
+          re = "Efferent arteriolar resistance	(dyne*s*cm^-5)"
+        ), 
+        text = TRUE) %>%
+  kbl() %>%
+  kable_classic(full_width = F, html_font = "Arial")
+
+# Table 1b: Compare by Sex
+tab1b_sex <- arsenal::tableby(sex ~ age + bmi + ethnicity + hba1c + group + eGFR_CKD_epi + glomerular_pressure + ra + re, 
+                         data = penguin, 
+                         control = tab_control)
+
+summary(tab1b_sex, 
+        title = "Table 1b: Participant Demographics by Sex", 
+        labelTranslations = list(
+          age = "Age (Years)",
+          bmi = "BMI (kg/m^2)",
+          ethnicity = "Ethnicity",
+          hba1c = "HbA1c (%)",
+          eGFR_CKD_epi = "eGFR (mL/min/1.73m^2)",
+          group = "Group", 
+          glomerular_pressure = "Glomerular pressure (mmHg)", 
+          ra = "Afferent arteriolar resistance	(dyne*s*cm^-5)", 
+          re = "Efferent arteriolar resistance	(dyne*s*cm^-5)"
+        ), 
+        text = TRUE) %>%
+  kbl() %>%
+  kable_classic(full_width = F, html_font = "Arial")
+
+# Table 1c: UACR (Medians)
+# Define median-specific control
+med_control <- arsenal::tableby.control(
+  numeric.stats = c("medianq1q3", "range"),
+  stats.labels = list(medianq1q3 = "Median (IQR)", range = "Range")
+)
+
+tab1c <- arsenal::tableby(group ~ acr_u, 
+                         data = penguin, 
+                         control = med_control)
+
+summary(tab1c, 
+        title = "Table 1c: Urinary Albumin-to-Creatinine Ratio by Group", 
+        labelTranslations = list(acr_u = "UACR (mg/g)"),
+        text = TRUE) %>%
+  kbl() %>%
+  kable_classic(full_width = F, html_font = "Arial")
+```
+##### * Functions
 ```{r volcano-plot-function-mod, include=F}
-plotVolcano_mod <- function (data, FC, p.value, labels, identify = FALSE, fc.cutoff = 1, 
-  pt.size = 2, text.size = 3, cutoff = 0.05/nrow(data), sig_fc_lab = "Significant & Fold-Change",
+
+theme_soma <- function() {
+  ggplot2::theme_bw() +
+    ggplot2::theme(
+      panel.grid.major = ggplot2::element_blank(),
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = "bottom",
+      text = ggplot2::element_text(size = 12),
+      plot.title = ggplot2::element_text(hjust = 0.5, face = "bold")
+    )
+}
+
+# PCA for Outlier Detection --> not used
+plot_pca <- function(data_matrix, meta_data, color_var = "group", shape_var = "study") {
+  pca_input <- t(data_matrix)
+  vars <- apply(pca_input, 2, var, na.rm = TRUE)
+  bad_cols <- is.na(vars) | vars < 1e-10
+  if (any(bad_cols)) pca_input <- pca_input[, !bad_cols, drop = FALSE]
+  pca_res <- prcomp(pca_input, scale. = TRUE)
+  var_explained <- round(100 * pca_res$sdev^2 / sum(pca_res$sdev^2), 1)
+  pca_df <- as.data.frame(pca_res$x) %>%
+    rownames_to_column("record_id") %>%
+    left_join(meta_data %>% mutate(record_id = as.character(record_id)), by = "record_id")
+  ggplot(pca_df, aes(x = PC1, y = PC2, color = !!sym(color_var), shape = !!sym(shape_var))) +
+    geom_point(size = 3, alpha = 0.7) + theme_soma() +
+    labs(title = "PCA: Unsupervised Clustering", x = paste0("PC1 (", var_explained[1], "%)"), y = paste0("PC2 (", var_explained[2], "%)"))
+}
+
+
+# Volcano Plot Function
+# {r volcano-plot-function-mod, include=F}
+plotVolcano_mod <- function (data, FC, p.value, labels, identify = FALSE, fc.cutoff = 1, # default 2-fold
+  pt.size = 2, text.size = 3, cutoff = 0.05/nrow(data), sig_fc_lab = "Significant & Fold-Change", # default Bonferroni correction 
   sig_lab = "Significant", fc_lab = "Fold-Change", ns_lab = "Non-Significant", 
   sig_fc_lab_col = "#f28482", sig_lab_col = "#f6bd60",
   fc_lab_col = "#84a59d", ns_lab_col = "#dad7cd",
@@ -116,14 +247,15 @@ plotVolcano_mod <- function (data, FC, p.value, labels, identify = FALSE, fc.cut
     main <- "Volcano Plot of Significant Fold Changes"
   }
   if (is.null(x.lab)) {
-    x.lab <- bquote(italic(log)[2] ~ (Fold ~ Change))
+    x.lab <- bquote(italic(log)[2] ~ (Fold ~ Change)) 
   }
-  y.lab <- bquote(-italic(log)[10] ~ (p - value))
+  y.lab <- bquote(-italic(log)[10] ~ (p - value)) 
+  # Create new columns for plotting based on significance and fold-change cutoffs 
   plot_df <- dplyr::mutate(data, group = case_when((-log10(!!.p) >= 
     -log10(cutoff)) & (abs(!!.fc) >= fc.cutoff) ~ sig_fc_lab, 
     -log10(!!.p) >= -log10(cutoff) ~ sig_lab, abs(!!.fc) >= 
       fc.cutoff ~ fc_lab, TRUE ~ ns_lab), 
-    type = grepl(paste0("^", sig_lab, "|^", sig_fc_lab, "|^Significant"), group))
+    type = grepl(paste0("^", sig_lab, "|^", sig_fc_lab, "|^Significant"), group)) 
 
   create_col_vector <- function(label_values, colors) {
     cols <- setNames(colors, label_values)
@@ -132,7 +264,7 @@ plotVolcano_mod <- function (data, FC, p.value, labels, identify = FALSE, fc.cut
   
   label_values = c(ns_lab, fc_lab, sig_lab, sig_fc_lab)
   label_colors = c(ns_lab_col, fc_lab_col, sig_lab_col, sig_fc_lab_col)
-  cols <- create_col_vector(label_values, label_colors)
+  cols <- create_col_vector(label_values, label_colors)  
 
   p <- ggplot(plot_df, aes(x = !!.fc, y = -log10(!!.p), color = group)) + 
     geom_point(alpha = 0.5, size = pt.size, ...) + scale_color_manual(values = cols, 
@@ -149,42 +281,80 @@ plotVolcano_mod <- function (data, FC, p.value, labels, identify = FALSE, fc.cut
   p
 }
 
+
 ```
+#### Unadjusted Analysis
+##### * Differential expression (unadjusted)
 
-# Differential expression
-
-#### ADPKD vs. HC
 
 ```{r de, echo = F}
+library(limma)
+# Look at differential expressed proteins (DEPs) between ADPKD vs. HC
+# filter soma scan data to baseline data only and log transform
+soma_group <- penguin %>% arrange(record_id) %>% remove_rownames() %>% 
+  column_to_rownames(var = "record_id") %>% dplyr::select(starts_with("seq"))
+y <- t(soma_group)
+y <- log2(y)
+
+design_mat <- model.matrix(~0 + group, data = penguin)
+colnames(design_mat) = gsub("group","",colnames(design_mat))
+
+contrast = makeContrasts(contrasts = c("ADPKD-HC"), levels = design_mat)
+fit <- lmFit(y, design_mat)
+fit <- contrasts.fit(fit, contrasts = contrast)
+fit <- eBayes(fit)
+
+# Extract results and join metadata explicitly
+# We ensure analytes$Entrez_clean exists before this step
+res <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p") %>%
+  rownames_to_column("AptName") %>%
+  left_join(analytes %>% dplyr::select(AptName, Target, Entrez_clean), by = "AptName")
+kbl(head(res, 50)) %>%
+  kable_paper() %>%
+  scroll_box(width = "100%", height = "500px")
+
+# Filter for significant proteins with at least a 1.5x fold change
+top_hits <- res %>% 
+  filter(adj.P.Val < 0.05 & abs(logFC) > 0.58) # 0.58 log2 units = 1.5 fold
+```
+```{r}
 # Look at differential expressed proteins (DEPs) between ADPKD vs. HC
 # filter soma scan data to baseline data only and log transform
 soma_group <- penguin %>% 
   arrange(record_id) %>%
   remove_rownames() %>% column_to_rownames(var = "record_id") %>%
   dplyr::select(starts_with("seq"))
-y <- t(soma_group)
-y <- log2(y)
+y_unadj <- t(soma_group)
+y_unadj <- log2(y_unadj)
 
 # Design matrix
 cond = as.factor(penguin$group)
-design_mat <- model.matrix(~0 + group, data = penguin)
-colnames(design_mat) = gsub("group","",colnames(design_mat))
-# Fit
-contrast = makeContrasts(contrasts = c("ADPKD-HC"), levels = design_mat)
-fit <- lmFit(y, design_mat)
-fit <- contrasts.fit(fit, contrasts = contrast)
-fit <- eBayes(fit)
-res <- topTable(fit, coef = 1, number = dim(y)[1], sort.by = "p")
-res$Target <- analytes$Target[match(rownames(res), analytes$AptName)]
-res$TargetFullName <- analytes$TargetFullName[match(rownames(res), analytes$AptName)]
-kbl(head(res, 50)) %>%
+design_mat_unadj <- model.matrix(~0 + group, data = penguin)
+colnames(design_mat_unadj) = gsub("group","",colnames(design_mat_unadj))
+# Contrast matrix to compare ADPKD vs HC
+contrast_unadj = makeContrasts(contrasts = c("ADPKD-HC"), levels = design_mat_unadj)
+# Fit model
+fit_unadj <- lmFit(y_unadj, design_mat_unadj)
+fit_unadj <- contrasts.fit(fit_unadj, contrasts = contrast_unadj)
+fit_unadj <- eBayes(fit_unadj)
+# Extract results and join metadata explicitly
+res_unadj <- topTable(fit_unadj, coef = 1, number = dim(y_unadj)[1], sort.by = "p")
+res_unadj$Target <- analytes$Target[match(rownames(res_unadj), analytes$AptName)]
+res_unadj$TargetFullName <- analytes$TargetFullName[match(rownames(res_unadj), analytes$AptName)]
+kbl(head(res_unadj, 50)) %>%
   kable_paper() %>%
   scroll_box(width = "100%", height = "500px")
+
+
 ```
 
-```{r de-volcano-plot, warning = F, echo = F}
+significant results: all significant
+positive LogFC means upregulation in PKD compared to HC
+negative LogFC means downregulation in PKD compared to HC
+##### * Volcano Plot visualizaiton (unadjusted)
+```{r de-volcano-plot, echo=F, warning=FALSE}
 # volcano plot
-plotVolcano_mod(res, 
+plotVolcano_mod(res_unadj, 
             FC = logFC, 
             p.value = P.Value, 
             label = Target, 
@@ -193,4 +363,1138 @@ plotVolcano_mod(res,
             cutoff = 0.05,
             x.lab = "logFC(ADPKD/HC)",
             pt.size = 2) 
+# should look out for points that are farthest from 0 on x axis and highest on y axis, these are the most differentially expressed proteins
+# Dotted vertical lines are the fold change cutoffs, they mark the threshold for what we consider a significant fold change
+# (FN1.2-4): FN1 proteins are involved in cysts formation and extracellular matrix remodeling in ADPKD
+# UB2D1/PolyUbiquitin K48L: (ubiquitin-conjugating enzyme UBE2D1 (also known as UB2D1) in the formation of K48-linked polyubiquitin chains), involved in degradation of tumor suppressor p53, protein recycling machinery
+# AT1B3: Sodium/potassium-transporting ATPase subunit beta-3
 ```
+##### * Pathway analysis (unadjusted)
+```{r}
+# Run GSEA for unadjusted model: gives information about pathways that are enriched in the differentially expressed proteins (DEPs). DEPs are ranked based on their logFC/sd ratio.
+gsea = function(limma_fit, output_name, coef_name, cores = 8){
+  # Get genes of interest, sorting limma results by fold change (decreasing), 
+  # standardized by estimated SD of the gene
+  interest = data.frame(limma_fit$coefficients[,coef_name]/sqrt(limma_fit$s2.post))
+  interest = interest %>% rownames_to_column(.)
+  colnames(interest) = c("V1","V2")
+  interest$V1 = sub("\\|.*","",analytes$UniProt[match(interest$V1,analytes$AptName)])
+  interest$V2 = as.numeric(interest$V2)
+  
+  # Run WebGestaltR with error handling
+  tryCatch({
+    results <- WebGestaltR::WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
+                enrichDatabase="pathway_Reactome", interestGene = interest,
+                interestGeneType="uniprotswissprot", sigMethod="fdr", fdrThr = 0.1,
+                outputDirectory="./Results/Enrichment", fdrMethod = "BH",
+                projectName = paste0(output_name,"_GSEA"),
+                nThreads = cores, isOutput = FALSE)
+    return(results)
+  }, error = function(e) {
+    message("GSEA error: ", e$message)
+    return(NULL)
+  })
+}
+
+# Run GSEA for unadjusted model
+gsea_results_unadj <- gsea(limma_fit = fit_unadj, 
+                           output_name = "ADPKD_vs_HC_unadjusted", 
+                           coef_name = "ADPKD-HC", 
+                           cores = 8)
+
+# Visualize top pathways
+if (!is.null(gsea_results_unadj) && is.data.frame(gsea_results_unadj) && nrow(gsea_results_unadj) > 0) {
+  # Filter for significant pathways and select top 20 by FDR
+  top_pathways_unadj <- gsea_results_unadj %>%
+    dplyr::filter(FDR < 0.1) %>%
+    dplyr::arrange(FDR) %>%
+    head(20)
+  
+  if (nrow(top_pathways_unadj) > 0) {
+    # Create dot plot
+    p <- ggplot(top_pathways_unadj, aes(x = normalizedEnrichmentScore, y = reorder(description, -FDR))) +
+      geom_point(aes(size = size, color = FDR)) +
+      scale_color_gradient(low = "red", high = "blue") +
+      scale_size_continuous(range = c(3, 10)) +
+      labs(title = "Top GSEA Pathways (ADPKD vs HC - Unadjusted)",
+           x = "Normalized Enrichment Score",
+           y = "Pathway",
+           size = "Gene Set Size",
+           color = "FDR") +
+      theme_soma() +
+      theme(axis.text.y = element_text(size = 9),
+            plot.margin = margin(10, 10, 10, 10))
+    print(p)
+  } else {
+    message("No significant pathways found at FDR < 0.1 (unadjusted)")
+  }
+} else {
+  message("GSEA returned no results or encountered an error (unadjusted)")
+}
+
+# Display results table (unadjusted)
+if (!is.null(gsea_results_unadj) && is.data.frame(gsea_results_unadj) && nrow(gsea_results_unadj) > 0) {
+  gsea_results_unadj %>%
+    dplyr::filter(FDR < 0.1) %>%
+    dplyr::arrange(FDR) %>%
+    dplyr::select(description, enrichmentScore, normalizedEnrichmentScore, FDR, size) %>%
+    head(20) %>%
+    kbl(caption = "Top GSEA Pathways - Unadjusted (FDR < 0.1)") %>%
+    kable_paper() %>%
+    scroll_box(width = "100%", height = "500px")
+}
+
+# These results highlight proteins that exhibit both substantial changes in expression levels (large fold-changes) and statistical significance, indicating their potential relevance in distinguishing between ADPKD and HC groups. The results are ranked based on the magnitude of fold-change and the significance of p-values, allowing for the identification of the most impactful proteins in the context of the disease.
+
+# The enrichment score in GSEA reflects the degree to which a set of genes is overrepresented at the extremes (top or bottom) of the entire ranked list of genes. A high positive ES indicates that the gene set is enriched at the top of the list (upregulated), while a high negative ES indicates enrichment at the bottom (downregulated). The normalized enrichment score (NES) adjusts the ES for differences in gene set size and correlations, allowing for comparisons across gene sets.
+
+#FDR stands for False Discovery Rate, which is a statistical method used to correct for multiple comparisons. In the context of GSEA, it represents the expected proportion of false positives among the declared significant results. A lower FDR indicates greater confidence that the identified pathways are truly enriched and not due to random chance. The size refers to the number of genes in the gene set that were used in the analysis. Larger gene sets may have more statistical power, but they can also be more prone to false positives if not properly controlled.
+```
+##### * Feature selection - Elastic Net (Unadjusted)
+```{r}
+# Prep data for easy_elasticnet
+# Create outcome variable in penguin dataset
+penguin_en <- penguin %>%
+  mutate(outcome_binary = ifelse(group == "ADPKD", 1, 0))
+
+# Get proteomics predictors (remove any with missing values)
+soma_predictors <- penguin %>% 
+  dplyr::select(starts_with("seq"))
+complete_proteins <- colSums(is.na(soma_predictors)) == 0
+soma_predictors_clean <- soma_predictors[, complete_proteins]
+
+# Run easy_elasticnet
+selected_unadj <- easy_elasticnet(
+  data = penguin_en,
+  outcome = "outcome_binary",
+  predictors = soma_predictors_clean,
+  n_alphas = 10,
+  n_lambdas = 100,
+  model_type = "binomial",
+  cv_method = "loo",
+  out = "1se.error",
+  cores = 4,
+  seed = 3654
+)
+
+# Create results table with selected proteins
+en_coefs_unadj <- data.frame(
+  AptName = selected_unadj,
+  stringsAsFactors = FALSE
+) %>%
+  left_join(analytes %>% dplyr::select(AptName, Target), by = "AptName")
+
+# Display selected features
+kbl(en_coefs_unadj, caption = "Proteomic Features Selected by Elastic Net (Unadjusted)") %>%
+  kable_paper()
+
+```
+
+#### Adjusted Analysis
+##### * Differential expression (adjusted)
+```{r}
+clinical_vars_to_include <- c("age", "bmi", "acr_u", "glomerular_pressure", "re")
+
+penguin_clean <- dat %>%
+  mutate(group = factor(group, levels = c("HC", "ADPKD"))) %>%
+  filter(!is.na(group)) %>%
+  filter(if_all(all_of(clinical_vars_to_include), ~ !is.na(.)))
+
+soma_filtered <- dat %>% dplyr::select(starts_with("seq"))
+y_adj_full <- t(log2(soma_filtered))
+colnames(y_adj_full) <- as.character(dat$record_id)
+y_clean <- y_adj_full[, as.character(penguin_clean$record_id)]
+
+formula_str <- paste("~ group +", paste(clinical_vars_to_include, collapse = " + "))
+design_mat_adj <- model.matrix(as.formula(formula_str), data = penguin_clean)
+colnames(design_mat_adj) <- make.names(colnames(design_mat_adj))
+
+fit_adj <- lmFit(y_clean, design_mat_adj)
+fit_adj <- eBayes(fit_adj)
+
+# Ensure EntrezGeneID is pulled into the results table from 'analytes' metadata
+res_adj <- topTable(fit_adj, coef = "groupADPKD", number = Inf, sort.by = "p") %>%
+  rownames_to_column("AptName") %>%
+  left_join(analytes %>% dplyr::select(AptName, Target, EntrezGeneID), by = "AptName")
+
+```
+##### * Volcano Plot visualizaiton (adjusted)
+```{r}
+
+plotVolcano_mod(res_adj, 
+                FC = logFC, 
+                p.value = P.Value, 
+                labels = Target, 
+                identify = T, 
+                fc.cutoff = 0.5, 
+                cutoff = 0.05, 
+                x.lab = "logFC(ADPKD/HC)",
+                pt.size = 2)
+# Fold-Change points are proteins that have a large fold change but are not statistically significant (p-value > 0.05)
+# CCP1: involved in cellular response to oxidative stress
+# VAV3: activate pathways leading to actin cytoskeletal rearrangements and transcriptional alterations
+#RHOB: Involved in several processes, including cellular response to hydrogen peroxide; cellular response to ionizing radiation; and regulation of cell migration
+#Apo-TC II (TCN2):B12 binding protein family, broad expression in kidney, important in the formation of new blood cells
+#EVI2A:transmembrane signaling receptor activity
+#HPT: Haptoglobin functions to bind free plasma hemoglobin, which allows degradative enzymes to gain access to the hemoglobin, while at the same time preventing loss of iron through the kidneys and protecting the kidneys from damage by hemoglobin
+#Haptoglobin, Mixed Type: ^^
+```
+
+##### * Pathway analysis (adjusted)
+```{r}
+# Create output directory if it doesn't exist
+if (!dir.exists("./Results")) {
+  dir.create("./Results")
+}
+if (!dir.exists("./Results/Enrichment")) {
+  dir.create("./Results/Enrichment")
+}
+
+# GSEA Function
+gsea = function(limma_fit, output_name, coef_name, cores = 8){
+  # Get genes of interest, sorting limma results by fold change (decreasing), 
+  # standardized by estimated SD of the gene
+  interest = data.frame(limma_fit$coefficients[,coef_name]/sqrt(limma_fit$s2.post))
+  interest = interest %>% rownames_to_column(.)
+  colnames(interest) = c("V1","V2")
+  interest$V1 = sub("\\|.*","",analytes$UniProt[match(interest$V1,analytes$AptName)])
+  interest$V2 = as.numeric(interest$V2)
+  
+  # Run WebGestaltR with error handling
+  tryCatch({
+    results <- WebGestaltR::WebGestaltR(enrichMethod="GSEA", organism="hsapiens",
+                enrichDatabase="pathway_Reactome", interestGene = interest,
+                interestGeneType="uniprotswissprot", sigMethod="fdr", fdrThr = 0.1,
+                outputDirectory="./Results/Enrichment", fdrMethod = "BH",
+                projectName = paste0(output_name,"_GSEA"),
+                nThreads = cores, isOutput = FALSE)
+    return(results)
+  }, error = function(e) {
+    message("GSEA error: ", e$message)
+    return(NULL)
+  })
+}
+
+# Run GSEA for adjusted model
+gsea_results <- gsea(limma_fit = fit_adj, 
+                     output_name = "ADPKD_vs_HC_adjusted", 
+                     coef_name = "groupADPKD", 
+                     cores = 8)
+
+# Visualize top pathways
+if (!is.null(gsea_results) && is.data.frame(gsea_results) && nrow(gsea_results) > 0) {
+  # Filter for significant pathways and select top 20 by FDR
+  top_pathways <- gsea_results %>%
+    dplyr::filter(FDR < 0.1) %>%
+    dplyr::arrange(FDR) %>%
+    head(20)
+  
+  if (nrow(top_pathways) > 0) {
+    # Create dot plot
+    p <- ggplot(top_pathways, aes(x = normalizedEnrichmentScore, y = reorder(description, -FDR))) +
+      geom_point(aes(size = size, color = FDR)) +
+      scale_color_gradient(low = "red", high = "blue") +
+      scale_size_continuous(range = c(3, 10)) +
+      labs(title = "Top GSEA Pathways (ADPKD vs HC - Adjusted)",
+           x = "Normalized Enrichment Score",
+           y = "Pathway",
+           size = "Gene Set Size",
+           color = "FDR") +
+      theme_soma() +
+      theme(axis.text.y = element_text(size = 9),
+            plot.margin = margin(10, 10, 10, 10))
+    print(p)
+  } else {
+    message("No significant pathways found at FDR < 0.1")
+  }
+} else {
+  message("GSEA returned no results or encountered an error")
+}
+
+# Display results table
+if (!is.null(gsea_results) && is.data.frame(gsea_results) && nrow(gsea_results) > 0) {
+  gsea_results %>%
+    dplyr::filter(FDR < 0.1) %>%
+    dplyr::arrange(FDR) %>%
+    dplyr::select(description, enrichmentScore, normalizedEnrichmentScore, FDR, size) %>%
+    head(20) %>%
+    kbl(caption = "Top GSEA Pathways (FDR < 0.1)") %>%
+    kable_paper() %>%
+    scroll_box(width = "100%", height = "800px")
+}
+
+# These results highlight proteins that exhibit both substantial changes in expression levels (large fold-changes) and statistical significance, indicating their potential relevance in distinguishing between ADPKD and HC groups. The results are ranked based on the magnitude of fold-change and the significance of p-values, allowing for the identification of the most impactful proteins in the context of the disease.
+
+# The enrichment score in GSEA reflects the degree to which a set of genes is overrepresented at the extremes (top or bottom) of the entire ranked list of genes. A high positive ES indicates that the gene set is enriched at the top of the list (upregulated), while a high negative ES indicates enrichment at the bottom (downregulated). The normalized enrichment score (NES) adjusts the ES for differences in gene set size and correlations, allowing for comparisons across gene sets.
+
+
+#FDR stands for False Discovery Rate, which is a statistical method used to correct for multiple comparisons. In the context of GSEA, it represents the expected proportion of false positives among the declared significant results. A lower FDR indicates greater confidence that the identified pathways are truly enriched and not due to random chance. The size refers to the number of genes in the gene set that were used in the analysis. Larger gene sets may have more statistical power, but they can also be more prone to false positives if not properly controlled.
+
+
+```
+##### * Feature Selection - Elastic Net
+```{r}
+# Prep data for easy_elasticnet with adjusted data
+# Create outcome variable
+penguin_clean_en <- penguin_clean %>%
+  mutate(outcome_binary = ifelse(group == "ADPKD", 1, 0))
+
+# Get proteomics predictors from y_clean (already adjusted)
+# y_clean is proteins x samples, need to transpose for easy_elasticnet
+soma_predictors_adj <- as.data.frame(t(y_clean))
+complete_proteins_adj <- colSums(is.na(soma_predictors_adj)) == 0
+soma_predictors_adj_clean <- soma_predictors_adj[, complete_proteins_adj]
+
+# select important features (proteins) that predict the outcome (ADPKD vs HC) while adjusting for other covariates
+selected_adj <- easy_elasticnet(
+  data = penguin_clean_en,
+  outcome = "outcome_binary",
+  predictors = soma_predictors_adj_clean,
+  n_alphas = 10,
+  n_lambdas = 100,
+  model_type = "binomial",
+  cv_method = "loo",
+  out = "1se.error",
+  cores = 4,
+  seed = 3654
+)
+
+# Create results table with selected proteins
+en_coefs_adj <- data.frame(
+  AptName = selected_adj,
+  stringsAsFactors = FALSE
+) %>%
+  left_join(analytes %>% dplyr::select(AptName, Target), by = "AptName")
+
+# Display selected features
+kbl(en_coefs_adj, caption = "Proteomic Features Selected by Elastic Net (Adjusted)") %>%
+  kable_paper()
+ 
+
+```
+### IMAGING
+#### Data Loading/Prep
+```{r}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(pheatmap)
+library(kableExtra)
+library(corrplot)
+```
+
+```{r}
+# Load imaging data
+imaging_data <- read.csv("/Users/shivaniramesh/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/PENGUIN/Data_Cleaned/imaging_data.csv")
+
+# Define clinical variable categories
+kidney_function <- c('eGFR_CKD_epi', 'eGFR_fas_cr', 'eGFR_fas_cr_cysc', 'acr_u', 'ht_adj_tkv', 'gfr_raw_plasma', 'gfr_bsa_plasma', 'erpf_raw_plasma', 'erpf_bsa_plasma', 'glomerular_pressure', 'ra', 're')
+
+pet_cortex <- c('rc_f','rc_k2', 'rc_vb', 'rc_k1', 'lc_f', 'lc_k2', 'lc_vb', 'lc_k1')
+
+pet_medulla <- c('rm_f', 'rm_k2', 'rm_vb', 'rm_k1', 'lm_f', 'lm_k2', 'lm_vb', 'lm_k1')
+
+mri_cyst <- c('total_cyst_volume_ml', 'total_number_of_cysts', 'adpkd_classification', 
+              'cyst_parenchyma_sa')
+
+voxel_k1 <- c('rtot_k1_w_cyst', 'rtot_k1_wo_cyst', 'ltot_k1_w_cyst', 'ltot_k1_wo_cyst',
+              'rtot_k1_w_cyst_percent_avg', 'rtot_k1_wo_cyst_percent_avg',
+              'ltot_k1_w_cyst_percent_avg', 'ltot_k1_wo_cyst_percent_avg',
+              'rc_k1_w_cyst_vw', 'rc_k1_wo_cyst_vw', 'lc_k1_w_cyst_vw', 'lc_k1_wo_cyst_vw',
+              'rc_k1_w_cyst_percent_avg', 'rc_k1_wo_cyst_percent_avg',
+              'lc_k1_w_cyst_percent_avg', 'lc_k1_wo_cyst_percent_avg')
+
+voxel_k2 <- c('rtot_k2_w_cyst', 'rtot_k2_wo_cyst', 'ltot_k2_w_cyst', 'ltot_k2_wo_cyst',
+              'rtot_k2_w_cyst_percent_avg', 'rtot_k2_wo_cyst_percent_avg',
+              'ltot_k2_w_cyst_percent_avg', 'ltot_k2_wo_cyst_percent_avg',
+              'rc_k2_w_cyst_percent_avg', 'rc_k2_wo_cyst_percent_avg',
+              'lc_k2_w_cyst_percent_avg', 'lc_k2_wo_cyst_percent_avg')
+
+all_clinical_vars <- c(kidney_function, pet_cortex, pet_medulla, mri_cyst, voxel_k1, voxel_k2)
+
+# Get proteomics data (seq columns) and record_id/group from dat
+proteomics_data <- dat %>%
+  mutate(record_id = as.character(record_id)) %>%
+  dplyr::select(record_id, group, starts_with("seq."))
+
+# Prepare imaging data
+imaging_data_clean <- imaging_data %>%
+  mutate(record_id = as.character(record_id))
+
+# Merge proteomics with imaging data
+combined_data_all <- proteomics_data %>%
+  left_join(imaging_data_clean, by = "record_id")
+
+# Separate by group
+combined_data_adpkd <- combined_data_all %>% filter(group.x == "ADPKD")
+combined_data_hc <- combined_data_all %>% filter(group.x == "HC")
+
+message(paste("Number of ADPKD patients:", nrow(combined_data_adpkd)))
+message(paste("Number of HC subjects:", nrow(combined_data_hc)))
+message(paste("Number of seq columns:", sum(grepl("^seq\\.", colnames(combined_data_all)))))
+
+# Check which clinical variables are present
+vars_present <- all_clinical_vars %in% colnames(combined_data_all)
+message(paste("Clinical variables found:", sum(vars_present), "/", length(all_clinical_vars)))
+
+if (sum(vars_present) < length(all_clinical_vars)) {
+  missing_vars <- all_clinical_vars[!vars_present]
+  message(paste("Missing variables:", paste(head(missing_vars, 10), collapse = ", ")))
+}
+
+# Variables that make sense in both groups (not PKD-specific)
+shared_clinical_vars <- kidney_function  # eGFR and ACR exist in both groups
+
+
+```
+
+##### * Select Proteins of Interest
+
+```{r select-proteins, echo=F}
+if(exists("en_coefs_adj") && nrow(en_coefs_adj) > 0) {
+  proteins_of_interest <- en_coefs_adj$AptName
+  message(paste("Using", length(proteins_of_interest), "proteins selected by Elastic Net"))
+} else {
+  stop("Elastic net results (en_coefs_adj) not found. Please run elastic net analysis first.")
+}
+
+# Display selected proteins
+en_coefs_adj %>%
+  dplyr::select(AptName, Target) %>%
+  kbl(caption = "Proteins Selected by Elastic Net for Association Analysis") %>%
+  kable_paper() %>%
+  scroll_box(width = "100%", height = "1600px")
+```
+##### * Functions
+```{r}
+# Redefine the function directly in your console
+compute_associations <- function(data, proteins, clinical_vars, method = "spearman") {
+  
+  results <- data.frame()
+  
+  for (protein in proteins) {
+    for (clinical_var in clinical_vars) {
+      
+      # Check if both variables exist
+      if (protein %in% colnames(data) && clinical_var %in% colnames(data)) {
+        
+        # Extract vectors and remove labels if present
+        protein_vec <- as.numeric(data[[protein]])
+        clinical_vec <- as.numeric(data[[clinical_var]])
+        
+        # Get complete cases
+        valid_indices <- !is.na(protein_vec) & !is.na(clinical_vec)
+        
+        if (sum(valid_indices) >= 10) {  # Require at least 10 observations
+          
+          tryCatch({
+            cor_test <- cor.test(protein_vec[valid_indices], 
+                                 clinical_vec[valid_indices], 
+                                 method = method)
+            
+            results <- rbind(results, data.frame(
+              Protein = protein,
+              Clinical_Variable = clinical_var,
+              Correlation = as.numeric(cor_test$estimate),
+              P_Value = cor_test$p.value,
+              N = sum(valid_indices),
+              stringsAsFactors = FALSE
+            ))
+          }, error = function(e) {
+            message(paste("Error with", protein, "and", clinical_var, ":", e$message))
+          })
+        }
+      }
+    }
+  }
+  
+  # Add FDR correction
+  if (nrow(results) > 0) {
+    results$FDR <- p.adjust(results$P_Value, method = "fdr")
+    
+    # Add protein annotations
+    results <- results %>%
+      dplyr::left_join(analytes %>% dplyr::select(AptName, Target), by = c("Protein" = "AptName"))
+  }
+  
+  return(results)
+}
+
+# Function to create side-by-side heatmaps with significance table
+plot_group_comparison_heatmap <- function(assoc_adpkd, assoc_hc, category_name) {
+  
+  library(gridExtra)
+  
+  if (nrow(assoc_adpkd) > 0 && nrow(assoc_hc) > 0) {
+    # Create correlation matrices for both groups
+    cor_adpkd <- assoc_adpkd %>%
+      dplyr::select(Target, Clinical_Variable, Correlation) %>%
+      tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Correlation, values_fill = NA) %>%
+      tibble::column_to_rownames("Target") %>%
+      as.matrix()
+    
+    cor_hc <- assoc_hc %>%
+      dplyr::select(Target, Clinical_Variable, Correlation) %>%
+      tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Correlation, values_fill = NA) %>%
+      tibble::column_to_rownames("Target") %>%
+      as.matrix()
+    
+    # Create P-value annotation matrices (p < 0.05 = *, p < 0.01 = **)
+    pval_adpkd <- assoc_adpkd %>%
+      dplyr::select(Target, Clinical_Variable, P_Value) %>%
+      dplyr::mutate(Sig = ifelse(P_Value < 0.01, "**", ifelse(P_Value < 0.05, "*", ""))) %>%
+      dplyr::select(-P_Value) %>%
+      tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Sig, values_fill = "") %>%
+      tibble::column_to_rownames("Target") %>%
+      as.matrix()
+    
+    pval_hc <- assoc_hc %>%
+      dplyr::select(Target, Clinical_Variable, P_Value) %>%
+      dplyr::mutate(Sig = ifelse(P_Value < 0.01, "**", ifelse(P_Value < 0.05, "*", ""))) %>%
+      dplyr::select(-P_Value) %>%
+      tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Sig, values_fill = "") %>%
+      tibble::column_to_rownames("Target") %>%
+      as.matrix()
+    
+    # Create FDR annotation matrices
+    fdr_adpkd <- assoc_adpkd %>%
+      dplyr::select(Target, Clinical_Variable, FDR) %>%
+      dplyr::mutate(Sig = ifelse(FDR < 0.05, "*", "")) %>%
+      dplyr::select(-FDR) %>%
+      tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Sig, values_fill = "") %>%
+      tibble::column_to_rownames("Target") %>%
+      as.matrix()
+    
+    fdr_hc <- assoc_hc %>%
+      dplyr::select(Target, Clinical_Variable, FDR) %>%
+      dplyr::mutate(Sig = ifelse(FDR < 0.05, "*", "")) %>%
+      dplyr::select(-FDR) %>%
+      tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Sig, values_fill = "") %>%
+      tibble::column_to_rownames("Target") %>%
+      as.matrix()
+    
+    # Ensure same proteins in both matrices
+    common_proteins <- intersect(rownames(cor_adpkd), rownames(cor_hc))
+    common_vars <- intersect(colnames(cor_adpkd), colnames(cor_hc))
+    
+    if (length(common_proteins) > 0 && length(common_vars) > 0) {
+      cor_adpkd <- cor_adpkd[common_proteins, common_vars, drop = FALSE]
+      cor_hc <- cor_hc[common_proteins, common_vars, drop = FALSE]
+      pval_adpkd <- pval_adpkd[common_proteins, common_vars, drop = FALSE]
+      pval_hc <- pval_hc[common_proteins, common_vars, drop = FALSE]
+      fdr_adpkd <- fdr_adpkd[common_proteins, common_vars, drop = FALSE]
+      fdr_hc <- fdr_hc[common_proteins, common_vars, drop = FALSE]
+      
+      # ADPKD heatmap with P-value significance annotations
+      p1 <- pheatmap(cor_adpkd,
+                     main = paste0("\n\nADPKD: ", category_name, "\n(* p<0.05, ** p<0.01)"),
+                     color = colorRampPalette(c("blue", "white", "red"))(100),
+                     breaks = seq(-1, 1, length.out = 101),
+                     cluster_rows = FALSE,
+                     cluster_cols = FALSE,
+                     display_numbers = pval_adpkd,
+                     fontsize_number = 12,
+                     number_color = "black",
+                     fontsize = 7,
+                     fontsize_row = 5,
+                     fontsize_col = 5,
+                     #angle_col = 45,
+                     cellwidth = 7,
+                     cellheight = 4,
+                     silent = TRUE)
+      
+      # HC heatmap with P-value significance annotations
+      p2 <- pheatmap(cor_hc,
+                     main = paste0("\n\nHC: ", category_name, "\n(* p<0.05, ** p<0.01)"),
+                     color = colorRampPalette(c("blue", "white", "red"))(100),
+                     breaks = seq(-1, 1, length.out = 101),
+                     cluster_rows = FALSE,
+                     cluster_cols = FALSE,
+                     display_numbers = pval_hc,
+                     fontsize_number = 12,
+                     number_color = "black",
+                     fontsize = 7,
+                     fontsize_row = 5,
+                     fontsize_col = 5,
+                     #angle_col = 45,
+                     cellwidth = 7,
+                     cellheight = 4,
+                     silent = TRUE)
+      
+      # ADPKD heatmap with FDR significance annotations
+      p3 <- pheatmap(cor_adpkd,
+                     main = paste0("\nADPKD: ", category_name, "\n(* FDR<0.05)"),
+                     color = colorRampPalette(c("blue", "white", "red"))(100),
+                     breaks = seq(-1, 1, length.out = 101),
+                     cluster_rows = FALSE,
+                     cluster_cols = FALSE,
+                     display_numbers = fdr_adpkd,
+                     fontsize_number = 12,
+                     number_color = "black",
+                     fontsize = 7,
+                     fontsize_row = 5,
+                     fontsize_col = 5,
+                     #angle_col = 45,
+                     cellwidth = 8,
+                     cellheight = 5,
+                     silent = TRUE)
+      
+      # HC heatmap with FDR significance annotations
+      p4 <- pheatmap(cor_hc,
+                     main = paste0("\nHC: ", category_name, "\n(* FDR<0.05)"),
+                     color = colorRampPalette(c("blue", "white", "red"))(100),
+                     breaks = seq(-1, 1, length.out = 101),
+                     cluster_rows = FALSE,
+                     cluster_cols = FALSE,
+                     display_numbers = fdr_hc,
+                     fontsize_number = 12,
+                     number_color = "black",
+                     fontsize = 7,
+                     fontsize_row = 5,
+                     fontsize_col = 5,
+                     #angle_col = 45,
+                     cellwidth = 8,
+                     cellheight = 5,
+                     silent = TRUE)
+      
+      # Display P-value heatmaps
+      grid.arrange(p1[[4]], p2[[4]], ncol = 2)
+      
+      # Display FDR heatmaps
+      grid.arrange(p3[[4]], p4[[4]], ncol = 2)
+      
+      # Table of all significant correlations (P < 0.05)
+      sig_adpkd_pval <- assoc_adpkd %>%
+        dplyr::filter(P_Value < 0.05) %>%
+        dplyr::mutate(Group = "ADPKD") %>%
+        dplyr::select(Group, Target, Clinical_Variable, Correlation, P_Value, FDR, N)
+      
+      sig_hc_pval <- assoc_hc %>%
+        dplyr::filter(P_Value < 0.05) %>%
+        dplyr::mutate(Group = "HC") %>%
+        dplyr::select(Group, Target, Clinical_Variable, Correlation, P_Value, FDR, N)
+      
+      sig_combined_pval <- rbind(sig_adpkd_pval, sig_hc_pval) %>%
+        dplyr::arrange(Group, P_Value)
+      
+      if (nrow(sig_combined_pval) > 0) {
+        print(kbl(sig_combined_pval, 
+            caption = paste0("All Significant Protein-", category_name, " Associations (P < 0.05)"),
+            digits = 3) %>%
+          kable_paper("striped", full_width = F) %>%
+          kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                        fixed_thead = T,
+                        font_size = 12) %>%
+          scroll_box(width = "100%", height = "800px"))
+        
+        message(paste("Total significant associations (P < 0.05): ADPKD =", nrow(sig_adpkd_pval), 
+                      ", HC =", nrow(sig_hc_pval)))
+      } else {
+        message("No significant associations at P < 0.05 in either group")
+      }
+      
+      # Table of all significant correlations (FDR < 0.05)
+      sig_adpkd_table <- assoc_adpkd %>%
+        dplyr::filter(FDR < 0.05) %>%
+        dplyr::mutate(Group = "ADPKD") %>%
+        dplyr::select(Group, Target, Clinical_Variable, Correlation, P_Value, FDR, N)
+      
+      sig_hc_table <- assoc_hc %>%
+        dplyr::filter(FDR < 0.05) %>%
+        dplyr::mutate(Group = "HC") %>%
+        dplyr::select(Group, Target, Clinical_Variable, Correlation, P_Value, FDR, N)
+      
+      sig_combined <- rbind(sig_adpkd_table, sig_hc_table) %>%
+        dplyr::arrange(Group, FDR)
+      
+      if (nrow(sig_combined) > 0) {
+        print(kbl(sig_combined, 
+            caption = paste0("All Significant Protein-", category_name, " Associations (FDR < 0.05)"),
+            digits = 3) %>%
+          kable_paper("striped", full_width = F) %>%
+          kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                        fixed_thead = T,
+                        font_size = 12) %>%
+          scroll_box(width = "100%", height = "800px"))
+        
+        message(paste("Total significant associations (FDR < 0.05): ADPKD =", nrow(sig_adpkd_table), 
+                      ", HC =", nrow(sig_hc_table)))
+      } else {
+        message("No significant associations at FDR < 0.05 in either group")
+      }
+      
+    } else {
+      message("No common proteins/variables for comparison")
+    }
+  } else {
+    message(paste("Insufficient data for", category_name, "comparison"))
+  }
+}
+
+```
+#### Kidney Function
+```{r}
+# ADPKD associations
+assoc_kidney <- compute_associations(combined_data_adpkd, proteins_of_interest, kidney_function)
+
+if (nrow(assoc_kidney) > 0) {
+  sig_kidney <- assoc_kidney %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_kidney) > 0) {
+    kbl(sig_kidney, caption = "Significant Protein Associations with Kidney Function - ADPKD (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with kidney function variables at FDR < 0.05 in ADPKD")
+  }
+} else {
+  message("No associations computed for kidney function variables in ADPKD (insufficient data)")
+}
+
+# HC associations (for shared variables only)
+assoc_kidney_hc <- compute_associations(combined_data_hc, proteins_of_interest, kidney_function)
+
+if (nrow(assoc_kidney_hc) > 0) {
+  sig_kidney_hc <- assoc_kidney_hc %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_kidney_hc) > 0) {
+    kbl(sig_kidney_hc, caption = "Significant Protein Associations with Kidney Function - HC (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with kidney function variables at FDR < 0.05 in HC")
+  }
+} else {
+  message("No associations computed for kidney function variables in HC (insufficient data)")
+}
+
+library(gridExtra)
+
+plot_group_comparison_heatmap(assoc_kidney, assoc_kidney_hc, "Kidney Function")
+```
+#### PET Cortex
+```{r}
+# ADPKD associations
+assoc_pet_cortex <- compute_associations(combined_data_adpkd, proteins_of_interest, pet_cortex)
+
+if (nrow(assoc_pet_cortex) > 0) {
+  sig_pet_cortex <- assoc_pet_cortex %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_pet_cortex) > 0) {
+    kbl(sig_pet_cortex, caption = "Significant Protein Associations with PET Cortex Measures - ADPKD (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with PET cortex variables at FDR < 0.05 in ADPKD")
+  }
+} else {
+  message("No associations computed for PET cortex variables in ADPKD (insufficient data)")
+}
+
+# HC associations
+assoc_pet_cortex_hc <- compute_associations(combined_data_hc, proteins_of_interest, pet_cortex)
+
+if (nrow(assoc_pet_cortex_hc) > 0) {
+  sig_pet_cortex_hc <- assoc_pet_cortex_hc %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_pet_cortex_hc) > 0) {
+    kbl(sig_pet_cortex_hc, caption = "Significant Protein Associations with PET Cortex Measures - HC (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with PET cortex variables at FDR < 0.05 in HC")
+  }
+} else {
+  message("No associations computed for PET cortex variables in HC (insufficient data)")
+}
+
+library(gridExtra)
+
+plot_group_comparison_heatmap(assoc_pet_cortex, assoc_pet_cortex_hc, "PET Cortex")
+```
+#### PET Medulla
+```{r}
+# ADPKD associations
+assoc_pet_medulla <- compute_associations(combined_data_adpkd, proteins_of_interest, pet_medulla)
+
+if (nrow(assoc_pet_medulla) > 0) {
+  sig_pet_medulla <- assoc_pet_medulla %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_pet_medulla) > 0) {
+    kbl(sig_pet_medulla, caption = "Significant Protein Associations with PET Medulla Measures - ADPKD (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "400px")
+  } else {
+    message("No significant associations found with PET medulla variables at FDR < 0.05 in ADPKD")
+  }
+} else {
+  message("No associations computed for PET medulla variables in ADPKD (insufficient data)")
+}
+
+# HC associations
+assoc_pet_medulla_hc <- compute_associations(combined_data_hc, proteins_of_interest, pet_medulla)
+
+if (nrow(assoc_pet_medulla_hc) > 0) {
+  sig_pet_medulla_hc <- assoc_pet_medulla_hc %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_pet_medulla_hc) > 0) {
+    kbl(sig_pet_medulla_hc, caption = "Significant Protein Associations with PET Medulla Measures - HC (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "400px")
+  } else {
+    message("No significant associations found with PET medulla variables at FDR < 0.05 in HC")
+  }
+} else {
+  message("No associations computed for PET medulla variables in HC (insufficient data)")
+}
+
+library(gridExtra)
+
+plot_group_comparison_heatmap(assoc_pet_medulla, assoc_pet_medulla_hc, "PET Medulla")
+```
+#### MRI Cyst Measures
+```{r}
+assoc_mri <- compute_associations(combined_data_adpkd, proteins_of_interest, mri_cyst)
+
+if (nrow(assoc_mri) > 0) {
+  sig_mri <- assoc_mri %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_mri) > 0) {
+    kbl(sig_mri, caption = "Significant Protein Associations with MRI Cyst Measures (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "400px")
+  } else {
+    message("No significant associations found with MRI cyst variables at FDR < 0.05")
+  }
+} else {
+  message("No associations computed for MRI cyst variables (insufficient data)")
+}
+
+# HC associations
+assoc_mri_hc <- compute_associations(combined_data_hc, proteins_of_interest, mri_cyst)
+
+if (nrow(assoc_mri_hc) > 0) {
+  sig_mri_hc <- assoc_mri_hc %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_mri_hc) > 0) {
+    kbl(sig_mri_hc, caption = "Significant Protein Associations with MRI Cyst Measures - HC (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "400px")
+  } else {
+    message("No significant associations found with PET medulla variables at FDR < 0.05 in HC")
+  }
+} else {
+  message("No associations computed for PET medulla variables in HC (insufficient data)")
+}
+
+library(gridExtra)
+plot_group_comparison_heatmap(assoc_mri, assoc_mri_hc, "MRI Cyst Measures")
+```
+#### Voxel K1 Measures
+```{r}
+assoc_voxel_k1 <- compute_associations(combined_data_adpkd, proteins_of_interest, voxel_k1)
+
+if (nrow(assoc_voxel_k1) > 0) {
+  sig_voxel_k1 <- assoc_voxel_k1 %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_voxel_k1) > 0) {
+    kbl(sig_voxel_k1, caption = "Significant Protein Associations with Voxelwise K1 - ADPKD (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with voxelwise K1 variables at FDR < 0.05 in ADPKD")
+  }
+} else {
+  message("No associations computed for voxelwise K1 variables in ADPKD (insufficient data)")
+}
+
+# HC associations
+assoc_voxel_k1_hc <- compute_associations(combined_data_hc, proteins_of_interest, voxel_k1)
+
+if (nrow(assoc_voxel_k1_hc) > 0) {
+  sig_voxel_k1_hc <- assoc_voxel_k1_hc %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(FDR)
+  
+  if (nrow(sig_voxel_k1_hc) > 0) {
+    kbl(sig_voxel_k1_hc, caption = "Significant Protein Associations with Voxelwise K1 - HC (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "800px")
+  } else {
+    message("No significant associations found with voxelwise K1 variables at FDR < 0.05 in HC")
+  }
+} else {
+  message("No associations computed for voxelwise K1 variables in HC (insufficient data)")
+}
+
+
+library(gridExtra)
+
+plot_group_comparison_heatmap(assoc_voxel_k1, assoc_voxel_k1_hc, "Voxel K1 Measures")
+```
+#### Voxel K2 Measures
+```{r}
+# ADPKD associations
+assoc_voxel_k2 <- compute_associations(combined_data_adpkd, proteins_of_interest, voxel_k2)
+
+if (nrow(assoc_voxel_k2) > 0) {
+  sig_voxel_k2 <- assoc_voxel_k2 %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(P_Value)
+  
+  if (nrow(sig_voxel_k2) > 0) {
+    kbl(sig_voxel_k2, caption = "Significant Protein Associations with Voxelwise K2 - ADPKD (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "400px")
+  } else {
+    message("No significant associations found with voxelwise K2 variables at FDR < 0.05 in ADPKD")
+  }
+} else {
+  message("No associations computed for voxelwise K2 variables in ADPKD (insufficient data)")
+}
+
+# HC associations
+assoc_voxel_k2_hc <- compute_associations(combined_data_hc, proteins_of_interest, voxel_k2)
+
+if (nrow(assoc_voxel_k2_hc) > 0) {
+  sig_voxel_k2_hc <- assoc_voxel_k2_hc %>%
+    dplyr::filter(FDR < 0.05) %>%
+    dplyr::arrange(P_Value)
+  
+  if (nrow(sig_voxel_k2_hc) > 0) {
+    kbl(sig_voxel_k2_hc, caption = "Significant Protein Associations with Voxelwise K2 - HC (FDR < 0.05)") %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "400px")
+  } else {
+    message("No significant associations found with voxelwise K2 variables at FDR < 0.05 in HC")
+  }
+} else {
+  message("No associations computed for voxelwise K2 variables in HC (insufficient data)")
+}
+
+library(gridExtra)
+plot_group_comparison_heatmap(assoc_voxel_k2, assoc_voxel_k2_hc, "Voxel K2 Measures")
+```
+### SUMMARY
+#### Group Comparison: ADPKD vs HC
+#### *  Interaction Analysis for Shared Clinical Variables
+
+```{r interaction-analysis}
+# For variables that exist in both groups, test if correlations differ
+# This uses Fisher's Z-transformation to compare correlations between groups
+
+interaction_results <- data.frame()
+
+for (protein in proteins_of_interest) {
+  for (clinical_var in shared_clinical_vars) {
+    
+    if (protein %in% colnames(combined_data_all) && clinical_var %in% colnames(combined_data_all)) {
+      
+      # Get data for ADPKD
+      data_adpkd <- combined_data_adpkd %>%
+        dplyr::select(all_of(c(protein, clinical_var))) %>%
+        dplyr::filter(!is.na(.data[[protein]]) & !is.na(.data[[clinical_var]]))
+      
+      # Get data for HC
+      data_hc <- combined_data_hc %>%
+        dplyr::select(all_of(c(protein, clinical_var))) %>%
+        dplyr::filter(!is.na(.data[[protein]]) & !is.na(.data[[clinical_var]]))
+      
+      if (nrow(data_adpkd) >= 10 && nrow(data_hc) >= 10) {
+        
+        # Compute correlations
+        cor_adpkd <- cor.test(as.numeric(data_adpkd[[protein]]), 
+                              as.numeric(data_adpkd[[clinical_var]]), 
+                              method = "spearman")
+        cor_hc <- cor.test(as.numeric(data_hc[[protein]]), 
+                           as.numeric(data_hc[[clinical_var]]), 
+                           method = "spearman")
+        
+        # Fisher's Z-transformation to compare correlations
+        z_adpkd <- 0.5 * log((1 + cor_adpkd$estimate) / (1 - cor_adpkd$estimate))
+        z_hc <- 0.5 * log((1 + cor_hc$estimate) / (1 - cor_hc$estimate))
+        
+        se_diff <- sqrt(1/(nrow(data_adpkd) - 3) + 1/(nrow(data_hc) - 3))
+        z_stat <- (z_adpkd - z_hc) / se_diff
+        p_interaction <- 2 * (1 - pnorm(abs(z_stat)))
+        
+        interaction_results <- rbind(interaction_results, data.frame(
+          Protein = protein,
+          Clinical_Variable = clinical_var,
+          Cor_ADPKD = as.numeric(cor_adpkd$estimate),
+          P_ADPKD = cor_adpkd$p.value,
+          N_ADPKD = nrow(data_adpkd),
+          Cor_HC = as.numeric(cor_hc$estimate),
+          P_HC = cor_hc$p.value,
+          N_HC = nrow(data_hc),
+          Cor_Difference = as.numeric(cor_adpkd$estimate - cor_hc$estimate),
+          P_Interaction = p_interaction,
+          stringsAsFactors = FALSE
+        ))
+      }
+    }
+  }
+}
+
+# Add FDR correction for interaction p-values
+if (nrow(interaction_results) > 0) {
+  interaction_results$FDR_Interaction <- p.adjust(interaction_results$P_Interaction, method = "fdr")
+  
+  # Add protein annotations
+  interaction_results <- interaction_results %>%
+    dplyr::left_join(analytes %>% dplyr::select(AptName, Target), by = c("Protein" = "AptName"))
+  
+  # Display significant interactions
+  sig_interactions <- interaction_results %>%
+    dplyr::filter(FDR_Interaction < 0.10) %>%
+    dplyr::arrange(FDR_Interaction)
+  
+  if (nrow(sig_interactions) > 0) {
+    kbl(sig_interactions, 
+        caption = "Significant Group Differences in Protein-Clinical Associations (FDR < 0.10)",
+        digits = 3) %>%
+      kable_paper() %>%
+      scroll_box(width = "100%", height = "500px")
+    
+    message(paste("Found", nrow(sig_interactions), "protein-clinical associations that differ significantly between ADPKD and HC"))
+  } else {
+    message("No significant group differences in correlations at FDR < 0.10")
+  }
+  
+  # Summary of all interactions
+  message(paste("Total interaction tests:", nrow(interaction_results)))
+  message(paste("Interactions with nominal p < 0.05:", sum(interaction_results$P_Interaction < 0.05)))
+}
+
+```
+
+```{r}
+# Combine all association results
+all_assoc <- rbind(
+  if(nrow(assoc_kidney) > 0) assoc_kidney %>% mutate(Category = "Kidney Function") else data.frame(),
+  if(nrow(assoc_pet_cortex) > 0) assoc_pet_cortex %>% mutate(Category = "PET Cortex") else data.frame(),
+  if(nrow(assoc_pet_medulla) > 0) assoc_pet_medulla %>% mutate(Category = "PET Medulla") else data.frame(),
+  if(nrow(assoc_mri) > 0) assoc_mri %>% mutate(Category = "MRI Cyst") else data.frame(),
+  if(nrow(assoc_voxel_k1) > 0) assoc_voxel_k1 %>% mutate(Category = "Voxelwise K1") else data.frame(),
+  if(nrow(assoc_voxel_k2) > 0) assoc_voxel_k2 %>% mutate(Category = "Voxelwise K2") else data.frame()
+)
+
+# Summary statistics
+if (nrow(all_assoc) > 0) {
+  summary_stats <- all_assoc %>%
+    dplyr::group_by(Category) %>%
+    dplyr::summarise(
+      Total_Tests = dplyr::n(),
+      Sig_FDR_05 = sum(FDR < 0.05),
+      Sig_FDR_10 = sum(FDR < 0.10),
+      Min_FDR = min(FDR),
+      .groups = 'drop'
+    )
+  
+  kbl(summary_stats, caption = "Summary of Associations by Category") %>%
+    kable_paper()
+} else {
+  message("No associations found across any categories")
+}
+```
+
+#### *  Heatmap: All Proteins vs All Clinical Variables
+
+```{r heatmap-all, fig.width=14, fig.height=10}
+if (nrow(all_assoc) > 0) {
+  # Create full correlation matrix (proteins x clinical variables)
+  cor_matrix_full <- all_assoc %>%
+    dplyr::select(Target, Clinical_Variable, Correlation) %>%
+    tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Correlation, values_fill = NA) %>%
+    tibble::column_to_rownames("Target") %>%
+    as.matrix()
+  
+  # Annotation for FDR significance
+  # Create a binary matrix indicating FDR < 0.05
+  fdr_matrix <- all_assoc %>%
+    dplyr::select(Target, Clinical_Variable, FDR) %>%
+    dplyr::mutate(Significant = ifelse(FDR < 0.05, "*", "")) %>%
+    dplyr::select(-FDR) %>%
+    tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Significant, values_fill = "") %>%
+    tibble::column_to_rownames("Target") %>%
+    as.matrix()
+  
+  # Create heatmap with FDR annotations
+  pheatmap(cor_matrix_full,
+           main = "Protein-Clinical Variable Correlations\n(* = FDR < 0.05)",
+           color = colorRampPalette(c("blue", "white", "red"))(100),
+           breaks = seq(-1, 1, length.out = 101),
+           cluster_rows = TRUE,
+           cluster_cols = TRUE,
+           fontsize_row = 8,
+           fontsize_col = 7,
+           angle_col = 45,
+           na_col = "gray90",
+           display_numbers = fdr_matrix,
+           fontsize_number = 10,
+           number_color = "black")
+} else {
+  message("No associations to plot")
+}
+```
+
+#### * Heatmap: Significant Associations Only (FDR < 0.10)
+
+```{r heatmap-sig, fig.width=12, fig.height=10}
+if (nrow(all_assoc) > 0) {
+  # Filter for significant associations
+  sig_assoc <- all_assoc %>%
+    dplyr::filter(FDR < 0.10)
+  
+  if (nrow(sig_assoc) > 0) {
+    # Create correlation matrix for significant associations only
+    cor_matrix_sig <- sig_assoc %>%
+      dplyr::select(Target, Clinical_Variable, Correlation) %>%
+      tidyr::pivot_wider(names_from = Clinical_Variable, values_from = Correlation, values_fill = NA) %>%
+      tibble::column_to_rownames("Target") %>%
+      as.matrix()
+    
+    # Remove columns/rows that are all NA
+    cor_matrix_sig <- cor_matrix_sig[rowSums(!is.na(cor_matrix_sig)) > 0, 
+                                     colSums(!is.na(cor_matrix_sig)) > 0, drop = FALSE]
+    
+    if (nrow(cor_matrix_sig) > 0 && ncol(cor_matrix_sig) > 0) {
+      pheatmap(cor_matrix_sig,
+               main = "Significant Protein-Clinical Associations (FDR < 0.10)",
+               color = colorRampPalette(c("blue", "white", "red"))(100),
+               breaks = seq(-1, 1, length.out = 101),
+               cluster_rows = TRUE,
+               cluster_cols = TRUE,
+               fontsize_row = 9,
+               fontsize_col = 9,
+               angle_col = 45,
+               na_col = "gray90")
+    } else {
+      message("No significant associations to plot after filtering")
+    }
+  } else {
+    message("No significant associations found at FDR < 0.10")
+  }
+} else {
+  message("No associations to plot")
+}
+```
+
