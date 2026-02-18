@@ -182,23 +182,24 @@ mri_dat <- harm_dat %>%
                    across(where(is.numeric), ~ ifelse(all(is.na(.x)), NA_real_, mean(.x, na.rm = TRUE))),
                    .by = c(record_id, visit)) %>%
   dplyr::mutate(record_number = case_when(study == "ATTEMPT" ~ as.character(sub("^([0-9]+)[._].*", "\\1", record_id)),
-                                   T ~ stringr::str_extract(record_id, "(?<=[._\\- ])[0-9]+(?=$|[._\\- ])")),
+                                          T ~ stringr::str_extract(record_id, "(?<=[._\\- ])[0-9]+(?=$|[._\\- ])")),
                 record_number = as.numeric(record_number),
                 visit_id = case_when(visit == "v2_gfr_mri_arm_1" ~ 1,
-                              visit == "v7_gfr_mri_arm_1" ~ 2,
-                              visit == "baseline" ~ 1,
-                              visit == "4_months_post" ~ 2,
-                              visit == "3_months_post_surgery" ~ 2,
-                              visit == "12_months_post_surgery" ~ 3,
-                              visit == "year_1" ~ 2,
-                              visit == "year_2" ~ 3),
-         data_in_redcap = case_when(dplyr::if_all(
-           c(avg_c_r2, avg_k_r2, avg_m_r2,
-             total_kidney_volume_ml,
-             avg_c_t1, avg_k_t1,
-             avg_c_adc, avg_pcascl), is.na) ~ FALSE,
-         TRUE ~ TRUE
-         )
+                                     visit == "v7_gfr_mri_arm_1" ~ 2,
+                                     visit == "baseline" ~ 1,
+                                     visit == "4_months_post" ~ 2,
+                                     visit == "3_months_post_surgery" ~ 2,
+                                     visit == "12_months_post_surgery" ~ 3,
+                                     visit == "year_1" ~ 2,
+                                     visit == "year_2" ~ 3,
+                                     visit == "post_treatment" ~ 2),
+                data_in_redcap = case_when(dplyr::if_all(
+                  c(avg_c_r2, avg_k_r2, avg_m_r2,
+                    total_kidney_volume_ml,
+                    avg_c_t1, avg_k_t1,
+                    avg_c_adc, avg_pcascl), is.na) ~ FALSE,
+                  TRUE ~ TRUE
+                )
   ) %>%
   filter(!is.na(visit_id)) %>%
   dplyr::select(record_id, 
@@ -222,7 +223,7 @@ panther_manual_ids <- c("PAN_202_T",
                         "PAN_210_O",
                         "PAN_211_O",
                         "PAN_208_O"
-                        )
+)
 
 mri_dat_combined <- full_join(mri_dat, bic_folders_clean, 
                               by = join_by(record_number, study, visit_id)) %>%
