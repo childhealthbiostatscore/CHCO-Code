@@ -132,10 +132,12 @@ def clean_rpc2_redcap():
     # --------------------------------------------------------------------------
     # Physical exam/vitals
     # --------------------------------------------------------------------------
-    var = ["subject_id", "vitals_date", "weight", "height", "bmi", "sys_bp", "dys_bp", "pulse"]
+    # var = ["subject_id", "vitals_date", "weight", "height", "bmi", "sys_bp", "dys_bp", "pulse"]
     
     var = ["subject_id"] + [v for v in meta.loc[meta["form_name"]
-                                               == "vitals", "field_name"]]  
+                                               == "vitals", "field_name"]] 
+                                               
+                                               # + [v for v in meta.loc[meta["form_name"] == "physical_exam", "field_name"]]
                                                
     phys = pd.DataFrame(proj.export_records(fields=var))
     phys.replace(rep, np.nan, inplace=True)

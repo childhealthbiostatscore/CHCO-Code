@@ -194,19 +194,16 @@ def clean_sweetheart():
         r"imaging_|_of_imaging", "", regex=True)
     
 
-    imaging.rename({"lv_myo_mass_dias" : "lv_myo_mass_diast", "lv_myo_thickness_dias": "lv_myo_thickness_diast", 
-                    "radial_peak" : "grs", "circum_peak" : "gcs", "long_peak": "gls", "af_pwv_xcor3": "af_pwv", "rvco": "rv_cardiac_output", "lvco": "lv_cardiac_output"}, axis=1, inplace=True)
+    imaging.rename({"hr" : "lv_hr", "lv_myo_mass_dias" : "lved_mass", "lv_myo_mass_syst": "lves_mass",
+                    "lvsv": "lv_stroke_volume", "rvsv": "rv_stroke_volume",
+                    "radial_peak" : "grs", "circum_peak" : "gcs", "long_peak": "gls", "af_pwv_xcor3": "af_pwv", 
+                    "rvco": "rv_cardiac_output", "lvco": "lv_cardiac_output"}, axis=1, inplace=True)
     # imaging.drop(redcap_cols + ["imaging_cardio", "imaging_abdo",
     #                         "imaging_aortic", "study_visit_imaging"],
     #          axis=1, inplace=True)
 
     imaging["procedure"] = "cardio_abdominal_mri"
 
-
-
-
-
-    
     # --------------------------------------------------------------------------
     # Missingness
     # --------------------------------------------------------------------------

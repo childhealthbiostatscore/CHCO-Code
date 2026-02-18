@@ -150,6 +150,24 @@ def add_id_column(df, study_name):
 def create_study_id_columns(harmonized):
     import os
     import pandas as pd
+
+    import getpass
+    user = getpass.getuser()  # safer than os.getlogin(), works in more environments
+
+    if user == "choiyej":
+        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "pylell":
+        base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    elif user == "shivaniramesh":
+        base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
+        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
+    else:
+        sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
+    output_path = (base_data_path + "Data Harmonization/id_linkage_matrix.csv")
+    output_path_deid = (base_data_path + "Data Harmonization/id_linkage_matrix_deidentified.csv")
+    
     study_list = [('CASPER', 'casper_id'), ('COFFEE', 'coffee_id'), ('CROCODILE','croc_id'), ('IMPROVE','improve_id'), ('PENGUIN','penguin_id'), ('RENAL-HEIR','rh_id'), ('RENAL-HEIRitage','rh2_id'), ('PANTHER','panther_id'), ('PANDA','panda_id'), ('ATTEMPT','attempt_id'), ('RPC2','rpc2_id'), ('SWEETHEART', 'swht_id'), ('ULTRA', 'ultra_id')]
 
     for study, id in study_list: 
@@ -157,7 +175,7 @@ def create_study_id_columns(harmonized):
         study_id_map = dict(zip(study_mrns['mrn'], study_mrns['record_id']))
         harmonized[id] = harmonized.apply(lambda row: study_id_map[row['mrn']] if row['mrn'] in study_id_map else '', axis=1)
     #add uuid column from ~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/mrn_uuid_map.csv
-    uuid_map = pd.read_csv("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/Data Harmonization/Data Clean/mrn_uuid_map.csv")
+    uuid_map = pd.read_csv(base_data_path + "Data Harmonization/Data Clean/mrn_uuid_map.csv")
     uuid_dict = dict(zip(uuid_map['mrn'], uuid_map['uuid']))
     harmonized['uuid'] = harmonized['mrn'].map(uuid_dict)
     #print how many uuid values were successfully mapped (i.e. not null)
@@ -181,25 +199,10 @@ def create_study_id_columns(harmonized):
         .fillna('')
         .reset_index()
     )
-    import getpass
-    user = getpass.getuser()  # safer than os.getlogin(), works in more environments
-
-    if user == "choiyej":
-        base_data_path = "/Users/choiyej/Library/CloudStorage/OneDrive-UW/Bjornstad/Biostatistics Core Shared Drive/"
-        git_path = "/Users/choiyej/GitHub/CHCO-Code/Petter Bjornstad/"
-    elif user == "pylell":
-        base_data_path = "/Users/pylell/Library/CloudStorage/OneDrive-SharedLibraries-UW/Bjornstad/Biostatistics Core Shared Drive/"
-        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
-    elif user == "shivaniramesh":
-        base_data_path = os.path.expanduser("~/Library/CloudStorage/OneDrive-UW/Laura Pyle's files - Biostatistics Core Shared Drive/")
-        git_path = "/Users/pylell/Documents/GitHub/CHCO-Code/Petter Bjornstad/"
-    else:
-        sys.exit(f"Unknown user: please specify root path for this user. (Detected user: {user})")
-    output_path = (base_data_path + "Data Harmonization/id_linkage_matrix.csv")
-    output_path_deid = (base_data_path + "Data Harmonization/id_linkage_matrix_deidentified.csv")
-
+    
     linkage_df.to_csv(output_path, index=False)
     linkage_deidentified_df.to_csv(output_path_deid, index=False)
+    
     return harmonized
 
 def biopsy_merge(harmonized):

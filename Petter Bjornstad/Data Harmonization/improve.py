@@ -238,11 +238,17 @@ def clean_improve():
                                                                == "cardioabdominal_mri", "field_name"]]
     mri = pd.DataFrame(proj.export_records(fields=var))
     mri.replace(rep, np.nan, inplace=True)  # Replace missing values
-    mri.drop(redcap_cols + ["mri_cardio", "mri_abdo",
-                            "mri_aortic", "study_visit_mri"],
-             axis=1, inplace=True)
     mri.columns = mri.columns.str.replace(
         r"mri_|visit_", "", regex=True)
+    mri.rename({"radial_peak" : "grs", "circum_peak" : "gcs", "long_peak": "gls", "af_pwv_xcor3": "af_pwv", 
+                    "rvco": "rv_cardiac_output", "lvco": "lv_cardiac_output",
+                    "mri_lvesv": "lvesv", "rmi_rvesv": "rvesv", "rv_ejection_fraction": "rvef"}, axis=1, inplace=True)
+    mri.drop(redcap_cols + ["cardio", "abdo",
+                            "aortic", "study_visit", "study_mri",
+                            "lvedvi", "lvesvi",
+                            "lved_massi", "lvesmassi", "rmi_rvedvi", "rvesvi"],
+             axis=1, inplace=True)
+
     mri["procedure"] = "cardio_abdominal_mri"
 
     dictionary.loc[dictionary['variable_name'].isin(mri.columns), 'form_name'] = 'cardioabdominal_mri'

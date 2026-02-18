@@ -192,8 +192,11 @@ def clean_ultra():
     mri.columns = mri.columns.str.replace(
         r"long_", "ls", regex=True)
     mri.rename({"lvsv": "lv_stroke_volume", "rvsv" : "rv_stroke_volume", "rvco": "rv_cardiac_output", 
-                "lvco": "lv_cardiac_output", "myo_mass_dias" : "myo_mass_diast", 
-                "lv_myo_thickness_dias" : "lv_myo_thickness_diast", "af_pwv_xcor3": "af_pwv_xcor3"}, axis=1, inplace=True)
+                "lvco": "lv_cardiac_output", "myo_mass_dias" : "lved_mass", "myo_mass_syst": "lves_mass",
+                "lv_myo_mass_dias" : "lv_myo_mass_diast",
+                "imaging_hr": "lv_hr",
+                "af_pwv_xcor3": "af_pwv_xcor3"}, axis=1, inplace=True)
+                
     mri["procedure"] = "cardio_abdominal_mri"
 
     # --------------------------------------------------------------------------
