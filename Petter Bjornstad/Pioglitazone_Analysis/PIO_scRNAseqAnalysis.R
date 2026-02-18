@@ -163,7 +163,9 @@ dat_small <- dat_small %>%
   left_join(final_df %>% dplyr::select(record_id, tzd) %>% distinct(), by = 'record_id')
 
 desc_table <- dat_small %>%
-  select(age, sex, race_ethnicity, bmi, hba1c, study, tzd) %>%
+  select(age, sex, race_ethnicity, bmi, hba1c, study, tzd,
+         epic_insulin_1, epic_sglti2_1, epic_glp1ra_1, epic_tzd_1,
+         epic_mfm_1, epic_raasi_1, epic_statin_1, epic_fibrate_1) %>%
   tbl_summary(
     by = tzd,
     type = list(
@@ -171,7 +173,15 @@ desc_table <- dat_small %>%
       bmi ~ "continuous",
       hba1c ~ "continuous",
       race_ethnicity ~ "categorical",
-      study ~ "categorical"
+      study ~ "categorical",
+      epic_insulin_1 ~ "categorical",
+      epic_sglti2_1 ~ "categorical",
+      epic_glp1ra_1 ~ "categorical",
+      epic_tzd_1 ~ "categorical",
+      epic_mfm_1 ~ "categorical",
+      epic_raasi_1 ~ "categorical",
+      epic_statin_1 ~ "categorical",
+      epic_fibrate_1 ~ "categorical"
     ),
     statistic = list(
       all_continuous() ~ "{mean} ({sd})",
@@ -186,7 +196,15 @@ desc_table <- dat_small %>%
       race_ethnicity ~ "Race/Ethnicity",
       bmi ~ "BMI, kg/m²",
       hba1c ~ "HbA1c, %",
-      study ~ "Study"
+      study ~ "Study",
+      epic_insulin_1 ~ "Insulin",
+      epic_sglti2_1 ~ "SGLT2i",
+      epic_glp1ra_1 ~ "GLP-1RA",
+      epic_tzd_1 ~ "PPARγ agonist (TZD)",
+      epic_mfm_1 ~ "Metformin",
+      epic_raasi_1 ~ "ACEi/ARB",
+      epic_statin_1 ~ "Statin",
+      epic_fibrate_1 ~ "Fenofibrate"
     ),
     missing_text = "Missing"
   ) %>%
