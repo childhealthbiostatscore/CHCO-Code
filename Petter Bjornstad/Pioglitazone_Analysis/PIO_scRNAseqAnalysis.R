@@ -163,7 +163,7 @@ dat_small <- dat_small %>%
   left_join(final_df %>% dplyr::select(record_id, tzd) %>% distinct(), by = 'record_id')
 
 desc_table <- dat_small %>%
-  select(age, sex, race_ethnicity, bmi, hba1c, study, tzd,
+  dplyr::select(age, sex, race_ethnicity, bmi, hba1c, study, tzd,
          epic_insulin_1, epic_sglti2_1, epic_glp1ra_1, epic_tzd_1,
          epic_mfm_1, epic_raasi_1, epic_statin_1, epic_fibrate_1) %>%
   tbl_summary(
