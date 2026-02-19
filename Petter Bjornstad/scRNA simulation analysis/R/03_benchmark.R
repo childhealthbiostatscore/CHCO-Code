@@ -43,17 +43,19 @@ setup_s3 <- function() {
   user <- Sys.info()[["user"]]
 
   if (user == "choiyej") {
-    keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/YC_RK Lab/KPMP/s3/keys.json"
+    # --- local (choiyej Mac) ---
+    keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json"
   } else if (user %in% c("rameshsh", "yejichoi", "pylell")) {
-    keys_path <- "/gscratch/scrubbed/yejichoi/keys.json"
+    # --- Hyak HPC ---
+    keys_path <- "/mmfs1/home/yejichoi/keys.json"
   } else {
     stop("Unknown user '", user, "'. Add credentials path to setup_s3().")
   }
 
   keys <- jsonlite::fromJSON(keys_path)
   Sys.setenv(
-    AWS_ACCESS_KEY_ID     = keys$access_key,
-    AWS_SECRET_ACCESS_KEY = keys$secret_key,
+    AWS_ACCESS_KEY_ID     = keys$MY_ACCESS_KEY,
+    AWS_SECRET_ACCESS_KEY = keys$MY_SECRET_KEY,
     AWS_S3_ENDPOINT       = "s3.kopah.uw.edu"
   )
   message(sprintf("S3 configured for user '%s'", user))
