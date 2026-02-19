@@ -331,6 +331,7 @@ def clean_rpc2_redcap():
                "glomerular_pressure",
                "pah_raw", "pah_sd", "pah_cv"] + list(rename.values())]
     rct["procedure"] = "renal_clearance_testing"
+    rct["date"] = phys["date"]
     
     rct["redcap_event_name"].replace(
         {"v1_screening_arm_1": "screening", "p5_phone_visit_arm_1": "treatment_period_2",

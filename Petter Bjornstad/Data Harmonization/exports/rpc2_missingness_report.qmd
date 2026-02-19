@@ -50,24 +50,25 @@ rpc2 <- harm_dat %>%
                    .by = c(record_id, visit)) %>%
   filter(study == "RPC2") %>%
   left_join(wd_notes) %>%
-  filter(is.na(enroll_notes) | enroll_notes == "Completed Study")
+  filter(is.na(enroll_notes) | enroll_notes == "Completed Study") 
 ```
 
 # Demographics
+
 ```{r, message=F, warning=F, echo=F}
 # demographics
 demo <- rpc2 %>%
-  dplyr::select(record_id, visit, consent_date, dob, sex, race, ethnicity, participation_status) %>%
+  dplyr::select(record_id, visit, mrn, date = consent_date, dob, sex, race, ethnicity, participation_status) %>%
   filter(visit == "baseline")
 
 demo_missing <- demo %>%
   pivot_longer(
-    cols = -c(record_id, visit),
+    cols = -c(record_id, visit, mrn, date),
     names_to = "missing_var",
     values_to = "value"
   ) %>%
   filter(is.na(value)) %>%
-  select(record_id, visit, missing_var)
+  dplyr::select(record_id, mrn, visit, date, missing_var)
 kable(table(demo_missing$record_id, demo_missing$visit))
 kable(demo_missing)
 ```
@@ -78,18 +79,25 @@ kable(demo_missing)
 
 ```{r, message=F, warning=F, echo=F}
 # medical history
+rpc2_med_history <- harm_dat %>%
+  filter(study == "RPC2") %>%
+  filter(procedure == "medical_history") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
 med_history <- rpc2 %>%
-  dplyr::select(record_id, visit, metformin_timepoint, insulin_timepoint, tzd_timepoint, glp1_agonist_timepoint, sglti_timepoint, other_diabetes_med_timepoint, ace_inhibitor, angiotensin_receptor_blocker, beta_blocker, ca_channel_blocker, diuretic, statin, fibrates, niacin, topiramate, phentermine, mra, uric_acid_med, raasi_timepoint) %>%
-  filter(visit == "baseline")
+  dplyr::select(record_id, visit, mrn, metformin_timepoint, insulin_timepoint, tzd_timepoint, glp1_agonist_timepoint, sglti_timepoint, other_diabetes_med_timepoint, ace_inhibitor, angiotensin_receptor_blocker, beta_blocker, ca_channel_blocker, diuretic, statin, fibrates, niacin, topiramate, phentermine, mra, uric_acid_med, raasi_timepoint) %>%
+  filter(visit == "baseline") %>%
+  left_join(rpc2_med_history)
 
 med_history_missing <- med_history %>%
   pivot_longer(
-    cols = -c(record_id, visit),
+    cols = -c(record_id, visit, mrn, date),
     names_to = "missing_var",
     values_to = "value"
   ) %>%
   filter(is.na(value)) %>%
-  select(record_id, visit, missing_var)
+  dplyr::select(record_id, mrn, visit, date, missing_var)
 kable(table(med_history_missing$record_id, med_history_missing$visit))
 kable(med_history_missing)
 ```
@@ -100,18 +108,25 @@ kable(med_history_missing)
 
 ```{r, message=F, warning=F, echo=F}
 # Vitals
+rpc2_vitals <- harm_dat %>%
+  filter(study == "RPC2") %>%
+  filter(procedure == "physical_exam") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
 vitals <- rpc2 %>%
-  dplyr::select(record_id, visit, height, weight, bmi, sbp, dbp, map, pulse) %>%
-  filter(!is.na(visit))
+  dplyr::select(record_id, visit, mrn, height, weight, bmi, sbp, dbp, map, pulse) %>%
+  filter(visit %in% c("baseline", "post_treatment")) %>%
+  left_join(rpc2_vitals)
 
 vitals_missing <- vitals %>%
   pivot_longer(
-    cols = -c(record_id, visit),
+    cols = -c(record_id, visit, mrn, date),
     names_to = "missing_var",
     values_to = "value"
   ) %>%
   filter(is.na(value)) %>%
-  select(record_id, visit, missing_var)
+  dplyr::select(record_id, mrn, visit, date, missing_var)
 kable(table(vitals_missing$record_id, vitals_missing$visit))
 kable(vitals_missing)
 ```
@@ -120,19 +135,26 @@ kable(vitals_missing)
 
 ```{r, message=F, warning=F, echo=F}
 # screening labs
+rpc2_screen_labs <- harm_dat %>%
+  filter(study == "RPC2") %>%
+  filter(visit == "screening") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
 screen_labs <- rpc2 %>%
-  dplyr::select(record_id, visit, creatinine_s, bun,
+  dplyr::select(record_id, visit, mrn, creatinine_s, bun,
        microalbumin_u, creatinine_u, acr_u) %>%
-  filter(visit %in% c("screening", "treatment_period_1"))
+  filter(visit %in% c("screening")) %>%
+  left_join(rpc2_screen_labs)
 
 screen_labs_missing <- screen_labs %>%
   pivot_longer(
-    cols = -c(record_id, visit),
+    cols = -c(record_id, visit, mrn, date),
     names_to = "missing_var",
     values_to = "value"
   ) %>%
   filter(is.na(value)) %>%
-  select(record_id, visit, missing_var)
+  dplyr::select(record_id, mrn, visit, date, missing_var)
 kable(table(screen_labs_missing$record_id, screen_labs_missing$visit))
 kable(screen_labs_missing)
 ```
@@ -141,8 +163,14 @@ kable(screen_labs_missing)
 
 ```{r, message=F, warning=F, echo=F}
 # labs
+rpc2_labs <- harm_dat %>%
+  filter(study == "RPC2") %>%
+  filter(procedure == "labs") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
 labs <- rpc2 %>%
-  dplyr::select(record_id, visit, hemoglobin, hematocrit, pltct,
+  dplyr::select(record_id, visit, mrn, hemoglobin, hematocrit, pltct,
        neutrophil, lymphocyte, monocyte, eosinophil, basophil,
        abs_neut, abs_lymph, abs_monocyte, abs_eosin, abs_basophil,
        abs_egc, sodium_s, k_base, cl_base, co2, bun,
@@ -150,16 +178,17 @@ labs <- rpc2 %>%
        gotast_base, gptalt_base, bili_base, pt, ptt, inr, hba1c,
        fbg, chol_base, hdl, ldl, triglycerides, cystatin_c_s,
        microalbumin_u, creatinine_u) %>%
-  filter(visit %in% c("baseline", "post_treatment"))
+  filter(visit %in% c("baseline", "post_treatment")) %>%
+  left_join(rpc2_labs)
 
 labs_missing <- labs %>%
   pivot_longer(
-    cols = -c(record_id, visit),
+    cols = -c(record_id, visit, mrn, date),
     names_to = "missing_var",
     values_to = "value"
   ) %>%
   filter(is.na(value)) %>%
-  select(record_id, visit, missing_var)
+  dplyr::select(record_id, mrn, visit, date, missing_var)
 kable(table(labs_missing$record_id, labs_missing$visit))
 kable(labs_missing)
 ```
@@ -182,7 +211,7 @@ kable(labs_missing)
 #     values_to = "value"
 #   ) %>%
 #   filter(is.na(value)) %>%
-#   select(record_id, visit, missing_var)
+#   dplyr::select(record_id, visit, missing_var)
 # 
 # kable(mri_missing)
 
@@ -193,8 +222,14 @@ kable(labs_missing)
 
 ```{r, message=F, warning=F, echo=F}
 # kidney biopsies
+rpc2_bx <- harm_dat %>%
+  filter(study == "RPC2") %>%
+  filter(procedure == "kidney_biopsy") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
 bx <- rpc2 %>%
-  dplyr::select(record_id, visit, baseline_bx, followup_bx, kit_id, glut_id, form_id,
+  dplyr::select(record_id, visit, mrn, baseline_bx, followup_bx, kit_id, glut_id, form_id,
        rnalater_id, cryomold_id, cryostor_id,
        kidney_side, kidney_length, kidney_location, passes_attempt,
        pass1_time, pass1_core_cm, pass1_cortex_cm, pass1_core_spec,
@@ -206,17 +241,39 @@ bx <- rpc2 %>%
        core_hypo_cryo, cryo_hypo_pass, hypo_time, cryo_time,
        core_rna, rna_pass, rna_time
 ) %>%
-  filter((visit %in% c("baseline") & baseline_bx == "y") | (visit %in% c("post_treatment") & followup_bx == "y") )
+  filter((visit %in% c("baseline") & baseline_bx == "y") | (visit %in% c("post_treatment") & followup_bx == "y")) %>%
+  left_join(rpc2_bx) %>%
+  rowwise() %>%
+  mutate(pass1_time = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_time, T ~ "N/A"),
+         pass1_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_core_cm, T ~ 0),
+         pass1_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_cortex_cm, T ~ 0),
+         pass1_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 1 ~ pass1_core_spec, T ~ 0),
+         pass2_time = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_time, T ~ "N/A"),
+         pass2_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_core_cm, T ~ 0),
+         pass2_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_cortex_cm, T ~ 0),
+         pass2_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 2 ~ pass2_core_spec, T ~ 0),
+         pass3_time = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_time, T ~ "N/A"),
+         pass3_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_core_cm, T ~ 0),
+         pass3_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_cortex_cm, T ~ 0),
+         pass3_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 3 ~ pass3_core_spec, T ~ 0),
+         pass4_time = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass3_time, T ~ "N/A"),
+         pass4_core_cm = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass4_core_cm, T ~ 0),
+         pass4_cortex_cm = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass4_cortex_cm, T ~ 0),
+         pass4_core_spec = case_when(is.na(passes_attempt) | passes_attempt >= 4 ~ pass4_core_spec, T ~ 0)) %>%
+  ungroup()
 
+# bx %>%
+#   dplyr::select(record_id, passes_attempt, starts_with("pass1"), starts_with("pass2"), starts_with("pass3"), starts_with("pass4"))
 bx_missing <- bx %>%
   pivot_longer(
-    cols = -c(record_id,visit), 
+    cols = -c(record_id, visit, mrn, date),
     names_to = "missing_var",
     values_to = "is_missing",
     values_transform = list(is_missing = is.na)
   ) %>%
   filter(is_missing) %>%
-  select(record_id, visit, missing_var)
+  dplyr::select(record_id, mrn, visit, date, missing_var)
+
 kable(table(bx_missing$record_id, bx_missing$visit))
 kable(bx_missing)
 ```
@@ -225,24 +282,49 @@ kable(bx_missing)
 
 ```{r, message=F, warning=F, echo=F}
 # rct
+rpc2_rct <- harm_dat %>%
+  filter(study == "RPC2") %>%
+  filter(procedure == "renal_clearance_testing") %>%
+  dplyr::select(record_id, visit, date) %>%
+  filter(!is.na(date))
+
 rct <- rpc2 %>%
-  dplyr::select(record_id, visit, pah_raw, pah_sd, pah_cv,
-       gfr_raw_plasma_urine, gfr_bsa_plasma_urine, erpf_raw_plasma_urine,
-       erpf_bsa_plasma_urine, gfr_raw_plasma, gfr_bsa_plasma,
-       erpf_raw_plasma, erpf_bsa_plasma, pah_bsa_plasma_urine,
-       pah_clear_bsa, pah_clear_abs
+  dplyr::select(record_id, visit, mrn,
+                gfr_raw_plasma, gfr_bsa_plasma,
+       erpf_raw_plasma, erpf_bsa_plasma
 ) %>%
-  filter(visit %in% c("baseline", "post_treatment"))
+  filter(visit %in% c("baseline", "post_treatment")) %>%
+  left_join(rpc2_rct)
 
 rct_missing <- rct %>%
   pivot_longer(
-    cols = -c(record_id,visit), 
+    cols = -c(record_id, visit, mrn, date),
     names_to = "missing_var",
     values_to = "is_missing",
     values_transform = list(is_missing = is.na)
   ) %>%
   filter(is_missing) %>%
-  select(record_id, visit, missing_var)
+  dplyr::select(record_id, mrn, visit, date, missing_var)
 kable(table(rct_missing$record_id, rct_missing$visit))
 kable(rct_missing)
+```
+
+```{r include = F}
+demo_missing$procedure = "Demographics"
+med_history_missing$procedure = "Medical History"
+vitals_missing$procedure = "Vitals"
+screen_labs_missing$procedure = "Screening Labs"
+labs_missing$procedure = "Labs"
+bx_missing$procedure = "Kidney Biopsy"
+rct_missing$procedure = "RCT"
+
+missing_df <- rbind(demo_missing, med_history_missing, vitals_missing, screen_labs_missing, labs_missing, bx_missing, rct_missing)
+missing_df$value = NA
+missing_df$notes = NA
+missing_df$visit = factor(missing_df$visit, levels = c("screening", "baseline", "post_treatment"))
+
+missing_df <- missing_df %>%
+  arrange(record_id, visit) %>%
+  dplyr::select(procedure, record_id, mrn, visit, date, missing_var, value, notes)
+write.csv(missing_df, file.path(root_path, "RPC2/Data Clean/rpc2_missing_data_021925.csv"), na = "", row.names = F)
 ```
