@@ -50,21 +50,21 @@ suppressPackageStartupMessages({
 # Detect user and set up AWS credentials + endpoint
 setup_s3 <- function() {
   user <- Sys.info()[["user"]]
-
+  
   if (user == "choiyej") {
     # --- local (choiyej Mac) ---
-    keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-UW/YC_RK Lab/KPMP/s3/keys.json"
+    keys_path <- "/Users/choiyej/Library/CloudStorage/OneDrive-TheUniversityofColoradoDenver/Bjornstad Pyle Lab/keys.json"
   } else if (user %in% c("rameshsh", "yejichoi", "pylell")) {
     # --- Hyak HPC ---
-    keys_path <- "/gscratch/scrubbed/yejichoi/keys.json"
+    keys_path <- "/mmfs1/home/yejichoi/keys.json"
   } else {
     stop("Unknown user '", user, "'. Add credentials path to setup_s3().")
   }
-
+  
   keys <- jsonlite::fromJSON(keys_path)
   Sys.setenv(
-    AWS_ACCESS_KEY_ID     = keys$access_key,
-    AWS_SECRET_ACCESS_KEY = keys$secret_key,
+    AWS_ACCESS_KEY_ID     = keys$MY_ACCESS_KEY,
+    AWS_SECRET_ACCESS_KEY = keys$MY_SECRET_KEY,
     AWS_S3_ENDPOINT       = "s3.kopah.uw.edu"
   )
   message(sprintf("S3 configured for user '%s'", user))
@@ -78,7 +78,7 @@ S3_PREFIX <- "Projects/Paired scRNA simulation analysis/results/reference/"
 
 # ── S3 helper functions ───────────────────────────────────────────────────────
 s3write_using_region <- function(FUN, ..., object, bucket,
-                                  region = NULL, opts = NULL, filename = NULL) {
+                                 region = NULL, opts = NULL, filename = NULL) {
   ext  <- if (!is.null(filename)) tools::file_ext(filename) else tools::file_ext(object)
   tmp  <- tempfile(fileext = if (nchar(ext) > 0) paste0(".", ext) else "")
   on.exit(unlink(tmp))
@@ -90,7 +90,7 @@ s3write_using_region <- function(FUN, ..., object, bucket,
 }
 
 s3read_using_region <- function(FUN, ..., object, bucket,
-                                 region = NULL, opts = NULL, filename = NULL) {
+                                region = NULL, opts = NULL, filename = NULL) {
   ext  <- if (!is.null(filename)) tools::file_ext(filename) else tools::file_ext(object)
   tmp  <- tempfile(fileext = if (nchar(ext) > 0) paste0(".", ext) else "")
   on.exit(unlink(tmp))
@@ -159,7 +159,7 @@ col_df <- data.frame(
   subject_id  = so_sub$subject_id,
   visit       = factor(so_sub$visit, levels = c("PRE", "POST")),
   treatment   = factor(so_sub$treatment,
-                        levels = c("Placebo", "Dapagliflozin")),
+                       levels = c("Placebo", "Dapagliflozin")),
   celltype    = so_sub$KPMP_celltype_general,
   stringsAsFactors = FALSE
 )
