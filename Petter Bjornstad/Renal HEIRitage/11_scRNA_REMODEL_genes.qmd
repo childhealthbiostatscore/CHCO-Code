@@ -4,7 +4,7 @@ author: "Ye Ji Choi"
 format: html
 ---
 
-```{r}
+```{r include = F}
 library(dplyr)
 library(aws.s3)
 library(jsonlite)
@@ -21,7 +21,7 @@ library(ggtext)
 library(nebula)
 ```
 
-```{r}
+```{r include = F}
 user <- Sys.info()[["user"]]
 
 if (user == "choiyej") { # local version
@@ -92,6 +92,7 @@ s3write_using_region <- function(FUN, ..., object, bucket, region = NULL, opts =
 
 pb90_subset <- s3readRDS("data_clean/subset/pb90_ckd_analysis_subset.rds", "scrna", region = "")
 pb90_subset <- subset(pb90_subset, group != "Obese_Control")
+pb90_raw <- s3readRDS("Kidney transcriptomics/Single cell RNA seq/PB_90_RPCAFix_Metadata_LR_RM_kpmpV1labelled.rds", "scrna", region = "") # for GLP1R
 ```
 
 ```{r}
@@ -110,126 +111,25 @@ celltype_groups <- list(
   POD = "POD",
   MC = "MC",                         # mesangial cells
   PEC = "PEC",                       # parietal epithelial cells
-  Schwann = "SchwannCells",
-  Other = c("non-specific")          # catchall
+  Schwann = "SchwannCells"
+  # Other = c("non-specific")          # catchall
 )
 
 remodel_genes <- c("LMF1", "LSAMP", "EMC10", "KCNK6", "FAT1", "NES", "MAPKAPK3", "FLT4", "CASR", "IRF3", "ACER1", "ACSM2B", "GLS", "CA12")
 ```
 
 ```{r}
-# extract each gene expression for UMAP
-expr_df <- NULL
-for (gene in remodel_genes) {
-  expr_vec <- Seurat::FetchData(pb90_subset, vars = gene)[, 1]
-  expr_df <- cbind(expr_df, expr_vec)
-}
-expr_df <- as.data.frame(expr_df)
-colnames(expr_df) <- remodel_genes
-
-# Custom FeaturePlot UMAPs
-umap_colors <- colorRampPalette(brewer.pal(12, "Set3"))(43)
-
-celltype_colors <- setNames(umap_colors, levels(pb90_subset$KPMP_celltype))
-# Read Seurat object and run UMAP, obtain cell numbers, etc
-pb90_subset_meta <- pb90_subset@meta.data %>%
-  cbind(pb90_subset@reductions$umap.harmony@cell.embeddings) %>%
-  cbind(expr_df)
-
-centers <- pb90_subset_meta %>%
-  group_by(KPMP_celltype) %>%
-  summarise(x = median(umapharmony_1),
-            y = median(umapharmony_2), .groups = "drop")
-
-for (gene in remodel_genes) {
-  feature_p <- pb90_subset_meta %>%
-    dplyr::mutate(feature_color_logic = case_when(
-      .data[[gene]] > 0 ~ KPMP_celltype,
-      T ~ "No")) %>%
-    ggplot(aes(x = umapharmony_1, y = umapharmony_2, color = feature_color_logic)) +
-    geom_point(alpha = 0.4) +
-    geom_text_repel(data = centers,
-                    aes(x = x, y = y, label = KPMP_celltype),
-                    inherit.aes = FALSE,
-                    size = 4, fontface = "bold", color = "black",
-                    max.overlaps = Inf) +
-    scale_color_manual(values = c(celltype_colors, "No" = "#edede9")) +
-    theme_minimal() + 
-    theme(panel.grid = element_blank(),
-          text = element_text(size = 15),
-          # legend.position = "none",
-          plot.title = element_text(hjust = 0.5),
-          axis.title.x = element_text(hjust = 0),   # move x label to left
-          axis.title.y = element_text(hjust = 0))  + # push y label down to bottom) 
-    labs(x = "UMAP1", y = "UMAP2", title = gene)
-  print(feature_p)
-}
-```
-
-```{r}
 # Feature Plots
-for (gene in remodel_genes) {
-  # Calculate which cell types express the gene and their percentages
-  expr_stats <- pb90_subset_meta %>%
-    group_by(KPMP_celltype) %>%
-    summarise(
-      pct_expressed = round(mean(.data[[gene]] > 0) * 100, 1),
-      n_total = n(),
-      .groups = "drop"
-    ) %>%
-    filter(pct_expressed > 10)  # Only keep cell types that express the gene
-  
-  # Filter centers to only include expressing cell types
-  centers_filtered <- centers %>%
-    mutate(pct_expressed_5 = case_when(KPMP_celltype %in% expr_stats$KPMP_celltype ~ "Y", T ~ "N"))
-  
-  # Create caption text
-  caption_text <- expr_stats %>%
-    arrange(desc(pct_expressed)) %>%
-    mutate(
-      color = celltype_colors[KPMP_celltype],
-      label = paste0("<span style='color:", color, "'>&#9679; </span>**", KPMP_celltype, "**: ", pct_expressed, "%"),
-      group = ceiling(row_number() / 5)
-    ) %>%
-    group_by(group) %>%
-    summarise(line = paste(label, collapse = " | "), .groups = "drop") %>%
-    rbind(data.frame(group = 0, line = "**% Expressed (>10%):**")) %>%
-    arrange(group) %>%
-    pull(line) %>%
-    paste(collapse = "<br><br>") 
-  
-  feature_p <- pb90_subset_meta %>%
-    dplyr::mutate(feature_color_logic = case_when(
-      .data[[gene]] > 0 ~ KPMP_celltype,
-      TRUE ~ "No")) %>%
-    ggplot(aes(x = umapharmony_1, y = umapharmony_2, color = feature_color_logic)) +
-    geom_point(alpha = 0.4) +
-    geom_text_repel(data = centers_filtered,  # Use filtered centers
-                    aes(x = x, y = y, label = KPMP_celltype),
-                    inherit.aes = FALSE,
-                    size = 4, 
-                    fontface = ifelse(centers_filtered$pct_expressed_5 == "Y", "bold", "plain"), 
-                    color = ifelse(centers_filtered$pct_expressed_5 == "Y", "black", "#495057"), 
-                    max.overlaps = Inf) +
-    scale_color_manual(values = c(celltype_colors, "No" = "#edede9")) +
-    theme_minimal() + 
-    theme(panel.grid = element_blank(),
-          text = element_text(size = 15),
-          legend.position = "none",
-          plot.title = element_text(hjust = 0.5, face = "bold"),
-          plot.caption = element_markdown(size = 12, hjust = 0.5),  # Add caption styling
-          axis.title.x = element_text(hjust = 0),
-          axis.title.y = element_text(hjust = 0)) +
-    labs(x = "UMAP1", y = "UMAP2", 
-         title = gene,
-         caption = caption_text)  # Add caption
-  
-  print(feature_p)
-  s3write_using_region(feature_p, FUN = ggsave, 
-                       object = paste0("Projects/CKD/RH_RH2/Results/Figures/UMAP/REMODEL genes/", gene, "_FeaturePlot.png"), 
-                       bucket = "scrna", region = "", height = 10, width = 10)
-}
+umap_meta <- prepare_umap_metadata(pb90_subset, genes = remodel_genes)
 
+remodel_feature_plots <- plot_feature_umap(
+  genes = remodel_genes,
+  metadata = umap_meta$metadata,
+  centers = umap_meta$centers,
+  celltype_colors = umap_meta$celltype_colors,
+  pct_threshold = 10,
+  save_to_s3 = TRUE
+)
 ```
 
 ```{r}
@@ -319,18 +219,52 @@ s3write_using_region(FUN = ggsave,
 
 ```
 
-# Clinical correlations (not adjusting for any vars)
 
-## Low res
+## GLP1R
+
+```{r}
+# Feature Plots
+glp_umap <- prepare_umap_metadata(pb90_raw, genes = "GLP1R")
+
+glp_feature_plot <- plot_feature_umap(
+  genes = "GLP1R",
+  metadata = glp_umap$metadata,
+  centers = glp_umap$centers,
+  celltype_colors = glp_umap$celltype_colors,
+  pct_threshold = 0.05,
+  save_to_s3 = TRUE
+)
+
+# T2D only
+# Feature Plots
+t2d_glp_umap <- prepare_umap_metadata(subset(pb90_raw, group == "Type_2_Diabetes"), genes = "GLP1R")
+
+t2d_glp_feature_plot <- plot_feature_umap(
+  genes = "GLP1R",
+  metadata = t2d_glp_umap$metadata,
+  centers = t2d_glp_umap$centers,
+  celltype_colors = t2d_glp_umap$celltype_colors,
+  pct_threshold = 0.05,
+  save_to_s3 = TRUE,
+  s3_suffix = "_T2D"
+)
+```
+
+
+# Clinical correlations
+
+## Unadjusted
+
+### Low res
 
 ```{r}
 # nebula
 pb90_subset$glp_t2dob <- relevel(factor(pb90_subset$glp_t2dob), ref = "HC")
-
+pb90_subset$log_acr_u <- log(pb90_subset$acr_u)
 combinations <- expand.grid(
   gene = remodel_genes,
   celltype = names(celltype_groups),
-  var = c("hba1c", "acr_u", "eGFR_CKD_epi"),
+  var = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
   stringsAsFactors = FALSE
 ) %>%
   filter(celltype != "Other")
@@ -372,7 +306,8 @@ nebula_results_list <- foreach(i = 1:nrow(combinations),
                                    meta_gene <- meta_gene[complete_cases, ]
                                    
                                    # Create predictor matrix
-                                   pred_gene <- model.matrix(~ var, data = meta_gene)
+                                   pred_gene <- model.matrix(as.formula(paste0("~ ", var)), 
+                                                             data = meta_gene)
                                    
                                    # Run nebula
                                    result <- nebula(
@@ -393,6 +328,8 @@ nebula_results_list <- foreach(i = 1:nrow(combinations),
                                }
 
 s3saveRDS(nebula_results_list, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_lowres.RDS", bucket = "scrna", region = "")
+
+# nebula_results_list <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_lowres.RDS", bucket = "scrna", region = "")
 ```
 
 ```{r}
@@ -436,30 +373,47 @@ nonconverge_genes <- unique(nebula_converged$Gene[which(nebula_converged$Converg
 full_results <- as.data.frame(nebula_summaries)
 
 # Adjust p-values using False Discovery Rate (FDR) method
-full_results <- full_results %>%
-  mutate(fdr = p.adjust(`p_group`, method = "fdr"))
+results_list <- list()
 
-# Calculate -log10(p-values), avoid log(0) by setting minimum p-value
-full_results$PValue10 <- -log10(pmax(full_results$`p_group`, 1e-10))
+for (var_name in c("hba1c", "log_acr_u", "eGFR_CKD_epi")) {
+  
+  p_col <- paste0("p_", var_name)
+  logFC_col <- paste0("logFC_", var_name)
+  
+  results_list[[var_name]] <- full_results %>%
+    separate(Gene, into = c("gene", "celltype", "clinical_var"), sep = "_", remove = FALSE) %>%
+    select(gene, celltype, clinical_var, all_of(c(p_col, logFC_col))) %>%
+    mutate(
+      clinical_var = var_name,
+      fdr = p.adjust(.data[[p_col]], method = "fdr"),
+      PValue10 = -log10(pmax(.data[[p_col]], 1e-10)),
+      logFC = .data[[logFC_col]],
+      p_value = .data[[p_col]],
+      color = case_when(
+        fdr < 0.05 & logFC > 0 ~ "lightcoral",
+        fdr < 0.05 & logFC < 0 ~ "lightblue",
+        TRUE ~ "gray"
+      )
+    ) %>%
+    select(-all_of(c(p_col, logFC_col)))  # Remove original columns
+}
 
-# Assign colors based on log fold-change and FDR significance
-full_results$color <- ifelse(full_results$fdr < 0.05 & full_results$`logFC_group` > 0, "lightcoral",
-                             ifelse(full_results$fdr < 0.05 & full_results$`logFC_group` < 0, "lightblue", "gray"))
-
+# Combine into one dataframe
+full_results_combined <- bind_rows(results_list)
 # Identify significantly differentially expressed genes (FDR < 0.05)
-significant_df <- full_results[full_results$fdr < 0.05, ]
+significant_df <- full_results_combined[full_results_combined$fdr < 0.05, ]
 
-s3saveRDS(full_results, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_lowres.RDS", bucket = "scrna", region = "")
+s3saveRDS(full_results_combined, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_lowres.RDS", bucket = "scrna", region = "")
 ```
 
-## High res
+### High res
 
 ```{r}
 # nebula
 combinations_highres <- expand.grid(
   gene = remodel_genes,
   celltype = unique(pb90_subset$KPMP_celltype),
-  var = c("hba1c", "acr_u", "eGFR_CKD_epi"),
+  var = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
   stringsAsFactors = FALSE
 ) %>%
   filter(celltype != "non-specific")
@@ -501,7 +455,8 @@ nebula_results_list_highres <- foreach(i = 1:nrow(combinations_highres),
                                    meta_gene <- meta_gene[complete_cases, ]
                                    
                                    # Create predictor matrix
-                                   pred_gene <- model.matrix(~ var, data = meta_gene)
+                                   pred_gene <- model.matrix(as.formula(paste0("~ ", var)), 
+                                                             data = meta_gene)
                                    
                                    # Run nebula
                                    result <- nebula(
@@ -522,6 +477,8 @@ nebula_results_list_highres <- foreach(i = 1:nrow(combinations_highres),
                                }
 
 s3saveRDS(nebula_results_list_highres, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_highres.RDS", bucket = "scrna", region = "")
+# 
+# nebula_results_list_highres <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_highres.RDS", bucket = "scrna", region = "")
 ```
 
 ```{r}
@@ -565,18 +522,846 @@ nonconverge_genes_highres <- unique(nebula_converged$Gene[which(nebula_converged
 full_results_highres <- as.data.frame(nebula_summaries_highres)
 
 # Adjust p-values using False Discovery Rate (FDR) method
-full_results_highres <- full_results_highres %>%
-  mutate(fdr = p.adjust(`p_group`, method = "fdr"))
+results_list_highres <- list()
 
-# Calculate -log10(p-values), avoid log(0) by setting minimum p-value
-full_results_highres$PValue10 <- -log10(pmax(full_results_highres$`p_group`, 1e-10))
+for (var_name in c("hba1c", "log_acr_u", "eGFR_CKD_epi")) {
+  
+  p_col <- paste0("p_", var_name)
+  logFC_col <- paste0("logFC_", var_name)
+  
+  results_list_highres[[var_name]] <- full_results_highres %>%
+    separate(Gene, into = c("gene", "celltype", "clinical_var"), sep = "_", remove = FALSE) %>%
+    select(gene, celltype, clinical_var, all_of(c(p_col, logFC_col))) %>%
+    mutate(
+      clinical_var = var_name,
+      fdr = p.adjust(.data[[p_col]], method = "fdr"),
+      PValue10 = -log10(pmax(.data[[p_col]], 1e-10)),
+      logFC = .data[[logFC_col]],
+      p_value = .data[[p_col]],
+      color = case_when(
+        fdr < 0.05 & logFC > 0 ~ "lightcoral",
+        fdr < 0.05 & logFC < 0 ~ "lightblue",
+        TRUE ~ "gray"
+      )
+    ) %>%
+    select(-all_of(c(p_col, logFC_col)))  # Remove original columns
+}
 
-# Assign colors based on log fold-change and FDR significance
-full_results_highres$color <- ifelse(full_results_highres$fdr < 0.05 & full_results_highres$`logFC_group` > 0, "lightcoral",
-                             ifelse(full_results_highres$fdr < 0.05 & full_results_highres$`logFC_group` < 0, "lightblue", "gray"))
+# Combine into one dataframe
+full_results_combined_highres <- bind_rows(results_list_highres)
 
 # Identify significantly differentially expressed genes (FDR < 0.05)
-significant_df_highres <- full_results_highres[full_results_highres$fdr < 0.05, ]
+significant_df_highres <- full_results_combined_highres[full_results_combined_highres$fdr < 0.05, ]
 
-s3saveRDS(full_results_highres, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_highres.RDS", bucket = "scrna", region = "")
+s3saveRDS(full_results_combined_highres, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_highres.RDS", bucket = "scrna", region = "")
+```
+
+## Adjusting for glp_t2dob
+
+### Low res
+
+```{r}
+# nebula
+pb90_subset$glp_t2dob <- relevel(factor(pb90_subset$glp_t2dob), ref = "HC")
+pb90_subset$log_acr_u <- log(pb90_subset$acr_u)
+combinations <- expand.grid(
+  gene = remodel_genes,
+  celltype = names(celltype_groups),
+  var = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
+  stringsAsFactors = FALSE
+) %>%
+  filter(celltype != "Other")
+
+nebula_results_list <- foreach(i = 1:nrow(combinations),
+                               .packages = c("nebula", "Matrix", "Seurat")) %do% {
+                                 
+                                 g <- combinations$gene[i]
+                                 cell <- combinations$celltype[i]
+                                 var <- combinations$var[i]
+                                 
+                                 tryCatch({
+                                   cat("Processing:", g, "in", cell, ", ", var, "\n")
+                                   
+                                   # Subset to current cell type
+                                   subset_obj <- subset(pb90_subset, KPMP_celltype_general2 == cell)
+                                   
+                                   # Get counts for the current gene
+                                   count_gene <- round(GetAssayData(subset_obj, layer = "counts")[g, , drop = FALSE])
+                                   
+                                   # Get metadata
+                                   meta_gene <- subset_obj@meta.data
+                                   
+                                   # Skip if too few cells with non-zero expression
+                                   if (sum(count_gene > 0) < 10) {
+                                     cat("  Skipping - too few expressing cells\n")
+                                     return(NULL)
+                                   }
+                                   
+                                   # Check for complete cases in clinical variables
+                                   complete_cases <- complete.cases(meta_gene[, c(var, "glp_t2dob")])
+                                   if (sum(complete_cases) < 20) {
+                                     cat("  Skipping - too few cells after removing NAs\n")
+                                     return(NULL)
+                                   }
+                                   
+                                   # Subset to complete cases
+                                   count_gene <- count_gene[, complete_cases, drop = FALSE]
+                                   meta_gene <- meta_gene[complete_cases, ]
+                                   
+                                   # Create predictor matrix
+                                   pred_gene <- model.matrix(as.formula(paste0("~ ", var, " + glp_t2dob")), 
+                                                             data = meta_gene)
+                                   
+                                   # Run nebula
+                                   result <- nebula(
+                                     count = count_gene,
+                                     id = meta_gene$kit_id,
+                                     pred = pred_gene,
+                                     ncore = 1,
+                                     output_re = TRUE
+                                   )
+                                   
+                                   # Return results with metadata
+                                   list(gene = g, celltype = cell, var = var, result = result)
+                                   
+                                 }, error = function(e) {
+                                   cat("  Error:", conditionMessage(e), "\n")
+                                   return(NULL)
+                                 })
+                               }
+
+s3saveRDS(nebula_results_list, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_lowres_glp_t2dob.RDS", bucket = "scrna", region = "")
+
+# nebula_results_list <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_lowres_glp_t2dob.RDS", bucket = "scrna", region = "")
+```
+
+```{r}
+# nebula results processing
+# Remove NULL entries (failed analyses) from the results
+nebula_results_list <- Filter(Negate(is.null), nebula_results_list)
+
+# Assign gene names as list names
+names(nebula_results_list) <- sapply(nebula_results_list, function(x) 
+  paste0(x$gene, "_", x$celltype, "_", x$var))
+
+# Simplify the list to only contain the result objects
+nebula_results_list <- lapply(nebula_results_list, function(x) x$result)
+
+# Extract convergence status into a dataframe
+nebula_converged <- map_dfr(
+  names(nebula_results_list),
+  function(gene_name) {
+    converged <- nebula_results_list[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name, Convergence_Code = converged)
+    return(df)
+  }
+)
+
+# Extract model summaries into a dataframe
+nebula_summaries <- map_dfr(
+  names(nebula_results_list),
+  function(gene_name) {
+    df <- nebula_results_list[[gene_name]]$summary
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+# Identify genes that did not converge (Convergence_Code == -40)
+nonconverge_genes <- unique(nebula_converged$Gene[which(nebula_converged$Convergence_Code == -40)])
+
+# ---- Final Cleanup ----
+
+# Create a full results dataframe
+full_results <- as.data.frame(nebula_summaries)
+
+# Adjust p-values using False Discovery Rate (FDR) method
+results_list <- list()
+
+for (var_name in c("hba1c", "log_acr_u", "eGFR_CKD_epi")) {
+  
+  p_col <- paste0("p_", var_name)
+  logFC_col <- paste0("logFC_", var_name)
+  
+  results_list[[var_name]] <- full_results %>%
+    separate(Gene, into = c("gene", "celltype", "clinical_var"), sep = "_", remove = FALSE) %>%
+    select(gene, celltype, clinical_var, all_of(c(p_col, logFC_col))) %>%
+    mutate(
+      clinical_var = var_name,
+      fdr = p.adjust(.data[[p_col]], method = "fdr"),
+      PValue10 = -log10(pmax(.data[[p_col]], 1e-10)),
+      logFC = .data[[logFC_col]],
+      p_value = .data[[p_col]],
+      color = case_when(
+        fdr < 0.05 & logFC > 0 ~ "lightcoral",
+        fdr < 0.05 & logFC < 0 ~ "lightblue",
+        TRUE ~ "gray"
+      )
+    ) %>%
+    select(-all_of(c(p_col, logFC_col)))  # Remove original columns
+}
+
+# Combine into one dataframe
+full_results_combined <- bind_rows(results_list)
+# Identify significantly differentially expressed genes (FDR < 0.05)
+significant_df <- full_results_combined[full_results_combined$fdr < 0.05, ]
+
+s3saveRDS(full_results_combined, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_lowres_glp_t2dob.RDS", bucket = "scrna", region = "")
+
+full_results_combined <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_lowres_glp_t2dob.RDS", bucket = "scrna", region = "")
+```
+
+### High res
+
+```{r}
+# nebula
+combinations_highres <- expand.grid(
+  gene = remodel_genes,
+  celltype = unique(pb90_subset$KPMP_celltype),
+  var = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
+  stringsAsFactors = FALSE
+) %>%
+  filter(celltype != "non-specific")
+
+nebula_results_list_highres <- foreach(i = 1:nrow(combinations_highres),
+                               .packages = c("nebula", "Matrix", "Seurat")) %do% {
+                                 
+                                 g <- combinations_highres$gene[i]
+                                 cell <- combinations_highres$celltype[i]
+                                 var <- combinations_highres$var[i]
+                                 
+                                 tryCatch({
+                                   cat("Processing:", g, "in", cell, ", ", var, "\n")
+                                   
+                                   # Subset to current cell type
+                                   subset_obj <- subset(pb90_subset, KPMP_celltype == cell)
+                                   
+                                   # Get counts for the current gene
+                                   count_gene <- round(GetAssayData(subset_obj, layer = "counts")[g, , drop = FALSE])
+                                   
+                                   # Get metadata
+                                   meta_gene <- subset_obj@meta.data
+                                   
+                                   # Skip if too few cells with non-zero expression
+                                   if (sum(count_gene > 0) < 10) {
+                                     cat("  Skipping - too few expressing cells\n")
+                                     return(NULL)
+                                   }
+                                   
+                                   # Check for complete cases in clinical variables
+                                   complete_cases <- complete.cases(meta_gene[, c(var, "glp_t2dob")])
+                                   if (sum(complete_cases) < 20) {
+                                     cat("  Skipping - too few cells after removing NAs\n")
+                                     return(NULL)
+                                   }
+                                   
+                                   # Subset to complete cases
+                                   count_gene <- count_gene[, complete_cases, drop = FALSE]
+                                   meta_gene <- meta_gene[complete_cases, ]
+                                   
+                                   # Create predictor matrix
+                                   pred_gene <- model.matrix(as.formula(paste0("~ ", var, " + glp_t2dob")), 
+                                                             data = meta_gene)
+                                   
+                                   # Run nebula
+                                   result <- nebula(
+                                     count = count_gene,
+                                     id = meta_gene$kit_id,
+                                     pred = pred_gene,
+                                     ncore = 1,
+                                     output_re = TRUE
+                                   )
+                                   
+                                   # Return results with metadata
+                                   list(gene = g, celltype = cell, var = var, result = result)
+                                   
+                                 }, error = function(e) {
+                                   cat("  Error:", conditionMessage(e), "\n")
+                                   return(NULL)
+                                 })
+                               }
+
+s3saveRDS(nebula_results_list_highres, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_highres_glp_t2dob.RDS", bucket = "scrna", region = "")
+```
+
+```{r}
+# nebula results processing
+# Remove NULL entries (failed analyses) from the results
+nebula_results_list_highres <- Filter(Negate(is.null), nebula_results_list_highres)
+
+# Assign gene names as list names
+names(nebula_results_list_highres) <- sapply(nebula_results_list_highres, function(x) 
+  paste0(x$gene, "_", x$celltype, "_", x$var))
+
+# Simplify the list to only contain the result objects
+nebula_results_list_highres <- lapply(nebula_results_list_highres, function(x) x$result)
+
+# Extract convergence status into a dataframe
+nebula_converged <- map_dfr(
+  names(nebula_results_list_highres),
+  function(gene_name) {
+    converged <- nebula_results_list_highres[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name, Convergence_Code = converged)
+    return(df)
+  }
+)
+
+# Extract model summaries into a dataframe
+nebula_summaries_highres <- map_dfr(
+  names(nebula_results_list_highres),
+  function(gene_name) {
+    df <- nebula_results_list_highres[[gene_name]]$summary
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+# Identify genes that did not converge (Convergence_Code == -40)
+nonconverge_genes_highres <- unique(nebula_converged$Gene[which(nebula_converged$Convergence_Code == -40)])
+
+# ---- Final Cleanup ----
+
+# Create a full results dataframe
+full_results_highres <- as.data.frame(nebula_summaries_highres)
+
+# Adjust p-values using False Discovery Rate (FDR) method
+results_list_highres <- list()
+
+for (var_name in c("hba1c", "log_acr_u", "eGFR_CKD_epi")) {
+  
+  p_col <- paste0("p_", var_name)
+  logFC_col <- paste0("logFC_", var_name)
+  
+  results_list_highres[[var_name]] <- full_results_highres %>%
+    separate(Gene, into = c("gene", "celltype", "clinical_var"), sep = "_", remove = FALSE) %>%
+    select(gene, celltype, clinical_var, all_of(c(p_col, logFC_col))) %>%
+    mutate(
+      clinical_var = var_name,
+      fdr = p.adjust(.data[[p_col]], method = "fdr"),
+      PValue10 = -log10(pmax(.data[[p_col]], 1e-10)),
+      logFC = .data[[logFC_col]],
+      p_value = .data[[p_col]],
+      color = case_when(
+        fdr < 0.05 & logFC > 0 ~ "lightcoral",
+        fdr < 0.05 & logFC < 0 ~ "lightblue",
+        TRUE ~ "gray"
+      )
+    ) %>%
+    select(-all_of(c(p_col, logFC_col)))  # Remove original columns
+}
+
+# Combine into one dataframe
+full_results_combined_highres <- bind_rows(results_list_highres)
+
+# Identify significantly differentially expressed genes (FDR < 0.05)
+significant_df_highres <- full_results_combined_highres[full_results_combined_highres$fdr < 0.05, ]
+
+s3saveRDS(full_results_combined_highres, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_highres_glp_t2dob.RDS", bucket = "scrna", region = "")
+```
+
+## Adjusting for glp_t2dob + age + sex + bmi
+
+### Low res
+
+```{r}
+# nebula
+pb90_subset$glp_t2dob <- relevel(factor(pb90_subset$glp_t2dob), ref = "HC")
+pb90_subset$log_acr_u <- log(pb90_subset$acr_u)
+combinations <- expand.grid(
+  gene = remodel_genes,
+  celltype = names(celltype_groups),
+  var = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
+  stringsAsFactors = FALSE
+) %>%
+  filter(celltype != "Other")
+
+nebula_results_list <- foreach(i = 1:nrow(combinations),
+                               .packages = c("nebula", "Matrix", "Seurat")) %do% {
+                                 
+                                 g <- combinations$gene[i]
+                                 cell <- combinations$celltype[i]
+                                 var <- combinations$var[i]
+                                 
+                                 tryCatch({
+                                   cat("Processing:", g, "in", cell, ", ", var, "\n")
+                                   
+                                   # Subset to current cell type
+                                   subset_obj <- subset(pb90_subset, KPMP_celltype_general2 == cell)
+                                   
+                                   # Get counts for the current gene
+                                   count_gene <- round(GetAssayData(subset_obj, layer = "counts")[g, , drop = FALSE])
+                                   
+                                   # Get metadata
+                                   meta_gene <- subset_obj@meta.data
+                                   
+                                   # Skip if too few cells with non-zero expression
+                                   if (sum(count_gene > 0) < 10) {
+                                     cat("  Skipping - too few expressing cells\n")
+                                     return(NULL)
+                                   }
+                                   
+                                   # Check for complete cases in clinical variables
+                                   complete_cases <- complete.cases(meta_gene[, c(var, "glp_t2dob", "age", "sex.x", "bmi")])
+                                   if (sum(complete_cases) < 20) {
+                                     cat("  Skipping - too few cells after removing NAs\n")
+                                     return(NULL)
+                                   }
+                                   
+                                   # Subset to complete cases
+                                   count_gene <- count_gene[, complete_cases, drop = FALSE]
+                                   meta_gene <- meta_gene[complete_cases, ]
+                                   
+                                   # Create predictor matrix
+                                   pred_gene <- model.matrix(as.formula(paste0("~ ", var, 
+                                                                               " + glp_t2dob + age + sex.x + bmi")), 
+                                                             data = meta_gene)
+                                   
+                                   # Run nebula
+                                   result <- nebula(
+                                     count = count_gene,
+                                     id = meta_gene$kit_id,
+                                     pred = pred_gene,
+                                     ncore = 1,
+                                     output_re = TRUE
+                                   )
+                                   
+                                   # Return results with metadata
+                                   list(gene = g, celltype = cell, var = var, result = result)
+                                   
+                                 }, error = function(e) {
+                                   cat("  Error:", conditionMessage(e), "\n")
+                                   return(NULL)
+                                 })
+                               }
+
+s3saveRDS(nebula_results_list, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_lowres_glp_t2dob_age_sex_bmi.RDS", bucket = "scrna", region = "")
+
+# nebula_results_list <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_lowres_glp_t2dob_age_sex_bmi.RDS", bucket = "scrna", region = "")
+```
+
+```{r}
+# nebula results processing
+# Remove NULL entries (failed analyses) from the results
+nebula_results_list <- Filter(Negate(is.null), nebula_results_list)
+
+# Assign gene names as list names
+names(nebula_results_list) <- sapply(nebula_results_list, function(x) 
+  paste0(x$gene, "_", x$celltype, "_", x$var))
+
+# Simplify the list to only contain the result objects
+nebula_results_list <- lapply(nebula_results_list, function(x) x$result)
+
+# Extract convergence status into a dataframe
+nebula_converged <- map_dfr(
+  names(nebula_results_list),
+  function(gene_name) {
+    converged <- nebula_results_list[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name, Convergence_Code = converged)
+    return(df)
+  }
+)
+
+# Extract model summaries into a dataframe
+nebula_summaries <- map_dfr(
+  names(nebula_results_list),
+  function(gene_name) {
+    df <- nebula_results_list[[gene_name]]$summary
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+# Identify genes that did not converge (Convergence_Code == -40)
+nonconverge_genes <- unique(nebula_converged$Gene[which(nebula_converged$Convergence_Code == -40)])
+
+# ---- Final Cleanup ----
+
+# Create a full results dataframe
+full_results <- as.data.frame(nebula_summaries)
+
+# Adjust p-values using False Discovery Rate (FDR) method
+results_list <- list()
+
+for (var_name in c("hba1c", "log_acr_u", "eGFR_CKD_epi")) {
+  
+  p_col <- paste0("p_", var_name)
+  logFC_col <- paste0("logFC_", var_name)
+  
+  results_list[[var_name]] <- full_results %>%
+    separate(Gene, into = c("gene", "celltype", "clinical_var"), sep = "_", remove = FALSE) %>%
+    select(gene, celltype, clinical_var, all_of(c(p_col, logFC_col))) %>%
+    mutate(
+      clinical_var = var_name,
+      fdr = p.adjust(.data[[p_col]], method = "fdr"),
+      PValue10 = -log10(pmax(.data[[p_col]], 1e-10)),
+      logFC = .data[[logFC_col]],
+      p_value = .data[[p_col]],
+      color = case_when(
+        fdr < 0.05 & logFC > 0 ~ "lightcoral",
+        fdr < 0.05 & logFC < 0 ~ "lightblue",
+        TRUE ~ "gray"
+      )
+    ) %>%
+    select(-all_of(c(p_col, logFC_col)))  # Remove original columns
+}
+
+# Combine into one dataframe
+full_results_combined <- bind_rows(results_list)
+# Identify significantly differentially expressed genes (FDR < 0.05)
+significant_df <- full_results_combined[full_results_combined$fdr < 0.05, ]
+
+s3saveRDS(full_results_combined, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_lowres_glp_t2dob_age_sex_bmi.RDS", bucket = "scrna", region = "")
+
+full_results_combined <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_lowres_glp_t2dob_age_sex_bmi.RDS", bucket = "scrna", region = "")
+```
+
+### High res
+
+```{r}
+# nebula
+combinations_highres <- expand.grid(
+  gene = remodel_genes,
+  celltype = unique(pb90_subset$KPMP_celltype),
+  var = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
+  stringsAsFactors = FALSE
+) %>%
+  filter(celltype != "non-specific")
+
+nebula_results_list_highres <- foreach(i = 1:nrow(combinations_highres),
+                               .packages = c("nebula", "Matrix", "Seurat")) %do% {
+                                 
+                                 g <- combinations_highres$gene[i]
+                                 cell <- combinations_highres$celltype[i]
+                                 var <- combinations_highres$var[i]
+                                 
+                                 tryCatch({
+                                   cat("Processing:", g, "in", cell, ", ", var, "\n")
+                                   
+                                   # Subset to current cell type
+                                   subset_obj <- subset(pb90_subset, KPMP_celltype == cell)
+                                   
+                                   # Get counts for the current gene
+                                   count_gene <- round(GetAssayData(subset_obj, layer = "counts")[g, , drop = FALSE])
+                                   
+                                   # Get metadata
+                                   meta_gene <- subset_obj@meta.data
+                                   
+                                   # Skip if too few cells with non-zero expression
+                                   if (sum(count_gene > 0) < 10) {
+                                     cat("  Skipping - too few expressing cells\n")
+                                     return(NULL)
+                                   }
+                                   
+                                   # Check for complete cases in clinical variables
+                                   complete_cases <- complete.cases(meta_gene[, c(var, "glp_t2dob", "age", "sex.x", "bmi")])
+                                   if (sum(complete_cases) < 20) {
+                                     cat("  Skipping - too few cells after removing NAs\n")
+                                     return(NULL)
+                                   }
+                                   
+                                   # Subset to complete cases
+                                   count_gene <- count_gene[, complete_cases, drop = FALSE]
+                                   meta_gene <- meta_gene[complete_cases, ]
+                                   
+                                   # Create predictor matrix
+                                   pred_gene <- model.matrix(as.formula(paste0("~ ", var, 
+                                                                               " + glp_t2dob + age + sex.x + bmi")), 
+                                                             data = meta_gene)
+                                   
+                                   # Run nebula
+                                   result <- nebula(
+                                     count = count_gene,
+                                     id = meta_gene$kit_id,
+                                     pred = pred_gene,
+                                     ncore = 1,
+                                     output_re = TRUE
+                                   )
+                                   
+                                   # Return results with metadata
+                                   list(gene = g, celltype = cell, var = var, result = result)
+                                   
+                                 }, error = function(e) {
+                                   cat("  Error:", conditionMessage(e), "\n")
+                                   return(NULL)
+                                 })
+                               }
+
+s3saveRDS(nebula_results_list_highres, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_highres_glp_t2dob_age_sex_bmi.RDS", bucket = "scrna", region = "")
+```
+
+```{r}
+# nebula results processing
+# Remove NULL entries (failed analyses) from the results
+nebula_results_list_highres <- Filter(Negate(is.null), nebula_results_list_highres)
+
+# Assign gene names as list names
+names(nebula_results_list_highres) <- sapply(nebula_results_list_highres, function(x) 
+  paste0(x$gene, "_", x$celltype, "_", x$var))
+
+# Simplify the list to only contain the result objects
+nebula_results_list_highres <- lapply(nebula_results_list_highres, function(x) x$result)
+
+# Extract convergence status into a dataframe
+nebula_converged <- map_dfr(
+  names(nebula_results_list_highres),
+  function(gene_name) {
+    converged <- nebula_results_list_highres[[gene_name]]$convergence
+    df <- data.frame(Gene = gene_name, Convergence_Code = converged)
+    return(df)
+  }
+)
+
+# Extract model summaries into a dataframe
+nebula_summaries_highres <- map_dfr(
+  names(nebula_results_list_highres),
+  function(gene_name) {
+    df <- nebula_results_list_highres[[gene_name]]$summary
+    df <- df %>% mutate(Gene = gene_name)
+    return(df)
+  }
+)
+
+# Identify genes that did not converge (Convergence_Code == -40)
+nonconverge_genes_highres <- unique(nebula_converged$Gene[which(nebula_converged$Convergence_Code == -40)])
+
+# ---- Final Cleanup ----
+
+# Create a full results dataframe
+full_results_highres <- as.data.frame(nebula_summaries_highres)
+
+# Adjust p-values using False Discovery Rate (FDR) method
+results_list_highres <- list()
+
+for (var_name in c("hba1c", "log_acr_u", "eGFR_CKD_epi")) {
+  
+  p_col <- paste0("p_", var_name)
+  logFC_col <- paste0("logFC_", var_name)
+  
+  results_list_highres[[var_name]] <- full_results_highres %>%
+    separate(Gene, into = c("gene", "celltype", "clinical_var"), sep = "_", remove = FALSE) %>%
+    select(gene, celltype, clinical_var, all_of(c(p_col, logFC_col))) %>%
+    mutate(
+      clinical_var = var_name,
+      fdr = p.adjust(.data[[p_col]], method = "fdr"),
+      PValue10 = -log10(pmax(.data[[p_col]], 1e-10)),
+      logFC = .data[[logFC_col]],
+      p_value = .data[[p_col]],
+      color = case_when(
+        fdr < 0.05 & logFC > 0 ~ "lightcoral",
+        fdr < 0.05 & logFC < 0 ~ "lightblue",
+        TRUE ~ "gray"
+      )
+    ) %>%
+    select(-all_of(c(p_col, logFC_col)))  # Remove original columns
+}
+
+# Combine into one dataframe
+full_results_combined_highres <- bind_rows(results_list_highres)
+
+# Identify significantly differentially expressed genes (FDR < 0.05)
+significant_df_highres <- full_results_combined_highres[full_results_combined_highres$fdr < 0.05, ]
+
+s3saveRDS(full_results_combined_highres, object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_highres_glp_t2dob_age_sex_bmi.RDS", bucket = "scrna", region = "")
+```
+# Result compilation
+
+```{r}
+lowres_unadjusted <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_lowres.RDS", bucket = "scrna", region = "")
+highres_unadjusted <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_highres.RDS", bucket = "scrna", region = "")
+
+lowres_glp_t2dob <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_lowres_glp_t2dob.RDS", bucket = "scrna", region = "")
+highres_glp_t2dob <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_highres_glp_t2dob.RDS", bucket = "scrna", region = "")
+
+lowres_adjusted <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_lowres_glp_t2dob_age_sex_bmi.RDS", bucket = "scrna", region = "")
+highres_adjusted <- s3readRDS(object = "Projects/CKD/RH_RH2/Results/clinical_associations/REMODEL_genes_hba1c_uacr_egfr_nebula_processed_highres_glp_t2dob_age_sex_bmi.RDS", bucket = "scrna", region = "")
+
+lowres_unadjusted$clinical_var <- factor(lowres_unadjusted$clinical_var, 
+                                         levels = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
+                                         labels = c("HbA1c", "log(uACR)", "eGFR"))
+highres_unadjusted$clinical_var <- factor(highres_unadjusted$clinical_var, 
+                                         levels = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
+                                         labels = c("HbA1c", "log(uACR)", "eGFR"))
+
+lowres_glp_t2dob$clinical_var <- factor(lowres_glp_t2dob$clinical_var, 
+                                         levels = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
+                                         labels = c("HbA1c", "log(uACR)", "eGFR"))
+highres_glp_t2dob$clinical_var <- factor(highres_glp_t2dob$clinical_var, 
+                                         levels = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
+                                         labels = c("HbA1c", "log(uACR)", "eGFR"))
+
+lowres_adjusted$clinical_var <- factor(lowres_adjusted$clinical_var, 
+                                         levels = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
+                                         labels = c("HbA1c", "log(uACR)", "eGFR"))
+highres_adjusted$clinical_var <- factor(highres_adjusted$clinical_var, 
+                                         levels = c("hba1c", "log_acr_u", "eGFR_CKD_epi"),
+                                         labels = c("HbA1c", "log(uACR)", "eGFR"))
+
+```
+
+```{r}
+lowres_unadjusted %>%
+  filter(p_value < 0.05) %>%
+  ggplot(aes(x = gene, y = celltype, color = logFC, size = PValue10)) +
+  geom_point() +
+  scale_color_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(y = NULL, x = NULL) +
+  facet_wrap(~clinical_var)
+s3write_using_region(FUN = ggsave, 
+                     object = paste0("Projects/CKD/RH_RH2/Results/Figures/Dot Plot/REMODEL_genes_lowres_unadjusted.png"), 
+                     bucket = "scrna", region = "", height = 5, width = 10)
+highres_unadjusted %>%
+  filter(p_value < 0.05) %>%
+  ggplot(aes(x = gene, y = celltype, color = logFC, size = PValue10)) +
+  geom_point() +
+  scale_color_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(y = NULL, x = NULL) +
+  facet_wrap(~clinical_var)
+s3write_using_region(FUN = ggsave, 
+                     object = paste0("Projects/CKD/RH_RH2/Results/Figures/Dot Plot/REMODEL_genes_highres_unadjusted.png"), 
+                     bucket = "scrna", region = "", height = 6, width = 10)
+```
+
+```{r}
+lowres_glp_t2dob %>%
+  filter(p_value < 0.05) %>%
+  ggplot(aes(x = gene, y = celltype, color = logFC, size = PValue10)) +
+  geom_point() +
+  scale_color_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(y = NULL, x = NULL) +
+  facet_wrap(~clinical_var)
+s3write_using_region(FUN = ggsave, 
+                     object = paste0("Projects/CKD/RH_RH2/Results/Figures/Dot Plot/REMODEL_genes_lowres_glp_t2dob.png"), 
+                     bucket = "scrna", region = "", height = 5, width = 10)
+highres_glp_t2dob %>%
+  filter(p_value < 0.05) %>%
+  ggplot(aes(x = gene, y = celltype, color = logFC, size = PValue10)) +
+  geom_point() +
+  scale_color_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(y = NULL, x = NULL) +
+  facet_wrap(~clinical_var)
+s3write_using_region(FUN = ggsave, 
+                     object = paste0("Projects/CKD/RH_RH2/Results/Figures/Dot Plot/REMODEL_genes_highres_glp_t2dob.png"), 
+                     bucket = "scrna", region = "", height = 6, width = 10)
+```
+
+```{r}
+lowres_adjusted %>%
+  filter(p_value < 0.05) %>%
+  ggplot(aes(x = gene, y = celltype, color = logFC, size = PValue10)) +
+  geom_point() +
+  scale_color_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(y = NULL, x = NULL) +
+  facet_wrap(~clinical_var)
+s3write_using_region(FUN = ggsave, 
+                     object = paste0("Projects/CKD/RH_RH2/Results/Figures/Dot Plot/REMODEL_genes_lowres_adjusted.png"), 
+                     bucket = "scrna", region = "", height = 5, width = 10)
+
+highres_adjusted %>%
+  filter(p_value < 0.05) %>%
+  ggplot(aes(x = gene, y = celltype, color = logFC, size = PValue10)) +
+  geom_point() +
+  scale_color_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(y = NULL, x = NULL) +
+  facet_wrap(~clinical_var)
+s3write_using_region(FUN = ggsave, 
+                     object = paste0("Projects/CKD/RH_RH2/Results/Figures/Dot Plot/REMODEL_genes_highres_adjusted.png"), 
+                     bucket = "scrna", region = "", height = 6, width = 10)
+```
+
+# DEG from NEBULA
+
+```{r}
+# T2D GLP+ vs. GLP-
+t2d_glpy_glpn <- list()
+for (cell in names(celltype_groups)) {
+  file_path <- paste0(
+    "Projects/CKD/RH_RH2/Results/nebula/",
+    "T2D_GLP_Y_vs_T2D_GLP_N/",
+    cell, "/", 
+    cell, "_rh_rh2_imp_nebula_kpmp_t2d_glpyn_processed.rds"
+  )
+  
+  t2d_glpy_glpn[[cell]] <- s3readRDS(
+    object = file_path,
+    bucket = "scrna",
+    region = "") %>%
+    filter(Gene %in% remodel_genes) %>%
+    dplyr::select(Gene, 
+                  logFC = logFC_glp_t2dobGLP_Y,
+                  pval = p_glp_t2dobGLP_Y,
+                  fdr) %>%
+    mutate(celltype = cell)
+}
+
+t2d_glpy_glpn_combined <- dplyr::bind_rows(t2d_glpy_glpn)
+
+t2d_glpy_glpn_combined %>%
+  filter(pval < 0.05) %>%
+  ggplot(aes(x = Gene, y = celltype, color = logFC, size = -log10(pval))) +
+  geom_point() +
+  scale_color_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(y = NULL, x = NULL) 
+s3write_using_region(FUN = ggsave, 
+                     object = paste0("Projects/CKD/RH_RH2/Results/Figures/Dot Plot/REMODEL_genes_nebula_t2d_glpy_glpn.png"), 
+                     bucket = "scrna", region = "", height = 5, width = 6)
+```
+
+```{r}
+# T2D GLP- vs. HC
+t2d_glpn_hc <- list()
+for (cell in names(celltype_groups)) {
+  file_path <- paste0(
+    "Projects/CKD/RH_RH2/Results/nebula/",
+    "T2D_GLP_N_vs_HC/",
+    cell, "/", 
+    cell, "_rh_rh2_imp_nebula_kpmp_t2d_glpn_hc_processed.rds"
+  )
+  
+  t2d_glpn_hc[[cell]] <- s3readRDS(
+    object = file_path,
+    bucket = "scrna",
+    region = "") %>%
+    filter(Gene %in% remodel_genes) %>%
+    dplyr::select(Gene, 
+                  logFC = logFC_glp_t2dobGLP_N,
+                  pval = p_glp_t2dobGLP_N,
+                  fdr) %>%
+    mutate(celltype = cell)
+}
+
+t2d_glpn_hc_combined <- dplyr::bind_rows(t2d_glpn_hc)
+
+t2d_glpn_hc_combined %>%
+  filter(pval < 0.05) %>%
+  ggplot(aes(x = Gene, y = celltype, color = logFC, size = -log10(pval))) +
+  geom_point() +
+  scale_color_gradient2(low = "#89c2d9", mid = "white", high = "#ee7674", midpoint = 0) +
+  theme_minimal() +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(y = NULL, x = NULL) 
+s3write_using_region(FUN = ggsave, 
+                     object = paste0("Projects/CKD/RH_RH2/Results/Figures/Dot Plot/REMODEL_genes_nebula_t2d_glpn_hc.png"), 
+                     bucket = "scrna", region = "", height = 4, width = 4)
 ```
